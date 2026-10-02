@@ -14,6 +14,21 @@ on:
       - 'essences/**'
       - 'evals/**'
   workflow_dispatch:
+    inputs:
+      evaluator_scope:
+        description: Focused evaluator qualification or the existing full matrix
+        type: choice
+        options: [full, jev-linux, jev-windows]
+        default: full
+        required: true
+      expected_source_sha:
+        description: Reviewed immutable 40-hex source SHA; required for focused scopes
+        type: string
+        default: ''
+      interpreter_path:
+        description: Reviewed installed absolute interpreter path; no installation fallback
+        type: string
+        default: ''
   # Nightly full matrix on master while the farm is idle, so parallel-test races
   # and flakes surface days before a release instead of on release day.
   schedule:
@@ -27,9 +42,12 @@ on:
 # One group per pull request and per pushed ref: a new push to a PR, or a newer
 # master commit, cancels the run it supersedes instead of queueing behind it on
 # the shared runners. The nightly schedule shares master's group.
+permissions:
+  contents: read
+
 concurrency:
-  group: tests-${{ github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope != 'full' && format('tests-{0}-{1}', inputs.evaluator_scope, github.ref) || format('tests-{0}', github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
+  cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || inputs.evaluator_scope == 'full' }}
 
 jobs:
   # A push whose tree equals a parent's tree introduces nothing that parent had
@@ -41,6 +59,7 @@ jobs:
   # base tip and the PR head; with an unmoved base its tree equals the head tree,
   # and skipping there would skip the one run that has never happened.
   changed:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.evaluator_scope == 'full' }}
     name: tree is new
     runs-on: [self-hosted, codeterm-builder]
     timeout-minutes: 5
@@ -341,3 +360,218 @@ jobs:
 
       - name: Biome (TS lint)
         run: pnpm lint
+
+  jev-linux:
+    name: Jev local evaluator (linux)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-linux' }}
+    runs-on: [self-hosted, linux-build]
+    timeout-minutes: 20
+    env:
+      JEV_EXPECTED_SHA: ${{ inputs.expected_source_sha }}
+      JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      JEV_EVENT_SHA: ${{ github.sha }}
+      JEV_QA_PY: ${{ inputs.interpreter_path }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate reviewed source and interpreter selection
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$JEV_EXPECTED_SHA" =~ ^[0-9a-fA-F]{40}$ ]]
+          [[ "${JEV_EXPECTED_SHA,,}" == "${JEV_WORKFLOW_SHA,,}" ]]
+          [[ "${JEV_EXPECTED_SHA,,}" == "${JEV_EVENT_SHA,,}" ]]
+          [[ "${JEV_EXPECTED_SHA,,}" == "$(git rev-parse HEAD)" ]]
+          [[ "$JEV_QA_PY" == /* && -f "$JEV_QA_PY" && -x "$JEV_QA_PY" ]]
+          "$JEV_QA_PY" -c 'import hashlib,json,pathlib,platform,sys,sysconfig; sys.path.insert(0,"evals/tab-state-jev"); import jev_transport as t; t.native_support(); end=t.time.monotonic()+55; p,h=t.identity_hash(sys.executable,end,t.time.monotonic); std=pathlib.Path(sysconfig.get_path("stdlib")); print(json.dumps({"interpreter":str(p),"sha256":h,"version":sys.version,"implementation":sys.implementation.name,"architecture":platform.machine(),"stdlib":str(std),"subprocess_sha256":hashlib.sha256((std/"subprocess.py").read_bytes()).hexdigest(),"source_sha":__import__("os").environ["JEV_EXPECTED_SHA"]},sort_keys=True))'
+      - name: Consolidated evaluator pure controls
+        timeout-minutes: 10
+        shell: bash
+        run: TEST_CAP_SECS=600 scripts/test-capped.sh --exec "$JEV_QA_PY" -m unittest discover -s evals/tab-state-jev -p 'test_*.py'
+      - name: Local TLS success
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          started=$(date +%s)
+          set +e
+          TEST_CAP_SECS=600 scripts/test-capped.sh --exec "$JEV_QA_PY" evals/tab-state-jev/local_jev_transport_io.py --case success
+          jev_qa_exit=$?
+          set -e
+          elapsed=$(( $(date +%s) - started ))
+          echo "case=success exit=$jev_qa_exit wrapper_seconds=$elapsed source=$JEV_EXPECTED_SHA"
+          exit "$jev_qa_exit"
+      - name: Local TLS response_oversize
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          started=$(date +%s)
+          set +e
+          TEST_CAP_SECS=600 scripts/test-capped.sh --exec "$JEV_QA_PY" evals/tab-state-jev/local_jev_transport_io.py --case response_oversize
+          jev_qa_exit=$?
+          set -e
+          elapsed=$(( $(date +%s) - started ))
+          echo "case=response_oversize exit=$jev_qa_exit wrapper_seconds=$elapsed source=$JEV_EXPECTED_SHA"
+          exit "$jev_qa_exit"
+      - name: Local TLS redirect_refused
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          started=$(date +%s)
+          set +e
+          TEST_CAP_SECS=600 scripts/test-capped.sh --exec "$JEV_QA_PY" evals/tab-state-jev/local_jev_transport_io.py --case redirect_refused
+          jev_qa_exit=$?
+          set -e
+          elapsed=$(( $(date +%s) - started ))
+          echo "case=redirect_refused exit=$jev_qa_exit wrapper_seconds=$elapsed source=$JEV_EXPECTED_SHA"
+          exit "$jev_qa_exit"
+      - name: Local TLS held_response_deadline
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          started=$(date +%s)
+          set +e
+          TEST_CAP_SECS=600 scripts/test-capped.sh --exec "$JEV_QA_PY" evals/tab-state-jev/local_jev_transport_io.py --case held_response_deadline
+          jev_qa_exit=$?
+          set -e
+          elapsed=$(( $(date +%s) - started ))
+          echo "case=held_response_deadline exit=$jev_qa_exit wrapper_seconds=$elapsed source=$JEV_EXPECTED_SHA"
+          exit "$jev_qa_exit"
+      - name: Local TLS cancel_after_headers
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          started=$(date +%s)
+          set +e
+          TEST_CAP_SECS=600 scripts/test-capped.sh --exec "$JEV_QA_PY" evals/tab-state-jev/local_jev_transport_io.py --case cancel_after_headers
+          jev_qa_exit=$?
+          set -e
+          elapsed=$(( $(date +%s) - started ))
+          echo "case=cancel_after_headers exit=$jev_qa_exit wrapper_seconds=$elapsed source=$JEV_EXPECTED_SHA"
+          exit "$jev_qa_exit"
+      - name: Local TLS partial_capture_failure
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          started=$(date +%s)
+          set +e
+          TEST_CAP_SECS=600 scripts/test-capped.sh --exec "$JEV_QA_PY" evals/tab-state-jev/local_jev_transport_io.py --case partial_capture_failure
+          jev_qa_exit=$?
+          set -e
+          elapsed=$(( $(date +%s) - started ))
+          echo "case=partial_capture_failure exit=$jev_qa_exit wrapper_seconds=$elapsed source=$JEV_EXPECTED_SHA"
+          exit "$jev_qa_exit"
+
+  jev-windows:
+    name: Jev local evaluator (windows)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'jev-windows' }}
+    runs-on: [self-hosted, windows-build]
+    timeout-minutes: 20
+    env:
+      JEV_EXPECTED_SHA: ${{ inputs.expected_source_sha }}
+      JEV_WORKFLOW_SHA: ${{ github.workflow_sha }}
+      JEV_EVENT_SHA: ${{ github.sha }}
+      JEV_QA_PY: ${{ inputs.interpreter_path }}
+    steps:
+      - uses: actions/checkout@v5
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: 'true'
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Validate reviewed source and interpreter selection
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($env:JEV_EXPECTED_SHA -notmatch '^[0-9a-fA-F]{40}$') { throw 'expected_source_sha must be 40 hex characters' }
+          $checkedOutSha = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'HEAD inspection failed' }
+          if ($env:JEV_EXPECTED_SHA -ine $env:JEV_WORKFLOW_SHA -or $env:JEV_EXPECTED_SHA -ine $env:JEV_EVENT_SHA -or $env:JEV_EXPECTED_SHA -ine $checkedOutSha) { throw 'workflow/event/checkout SHA mismatch' }
+          $jevQaPython = $env:JEV_QA_PY
+          if ($jevQaPython -notmatch '^[A-Za-z]:[\/]' -or -not (Test-Path -LiteralPath $jevQaPython -PathType Leaf)) { throw 'existing local absolute interpreter required' }
+          & $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --trust-case preflight
+          $jevQaExit = $LASTEXITCODE
+          if ($jevQaExit -ne 0) { exit $jevQaExit }
+      - name: Consolidated evaluator pure controls
+        timeout-minutes: 10
+        shell: pwsh
+        run: |
+          $jevQaPython = $env:JEV_QA_PY
+          & $jevQaPython -m unittest discover -s evals/tab-state-jev -p 'test_*.py'
+          $jevQaExit = $LASTEXITCODE
+          exit $jevQaExit
+      - name: Local TLS success
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $jevQaPython = $env:JEV_QA_PY
+          $jevQaTimer = [System.Diagnostics.Stopwatch]::StartNew()
+          & $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --case success
+          $jevQaExit = $LASTEXITCODE
+          $jevQaTimer.Stop()
+          Write-Host "case=success exit=$jevQaExit wrapper_seconds=$($jevQaTimer.Elapsed.TotalSeconds) source=$env:JEV_EXPECTED_SHA"
+          exit $jevQaExit
+      - name: Local TLS response_oversize
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $jevQaPython = $env:JEV_QA_PY
+          $jevQaTimer = [System.Diagnostics.Stopwatch]::StartNew()
+          & $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --case response_oversize
+          $jevQaExit = $LASTEXITCODE
+          $jevQaTimer.Stop()
+          Write-Host "case=response_oversize exit=$jevQaExit wrapper_seconds=$($jevQaTimer.Elapsed.TotalSeconds) source=$env:JEV_EXPECTED_SHA"
+          exit $jevQaExit
+      - name: Local TLS redirect_refused
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $jevQaPython = $env:JEV_QA_PY
+          $jevQaTimer = [System.Diagnostics.Stopwatch]::StartNew()
+          & $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --case redirect_refused
+          $jevQaExit = $LASTEXITCODE
+          $jevQaTimer.Stop()
+          Write-Host "case=redirect_refused exit=$jevQaExit wrapper_seconds=$($jevQaTimer.Elapsed.TotalSeconds) source=$env:JEV_EXPECTED_SHA"
+          exit $jevQaExit
+      - name: Local TLS held_response_deadline
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $jevQaPython = $env:JEV_QA_PY
+          $jevQaTimer = [System.Diagnostics.Stopwatch]::StartNew()
+          & $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --case held_response_deadline
+          $jevQaExit = $LASTEXITCODE
+          $jevQaTimer.Stop()
+          Write-Host "case=held_response_deadline exit=$jevQaExit wrapper_seconds=$($jevQaTimer.Elapsed.TotalSeconds) source=$env:JEV_EXPECTED_SHA"
+          exit $jevQaExit
+      - name: Local TLS cancel_after_headers
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $jevQaPython = $env:JEV_QA_PY
+          $jevQaTimer = [System.Diagnostics.Stopwatch]::StartNew()
+          & $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --case cancel_after_headers
+          $jevQaExit = $LASTEXITCODE
+          $jevQaTimer.Stop()
+          Write-Host "case=cancel_after_headers exit=$jevQaExit wrapper_seconds=$($jevQaTimer.Elapsed.TotalSeconds) source=$env:JEV_EXPECTED_SHA"
+          exit $jevQaExit
+      - name: Local TLS partial_capture_failure
+        timeout-minutes: 2
+        shell: pwsh
+        run: |
+          $jevQaPython = $env:JEV_QA_PY
+          $jevQaTimer = [System.Diagnostics.Stopwatch]::StartNew()
+          & $jevQaPython evals/tab-state-jev/local_jev_transport_io.py --case partial_capture_failure
+          $jevQaExit = $LASTEXITCODE
+          $jevQaTimer.Stop()
+          Write-Host "case=partial_capture_failure exit=$jevQaExit wrapper_seconds=$($jevQaTimer.Elapsed.TotalSeconds) source=$env:JEV_EXPECTED_SHA"
+          exit $jevQaExit
