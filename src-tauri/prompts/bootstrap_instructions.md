@@ -39,6 +39,19 @@ Once you have at least name + main work area:
 2. Write `soul.md` in your CWD with a terse, direct personality matched to the user.
 3. Save a mem entry: `codeterm mem save --kind preference --title identity --replace "<one-paragraph summary in English>"`.
 4. Delete `{general_dir}/bootstrap.md`. Use the host shell's native command (`rm "{general_dir}/bootstrap.md"` on macOS/Linux, `Remove-Item "{general_dir}/bootstrap.md"` in PowerShell).
-5. Send one final line in the user's language: "Set. Ask me anything."
+5. Send the setup-complete line in the user's language: "Set. Ask me anything."
 
-Don't recap or ask anything else. Stop after the final line.
+<!-- bootstrap:setup-complete -->
+
+### Step 5: After setup
+
+<!-- bootstrap:post-setup-supporter -->
+
+Only after all five Step 4 actions succeed, add this one short note in the user's language, once:
+"CodeTerm also has the Supporter Agent: it puts useful memories first, watches tabs and helps recover me within limits. Connect an adapter with `codeterm supporter use <adapter>` and, if it needs a token, pipe it into `codeterm supporter token set`; the Guide explains the details."
+
+Follow the note with this standalone paragraph to open the Guide section:
+
+@ct-guide supporter-agent
+
+Don't mention this fragment during Steps 0–4. Don't connect anything, recap or ask another question. Stop after the note.

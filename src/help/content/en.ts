@@ -169,11 +169,11 @@ export const enHelpContent: HelpLocaleContent = {
     {
       id: "supporter-agent",
       title: "Supporter Agent",
-      subtitle: "A small helper that picks the best answers for your agents",
+      subtitle: "Useful memories, watched tabs and bounded recovery",
       blocks: [
         {
           type: "paragraph",
-          text: "The Supporter Agent is a small, fast helper model. It makes quick choices for CodeTerm, like which saved memory best answers a question. It never runs tasks, types into your tabs or writes code.",
+          text: "The Supporter Agent helps CodeTerm put useful memories first, notice stuck tabs and recover the General Agent within limits. Once an adapter is connected, it works automatically. There are no feature switches. Without a connected adapter, memory search and tabs work as before.",
         },
         { type: "heading", text: "What it does for you" },
         {
@@ -183,43 +183,68 @@ export const enHelpContent: HelpLocaleContent = {
         { type: "figure", figureId: "supporter-recall" },
         {
           type: "paragraph",
-          text: "A second look at starting tabs, off by default. It reads a new tab's screen and notes whether it looks fine or seems stuck, for example on a sign-in prompt.",
+          text: "Watch tabs. It looks at recent tab text when something changes and helps CodeTerm notice a sign-in prompt, an unavailable model or a crash. CodeTerm checks its own evidence before taking action.",
         },
         { type: "figure", figureId: "supporter-tab-state" },
-        { type: "heading", text: "What it costs" },
         {
           type: "paragraph",
-          text: "About $0.0007 per memory search, so roughly 70 cents for a thousand searches. It is charged to your TypeSafe account.",
+          text: "Recover the General Agent. CodeTerm can resume it after a confirmed crash or try a restart when startup fails. It makes at most two automatic restarts in one recovery episode, then stops and tells you. Automatic recovery starts only after its accuracy check passes; until then it asks you. Sign-in, unavailable models and uncovered folder trust need your decision; tool permissions follow the tab's own policy.",
         },
-        { type: "heading", text: "Turn it on or off" },
+        { type: "heading", text: "Budget and fallback" },
+        {
+          type: "paragraph",
+          text: "All tabs share a limit of 600 model requests per rolling hour by default. A search can use more than one request. Jev usage is charged to your TypeSafe account; local models use your machine. Settings > Agents shows recent activity and the remaining budget. When the budget runs out, memory returns its normal results and tab observations pause until capacity is available.",
+        },
+        { type: "heading", text: "Connect an adapter" },
         {
           type: "list",
           ordered: true,
           items: [
-            "Get a token at https://console.typesafe.ai/keys.",
-            "Open the Supporter Agent settings, paste the token and press Save token.",
-            "Turn on Re-rank memory recall in Memory > Settings. Switch it off there any time.",
+            "Choose an adapter and model in Settings > Agents > Supporter Agent, or use codeterm supporter models and codeterm supporter use <adapter> [--model <id>].",
+            "For Jev, get a token at https://console.typesafe.ai/keys, paste it in those settings and press Save token. A local adapter that needs no token connects without one.",
+            "Check its status and activity there, or run codeterm supporter status. A connected adapter starts working automatically.",
           ],
         },
         { type: "settings-link", label: "Open Supporter Agent settings", target: "supporter-agent" },
         {
           type: "tip",
-          text: "If the Supporter is slow, down or has no token, CodeTerm quietly uses its normal search. Nothing breaks.",
+          text: "If an adapter is unavailable, a required token is missing or a request times out, CodeTerm keeps normal memory search and skips the model observation. The status and activity tell you why.",
+        },
+        { type: "heading", text: "What it receives" },
+        {
+          type: "paragraph",
+          text: "For memory, it receives your query and the candidate memories, with matching docs or session excerpts when configured. For tabs, it receives recent screen or chat text and runtime context. This goes to the selected adapter: TypeSafe for Jev, or your configured local server for LM Studio. Tokens stay in local protected storage; activity records keep input hashes instead of raw tab text.",
         },
         { type: "heading", text: "Which model it uses" },
         {
           type: "paragraph",
-          text: "It works best with a model built for decisions, such as TypeSafe Jev (https://typesafe.ai), the default. Other models can stand in, with rougher answers.",
+          text: "TypeSafe Jev (https://typesafe.ai) is built to judge relevance and remains the memory re-rank model. LM Studio models can help watch tabs locally without a token. They take a different approach to scoring answers and can be slower; the measured local model missed the memory deadline. Connecting a local adapter does not give it Jev-quality memory ranking.",
         },
         {
           type: "details",
-          summary: "How it works: what is sent, timing and fallback",
+          summary: "How it works: connection, requests and recovery",
           blocks: [
+            {
+              type: "paragraph",
+              text: "Connected means a selected, registered adapter whose token requirement is satisfied. Optional and token-free adapters connect without a token; required adapters need a usable stored token. All Supporter features follow this state.",
+            },
+            {
+              type: "paragraph",
+              text: "What is sent: memory queries and candidate titles and bodies, plus matching documentation or past-session excerpts if those sources are configured. Tab observations send recent screen or chat text and runtime context to the selected adapter. Jev requests go to TypeSafe; LM Studio requests go to its configured server.",
+            },
+            {
+              type: "paragraph",
+              text: "Recovery needs two agreeing observations, at least 0.90 confidence and deterministic evidence. A crash restart requires the provider process to be absent; text on a live tab alone never authorizes a restart. Automatic actions are qualified by a separate held-out evaluation; unqualified actions notify instead. An update prompt can use only a provider-declared safe option agreed by the model. Owner notifications also need two agreeing observations, each at least 0.80 confidence; observations below 0.60 are ignored. An other verdict takes no action.",
+            },
+            {
+              type: "paragraph",
+              text: "Trusted folders use CodeTerm's existing trust responder. An uncovered folder asks you; command and tool permissions use the tab's own policy. Tabs you open yourself from the UI do not also send trust, permission or login notifications. Restored tabs with the same condition are grouped, and the same tab, condition and launch are not reported twice across restarts. Automatic recovery is journaled and sends a brief activity notification.",
+            },
             {
               type: "list",
               items: [
                 "Memory re-rank — it reads the top memory candidates and re-orders them so the ones that answer come first. It never removes results, and a low-confidence flag means nothing in the pool looks like a good answer. Agent and CLI searches keep the same commands.",
-                "Tab state — shadow logging only. When enabled, it reads a starting tab's recent screen and writes one log line beside CodeTerm's own verdict. It changes nothing yet and is off by default.",
+                "Tab state — observes recent text and runtime context on lifecycle events. A model verdict is a hint; deterministic evidence and recovery limits decide the action.",
               ],
             },
             {
@@ -241,21 +266,21 @@ export const enHelpContent: HelpLocaleContent = {
             {
               type: "list",
               items: [
-                "In Settings > Agents > Supporter Agent, paste the token and press Save token. Then turn on Re-rank memory recall in Memory > Settings.",
-                "From a terminal, pipe it in: pbpaste | codeterm supporter token set, then codeterm config set supporter.memory_rerank.enabled true. Run codeterm supporter status to check it.",
+                "In Settings > Agents > Supporter Agent, select the adapter and model. Paste a required token and press Save token; there is no extra enable step.",
+                "From a terminal, select Jev with codeterm supporter use typesafe-jev, then pipe its token from the clipboard: pbpaste | codeterm supporter token set. On other platforms pipe the token from a local secret source; never put it in argv. Run codeterm supporter status to check it.",
               ],
             },
             {
               type: "paragraph",
-              text: "What is sent: for a search, your query plus each candidate's title and body, with bodies capped at supporter.memory_rerank.max_body_chars (2000 characters by default). For tab state, the tab's recent screen text. The token is stored locally with owner-only 0600 permissions and is never shown again or written to logs.",
+              text: "Candidate bodies are capped at supporter.memory_rerank.max_body_chars (2000 characters by default). Tokens are stored locally with owner-only permissions, never in config.toml, command arguments or logs. The bounded activity journal records actions, answer distributions, model identities and criteria hashes; it stores input hashes instead of raw tab text.",
             },
             {
               type: "paragraph",
-              text: "Cost is about $0.0007 per search. The whole step runs under one deadline, supporter.deadline_ms (3000 ms by default).",
+              text: "supporter.calls_per_hour defaults to 600 across all tabs. It counts requests, not questions: a shared-state request with several questions costs one slot; per-candidate diagnostic mode costs one per candidate. Memory re-rank runs under supporter.deadline_ms (3000 ms by default). Budget accounting uses recorded request times, not a periodic reset.",
             },
             {
               type: "tip",
-              text: "On a timeout, an error, or with no usable token for a required adapter, CodeTerm returns the normal search results. To turn it off, switch off Re-rank memory recall in Memory > Settings or run codeterm config set supporter.memory_rerank.enabled false; one search can skip it with --supporter off. Clear token removes the token entirely.",
+              text: "A failed re-rank returns baseline hits with a fallback reason; budget exhaustion reports budget and status budget_reached with the next free time. codeterm mem search --supporter on|off is a one-search diagnostic override. Clearing a required token disconnects that adapter; optional and token-free adapters remain connected without it.",
             },
           ],
         },
@@ -282,7 +307,7 @@ export const enHelpContent: HelpLocaleContent = {
             {
               type: "measurement",
               label: "Measured on a local model",
-              text: "In an 80-question run, the LM Studio decision model triggered deadline fallbacks for all 80 candidates (80/80). Memory re-rank therefore stays on TypeSafe Jev. LM Studio models can still drive tab-state without a token.",
+              text: "The previously recorded 80-question local-model run hit the deadline on all 80 candidates (80/80). That result explains why memory re-rank stays on Jev; it is not a comparison of every LM Studio model. A change to shared-state requests must pass a fresh quality and latency comparison before shipping.",
             },
           ],
         },
@@ -294,7 +319,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: should I set up the Supporter Agent?",
           question:
-            "A user is reading the CodeTerm guide (Supporter Agent section) and pressed 'Ask the agent'. Check with codeterm supporter status whether a token is set, and whether supporter.memory_rerank.enabled and its graph, docs and sessions sources are on. Explain what text is sent when it is on and what it costs. Keep it short and practical.",
+            "A user is reading the CodeTerm guide (Supporter Agent section) and pressed 'Ask the agent'. Check codeterm supporter status for the selected adapter, connection, token requirement, activity and shared budget. Explain how to connect it, what text it receives, Jev versus LM Studio, fallback and the two-restart recovery bound. Inspect graph, docs and session sources only if relevant. Keep it short and practical.",
         },
       ],
     },

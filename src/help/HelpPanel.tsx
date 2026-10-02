@@ -32,10 +32,11 @@ interface HelpPanelProps {
   config: AppConfig;
   locale?: string;
   initialSection?: HelpSectionId;
+  focusRequest?: object;
   onOpenSettings?: OpenSettingsTarget;
 }
 
-export function HelpPanel({ config, locale = "en", initialSection, onOpenSettings }: HelpPanelProps) {
+export function HelpPanel({ config, locale = "en", initialSection, focusRequest, onOpenSettings }: HelpPanelProps) {
   const content = getHelpContent(locale);
   const [activeId, setActiveId] = useState<HelpSectionId>(
     initialSection ?? content.sections[0]?.id ?? "overview",
@@ -46,7 +47,8 @@ export function HelpPanel({ config, locale = "en", initialSection, onOpenSetting
     if (!initialSection) return;
     setActiveId(initialSection);
     tabRef.current?.querySelector(`[data-help-section="${initialSection}"]`)?.scrollIntoView?.({ block: "start" });
-  }, [initialSection]);
+    tabRef.current?.querySelector<HTMLElement>(`[data-help-section="${initialSection}"] h3`)?.focus({ preventScroll: true });
+  }, [initialSection, focusRequest]);
 
   const scrollToSection = useCallback((id: HelpSectionId) => {
     setActiveId(id);
@@ -98,10 +100,11 @@ export function HelpPanel({ config, locale = "en", initialSection, onOpenSetting
             data-help-section={section.id}
             data-testid="help-section"
             data-help-section-id={section.id}
+            aria-labelledby={`help-heading-${section.id}`}
             className="scroll-mt-4"
           >
             <header className="mb-4">
-              <h3 className="text-base font-semibold text-[var(--ct-fg)]">{section.title}</h3>
+              <h3 id={`help-heading-${section.id}`} tabIndex={-1} className="text-base font-semibold text-[var(--ct-fg)]">{section.title}</h3>
               <p className="text-sm text-[var(--ct-muted-fg)] mt-0.5">{section.subtitle}</p>
             </header>
             <div className="space-y-3">
