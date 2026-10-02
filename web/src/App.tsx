@@ -1,6 +1,6 @@
-import { useState } from 'react';
 import { AgentNetwork } from './AgentNetwork';
-import { BrandMark, Icon } from './Icon';
+import { Icon } from './Icon';
+import { BrandMark } from './BrandMark';
 import type { IconName } from './Icon';
 import { ProviderStrip } from './ProviderStrip';
 import { GatherLink } from './GatherLink';
@@ -22,26 +22,24 @@ const pillars: { icon: IconName; title: string; text: string; detail: string }[]
 export function App() {
   const { theme, toggle } = useTheme();
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
-  const [motionPaused, setMotionPaused] = useState(false);
-  return <div className="site" data-motion={reducedMotion || motionPaused ? 'paused' : 'playing'}>
+  return <div className="site" data-motion={reducedMotion ? 'paused' : 'playing'}>
     <a className="skip-link" href="#main">Skip to content</a>
     <header className="site-header section-wrap">
-      <a className="brand" href="#" aria-label="Domios home"><BrandMark />domios</a>
+      <a className="brand" href="#" aria-label="Domios home"><BrandMark motion="load" />domios</a>
       <nav aria-label="Main navigation"><a href="#explore">Explore</a><a href="#foundation">Why Domios</a><a href={github} className="nav-github">GitHub <span aria-hidden="true">↗</span></a></nav>
       <div className="header-actions"><button className="theme-control" role="switch" aria-checked={theme === 'dark'} aria-label="Dark theme" onClick={toggle}><Icon name="sun" size={15} /><span className="liquid-toggle"><span className="toggle-knob" /></span><Icon name="moon" size={15} /></button><a className="button button-small" href={download}>Download<Icon name="download" size={15} /></a></div>
     </header>
     <main id="main">
       <section className="hero section-wrap" aria-labelledby="hero-title">
-        <a className="hero-badge" href="#explore">THE DISTRIBUTED OS FOR AI AGENTS<span aria-hidden="true">↗</span></a>
+        <a className="hero-badge" href="#explore"><BrandMark />THE DISTRIBUTED OS FOR AI AGENTS<span aria-hidden="true">↗</span></a>
         <h1 id="hero-title">Agents <span>live here.</span></h1>
         <p className="hero-copy">Domios runs on every machine you own, joined in one trusted mesh. Agents on your laptop, desktop, and servers reach each other and work as one team.</p>
         <div className="hero-actions"><a className="button primary" href={download}>Download Domios<Icon name="download" size={18} /></a><a className="button secondary" href={github}><Icon name="github" size={18} />Find us on GitHub<Icon name="arrow" size={16} /></a></div>
         <p className="platforms">macOS <span>·</span> Windows <span>·</span> Linux <span className="platform-divider">/</span> Your machine. Your agents.</p>
         <AgentNetwork />
-        {!reducedMotion && <button className="motion-control" aria-pressed={motionPaused} onClick={() => setMotionPaused(!motionPaused)}><Icon name={motionPaused ? 'play' : 'pause'} size={12} />{motionPaused ? 'Resume' : 'Pause'} animation</button>}
       </section>
       <ProviderStrip />
-      <BuilderNotes staticMotion={reducedMotion || motionPaused} />
+      <BuilderNotes staticMotion={reducedMotion} />
       <Showcase reducedMotion={reducedMotion} />
       <section id="foundation" className="foundation section-wrap" aria-labelledby="foundation-title"><div className="section-heading"><div><p className="eyebrow">THE ENVIRONMENT MATTERS</p><h2 id="foundation-title">Let your agents get to work.</h2></div><p>The infrastructure around the intelligence.<br className="desktop-break" /> Built to keep everything connected.</p></div>
         <div className="pillar-grid">{pillars.map((pillar, index) => <article className="pillar" key={pillar.title}><div className="pillar-top"><Icon name={pillar.icon} size={25} /><span>0{index + 1}</span></div><h3>{pillar.title}</h3><p>{pillar.text}</p><span className="pillar-detail">{pillar.detail}</span></article>)}</div>
@@ -53,6 +51,6 @@ export function App() {
       </section>
       <section className="closing section-wrap" aria-labelledby="closing-title"><span className="eyebrow">MAKE ROOM FOR WHAT’S NEXT</span><h2 id="closing-title">Your next idea.<br /><span>A whole team behind it.</span></h2><GatherLink href={download}>Get Domios</GatherLink><p>Available for macOS, Windows, and Linux.</p></section>
     </main>
-    <footer className="site-footer section-wrap"><a className="brand" href="#" aria-label="Domios home"><BrandMark />domios</a><span>A place for agents. Built for you.</span><nav aria-label="Footer navigation"><a href={download}>Download</a><a href={github}>GitHub <span aria-hidden="true">↗</span></a><a href="#explore">Explore</a></nav></footer>
+    <footer className="site-footer section-wrap"><a className="brand" href="#" aria-label="Domios home"><BrandMark motion="interactive" />domios</a><span>A place for agents. Built for you.</span><nav aria-label="Footer navigation"><a href={download}>Download</a><a href={github}>GitHub <span aria-hidden="true">↗</span></a><a href="#explore">Explore</a></nav></footer>
   </div>;
 }
