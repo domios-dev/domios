@@ -53,6 +53,31 @@ describe("Supporter activity", () => {
     expect(host.querySelectorAll("li")[1].getAttribute("data-kind")).toBe("recovery");
     expect(host.querySelectorAll("li")[1].getAttribute("data-fallback")).toBe("true");
   });
+  it("sentinel_verdicts_and_scheduler_decisions_are_visible_with_safe_fields", async () => {
+    entries = [
+      { ...entry("team_aabbccdd"), kind: "sentinel", label: "private-bucket", action: "decision", reason: "transition" },
+      { ...entry("team_aabbccdd"), kind: "sentinel", label: "private-bucket", action: "notify_only", reason: "model_answer" },
+      { ...entry("team_aabbccdd"), kind: "sentinel", label: "private-bucket", action: "decision", reason: "budget_exhausted", budget_reached: true, fallback: true },
+      { ...entry("team_11223344"), kind: "sentinel", action: "send", reason: "route_failed" },
+    ];
+    const host = await setup.render(<ActivityFeed api={API} teamId="team_aabbccdd" />);
+    const rows = host.querySelectorAll("ol > li");
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      expect(row.getAttribute("data-kind")).toBe("sentinel");
+      expect(row.getAttribute("data-confidence")).toBe("strong");
+      expect(row.textContent).toContain("sentinel · redacted · strong confidence");
+    }
+    expect(rows[0].textContent).toContain("Action: decision");
+    expect(rows[0].textContent).toContain("Reason: transition");
+    expect(rows[1].textContent).toContain("Action: notify only");
+    expect(rows[1].textContent).toContain("Reason: model answer");
+    expect(rows[2].textContent).toContain("Reason: budget exhausted");
+    expect(rows[2].textContent).toContain("Budget: reached");
+    expect(rows[2].getAttribute("data-fallback")).toBe("true");
+    expect(host.innerHTML).not.toContain("private-bucket");
+    expect(host.textContent).not.toContain("route failed");
+  });
   it("feed_redacts_screen_and_token_content", async () => {
     const screen = "private shell output\nrequest body";
     const token = "sk-private-opaque-token";

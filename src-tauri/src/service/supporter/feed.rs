@@ -5,6 +5,7 @@ pub(super) const MAX_ENTRIES: usize = 100;
 pub(super) fn entry(value: &Value) -> Option<Value> {
     let kind = match value["kind"].as_str()? {
         "rerank" => "rerank",
+        "sentinel" => "sentinel",
         "tab_state" if value["action"] == "recovery" => "recovery",
         "tab_state" => "tab_state",
         _ => return None,
@@ -41,6 +42,13 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             "recovery",
             "weak_hint",
             "verdict",
+            "decision",
+            "route_claim",
+            "notify",
+            "send",
+            "cron",
+            "stop",
+            "skip",
         ],
         "notify_only",
     );
@@ -67,6 +75,16 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             "deadline",
             "unavailable",
             "no_adapter",
+            "transition",
+            "same_bucket",
+            "low_confidence",
+            "other",
+            "budget_exhausted",
+            "model_deadline",
+            "model_failed",
+            "adapter_disconnected",
+            "invalid_answer",
+            "route_failed",
         ],
         "redacted",
     );
@@ -85,7 +103,8 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
         "action": if action == "verdict" || action == "weak_hint" { "notify_only" } else { action },
         "reason": reason,
         "budget_reached": value["budget"]["reached"].as_bool(),
-        "fallback": matches!(reason, "budget" | "credit_exhausted" | "deadline" | "unavailable" | "no_adapter"),
+        "fallback": matches!(reason, "budget" | "credit_exhausted" | "deadline" | "unavailable" | "no_adapter"
+            | "budget_exhausted" | "model_deadline" | "model_failed" | "adapter_disconnected" | "invalid_answer"),
     }))
 }
 

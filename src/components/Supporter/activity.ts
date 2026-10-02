@@ -15,9 +15,11 @@ const labels = [
 ];
 const actions = [
   "spawn_ok", "strong_action", "rerank", "recovery", "notify_only",
+  "decision", "route_claim", "notify", "send", "cron", "stop", "skip",
 ];
 const reasons = [
   "model_answer", "all_candidates_scored", "launch_ready", "startup_deadline", "startup_escalation", "worker_idle_without_report", "busy_without_output", "tab_exit", "provider_declared_safe_choice", "deterministic_directory_trust", "verified_provider_absence", "confirmed_provider_exit_to_live_shell", "watchdog_dead_pty_event", "resumed", "fresh_launch", "budget", "credit_exhausted", "deadline", "unavailable", "no_adapter",
+  "transition", "same_bucket", "low_confidence", "other", "budget_exhausted", "model_deadline", "model_failed", "adapter_disconnected", "invalid_answer", "route_failed",
 ];
 
 function safe(value: string, allowed: string[]) {
@@ -26,7 +28,7 @@ function safe(value: string, allowed: string[]) {
 
 export function activityText(entry: SupporterActivity) {
   return {
-    kind: safe(entry.kind, ["rerank", "tab_state", "recovery"]).replace("rerank", "re-rank").replace("tab state", "tab-state"),
+    kind: safe(entry.kind, ["rerank", "tab_state", "recovery", "sentinel"]).replace("rerank", "re-rank").replace("tab state", "tab-state"),
     label: safe(entry.label, labels),
     confidence: safe(entry.confidence_band, ["strong", "weak", "low", "unknown"]),
     action: safe(entry.action, actions),
