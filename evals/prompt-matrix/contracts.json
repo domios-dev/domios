@@ -1,0 +1,24 @@
+{
+  "decision": {
+    "status": "pending",
+    "owner": "Auditor",
+    "required_fields": ["decided_by", "observation_id"],
+    "decided_by": ["adapter", "heuristic", "fallback(timeout)", "fallback(other)", "fallback(low_confidence)", "fallback(error)", "fallback(budget)"],
+    "covered_points": [],
+    "point_field": null,
+    "case_points": {},
+    "reason": "Bind the final per-decision journal shape and point list after Auditor merges; never infer a path from connected status."
+  },
+  "coordinator": {
+    "status": "pending",
+    "owner": "Courier",
+    "variants": ["default", "busy", "fail"],
+    "reason": "Bind consent, one-run journal, per-tab version evidence, busy transition and no-restart failure after Courier merges."
+  },
+  "sentinel": {
+    "status": "pending",
+    "owner": "Lookout",
+    "variants": ["git", "fake-ci", "regex-no-jev", "budget-exhausted"],
+    "reason": "No sentinel CLI exists in this lane; bind final supported commands before live invocation."
+  }
+}
