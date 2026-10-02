@@ -3,6 +3,7 @@ import { AgentNetwork } from './AgentNetwork';
 import { BrandMark, Icon } from './Icon';
 import type { IconName } from './Icon';
 import { ProviderStrip } from './ProviderStrip';
+import { GatherLink } from './GatherLink';
 import { Showcase } from './Showcase';
 import { useMediaQuery, useTheme } from './usePreferences';
 
@@ -48,7 +49,7 @@ export function App() {
         </div>
         <aside className="coming-note"><span className="eyebrow">COMING / THE MESH FABRIC</span><p>Shared memory across machines. Project awareness across your mesh. Delegation that finds the right machine for the task.</p></aside>
       </section>
-      <section className="closing section-wrap" aria-labelledby="closing-title"><span className="eyebrow">MAKE ROOM FOR WHAT’S NEXT</span><h2 id="closing-title">Your next idea.<br /><span>A whole team behind it.</span></h2><a className="button primary" href={download}>Get Domios<Icon name="arrow" size={18} /></a><p>Available for macOS, Windows, and Linux.</p></section>
+      <section className="closing section-wrap" aria-labelledby="closing-title"><span className="eyebrow">MAKE ROOM FOR WHAT’S NEXT</span><h2 id="closing-title">Your next idea.<br /><span>A whole team behind it.</span></h2><GatherLink href={download}>Get Domios</GatherLink><p>Available for macOS, Windows, and Linux.</p></section>
     </main>
     <footer className="site-footer section-wrap"><a className="brand" href="#" aria-label="Domios home"><BrandMark />domios</a><span>A place for agents. Built for you.</span><nav aria-label="Footer navigation"><a href={download}>Download</a><a href={github}>GitHub <span aria-hidden="true">↗</span></a><a href="#explore">Explore</a></nav></footer>
   </div>;

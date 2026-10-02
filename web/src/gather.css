@@ -1,0 +1,23 @@
+.gather-link { margin-top: 29px; position: relative; display: inline-flex; justify-content: flex-start; align-items: center; isolation: isolate; min-height: 58px; padding: 0 75px 0 27px; border-radius: 32px; color: var(--ct-on-accent); }
+.gather-material { position: absolute; inset: 0 37px 0 0; background: var(--ct-accent); border-radius: 32px; z-index: -1; }
+.gather-neck { position: absolute; right: 24px; top: 20px; height: 18px; width: 45px; border-radius: 50%; background: var(--ct-accent); transform: scaleX(0); transform-origin: left center; z-index: -1; }
+.gather-bead { display: grid; place-items: center; position: absolute; right: -10px; top: 10px; width: 38px; height: 38px; border-radius: 50%; background: var(--ct-accent); }
+.gather-label { font-size: 14px; font-weight: 600; }
+.gather-material, .gather-neck { transition: transform var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle); }
+.gather-link:is(:hover, :focus-visible) .gather-material { transform: scale(1.045, 1.025); }
+.gather-link:is(:hover, :focus-visible) .gather-bead { animation: bead-gather var(--ct-duration-liquid-hover) both; }
+.gather-link:is(:hover, :focus-visible) .gather-neck { transform: scaleX(1); }
+.gather-link:active .gather-material { transform: scale(.975, .92); transition-duration: var(--ct-duration-liquid-press); }
+@keyframes bead-gather {
+  0% { transform: translateX(0) scale(1); animation-timing-function: cubic-bezier(.5, 0, .6, .6); }
+  38% { transform: translateX(-11px) scale(1.32, .8); animation-timing-function: cubic-bezier(.3, .3, .3, 1); }
+  60% { transform: translateX(-22px) scale(.85, 1.1); animation-timing-function: var(--ct-ease-liquid-settle); }
+  78% { transform: translateX(-22px) scale(1.06, .96); }
+  100% { transform: translateX(-22px) scale(1); }
+}
+[data-motion="paused"] .gather-link * { animation: none !important; transition: none !important; }
+[data-motion="paused"] .gather-link:is(:hover, :focus-visible, :active) :is(.gather-material, .gather-neck) { transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .gather-link * { animation: none !important; transition: none !important; }
+  .gather-link:is(:hover, :focus-visible, :active) :is(.gather-material, .gather-neck) { transform: none; }
+}

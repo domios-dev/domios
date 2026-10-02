@@ -62,9 +62,15 @@ h2 { color: var(--ct-heading); font-size: clamp(28px, 3.4vw, 39px); line-height:
 .video-stage video, .video-poster { position: absolute; width: 100%; height: 100%; inset: 0; object-fit: contain; }
 .video-placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 15px; color: var(--ct-accent); background: radial-gradient(ellipse at center, color-mix(in srgb, var(--ct-accent) 9%, var(--ct-bg)), var(--ct-bg)); }
 .video-placeholder span { font-size: 22px; letter-spacing: -.5px; color: var(--ct-fg); }.video-placeholder small { color: var(--ct-muted-fg); }
-.caption-region { position: absolute; inset: auto 20px 25px; display: grid; justify-items: center; pointer-events: none; }
-.caption-chip { grid-area: 1 / 1; align-self: end; background: #0d1117ed; color: #f0f6fc; border: 1px solid #484f58; border-radius: 10px; padding: 12px 20px; text-align: center; font-size: clamp(11px, 1.4vw, 16px); line-height: 1.45; backdrop-filter: blur(12px); opacity: 0; transform: translateY(10px) scale(.97); transition: opacity 380ms var(--ct-ease-liquid-settle), transform 380ms var(--ct-ease-liquid-settle); }
-.caption-chip[data-active="true"] { opacity: 1; transform: translateY(0) scale(1); }
+.caption-region { position: absolute; inset: auto 20px 25px; display: flex; align-items: center; justify-content: center; gap: 7px; pointer-events: none; }
+.caption-anchor { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 2px; background: var(--ct-accent); }
+.caption-chip { background: #0d1117ed; color: #f0f6fc; border: 1px solid #484f58; border-radius: 14px; padding: 12px 20px; text-align: center; font-size: clamp(11px, 1.4vw, 16px); line-height: 1.45; backdrop-filter: blur(12px); transform-origin: left center; animation: caption-pool var(--ct-duration-liquid-sweep) var(--ct-ease-liquid-settle) both; }
+@keyframes caption-pool {
+  0% { opacity: 0; transform: translateX(-12px) scale(.92, .8); }
+  56% { opacity: 1; transform: translateX(2px) scale(1.02, 1.04); }
+  100% { opacity: 1; transform: none; }
+}
+[data-motion="paused"] .caption-chip { animation: none; }
 .video-toolbar { min-height: 49px; padding: 8px 17px; display: flex; justify-content: space-between; align-items: center; gap: 12px; font: 10px var(--ct-font-mono); color: var(--ct-muted-fg); border-top: 1px solid var(--ct-border); }
 .video-toolbar > span { display: flex; align-items: center; gap: 8px; }
 .play-control { display: flex; align-items: center; gap: 8px; border: 1px solid var(--ct-border); background: var(--ct-bg); padding: 8px 12px; border-radius: 6px; font-size: 10px; }
