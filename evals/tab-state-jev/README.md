@@ -87,3 +87,33 @@ transports before any Jev call. `--allow-incomplete` permits interim
 measurements for a partial set; reports retain missing labels/transports and
 mark the gate ineligible. Use it to inspect exploratory results, never to
 authorize runtime actions.
+
+
+## Held-out recovery qualification
+
+`heldout.jsonl` is intentionally empty until a human captures and labels new
+frames. Never copy tuning frames or invent evidence. Collect at least four
+frames each for provider_update_prompt, crashed_to_shell, still_starting and
+error_loop, plus ready_idle, working_normally and other negatives. Include
+trust/permission, login and unavailable-model examples to measure notification
+precision. IDs and normalized screen hashes must be separate from screens.jsonl.
+
+Use an existing named dev instance and its owned context file:
+
+    CODETERM_INSTANCE=NAME python3 evals/tab-state-jev/capture_screen.py capture --tab TAB --context-file CONTEXT.json --note "held-out reproduction"
+    python3 evals/tab-state-jev/capture_screen.py label --id CAPTURE_ID --label HUMAN_LABEL --by HUMAN_NAME --set heldout
+    python3 evals/tab-state-jev/run.py --arm context --set heldout --token-file ~/.codeterm-dev-NAME/supporter/typesafe-jev.json
+
+The recovery_qualification report measures automatic-label precision at 0.90
+and notification-label precision at 0.80. A complete, separate dataset with at
+least 16 automatic predictions and automatic precision at least 0.95 qualifies
+for the live oracle. Missing coverage, errors, partial slices and lower precision
+stay notify-only. Record the counts and model/adapter identity as a plan stride.
+
+The committed qualification.json is disabled. Enabling it additionally requires
+a successful live recovery oracle, the exact adapter/model and criteria hash,
+the SHA-256 of the complete heldout.jsonl bytes, and the report's support and
+correct/predicted counts. The runtime validates this receipt against its embedded
+criteria and held-out bytes. Evaluation alone never enables actions. Confirmed exit-to-shell recovery is deterministic: the lifecycle event, process
+absence and live shell authorize bounded resume or fresh launch. Jev is audit-only
+for that event and does not gate or block recovery.

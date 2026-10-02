@@ -15,6 +15,9 @@ fn tab_state_weak_hint_event_marks_it_non_actionable() {
 
 fn metadata(options: Vec<NumberedPromptOption>) -> TabStateMetadata {
     TabStateMetadata {
+        declared_safe_choice: None,
+        tab_snapshot: None,
+        process_tree_key: None,
         context: Value::Null,
         session_key: "session".into(),
         title: "worker".into(),

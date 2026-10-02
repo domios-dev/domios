@@ -57,3 +57,27 @@ pub(super) fn parsed_prompt_from_js(obj: Value) -> Option<PendingPrompt> {
             }),
     })
 }
+
+impl super::JsProvider {
+    pub(super) fn update_prompt_safe_choice_from_js(
+        &self,
+        prompt: &PendingPrompt,
+    ) -> Option<String> {
+        let parsed = serde_json::json!({
+            "question": prompt.question,
+            "options": prompt.options.iter().map(|option| [&option.label, &option.value]).collect::<Vec<_>>(),
+        });
+        if let Some(value) = self.try_call::<Option<String>>("updatePromptSafeChoice", &[parsed]) {
+            return value.filter(|value| {
+                prompt
+                    .options
+                    .iter()
+                    .filter(|option| &option.value == value)
+                    .count()
+                    == 1
+            });
+        }
+        self.native()
+            .and_then(|provider| provider.update_prompt_safe_choice(prompt))
+    }
+}

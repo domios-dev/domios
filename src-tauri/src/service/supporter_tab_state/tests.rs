@@ -153,6 +153,9 @@ impl ShadowHost for StubHost {
             );
         }
         Ok(TabStateMetadata {
+            declared_safe_choice: None,
+            tab_snapshot: None,
+            process_tree_key: None,
             context: serde_json::json!({
                 "provider_capability": {"transport": "chat_backend", "display_name": "Fixture"},
                 "requested_model": "requested",

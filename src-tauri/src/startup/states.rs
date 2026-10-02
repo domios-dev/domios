@@ -349,6 +349,12 @@ pub(crate) fn init_states() -> AppStates {
             ghost_count
         );
     }
+    for tab in mux_state_inner
+        .all_tabs()
+        .filter(|tab| tab.restored_from_snapshot)
+    {
+        service::supporter_notify::record_launch(&tab.id, true);
+    }
     let restored_bindings = restored_role_bindings(&mux_state_inner);
     crate::crash::lifecycle::note_restored_bindings(crate::crash::lifecycle::BindingEvidence {
         bound_at_shutdown: bound_at_shutdown.len() as u32,
