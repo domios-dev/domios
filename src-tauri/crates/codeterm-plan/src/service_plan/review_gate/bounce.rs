@@ -164,7 +164,9 @@ fn cleaned_terminal_review_attempt(task: &Task) -> Option<usize> {
                 .reported_at
                 .is_some_and(|reported_at| reported_at >= closed_at)
             || attempt.report.is_some() != attempt.reported_at.is_some()
-            || attempt.retired_at.is_some_and(|retired_at| retired_at < closed_at)
+            || attempt
+                .retired_at
+                .is_some_and(|retired_at| retired_at < closed_at)
             || attempt.mesh_peer.is_some()
             || attempt.remote_dispatch_state.is_some()
             || attempt.remote_worktree_path.is_some()
@@ -418,13 +420,10 @@ impl PlanStore {
                 [] => {
                     let attempt_index = match exact_closed_review_attempt(&p.tasks[idx]) {
                         ClosedReviewAttempt::Unique(index) => index,
-                        ClosedReviewAttempt::None => {
-                            cleaned_terminal_review_attempt(&p.tasks[idx]).ok_or_else(|| {
-                                PlanError::ReviewContinuationAttemptNotFound {
-                                    task_id: p.tasks[idx].id.clone(),
-                                }
-                            })?
-                        }
+                        ClosedReviewAttempt::None => cleaned_terminal_review_attempt(&p.tasks[idx])
+                            .ok_or_else(|| PlanError::ReviewContinuationAttemptNotFound {
+                                task_id: p.tasks[idx].id.clone(),
+                            })?,
                         ClosedReviewAttempt::Ambiguous => {
                             return Err(PlanError::ReviewContinuationAttemptNotFound {
                                 task_id: p.tasks[idx].id.clone(),
