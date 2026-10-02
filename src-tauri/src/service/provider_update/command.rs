@@ -22,10 +22,42 @@ impl From<String> for UpdateCommandFailure {
 }
 
 pub(super) fn run_update_command(command: &str) -> Result<(), UpdateCommandFailure> {
-    use wait_timeout::ChildExt;
     let (executable, args) = update_argv(command)?;
-    let mut process = Command::new(executable);
-    process.args(args);
+    run_invocation(Invocation { executable, args, cwd: None, environment: EnvironmentPolicy::Inherited, execution: std::time::Duration::from_secs(300), cleanup: std::time::Duration::from_secs(5) })
+}
+
+enum EnvironmentPolicy {
+    Inherited,
+    #[cfg(test)]
+    Explicit(Vec<(std::ffi::OsString, std::ffi::OsString)>),
+}
+
+struct Invocation {
+    executable: PathBuf,
+    args: Vec<std::ffi::OsString>,
+    cwd: Option<PathBuf>,
+    environment: EnvironmentPolicy,
+    execution: std::time::Duration,
+    cleanup: std::time::Duration,
+}
+
+impl Invocation {
+    fn command(&self) -> Command {
+        let mut command = Command::new(&self.executable);
+        command.args(&self.args);
+        if let Some(cwd) = &self.cwd { command.current_dir(cwd); }
+        match &self.environment {
+            EnvironmentPolicy::Inherited => {},
+            #[cfg(test)]
+            EnvironmentPolicy::Explicit(values) => { command.env_clear().envs(values.iter().cloned()); },
+        }
+        command
+    }
+}
+
+fn run_invocation(invocation: Invocation) -> Result<(), UpdateCommandFailure> {
+    use wait_timeout::ChildExt;
+    let mut process = invocation.command();
     codeterm_util::process_util::no_window_std(&mut process);
     let tree = process::ProcessTree::prepare(&mut process)?;
     let mut child = process
@@ -45,7 +77,7 @@ pub(super) fn run_update_command(command: &str) -> Result<(), UpdateCommandFailu
         )?);
         tree.attach(&child)?;
         child
-            .wait_timeout(std::time::Duration::from_secs(300))
+            .wait_timeout(invocation.execution)
             .map_err(|error| error.to_string())
     })();
     let completed = matches!(&result, Ok(Some(_)));
@@ -58,7 +90,7 @@ pub(super) fn run_update_command(command: &str) -> Result<(), UpdateCommandFailu
     tree.terminate(&mut child);
     let stopped = completed
         || child
-            .wait_timeout(std::time::Duration::from_secs(5))
+            .wait_timeout(invocation.cleanup)
             .ok()
             .flatten()
             .is_some();
@@ -207,3 +239,7 @@ pub(super) fn platform_key() -> &'static str {
 #[cfg(test)]
 #[path = "command_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "tests/process_fixture.rs"]
+mod process_fixture;
