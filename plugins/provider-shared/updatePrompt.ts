@@ -1,4 +1,6 @@
-import type { ParsedPrompt } from "@codeterm/plugin-sdk";
+interface ParsedPrompt {
+  options: [string, string][];
+}
 
 export function updatePromptSafeChoice(prompt: ParsedPrompt): string | null {
   if (prompt.options.length < 2 || !prompt.options.some(([label]) => /\bupdate\b/i.test(label))) {

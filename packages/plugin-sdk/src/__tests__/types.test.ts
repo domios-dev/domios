@@ -163,8 +163,8 @@ const provider: AgentProvider = {
 void provider;
 const providerModel: ModelInfo = provider.discoverModels!()![0];
 void providerModel;
-// @ts-expect-error discoverModels returns the shared camelCase ModelInfo shape
 const brokenProvider: AgentProvider = {
+  // @ts-expect-error discoverModels returns the shared camelCase ModelInfo shape
   discoverModels: () => [{ id: "x", display_name: "X" }],
 };
 void brokenProvider;
@@ -322,10 +322,10 @@ const receiverMenu: TabMenuContribution = {
   icon: "icon.svg",
 };
 void receiverMenu;
-// @ts-expect-error tab menu actions are a closed host-owned set
 const unknownAction: TabMenuContribution = {
   id: "close",
   label: "Close",
+  // @ts-expect-error tab menu actions are a closed host-owned set
   action: "closeTab",
 };
 void unknownAction;
