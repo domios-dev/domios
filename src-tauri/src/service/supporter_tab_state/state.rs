@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, HashMap};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -59,7 +60,7 @@ pub(crate) fn launch_episode_key(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ObservationPermit {
     pub(crate) episode: u64,
-    pub(crate) output_sequence: u64,
+    pub(crate) spawn_claim: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,6 +78,7 @@ struct EpisodeState {
     output_epoch_seconds: u64,
     calls: usize,
     spawn_observed: bool,
+    spawn_claim: Option<u64>,
     last_busy_output_sequence: Option<u64>,
     previous_strong_label: Option<String>,
     acted_labels: BTreeSet<String>,
@@ -96,6 +98,7 @@ pub(crate) struct EpisodeSnapshot {
 }
 
 static EPISODES: OnceLock<Mutex<HashMap<String, EpisodeState>>> = OnceLock::new();
+static NEXT_SPAWN_CLAIM: AtomicU64 = AtomicU64::new(1);
 
 fn episodes() -> &'static Mutex<HashMap<String, EpisodeState>> {
     EPISODES.get_or_init(|| Mutex::new(HashMap::new()))
@@ -159,6 +162,7 @@ pub(crate) fn claim_observation(
             return Err(PermitError::SpawnAlreadyObserved);
         }
         state.spawn_observed = true;
+        state.spawn_claim = Some(NEXT_SPAWN_CLAIM.fetch_add(1, Ordering::Relaxed));
     }
     if event == ObservationEvent::BusyNoOutput {
         if state.last_busy_output_sequence == Some(state.output_sequence) {
@@ -170,9 +174,17 @@ pub(crate) fn claim_observation(
         return Err(PermitError::CallCapReached);
     }
     state.calls += 1;
+    let spawn_claim = if matches!(
+        event,
+        ObservationEvent::SpawnReady | ObservationEvent::SpawnDeadline
+    ) {
+        state.spawn_claim
+    } else {
+        None
+    };
     Ok(ObservationPermit {
         episode: state.episode,
-        output_sequence: state.output_sequence,
+        spawn_claim,
     })
 }
 
@@ -188,6 +200,7 @@ pub(crate) fn note_output(tab_id: &str) {
         let session_key = state.session_key.clone();
         let previous_screen_hash = state.previous_screen_hash;
         let spawn_observed = state.spawn_observed;
+        let spawn_claim = state.spawn_claim;
         let episode = state.episode.saturating_add(1);
         let output_sequence = state.output_sequence;
         let output_epoch_seconds = state.output_epoch_seconds;
@@ -197,6 +210,7 @@ pub(crate) fn note_output(tab_id: &str) {
             output_sequence,
             output_epoch_seconds,
             spawn_observed,
+            spawn_claim,
             previous_screen_hash,
             ..EpisodeState::default()
         };
@@ -262,7 +276,7 @@ pub(crate) fn apply_observed_verdict(
 ) -> Option<SignalAction> {
     let mut all = episodes().lock();
     let state = state_for_session(&mut all, tab_id, session_key);
-    if state.episode != permit.episode || state.output_sequence != permit.output_sequence {
+    if state.episode != permit.episode {
         return None;
     }
     Some(apply_verdict_to_state(
@@ -281,22 +295,24 @@ pub(crate) fn permit_is_current(
     permit: &ObservationPermit,
 ) -> bool {
     let all = episodes().lock();
-    all.get(tab_id).is_some_and(|state| {
-        state.session_key == session_key
-            && state.episode == permit.episode
-            && state.output_sequence == permit.output_sequence
-    })
+    all.get(tab_id)
+        .is_some_and(|state| state.session_key == session_key && state.episode == permit.episode)
 }
 
-/// Spawn-ok asserts launch health, so only launch identity and episode invalidate it.
+/// Spawn-ok belongs to its launch claim and survives signal-episode churn.
 pub(crate) fn permit_is_current_for_launch(
     tab_id: &str,
     session_key: &str,
     permit: &ObservationPermit,
 ) -> bool {
     let all = episodes().lock();
-    all.get(tab_id)
-        .is_some_and(|state| state.session_key == session_key && state.episode == permit.episode)
+    permit.spawn_claim.is_some_and(|spawn_claim| {
+        all.get(tab_id).is_some_and(|state| {
+            state.session_key == session_key
+                && state.spawn_observed
+                && state.spawn_claim == Some(spawn_claim)
+        })
+    })
 }
 
 fn apply_verdict_to_state(
@@ -333,7 +349,7 @@ fn apply_verdict_to_state(
             }
         }
     };
-    if action != SignalAction::None {
+    if action == SignalAction::StrongAction {
         state.signaled = true;
     }
     action
