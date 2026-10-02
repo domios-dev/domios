@@ -169,6 +169,15 @@ impl DecisionModel for TypeSafeAdapter {
         Self::ID
     }
 
+    fn model_id(&self) -> Option<String> {
+        Some(
+            self.model
+                .read()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone(),
+        )
+    }
+
     fn token_mode(&self) -> TokenMode {
         TokenMode::Required
     }

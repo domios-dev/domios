@@ -92,6 +92,7 @@ const CONFIG_BOUNDS: &[ConfigBound] = &[
     integer("supporter.memory_rerank.sources.docs", 0.0, 10.0),
     integer("supporter.memory_rerank.sources.sessions", 0.0, 5.0),
     integer("supporter.memory_rerank.max_concurrency", 1.0, 32.0),
+    integer("supporter.calls_per_hour", 1.0, 100000.0),
     integer("supporter.deadline_ms", 100.0, 30000.0),
     integer("supporter.memory_rerank.candidates", 1.0, 50.0),
     number("supporter.memory_rerank.low_confidence_threshold", 0.0, 1.0),

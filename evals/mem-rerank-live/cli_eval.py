@@ -15,6 +15,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from run import ensure_supporter_connected
+
 
 LOCAL_ROOT = Path.home() / "Developer" / "codeterm-worktrees" / "mem-eval-local"
 MISTAKES_PATH = Path(__file__).with_name("cli_mistakes.json")
@@ -370,6 +372,7 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
     parent_env, parent_tab = parent_environment()
     mistakes = load_mistakes()
     lib_path = Path(__file__).resolve().parents[1] / "_lib" / "lib.sh"
+    ensure_supporter_connected(lib_path, args.dev_instance)
     docs_count = config_integer(lib_path, args.dev_instance, DOCS_CONFIG_KEY, 10)
     if docs_count < 3:
         raise RuntimeError(

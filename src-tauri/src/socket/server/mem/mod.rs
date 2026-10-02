@@ -37,10 +37,12 @@ pub(super) fn dispatch(
             .and_then(|stats| serde_json::to_value(stats).map_err(|error| error.to_string()))
             .map_err(internal_error),
         "mem.search" => {
-            let request = serde_json::from_value::<SearchParams>(params.unwrap_or_default())
+            let caller_tab_id = opt_string_param(&params, "caller_tab_id");
+            let mut request = serde_json::from_value::<SearchParams>(params.unwrap_or_default())
                 .map_err(|error| {
                     invalid_params(format!("Invalid mem.search parameters: {error}"))
                 })?;
+            request.caller_tab_id = caller_tab_id;
             if request.q.trim().is_empty() {
                 return Err(invalid_params("search query must not be empty".to_string()));
             }

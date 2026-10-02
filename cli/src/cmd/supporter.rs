@@ -13,7 +13,6 @@ const TOKEN_ROUTE: &str = "/api/supporter/token";
 const STATUS_ROUTE: &str = "/api/supporter/status";
 const MODELS_ROUTE: &str = "/api/supporter/models";
 const USE_ROUTE: &str = "/api/supporter/use";
-const FEATURES_ROUTE: &str = "/api/supporter/features";
 
 /// The token enters through stdin only: an argv value would leak into shell history and `ps`.
 pub(super) fn read_token(mut input: impl Read, is_terminal: bool) -> Result<String, String> {
@@ -132,18 +131,6 @@ fn status_request(http: &crate::local_api::LocalApiClient, base: &str) -> Value 
     ok_body_or_exit(send(http.get(format!("{base}{STATUS_ROUTE}")), base), None)
 }
 
-fn write_features(
-    http: &crate::local_api::LocalApiClient,
-    base: &str,
-    memory_rerank: bool,
-    tab_state: bool,
-) -> Value {
-    let request = http
-        .post(format!("{base}{FEATURES_ROUTE}"))
-        .json(&json!({ "memory_rerank": memory_rerank, "tab_state": tab_state }));
-    ok_body_or_exit(send(request, base), None)
-}
-
 pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
     let (base, _) = crate::read_api_config();
     let http = crate::build_local_api()
@@ -151,26 +138,6 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
     let base = base.as_str();
 
     match action {
-        SupporterAction::Enable => {
-            let features = write_features(&http, base, true, true);
-            emit(json_mode, &features, |value| {
-                format!(
-                    "memory re-rank: {}\ntab-state: {}\n",
-                    on_off(value.get("memory_rerank")),
-                    on_off(value.get("tab_state"))
-                )
-            });
-        }
-        SupporterAction::Disable => {
-            let features = write_features(&http, base, false, false);
-            emit(json_mode, &features, |value| {
-                format!(
-                    "memory re-rank: {}\ntab-state: {}\n",
-                    on_off(value.get("memory_rerank")),
-                    on_off(value.get("tab_state"))
-                )
-            });
-        }
         SupporterAction::Status => {
             let status = status_request(&http, base);
             emit(json_mode, &status, render_status);
@@ -192,40 +159,6 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
                         .and_then(Value::as_str)
                         .map(|model| format!(" / {model}"))
                         .unwrap_or_default()
-                )
-            });
-        }
-        SupporterAction::Features {
-            memory_rerank: None,
-            tab_state: None,
-        } => {
-            let status = status_request(&http, base);
-            emit(json_mode, &status, |value| {
-                format!(
-                    "memory re-rank: {}\ntab-state: {}\n",
-                    on_off(value.pointer("/features/memory_rerank")),
-                    on_off(value.pointer("/features/tab_state"))
-                )
-            });
-        }
-        SupporterAction::Features {
-            memory_rerank,
-            tab_state,
-        } => {
-            let mut body = serde_json::Map::new();
-            if let Some(mode) = memory_rerank {
-                body.insert("memory_rerank".into(), json!(mode.enabled()));
-            }
-            if let Some(mode) = tab_state {
-                body.insert("tab_state".into(), json!(mode.enabled()));
-            }
-            let request = http.post(format!("{base}{FEATURES_ROUTE}")).json(&body);
-            let features = ok_body_or_exit(send(request, base), None);
-            emit(json_mode, &features, |value| {
-                format!(
-                    "memory re-rank: {}\ntab-state: {}\n",
-                    on_off(value.get("memory_rerank")),
-                    on_off(value.get("tab_state"))
                 )
             });
         }
@@ -291,14 +224,6 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
                 }
             }
         },
-    }
-}
-
-fn on_off(value: Option<&Value>) -> &'static str {
-    if value.and_then(Value::as_bool) == Some(true) {
-        "on"
-    } else {
-        "off"
     }
 }
 

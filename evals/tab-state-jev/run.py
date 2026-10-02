@@ -47,6 +47,7 @@ LABELS = (
     "crashed_to_shell",
     "error_loop",
     "still_starting",
+    "other",
 )
 ACTIONABLE = {
     "provider_update_prompt",

@@ -122,6 +122,21 @@ def run_dc(lib_path: Path, instance: str, args: list[str]) -> tuple[dict[str, An
     return value, latency_ms
 
 
+def ensure_supporter_connected(lib_path: Path, instance: str) -> None:
+    status = json.loads(run_dc_command(lib_path, instance, ["supporter", "status", "--json"]))
+    adapter = status.get("adapter")
+    if not isinstance(adapter, str) or not adapter:
+        raise RuntimeError("select a registered Supporter adapter before the live eval")
+    run_dc_command(lib_path, instance, ["supporter", "use", adapter])
+    status = json.loads(run_dc_command(lib_path, instance, ["supporter", "status", "--json"]))
+    token = status.get("token", {})
+    connected = status.get("connected", status.get("adapter_registered") is True and (
+        status.get("token_mode") in ("optional", "none") or (
+            token.get("present") is True and token.get("mode_ok") is not False)))
+    if not connected:
+        raise RuntimeError("the live eval needs a connected Supporter adapter")
+
+
 def read_docs_config(lib_path: Path, instance: str) -> int:
     output = run_dc_command(
         lib_path,
@@ -494,6 +509,7 @@ def run(args: argparse.Namespace) -> tuple[Path, Path, str]:
         raise RuntimeError(f"ground-truth ids missing from import map: {len(missing)}")
 
     lib_path = Path(__file__).resolve().parents[1] / "_lib" / "lib.sh"
+    ensure_supporter_connected(lib_path, args.dev_instance)
     if args.docs is None and args.sessions is None:
         records = evaluate_records(questions, item_map, lib_path, args.dev_instance)
     else:

@@ -63,6 +63,8 @@ struct StubHost {
     episode_steps: Option<Arc<Mutex<Vec<EpisodeStep>>>>,
     deliveries: Arc<Mutex<Vec<(ObservationTrigger, String, SignalAction)>>>,
     records: Arc<Mutex<Vec<String>>>,
+    runtime: Arc<SupporterRuntime>,
+    _journal_dir: Arc<tempfile::TempDir>,
 }
 
 impl StubHost {
@@ -74,6 +76,7 @@ impl StubHost {
         let seen = model.seen.clone();
         let registry = SupporterRegistry::new();
         registry.register("fixture", Arc::new(model));
+        let journal_dir = Arc::new(tempfile::tempdir().unwrap());
         (
             Self {
                 screen: screen.to_owned(),
@@ -86,6 +89,8 @@ impl StubHost {
                 episode_steps: None,
                 deliveries: Arc::default(),
                 records: Arc::default(),
+                runtime: Arc::new(SupporterRuntime::new(journal_dir.path().into())),
+                _journal_dir: journal_dir,
             },
             calls,
             seen,
@@ -100,6 +105,10 @@ impl ShadowHost for StubHost {
 
     fn supporter_models(&self) -> Arc<SupporterRegistry> {
         self.models.clone()
+    }
+
+    fn supporter_runtime(&self) -> Arc<SupporterRuntime> {
+        self.runtime.clone()
     }
 
     fn token_available(&self, _adapter_id: &str) -> bool {
@@ -299,11 +308,10 @@ fn choice(label: &str, confidence: f64) -> DecisionAnswer {
     }
 }
 
-fn enabled() -> SupporterTabStateConfig {
-    SupporterTabStateConfig {
-        enabled: true,
-        strong_actions: true,
-        weak_hints: true,
+fn enabled() -> SupporterConfig {
+    SupporterConfig {
+        adapter: "fixture".into(),
+        ..SupporterConfig::default()
     }
 }
 
@@ -323,12 +331,12 @@ fn run(host: &StubHost, tab_id: &str, trigger: ObservationTrigger) -> Option<Sha
 }
 
 #[test]
-fn supporter_tab_state_disabled_makes_no_read_or_call() {
+fn supporter_tab_state_not_connected_makes_no_read_or_call() {
     let model = StubModel::answering(Ok(choice(READY_IDLE, 0.99)));
     let (host, calls, _) = StubHost::new("ready", model);
     assert!(spawn_observer(
         &host,
-        &SupporterTabStateConfig::default(),
+        &SupporterConfig::default(),
         "fixture",
         3000,
         &tab(),
@@ -970,204 +978,7 @@ fn tab_state_uses_configured_adapter_with_choice_capability() {
     assert_eq!(calls.load(Ordering::SeqCst), 0);
 }
 
-#[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-fn tab_state_context_header_fields_present() {
-    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-    let pty_id = format!("tab-state-context-{}", uuid::Uuid::new_v4().simple());
-    mux.link_pty(&tab_id, pty_id.clone());
-    {
-        let tab = mux.get_tab_mut(&tab_id).expect("fixture tab");
-        tab.agent_type = Some("tab-state-provider".into());
-        tab.agent_set_at = Some(Instant::now());
-        tab.agent_requested_model = Some("requested-model".into());
-        tab.agent_session_model = Some("session-model".into());
-        tab.session_binding_nonce = Some("launch-nonce".into());
-        tab.role = Some(codeterm_types::agent::AgentRole::Worker);
-        tab.spawned_by_tab_id = Some("creator-tab".into());
-        tab.task_binding = Some(crate::multiplexer::types::TaskBinding {
-            plan_id: Some("plan-id".into()),
-            task_id: Some("task-id".into()),
-            attempt_id: Some("attempt-id".into()),
-            spawn_handle: None,
-            bound_at: 1,
-        });
-    }
-    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::new("tab-state-provider"),
-    ));
-    let model = StubModel::answering(Ok(choice(WORKING_NORMALLY, 0.91)));
-    let (mut host, _, _) = StubHost::new("opaque terminal screen", model);
-    host.metadata_service = Some(fixture.service.clone());
-    let (request, metadata) = prepare_observation(
-        &host,
-        "fixture",
-        &tab_id,
-        ObservationTrigger::SpawnReady,
-        "ready-verdict",
-    )
-    .expect("stub transport provides the screen and runtime context");
-    assert_eq!(request.state["screen"], "opaque terminal screen");
-    assert_eq!(host.reads.load(Ordering::SeqCst), 1);
-    assert_eq!(host.writes.load(Ordering::SeqCst), 0);
-    assert_eq!(request.state["context"], metadata.context);
-
-    assert_eq!(metadata.context["provider_capability"]["transport"], "pty");
-    assert_eq!(metadata.context["requested_model"], "requested-model");
-    assert_eq!(metadata.context["session_model"], "session-model");
-    assert_eq!(metadata.context["role"], "Worker");
-    assert_eq!(metadata.context["plan_id"], "plan-id");
-    assert_eq!(metadata.context["task_id"], "task-id");
-    assert_eq!(metadata.context["task_binding"]["attempt_id"], "attempt-id");
-    assert_eq!(metadata.context["spawning_tab_id"], "creator-tab");
-    assert!(metadata.context["provider_capability"]["display_name"].is_string());
-    for key in [
-        "seconds_since_spawn",
-        "seconds_since_last_output",
-        "structural_verdict",
-        "pending_prompt_kind",
-        "screen_changed",
-    ] {
-        assert!(metadata.context.get(key).is_some(), "missing {key}");
-    }
-}
-
-struct TranscriptBackend;
-
-impl crate::chatbackend::ChatBackendProvider for TranscriptBackend {
-    fn id(&self) -> &str {
-        "tab-state-chat-fixture"
-    }
-
-    fn spawnable(&self) -> bool {
-        true
-    }
-
-    fn open_session(&self, _config: Value) -> Result<String, crate::chatbackend::ChatBackendError> {
-        Ok("session".into())
-    }
-
-    fn send_message(
-        &self,
-        _session_id: &str,
-        _text: &str,
-    ) -> Result<(), crate::chatbackend::ChatBackendError> {
-        Ok(())
-    }
-
-    fn poll(
-        &self,
-        _session_id: &str,
-        _cursor: Option<&str>,
-    ) -> Result<crate::agent::chat_types::StructuredChat, crate::chatbackend::ChatBackendError>
-    {
-        Ok(crate::agent::chat_types::StructuredChat {
-            messages: vec![crate::agent::chat_types::ChatMsg {
-                id: "assistant-message".into(),
-                kind: "assistant".into(),
-                content: "assistant transcript evidence".into(),
-                ..Default::default()
-            }],
-            ..Default::default()
-        })
-    }
-
-    fn close_session(&self, _session_id: &str) -> Result<(), crate::chatbackend::ChatBackendError> {
-        Ok(())
-    }
-
-    fn list_models(
-        &self,
-    ) -> Result<Vec<crate::agent::provider::ModelInfo>, crate::chatbackend::ChatBackendError> {
-        Ok(Vec::new())
-    }
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-fn tab_state_chat_backend_reads_transcript_by_capability() {
-    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-    {
-        let tab = mux.get_tab_mut(&tab_id).expect("fixture tab");
-        tab.agent_type = Some("tab-state-chat-fixture".into());
-        tab.agent_session_id = Some("session".into());
-        tab.session_binding_nonce = Some("chat-session-nonce".into());
-        tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
-            plugin_id: "tab-state-chat-fixture".into(),
-            session_id: "session".into(),
-        };
-    }
-    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    fixture
-        .service
-        .chatbackend_registry
-        .register("tab-state-chat-fixture", Arc::new(TranscriptBackend));
-    let screen = fixture
-        .service
-        .tab_transport(&tab_id)
-        .expect("chat backend transport")
-        .read_screen(false)
-        .expect("transcript read")["text"]
-        .as_str()
-        .expect("transcript text")
-        .to_owned();
-    let metadata = <ServiceContext as ShadowHost>::metadata(
-        &fixture.service,
-        &tab_id,
-        ObservationTrigger::SpawnReady,
-        "ready-verdict",
-        &screen,
-    )
-    .expect("runtime context");
-
-    assert!(screen.contains("assistant transcript evidence"));
-    assert_eq!(
-        metadata.context["provider_capability"]["transport"],
-        "chat_backend"
-    );
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-fn tab_state_never_answers_prompt() {
-    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
-    mux.get_tab_mut(&tab_id)
-        .expect("fixture tab")
-        .pending_prompt = Some(codeterm_types::pty::PendingPrompt {
-        question: "opaque prompt".into(),
-        options: vec![codeterm_types::pty::PromptOption {
-            label: "Opaque option".into(),
-            value: "1".into(),
-        }],
-        sections: None,
-        multi_select: None,
-        submit_available: None,
-        selected_values: None,
-    });
-    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    delivery::deliver(
-        &fixture.service,
-        &tab_id,
-        &TabStateMetadata {
-            context: Value::Null,
-            session_key: "fixture-session".into(),
-            title: "worker".into(),
-            spawning_tab_id: None,
-            parent_tab_id: None,
-            plan_id: None,
-            task_id: None,
-            attempt_id: None,
-            prompt_options: Vec::new(),
-        },
-        0,
-        ObservationTrigger::BusyNoOutput,
-        TRUST_OR_PERMISSION_PROMPT,
-        0.92,
-        SignalAction::StrongAction,
-    );
-    let mux = fixture.service.mux.read();
-    assert!(mux
-        .get_tab(&tab_id)
-        .is_some_and(|tab| tab.pending_prompt.is_some()));
-}
+#[path = "connected_tests.rs"]
+mod connected_tests;
+#[path = "metadata_tests.rs"]
+mod metadata_tests;

@@ -153,3 +153,19 @@ fn supporter_bounds_reject_out_of_range() {
     validate_config_text("[supporter.memory_rerank.sources]\nsessions = 0\n").unwrap();
     validate_config_text("[supporter.memory_rerank.sources]\nsessions = 5\n").unwrap();
 }
+
+#[test]
+fn supporter_calls_per_hour_bounds() {
+    for cap in [0, 100001] {
+        let mut config = AppConfig::default();
+        config.supporter.calls_per_hour = cap;
+        assert!(validate_app_config(&config)
+            .unwrap_err()
+            .contains("supporter.calls_per_hour"));
+    }
+    for cap in [1, 600, 100000] {
+        let mut config = AppConfig::default();
+        config.supporter.calls_per_hour = cap;
+        validate_app_config(&config).unwrap();
+    }
+}

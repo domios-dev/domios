@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use super::sessions_source::SessionCandidate;
 use super::{
     candidate, registered_adapters, select_model_id, supporter_state, supporter_token_dir,
-    token_gate_refuses, token_store, DecisionBackend, SupporterRegistry, Untouched,
+    token_store, DecisionBackend, SupporterRegistry, Untouched,
 };
 use crate::api::mem_routes::search::{
     baseline_search, resolve_search, run_blocking_search, RecallBackend, SearchError, SearchParams,
@@ -43,6 +43,8 @@ struct SeededBackend {
     plans: Vec<PlanSearchHit>,
     graph_calls: AtomicUsize,
     sessions: Vec<SessionCandidate>,
+    runtime: Arc<crate::service::supporter::SupporterRuntime>,
+    _journal_dir: tempfile::TempDir,
 }
 
 impl RecallBackend for SeededBackend {
@@ -68,6 +70,9 @@ impl RecallBackend for SeededBackend {
 }
 
 impl DecisionBackend for SeededBackend {
+    fn supporter_runtime(&self) -> Arc<crate::service::supporter::SupporterRuntime> {
+        self.runtime.clone()
+    }
     fn recall_untouched(
         &self,
         q: &SearchQuery,
@@ -133,7 +138,12 @@ fn seeded() -> SeededBackend {
             .unwrap();
         ids.push(id);
     }
+    let journal_dir = tempfile::tempdir().unwrap();
     SeededBackend {
+        runtime: Arc::new(crate::service::supporter::SupporterRuntime::new(
+            journal_dir.path().into(),
+        )),
+        _journal_dir: journal_dir,
         mem,
         ids,
         plans: vec![plan_hit()],
@@ -212,7 +222,6 @@ fn enabled_cfg() -> SupporterConfig {
     SupporterConfig {
         adapter: STUB_ID.into(),
         memory_rerank: MemoryRerankConfig {
-            enabled: true,
             sources: crate::config::schema::SupporterSources {
                 graph: 0,
                 docs: 0,
@@ -243,7 +252,7 @@ impl DecisionModel for StubModel {
     }
 
     fn token_mode(&self) -> TokenMode {
-        TokenMode::Required
+        TokenMode::None
     }
 
     fn primitives(&self) -> DecisionPrimitives {
@@ -329,7 +338,7 @@ fn without_envelope(mut output: Value) -> Value {
 }
 
 #[test]
-fn supporter_status_distinguishes_missing_token_token_only_and_active() {
+fn supporter_status_distinguishes_not_connected_token_states_and_active() {
     let missing = TokenStatus {
         present: false,
         path: "token.json".into(),
@@ -347,23 +356,23 @@ fn supporter_status_distinguishes_missing_token_token_only_and_active() {
     };
 
     assert_eq!(
-        supporter_state(false, &missing, true, TokenMode::Required),
+        supporter_state(true, &missing, true, TokenMode::Required),
         "no_token"
-    );
-    assert_eq!(
-        supporter_state(false, &set, true, TokenMode::Required),
-        "token_only"
     );
     assert_eq!(
         supporter_state(true, &set, true, TokenMode::Required),
         "active"
     );
     assert_eq!(
-        supporter_state(false, &unusable, true, TokenMode::Required),
+        supporter_state(true, &set, true, TokenMode::Required),
+        "active"
+    );
+    assert_eq!(
+        supporter_state(true, &unusable, true, TokenMode::Required),
         "token_unusable"
     );
     assert_eq!(
-        supporter_state(false, &set, false, TokenMode::Required),
+        supporter_state(true, &set, false, TokenMode::Required),
         "adapter_unavailable"
     );
 }
@@ -376,40 +385,15 @@ fn supporter_state_optional_and_none_ignore_missing_tokens() {
         mode_ok: None,
     };
     for mode in [TokenMode::Optional, TokenMode::None] {
-        assert_eq!(supporter_state(false, &missing, true, mode), "ready");
+        assert_eq!(
+            supporter_state(false, &missing, true, mode),
+            "not_connected"
+        );
         assert_eq!(supporter_state(true, &missing, true, mode), "active");
         assert_eq!(
             supporter_state(true, &missing, false, mode),
             "adapter_unavailable"
         );
-    }
-}
-
-#[test]
-fn supporter_features_token_mode_gate_keeps_required_and_allows_optional_or_none() {
-    let missing = TokenStatus {
-        present: false,
-        path: "token.json".into(),
-        mode_ok: None,
-    };
-    let unusable = TokenStatus {
-        present: true,
-        path: "token.json".into(),
-        mode_ok: Some(false),
-    };
-    assert!(token_gate_refuses(TokenMode::Required, &missing));
-    assert!(token_gate_refuses(TokenMode::Required, &unusable));
-    assert!(!token_gate_refuses(
-        TokenMode::Required,
-        &TokenStatus {
-            present: true,
-            path: "token.json".into(),
-            mode_ok: Some(true),
-        }
-    ));
-    for mode in [TokenMode::Optional, TokenMode::None] {
-        assert!(!token_gate_refuses(mode, &missing));
-        assert!(!token_gate_refuses(mode, &unusable));
     }
 }
 
@@ -463,13 +447,13 @@ fn decision_candidate_carries_kind() {
 }
 
 #[test]
-fn decision_off_response_is_byte_identical() {
+fn supporter_not_connected_search_is_baseline_identical() {
     let backend = seeded();
     let registry = relevance_registry(&[(TITLES[3], 0.9)]);
     let mut request = params(3);
     request.project = Some("/seeded/project".into());
     let off = SupporterConfig {
-        adapter: STUB_ID.into(),
+        adapter: "unregistered".into(),
         ..SupporterConfig::default()
     };
     let overridden = SearchParams {
@@ -590,7 +574,11 @@ fn decision_fallback_hits_equal_baseline() {
                 ..enabled_cfg()
             },
         ),
-        ("no_adapter", SupporterRegistry::new(), enabled_cfg()),
+        (
+            "budget",
+            registry_with(StubMode::Fail(DecisionError::Budget)),
+            enabled_cfg(),
+        ),
         (
             "unavailable",
             registry_with(StubMode::Fail(DecisionError::Unavailable(

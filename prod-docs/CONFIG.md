@@ -81,13 +81,10 @@ full_access = true
 adapter = "typesafe-jev"
 model = "jev-latest"
 deadline_ms = 3000
+calls_per_hour = 600
 
 [supporter.memory_rerank]
-enabled = false
 docs_hybrid = false
-
-[supporter.tab_state]
-enabled = false
 
 [api]
 enabled = true
@@ -195,14 +192,14 @@ Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load.
 | `supporter.memory_rerank.sources.docs` | integer from 0 to 10; default 3 |
 | `supporter.memory_rerank.sources.sessions` | integer from 0 to 5; default 0 |
 | `supporter.memory_rerank.max_concurrency` | integer from 1 to 32; default 16 |
+| `supporter.calls_per_hour` | integer from 1 to 100000; default 600 |
 | `supporter.deadline_ms` | integer from 100 to 30000; default 3000 |
 | `supporter.memory_rerank.candidates` | integer from 1 to 50; default 50 |
 | `supporter.memory_rerank.low_confidence_threshold` | number from 0 to 1; default 0.15 |
 | `supporter.memory_rerank.max_body_chars` | integer from 256 to 100000; default 2000 |
-| `supporter.memory_rerank.enabled` | boolean; default false |
 | `supporter.memory_rerank.docs_hybrid` | boolean; default false |
 
-`supporter.adapter`, `.endpoint`, and `.model` select the registered adapter and discovered model; `.deadline_ms` sets the stage deadline. `supporter.memory_rerank.enabled` defaults to `false`; `supporter.memory_rerank.docs_hybrid` (default `false`) enables cached vector retrieval for documentation candidates; `supporter.tab_state.enabled` (default `false`) enables the observe-only tab-state signal. Adapters declare token mode: TypeSafe Jev is `required`; plugin manifests use bare `"decisionModel": true` for `optional`, or `{ "tokenMode": "required" | "optional" | "none" }` (the object form requires `minCodeterm: "1.12.4"`). Optional and none adapters can be enabled without a token. The token is write-only in Settings > Agents > Supporter Agent, or through `codeterm supporter token set` with stdin; it is never stored in `config.toml`.
+`supporter.adapter`, `.endpoint`, and `.model` select the registered adapter and discovered model; `.deadline_ms` sets the stage deadline. `supporter.memory_rerank.docs_hybrid` (default `false`) enables cached vector retrieval for documentation candidates; A connected adapter automatically serves memory re-rank and tab-state. `supporter.calls_per_hour` caps all Supporter requests across all tabs (default 600; 1 to 100000). Adapters declare token mode: TypeSafe Jev is `required`; plugin manifests use bare `"decisionModel": true` for `optional`, or `{ "tokenMode": "required" | "optional" | "none" }` (the object form requires `minCodeterm: "1.12.4"`). Optional and none adapters connect without a token. The token is write-only in Settings > Agents > Supporter Agent, or through `codeterm supporter token set` with stdin; it is never stored in `config.toml`.
 
 `memory.dream_hygiene.stale_archive` (default `false`) lets the nightly sweep archive stale items; keep it off until a `codeterm mem calibration stale --dry-run` list has been checked. Per UTC day, `memory.dream_hygiene.stale_archive_cap` (0 to 500, default 20) caps archives and `memory.dream_hygiene.merge_cap` (0 to 100, default 10) caps Dreamer merges.
 
@@ -237,4 +234,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 80 -->
+<!-- revision: 81 -->

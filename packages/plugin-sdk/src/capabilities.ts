@@ -409,6 +409,7 @@ export type DecisionAnswer =
     };
 
 export interface DecisionModelCapability {
+  modelId?(): string | null;
   decide(request: DecisionRequest): DecisionAnswer;
   models(): DecisionModelInfo[];
   primitives(): DecisionPrimitives;

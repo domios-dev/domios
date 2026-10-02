@@ -3,7 +3,7 @@ import { ExternalLink, Sparkles } from "lucide-react";
 import type { HelpSectionId } from "../../help/types";
 import { Button } from "../shared/Button";
 import { FormRow } from "../shared/FormRow";
-import { AboutLink, InlineLinkButton, SettingsCard, SettingsPill, Toggle } from "./shared";
+import { AboutLink, InlineLinkButton, SettingsCard, SettingsPill } from "./shared";
 import { type SupporterAdapter, useDecisionToken } from "./useDecisionToken";
 
 const DOCS_URL = "https://docs.typesafe.ai";
@@ -23,10 +23,9 @@ function stateLabel(state: string | undefined, loading: boolean, failed: boolean
   if (failed) return "Status unavailable";
   switch (state) {
     case "active": return "Active";
-    case "ready": return "Ready";
-    case "token_only": return "Token set, all features off";
+    case "budget_reached": return "Budget reached";
+    case "not_connected": return "Not connected";
     case "token_unusable": return "Token file needs attention";
-    case "feature_without_token": return "Feature on, no token";
     case "adapter_unavailable": return "Adapter unavailable";
     case "no_token": return "No token";
     default: return "Status unavailable";
@@ -34,15 +33,10 @@ function stateLabel(state: string | undefined, loading: boolean, failed: boolean
 }
 
 function stateTone(state: string | undefined): "green" | "amber" | "accent" | "muted" {
-  if (state === "active" || state === "ready") return "green";
-  if (state === "token_only") return "accent";
+  if (state === "active") return "green";
   if (state === "no_token") return "muted";
-  if (state === "feature_without_token" || state === "token_unusable" || state === "adapter_unavailable") return "amber";
+  if (state === "budget_reached" || state === "token_unusable" || state === "adapter_unavailable") return "amber";
   return "muted";
-}
-
-function featureState(value: boolean | undefined): string {
-  return value ? "On" : "Off";
 }
 
 export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) {
@@ -103,34 +97,18 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
         {token.error && <p role="alert" data-testid="supporter-agent-error">{token.error}</p>}
       </div>
 
-      <div className="flex flex-col gap-2" data-testid="supporter-agent-features">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-[var(--ct-fg)]">Memory re-rank</span>
-            <SettingsPill tone={status?.features.memory_rerank ? "green" : "muted"}>
-              {featureState(status?.features.memory_rerank)}
-            </SettingsPill>
-          </div>
-          <Toggle
-            label="Memory re-rank"
-            checked={status?.features.memory_rerank ?? false}
-            onChange={(enabled) => void token.setFeature("memory_rerank", enabled)}
-          />
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-[var(--ct-fg)]">Tab-state</span>
-            <SettingsPill tone={status?.features.tab_state ? "green" : "muted"}>
-              {featureState(status?.features.tab_state)}
-            </SettingsPill>
-          </div>
-          <Toggle
-            label="Tab-state"
-            checked={status?.features.tab_state ?? false}
-            onChange={(enabled) => void token.setFeature("tab_state", enabled)}
-          />
-        </div>
-      </div>
+      {status && <div className="flex flex-col gap-1 text-xs text-[var(--ct-muted-fg)]" data-testid="supporter-agent-activity" role="status" aria-label="Supporter activity">
+        {status.budget.storage_ready === false && <span role="alert">Supporter budget storage needs attention.</span>}
+        <span>Calls: {status.calls_last_hour} in the last hour · {status.calls_last_day} in the last day</span>
+        <span>Last activity: {status.last_activity === null ? "None yet" : new Date(status.last_activity * 1000).toLocaleString()}</span>
+        <span>Budget: {status.calls_last_hour} / {status.budget.calls_per_hour} calls per hour</span>
+        {status.budget.free_at !== null && <span>Available again: {new Date(status.budget.free_at * 1000).toLocaleString()}</span>}
+        {(["rerank", "tab_state"] as const).map((kind) => {
+          const verdict = status.last_verdict[kind];
+          return verdict ? <span key={kind}>Last {kind === "rerank" ? "re-rank" : "tab-state"}: {verdict.label ?? "relevance scored"}{verdict.confidence === null ? "" : ` · ${Math.round(verdict.confidence * 100)}%`} · {new Date(verdict.time * 1000).toLocaleString()}</span> : null;
+        })}
+        <Button type="button" variant="ghost" size="sm" onClick={() => void token.refreshStatus()}>Refresh activity</Button>
+      </div>}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2" data-testid="supporter-agent-model-selection">
         <FormRow label="Adapter" htmlFor="supporter-agent-adapter">
@@ -143,6 +121,7 @@ export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) 
             className="w-full bg-[var(--ct-bg)] border border-[var(--ct-border)] rounded px-3 py-1.5 text-xs text-[var(--ct-fg)] focus:border-[var(--ct-accent)] focus:outline-none"
             data-testid="supporter-agent-adapter-picker"
           >
+            <option value="" disabled>Select an adapter</option>
             {adapters.map((adapter) => <option key={adapter.id} value={adapter.id}>{adapter.id}</option>)}
           </select>
         </FormRow>

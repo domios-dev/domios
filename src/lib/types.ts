@@ -767,7 +767,6 @@ export interface SupporterSources {
 }
 
 export interface MemoryRerankConfig {
-  enabled: boolean;
   docs_hybrid: boolean;
   sources: SupporterSources;
   candidates: number;
@@ -776,17 +775,13 @@ export interface MemoryRerankConfig {
   max_body_chars: number;
 }
 
-export interface SupporterTabStateConfig {
-  enabled: boolean;
-}
-
 export interface SupporterConfig {
   adapter: string;
   endpoint?: string | null;
   model?: string | null;
   deadline_ms: number;
   memory_rerank: MemoryRerankConfig;
-  tab_state: SupporterTabStateConfig;
+  calls_per_hour: number;
 }
 
 export interface MemoryConfig {

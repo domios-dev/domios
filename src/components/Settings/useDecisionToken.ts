@@ -17,12 +17,17 @@ export interface SupporterAdapter {
 }
 
 export interface SupporterStatus {
-  state: "active" | "ready" | "token_only" | "no_token" | "feature_without_token" | "token_unusable" | "adapter_unavailable";
+  state: "active" | "budget_reached" | "not_connected" | "no_token" | "token_unusable" | "adapter_unavailable";
   token_mode: SupporterTokenStatus["token_mode"];
   adapter: string;
   model: string | null;
   deadline_ms: number;
-  features: { memory_rerank: boolean; tab_state: boolean };
+  connected: boolean;
+  last_activity: number | null;
+  calls_last_hour: number;
+  calls_last_day: number;
+  last_verdict: Partial<Record<"rerank" | "tab_state", { time: number; label: string | null; confidence: number | null }>>;
+  budget: { reached: boolean; calls_per_hour: number; free_at: number | null; storage_ready: boolean };
   token: SupporterTokenStatus;
   adapter_registered: boolean;
   adapters: SupporterAdapter[];
@@ -100,19 +105,6 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
     );
   };
 
-  const setFeature = async (feature: "memory_rerank" | "tab_state", enabled: boolean) => {
-    if (busy) return;
-    await write(
-      `${apiBase}/api/supporter/features`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ [feature]: enabled }),
-      },
-      `update ${feature === "memory_rerank" ? "memory re-rank" : "tab-state"}`,
-    );
-  };
-
   const select = async (adapter: string, model?: string) => {
     if (busy) return;
     await write(
@@ -138,7 +130,6 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
     refreshStatus,
     saveToken,
     clearToken,
-    setFeature,
     select,
   };
 }
