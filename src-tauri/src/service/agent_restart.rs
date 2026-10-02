@@ -128,11 +128,11 @@ impl RestartOutcome {
         }
     }
 
-    /// Explicit session contract: resume the recorded session, or start fresh.
+    /// Reports whether the restart resumed a session or launched without one.
     pub fn session_action(&self) -> &'static str {
         match (&self.session_id, self.session_was_stale) {
-            (Some(_), false) => "resume",
-            _ => "fresh",
+            (Some(_), false) => "resumed",
+            _ => "fresh_launch",
         }
     }
 }
@@ -302,11 +302,14 @@ impl ServiceContext {
         if let Some(outcome) = self.restart_general_agent_if_target(tab_id, force)? {
             return outcome;
         }
+        if let Some(snap) = self.unverified_launch_shell_snapshot(tab_id)? {
+            return self.restart_live_agent(snap, force, grace_secs, None, true);
+        }
         if let Some(exited_tab_id) = self.absent_restart_target(tab_id)? {
             return self.recover_exited_provider(&exited_tab_id, force, false);
         }
         let snap = self.snapshot_tab_for_restart(tab_id)?;
-        self.restart_live_agent(snap, force, grace_secs, None)
+        self.restart_live_agent(snap, force, grace_secs, None, false)
     }
 
     /// Exit, tear down and relaunch a live agent. A model switch supplies its
@@ -317,6 +320,7 @@ impl ServiceContext {
         force: bool,
         grace_secs: u64,
         model_switch: Option<&model_switch::ModelSwitchLaunch>,
+        skip_graceful_exit: bool,
     ) -> Result<RestartOutcome, RestartAttemptError> {
         if let Some(reason) = evidenced_transcript_block(&snap) {
             return Err(AgentRestartError::BadRequest(reason).into());
@@ -329,7 +333,7 @@ impl ServiceContext {
             crate::session::lifecycle::LifecycleTransition::RestartRequested,
         );
 
-        let session_was_stale = !self.session_file_present(&snap);
+        let session_was_stale = snap.session_id.is_some() && !self.session_file_present(&snap);
         let mut outcome = RestartOutcome::accepted(&snap, session_was_stale, force);
         let session_present = !session_was_stale && snap.session_id.is_some();
         let relaunch = match model_switch {
@@ -360,7 +364,9 @@ impl ServiceContext {
             });
         };
 
-        self.request_graceful_exit(&snap, force, Duration::from_secs(grace_secs.max(1)));
+        if !skip_graceful_exit {
+            self.request_graceful_exit(&snap, force, Duration::from_secs(grace_secs.max(1)));
+        }
         if let Err(reason) = self.tear_down_restart_pty(&snap) {
             crate::service::task_files::release_tab(self, &snap.tab_id);
             return Err(RestartAttemptError::Failed {
@@ -429,7 +435,7 @@ impl ServiceContext {
     ) -> Result<RestartOutcome, RestartAttemptError> {
         // Only a resumed session has an id the tab must still be holding; a
         // fresh launch legitimately comes back on a new one.
-        let expected = (outcome.session_action() == "resume")
+        let expected = (outcome.session_action() == "resumed")
             .then_some(snap.session_id.as_deref())
             .flatten();
         match self.restore_caller_binding(&snap.tab_id, expected) {
@@ -462,10 +468,14 @@ impl ServiceContext {
         tab_id: &str,
         force: bool,
     ) -> Result<Option<Result<RestartOutcome, RestartAttemptError>>, AgentRestartError> {
-        let Some(target) = self.general_agent_restart_snapshot(tab_id) else {
+        let Some(mut target) = self.general_agent_restart_snapshot(tab_id) else {
             return Ok(None);
         };
-        self.require_tab_restart_liveness(&target.tab_id)?;
+        if self.is_unverified_launch_shell(&target) {
+            target.session_id = None;
+        } else {
+            self.require_tab_restart_liveness(&target.tab_id)?;
+        }
         if let Some(reason) = evidenced_transcript_block(&target) {
             return Err(AgentRestartError::BadRequest(reason));
         }
@@ -481,7 +491,8 @@ impl ServiceContext {
         }
         crate::service::task_files::release_tab(self, &target.tab_id);
 
-        let session_was_stale = !self.session_file_present(&target);
+        let session_was_stale =
+            target.session_id.is_some() && !self.session_file_present(&target);
         let outcome = RestartOutcome::accepted(&target, session_was_stale, force);
         let mux = self.mux.clone();
         let svc = Arc::new(self.clone());
@@ -578,55 +589,7 @@ impl ServiceContext {
     ) -> Result<TabRestartSnapshot, AgentRestartError> {
         self.require_tab_restart_liveness(tab_id)?;
 
-        let mut mux = self.mux.write();
-        let resolved = mux
-            .resolve_tab_id(tab_id)
-            .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
-        let tab = mux
-            .get_tab(&resolved)
-            .cloned()
-            .ok_or_else(|| AgentRestartError::NotFound(format!("Tab {} not found", tab_id)))?;
-
-        let provider = tab
-            .agent_type
-            .clone()
-            .ok_or_else(|| AgentRestartError::BadRequest("no agent in this Tab".to_string()))?;
-        let pty_id = tab
-            .pty_id
-            .clone()
-            .ok_or_else(|| AgentRestartError::BadRequest("Tab has no PTY".to_string()))?;
-
-        if self
-            .agent_registry
-            .with_provider(&provider, |_| ())
-            .is_none()
-        {
-            return Err(AgentRestartError::BadRequest(format!(
-                "unknown agent provider: {}",
-                provider
-            )));
-        }
-
-        let auto_approve = crate::service::permission_policy::configured_permission_bypass(
-            &self.agent_registry,
-            &provider,
-        )
-        .map_err(AgentRestartError::BadRequest)?
-        .is_some();
-        if let Some(live_tab) = mux.get_tab_mut(&resolved) {
-            live_tab.auto_approve = auto_approve;
-        }
-
-        Ok(TabRestartSnapshot {
-            tab_id: resolved,
-            pty_id,
-            provider,
-            session_id: tab.agent_session_id.clone(),
-            cwd: tab.cwd.clone(),
-            auto_approve,
-            role: tab.role.map(|role| format!("{role:?}")),
-            role_profile: tab.role_profile.clone(),
-        })
+        self.snapshot_tab_restart_state(tab_id)
     }
 
     fn require_tab_restart_liveness(&self, tab_id: &str) -> Result<(), AgentRestartError> {
@@ -1076,6 +1039,7 @@ pub(crate) fn screen_shows_agent_tui(
 mod exit_recovery;
 mod model_switch;
 mod relaunch;
+mod unverified_shell;
 pub(crate) use model_switch::{
     ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
 };
