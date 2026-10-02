@@ -2,6 +2,8 @@ use crate::multiplexer::types::Tab;
 use codeterm_types::decision::DecisionError;
 use serde_json::{json, Value};
 
+pub(crate) mod correlation;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LocalIdentity {
     pub(crate) launch_key: String,

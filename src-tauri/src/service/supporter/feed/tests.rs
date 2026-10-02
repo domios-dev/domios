@@ -165,3 +165,49 @@ fn supporter_feed_keeps_observation_identity_and_capped_narrative_together() {
     assert!(!projected.to_string().contains(secret));
     assert!(!projected.to_string().contains(code));
 }
+
+#[test]
+fn supporter_feed_passive_correlation_scrubs_and_rejects_wrong_point_or_identity() {
+    use crate::service::supporter_tab_state::identity::correlation::{Correlation, RecordIdentity};
+    use crate::service::supporter_tab_state::{identity, ObservationTrigger};
+    let captured = Correlation::capture(
+        None,
+        "fixture-generation",
+        ObservationTrigger::PromptCandidate,
+        3,
+        42,
+        7,
+        None,
+    );
+    let value = identity::journal(
+        "fixture-tab",
+        RecordIdentity::captured(42, &captured),
+        identity::DecisionSource::Adapter,
+        "provider_update_prompt",
+        Some(0.95),
+        "fixture-title",
+    );
+    let feed = entry(&value).unwrap();
+    assert_eq!(feed["correlation"], value["correlation"]);
+    assert_eq!(feed["decision_point"], "prompt_candidate");
+    assert_eq!(feed["observation_status"], "completed");
+    assert_eq!(feed["alternate_verdict"], json!({"status":"skipped"}));
+    for (field, supplied) in [
+        ("decision_point", json!("tab_exit")),
+        ("observation_id", json!(43)),
+        ("screen", json!("private-screen")),
+    ] {
+        let mut changed = value.clone();
+        changed["correlation"][field] = supplied;
+        let feed = entry(&changed).unwrap();
+        assert!(feed.get("correlation").is_none());
+        assert!(!feed.to_string().contains("private-screen"));
+    }
+    let mut changed = value;
+    changed["model_verdict"] =
+        json!({"status":"observed", "label":"token=private-model", "confidence":0.95});
+    changed["alternate_verdict"] = json!({"status":"skipped", "label":"private-alternate"});
+    let feed = entry(&changed).unwrap();
+    assert!(!feed.to_string().contains("private-model"));
+    assert!(!feed.to_string().contains("private-alternate"));
+}
