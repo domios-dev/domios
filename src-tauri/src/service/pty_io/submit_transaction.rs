@@ -235,7 +235,7 @@ fn initial_submit_frames(
 
 impl SubmitTransport for PtySubmitTransport<'_> {
     fn dialog_guard(&self) -> Result<(), InjectionError> {
-        provider_dialog_guard(self.svc, self.pty_id)
+        pty_owner_guard(self.svc, self.pty_id)
     }
 
     fn prepare_paste(&self, text: &str, enter: bool) {
@@ -551,36 +551,6 @@ fn injection_write_error(pty_id: &str, error: String) -> InjectionError {
     }
 }
 
-fn provider_dialog_visible(
-    svc: &ServiceContext,
-    agent_id: &str,
-    snapshot: &codeterm_plugin::tab_state::TabStateSnapshot,
-    screen: &str,
-) -> bool {
-    svc.agent_registry
-        .with_provider(agent_id, |provider| {
-            use codeterm_plugin::tab_state::TabState;
-
-            let classification = provider.classify_tab_state(snapshot);
-            let high_confidence = classification.as_ref().is_some_and(|value| {
-                value.confidence >= crate::agent::state_reactor::GLOBAL_THRESHOLD
-            });
-            let structured_choice = high_confidence
-                && classification
-                    .as_ref()
-                    .is_some_and(|value| value.state == TabState::ClarifyingQuestion)
-                && provider.parse_prompt(screen).is_some();
-            let classified_dialog = high_confidence
-                && classification
-                    .as_ref()
-                    .is_some_and(|value| value.state == TabState::UpdatePrompt);
-            structured_choice
-                || classified_dialog
-                || provider.directory_trust_prompt_response(screen).is_some()
-        })
-        .unwrap_or(false)
-}
-
 fn submit_key_readiness(
     turn_was_started_at_claim: bool,
     turn_started_now: bool,
@@ -589,56 +559,23 @@ fn submit_key_readiness(
     composer_ready || !turn_was_started_at_claim || !turn_started_now
 }
 
-fn provider_dialog_guard(svc: &ServiceContext, pty_id: &str) -> Result<(), InjectionError> {
-    let (tab_id, agent_id, session_id, cwd, owns_pty) = {
-        let mux = svc.mux.read();
-        let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            });
-        };
-        let Some(tab) = mux.get_tab(&tab_id) else {
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            });
-        };
-        (
-            tab_id,
-            tab.agent_type.clone(),
-            tab.agent_session_id.clone(),
-            tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
-            tab.pty_id.as_deref() == Some(pty_id),
-        )
-    };
-    if !owns_pty {
-        return Err(InjectionError::AgentInputUnavailable {
-            pty_id: pty_id.to_string(),
-        });
-    }
-    let Some(agent_id) = agent_id else {
-        return Ok(());
-    };
-    let screen = svc.screen_state.lock().get_screen_text(pty_id);
-    let Some(screen) = screen else {
-        return Ok(());
-    };
-    let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
-        tab_id,
-        agent_type: agent_id.clone(),
-        session_id,
-        cwd,
-        screen_text: screen.clone(),
-    };
-    if provider_dialog_visible(svc, &agent_id, &snapshot, &screen) {
-        log::info!(
-            "[submit-transaction] automatic submit stopped: provider dialog detected on current frame pty={}",
-            pty_id
-        );
-        Err(InjectionError::AgentTuiPresent {
+// Delivery never parses the screen for provider dialogs: heuristics misread
+// transcript text as modals and silently dropped the owner's messages.
+fn pty_owner_guard(svc: &ServiceContext, pty_id: &str) -> Result<(), InjectionError> {
+    let mux = svc.mux.read();
+    let owns_pty = mux
+        .tab_id_for_pty(pty_id)
+        .and_then(|tab_id| {
+            mux.get_tab(&tab_id)
+                .map(|tab| tab.pty_id.as_deref() == Some(pty_id))
+        })
+        .unwrap_or(false);
+    if owns_pty {
+        Ok(())
+    } else {
+        Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         })
-    } else {
-        Ok(())
     }
 }
 
@@ -760,7 +697,7 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
             pty_id: pty_id.to_string(),
         });
     }
-    provider_dialog_guard(svc, pty_id)?;
+    pty_owner_guard(svc, pty_id)?;
     if !claim.wait_until_active(Instant::now() + opts.submit_timeout) {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
@@ -801,7 +738,7 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
         deferred_ready_seen: Cell::new(false),
     };
     let mut key_guard = |allow_initial_key: bool, turn_was_started: bool| {
-        let (tab_id, agent_id, session_bound, session_id, cwd, owns_pty) = {
+        let (agent_id, session_bound, owns_pty) = {
             let mux = svc.mux.read();
             let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
                 return Err(InjectionError::AgentInputUnavailable {
@@ -814,11 +751,8 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
                 });
             };
             (
-                tab_id,
                 tab.agent_type.clone(),
                 tab.launch_session_authenticated(),
-                tab.agent_session_id.clone(),
-                tab.cwd.clone().or_else(|| tab.provisioned_cwd.clone()),
                 tab.pty_id.as_deref() == Some(pty_id),
             )
         };
@@ -848,18 +782,6 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
                 pty_id: pty_id.to_string(),
             });
         };
-        let snapshot = codeterm_plugin::tab_state::TabStateSnapshot {
-            tab_id: tab_id.clone(),
-            agent_type: agent_id.clone(),
-            session_id,
-            cwd,
-            screen_text: screen.clone(),
-        };
-        if provider_dialog_visible(svc, &agent_id, &snapshot, &screen) {
-            return Err(InjectionError::AgentTuiPresent {
-                pty_id: pty_id.to_string(),
-            });
-        }
         let readiness = svc.agent_registry.with_provider(&agent_id, |provider| {
             let provider_tui = provider.screen_has_tui(&screen);
             let (cursor_ready, alternate_screen) =

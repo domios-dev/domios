@@ -553,32 +553,8 @@ pub async fn send_text(
             let bytes_written = std::cell::Cell::new(false);
             let keys_only = raw_text.is_empty();
             let action_result = tokio::task::spawn_blocking(move || {
-                let provider_action_refusal = || svc.provider_action_refusal(&action_tab);
-                let action_refusal = || {
-                    let detail = provider_action_refusal()?;
-                    log::info!(
-                        "[send-actions] refused tab={} detail={}",
-                        action_tab,
-                        detail
-                    );
-                    Some(if bytes_written.get() {
-                        DeliveryError::SubmitUnconfirmed {
-                            tab: action_tab.clone(),
-                            detail,
-                        }
-                    } else {
-                        DeliveryError::TabBusyRefused {
-                            tab: action_tab.clone(),
-                            detail,
-                        }
-                    })
-                };
-                if keys_only && provider_action_refusal().is_some() {
-                    // The owner answers a provider dialog with keys; only pasted text stays refused.
-                    log::info!(
-                        "[send-actions] owner keys into provider dialog tab={}",
-                        action_tab
-                    );
+                if keys_only {
+                    // Keys alone answer whatever the screen shows, so they are written as-is.
                     return crate::service::pty_io::execute_ordered_actions(
                         "",
                         &owner_dialog_keys(&ordered),
@@ -590,48 +566,34 @@ pub async fn send_text(
                         crate::service::pty_io::await_action_deadline,
                     );
                 }
-                if let Some(error) = action_refusal() {
-                    return Err(error);
-                }
                 crate::service::pty_io::execute_ordered_actions(
                     &text,
                     &ordered,
-                    |body, enter| {
-                        if enter {
-                            if let Some(error) = action_refusal() {
-                                return Err(error);
-                            }
+                    |body, enter| match svc.send_text_input_delivery(&action_tab, body, enter, None)
+                    {
+                        Ok(()) => {
+                            bytes_written.set(bytes_written.get() || !body.is_empty() || enter);
+                            Ok(())
                         }
-                        match svc.send_text_input_delivery(&action_tab, body, enter, None) {
-                            Ok(()) => {
-                                bytes_written.set(bytes_written.get() || !body.is_empty() || enter);
-                                Ok(())
-                            }
-                            Err(error) if enter && !error.bytes_written() => {
-                                if let Some(action_error) = action_refusal() {
-                                    Err(action_error)
-                                } else if bytes_written.get() {
-                                    Err(DeliveryError::SubmitUnconfirmed {
-                                        tab: action_tab.clone(),
-                                        detail: error.to_string(),
-                                    })
-                                } else {
-                                    Err(error)
-                                }
-                            }
-                            Err(error) if bytes_written.get() && !error.bytes_written() => {
+                        Err(error) if enter && !error.bytes_written() => {
+                            if bytes_written.get() {
                                 Err(DeliveryError::SubmitUnconfirmed {
                                     tab: action_tab.clone(),
                                     detail: error.to_string(),
                                 })
+                            } else {
+                                Err(error)
                             }
-                            Err(error) => Err(error),
                         }
+                        Err(error) if bytes_written.get() && !error.bytes_written() => {
+                            Err(DeliveryError::SubmitUnconfirmed {
+                                tab: action_tab.clone(),
+                                detail: error.to_string(),
+                            })
+                        }
+                        Err(error) => Err(error),
                     },
                     |bytes| {
-                        if let Some(error) = action_refusal() {
-                            return Err(error);
-                        }
                         svc.write_raw(&action_tab, bytes)
                             .map_err(|error| {
                                 if bytes_written.get() {
