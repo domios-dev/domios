@@ -115,7 +115,7 @@ fn supporter_first_opinion_scrape_batch_journal_and_disconnect() {
     let callback = Arc::new(AtomicUsize::new(0));
     let called = callback.clone();
     let config = SupporterConfig {
-        adapter: "fixture".into(),
+        adapter: Some("fixture".into()),
         ..Default::default()
     };
     let id = tab();
@@ -371,7 +371,7 @@ fn supporter_first_opinion_scrape_journal_every_model_and_fallback_arm() {
             }),
         );
         let config = SupporterConfig {
-            adapter: "fixture".into(),
+            adapter: Some("fixture".into()),
             ..Default::default()
         };
         let fallback_calls = Arc::new(AtomicUsize::new(0));
@@ -416,7 +416,7 @@ fn supporter_first_opinion_scrape_journal_every_model_and_fallback_arm() {
 fn supporter_first_opinion_scrape_stale_capture_and_generation_never_runs_consumer() {
     let (host, calls, _) = StubHost::new("current", StubModel::answering(Ok(choice(OTHER, 0.99))));
     let config = SupporterConfig {
-        adapter: "fixture".into(),
+        adapter: Some("fixture".into()),
         ..Default::default()
     };
     assert!(
@@ -596,7 +596,7 @@ fn supporter_first_opinion_scrape_service_user_answer_and_reused_pty_new_nonce_c
             }),
         );
         let config = SupporterConfig {
-            adapter: "fixture".into(),
+            adapter: Some("fixture".into()),
             ..Default::default()
         };
         candidates::spawn(&host, &config, &id, None, |_, _, _| {
@@ -608,4 +608,61 @@ fn supporter_first_opinion_scrape_service_user_answer_and_reused_pty_new_nonce_c
         assert_eq!(host.writes.load(Ordering::SeqCst), 0);
         assert!(host.deliveries.lock().is_empty());
     }
+}
+
+#[test]
+fn supporter_first_opinion_scrape_saved_connections_never_choose_a_fallback_adapter() {
+    for active in [None, Some(String::new()), Some("unregistered".into())] {
+        let (host, calls, _) =
+            StubHost::new("opaque", StubModel::answering(Ok(choice(OTHER, 0.99))));
+        let config = SupporterConfig {
+            adapter: active,
+            connections: BTreeMap::from([(
+                "fixture".into(),
+                codeterm_types::config::SupporterConnection {
+                    model: None,
+                    endpoint: Some("http://localhost:1234".into()),
+                },
+            )]),
+            ..Default::default()
+        };
+        assert!(!super::super::observer::connected(
+            &host, &config, "fixture"
+        ));
+        assert!(
+            candidates::spawn(&host, &config, &tab(), None, |_, _, _| panic!(
+                "inactive connection consumer"
+            ))
+            .is_none()
+        );
+        assert_eq!(host.reads.load(Ordering::SeqCst), 0);
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+        assert_eq!(host.writes.load(Ordering::SeqCst), 0);
+        assert!(host.records.lock().is_empty());
+    }
+}
+
+#[test]
+fn supporter_first_opinion_scrape_unapplied_active_model_is_not_connected() {
+    let (host, calls, _) = StubHost::new("opaque", StubModel::answering(Ok(choice(OTHER, 0.99))));
+    let config = SupporterConfig {
+        adapter: Some("fixture".into()),
+        connections: BTreeMap::from([(
+            "fixture".into(),
+            codeterm_types::config::SupporterConnection {
+                model: Some("unapplied-model".into()),
+                endpoint: None,
+            },
+        )]),
+        ..Default::default()
+    };
+    assert!(
+        candidates::spawn(&host, &config, &tab(), None, |_, _, _| panic!(
+            "unapplied model consumer"
+        ))
+        .is_none()
+    );
+    assert_eq!(host.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(host.records.lock().is_empty());
 }

@@ -19,12 +19,14 @@ pub enum SupporterAction {
     Status,
     /// List registered adapters and their discovered models.
     Models,
-    /// Select a registered adapter and optionally one of its listed models.
+    /// Connect or activate an adapter, remembering its own model and token.
     Use {
         adapter: String,
         #[arg(long)]
         model: Option<String>,
     },
+    /// Remove a saved connection and its token; removing the active one stops the Supporter.
+    Disconnect { adapter: String },
     /// Manage the selected adapter's API token. The value is read from stdin
     /// only and is never printed.
     Token {

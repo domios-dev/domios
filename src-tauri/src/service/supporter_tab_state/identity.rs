@@ -43,7 +43,8 @@ impl LocalIdentity {
 pub(crate) fn supporter_policy(config: &codeterm_types::config::SupporterConfig) -> String {
     super::super::supporter::criteria_hash(
         &serde_json::to_vec(&json!({
-            "adapter": config.adapter, "endpoint": config.endpoint, "model": config.model,
+            "adapter": config.active_id(),
+            "connection": config.active_id().map(|id| config.connection(id)),
             "deadline": config.deadline_ms, "cap": config.calls_per_hour,
         }))
         .unwrap_or_default(),
@@ -159,3 +160,6 @@ impl super::super::ServiceContext {
             .is_some_and(|tab| LocalIdentity::of_tab(tab) == *expected)
     }
 }
+
+#[cfg(test)]
+mod tests;

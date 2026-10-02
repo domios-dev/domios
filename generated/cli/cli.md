@@ -2973,6 +2973,12 @@ Show a hydrated spec
 
 Configure and inspect the Supporter Agent
 
+#### `codeterm supporter disconnect`
+
+Remove a saved connection and its token; removing the active one stops the Supporter
+
+- `<adapter>`
+
 #### `codeterm supporter models`
 
 List registered adapters and their discovered models
@@ -3005,7 +3011,7 @@ Report token presence, file path and mode (never the value). Without --adapter, 
 
 #### `codeterm supporter use`
 
-Select a registered adapter and optionally one of its listed models
+Connect or activate an adapter, remembering its own model and token
 
 - `<adapter>`
 - `--model`

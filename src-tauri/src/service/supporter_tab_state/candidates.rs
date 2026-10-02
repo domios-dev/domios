@@ -144,10 +144,11 @@ pub(crate) fn spawn<H: ShadowHost>(
         + Send
         + 'static,
 ) -> Option<scheduler::ObservationHandle> {
-    if !observer::connected(host, config, &config.adapter) {
+    let adapter_id = config.active_id()?.to_owned();
+    if !observer::connected(host, config, &adapter_id) {
         return None;
     }
-    let adapter = host.supporter_models().get(&config.adapter)?;
+    let adapter = supporter::configured_model(config, &host.supporter_models())?;
     let (mut request, mut metadata) = prepare_observation(
         host,
         tab,
@@ -183,15 +184,13 @@ pub(crate) fn spawn<H: ShadowHost>(
     pending.source = identity::DecisionSource::Budget;
     scheduler::global().submit(tab.into(), false, request.questions.len(), move || {
         pending.source = identity::DecisionSource::Error;
-        if !pending.current(&config.adapter, &adapter) {
+        if !pending.current(&adapter_id, &adapter) {
             return None;
         }
         let deadline = captured_at + Duration::from_millis(config.deadline_ms.max(1)).min(DEADLINE);
         let result = if Instant::now() >= deadline {
             Err(DecisionError::Deadline)
-        } else if observer::choice_model(&pending.host.supporter_models(), &config.adapter)
-            .is_none()
-        {
+        } else if observer::choice_model(&pending.host.supporter_models(), &adapter_id).is_none() {
             Err(DecisionError::Unsupported)
         } else {
             let model = supporter::budgeted_model_with_activity(
@@ -208,7 +207,7 @@ pub(crate) fn spawn<H: ShadowHost>(
             );
             model.decide_questions(&request, deadline)
         };
-        if !pending.current(&config.adapter, &adapter) {
+        if !pending.current(&adapter_id, &adapter) {
             return None;
         }
         let (verdict, source) = select(result);
@@ -217,14 +216,14 @@ pub(crate) fn spawn<H: ShadowHost>(
         let ledgers = pending.host.ledger_snapshot(&pending.tab);
         let ticket = coordinator::global().claim(&envelope.observation, ledgers.clone())?;
         if !coordinator::global().ticket_is_current(&ticket, &ledgers)
-            || !pending.current(&config.adapter, &adapter)
+            || !pending.current(&adapter_id, &adapter)
         {
             return None;
         }
         let valid = || {
             coordinator::global()
                 .ticket_is_current(&ticket, &pending.host.ledger_snapshot(&pending.tab))
-                && pending.current(&config.adapter, &adapter)
+                && pending.current(&adapter_id, &adapter)
         };
         decided(verdict, source, &valid);
         None
@@ -234,7 +233,9 @@ pub(crate) fn spawn<H: ShadowHost>(
 impl ServiceContext {
     pub(crate) fn scrape_model_connected(&self) -> bool {
         let config = crate::config::load_config().supporter;
-        observer::connected(self, &config, &config.adapter)
+        config
+            .active_id()
+            .is_some_and(|adapter| observer::connected(self, &config, adapter))
     }
 
     pub(crate) fn observe_scrape_candidate(

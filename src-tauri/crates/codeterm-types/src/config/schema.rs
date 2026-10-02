@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use crate::notification::{NotifyDestination, NotifyLevel};
 
 pub use super::dream_hygiene::DreamHygieneConfig;
-pub use super::supporter::{MemoryRerankConfig, SupporterConfig, SupporterSources};
+pub use super::supporter::{
+    MemoryRerankConfig, SupporterConfig, SupporterConnection, SupporterSources,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]

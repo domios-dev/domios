@@ -380,7 +380,7 @@ fn choice(label: &str, confidence: f64) -> DecisionAnswer {
 
 fn enabled() -> SupporterConfig {
     SupporterConfig {
-        adapter: "fixture".into(),
+        adapter: Some("fixture".into()),
         ..SupporterConfig::default()
     }
 }
