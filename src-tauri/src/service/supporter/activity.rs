@@ -161,6 +161,10 @@ impl SupporterRuntime {
         let _ = self.append(value);
     }
 
+    pub(crate) fn sentinel_event(&self, event: Value) -> std::io::Result<()> {
+        self.append(event)
+    }
+
     fn append(&self, value: Value) -> std::io::Result<()> {
         let result = self.journal.lock().append(&value);
         if result.is_err() {

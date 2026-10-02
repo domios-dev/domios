@@ -98,6 +98,7 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
                 "plugin management is local-only — run it on the target machine",
             ),
         },
+        Commands::Sentinel { .. } => socket_unsupported("sentinels are creator-local; run on the owning machine"),
         Commands::Supporter { .. } => Transport {
             local: Local::PreMesh,
             mesh_relay: MeshRelay::Fallthrough,

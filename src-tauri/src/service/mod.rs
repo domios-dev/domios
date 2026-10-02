@@ -54,6 +54,7 @@ pub(crate) mod process_tree;
 mod prompt_resolution;
 pub(crate) mod provider_update;
 pub(crate) mod public_send_readiness;
+pub(crate) mod sentinel;
 pub(crate) mod startup_turn;
 pub(crate) mod task_files;
 #[cfg(test)]

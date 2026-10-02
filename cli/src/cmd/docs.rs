@@ -25,6 +25,11 @@ pub(crate) struct EmbeddedDoc {
 
 pub(crate) const DOCS: &[EmbeddedDoc] = &[
     doc!(
+        "SENTINELS",
+        "Bounded status probes, changed-output classification and safe transition routes",
+        "../../../prod-docs/SENTINELS.md"
+    ),
+    doc!(
         "CONFIG",
         "Application configuration reference",
         "../../../prod-docs/CONFIG.md"
