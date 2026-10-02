@@ -661,5 +661,128 @@ class WindowsCompletionTests(unittest.TestCase):
 
 
 
+class WindowsAcquisitionRegressionTests(unittest.TestCase):
+    def native_api(self, stack, *, failed=False):
+        kernel, security = Mock(), Mock()
+        security.IsValidSid.return_value = 1
+        security.GetLengthSid.return_value = 16
+        def token(process, access, output):
+            output._obj.value = 77
+            return 1
+        security.OpenProcessToken.side_effect = token
+        def information(handle, kind, buffer, length, output):
+            output._obj.value = 16
+            if buffer is not None:
+                worker_module.ctypes.c_void_p.from_buffer(buffer).value = 123
+            return int(buffer is not None)
+        security.GetTokenInformation.side_effect = information
+        backing = worker_module.ctypes.create_unicode_buffer("S-1-5-21-42")
+        def sid(pointer, output):
+            output._obj.value = 99 if failed else worker_module.ctypes.addressof(backing)
+            return int(not failed)
+        security.ConvertSidToStringSidW.side_effect = sid
+        kernel.LocalFree.return_value = 99 if failed else None
+        kernel.CloseHandle.return_value = int(not failed)
+        stack.enter_context(patch.object(worker_module.ctypes, "WinDLL", side_effect=[kernel, security], create=True))
+        api = worker_module.WindowsApi()
+        api.synthetic_backing = backing
+        return api, kernel
+
+    def test_sid_failure_survives_partial_construction_and_ambiguous_closes(self):
+        for boundary in ("api", "prepare", "identity", "worker"):
+            with self.subTest(boundary=boundary), ExitStack() as stack:
+                api, kernel = self.native_api(stack, failed=True)
+                stack.enter_context(patch.object(worker_module, "WindowsApi", return_value=api))
+                stack.enter_context(patch.object(worker_module.os, "name", "nt"))
+                stack.enter_context(patch.object(worker_module.time, "monotonic", return_value=0))
+                stack.enter_context(patch.object(worker_module, "remaining", side_effect=lambda end, *args: end))
+                stack.enter_context(patch.object(transport_module, "native_support", return_value="nt"))
+                stack.enter_context(patch.object(worker_module, "WINDOWS_ACTIVE_TRUST", None))
+                invoke = {"api": api.current_user,
+                          "prepare": lambda: transport_module.prepare_plan(b"supplied wire", 55, 60, lambda: 0),
+                          "identity": lambda: transport_module.identity_hash("supplied path", 55, lambda: 0),
+                          "worker": lambda: worker_module.load_contract({"hard_end": 60}, 55)}[boundary]
+                with self.assertRaises((WorkerError, TransportFailure)) as caught:
+                    invoke()
+                self.assertEqual(caught.exception.code, "windows_sid")
+                kernel.CloseHandle.assert_called_once()
+                self.assertEqual(kernel.CloseHandle.call_args.args[0].value, 77)
+                kernel.LocalFree.assert_called_once()
+                self.assertFalse(api.token_closed)
+                self.assertEqual(api.allocations, {99})
+                owner = getattr(caught.exception, "owner", None)
+                self.assertIsNotNone(owner)
+                owned_api = owner if owner is api else owner.api
+                self.assertIs(owned_api, api)
+                resources = api.receipt()["owned_resources"]
+                self.assertTrue(any(item["kind"] == "token" and item["identity"] == 77 and
+                                    item["release_attempted"] and not item["closed"] for item in resources))
+                self.assertTrue(any(item["kind"] == "allocation" and item["identity"] == 99 and
+                                    item["release_attempted"] and not item["closed"] for item in resources))
+
+    def test_control_inspection_failure_closes_known_handle_once_and_retains_unknown_path(self):
+        for close_failure in (False, True):
+            with self.subTest(close_failure=close_failure), ExitStack() as stack:
+                api = WindowsApiFixture()
+                guards = []
+                original_type = worker_module.WindowsTrust
+                stack.enter_context(patch.object(worker_module, "Path", PureWindowsPath))
+                stack.enter_context(patch.object(worker_module.os.path, "abspath", side_effect=lambda path: str(path)))
+                stack.enter_context(patch.object(PureWindowsPath, "exists", return_value=False, create=True))
+                stack.enter_context(patch.object(worker_module.tempfile, "gettempdir", return_value=r"C:\private"))
+                stack.enter_context(patch.object(worker_module.secrets, "token_hex", return_value="supplied-nonce"))
+                stack.enter_context(patch.object(local_module.time, "monotonic", return_value=0))
+                def guard_factory(end):
+                    guard = original_type(end, api=api, clock=lambda: 0)
+                    guards.append(guard)
+                    return guard
+                stack.enter_context(patch.object(worker_module, "WindowsTrust", side_effect=guard_factory))
+                stack.enter_context(patch.object(transport_module, "native_support", return_value="nt"))
+                prepared = Mock(closed=False, created_directory="supplied cwd")
+                prepared.receipt.return_value = {"objects": []}
+                def close_prepared(**kwargs):
+                    prepared.closed, prepared.created_directory = True, None
+                prepared.close.side_effect = close_prepared
+                plan = {"header": {"interpreter": "supplied interpreter", "interpreter_sha256": "a" * 64,
+                                   "worker_sha256": "b" * 64, "contract_sha256": "c" * 64}, "windows_guard": prepared}
+                stack.enter_context(patch.object(transport_module, "prepare_plan", return_value=plan))
+                inspect, close = api.inspect, api.close
+                def inspect_control(handle):
+                    if api.handles[handle]["path"].endswith("\\control"):
+                        raise WorkerError("windows_file_identity")
+                    return inspect(handle)
+                def close_control(handle):
+                    close(handle)
+                    if close_failure and api.handles[handle]["path"].endswith("\\control"):
+                        raise WorkerError("windows_handle_close")
+                api.inspect, api.close = inspect_control, close_control
+                report = local_module.run_trust_case("trusted_directory")
+                handles = [handle for handle, facts in api.handles.items() if facts["path"].endswith("\\control")]
+                self.assertEqual(report["error"], "windows_file_identity")
+                self.assertEqual(len(handles), 1)
+                self.assertEqual(api.closed.count(handles[0]), 1)
+                self.assertFalse(any(path.endswith("\\control") for path in api.removed))
+                self.assertNotEqual(report["oracle"], "satisfied")
+                self.assertTrue(report["fixture"]["unconfirmed_paths"])
+                if close_failure:
+                    self.assertTrue(report["cleanup_errors"])
+                    self.assertTrue(any(entry["handle"] == handles[0] and entry.get("close_attempted") and
+                                        not entry["closed"] for guard in guards for entry in guard.objects))
+
+    def test_successful_construction_and_token_settlement_remain_positive(self):
+        with ExitStack() as stack:
+            api, kernel = self.native_api(stack)
+            guard = worker_module.WindowsTrust(55, clock=lambda: 0, api=api)
+            self.assertEqual(guard.user, "S-1-5-21-42")
+            guard.close()
+            guard.close()
+            self.assertTrue(guard.closed)
+            self.assertTrue(api.token_closed)
+            self.assertEqual(api.allocations, set())
+            kernel.CloseHandle.assert_called_once()
+            kernel.LocalFree.assert_called_once()
+
+
+
 if __name__ == "__main__":
     unittest.main()
