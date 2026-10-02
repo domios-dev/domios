@@ -1,0 +1,54 @@
+# Orchestration: intent, authority and continuity
+
+A Team carries the owner's intent through a goal, specification, plan, bounded tasks, reports and review. Planner state is the source of truth. The [core](core.md#core:plans-and-orchestration) owns this responsibility; the [capability map](capabilities.md) records its entry points and delivery status.
+
+## Roles and authority
+
+The Orchestrator coordinates, dispatches and verifies. An optional Planner shapes tasks; when planning is waived, the Orchestrator does so. Adopting a plan into a Team binds its unique live Planner. Only the Orchestrator approves a plan, dispatches work, accepts, bounces or holds a task in review, and marks a task done.
+
+Workers execute bounded tasks and never spawn. Only two hierarchy levels exist. Every task carries acceptance criteria and an executable test plan; executors read its applicable plan skills. The Planner assigns the task's executor role, role guidance, one-word personality and model, or the Orchestrator does when planning is waived. Executor role, personality and role guidance are required and cannot be blanked. The spawned Worker keeps its persona name; a runtime role overlay cannot grant spawn or Team authority.
+
+A Team may attach one optional Cartographer Manager for stable product contracts and the generated map. The Cartographer is a non-anchoring singleton with no Team-management, plan or spawn authority, and is removed with its Team. [Operator and agent access](permissions.md) are separate from these role responsibilities.
+
+## Dispatch, reports and review
+
+Dispatch assigns the task and delivers its brief to the Worker. Local reassignment requires verified live binding and a fresh acknowledgement. Dispatch and respawn explicitly reopen blocked tasks while recording the previous reason; respawn preserves prior review evidence. A reopened task reuses its retained lane.
+
+Every Worker turn ends in a report. The report is pushed to the Orchestrator, including across the mesh for a remote Worker. A refused report is a diagnostic, not a recorded task report. A report is input and is never replied to; acceptance, bounce or hold is the Orchestrator's answer. A submitted result is not an accepted result.
+
+A bounce carries its reason and failing evidence. It returns work to a live Worker when continuation is available; otherwise it reopens the task as pending, preserving the note, attempt history and lane for redispatch. Ambiguous attempts refuse rather than assigning ownership by guess.
+
+## Isolated work and verification
+
+A mutating Worker writes only its own isolated lane unless the Orchestrator explicitly opts one Worker into canonical. That opt-in is exclusive, and lane acceptance waits for its verdict. Lane Workers are source-only: no builds, tests, services or executable gates. Accepted lanes land by real ancestry-preserving merges; executable proof runs only in canonical. A lane is removed only after its ancestry is proven integrated.
+
+## Pause and continuity
+
+Plan pause is the only agent-issued pause. Paused tasks are system holds; there is no separate pause command for an individual task. Reminders never resume a paused plan.
+
+A Worker that dies while holding an in-progress task produces an immediate structured event to its Orchestrator naming the task, lane, dirty state and recovery command. Recovery preserves the task's evidence and ownership boundaries. After daemon recovery, continuation follows the exact session and task-attempt evidence required by the [crash-recovery contract](core.md#core:crash-recovery-supervisor); a restored view alone does not authorize resuming work.
+
+## Team teardown
+
+Team close inventories every Team-owned task lane and reports removed, retained-with-reason and worktree-less branch entries. It removes only clean lanes whose branch tip is an ancestor of the recorded destination; unsafe lanes remain as cleanup debt. It removes the Team's members, finalizes open attempts and removes its crons. Attached Cartographer membership ends with the Team; planned [Sentinels](supporter-agent.md#sentinels) follow the same Team lifetime.
+
+Close refuses while a Team task is in progress or a Worker is working unless forced. A forced close names every killed Worker and task; a plan with unfinished tasks stays active and flagged rather than being archived. A confirmed human may close a Team, and coordinator agents may close their Team but cannot close their own workspace. A confirmed human may close a workspace containing coordinators. Workspace close uses this same Team teardown. Close refusals remain visible.
+
+## Coordination feedback
+
+With plan reminders enabled, an active execution plan with actionable work and no live task-bound Worker nudges its idle Orchestrator. Lifecycle and idle events trigger the check. The same stall episode produces one nudge; live work or a changed actionable set permits another. The nudge leaves dispatch and task decisions with the Orchestrator and never resumes a paused plan.
+
+Team utility work reports back to its coordinating agent through the message gateway. Readiness requires observed health; command completion carries its outcome and failure evidence. A failed command or an empty test selection cannot become a passing QA report. Changing the development instance being checked must not redirect the report away from its caller. These are repository toolchain responsibilities, not a new core service.
+
+```map
+anchors:
+  - core:plans-and-orchestration
+  - capability:teams-and-roles
+  - capability:task-fitted-personality
+  - capability:goals-specs-plans-and-tasks
+  - capability:dispatch-and-reports
+  - capability:review-and-decisions
+  - capability:reminders-milestones-and-pause
+  - capability:isolated-lanes
+  - capability:integration
+```
