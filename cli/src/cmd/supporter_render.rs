@@ -73,7 +73,9 @@ pub(super) fn render_token_status(token: &Value) -> String {
         return format!("{adapter}: {message}\n");
     }
     let mode = token.get("token_mode").and_then(Value::as_str);
-    let mode = mode.map(|mode| format!(" (token mode: {mode})")).unwrap_or_default();
+    let mode = mode
+        .map(|mode| format!(" (token mode: {mode})"))
+        .unwrap_or_default();
     format!("{adapter}: {}{mode}\n", token_summary(token))
 }
 

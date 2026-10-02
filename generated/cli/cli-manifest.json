@@ -12663,6 +12663,44 @@
           "subcommands": []
         },
         {
+          "name": "settings",
+          "about": "Manage a plugin's exact-host network grants",
+          "aliases": [],
+          "args": [
+            {
+              "name": "allow-host",
+              "positional": false,
+              "required": false,
+              "value_name": "HOST[:PORT]",
+              "possible_values": [],
+              "default": null,
+              "help": "Allow a host or host:port for outbound fetch (repeatable)",
+              "aliases": []
+            },
+            {
+              "name": "disallow-host",
+              "positional": false,
+              "required": false,
+              "value_name": "HOST[:PORT]",
+              "possible_values": [],
+              "default": null,
+              "help": "Remove a user-granted host or host:port (repeatable)",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "update",
           "about": "Update one installed plugin, or all plugins when id is omitted",
           "aliases": [],

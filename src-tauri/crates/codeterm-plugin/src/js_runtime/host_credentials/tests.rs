@@ -87,16 +87,19 @@ fn supporter_token_is_added_only_when_available_and_never_replaces_plugin_author
     let stored = inject_supporter_token(TokenMode::Optional, Some("stored-secret"), opts).unwrap();
     let parsed: Value = serde_json::from_str(&stored).unwrap();
     assert_eq!(parsed["headers"]["Authorization"], "Bearer stored-secret");
-    assert_eq!(inject_supporter_token(TokenMode::Optional, None, opts).unwrap(), opts);
-    assert_eq!(inject_supporter_token(TokenMode::None, Some("stored-secret"), opts).unwrap(), opts);
+    assert_eq!(
+        inject_supporter_token(TokenMode::Optional, None, opts).unwrap(),
+        opts
+    );
+    assert_eq!(
+        inject_supporter_token(TokenMode::None, Some("stored-secret"), opts).unwrap(),
+        opts
+    );
 
-    let explicit = r#"{"url":"https://example.test/path","headers":{"aUtHoRiZaTiOn":"Plugin value"}}"#;
-    let with_explicit = inject_supporter_token(
-        TokenMode::Required,
-        Some("stored-secret"),
-        explicit,
-    )
-    .unwrap();
+    let explicit =
+        r#"{"url":"https://example.test/path","headers":{"aUtHoRiZaTiOn":"Plugin value"}}"#;
+    let with_explicit =
+        inject_supporter_token(TokenMode::Required, Some("stored-secret"), explicit).unwrap();
     let parsed: Value = serde_json::from_str(&with_explicit).unwrap();
     assert_eq!(parsed["headers"]["aUtHoRiZaTiOn"], "Plugin value");
     assert_eq!(parsed["headers"].as_object().unwrap().len(), 1);

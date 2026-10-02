@@ -287,7 +287,10 @@ fn plugin_action_activity(action: &PluginManagerAction) -> Result<PluginActionAc
             })
         }
         "settings" => {
-            let id = action.plugin_id.as_deref().ok_or("settings requires pluginId")?;
+            let id = action
+                .plugin_id
+                .as_deref()
+                .ok_or("settings requires pluginId")?;
             Ok(PluginActionActivity {
                 plugin_id: id.to_string(),
                 kind: "settings",
@@ -559,8 +562,14 @@ mod tests {
         assert_eq!(
             plugin_action_args(&action).unwrap(),
             vec![
-                "plugin", "settings", "demo", "--allow-host", "api.example.test",
-                "--disallow-host", "old.example.test:8443", "--json",
+                "plugin",
+                "settings",
+                "demo",
+                "--allow-host",
+                "api.example.test",
+                "--disallow-host",
+                "old.example.test:8443",
+                "--json",
             ]
         );
     }

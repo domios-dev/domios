@@ -364,6 +364,8 @@ dependencies = [
  "libc",
  "log",
  "parking_lot",
+ "serde",
+ "serde_yaml",
  "uuid",
  "vt100",
  "winapi",

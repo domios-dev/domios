@@ -2677,6 +2677,14 @@ Remove an installed plugin
 - `<id>`
 - `--remove-data` — Also remove plugin-owned downloaded data
 
+#### `codeterm plugin settings`
+
+Manage a plugin's exact-host network grants
+
+- `--allow-host` — Allow a host or host:port for outbound fetch (repeatable)
+- `--disallow-host` — Remove a user-granted host or host:port (repeatable)
+- `<id>`
+
 #### `codeterm plugin update`
 
 Update one installed plugin, or all plugins when id is omitted
