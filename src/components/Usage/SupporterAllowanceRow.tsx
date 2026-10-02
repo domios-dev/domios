@@ -41,9 +41,7 @@ export function SupporterAllowanceRow({ api }: { api?: ApiConfig }) {
         </>
       )}
       <span>{status.calls_last_hour} Supporter requests per hour · {status.calls_last_day} per day</span>
-      <span>
-        {status.budget.calls_per_hour ? `Cap: ${status.budget.calls_per_hour} requests per hour` : "no cap"}
-      </span>
+      {status.budget.calls_per_hour ? <span>Cap: {status.budget.calls_per_hour} requests per hour</span> : null}
     </div>
   );
 }

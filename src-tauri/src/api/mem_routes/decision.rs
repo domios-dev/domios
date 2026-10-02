@@ -358,13 +358,20 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
         hits.push(session.hit);
         candidates.push(session.candidate);
     }
-    let model = crate::service::supporter::budgeted_model(
+    let model = crate::service::supporter::budgeted_model_with_activity(
         model,
         backend.supporter_runtime(),
         supporter.calls_per_hour.unwrap_or(0),
         crate::service::supporter::VerdictKind::Rerank,
         p.caller_tab_id.clone(),
         None,
+        Some(crate::service::supporter::ActivityContext::Rerank {
+            query: p.q.clone(),
+            titles: candidates
+                .iter()
+                .map(|candidate| candidate.title.clone())
+                .collect(),
+        }),
     );
     let outcome = match stage_deadline {
         Some(deadline) => run_stage_until(model, &p.q, &candidates, &stage_config, deadline),
@@ -436,6 +443,14 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
                     confidence: max_relevance,
                     action: crate::service::supporter::Action::Rerank,
                     reason: "all_candidates_scored",
+                    asked: Some(crate::service::supporter::rerank_questions(
+                        &p.q,
+                        order
+                            .first()
+                            .and_then(|index| candidates.get(*index))
+                            .map(|candidate| candidate.title.as_str()),
+                        order.len(),
+                    )),
                 });
             Ok(output)
         }

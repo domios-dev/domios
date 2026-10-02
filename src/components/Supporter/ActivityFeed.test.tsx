@@ -53,6 +53,31 @@ describe("Supporter activity", () => {
     expect(host.querySelectorAll("li")[1].getAttribute("data-kind")).toBe("recovery");
     expect(host.querySelectorAll("li")[1].getAttribute("data-fallback")).toBe("true");
   });
+  it("sentinel_verdicts_and_scheduler_decisions_are_visible_with_safe_fields", async () => {
+    entries = [
+      { ...entry("team_aabbccdd"), kind: "sentinel", label: "private-bucket", action: "decision", reason: "transition" },
+      { ...entry("team_aabbccdd"), kind: "sentinel", label: "private-bucket", action: "notify_only", reason: "model_answer" },
+      { ...entry("team_aabbccdd"), kind: "sentinel", label: "private-bucket", action: "decision", reason: "budget_exhausted", budget_reached: true, fallback: true },
+      { ...entry("team_11223344"), kind: "sentinel", action: "send", reason: "route_failed" },
+    ];
+    const host = await setup.render(<ActivityFeed api={API} teamId="team_aabbccdd" />);
+    const rows = host.querySelectorAll("ol > li");
+    expect(rows).toHaveLength(3);
+    for (const row of rows) {
+      expect(row.getAttribute("data-kind")).toBe("sentinel");
+      expect(row.getAttribute("data-confidence")).toBe("strong");
+      expect(row.textContent).toContain("sentinel · redacted · strong confidence");
+    }
+    expect(rows[0].textContent).toContain("Action: decision");
+    expect(rows[0].textContent).toContain("Reason: transition");
+    expect(rows[1].textContent).toContain("Action: notify only");
+    expect(rows[1].textContent).toContain("Reason: model answer");
+    expect(rows[2].textContent).toContain("Reason: budget exhausted");
+    expect(rows[2].textContent).toContain("Budget: reached");
+    expect(rows[2].getAttribute("data-fallback")).toBe("true");
+    expect(host.innerHTML).not.toContain("private-bucket");
+    expect(host.textContent).not.toContain("route failed");
+  });
   it("feed_redacts_screen_and_token_content", async () => {
     const screen = "private shell output\nrequest body";
     const token = "sk-private-opaque-token";
@@ -106,6 +131,61 @@ describe("Supporter activity", () => {
     const host = await setup.render(<MissionControlBoard api={API} plan={{ ...FIXTURE_PLAN, team_id: "team_aabbccdd" }} state={null} />);
     expect(host.querySelectorAll("ol > li")).toHaveLength(1);
     expect(new URL(paths[0], "http://fixture").searchParams.get("team_id")).toBe("team_aabbccdd");
+  });
+
+  it("rows_show_a_one_line_summary_and_expand_to_details", async () => {
+    entries = [{ ...entry("team_aabbccdd"), kind: "rerank", label: "ranked", action: "rerank", reason: "all_candidates_scored" }];
+    const host = await setup.render(<ActivityFeed api={API} />);
+    const row = host.querySelector("ol > li")!;
+    expect(row.querySelector("summary")?.textContent).toContain("Memory re-rank: ranked");
+    const details = row.querySelector("details")!;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain("Reason: all candidates scored");
+  });
+
+  it("summary_shows_question_to_answer", async () => {
+    const question = "supplied question";
+    const answer = "supplied answer";
+    entries = [{ ...entry("team_aabbccdd"), asked: [{ name: "fixture", question, answer }] }];
+    const host = await setup.render(<ActivityFeed api={API} />);
+    const row = host.querySelector("ol > li")!;
+    expect(row.querySelector("summary")?.textContent).toContain(`${question} → ${answer}`);
+    expect(row.querySelector("details")?.open).toBe(false);
+    expect(row.querySelector("summary")?.textContent).not.toContain("launch ready");
+  });
+
+  it("row_expands_to_each_question", async () => {
+    const asked = [
+      { name: "label", question: "fixture state question", answer: "fixture state answer" },
+      { name: "prompt_visible", question: "fixture visibility question", answer: "fixture visibility answer" },
+      { name: "safe_choice", question: "fixture safety question", answer: "fixture safety answer" },
+    ];
+    entries = [{ ...entry("team_aabbccdd"), asked }];
+    const host = await setup.render(<ActivityFeed api={API} />);
+    expect(host.querySelectorAll("ol > li")).toHaveLength(1);
+    const details = host.querySelector("details")!;
+    expect(details.open).toBe(false);
+    details.open = true;
+    details.dispatchEvent(new Event("toggle"));
+    expect(details.open).toBe(true);
+    const pairs = details.querySelector('dl[aria-label="Questions and answers"]')!;
+    expect(Array.from(pairs.querySelectorAll("dt"), (node) => node.textContent)).toEqual(asked.map((pair) => pair.question));
+    expect(Array.from(pairs.querySelectorAll("dd"), (node) => node.textContent)).toEqual(asked.map((pair) => pair.answer));
+    expect(host.querySelector("summary")?.textContent).toContain(asked[0].answer);
+    expect(host.querySelector("summary")?.textContent).not.toContain(asked[1].question);
+  });
+
+  it("details_keep_confidence_budget_fallback", async () => {
+    entries = [{ ...entry("team_aabbccdd"), confidence_band: "weak", budget_reached: true, fallback: true,
+      reason: "budget", asked: [{ name: "fixture", question: "supplied question", answer: "supplied answer" }],
+    }];
+    const host = await setup.render(<ActivityFeed api={API} />);
+    const details = host.querySelector("details")!;
+    expect(details.textContent).toContain("weak confidence");
+    expect(details.textContent).toContain("Budget: reached");
+    expect(details.textContent).toContain("deterministic fallback");
+    expect(details.textContent).toContain("Action: notify only");
+    expect(details.textContent).toContain("Reason: budget");
   });
 
 });

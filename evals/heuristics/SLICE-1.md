@@ -40,6 +40,13 @@ requires the ticket before notifying or invoking a bound responder. Existing
 local evidence and qualification checks continue to authorize actions. The
 model supplies classifications and declared option values, never raw keys.
 
+The only model wrapper constructor is `budgeted_model_with_activity`. Tab-state
+observations supply `ActivityContext::TabState` with the daemon-owned title and
+declared safe choice; the wrapper enforces their one-physical-request limit.
+Narrator's daemon-owned question/answer entries accompany observer classification,
+action and recovery records. Journal and feed projection preserve `asked`,
+`decided_by` and `observation_id` together, while scrubbing and capping narratives.
+
 Classification records carry `decided_by` and `observation_id`. Unsupported
 adapters, errors, timeout, budget, other and low confidence are explicit fallback
 arms. Queue and capture failures also receive IDs and safe journal records.
@@ -112,6 +119,11 @@ Standalone rustfmt was explicitly authorized and used only to edit owned source.
     ServiceFixture leg; macOS/Linux focused pure and adapter gates also pass.
 15. `git diff --stat origin/release/1.12.4...<lane-tip> -- src-tauri/src/service/pty_io src-tauri/src/service/chat_send_transaction.rs src-tauri/src/api/tab_routes/send.rs src-tauri/crates/codeterm-pty`
     — output is empty. Use the submitted slice tip for `<lane-tip>`.
+
+16. `./build.sh test-one app supporter_feed` and
+    `./build.sh test-one app supporter_journal` — Narrator's grouped question/answer
+    contract and the observation identity survive together through persistence
+    and feed projection; private fields are scrubbed and narrative bounds hold.
 
 Probe's live matrix is required after the classification routes land, with both
 arms bound to `decided_by` and `observation_id`. This slice does not claim a live

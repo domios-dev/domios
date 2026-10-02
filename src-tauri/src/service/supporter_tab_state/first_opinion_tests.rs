@@ -46,6 +46,11 @@ fn supporter_first_opinion_journal_decided_by_per_arm() {
             .unwrap();
         assert_eq!(decision["decided_by"], expected);
         assert!(decision["observation_id"].as_u64().unwrap() > 0);
+        assert_eq!(decision["asked"].as_array().unwrap().len(), 1);
+        assert!(decision["asked"][0]["question"]
+            .as_str()
+            .unwrap()
+            .contains("Fixture worker"));
         assert!(!text.contains("private detail"));
     }
     assert_eq!(identity::DecisionSource::Heuristic.as_str(), "heuristic");
@@ -266,7 +271,7 @@ fn supporter_first_opinion_model_first_selection_defers_the_heuristic_per_arm() 
         assert_eq!((value, source), ("heuristic", expected));
         assert_eq!(calls.load(Ordering::SeqCst), before + 1);
         let id = state::next_observation_id();
-        let journal = identity::journal("tab", id, source, OTHER, None);
+        let journal = identity::journal("tab", id, source, OTHER, None, "supplied-title");
         assert_eq!(journal["decided_by"], expected.as_str());
         assert_eq!(journal["observation_id"], id);
     }
@@ -410,4 +415,69 @@ fn supporter_first_opinion_adapter_policy_changes_invalidate_the_receipt() {
         }
         assert_ne!(before, identity::supporter_policy(&changed));
     }
+}
+
+#[test]
+fn supporter_first_opinion_narrative_and_observation_survive_journal_and_feed() {
+    let private_screen = "supplied-screen-fixture";
+    let (host, _, _) = StubHost::new(
+        private_screen,
+        StubModel::answering(Ok(choice(ERROR_LOOP, 0.95))),
+    );
+    let tab_id = tab();
+    run(&host, &tab_id, ObservationTrigger::WorkerIdle).unwrap();
+    run(&host, &tab_id, ObservationTrigger::WorkerIdle).unwrap();
+    let feed = host.runtime.feed(100, None).unwrap();
+    let observations: Vec<_> = feed
+        .iter()
+        .filter(|row| row["observation_id"].is_u64())
+        .collect();
+    assert_eq!(observations.len(), 2);
+    assert_ne!(
+        observations[0]["observation_id"],
+        observations[1]["observation_id"]
+    );
+    for row in &observations {
+        assert_eq!(row["decided_by"], "adapter");
+        assert_eq!(row["asked"].as_array().unwrap().len(), 1);
+        assert!(row["asked"][0]["question"]
+            .as_str()
+            .unwrap()
+            .contains("Fixture worker"));
+    }
+    for row in feed.iter().filter(|row| row["action"] == "strong_action") {
+        assert_eq!(row["asked"].as_array().unwrap().len(), 1);
+        assert!(row["asked"][0]["question"]
+            .as_str()
+            .unwrap()
+            .contains("Fixture worker"));
+    }
+    assert!(feed.iter().any(|row| row["action"] == "strong_action"));
+    let verdict = feed
+        .iter()
+        .find(|row| {
+            row["observation_id"].is_null()
+                && row["reason"] == "model_answer"
+                && row["asked"]
+                    .as_array()
+                    .is_some_and(|asked| asked.len() == 2)
+        })
+        .unwrap();
+    let pairs = verdict["asked"].as_array().unwrap();
+    assert_eq!(
+        pairs
+            .iter()
+            .map(|pair| pair["name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["label", "prompt_visible"]
+    );
+    for pair in pairs {
+        assert!(pair["question"]
+            .as_str()
+            .unwrap()
+            .contains("Fixture worker"));
+    }
+    assert!(!serde_json::to_string(&feed)
+        .unwrap()
+        .contains(private_screen));
 }

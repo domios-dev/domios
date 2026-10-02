@@ -27,6 +27,7 @@ impl std::fmt::Debug for EnvelopeContext {
 struct QueuedObservation<H: ShadowHost> {
     host: H,
     tab: String,
+    title: String,
     observation_id: u64,
     pending: bool,
     source: identity::DecisionSource,
@@ -42,6 +43,7 @@ impl<H: ShadowHost> Drop for QueuedObservation<H> {
                 self.source,
                 OTHER,
                 None,
+                &self.title,
             );
         }
     }
@@ -102,6 +104,7 @@ pub(crate) fn enqueue_prepared<H: ShadowHost>(
                 identity::DecisionSource::Error,
                 OTHER,
                 None,
+                &prepared.1.title,
             );
             coordinator::global().cancel_observation(&envelope.observation);
         }
@@ -117,6 +120,7 @@ pub(crate) fn enqueue_prepared<H: ShadowHost>(
     let queued = QueuedObservation {
         host: host.clone(),
         tab: tab.clone(),
+        title: prepared.1.title.clone(),
         observation_id: prepared.1.envelope.as_ref()?.observation_id,
         pending: true,
         source: identity::DecisionSource::Budget,
@@ -205,6 +209,9 @@ fn observe_guarded_inner<H: ShadowHost>(
                 identity::DecisionSource::Error,
                 OTHER,
                 None,
+                prepared
+                    .as_ref()
+                    .map_or(tab_id, |(_, metadata)| metadata.title.as_str()),
             );
             coordinator::global().cancel_observation(&envelope.observation);
         }
@@ -212,6 +219,7 @@ fn observe_guarded_inner<H: ShadowHost>(
     }
     let (request, mut metadata) =
         prepared.or_else(|| prepare_observation(host, tab_id, trigger, structural_verdict).ok())?;
+    let captured_title = metadata.title.clone();
     metadata.envelope.as_mut()?.policy_hash = Some(identity::supporter_policy(config));
     let envelope = metadata.envelope.as_ref()?;
     if !matches!(trigger, ObservationTrigger::TabExit)
@@ -226,6 +234,7 @@ fn observe_guarded_inner<H: ShadowHost>(
             identity::DecisionSource::Error,
             OTHER,
             None,
+            &captured_title,
         );
         coordinator::global().cancel_observation(&envelope.observation);
         return None;
@@ -242,6 +251,7 @@ fn observe_guarded_inner<H: ShadowHost>(
             identity::DecisionSource::Error,
             OTHER,
             None,
+            &captured_title,
         );
         return None;
     }
@@ -267,6 +277,7 @@ fn observe_guarded_inner<H: ShadowHost>(
                 },
                 OTHER,
                 None,
+                &captured_title,
             );
             coordinator::global().cancel_observation(&envelope.observation);
             return None;
@@ -281,6 +292,7 @@ fn observe_guarded_inner<H: ShadowHost>(
             identity::DecisionSource::Error,
             OTHER,
             None,
+            &captured_title,
         );
         coordinator::global().cancel_observation(&envelope.observation);
         return None;
@@ -293,6 +305,7 @@ fn observe_guarded_inner<H: ShadowHost>(
             identity::DecisionSource::Budget,
             OTHER,
             None,
+            &captured_title,
         );
         return None;
     }
@@ -304,12 +317,17 @@ fn observe_guarded_inner<H: ShadowHost>(
         deadline,
         audit_only: matches!(trigger, ObservationTrigger::TabExit),
     };
-    let model = supporter::observation_model(
+    let model = supporter::budgeted_model_with_activity(
         envelope.adapter.clone(),
         host.supporter_runtime(),
         config.calls_per_hour.unwrap_or(0),
-        tab_id.into(),
-        criteria_version(),
+        VerdictKind::TabState,
+        Some(tab_id.into()),
+        Some(criteria_version()),
+        Some(supporter::ActivityContext::TabState {
+            title: envelope.metadata.title.clone(),
+            declared_safe_choice: envelope.metadata.declared_safe_choice.clone(),
+        }),
     );
     observe(host, &model, config, adapter_id, tab_id, trigger, envelope)
 }
@@ -321,8 +339,9 @@ fn record<H: ShadowHost>(
     source: identity::DecisionSource,
     label: &str,
     confidence: Option<f64>,
+    title: &str,
 ) {
-    let event = identity::journal(tab, observation, source, label, confidence);
+    let event = identity::journal(tab, observation, source, label, confidence, title);
     let _ = host.supporter_runtime().decision(event.clone());
     host.record(&format!("[tab-state/decision] {event}"));
 }
@@ -364,6 +383,7 @@ fn observe<H: ShadowHost>(
     trigger: ObservationTrigger,
     envelope: ObservationEnvelope,
 ) -> Option<ShadowVerdict> {
+    let title = envelope.metadata.title.clone();
     if !current(host, adapter_id, tab_id, &envelope) {
         record(
             host,
@@ -372,6 +392,7 @@ fn observe<H: ShadowHost>(
             identity::DecisionSource::Error,
             OTHER,
             None,
+            &title,
         );
         coordinator::global().cancel_observation(&envelope.metadata.envelope.as_ref()?.observation);
         return None;
@@ -391,6 +412,7 @@ fn observe<H: ShadowHost>(
             identity::DecisionSource::Error,
             OTHER,
             None,
+            &title,
         );
         coordinator::global().cancel_observation(&envelope.metadata.envelope.as_ref()?.observation);
         return None;
@@ -408,6 +430,7 @@ fn observe<H: ShadowHost>(
                 source,
                 &verdict.label,
                 Some(verdict.confidence),
+                &title,
             );
             if matches!(trigger, ObservationTrigger::TabExit)
                 && metadata
@@ -498,6 +521,7 @@ fn observe<H: ShadowHost>(
                     confidence: verdict.confidence,
                     action: Action::SpawnOk,
                     reason: trigger.label(),
+                    asked: Some(supporter::tab_questions(&metadata.title, &verdict.label)),
                 });
                 host.deliver(
                     tab_id,
@@ -521,6 +545,7 @@ fn observe<H: ShadowHost>(
                         Action::WeakHint
                     },
                     reason: trigger.label(),
+                    asked: Some(supporter::tab_questions(&metadata.title, &verdict.label)),
                 });
                 host.deliver(
                     tab_id,
@@ -551,6 +576,7 @@ fn observe<H: ShadowHost>(
                 identity::DecisionSource::error(&error),
                 OTHER,
                 None,
+                &title,
             );
             coordinator::global().cancel_observation(&metadata.envelope.as_ref()?.observation);
             None
@@ -567,6 +593,7 @@ pub(crate) fn prepare_observation<H: ShadowHost>(
     let mut capture = QueuedObservation {
         host: host.clone(),
         tab: tab_id.into(),
+        title: tab_id.into(),
         observation_id: state::next_observation_id(),
         pending: true,
         source: identity::DecisionSource::Error,
@@ -582,6 +609,7 @@ pub(crate) fn prepare_observation<H: ShadowHost>(
         .and_then(Value::as_str)
         .ok_or("screen read returned no text")?;
     let mut metadata = host.metadata(tab_id, trigger, structural_verdict, text)?;
+    capture.title = metadata.title.clone();
     if local != host.local_identity(tab_id) {
         return Err("stale capture".into());
     }

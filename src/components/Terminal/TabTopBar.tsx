@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { TabModeSwitch } from "./TabModeSwitch";
-import { SupporterAllowanceRow } from "../Usage/SupporterAllowanceRow";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
 import type { ApiConfig, ModelGroup, Tab } from "../../lib/types";
@@ -218,7 +217,6 @@ export function TabTopBar({
             modelGroups={usageModelGroups}
           />
         )}
-        {!usageProvider && <SupporterAllowanceRow api={api} />}
         {entries.length > 0 && (
           <TabActionsMenu
             entries={entries}

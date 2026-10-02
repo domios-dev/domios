@@ -56,7 +56,7 @@ fn sentinel_connected_hash_gate_shared_budget_and_journal() {
     let dir = tempfile::tempdir().unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let runtime = Arc::new(SupporterRuntime::new(dir.path().join("supporter")));
-    let model = supporter::budgeted_model(
+    let model = supporter::budgeted_model_with_activity(
         Arc::new(Model {
             calls: calls.clone(),
         }),
@@ -64,6 +64,7 @@ fn sentinel_connected_hash_gate_shared_budget_and_journal() {
         1,
         VerdictKind::Sentinel,
         Some("creator".into()),
+        None,
         None,
     );
     let mut store =
@@ -120,7 +121,45 @@ fn sentinel_connected_hash_gate_shared_budget_and_journal() {
         1
     );
     assert!(!journal.contains("private probe"));
+    let decision = entries
+        .iter()
+        .find(|entry| entry["action"] == "decision" && entry["reason"] == "transition")
+        .unwrap();
+    assert_eq!(decision["asked"].as_array().unwrap().len(), 1);
+    assert!(decision["asked"][0]["question"]
+        .as_str()
+        .unwrap()
+        .contains(&job.id));
+    assert_eq!(decision["asked"][0]["answer"], "passed");
     assert_eq!(runtime.status(1)["budget"]["reached"], true);
+}
+
+#[test]
+fn sentinel_feed_scrubs_job_name_and_declared_bucket_without_probe_text() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().join("supporter"));
+    let mut store =
+        super::tests::store(dir.path(), crate::cron::clock::MockClock::starting_at(1000));
+    let mut job = super::tests::create(&mut store, "team");
+    let secret = "supplied-secret";
+    job.id = format!("CODETERM_API_TOKEN={secret}");
+    let bucket = "supplied_bucket";
+    job.buckets = vec![bucket.into()];
+    let outcome = machine::Outcome {
+        reason: "transition",
+        verdict: Some(machine::Verdict {
+            bucket: bucket.into(),
+            confidence: 0.9,
+        }),
+        route: None,
+    };
+    scheduler::record(&runtime, &job, &outcome, "decision").unwrap();
+    let feed = runtime.feed(10, None).unwrap();
+    assert_eq!(feed.len(), 1);
+    assert_eq!(feed[0]["asked"][0]["answer"], bucket.replace('_', " "));
+    assert!(!feed[0].to_string().contains(secret));
+    assert!(feed[0].get("probe").is_none());
+    assert!(feed[0].get("probe_output").is_none());
 }
 
 pub(super) fn assert_budget_skip_is_journaled() {
@@ -131,7 +170,7 @@ pub(super) fn assert_budget_skip_is_journaled() {
     runtime
         .reserve(1, VerdictKind::Sentinel, Some("creator"), 1)
         .expect("first request fits the explicit cap");
-    let model = supporter::budgeted_model(
+    let model = supporter::budgeted_model_with_activity(
         Arc::new(Model {
             calls: calls.clone(),
         }),
@@ -139,6 +178,7 @@ pub(super) fn assert_budget_skip_is_journaled() {
         1,
         VerdictKind::Sentinel,
         Some("creator".into()),
+        None,
         None,
     );
     let mut store =

@@ -149,7 +149,7 @@ The connected observer ignores confidence below 0.60. Model-only owner notificat
 
 | State | Recovery authority |
 |---|---|
-| Update prompt | Manual-update prompt, provider-declared safe option and matching model choice at 0.90; otherwise notify. Answers use the prompt option API. |
+| Update prompt | The automatic provider coordinator answers classified ManualUpdate prompts through the prompt option API with the declared safe option. Outside that coordinator, model recovery also requires a matching choice at 0.90. See `codeterm docs CONFIG`. |
 | Crashed to shell | Confirmed provider exit event, provider absent from this tab's process tree and live shell PTY; resume a verified recovery session, otherwise launch fresh. Jev is audit-only. |
 | Starting past deadline | One restart, with provider absence or a dead PTY. |
 | Error loop | One restart, then notify; provider absence or a dead PTY is required. |
@@ -162,4 +162,31 @@ Automatic model recovery remains disabled until a separate human-labelled held-o
 
 UI-created tabs suppress trust, permission and login owner notifications unless parent/spawner, team, cron, hidden-worker or General Agent ownership applies. The journal still records observations. Restored-tab notices are held for restore-wave settlement and grouped by state. Durable tab/state/launch keys prevent repeated notices across application restarts; a new launch can notify again.
 
-<!-- revision: 34 -->
+## Provider updates
+
+The production instance automatically coordinates provider updates. This replaces
+owner consent offers with an automatic update and one verbose summary. Named and
+non-production instances participate only with
+`updater.allow_provider_updates_in_non_prod = true`.
+
+A provider update check or a classified ManualUpdate prompt starts the
+provider-declared update command in a utility process with a 300-second failure
+deadline. Provider and target-version claims are durable and shared across
+instances: the command runs once per target version, with one run per provider
+at a time. Prompts use only the provider-declared safe option through the prompt
+response API; CodeTerm never chooses Update now inside an agent tab.
+
+Working tabs keep running throughout the update. On success, idle tabs,
+including the General Agent, restart through `agent restart` with verified
+session resume (`resumed`), or the pipeline's eligible `fresh_launch` fallback.
+A tab with an active turn or an in-progress task attempt stays pending until its
+next idle or task-settlement event. Each tab gets at most one automatic restart
+for that update. On command failure, no tab restarts; the owner receives one
+failure notice with bounded captured stdout and stderr. An interrupted durable
+claim is retained to prevent an unconfirmed updater from running twice.
+
+The summary reports restarted, pending and failed restart counts, and updates
+in place as pending tabs finish. Update runs, safe prompt answers and individual
+restart outcomes enter the Supporter journal.
+
+<!-- revision: 36 -->

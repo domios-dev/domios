@@ -18,14 +18,4 @@ Notify at `action_needed` or `failure` is a rare user-attention escalation, vali
 
 An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. Asking the user a question goes through this same path and never through a provider-native question or prompt tool — those render only inside this tab, so the bell, Telegram, push, and mesh never carry the question and a user who is away cannot answer it.
 
-When waiting for CI, a build, or another external status, create a sentinel
-instead of repeatedly running status checks with the agent. Discover the flags
-with `codeterm sentinel create --help`; give it a bounded `--probe`, a
-`--question`, `--buckets`, the requested cadence with `--every` (minimum 10s),
-and an end condition through `--timeout` or `--until`. Sentinels classify only
-changed output with the connected Supporter Choice adapter and shared budget;
-without one, provide `--match bucket=regex`. A confident bucket transition routes
-once through `notify` to its creator (default), `send:<tab>`, `cron:<name>`, or
-`stop`. Send targets must be agents in the same Team and workspace. Model output
-never becomes a command. Team close removes its sentinels. Read
-`codeterm docs SENTINELS` for examples and bounds.
+To wait on CI, a build, or another external status, create a sentinel instead of re-running status checks (`codeterm sentinel create --help`, `codeterm docs SENTINELS`); it classifies only changed probe output and routes once, and model output never becomes a command.

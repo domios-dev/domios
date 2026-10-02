@@ -102,6 +102,7 @@ fn supporter_status_exposes_activity_and_budget() {
             criteria_version: "fixture-version",
             state_hash: "fixture-hash",
             question_set_hash: "fixture-question-hash",
+            asked: None,
         },
     );
     let status = runtime.status(10);
@@ -175,6 +176,7 @@ fn supporter_journal_hashes_recovery_option_values_without_losing_probabilities(
             criteria_version: "criteria",
             state_hash: "state-hash",
             question_set_hash: "questions-hash",
+            asked: None,
         },
     );
     let text = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
@@ -231,6 +233,7 @@ fn supporter_feed_journal_records_team_id_at_append() {
         confidence: 0.9,
         action: super::super::Action::WeakHint,
         reason: "launch_ready",
+        asked: None,
     });
     *team.lock() = None;
     assert_eq!(lines(&dir)[0]["team_id"], "team_aabbccdd");
@@ -280,7 +283,8 @@ fn supporter_feed_failed_append_emits_no_event() {
             label: "ranked",
             confidence: 0.8,
             action: super::super::Action::Rerank,
-            reason: "all_candidates_scored"
+            reason: "all_candidates_scored",
+            asked: None,
         })
         .is_err());
     assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 0);
@@ -301,4 +305,92 @@ fn supporter_explicit_cap_can_be_removed_after_reaching_limit() {
         .reserve_at(0, VerdictKind::Rerank, None, 1, 100002)
         .unwrap();
     assert_eq!(runtime.status_at(0, 100003)["budget"]["reached"], false);
+}
+
+/// WHAT: Expose both Sentinel verdict journal paths in the owner activity feed.
+/// WHY: Hidden watch decisions make the spinal cord invisible; ORACLE: persisted verdicts survive safe projection.
+#[test]
+fn supporter_sentinel_verdict_is_visible_in_activity_feed() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    runtime.attach_visibility(Arc::new(|_| Some("team_aabbccdd".into())), Arc::new(|_| {}));
+    runtime.response(
+        VerdictKind::Sentinel,
+        Some("private-creator"),
+        &DecisionResponse {
+            answers: std::collections::BTreeMap::from([(
+                "bucket".into(),
+                DecisionAnswer::Choice {
+                    choice: "fixture-bucket".into(),
+                    probabilities: Default::default(),
+                    confidence: Some(0.95),
+                },
+            )]),
+            usage: None,
+        },
+        DecisionEvidence {
+            model_id: Some("fixture-model".into()),
+            criteria_version: "fixture-criteria",
+            state_hash: "private-state",
+            question_set_hash: "fixture-questions",
+            asked: None,
+        },
+    );
+    runtime
+        .sentinel_event(json!({
+            "time": chrono::Utc::now().timestamp(), "kind": "sentinel", "tab": "private-creator",
+            "sentinel_id": "private-watch", "action": "decision", "reason": "transition",
+            "label": "fixture-label", "confidence": 0.95, "state_hash": "private-state"
+        }))
+        .unwrap();
+    assert_eq!(lines(&dir).len(), 2);
+    let restored = SupporterRuntime::new(dir.path().into());
+    let feed = restored.feed(10, Some("team_aabbccdd")).unwrap();
+    assert_eq!(
+        feed.len(),
+        2,
+        "Persisted Sentinel verdicts disappeared from the owner feed"
+    );
+    assert_eq!(feed[0]["action"], "decision");
+    assert_eq!(feed[0]["reason"], "transition");
+    assert_eq!(feed[1]["action"], "notify_only");
+    assert_eq!(feed[1]["reason"], "model_answer");
+    assert!(restored.feed(10, Some("team_11223344")).unwrap().is_empty());
+    for entry in feed {
+        assert_eq!(entry["kind"], "sentinel");
+        assert_eq!(entry["team_id"], "team_aabbccdd");
+        assert!(entry["time"].is_i64());
+        assert_eq!(entry["label"], "redacted");
+        assert_eq!(entry["confidence_band"], "strong");
+        assert_eq!(entry["fallback"], false);
+        assert!(entry.get("tab").is_none());
+        assert!(entry.get("sentinel_id").is_none());
+        assert!(entry.get("state_hash").is_none());
+    }
+}
+
+#[test]
+fn supporter_feed_sentinel_budget_preserves_safe_fields_and_redaction() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    runtime.attach_visibility(Arc::new(|_| Some("team_aabbccdd".into())), Arc::new(|_| {}));
+    runtime
+        .reserve_at(1, VerdictKind::Sentinel, Some("private-creator"), 1, 100000)
+        .unwrap();
+    runtime.sentinel_event(json!({
+        "time": 100, "kind": "sentinel", "tab": "private-creator", "sentinel_id": "private-watch",
+        "action": "decision", "reason": "budget_exhausted", "label": "private-bucket",
+        "screen": "private-output", "token": "private-token", "state_hash": "private-state"
+    })).unwrap();
+    let restored = SupporterRuntime::new(dir.path().into());
+    assert_eq!(restored.feed(10, Some("team_11223344")).unwrap().len(), 0);
+    let feed = restored.feed(10, Some("team_aabbccdd")).unwrap();
+    assert_eq!(
+        feed,
+        vec![json!({
+            "time": 100, "team_id": "team_aabbccdd", "kind": "sentinel", "label": "redacted",
+            "confidence_band": "unknown", "action": "decision", "reason": "budget_exhausted",
+            "budget_reached": true, "fallback": true
+        })]
+    );
 }
