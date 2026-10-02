@@ -37,7 +37,10 @@ fn decision_fixture_clock_preserves_graph_and_fallback_after_persistence() {
     assert_eq!(titles(&output)[0], graph::GRAPH_TITLES[0]);
     assert_eq!(output["hits"][0]["via"], "graph");
     assert_eq!(output["supporter"]["status"], "applied");
-    assert_eq!(output["supporter"]["sources"], json!({ "recall": 4, "graph": 3 }));
+    assert_eq!(
+        output["supporter"]["sources"],
+        json!({ "recall": 4, "graph": 3 })
+    );
     let journal = std::fs::read_to_string(journal_path).unwrap();
     let rows: Vec<Value> = journal
         .lines()
@@ -55,7 +58,10 @@ fn decision_fixture_clock_preserves_graph_and_fallback_after_persistence() {
         .iter()
         .rposition(|row| row["action"] == "verdict")
         .unwrap();
-    let ranked = rows.iter().position(|row| row["action"] == "rerank").unwrap();
+    let ranked = rows
+        .iter()
+        .position(|row| row["action"] == "rerank")
+        .unwrap();
     assert!(first_spend < first_verdict && last_verdict < ranked);
     assert_eq!(persistence_events.load(Ordering::SeqCst), rows.len());
     let request = params(2);
@@ -78,7 +84,10 @@ fn decision_fixture_clock_preserves_graph_and_fallback_after_persistence() {
         )
         .unwrap();
         finish_registry(registry, completion);
-        assert_eq!(fallback["supporter"], json!({ "status": "fallback", "reason": reason }));
+        assert_eq!(
+            fallback["supporter"],
+            json!({ "status": "fallback", "reason": reason })
+        );
         assert_eq!(normalized(without_envelope(fallback)), normalized(baseline));
     }
 }
@@ -241,10 +250,22 @@ fn decision_fixture_clock_receive_orders_response_deadline_and_disconnect() {
     late.send(23).unwrap();
     drop(late);
     assert_eq!(early_result.recv_until(limit), Ok(17));
-    assert_eq!(early_result.recv_until(limit), Err(RecvTimeoutError::Timeout));
-    assert_eq!(closed_result.recv_until(limit), Err(RecvTimeoutError::Disconnected));
-    assert_eq!(late_result.recv_until(limit), Err(RecvTimeoutError::Timeout));
-    assert_eq!(late_result.recv_until(limit + Duration::from_secs(1)), Ok(23));
+    assert_eq!(
+        early_result.recv_until(limit),
+        Err(RecvTimeoutError::Timeout)
+    );
+    assert_eq!(
+        closed_result.recv_until(limit),
+        Err(RecvTimeoutError::Disconnected)
+    );
+    assert_eq!(
+        late_result.recv_until(limit),
+        Err(RecvTimeoutError::Timeout)
+    );
+    assert_eq!(
+        late_result.recv_until(limit + Duration::from_secs(1)),
+        Ok(23)
+    );
     assert_eq!(
         late_result.recv_until(limit + Duration::from_secs(1)),
         Err(RecvTimeoutError::Disconnected),
@@ -304,7 +325,10 @@ fn decision_fixture_clock_shared_state_keeps_all_candidates() {
     assert_eq!(returned_mem_ids(&output).len(), 7);
     assert_eq!(output["hits"].as_array().unwrap().len(), 7);
     assert_eq!(output["supporter"]["status"], "applied");
-    assert_eq!(output["supporter"]["sources"], json!({ "recall": 4, "graph": 3 }));
+    assert_eq!(
+        output["supporter"]["sources"],
+        json!({ "recall": 4, "graph": 3 })
+    );
     assert!(output["hits"]
         .as_array()
         .unwrap()

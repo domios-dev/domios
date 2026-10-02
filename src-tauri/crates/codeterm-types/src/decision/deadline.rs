@@ -65,7 +65,8 @@ mod fixture {
                     panic!("fixture clock cannot move backwards");
                 }
                 tick.now = now;
-                tick.listeners.retain(|listener| listener.strong_count() > 0);
+                tick.listeners
+                    .retain(|listener| listener.strong_count() > 0);
                 tick.listeners
                     .iter()
                     .filter_map(Weak::upgrade)

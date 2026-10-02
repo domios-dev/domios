@@ -390,6 +390,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| `check` passes but `check-tests` reports E0433 for `mpsc` in shared-state tests | Parent import cleanup removed the module alias inherited by child tests through `super::*` | Import `std::sync::mpsc` explicitly in the owning test module, then rerun `check-tests`. |
 | `check-tests` reports E0046 for `NativeUpdateFixture`, missing `detect_session_id` | The provider-update parity fixture omitted a required `AgentProvider` method | Implement the fixture's unused session detector with `None`, then rerun `check-tests` and the focused `parity_update` filter. |
 | Courier integration reports E0603 for `build_prompt` and E0599 for `tab_is_idle` | App tests called a plugin-private fixture helper; the update refactor removed an idle helper still used by restart and model switching | Construct `PendingPrompt` from its public fields in the test and restore the unchanged pre-merge `tab_is_idle` helper, then rerun `check-tests` and the provider-update and restart filters. |
 | `test-one cli cmd::docs` reports `CONFIG repeats a whole-document reference to TAB-LIFECYCLE` | Moving provider update documentation added a second pointer to the existing recovery reference | Combine the section pointers into one whole-document reference, bump CONFIG's revision, and rerun the docs filter. |
