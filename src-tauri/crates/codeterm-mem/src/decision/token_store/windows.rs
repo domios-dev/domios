@@ -22,6 +22,9 @@ use windows_sys::Win32::Storage::FileSystem::FILE_ALL_ACCESS;
 use windows_sys::Win32::System::SystemServices::ACCESS_ALLOWED_ACE_TYPE;
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
+// Object and container inheritance keep the directory owner-only for later files.
+const OWNER_INHERITANCE_FLAGS: u8 = 0x1 | 0x2;
+
 pub(super) fn restrict(path: &Path) -> io::Result<()> {
     let user = CurrentUser::open()?;
     let entry = access_entry(&user, GRANT_ACCESS);
@@ -64,7 +67,7 @@ pub(super) fn mode_ok(path: &Path) -> io::Result<bool> {
         }
         let allowed = unsafe { &*ace.cast::<ACCESS_ALLOWED_ACE>() };
         if u32::from(allowed.Header.AceType) != ACCESS_ALLOWED_ACE_TYPE
-            || allowed.Header.AceFlags != 0
+            || allowed.Header.AceFlags & !OWNER_INHERITANCE_FLAGS != 0
             || allowed.Mask != FILE_ALL_ACCESS
             || unsafe {
                 EqualSid(
