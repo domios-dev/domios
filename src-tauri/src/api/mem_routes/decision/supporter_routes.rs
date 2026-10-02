@@ -160,11 +160,9 @@ pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteRes
             "adapters": adapters,
         });
         let activity = crate::service::supporter::activity_status(&runtime, cfg.calls_per_hour);
-        let price = selected_model.and_then(|model| model.pricing());
+        let price = selected_model.as_ref().and_then(|model| model.pricing());
         output["spend"] = spend_snapshot(&runtime, &cfg.adapter, price.as_ref());
-        output["pricing"] = selected_model
-            .and_then(|model| model.pricing())
-            .map_or(Value::Null, |price| json!(price));
+        output["pricing"] = price.as_ref().map_or(Value::Null, |price| json!(price));
         if output["connected"] == true && activity["budget"]["reached"] == true {
             output["state"] = json!("budget_reached");
         }

@@ -13,6 +13,7 @@ mod blocking_prompt;
 mod cron_end;
 use blocking_prompt::{
     claim_run_end, end_on_blocking_prompt, should_end_on_blocking_prompt, tab_pending_prompt_kind,
+    tab_trust_has_provenance,
 };
 
 // Default idle wait is 30s (Claude can think between events while still streaming partials).
@@ -385,8 +386,15 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
         } else {
             None
         };
-        if should_end_on_blocking_prompt(&state.kind, provider_prompt_pending, pending_prompt_kind)
-        {
+        let trust_has_provenance = pending_prompt_kind
+            == Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+            && tab_trust_has_provenance(&svc, &state.tab_id);
+        if should_end_on_blocking_prompt(
+            &state.kind,
+            provider_prompt_pending,
+            pending_prompt_kind,
+            trust_has_provenance,
+        ) {
             if claim_run_end(&state) {
                 let (svc_end, state_end) = (svc.clone(), state.clone());
                 let _ = tauri::async_runtime::spawn_blocking(move || {

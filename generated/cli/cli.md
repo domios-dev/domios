@@ -1038,7 +1038,7 @@ Search across mem_items (FTS5 + hybrid scoring)
 - `<query>` — Query text
 - `--rerank` — Run LLM rerank on top candidates (requires ANTHROPIC_API_KEY). Exclusive with `--supporter on`
 - `--scope` — Restrict to global / workspace / workspace:<id>
-- `--supporter` — Force Supporter Agent memory re-rank on or off for this search; omitted, `[supporter.memory_rerank].enabled` decides
+- `--supporter` — Force Supporter Agent memory re-rank on or off for this search; omitted, a connected Supporter runs automatically
 
 #### `codeterm mem secret`
 
@@ -2940,28 +2940,13 @@ Show a hydrated spec
 
 Configure and inspect the Supporter Agent
 
-#### `codeterm supporter disable`
-
-Disable both Supporter Agent features
-
-#### `codeterm supporter enable`
-
-Enable both Supporter Agent features
-
-#### `codeterm supporter features`
-
-Read or change the feature switches
-
-- `--memory-rerank`
-- `--tab-state`
-
 #### `codeterm supporter models`
 
 List registered adapters and their discovered models
 
 #### `codeterm supporter status`
 
-Show the selected adapter, model, token state and feature state
+Show connection, activity, token state and budget
 
 #### `codeterm supporter token`
 

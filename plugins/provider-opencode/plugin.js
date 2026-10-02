@@ -24,6 +24,19 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
+// plugins/provider-shared/updatePrompt.ts
+function updatePromptSafeChoice(prompt) {
+  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
+    return null;
+  }
+  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
+  if (safe.length !== 1) return null;
+  const [label, value] = safe[0];
+  if (!value || /\bupdate\b/i.test(label)) return null;
+  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
+  return value;
+}
+
 // plugins/provider-opencode/src/helpers.ts
 var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v4";
 var CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
@@ -883,6 +896,7 @@ var plugin = {
     return discoverOpencodeGroupUsage();
   },
   // because response bytes depend on horizontal vs vertical navigation.
+  updatePromptSafeChoice,
   parsePrompt(text) {
     const screen = String(text || "");
     return parseQuestionMenuPrompt(screen) || parseModalPickerPrompt(screen) || parsePermissionPrompt(screen);
