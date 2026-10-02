@@ -515,3 +515,22 @@ fn typesafe_returns_usage_with_one_multi_request_and_credit_errors() {
         }
     }
 }
+
+#[test]
+fn typesafe_physical_request_missing_token_does_not_count() {
+    use codeterm_types::decision::physical;
+    use std::sync::{Arc, atomic::{AtomicUsize, Ordering}};
+    struct Meter(AtomicUsize);
+    impl physical::RequestObserver for Meter {
+        fn before_request(&self) -> Result<(), DecisionError> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+    let meter = Arc::new(Meter(AtomicUsize::new(0)));
+    let _scope = physical::RequestScope::enter(meter.clone());
+    let (_dir, model) = adapter("http://127.0.0.1:1/".into(), false);
+    assert!(model.supports_question_batch());
+    assert!(model.decide(&request("noul"), Instant::now() + Duration::from_secs(2)).is_err());
+    assert_eq!(meter.0.load(Ordering::SeqCst), 0);
+}
