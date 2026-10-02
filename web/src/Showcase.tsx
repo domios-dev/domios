@@ -14,7 +14,7 @@ function VideoPlayer({ clip, reducedMotion, label }: { clip: Clip; reducedMotion
       {!posterFailed && <img className="video-poster" src={clip.poster.src} alt={`${label} in Domios`} loading="lazy" onError={() => setPosterFailed(true)} />}
       {!player.failed && <video ref={player.videoRef} muted loop playsInline preload="none" aria-label={`${label} product demonstration`}
         onLoadedData={player.onLoadedData} onPlay={player.onPlay} onPause={player.onPause} onError={player.onError} onTimeUpdate={player.onTimeUpdate}>
-        {player.loaded && <><source src={clip.webm.src} type="video/webm" /><source src={clip.mp4.src} type="video/mp4" onError={player.onError} /></>}
+        {player.loaded && <><source src={clip.mp4.src} type="video/mp4" /><source src={clip.webm.src} type="video/webm" onError={player.onError} /></>}
       </video>}
       <div className="caption-region" aria-hidden="true">{clip.captions.map((caption) => <span key={`${caption.start}-${caption.text}`} className="caption-chip" data-active={player.caption === caption}>{caption.text}</span>)}</div>
     </div>
