@@ -137,3 +137,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod event_tests;
