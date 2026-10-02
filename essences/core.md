@@ -121,7 +121,7 @@ The system channel participates in the same list, diff and refresh inventory as 
 
 ### Supporter Agent {#core:supporter-agent}
 
-The judgment part of CodeTerm's spinal cord: small model decisions shared by memory, tab observation and the host's bounded reflexes. It has no Team role or task authority. The [Supporter Agent essence](supporter-agent.md) is the authoritative home for connection and fallback, Jev-first event classification and heuristic fallback, recovery, request accounting and optional caps, fan-out, spend, Sentinels, visibility, data handling and future onboarding and web use.
+The judgment part of CodeTerm's spinal cord: small model decisions shared by memory, tab observation and the host's bounded reflexes. It has no Team role or task authority. The [Supporter Agent essence](supporter-agent.md) is the authoritative home for connection and fallback, model-first event classification and heuristic fallback, recovery, request accounting and optional caps, fan-out, spend, Sentinels, visibility, data handling and future onboarding and web use.
 
 - Part of: core:service-layer.
 - Invariants: the model names the state and deterministic evidence authorizes the action; the host contract stays independent of any adapter or provider.
