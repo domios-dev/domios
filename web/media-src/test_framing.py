@@ -13,7 +13,8 @@ import trailer_scenes
 from media_contract import prepare_output
 from narration_proof import sha256
 from opening_audio import (RATE, assemble_music, choose_gain, dbfs, rms, sum_samples,
-                           shape_excerpt, verify_preservation, write_float_wav, write_pcm16_wav)
+                           shape_excerpt, verify_pcm16_tail_preserved, verify_preservation,
+                           write_float_wav, write_pcm16_wav, write_pcm16_wav_preserving_tail)
 from soundtrack_proof import enforce_balance, measure_balance
 
 
@@ -85,6 +86,24 @@ class OpeningMixTests(unittest.TestCase):
         wrong_music[2] += .0001
         with self.assertRaisesRegex(ValueError, 'after the bounded opening changed'):
             verify_preservation(voice, array('f', voice), music, wrong_music, 2)
+
+    def test_final_mix_preserves_old_pcm_tail_and_rejects_one_lsb_change(self):
+        with tempfile.TemporaryDirectory(prefix='domios-final-tail-') as temporary:
+            root = Path(temporary)
+            prior = root / 'prior.wav'
+            candidate = root / 'candidate.wav'
+            changed = root / 'changed.wav'
+            prior_samples = array('f', [.1, .2, .3, .4, .5])
+            candidate_samples = array('f', [.5, .6, .3, .4, .5])
+            write_pcm16_wav(prior, prior_samples)
+            write_pcm16_wav_preserving_tail(candidate, candidate_samples, prior, 2)
+            verify_pcm16_tail_preserved(prior, candidate, 2, len(prior_samples))
+
+            one_lsb_change = array('f', candidate_samples)
+            one_lsb_change[3] += 1 / 32768
+            write_pcm16_wav(changed, one_lsb_change)
+            with self.assertRaisesRegex(ValueError, 'Final PCM16 tail after the opening boundary changed'):
+                verify_pcm16_tail_preserved(prior, changed, 2, len(prior_samples))
 
 
 class FramingBoundaryTests(unittest.TestCase):
