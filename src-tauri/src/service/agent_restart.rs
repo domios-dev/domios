@@ -214,6 +214,13 @@ impl ServiceContext {
         }
     }
 
+    fn tab_is_idle(&self, tab_id: &str) -> bool {
+        let Some(snapshot) = self.try_snapshot_with_reconciled_status() else {
+            return false;
+        };
+        snapshot.tab_statuses.get(tab_id) == Some(&codeterm_types::pty::TabStatus::Idle)
+    }
+
     pub fn agent_restart(
         &self,
         tab_id: &str,
