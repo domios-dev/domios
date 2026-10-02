@@ -62,41 +62,14 @@ impl Journal {
     }
 
     pub(super) fn load_calls(&self) -> io::Result<CallSnapshot> {
-        match fs::read(self.path.with_file_name("calls.json")) {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
-            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(CallSnapshot::default()),
-            Err(error) => Err(error),
-        }
+        super::storage::load(&self.path.with_file_name("calls.json"))
     }
 
     pub(super) fn save_calls(&self, calls: &VecDeque<i64>, budget_reached: bool) -> io::Result<()> {
-        let Some(dir) = self.path.parent() else {
-            return Err(io::Error::other("journal directory missing"));
-        };
-        fs::create_dir_all(dir)?;
-        let target = dir.join("calls.json");
-        let temp = dir.join(format!(".calls-{}.tmp", uuid::Uuid::new_v4()));
-        let result = (|| {
-            let mut options = OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt;
-                options.mode(0o600);
-            }
-            let mut file = options.open(&temp)?;
-            serde_json::to_writer(
-                &mut file,
-                &serde_json::json!({ "calls": calls, "budget_reached": budget_reached }),
-            )?;
-            file.flush()?;
-            file.sync_all()?;
-            fs::rename(&temp, &target)
-        })();
-        if result.is_err() {
-            let _ = fs::remove_file(temp);
-        }
-        result
+        super::storage::save(
+            &self.path.with_file_name("calls.json"),
+            &serde_json::json!({ "calls": calls, "budget_reached": budget_reached }),
+        )
     }
 
     pub(super) fn append(&self, value: &Value) -> io::Result<()> {

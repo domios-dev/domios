@@ -3,8 +3,9 @@ use std::time::Instant;
 
 use codeterm_types::config::SupporterConfig;
 use codeterm_types::decision::{
-    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPrimitives,
-    DecisionRequest, TokenMode,
+    DecisionAnswer, DecisionError, DecisionModel, DecisionModelInfo, DecisionPricing,
+    DecisionPrimitives, DecisionQuestionsRequest, DecisionRequest, DecisionResponse,
+    NamedDecisionQuestion, TokenMode,
 };
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -14,6 +15,8 @@ use crate::mem::decision::token_store::TokenStore;
 
 mod activity;
 mod journal;
+mod spend;
+mod storage;
 
 pub(crate) use activity::SupporterRuntime;
 pub(crate) use journal::{Action, ActionRecord, VerdictKind};
@@ -57,6 +60,33 @@ pub(crate) fn runtime() -> Arc<SupporterRuntime> {
         .clone()
 }
 
+pub(crate) fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<SupporterRuntime> {
+    let runtime = runtime();
+    let svc = svc.clone();
+    runtime.attach_alert_sink(Arc::new(move |alert| {
+        svc.create_notification_ext(
+            alert.title,
+            None,
+            Some(
+                if alert.level == codeterm_types::notification::NotifyLevel::Failure {
+                    "error"
+                } else {
+                    "warning"
+                },
+            ),
+            None,
+            None,
+            super::notification::NotificationOrigin::default(),
+            super::notification::PushIntent {
+                level: Some(alert.level),
+                event_key: Some(alert.event_key),
+            },
+            None,
+        );
+    }));
+    runtime
+}
+
 pub(crate) fn criteria_hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
@@ -67,7 +97,7 @@ pub(crate) fn budgeted_model(
     cap: usize,
     kind: VerdictKind,
     tab: Option<String>,
-    criteria_version: String,
+    criteria_version: Option<String>,
 ) -> Arc<dyn DecisionModel> {
     Arc::new(BudgetedModel {
         model,
@@ -85,7 +115,7 @@ struct BudgetedModel {
     cap: usize,
     kind: VerdictKind,
     tab: Option<String>,
-    criteria_version: String,
+    criteria_version: Option<String>,
 }
 
 impl DecisionModel for BudgetedModel {
@@ -98,6 +128,9 @@ impl DecisionModel for BudgetedModel {
     fn model_id(&self) -> Option<String> {
         self.model.model_id()
     }
+    fn pricing(&self) -> Option<DecisionPricing> {
+        self.model.pricing()
+    }
     fn primitives(&self) -> DecisionPrimitives {
         self.model.primitives()
     }
@@ -108,29 +141,82 @@ impl DecisionModel for BudgetedModel {
         self.model.select_model(id)
     }
 
+    fn decide_questions(
+        &self,
+        request: &DecisionQuestionsRequest,
+        deadline: Instant,
+    ) -> Result<DecisionResponse, DecisionError> {
+        if Instant::now() >= deadline {
+            return Err(DecisionError::Deadline);
+        }
+        if request.questions.is_empty() {
+            return Err(DecisionError::Parse("empty_questions".into()));
+        }
+        self.runtime.reserve_request(
+            self.cap,
+            self.kind,
+            self.tab.as_deref(),
+            request.questions.len(),
+            self.model.id(),
+        )?;
+        let price = self.model.pricing();
+        let model_id = self.model.model_id();
+        let response = self
+            .model
+            .decide_questions(request, deadline)
+            .map_err(|error| {
+                if error == DecisionError::Http(402) {
+                    DecisionError::CreditExhausted
+                } else {
+                    error
+                }
+            });
+        self.runtime
+            .record_spend(self.model.id(), price.as_ref(), &response);
+        let response = response?;
+        if Instant::now() >= deadline {
+            return Err(DecisionError::Deadline);
+        }
+        request.validate_answers(&response.answers)?;
+        let question_set_hash =
+            criteria_hash(&serde_json::to_vec(&request.questions).unwrap_or_default());
+        let criteria_version = self
+            .criteria_version
+            .as_deref()
+            .unwrap_or(&question_set_hash);
+        self.runtime.response(
+            self.kind,
+            self.tab.as_deref(),
+            &response,
+            activity::DecisionEvidence {
+                model_id,
+                criteria_version,
+                state_hash: &criteria_hash(&serde_json::to_vec(&request.state).unwrap_or_default()),
+                question_set_hash: &question_set_hash,
+            },
+        );
+        Ok(response)
+    }
+
     fn decide(
         &self,
         request: &DecisionRequest,
         deadline: Instant,
     ) -> Result<DecisionAnswer, DecisionError> {
-        if Instant::now() >= deadline {
-            return Err(DecisionError::Deadline);
-        }
-        self.runtime
-            .reserve(self.cap, self.kind, self.tab.as_deref(), 1)?;
-        let answer = self.model.decide(request, deadline);
-        if let Ok(answer) = &answer {
-            let state_bytes = serde_json::to_vec(&request.state).unwrap_or_default();
-            self.runtime.verdict(
-                self.kind,
-                self.tab.as_deref(),
-                answer,
-                self.model.model_id(),
-                &self.criteria_version,
-                &criteria_hash(&state_bytes),
-            );
-        }
-        answer
+        let request = DecisionQuestionsRequest {
+            state: request.state.clone(),
+            questions: std::collections::BTreeMap::from([(
+                "q".into(),
+                NamedDecisionQuestion {
+                    instructions: request.instructions.clone(),
+                    question: request.question.clone(),
+                },
+            )]),
+        };
+        self.decide_questions(&request, deadline)?
+            .answers
+            .remove("q")
+            .ok_or_else(|| DecisionError::Parse("missing_answer".into()))
     }
 }
 
@@ -138,5 +224,7 @@ pub(crate) fn activity_status(runtime: &SupporterRuntime, cap: usize) -> Value {
     runtime.status(cap)
 }
 
+#[cfg(test)]
+mod requests_tests;
 #[cfg(test)]
 mod tests;

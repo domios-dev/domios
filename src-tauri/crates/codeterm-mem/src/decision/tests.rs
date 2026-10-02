@@ -96,6 +96,7 @@ fn noul_by_index(ps: Vec<f64>) -> Arc<StubModel> {
 
 fn cfg() -> StageConfig {
     StageConfig {
+        request_mode: codeterm_types::config::RerankRequestMode::PerCandidate,
         max_concurrency: 4,
         deadline: Duration::from_secs(10),
         low_confidence_threshold: 0.15,
@@ -294,6 +295,7 @@ fn decision_stage_deadline_falls_back_without_joining() {
         Ok(DecisionAnswer::Noul { p: 0.5 })
     });
     let config = StageConfig {
+        request_mode: codeterm_types::config::RerankRequestMode::PerCandidate,
         deadline: Duration::from_millis(200),
         ..cfg()
     };
@@ -330,6 +332,7 @@ fn decision_stage_concurrency_is_bounded() {
         })
     });
     let config = StageConfig {
+        request_mode: codeterm_types::config::RerankRequestMode::PerCandidate,
         max_concurrency: 2,
         ..cfg()
     };
@@ -380,6 +383,7 @@ fn decision_stage_body_capped_on_char_boundary() {
         Ok(DecisionAnswer::Noul { p: 0.5 })
     });
     let config = StageConfig {
+        request_mode: codeterm_types::config::RerankRequestMode::PerCandidate,
         max_body_chars: cap,
         ..cfg()
     };

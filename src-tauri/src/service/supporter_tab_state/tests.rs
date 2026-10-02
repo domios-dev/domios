@@ -4,7 +4,9 @@ use std::hash::{Hash, Hasher};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::service::pty_io::SendBatchItem;
-use codeterm_types::decision::{DecisionError, DecisionPrimitives, TokenMode};
+use codeterm_types::decision::{
+    DecisionError, DecisionPrimitives, DecisionRequest, DecisionResponse, TokenMode,
+};
 use parking_lot::Mutex;
 
 static NEXT_TAB: AtomicUsize = AtomicUsize::new(0);
@@ -71,7 +73,11 @@ impl StubHost {
     fn new(
         screen: &str,
         model: StubModel,
-    ) -> (Self, Arc<AtomicUsize>, Arc<Mutex<Option<DecisionRequest>>>) {
+    ) -> (
+        Self,
+        Arc<AtomicUsize>,
+        Arc<Mutex<Option<DecisionQuestionsRequest>>>,
+    ) {
         let calls = model.calls.clone();
         let seen = model.seen.clone();
         let registry = SupporterRegistry::new();
@@ -244,7 +250,7 @@ impl TabTransport for StubTransport<'_> {
 struct StubModel {
     answer: Result<DecisionAnswer, DecisionError>,
     calls: Arc<AtomicUsize>,
-    seen: Arc<Mutex<Option<DecisionRequest>>>,
+    seen: Arc<Mutex<Option<DecisionQuestionsRequest>>>,
     on_decide: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
@@ -281,7 +287,7 @@ impl DecisionModel for StubModel {
     fn primitives(&self) -> DecisionPrimitives {
         DecisionPrimitives {
             choice: true,
-            noul: false,
+            noul: true,
             score: false,
         }
     }
@@ -291,12 +297,27 @@ impl DecisionModel for StubModel {
         request: &DecisionRequest,
         _deadline: Instant,
     ) -> Result<DecisionAnswer, DecisionError> {
+        let _ = request;
+        self.answer.clone()
+    }
+
+    fn decide_questions(
+        &self,
+        request: &DecisionQuestionsRequest,
+        _: Instant,
+    ) -> Result<DecisionResponse, DecisionError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         *self.seen.lock() = Some(request.clone());
         if let Some(on_decide) = &self.on_decide {
             on_decide();
         }
-        self.answer.clone()
+        Ok(DecisionResponse {
+            answers: BTreeMap::from([
+                ("label".into(), self.answer.clone()?),
+                ("prompt_visible".into(), DecisionAnswer::Noul { p: 0.0 }),
+            ]),
+            usage: None,
+        })
     }
 }
 

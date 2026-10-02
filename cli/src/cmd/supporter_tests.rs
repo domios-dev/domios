@@ -157,3 +157,17 @@ fn supporter_ready_status_renders_optional_token_mode_without_a_token() {
     assert!(text.contains("Token mode: optional"));
     assert!(text.contains("No token"));
 }
+
+#[test]
+fn supporter_status_renders_usage_balance_and_credit_exhaustion() {
+    let text = render_status(&json!({ "state": "credit_exhausted", "spend": {
+        "today": { "input_tokens": 123, "output_tokens": 45, "estimated_usd": 0.042 },
+        "month": { "input_tokens": 246, "output_tokens": 90, "estimated_usd": 0.084 },
+        "balance_usd": 5, "remaining_usd": 4.958, "exhausted": true, "next_probe_at": 1700003600
+    }}));
+    assert!(text.contains("Balance exhausted"));
+    assert!(text.contains("123 input / 45 output tokens"));
+    assert!(text.contains("estimated USD 0.042"));
+    assert!(text.contains("remaining USD: 4.958 (estimate)"));
+    assert!(text.contains("next request probe after 1700003600"));
+}

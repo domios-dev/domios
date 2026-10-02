@@ -348,3 +348,160 @@ fn typesafe_models_returns_configured_model() {
         }]
     );
 }
+
+fn multi_request() -> DecisionQuestionsRequest {
+    DecisionQuestionsRequest {
+        state: serde_json::json!({ "fixture": "shared" }),
+        questions: BTreeMap::from([
+            (
+                "label".into(),
+                NamedDecisionQuestion {
+                    instructions: "opaque-label-instructions".into(),
+                    question: DecisionQuestion::Choice {
+                        options: BTreeMap::from([
+                            ("yes".into(), "opaque-yes".into()),
+                            ("no".into(), "opaque-no".into()),
+                        ]),
+                    },
+                },
+            ),
+            (
+                "prompt_visible".into(),
+                NamedDecisionQuestion {
+                    instructions: "opaque-prompt-instructions".into(),
+                    question: DecisionQuestion::Noul { criteria: None },
+                },
+            ),
+            (
+                "relevance".into(),
+                NamedDecisionQuestion {
+                    instructions: "opaque-score-instructions".into(),
+                    question: DecisionQuestion::Score {
+                        levels: vec!["opaque-low".into(), "opaque-high".into()],
+                    },
+                },
+            ),
+        ]),
+    }
+}
+
+#[test]
+fn typesafe_multi_question_request_matches_fixture() {
+    assert_eq!(
+        TypeSafeAdapter::build_questions_body("jev-latest", &multi_request()),
+        fixture(include_str!("../fixtures/request_multi.json"))
+    );
+}
+
+#[test]
+fn typesafe_usage_parsing_and_declared_pricing() {
+    assert_eq!(
+        TypeSafeAdapter::parse_usage(
+            &serde_json::json!({ "usage": { "input_tokens": 1200, "output_tokens": 15 } })
+        )
+        .unwrap(),
+        Some(DecisionUsage {
+            input_tokens: 1200,
+            output_tokens: 15
+        })
+    );
+    assert_eq!(
+        TypeSafeAdapter::parse_usage(&serde_json::json!({})).unwrap(),
+        None
+    );
+    for invalid in [
+        serde_json::json!({ "input_tokens": -1, "output_tokens": 3 }),
+        serde_json::json!({ "input_tokens": 1 }),
+    ] {
+        assert!(TypeSafeAdapter::parse_usage(&serde_json::json!({ "usage": invalid })).is_err());
+    }
+    let (_dir, adapter) = adapter("http://127.0.0.1:1".into(), false);
+    let price = adapter.pricing().unwrap();
+    assert_eq!(
+        price.estimated_usd(DecisionUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000
+        }),
+        Some(0.042)
+    );
+}
+
+#[test]
+fn typesafe_multi_answer_is_named_and_all_or_nothing() {
+    let request = multi_request();
+    let mut body = serde_json::json!({ "answers": {
+        "label": { "type": "choice", "choice": "yes", "probabilities": { "yes": 0.8, "no": 0.2 } },
+        "prompt_visible": { "type": "noul", "noul": 0.7 },
+        "relevance": { "type": "score", "score": 1, "probabilities": { "0": 0.2, "1": 0.8 } }
+    }});
+    let answers = TypeSafeAdapter::parse_answers(&request, &body).unwrap();
+    assert_eq!(answers.len(), 3);
+    assert_eq!(answers["prompt_visible"], DecisionAnswer::Noul { p: 0.7 });
+    body["answers"].as_object_mut().unwrap().remove("label");
+    assert!(TypeSafeAdapter::parse_answers(&request, &body).is_err());
+    body["answers"]["unexpected"] = serde_json::json!({ "type": "noul", "noul": 0.9 });
+    assert!(TypeSafeAdapter::parse_answers(&request, &body).is_err());
+}
+
+#[test]
+fn typesafe_returns_usage_with_one_multi_request_and_credit_errors() {
+    let request = DecisionQuestionsRequest {
+        state: serde_json::json!("shared"),
+        questions: BTreeMap::from([
+            (
+                "first".into(),
+                NamedDecisionQuestion {
+                    instructions: "a".into(),
+                    question: question("noul"),
+                },
+            ),
+            (
+                "second".into(),
+                NamedDecisionQuestion {
+                    instructions: "b".into(),
+                    question: question("noul"),
+                },
+            ),
+        ]),
+    };
+    for (status, body) in [
+        (
+            200,
+            serde_json::json!({ "answers": { "first": { "type": "noul", "noul": 0.8 }, "second": { "type": "noul", "noul": 0.4 } }, "usage": { "input_tokens": 123, "output_tokens": 45 } }),
+        ),
+        (402, serde_json::json!({})),
+        (
+            403,
+            serde_json::json!({ "error": { "code": "out_of_credits" } }),
+        ),
+        (
+            200,
+            serde_json::json!({ "error": { "code": "insufficient_credits" } }),
+        ),
+    ] {
+        let credit_error = status == 402 || body.get("error").is_some();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let (_dir, adapter) = adapter(format!("http://{}/", listener.local_addr().unwrap()), true);
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            read_head(&mut stream);
+            let body = body.to_string();
+            write!(stream, "HTTP/1.1 {status} fixture\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+        });
+        let response = adapter.decide_questions(&request, Instant::now() + Duration::from_secs(2));
+        server.join().unwrap();
+        if credit_error {
+            assert_eq!(response, Err(DecisionError::CreditExhausted));
+        } else {
+            let response = response.unwrap();
+            assert_eq!(response.answers.len(), 2);
+            assert_eq!(
+                response.usage,
+                Some(DecisionUsage {
+                    input_tokens: 123,
+                    output_tokens: 45
+                })
+            );
+        }
+    }
+}

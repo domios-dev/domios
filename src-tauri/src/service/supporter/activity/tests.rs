@@ -87,13 +87,22 @@ fn supporter_status_exposes_activity_and_budget() {
     assert_eq!(empty["calls_last_day"], 0);
     assert_eq!(empty["last_activity"], Value::Null);
     runtime.reserve(10, VerdictKind::Rerank, None, 1).unwrap();
-    runtime.verdict(
+    runtime.response(
         VerdictKind::Rerank,
         None,
-        &DecisionAnswer::Noul { p: 0.8 },
-        Some("fixture-model".into()),
-        "fixture-version",
-        "fixture-hash",
+        &DecisionResponse {
+            answers: std::collections::BTreeMap::from([(
+                "q".into(),
+                DecisionAnswer::Noul { p: 0.8 },
+            )]),
+            usage: None,
+        },
+        DecisionEvidence {
+            model_id: Some("fixture-model".into()),
+            criteria_version: "fixture-version",
+            state_hash: "fixture-hash",
+            question_set_hash: "fixture-question-hash",
+        },
     );
     let status = runtime.status(10);
     assert_eq!(status["calls_last_hour"], 1);
@@ -128,4 +137,54 @@ fn supporter_budget_survives_runtime_restart() {
         .reserve_at(1, VerdictKind::TabState, Some("tab"), 1, 3700000)
         .unwrap();
     assert_eq!(restarted.status_at(1, 3700000)["calls_last_day"], 2);
+}
+
+#[test]
+fn supporter_journal_hashes_recovery_option_values_without_losing_probabilities() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    runtime.response(
+        VerdictKind::TabState,
+        None,
+        &DecisionResponse {
+            answers: std::collections::BTreeMap::from([
+                (
+                    "label".into(),
+                    DecisionAnswer::Choice {
+                        choice: "other".into(),
+                        probabilities: std::collections::BTreeMap::from([("other".into(), 0.9)]),
+                        confidence: Some(0.9),
+                    },
+                ),
+                (
+                    "safe_choice".into(),
+                    DecisionAnswer::Choice {
+                        choice: "private raw screen option".into(),
+                        probabilities: std::collections::BTreeMap::from([
+                            ("private raw screen option".into(), 0.8),
+                            ("abstain".into(), 0.2),
+                        ]),
+                        confidence: Some(0.8),
+                    },
+                ),
+            ]),
+            usage: None,
+        },
+        DecisionEvidence {
+            model_id: Some("reported".into()),
+            criteria_version: "criteria",
+            state_hash: "state-hash",
+            question_set_hash: "questions-hash",
+        },
+    );
+    let text = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
+    assert!(!text.contains("private raw screen option"));
+    let value: Value = serde_json::from_str(text.trim()).unwrap();
+    let hash = super::super::criteria_hash(b"private raw screen option");
+    assert_eq!(value["distribution"]["safe_choice"]["choice"], hash);
+    assert_eq!(
+        value["distribution"]["safe_choice"]["probabilities"][hash],
+        0.8
+    );
+    assert_eq!(value["distribution"]["label"]["choice"], "other");
 }

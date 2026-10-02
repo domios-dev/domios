@@ -61,6 +61,7 @@ fn registered_adapters(models: &SupporterRegistry) -> Vec<Value> {
                     "score": primitives.score,
                 },
                 "models": model.models(),
+                "pricing": model.pricing(),
             }))
         })
         .collect()
@@ -174,6 +175,9 @@ pub(crate) trait DecisionBackend: RecallBackend {
 }
 
 impl DecisionBackend for ServiceContext {
+    fn supporter_runtime(&self) -> Arc<crate::service::supporter::SupporterRuntime> {
+        crate::service::supporter::runtime_with_notifications(self)
+    }
     fn recall_untouched(
         &self,
         q: &SearchQuery,
@@ -350,22 +354,13 @@ pub(crate) fn decision_search<B: DecisionBackend + ?Sized>(
         hits.push(session.hit);
         candidates.push(session.candidate);
     }
-    let version = crate::service::supporter::criteria_hash(
-        format!(
-            "{}|{}|{:?}",
-            crate::mem::decision::rerank::NOUL_INSTRUCTIONS_TEMPLATE,
-            crate::mem::decision::rerank::SCORE_INSTRUCTIONS_TEMPLATE,
-            crate::mem::decision::rerank::SCORE_LEVELS
-        )
-        .as_bytes(),
-    );
     let model = crate::service::supporter::budgeted_model(
         model,
         backend.supporter_runtime(),
         supporter.calls_per_hour,
         crate::service::supporter::VerdictKind::Rerank,
         p.caller_tab_id.clone(),
-        version,
+        None,
     );
     let outcome = match stage_deadline {
         Some(deadline) => run_stage_until(model, &p.q, &candidates, &stage_config, deadline),
@@ -492,6 +487,7 @@ fn fallback<B: DecisionBackend + ?Sized>(
 
 fn stage_config(cfg: &MemoryRerankConfig, deadline_ms: u64) -> StageConfig {
     StageConfig {
+        request_mode: cfg.request_mode,
         max_concurrency: cfg.max_concurrency,
         deadline: Duration::from_millis(deadline_ms),
         low_confidence_threshold: cfg.low_confidence_threshold,

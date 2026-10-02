@@ -158,7 +158,7 @@ The bundled `mem-dreaming-auto` cron runs the dreamer at `0 6 * * *` (6 AM local
 
 ### Supporter Agent
 
-The Supporter Agent runs memory re-rank and tab-state whenever its selected adapter is connected. Memory search can force re-rank with `supporter=true|false`; adapter failures return plain recall with a `supporter.status = "fallback"` envelope. The shared `codeterm supporter status` and `/api/supporter/status` response reports the selected adapter and model, token status, `connected`, `last_activity`, `calls_last_hour`, `calls_last_day`, `last_verdict`, and `budget` (reached, calls_per_hour, free_at). The token is set in Settings > Agents > Supporter Agent or through bearer-only `/api/supporter/token`, and is stored under `<data dir>/supporter/`, never in `config.toml`.
+The Supporter Agent runs memory re-rank and tab-state whenever its selected adapter is connected. Memory search can force re-rank with `supporter=true|false`; adapter failures return plain recall with a `supporter.status = "fallback"` envelope. The shared `codeterm supporter status` and `/api/supporter/status` response reports the selected adapter and model, token status, `connected`, `last_activity`, `calls_last_hour`, `calls_last_day`, `last_verdict`, and `budget` (reached, calls_per_hour, free_at). `spend` holds today/month/since-balance token and estimated USD totals, balance/remaining estimates, exhaustion and next probe time; prices are adapter-declared, never assumed for unpriced adapters. The token is set in Settings > Agents > Supporter Agent or through bearer-only `/api/supporter/token`, and is stored under `<data dir>/supporter/`, never in `config.toml`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -173,7 +173,8 @@ The Supporter Agent runs memory re-rank and tab-state whenever its selected adap
 | `supporter.memory_rerank.sources.docs` | `usize` | `3` | Extra embedded doc sections and CLI command sections (`0..=10`), selected by keyword match; `0` disables docs candidates. |
 | `supporter.memory_rerank.sources.sessions` | `usize` | `0` | Top past-session snippets from the in-process sessions search (`0..=5`); skipped on error or deadline, and `0` disables session candidates. |
 | `supporter.memory_rerank.candidates` | `usize` | `50` | Maximum pooled candidates (`1..=50`). |
-| `supporter.memory_rerank.max_concurrency` | `usize` | `16` | Parallel adapter calls (`1..=32`). |
+| `supporter.memory_rerank.max_concurrency` | `usize` | `16` | Parallel per-candidate calls (`1..=32`); shared-state uses one call. |
+| `supporter.memory_rerank.request_mode` | enum | `per_candidate` | Diagnostic A/B path: `per_candidate` or `shared_state`; promote fan-out only after live quality qualification. |
 | `supporter.memory_rerank.low_confidence_threshold` | `f64` | `0.15` | `low_confidence` is reported when the best relevance is below this (`0..=1`). |
 | `supporter.memory_rerank.max_body_chars` | `usize` | `2000` | Maximum body characters sent to the adapter (`256..=100000`); titles are included without truncation. |
 
@@ -185,6 +186,7 @@ deadline_ms = 3000
 calls_per_hour = 600
 
 [supporter.memory_rerank]
+request_mode = "per_candidate"
 docs_hybrid = false
 
 [supporter.memory_rerank.sources]
@@ -194,6 +196,8 @@ docs = 3
 sessions = 0
 
 ```
+
+The 600/hour cap counts requests, not questions: shared-state searches and multi-question tab observations each spend one slot. Settings > Agents accepts an optional balance after a top-up. Usage and spend counters persist across restarts. Below-$1 alerts dedupe per balance entry; HTTP 402 or explicit credit exhaustion enters `credit_exhausted`, writes one failure alert and serves deterministic fallback. A new balance or successful request re-arms it; hourly probes are triggered by normal requests, never a timer.
 
 ### Librarian
 
@@ -228,4 +232,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Both builds can run simultaneously.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

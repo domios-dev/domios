@@ -1,6 +1,7 @@
 import unittest
 import json
 import tempfile
+from unittest.mock import patch
 from pathlib import Path
 
 import capture_screen
@@ -11,6 +12,7 @@ from run import (
     aggregate_precision,
     band_for_confidence,
     coverage_gaps,
+    call_jev,
     gate_verdict,
     read_dataset,
     request_body,
@@ -180,6 +182,33 @@ class BandMathTests(unittest.TestCase):
 
         self.assertEqual(screen_only["state"], "screen text")
         self.assertEqual(contextual["state"], {"screen": "screen text", "context": context})
+        self.assertEqual(set(screen_only["questions"]), {"q"})
+        self.assertEqual(set(contextual["questions"]), {"label", "prompt_visible"})
+        self.assertEqual(contextual["questions"]["label"]["criteria"], criteria)
+        self.assertEqual(contextual["questions"]["prompt_visible"]["type"], "noul")
+
+    def test_context_answers_require_both_named_answers(self):
+        payload = {"answers": {
+            "label": {"type": "choice", "choice": "ready_idle", "probabilities": {"ready_idle": 0.95}},
+            "prompt_visible": {"type": "noul", "noul": 0.1},
+        }}
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                with patch("run.urllib.request.urlopen") as urlopen:
+                    if missing:
+                        del payload["answers"]["prompt_visible"]
+                    urlopen.return_value.__enter__.return_value.read.return_value = json.dumps(payload).encode()
+                    answer, _, error = call_jev(
+                        "opaque screen", {}, arm="context", criteria={label: "opaque" for label in LABELS},
+                        token="opaque-token", endpoint="https://example.invalid", model="fixture", timeout=1,
+                    )
+                if missing:
+                    self.assertIsNone(answer)
+                    self.assertEqual(error, "invalid_answer_set")
+                else:
+                    self.assertIsNone(error)
+                    self.assertEqual(answer["prediction"], "ready_idle")
+                    self.assertEqual(answer["prompt_visible"], 0.1)
 
 
 if __name__ == "__main__":

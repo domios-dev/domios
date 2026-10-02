@@ -54,3 +54,22 @@ enabled = true
     assert!(value["memory_rerank"].get("enabled").is_none());
     assert!(value.get("tab_state").is_none());
 }
+
+#[test]
+fn supporter_rerank_request_mode_is_selectable_and_stays_per_candidate_until_ab() {
+    use super::RerankRequestMode;
+    assert_eq!(
+        SupporterConfig::default().memory_rerank.request_mode,
+        RerankRequestMode::PerCandidate
+    );
+    let config: AppConfig =
+        toml::from_str("[supporter.memory_rerank]\nrequest_mode = 'shared_state'\n").unwrap();
+    assert_eq!(
+        config.supporter.memory_rerank.request_mode,
+        RerankRequestMode::SharedState
+    );
+    assert!(
+        toml::from_str::<AppConfig>("[supporter.memory_rerank]\nrequest_mode = 'invalid'\n")
+            .is_err()
+    );
+}

@@ -6,7 +6,9 @@ use std::time::{Duration, Instant};
 
 use super::supporter::{self, Action, ActionRecord, SupporterRuntime, TokenSnapshot, VerdictKind};
 use codeterm_types::config::SupporterConfig;
-use codeterm_types::decision::{DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest};
+use codeterm_types::decision::{
+    DecisionAnswer, DecisionModel, DecisionQuestionsRequest, DecisionResponse,
+};
 use serde_json::Value;
 
 use super::startup_nudge::StartupNudge;
@@ -15,6 +17,7 @@ use super::ServiceContext;
 use crate::api::mem_routes::decision::SupporterRegistry;
 
 mod delivery;
+mod questions;
 mod state;
 
 pub(crate) use state::{
@@ -43,7 +46,7 @@ const CRITERIA_JSON: &str = include_str!("../../../evals/tab-state-jev/criteria.
 const SPAWN_OK_LINE: &str = "spawn ok";
 const WEAK_HINT_PREFIX: &str = "Tab-state hint";
 
-fn criteria() -> &'static BTreeMap<String, String> {
+pub(crate) fn criteria() -> &'static BTreeMap<String, String> {
     static CRITERIA: OnceLock<BTreeMap<String, String>> = OnceLock::new();
     CRITERIA.get_or_init(|| {
         serde_json::from_str(CRITERIA_JSON).expect("embedded tab-state criteria are valid")
@@ -116,6 +119,8 @@ pub(crate) struct TabStateMetadata {
 pub(crate) struct ShadowVerdict {
     pub(crate) label: String,
     pub(crate) confidence: f64,
+    pub(crate) prompt_visible: f64,
+    pub(crate) safe_choice: Option<(String, f64)>,
     pub(crate) action: SignalAction,
     pub(crate) classified_frame_hash: u64,
 }
@@ -148,6 +153,9 @@ pub(crate) trait ShadowHost: Clone + Send + 'static {
 }
 
 impl ShadowHost for ServiceContext {
+    fn supporter_runtime(&self) -> Arc<SupporterRuntime> {
+        supporter::runtime_with_notifications(self)
+    }
     fn transport(&self, tab_id: &str) -> Result<Box<dyn TabTransport + '_>, String> {
         self.tab_transport(tab_id)
     }
@@ -462,7 +470,7 @@ fn observe_guarded<H: ShadowHost>(
         config.calls_per_hour,
         VerdictKind::TabState,
         Some(tab_id.to_owned()),
-        supporter::criteria_hash(CRITERIA_JSON.as_bytes()),
+        Some(supporter::criteria_hash(CRITERIA_JSON.as_bytes())),
     );
     observe(
         host, &model, config, adapter_id, tab_id, trigger, deadline, request, metadata, permit,
@@ -477,7 +485,7 @@ fn observe<H: ShadowHost>(
     tab_id: &str,
     trigger: ObservationTrigger,
     deadline: Instant,
-    request: DecisionRequest,
+    request: DecisionQuestionsRequest,
     metadata: TabStateMetadata,
     permit: state::ObservationPermit,
 ) -> Option<ShadowVerdict> {
@@ -494,17 +502,12 @@ fn observe<H: ShadowHost>(
         .map(frame_hash)
         .unwrap_or_default();
     match model
-        .decide(&request, deadline)
+        .decide_questions(&request, deadline)
         .map_err(|error| error.to_string())
-        .and_then(chosen_label)
+        .and_then(observation_answers)
     {
-        Ok((label, confidence)) => {
-            let mut verdict = ShadowVerdict {
-                label,
-                confidence,
-                action: SignalAction::None,
-                classified_frame_hash,
-            };
+        Ok(mut verdict) => {
+            verdict.classified_frame_hash = classified_frame_hash;
             let spawn_healthy = trigger.is_spawn()
                 && confidence_band(verdict.confidence) == ConfidenceBand::Strong
                 && matches!(verdict.label.as_str(), READY_IDLE | WORKING_NORMALLY);
@@ -610,7 +613,7 @@ fn prepare_observation<H: ShadowHost>(
     tab_id: &str,
     trigger: ObservationTrigger,
     structural_verdict: &str,
-) -> Result<(DecisionRequest, TabStateMetadata), String> {
+) -> Result<(DecisionQuestionsRequest, TabStateMetadata), String> {
     let screen = {
         let transport = host.transport(tab_id)?;
         transport.read_screen(false)?
@@ -620,15 +623,12 @@ fn prepare_observation<H: ShadowHost>(
         .and_then(Value::as_str)
         .ok_or("screen read returned no text")?;
     let metadata = host.metadata(tab_id, trigger, structural_verdict, text)?;
-    let request = DecisionRequest {
+    let request = DecisionQuestionsRequest {
         state: serde_json::json!({
             "screen": screen_tail(text),
             "context": metadata.context,
         }),
-        instructions: INSTRUCTIONS.to_owned(),
-        question: DecisionQuestion::Choice {
-            options: criteria().clone(),
-        },
+        questions: questions::observation_questions(&metadata, None),
     };
     Ok((request, metadata))
 }
@@ -637,9 +637,10 @@ pub(crate) fn choice_model(
     models: &SupporterRegistry,
     adapter_id: &str,
 ) -> Option<Arc<dyn DecisionModel>> {
-    models
-        .get(adapter_id)
-        .filter(|model| model.primitives().choice)
+    models.get(adapter_id).filter(|model| {
+        let p = model.primitives();
+        p.choice && p.noul
+    })
 }
 
 pub(crate) fn screen_tail(text: &str) -> String {
@@ -651,6 +652,41 @@ fn frame_hash(frame: &str) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     frame.hash(&mut hasher);
     hasher.finish()
+}
+
+fn observation_answers(response: DecisionResponse) -> Result<ShadowVerdict, String> {
+    let mut answers = response.answers;
+    let label = answers
+        .remove("label")
+        .ok_or("decision model omitted label")?;
+    let (label, confidence) = chosen_label(label)?;
+    let Some(DecisionAnswer::Noul { p: prompt_visible }) = answers.remove("prompt_visible") else {
+        return Err("decision model omitted prompt_visible".into());
+    };
+    if !prompt_visible.is_finite() || !(0.0..=1.0).contains(&prompt_visible) {
+        return Err("decision model gave invalid prompt_visible".into());
+    }
+    let safe_choice = answers.remove("safe_choice").and_then(|answer| {
+        let DecisionAnswer::Choice {
+            choice,
+            probabilities,
+            confidence,
+        } = answer
+        else {
+            return None;
+        };
+        let confidence = confidence.or_else(|| probabilities.get(&choice).copied())?;
+        (confidence.is_finite() && (0.0..=1.0).contains(&confidence))
+            .then_some((choice, confidence))
+    });
+    Ok(ShadowVerdict {
+        label,
+        confidence,
+        prompt_visible,
+        safe_choice,
+        action: SignalAction::None,
+        classified_frame_hash: 0,
+    })
 }
 
 fn chosen_label(answer: DecisionAnswer) -> Result<(String, f64), String> {
