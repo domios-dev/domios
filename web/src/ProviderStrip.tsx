@@ -59,9 +59,11 @@ function useProviderMarquee() {
 }
 
 function ProviderEntry({ provider, theme }: { provider: Provider; theme: ProviderTheme }) {
+  const wordmark = provider.logo === 'opencode' || provider.logo === 'lmstudio';
+
   return <>
     {provider.plus ? <span className="provider-neutral-plus" aria-hidden="true">+</span> : provider.logo && <ProviderLogo mark={provider.logo} theme={theme} />}
-    <span className="provider-name">{provider.name}</span>
+    <span className={wordmark ? 'provider-name provider-name-visually-hidden' : 'provider-name'}>{provider.name}</span>
   </>;
 }
 
