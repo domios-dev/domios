@@ -280,7 +280,7 @@ mod no_inference {
     /// stored consent flag and the provider's own install report, latches the
     /// condition so ten launches announce once, and reads no clock and no output.
     // Daemon notices the owner asked for: consent, model fallback, restart-required, update skipped.
-    const EXPLICIT_CREATORS: [&str; 15] = [
+    const EXPLICIT_CREATORS: [&str; 18] = [
         "api/mesh_routes/introduction.rs",
         "api/mesh_routes/pairing.rs",
         "api/notification_routes.rs",
@@ -291,9 +291,12 @@ mod no_inference {
         "service/notification.rs",
         "service/orchestrator/launch/cwd_guard.rs",
         "service/output/manual_update.rs",
+        "sentinel/routes.rs",
         "service/provider_update.rs",
         "service/session_model.rs",
         "service/spawn_model.rs",
+        "service/supporter.rs",
+        "service/supporter_notify.rs",
         "socket/server/notification.rs",
         "startup/state_incidents.rs",
     ];
