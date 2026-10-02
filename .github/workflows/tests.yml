@@ -672,18 +672,18 @@ jobs:
           }
 
           try {
-            if (-not [System.OperatingSystem]::IsWindows() -or $PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -ne 7 -or
-                $PSVersionTable.PSVersion.Minor -ne 5 -or [System.Environment]::Version.Major -ne 9) {
+            if (-not [System.OperatingSystem]::IsWindows() -or $PSVersionTable.PSEdition -ne 'Core' -or
+                $PSVersionTable.PSVersion.ToString() -ne '7.6.4' -or [System.Environment]::Version.ToString() -ne '10.0.10') {
               Stop-InventoryBound 'inventory_runtime_unsupported'
             }
             $addType = Get-Command 'Microsoft.PowerShell.Utility\Add-Type' -CommandType Cmdlet
             $cmdletAssembly = $addType.ImplementingType.Assembly.GetName()
             if ($addType.ImplementingType.FullName -ne 'Microsoft.PowerShell.Commands.AddTypeCommand' -or
                 $cmdletAssembly.Name -ne 'Microsoft.PowerShell.Commands.Utility' -or
-                $cmdletAssembly.Version.Major -ne 7 -or $cmdletAssembly.Version.Minor -ne 5) {
+                $cmdletAssembly.Version.ToString() -ne '7.6.0.500') {
               Stop-InventoryBound 'inventory_compiler_unsupported'
             }
-            $jevInventoryReceipt.compiler = 'standard_builtin_powershell_7_5_roslyn'
+            $jevInventoryReceipt.compiler = 'standard_builtin_powershell_7_6_4_net_10_0_10_roslyn'
             $jevInventoryReceipt.no_external_compiler = $true
             & $addType -TypeDefinition @'
             using System;
