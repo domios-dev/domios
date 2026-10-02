@@ -207,7 +207,7 @@ The sabotage command must exit1 AND identify `Acquisition owned process terminat
 
 No actual helper/native command is requested as part of this pure gate. Future helper invocations occur only inside the twelve exact native assembly/version commands above, under separate canonical authorization. Parent/helper receipts alone do not qualify native tree/version, actual socket/process behavior, fixture auth, authentic update prompts or live cells. No repeat feed/broad/CI, updater opt-in or new live command is requested.
 
-## Bounded TLS correction: sole requested pure command
+## Historical bounded TLS correction pure command — subsequently passed
 
 After source review, ancestry-preserving merge and exact canonical authorization:
 
@@ -218,3 +218,43 @@ python3 evals/prompt-matrix/oracle_tests.py
 Expected exit0 with270 controls (prior217 plus41 synthetic trust/context/read and12 sanitized failure-fact controls). New53 are source-authored NOT RUN. Every context/handshake/opener/process/OS CA source seam is fake; only synthetic local fixture files are read. No real bundle parse, process, socket, network or provider action qualifies. A supplied CERT_NONE context must be rejected by `TLS certificate/hostname verification weakened`; the pre-correction implicit context path lacked this explicit trust binding. A supplied nested URLError must retain its typed SSL verify_code instead of erasing the reason. These are source predicates, not executed new red receipts. No repeat red/feed/broad/CI gate is requested.
 
 The old generic URLError receipt and incomplete native manifest stay untouched. Actual OS bundle parsing, HTTPS acquisition, cancellation, assembly and version commands are held for a separate exact disposition, with no retry or replacement authorized by this checkpoint. All owner/producer/Courier/native/trigger/Cursor/Windows and90 live requirements remain pending.
+
+## Dedicated native version repair — deferred pure green
+
+Later canonical bb699281 pure270 and all six corrected macOS archive assemblies have separate receipts recorded in RESULTS.md. The old failed promptmatrix fixture is preserved. No repeated acquisition/assembly, earlier red/feed/broad/CI gate or live command is requested.
+
+Tests-first675202d was real-merged as canonical6e1df211. Its exact historical command was:
+
+```bash
+python3 evals/prompt-matrix/native_version_tests.py NativeVersionControls.test_legacy_receipt_is_refused
+```
+
+Canonical verified exit1, exactly1 selected and `AssertionError: FixtureError not raised`, without import/setup error. Receipt: /tmp/codeterm-qa/probe-version-red-20261002-200636-64415/full.log. This confirms the existing five-field receipt bypass. The rejection oracle is unchanged; no repeat red is requested.
+
+After source review, real ancestry merge and separate exact canonical authorization, the sole requested green command is:
+
+```bash
+python3 evals/prompt-matrix/oracle_tests.py
+```
+
+Expected exit0,294 controls: prior270 plus24 dedicated version controls, with six existing NativeControls qualification fixtures strengthened and their rejection predicates retained. It uses fake process/event/clock/OS dependencies and synthetic local files only; no real thread/process/socket/network/native invocation. Actual Unix waitid/reap, Windows ABI/OVERLAPPED cancellation, creation and filesystem timing remain unqualified even if pure green passes.
+
+## Proposed actual version inventory — held, not authorized
+
+Only after review/merge/pure evidence, a host-exact separate disposition may authorize the first command. Stop on failure, retain the exclusive qualification home/sidecars and do not retry. Preserve/hash the old failed fixture and all six existing assembly inputs before/after; only version receipt metadata and new qualification evidence may change. First candidate:
+
+```bash
+python3 evals/prompt-matrix/native_assembly.py --instance promptmatrixtls --port 7794 --provider claude --version 2.1.286 --verify-version
+```
+
+Remaining candidates each require a later exact authorization; the first command grants none of them:
+
+```bash
+python3 evals/prompt-matrix/native_assembly.py --instance promptmatrixtls --port 7794 --provider claude --version 2.1.287 --verify-version
+python3 evals/prompt-matrix/native_assembly.py --instance promptmatrixtls --port 7794 --provider codex --version 0.159.3 --verify-version
+python3 evals/prompt-matrix/native_assembly.py --instance promptmatrixtls --port 7794 --provider codex --version 0.160.0 --verify-version
+python3 evals/prompt-matrix/native_assembly.py --instance promptmatrixtls --port 7794 --provider opencode --version 1.18.33 --verify-version
+python3 evals/prompt-matrix/native_assembly.py --instance promptmatrixtls --port 7794 --provider opencode --version 1.18.34 --verify-version
+```
+
+Each expects exit0 only with schema2 request/resource/stream/retained-sidecar joins, immutable assembly inputs, exact one-version stdout, actual exit0/Unix sole reap or Windows captured-handle exit, clean EOF both streams, observer completion/join, owned handle closure and finalization before the original10s end. Any cancelled/overflow/error/late/unconfirmed fact refuses qualification. Receipt scope is direct_native_version_and_owned_handles and descendants=not_proven; it cannot prove updater process-tree confinement. These darwin/arm64 artifacts and commands provide no Linux/Windows proof. No installer, provider session, auth/model/daemon/live cell or updater opt-in is authorized.

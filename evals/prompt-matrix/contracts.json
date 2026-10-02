@@ -336,17 +336,24 @@
   },
   "update_fixture": {
     "status": "pending",
-    "reason": "First canonical Claude2.1.286 macOS wrapper acquisition failed with URLError and no archive; incomplete assembly remains unqualified, version NOT RUN. Codex production startup check remains false; genuine supported update prompt trigger absent. Capability updater resolver/native destination/target and complete process-tree termination remain unconfined.",
-    "native_status": "first_canonical_attempt_failed_unqualified",
+    "reason": "Original promptmatrix failed acquisition is preserved. Six corrected darwin/arm64 archive assemblies in promptmatrixtls have scoped canonical receipts; every native version remains NOT RUN. Dedicated direct-resource version source repair is pending review/pure verification. Codex startup trigger remains disabled; supported real update trigger and complete updater confinement remain pending.",
+    "native_status": "six_darwin_arm64_archive_assemblies_passed_version_NOT_RUN",
     "trigger_status": "pending",
     "confinement_status": "pending",
-    "absolute_transport_status": "pending",
-    "absolute_transport_source": "ancestry_merged_pure217_passed_actual_acquisition_failed",
-    "absolute_transport_reason": "Canonical2a18d9fa pure217/red receipt qualifies fake controls only. First actual helper exited1 with closed handles and terminated waiter; its generic URLError has no retained cause. Default acquisition uses reviewed fixture inputs, one original deadline and actual exit/handle completion before independent byte validation. Successful acquisition, cancellation and cross-platform private CPython seams remain unqualified.",
-    "tls_source_status": "fixed_macos_public_ca_snapshot_and_typed_failures_authored_NOT_RUN",
+    "absolute_transport_status": "scoped_macos_normal_acquisition_passed_cancellation_and_other_platforms_pending",
+    "absolute_transport_source": "canonical_bb699281_pure270_and_six_archive_assemblies_passed",
+    "absolute_transport_reason": "Canonical2a18d9fa pure217/red and bb699281 pure270 qualify fake controls. Six corrected macOS assemblies have exact pinned bytes/tree/layout and request/helper/parent joins, exit0, closed handles and finished nonliving waiters before the original deadline. Failed original fixture is unchanged. Cancellation, native execution, other platforms and complete process-tree confinement remain unqualified.",
+    "tls_source_status": "ancestry_merged_pure270_passed_scoped_macos_normal_acquisition_passed",
     "tls_source": "/etc/ssl/cert.pem; resolved regular root-owned non-group/world-writable source; exclusive fixture public-ca.pem snapshot with request-bound identity/bytes/SHA256",
-    "tls_runtime_status": "pending_canonical_bundle_parse_and_acquisition",
+    "tls_runtime_status": "scoped_macos_bound_public_ca_normal_acquisition_passed",
     "trust_diagnostic": "/tmp/codeterm-qa/probe-isolated-tls-diagnostic-20261002-193147-35375/full.log: default isolated context x509_ca=0; original URLError cause unavailable",
-    "failed_fixture": "promptmatrix:7794/native/claude/2.1.286 preserved unchanged; no retry or replacement authorized"
+    "failed_fixture": "promptmatrix:7794/native/claude/2.1.286 preserved byte-unchanged; corrected evidence is a distinct promptmatrixtls fixture",
+    "version_source_status": "dedicated_schema2_runner_and_platform_adapters_authored_pending_review_green",
+    "version_scope": "direct_native_version_and_owned_handles",
+    "version_descendants": "not_proven",
+    "version_runtime_status": "NOT RUN",
+    "version_expected_pure_count": 294,
+    "version_tests_first_source": "675202d069db11ddd9e6caaadc49b05ac6cfc1e8",
+    "version_red_receipt": "/tmp/codeterm-qa/probe-version-red-20261002-200636-64415/full.log: exactly1 selected, exit1, FixtureError not raised; intended red confirmed only"
   }
 }

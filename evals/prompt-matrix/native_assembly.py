@@ -20,7 +20,11 @@ def manifest_path(root, provider, version):
     return within(root, root / "native" / provider / version / "manifest.json")
 
 
-def load_native(root, provider, version, qualified=True):
+def load_native(root, provider, version, qualified=True, deadline=None):
+    def check():
+        if deadline is not None:
+            deadline.remaining()
+    check()
     path = manifest_path(root, provider, version)
     demand(path.is_file(), "Verified fixture native manifest is absent")
     manifest = json.loads(path.read_text())
@@ -29,16 +33,20 @@ def load_native(root, provider, version, qualified=True):
     pins = json.loads((HERE / "versions.json").read_text())
     selected = recipe(pins, provider, version, manifest["platform"], manifest["arch"],
                       manifest["libc"], manifest["baseline"])
+    check()
     demand(manifest["native_package"] == selected["native_package"], "Native package selection differs")
     directory = path.parent
     for name in ("wrapper", "native"):
+        check()
         demand(verify_archive(directory / (name + ".tgz"), selected[name]) == manifest[name + "_bytes"],
                "Retained archive receipt changed")
+        check()
     demand(manifest["assembly_status"] == "assembled" and manifest["wrapper_bytes"]["sha512"] ==
            selected["wrapper"]["integrity"] and manifest["native_bytes"]["sha512"] ==
            selected["native"]["integrity"], "Native assembly or pinned integrity is unavailable")
     demand(tree_receipt(directory / "wrapper") == manifest["wrapper_tree"] and
            tree_receipt(directory / "native") == manifest["native_tree"], "Assembled tree changed")
+    check()
     executable = within(directory, directory / manifest["executable"])
     demand(executable.is_file() and sha256(executable) == manifest["executable_sha256"],
            "Selected native executable changed or is absent")
@@ -46,17 +54,30 @@ def load_native(root, provider, version, qualified=True):
                            else "wrapper/" + selected["assembled_executable"])
     demand(manifest["executable"] == expected_executable, "Selected executable differs from pinned layout")
     if qualified:
-        qualify_receipt(manifest["version_receipt"], version, executable, manifest["executable_sha256"])
+        from native_version_runner import file_identity, validate_sidecar
+        receipt = validate_sidecar(directory, manifest["version_receipt"], manifest)
+        qualify_receipt(receipt, version, executable, manifest["executable_sha256"])
+        request = receipt["request"]
+        demand(request["root"] == str(root) and request["directory"] == str(directory) and
+               request["provider"] == provider and request["platform"] == manifest["platform"] and
+               request["arch"] == manifest["arch"] and request["file_identity"] == file_identity(executable),
+               "Native qualification input identity changed")
+        identity = json.loads((root / "instance.json").read_text())
+        demand(request["instance"] == identity["instance"] and request["port"] == identity["port"],
+               "Native qualification fixture identity changed")
         demand(manifest["platform"] == sys.platform and manifest["arch"] == host_arch(),
                "Native executable is for a different host")
+    check()
     return manifest, executable
 
 
 def qualify_receipt(receipt, version, executable, executable_sha256):
-    demand(receipt.get("status") == "verified" and receipt.get("version") == version and
-           receipt.get("executable_sha256") == executable_sha256 and receipt.get("exit_code") == 0 and
-           receipt.get("argv") == [str(executable), "--version"],
-           "Native executable version remains unqualified")
+    from native_layout import FixtureError
+    from native_version_runner import validate_receipt
+    try:
+        validate_receipt(receipt, version, executable, executable_sha256)
+    except (FixtureError, KeyError, TypeError, ValueError, UnicodeError) as error:
+        raise FixtureError("Native executable version remains unqualified") from error
 
 
 def require_native(root, provider, version):
@@ -118,29 +139,8 @@ def assemble(root, selected):
 
 
 def verify_version(root, provider, version):
-    from launch_env import isolated_environment
-    from transport import run_group
-    manifest, executable = load_native(root, provider, version, qualified=False)
-    demand(manifest["platform"] == sys.platform and manifest["arch"] == host_arch(), "Wrong executable host")
-    home = manifest_path(root, provider, version).parent / "qualification-home"
-    demand(not home.exists(), "Qualification home already exists; preserve prior evidence")
-    from launch_env import make_home
-    make_home(root, home)
-    environment = isolated_environment({}, root, home)
-    if provider == "codex":
-        environment.update(CODEX_MANAGED_BY_NPM="1",
-                           CODEX_MANAGED_PACKAGE_ROOT=str(executable.parents[4] / "wrapper"))
-    argv = [str(executable), "--version"]
-    code, out, err = run_group(argv, environment, 10)
-    versions = re.findall(r"(?<![\w.])\d+\.\d+\.\d+(?![\w.])", out)
-    receipt = {"status": "verified" if code == 0 and versions == [version] else "failed",
-               "argv": argv, "exit_code": code, "stdout": out, "stderr": err,
-               "version": versions[0] if len(versions) == 1 else None,
-               "executable_sha256": sha256(executable)}
-    manifest["version_receipt"] = receipt
-    write_json(manifest_path(root, provider, version), manifest)
-    demand(receipt["status"] == "verified", "Actual native version differs or failed")
-    return receipt
+    from native_version_runner import qualify_native
+    return qualify_native(root, provider, version, load_native, manifest_path, host_arch)
 
 
 def main():
