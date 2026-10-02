@@ -18,4 +18,4 @@ Notify at `action_needed` or `failure` is a rare user-attention escalation, vali
 
 An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. Asking the user a question goes through this same path and never through a provider-native question or prompt tool — those render only inside this tab, so the bell, Telegram, push, and mesh never carry the question and a user who is away cannot answer it.
 
-To wait on CI, a build, or another external status, create a sentinel instead of re-running status checks (`codeterm sentinel create --help`, `codeterm docs SENTINELS`); it classifies only changed probe output and routes once, and model output never becomes a command.
+To wait on CI, a build, or another external status, never poll it yourself: run `codeterm sentinel create --probe "<status command>" --question "<what to decide>" --buckets <a,b> --every 20s --until <bucket>` (or `--timeout`). It classifies only changed output, routes once (notify by default), and model output never becomes a command; see `codeterm docs SENTINELS`.
