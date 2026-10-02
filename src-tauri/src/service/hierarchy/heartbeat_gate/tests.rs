@@ -51,8 +51,8 @@ impl DecisionModel for FixtureModel {
             usage: None,
             answers: request
                 .questions
-                .iter()
-                .map(|(key, _)| {
+                .keys()
+                .map(|key| {
                     let choice = if key == "tick" {
                         self.tick
                     } else if key.starts_with("learning:") {
@@ -336,12 +336,13 @@ fn heartbeat_gate_budget_and_redacted_feed_share_runtime() {
         dir.path().into(),
     ));
     let fixture = std::sync::Arc::new(FixtureModel::healthy());
-    let model = crate::service::supporter::budgeted_model(
+    let model = crate::service::supporter::budgeted_model_with_activity(
         fixture.clone(),
         runtime.clone(),
         1,
         crate::service::supporter::VerdictKind::Heartbeat,
         Some("private-tab".into()),
+        None,
         None,
     );
     let gate = Gate::default();

@@ -771,7 +771,7 @@ fn observe<H: ShadowHost>(
                     label: &verdict.label,
                     confidence: verdict.confidence,
                     action: if verdict.action == SignalAction::StrongAction {
-                        Action::StrongAction
+                        Action::Strong
                     } else {
                         Action::WeakHint
                     },

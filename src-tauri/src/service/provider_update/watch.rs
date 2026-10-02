@@ -16,13 +16,13 @@ pub(super) fn start(service: &ServiceContext) {
     let (tx, rx) = std::sync::mpsc::channel();
     let watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
         if let Ok(event) = event {
-            if event.kind.is_modify() || event.kind.is_create() {
-                if event.paths.iter().any(|path| {
+            if (event.kind.is_modify() || event.kind.is_create())
+                && event.paths.iter().any(|path| {
                     path.file_name()
                         .is_some_and(|name| name == storage::STATE_FILE)
-                }) {
-                    let _ = tx.send(());
-                }
+                })
+            {
+                let _ = tx.send(());
             }
         }
     });

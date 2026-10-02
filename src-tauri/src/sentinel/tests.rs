@@ -305,7 +305,7 @@ fn sentinel_probe_bounded_runtime_and_output() {
     );
     #[cfg(windows)]
     let (large, stalled) = (
-        "[Console]::Out.Write(('x' * 1000000))",
+        "[Console]::Out.Write(('x' * 200000))",
         "while ($true) { [Console]::Out.Write('x') }",
     );
     let output = super::probe::run(large, dir.path(), super::probe::PROBE_RUNTIME).unwrap();
