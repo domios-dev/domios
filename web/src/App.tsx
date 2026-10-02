@@ -7,8 +7,9 @@ import { GatherLink } from './GatherLink';
 import { BuilderNotes } from './BuilderNotes';
 import { Showcase } from './Showcase';
 import { useMediaQuery, useTheme } from './usePreferences';
+import { DownloadControl } from './download/DownloadControl';
+import { useDownload } from './download/useDownload';
 
-const download = 'https://github.com/rollacode/codeterm-releases/releases/latest';
 const github = 'https://github.com/rollacode/codeterm-releases';
 const pillars: { icon: IconName; title: string; text: string; detail: string }[] = [
   { icon: 'mesh', title: 'One mesh. Your machines.', text: 'Pair your machines into a trusted mesh. Agents reach across it to send commands, hand over work, and return reports.', detail: 'DISTRIBUTED BY DESIGN' },
@@ -20,6 +21,7 @@ const pillars: { icon: IconName; title: string; text: string; detail: string }[]
 ];
 
 export function App() {
+  const download = useDownload();
   const { theme, toggle } = useTheme();
   const reducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const [motionPaused, setMotionPaused] = useState(false);
@@ -28,14 +30,14 @@ export function App() {
     <header className="site-header section-wrap">
       <a className="brand" href="#" aria-label="Domios home"><BrandMark />domios</a>
       <nav aria-label="Main navigation"><a href="#explore">Explore</a><a href="#foundation">Why Domios</a><a href={github} className="nav-github">GitHub <span aria-hidden="true">↗</span></a></nav>
-      <div className="header-actions"><button className="theme-control" role="switch" aria-checked={theme === 'dark'} aria-label="Dark theme" onClick={toggle}><Icon name="sun" size={15} /><span className="liquid-toggle"><span className="toggle-knob" /></span><Icon name="moon" size={15} /></button><a className="button button-small" href={download}>Download<Icon name="download" size={15} /></a></div>
+      <div className="header-actions"><button className="theme-control" role="switch" aria-checked={theme === 'dark'} aria-label="Dark theme" onClick={toggle}><Icon name="sun" size={15} /><span className="liquid-toggle"><span className="toggle-knob" /></span><Icon name="moon" size={15} /></button><a className="button button-small" href={download.href} aria-label={download.label}>Download<Icon name="download" size={15} /></a></div>
     </header>
     <main id="main">
       <section className="hero section-wrap" aria-labelledby="hero-title">
         <a className="hero-badge" href="#explore">THE DISTRIBUTED OS FOR AI AGENTS<span aria-hidden="true">↗</span></a>
         <h1 id="hero-title">Agents <span>live here.</span></h1>
         <p className="hero-copy">Domios runs on every machine you own, joined in one trusted mesh. Agents on your laptop, desktop, and servers reach each other and work as one team.</p>
-        <div className="hero-actions"><a className="button primary" href={download}>Download Domios<Icon name="download" size={18} /></a><a className="button secondary" href={github}><Icon name="github" size={18} />Find us on GitHub<Icon name="arrow" size={16} /></a></div>
+        <div className="hero-actions"><DownloadControl download={download} /><a className="button secondary" href={github}><Icon name="github" size={18} />Find us on GitHub<Icon name="arrow" size={16} /></a></div>
         <p className="platforms">macOS <span>·</span> Windows <span>·</span> Linux <span className="platform-divider">/</span> Your machine. Your agents.</p>
         <AgentNetwork />
         {!reducedMotion && <button className="motion-control" aria-pressed={motionPaused} onClick={() => setMotionPaused(!motionPaused)}><Icon name={motionPaused ? 'play' : 'pause'} size={12} />{motionPaused ? 'Resume' : 'Pause'} animation</button>}
@@ -51,8 +53,8 @@ export function App() {
         </div>
         <aside className="coming-note"><span className="eyebrow">COMING / THE MESH FABRIC</span><p>Shared memory across machines. Project awareness across your mesh. Delegation that finds the right machine for the task.</p></aside>
       </section>
-      <section className="closing section-wrap" aria-labelledby="closing-title"><span className="eyebrow">MAKE ROOM FOR WHAT’S NEXT</span><h2 id="closing-title">Your next idea.<br /><span>A whole team behind it.</span></h2><GatherLink href={download}>Get Domios</GatherLink><p>Available for macOS, Windows, and Linux.</p></section>
+      <section className="closing section-wrap" aria-labelledby="closing-title"><span className="eyebrow">MAKE ROOM FOR WHAT’S NEXT</span><h2 id="closing-title">Your next idea.<br /><span>A whole team behind it.</span></h2><GatherLink href={download.href} aria-label={`Get Domios: ${download.label}`}>Get Domios</GatherLink><p>Available for macOS, Windows, and Linux.</p></section>
     </main>
-    <footer className="site-footer section-wrap"><a className="brand" href="#" aria-label="Domios home"><BrandMark />domios</a><span>A place for agents. Built for you.</span><nav aria-label="Footer navigation"><a href={download}>Download</a><a href={github}>GitHub <span aria-hidden="true">↗</span></a><a href="#explore">Explore</a></nav></footer>
+    <footer className="site-footer section-wrap"><a className="brand" href="#" aria-label="Domios home"><BrandMark />domios</a><span>A place for agents. Built for you.</span><nav aria-label="Footer navigation"><a href={download.href} aria-label={download.label}>Download</a><a href={github}>GitHub <span aria-hidden="true">↗</span></a><a href="#explore">Explore</a></nav></footer>
   </div>;
 }
