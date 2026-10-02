@@ -10,6 +10,7 @@ pub(crate) enum ObservationEvent {
     SpawnReady,
     SpawnDeadline,
     StartupEscalation,
+    PromptCandidate,
     WorkerIdle,
     BusyNoOutput,
     TabExit,
