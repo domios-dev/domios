@@ -164,17 +164,20 @@ class NativeControls(unittest.TestCase):
                 load_native(Path(temporary).resolve(), "codex", "0.159.3")
 
     def qualification(self):
-        return {"status": "verified", "version": "supplied-version", "executable_sha256": "supplied-sha",
-                "exit_code": 0, "argv": ["supplied-executable", "--version"]}
+        from native_version_tests import qualification_fixture
+        return qualification_fixture()
 
     def reject_qualification(self, change):
         receipt = self.qualification()
+        request = receipt["request"]
+        version, executable, executable_hash = request["version"], request["executable"], request["executable_sha256"]
         change(receipt)
         with self.assertRaisesRegex(FixtureError, "unqualified"):
-            qualify_receipt(receipt, "supplied-version", "supplied-executable", "supplied-sha")
+            qualify_receipt(receipt, version, executable, executable_hash)
 
     def test_qualified_receipt_control(self):
-        qualify_receipt(self.qualification(), "supplied-version", "supplied-executable", "supplied-sha")
+        receipt = self.qualification()
+        qualify_receipt(receipt, receipt["version"], receipt["argv"][0], receipt["executable_sha256"])
 
     def test_not_run_native_receipt_is_red(self):
         self.reject_qualification(lambda value: value.update(status="NOT RUN"))
