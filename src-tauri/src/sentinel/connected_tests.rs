@@ -126,12 +126,16 @@ pub(super) fn assert_budget_skip_is_journaled() {
     let dir = tempfile::tempdir().unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let runtime = Arc::new(SupporterRuntime::new(dir.path().join("supporter")));
+    // 0 means no cap now; an explicit cap of 1 already spent forces exhaustion.
+    runtime
+        .reserve(1, VerdictKind::Sentinel, Some("creator"), 1)
+        .expect("first request fits the explicit cap");
     let model = supporter::budgeted_model(
         Arc::new(Model {
             calls: calls.clone(),
         }),
         runtime.clone(),
-        0,
+        1,
         VerdictKind::Sentinel,
         Some("creator".into()),
         None,
