@@ -188,3 +188,117 @@ fn supporter_journal_hashes_recovery_option_values_without_losing_probabilities(
     );
     assert_eq!(value["distribution"]["label"]["choice"], "other");
 }
+
+#[test]
+fn supporter_default_no_cap_never_refuses_and_counts_every_request() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    let cap = codeterm_types::config::SupporterConfig::default()
+        .calls_per_hour
+        .unwrap_or(0);
+    assert_eq!(cap, 0);
+    for index in 0..601 {
+        runtime
+            .reserve_at(cap, VerdictKind::Rerank, None, 5, 100000 + index)
+            .unwrap();
+    }
+    let status = runtime.status_at(cap, 101000);
+    assert_eq!(status["calls_last_hour"], 601);
+    assert_eq!(status["calls_last_day"], 601);
+    assert_eq!(status["budget"]["calls_per_hour"], Value::Null);
+    assert_eq!(status["budget"]["free_at"], Value::Null);
+    assert_eq!(status["budget"]["reached"], false);
+    assert_eq!(
+        lines(&dir)
+            .iter()
+            .filter(|line| line["kind"] == "model_call")
+            .count(),
+        601
+    );
+}
+
+#[test]
+fn supporter_feed_journal_records_team_id_at_append() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    let team = Arc::new(Mutex::new(Some("team_aabbccdd".to_owned())));
+    let lookup = team.clone();
+    runtime.attach_visibility(Arc::new(move |_| lookup.lock().clone()), Arc::new(|_| {}));
+    runtime.action(ActionRecord {
+        kind: VerdictKind::TabState,
+        tab: Some("tab"),
+        label: "other",
+        confidence: 0.9,
+        action: super::super::Action::WeakHint,
+        reason: "launch_ready",
+    });
+    *team.lock() = None;
+    assert_eq!(lines(&dir)[0]["team_id"], "team_aabbccdd");
+    assert_eq!(runtime.feed(10, Some("team_aabbccdd")).unwrap().len(), 1);
+    assert_eq!(runtime.feed(10, Some("team_55667788")).unwrap().len(), 0);
+}
+
+#[test]
+fn supporter_feed_journal_append_emits_event_after_persistence() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let received = events.clone();
+    let path = dir.path().join("journal.jsonl");
+    runtime.attach_visibility(
+        Arc::new(|_| Some("team_aabbccdd".into())),
+        Arc::new(move |event| {
+            assert!(std::fs::metadata(&path).unwrap().len() > 0);
+            received.lock().push(event);
+        }),
+    );
+    runtime
+        .reserve(0, VerdictKind::Rerank, Some("tab"), 3)
+        .unwrap();
+    assert_eq!(events.lock().len(), 1);
+    assert_eq!(events.lock()[0]["team_id"], "team_aabbccdd");
+    assert!(events.lock()[0].get("screen").is_none());
+}
+
+#[test]
+fn supporter_feed_failed_append_emits_no_event() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join("journal.jsonl")).unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let received = count.clone();
+    runtime.attach_visibility(
+        Arc::new(|_| None),
+        Arc::new(move |_| {
+            received.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }),
+    );
+    assert!(runtime
+        .try_action(ActionRecord {
+            kind: VerdictKind::Rerank,
+            tab: None,
+            label: "ranked",
+            confidence: 0.8,
+            action: super::super::Action::Rerank,
+            reason: "all_candidates_scored"
+        })
+        .is_err());
+    assert_eq!(count.load(std::sync::atomic::Ordering::SeqCst), 0);
+}
+
+#[test]
+fn supporter_explicit_cap_can_be_removed_after_reaching_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    runtime
+        .reserve_at(1, VerdictKind::Rerank, None, 1, 100000)
+        .unwrap();
+    assert_eq!(
+        runtime.reserve_at(1, VerdictKind::Rerank, None, 1, 100001),
+        Err(DecisionError::Budget)
+    );
+    runtime
+        .reserve_at(0, VerdictKind::Rerank, None, 1, 100002)
+        .unwrap();
+    assert_eq!(runtime.status_at(0, 100003)["budget"]["reached"], false);
+}

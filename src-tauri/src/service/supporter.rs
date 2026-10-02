@@ -14,6 +14,7 @@ use crate::api::mem_routes::decision::SupporterRegistry;
 use crate::mem::decision::token_store::TokenStore;
 
 mod activity;
+mod feed;
 mod journal;
 mod spend;
 mod storage;
@@ -62,6 +63,14 @@ pub(crate) fn runtime() -> Arc<SupporterRuntime> {
 
 pub(crate) fn runtime_with_notifications(svc: &super::ServiceContext) -> Arc<SupporterRuntime> {
     let runtime = runtime();
+    let mux = svc.mux.clone();
+    let app = svc.app_handle.clone();
+    runtime.attach_visibility(
+        Arc::new(move |tab| mux.read().get_tab(tab).and_then(|tab| tab.team_id.clone())),
+        Arc::new(move |event| {
+            crate::api::events::emit_everywhere(&app, "supporter-journal-appended", event)
+        }),
+    );
     let svc = svc.clone();
     runtime.attach_alert_sink(Arc::new(move |alert| {
         svc.create_notification_ext(
@@ -152,13 +161,15 @@ impl DecisionModel for BudgetedModel {
         if request.questions.is_empty() {
             return Err(DecisionError::Parse("empty_questions".into()));
         }
-        self.runtime.reserve_request(
-            self.cap,
-            self.kind,
-            self.tab.as_deref(),
-            request.questions.len(),
-            self.model.id(),
-        )?;
+        self.runtime
+            .reserve_request(
+                self.cap,
+                self.kind,
+                self.tab.as_deref(),
+                request.questions.len(),
+                self.model.id(),
+            )
+            .inspect_err(|error| self.runtime.failure(self.kind, self.tab.as_deref(), error))?;
         let price = self.model.pricing();
         let model_id = self.model.model_id();
         let response = self
@@ -173,7 +184,8 @@ impl DecisionModel for BudgetedModel {
             });
         self.runtime
             .record_spend(self.model.id(), price.as_ref(), &response);
-        let response = response?;
+        let response = response
+            .inspect_err(|error| self.runtime.failure(self.kind, self.tab.as_deref(), error))?;
         if Instant::now() >= deadline {
             return Err(DecisionError::Deadline);
         }
