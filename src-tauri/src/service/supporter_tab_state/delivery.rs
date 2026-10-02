@@ -100,18 +100,22 @@ fn publish_weak_hint(
     );
     service.events.publish_generic(
         "tab-state-signal",
-        json!({
-            "tab_id": tab_id,
-            "label": label,
-            "confidence": confidence,
-            "band": "weak",
-            "actionable": false,
-            "episode": episode,
-        }),
+        weak_hint_event(tab_id, label, confidence, episode),
     );
     if let Some(target) = orchestrator_target(service, metadata) {
         deliver_to_target(service, &target, &line);
     }
+}
+
+fn weak_hint_event(tab_id: &str, label: &str, confidence: f64, episode: u64) -> Value {
+    json!({
+        "tab_id": tab_id,
+        "label": label,
+        "confidence": confidence,
+        "band": "weak",
+        "actionable": false,
+        "episode": episode,
+    })
 }
 
 fn publish_event(

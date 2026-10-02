@@ -618,6 +618,56 @@ fn tab_state_opencode_sequence_control() {
 }
 
 #[test]
+fn tab_state_codex_sequence_one_spawn_ok() {
+    let tab_id = tab();
+    let pty_id = "codex-pty-control";
+    let launch_key = state::launch_episode_key(&tab_id, Some(pty_id), Some(Instant::now()));
+    let output_tab = tab_id.clone();
+    let hook_key = launch_key.clone();
+    let model = StubModel::answering_with_hook(Ok(choice(READY_IDLE, 0.95)), move || {
+        state::screen_changed(
+            &output_tab,
+            &hook_key,
+            screen_hash("Codex session-bound screen"),
+        );
+        state::note_output(&output_tab);
+        state::screen_changed(
+            &output_tab,
+            &hook_key,
+            screen_hash("Codex ready after session binding"),
+        );
+    });
+    let (mut host, calls, _) = StubHost::new("Codex ready screen", model);
+    host.session_key = Some(launch_key);
+
+    let verdict = observe_guarded(
+        &host,
+        &enabled(),
+        "fixture",
+        3000,
+        &tab_id,
+        ObservationTrigger::SpawnReady,
+        "healthy_launch",
+    );
+
+    assert_eq!(verdict.expect("Codex spawn verdict").label, READY_IDLE);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        host.deliveries
+            .lock()
+            .iter()
+            .filter(|(_, _, action)| *action == SignalAction::SpawnOk)
+            .count(),
+        1
+    );
+    assert!(!host
+        .records
+        .lock()
+        .iter()
+        .any(|line| line.contains("stale observation discarded")));
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn tab_state_spawn_observation_survives_session_binding() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
@@ -709,24 +759,64 @@ fn tab_state_spawn_ok_survives_output_during_decide() {
 }
 
 #[test]
-fn tab_state_non_spawn_output_during_decide_is_discarded() {
-    for trigger in [ObservationTrigger::WorkerIdle, ObservationTrigger::TabExit] {
-        let tab_id = tab();
-        let output_tab = tab_id.clone();
-        let model = StubModel::answering_with_hook(Ok(choice(ERROR_LOOP, 0.94)), move || {
-            state::note_output(&output_tab);
-        });
-        let (host, calls, _) = StubHost::new("repeating error", model);
+fn tab_state_verdict_survives_redraw_output() {
+    let tab_id = tab();
+    let output_tab = tab_id.clone();
+    let launch_key = state::launch_episode_key(&tab_id, Some("redraw-pty"), None);
+    let redraw_key = launch_key.clone();
+    let model = StubModel::answering_with_hook(Ok(choice(ERROR_LOOP, 0.94)), move || {
+        state::note_output(&output_tab);
+        state::screen_changed(
+            &output_tab,
+            &redraw_key,
+            screen_hash("repeating error spinner 1"),
+        );
+        state::note_output(&output_tab);
+        state::screen_changed(
+            &output_tab,
+            &redraw_key,
+            screen_hash("repeating error retry 2"),
+        );
+    });
+    let (mut host, calls, _) = StubHost::new("repeating error", model);
+    host.session_key = Some(launch_key);
 
-        assert!(run(&host, &tab_id, trigger).is_none());
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
-        assert!(host.deliveries.lock().is_empty());
-        assert!(host
-            .records
-            .lock()
-            .iter()
-            .any(|line| line.contains("stale observation discarded")));
-    }
+    let verdict = observe_guarded(
+        &host,
+        &enabled(),
+        "fixture",
+        3000,
+        &tab_id,
+        ObservationTrigger::WorkerIdle,
+        "error_screen",
+    )
+    .expect("output and screen redraws do not stale a same-episode verdict");
+
+    assert_eq!(verdict.action, SignalAction::WeakHint);
+    assert_eq!(
+        verdict.classified_frame_hash,
+        screen_hash("repeating error")
+    );
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let frame_hash_record = format!("frame_hash={:016x}", verdict.classified_frame_hash);
+    assert!(host
+        .records
+        .lock()
+        .iter()
+        .any(|line| line.contains(&frame_hash_record)));
+    assert_eq!(
+        host.deliveries.lock().as_slice(),
+        &[(
+            ObservationTrigger::WorkerIdle,
+            ERROR_LOOP.to_owned(),
+            SignalAction::WeakHint,
+        )]
+    );
+    assert!(!host
+        .records
+        .lock()
+        .iter()
+        .any(|line| line.contains("stale observation discarded")));
 }
 
 #[test]
@@ -750,7 +840,7 @@ fn tab_state_one_spawn_ok_per_launch() {
 }
 
 #[test]
-fn tab_state_strong_actions_require_two_observations_and_never_write() {
+fn tab_state_two_agreeing_strong_from_distinct_events_acts() {
     let model = StubModel::answering(Ok(choice(ERROR_LOOP, 0.94)));
     let (host, calls, _) = StubHost::new("repeating error", model);
     let tab_id = tab();
@@ -768,6 +858,21 @@ fn tab_state_strong_actions_require_two_observations_and_never_write() {
     );
     assert_eq!(calls.load(Ordering::SeqCst), 2);
     assert_eq!(host.writes.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        host.deliveries.lock().as_slice(),
+        &[
+            (
+                ObservationTrigger::WorkerIdle,
+                ERROR_LOOP.to_owned(),
+                SignalAction::WeakHint,
+            ),
+            (
+                ObservationTrigger::TabExit,
+                ERROR_LOOP.to_owned(),
+                SignalAction::StrongAction,
+            ),
+        ]
+    );
 }
 
 #[test]
