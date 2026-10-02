@@ -16,7 +16,7 @@ def measure_loudness(source):
     measure = subprocess.run(['ffmpeg', '-hide_banner', '-i', str(source), '-vn',
                               '-af', 'loudnorm=I=-18:TP=-1.5:LRA=9:print_format=json', '-f', 'null', '-'],
                              check=True, capture_output=True, text=True, timeout=300)
-    return json.loads(measure.stderr[measure.stderr.rfind('{'):])
+    return json.JSONDecoder().raw_decode(measure.stderr[measure.stderr.rfind('{'):])[0]
 
 
 def normalize(source, output):
@@ -86,7 +86,7 @@ def mux(video_dir, audio, timing_path, alignment, captions_path, output_dir, pro
     if music:
         inputs += ['-stream_loop', '-1', '-i', music]
         graph = (f'[0:a]asplit=3[voice][key][voiceStem];[1:a]aresample=48000,aformat=channel_layouts=mono,'
-                 f'atrim=duration={duration},loudnorm=I=-30:TP=-3:LRA=9,aresample=48000,'
+                 f'atrim=duration={duration},loudnorm=I=-32:TP=-3:LRA=9,aresample=48000,'
                  f'afade=t=in:d=1,afade=t=out:st={duration - 3}:d=3[music];'
                  '[music][key]sidechaincompress=threshold=0.018:ratio=8:attack=15:release=450[postDuck];'
                  '[postDuck]asplit=2[ducked][musicStem];'
