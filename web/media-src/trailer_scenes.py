@@ -348,23 +348,18 @@ def agent_ending(global_frame, frame, font, brand_rest):
     image = wallpaper().copy()
     screen = window(frame, 790, 522, font)
     image.paste(screen, (64, 112))
-    draw = ImageDraw.Draw(image)
-    draw.text((64, 62), 'DOMIOS  /  AGENT WORKSPACE', font=face(font, 15), fill=BLUE, anchor='lm')
-    mark = brand_rest.resize((92, 92), Image.Resampling.LANCZOS)
-    image.paste(mark, (930, 104), mark)
+    mark = brand_rest.resize((64, 64), Image.Resampling.LANCZOS)
+    image.paste(mark, (930, 210), mark)
     if global_frame < 1140:
         heading = 'Capabilities for\nyour workspace.'
-        detail = 'Extend your agents\nthrough plugins.'
     elif global_frame < 1230:
         heading = 'Agents across\nyour machines.'
-        detail = 'One view of the fleet,\nincluding who is offline.'
     else:
         heading = 'Your next idea.\nA whole team\nbehind you.'
-        detail = 'Agents, teams and\nmachines in one place.'
-    draw.multiline_text((930, 244), heading, font=face(font, 43 if global_frame >= 1230 else 40),
-                        fill=WHITE, spacing=5, align='left')
-    draw.multiline_text((932, 453), detail, font=face(font, 18), fill='#aebacf', spacing=7, align='left')
-    draw.text((932, 626), 'domios.dev', font=face(font, 22), fill=BLUE, anchor='lm')
+    draw = ImageDraw.Draw(image)
+    draw.multiline_text((930, 292), heading, font=face(font, 34 if global_frame >= 1230 else 32),
+                        fill=WHITE, spacing=4, align='left')
+    draw.text((930, 514), 'domios.dev', font=face(font, 20), fill=BLUE, anchor='lm')
     return image
 
 
