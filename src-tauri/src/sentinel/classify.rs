@@ -9,6 +9,7 @@ use serde_json::json;
 use tauri::Manager;
 
 use super::machine::{regex_verdict, Verdict};
+use super::provenance::{Classification, Failure, Source};
 use super::store::Sentinel;
 use crate::mem::decision::token_store::TokenStore;
 use crate::service::{
@@ -64,8 +65,8 @@ pub fn decide(
     model: Arc<dyn DecisionModel>,
     request: &DecisionRequest,
     deadline: Instant,
-) -> Result<Verdict, &'static str> {
-    match model.decide(request, deadline) {
+) -> Classification {
+    Classification::adapter(match model.decide(request, deadline) {
         Ok(DecisionAnswer::Choice {
             choice,
             probabilities,
@@ -76,12 +77,12 @@ pub fn decide(
                 .unwrap_or(0.0),
             bucket: choice,
         }),
-        Ok(_) => Err("invalid_answer"),
-        Err(DecisionError::Budget) => Err("budget_exhausted"),
-        Err(DecisionError::CreditExhausted) => Err("credit_exhausted"),
-        Err(DecisionError::Deadline) => Err("model_deadline"),
-        Err(_) => Err("model_failed"),
-    }
+        Ok(_) => Err(Failure::InvalidAnswer),
+        Err(DecisionError::Budget) => Err(Failure::Budget),
+        Err(DecisionError::CreditExhausted) => Err(Failure::Credit),
+        Err(DecisionError::Deadline) => Err(Failure::Deadline),
+        Err(_) => Err(Failure::Model),
+    })
 }
 
 pub fn classify(
@@ -89,9 +90,12 @@ pub fn classify(
     job: &Sentinel,
     output: &str,
     remaining: Duration,
-) -> Result<Verdict, &'static str> {
+) -> Classification {
     if remaining.is_zero() {
-        return Err("timeout");
+        return Classification {
+            source: Source::NotAttempted,
+            result: Err(Failure::Timeout),
+        };
     }
     if let Some((model, config)) = connected_model(svc) {
         let request = request(job, output);
@@ -114,9 +118,18 @@ pub fn classify(
             &request,
             Instant::now() + Duration::from_millis(config.deadline_ms).min(remaining),
         )
-    } else if !job.matches.is_empty() {
-        Ok(regex_verdict(&job.matches, output))
     } else {
-        Err("adapter_disconnected")
+        fallback(job, output)
+    }
+}
+
+pub fn fallback(job: &Sentinel, output: &str) -> Classification {
+    if !job.matches.is_empty() {
+        Classification::regex(regex_verdict(&job.matches, output))
+    } else {
+        Classification {
+            source: Source::Disconnected,
+            result: Err(Failure::Disconnected),
+        }
     }
 }
