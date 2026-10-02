@@ -23,7 +23,7 @@ function MachineHardware({ kind }: { kind: string }) {
 
 export function AgentNetwork() {
   const desk = useLiquidMesh();
-  return <figure className="agent-network" role="img" aria-label="Domios windows on your laptop, workstation, home server and cloud VM. Named Claude Code, Codex, OpenCode, Grok Build and local LM Studio agents exchange tasks and return reports. For example: Build the landing page. Done: 3 files, tests pass.">
+  return <figure className="agent-network" role="img" aria-label="Domios windows on four separate computers: your laptop, workstation, home server and cloud VM. Named Claude Code, Codex, OpenCode, Grok Build and local LM Studio agents exchange tasks and return reports.">
     <div className="mesh-register" aria-hidden="true"><span>YOUR MACHINES / ONE MESH</span><span><i />PAIRED & CONNECTED</span></div>
     <div className="mesh-desk" ref={desk} aria-hidden="true">
       <svg className="mesh-routes" fill="none">
