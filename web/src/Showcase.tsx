@@ -1,0 +1,57 @@
+import { useState } from 'react';
+import type { CSSProperties, KeyboardEvent } from 'react';
+import { chapters } from './media';
+import type { Clip } from './media';
+import { useMediaLibrary, useVideo } from './useShowcase';
+import { Icon } from './Icon';
+
+function VideoPlayer({ clip, reducedMotion, label }: { clip: Clip; reducedMotion: boolean; label: string }) {
+  const player = useVideo(clip, reducedMotion);
+  const [posterFailed, setPosterFailed] = useState(false);
+  return <div className="video-player" ref={player.containerRef}>
+    <div className="video-stage">
+      <div className="video-placeholder"><Icon name="terminal" size={40} /><span>{label}</span><small>See your agents at work.</small></div>
+      {!posterFailed && <img className="video-poster" src={clip.poster.src} alt={`${label} in Domios`} loading="lazy" onError={() => setPosterFailed(true)} />}
+      {!player.failed && <video ref={player.videoRef} muted loop playsInline preload="none" aria-label={`${label} product demonstration`}
+        onLoadedData={player.onLoadedData} onPlay={player.onPlay} onPause={player.onPause} onError={player.onError} onTimeUpdate={player.onTimeUpdate}>
+        {player.loaded && <><source src={clip.webm.src} type="video/webm" /><source src={clip.mp4.src} type="video/mp4" onError={player.onError} /></>}
+      </video>}
+      <div className="caption-region" aria-hidden="true">{clip.captions.map((caption) => <span key={`${caption.start}-${caption.text}`} className="caption-chip" data-active={player.caption === caption}>{caption.text}</span>)}</div>
+    </div>
+    <div className="video-toolbar"><span><i className="status-dot" />{player.failed ? 'Preview coming soon' : 'A look inside Domios'}</span>
+      {!player.failed && <button className="play-control" onClick={player.togglePlayback} aria-label={`${player.playing ? 'Pause' : 'Play'} ${label} video`}><Icon name={player.playing ? 'pause' : 'play'} size={15} />{player.playing ? 'Pause' : 'Play'}</button>}
+    </div>
+    {clip.captions.length > 0 && <details className="transcript"><summary>Read video description</summary><ol>{clip.captions.map((caption) => <li key={`${caption.start}-${caption.text}`}>{caption.text}</li>)}</ol></details>}
+  </div>;
+}
+
+export function Showcase({ reducedMotion }: { reducedMotion: boolean }) {
+  const [active, setActive] = useState(0);
+  const [previous, setPrevious] = useState(0);
+  const media = useMediaLibrary();
+  const chapter = chapters[active];
+  const select = (index: number) => { setPrevious(active); setActive(index); };
+  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    let next = index;
+    if (event.code === 'ArrowRight') next = (index + 1) % chapters.length;
+    else if (event.code === 'ArrowLeft') next = (index + chapters.length - 1) % chapters.length;
+    else if (event.code === 'Home') next = 0;
+    else if (event.code === 'End') next = chapters.length - 1;
+    else return;
+    event.preventDefault();
+    select(next);
+    document.getElementById(`tab-${chapters[next].id}`)?.focus();
+  };
+  return <section id="explore" className="showcase section-wrap" aria-labelledby="showcase-title">
+    <div className="section-heading"><div><p className="eyebrow">BUILT FOR WORK THAT MOVES</p><h2 id="showcase-title">A place for the whole picture.</h2></div><p>From a single agent to a team<br className="desktop-break" /> across your machines.</p></div>
+    <div className="tab-scroll"><div className="liquid-tabs" role="tablist" aria-label="Product demonstrations" style={{ '--seg-index': active, '--sx-from': `${previous * 100}%`, '--sx-to': `${active * 100}%` } as CSSProperties}>
+      <span key={active} className={`liquid-thumb ${previous !== active ? 'travel' : ''}`} />
+      {chapters.map((item, index) => <button key={item.id} id={`tab-${item.id}`} role="tab" aria-selected={active === index} aria-controls={`panel-${item.id}`} tabIndex={active === index ? 0 : -1} onClick={() => select(index)} onKeyDown={(event) => onKeyDown(event, index)}><span className="tab-number">0{index + 1}</span>{item.label}</button>)}
+    </div></div>
+    {chapters.filter((item) => item.id !== chapter.id).map((item) => <div key={item.id} role="tabpanel" id={`panel-${item.id}`} aria-labelledby={`tab-${item.id}`} hidden />)}
+    <div role="tabpanel" id={`panel-${chapter.id}`} aria-labelledby={`tab-${chapter.id}`} tabIndex={0}>
+      <div className="showcase-caption"><div><span className="eyebrow">{chapter.tag}</span><h3>{chapter.title}</h3></div><p>{chapter.description}</p></div>
+      <VideoPlayer key={chapter.id} clip={media[chapter.id]} reducedMotion={reducedMotion} label={chapter.label} />
+    </div>
+  </section>;
+}
