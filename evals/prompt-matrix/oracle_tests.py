@@ -13,6 +13,7 @@ from binding_tests import AttributionControls, CourierControls, proposed_contrac
 from report import exit_code
 from sentinel_raw_tests import SentinelRawControls, raw_outcome
 from fixture_tests import NativeControls, IsolationControls, CoordinatorPhaseControls, VersionToolControls
+from tls_tests import TLSControls, FailureFactControls
 from bounded_io_tests import DeadlineControls, ArchiveCollisionControls, AcquisitionControls, ProcessControls, HelperControls
 
 
@@ -219,7 +220,8 @@ def main():
     suite = unittest.TestSuite(unittest.defaultTestLoader.loadTestsFromTestCase(cls)
                                for cls in (Oracles, AttributionControls, CourierControls, ReportControls, SentinelRawControls,
                                            NativeControls, IsolationControls, CoordinatorPhaseControls, VersionToolControls,
-                                           DeadlineControls, ArchiveCollisionControls, AcquisitionControls, ProcessControls, HelperControls))
+                                           DeadlineControls, ArchiveCollisionControls, AcquisitionControls, ProcessControls,
+                                           HelperControls, TLSControls, FailureFactControls))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     return 0 if result.wasSuccessful() else 1
 

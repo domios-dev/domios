@@ -8,8 +8,12 @@ import math
 import os
 from pathlib import Path
 import re
+import socket
+import ssl
+import stat
 import sys
 import time
+import urllib.error
 import urllib.request
 from urllib.parse import urljoin, urlsplit
 
@@ -21,6 +25,10 @@ MAX_REDIRECTS = 5
 MAX_HEADER_LINE = 8192
 MAX_HEADERS = 64
 MAX_HEADER_BYTES = 32768
+MAX_CA_BYTES = 4 * 1024 * 1024
+MAX_CA_CERTIFICATES = 4096
+CA_SOURCE = Path("/etc/ssl/cert.pem")
+MAX_FAILURE_DEPTH = 3
 
 
 class AcquisitionError(RuntimeError):
@@ -111,6 +119,149 @@ def file_digest(path, end, clock=time.monotonic):
     return digest.hexdigest()
 
 
+def stat_identity(value):
+    return {"dev": value.st_dev, "ino": value.st_ino, "uid": value.st_uid, "gid": value.st_gid,
+            "mode": value.st_mode, "bytes": value.st_size, "mtime_ns": value.st_mtime_ns}
+
+
+def validate_ca_identity(value, source=False):
+    require(isinstance(value, dict) and set(value) == {"dev", "ino", "uid", "gid", "mode", "bytes", "mtime_ns"}
+            and all(type(item) is int and item >= 0 for item in value.values()), "Public CA identity invalid")
+    require(stat.S_ISREG(value["mode"]) and not value["mode"] & 0o022 and
+            0 < value["bytes"] <= MAX_CA_BYTES, "Public CA source is unsafe or empty")
+    require(not source or value["uid"] == 0, "Public CA source is not root-owned")
+
+
+def public_ca_bytes(raw):
+    require(isinstance(raw, bytes) and 0 < len(raw) <= MAX_CA_BYTES, "Public CA bytes absent or oversized")
+    beginnings = re.findall(br"-----BEGIN ([A-Z ]+)-----", raw)
+    endings = re.findall(br"-----END ([A-Z ]+)-----", raw)
+    require(0 < len(beginnings) <= MAX_CA_CERTIFICATES and beginnings == endings and
+            all(kind == b"CERTIFICATE" for kind in beginnings), "Public CA PEM structure invalid")
+    return hashlib.sha256(raw).hexdigest()
+
+
+def public_ca_source():
+    resolved = CA_SOURCE.resolve(strict=True)
+    identity = stat_identity(resolved.stat())
+    validate_ca_identity(identity, source=True)
+    return resolved, identity
+
+
+def bounded_ca_read(path, end, clock=time.monotonic):
+    remaining(end, clock)
+    flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        before = stat_identity(os.fstat(descriptor))
+        validate_ca_identity(before)
+        chunks, count = [], 0
+        while True:
+            remaining(end, clock)
+            chunk = os.read(descriptor, min(CHUNK, MAX_CA_BYTES + 1 - count))
+            remaining(end, clock)
+            if not chunk:
+                break
+            count += len(chunk)
+            require(count <= MAX_CA_BYTES, "Public CA byte limit exceeded")
+            chunks.append(chunk)
+        after = stat_identity(os.fstat(descriptor))
+        require(before == after == stat_identity(Path(path).stat()), "Public CA changed during read")
+        raw = b"".join(chunks)
+        require(len(raw) == before["bytes"], "Public CA read incomplete")
+        public_ca_bytes(raw)
+        remaining(end, clock)
+        return raw, before
+    finally:
+        os.close(descriptor)
+
+
+def read_public_ca(end, clock=time.monotonic):
+    resolved, identity = public_ca_source()
+    remaining(end, clock)
+    raw, actual = bounded_ca_read(resolved, end, clock)
+    require(identity == actual and public_ca_source() == (resolved, identity), "Public CA source changed")
+    return raw, resolved, identity
+
+
+def validated_tls(request, end, clock=time.monotonic, platform=None):
+    platform = sys.platform if platform is None else platform
+    tls = request["tls"]
+    require(isinstance(tls, dict) and tls.get("platform") == platform, "TLS platform binding differs")
+    if platform in ("linux", "win32"):
+        require(tls == {"platform": platform, "mode": "system_default"}, "TLS system mode differs")
+        return None
+    require(platform == "darwin" and set(tls) == {"platform", "mode", "source", "resolved_source", "source_identity",
+            "snapshot", "snapshot_identity", "bytes", "sha256"} and tls["mode"] == "os_public_ca_snapshot" and
+            tls["source"] == str(CA_SOURCE), "TLS public CA binding differs")
+    validate_ca_identity(tls["source_identity"], source=True)
+    validate_ca_identity(tls["snapshot_identity"])
+    resolved, source = public_ca_source()
+    require(str(resolved) == tls["resolved_source"] and source == tls["source_identity"], "Public CA source identity differs")
+    snapshot = contained(request["fixture_root"], tls["snapshot"])
+    require(snapshot == Path(request["receipt"]).parent / "public-ca.pem", "Public CA snapshot path differs")
+    raw, identity = bounded_ca_read(snapshot, end, clock)
+    require(identity == tls["snapshot_identity"] and type(tls["bytes"]) is int and len(raw) == tls["bytes"] ==
+            tls["source_identity"]["bytes"] and public_ca_bytes(raw) == tls["sha256"], "Public CA snapshot identity/hash differs")
+    remaining(end, clock)
+    return snapshot
+
+
+def tls_context(request, end, clock=time.monotonic, platform=None, factory=None):
+    snapshot = validated_tls(request, end, clock, platform)
+    factory = ssl.create_default_context if factory is None else factory
+    context = factory(cafile=str(snapshot)) if snapshot is not None else factory()
+    remaining(end, clock)
+    require(context.verify_mode == ssl.CERT_REQUIRED and context.check_hostname is True,
+            "TLS certificate/hostname verification weakened")
+    require(getattr(context, "keylog_filename", None) is None, "TLS key logging is forbidden")
+    if snapshot is not None:
+        counts = context.cert_store_stats()
+        require(type(counts.get("x509_ca")) is int and counts["x509_ca"] > 0, "Public CA context has no trust anchors")
+        validated_tls(request, end, clock, platform)
+    return context
+
+
+def failure_facts(error, depth=0, seen=None):
+    seen = set() if seen is None else seen
+    if depth >= MAX_FAILURE_DEPTH or id(error) in seen:
+        return {"type": "truncated", "category": "bound"}
+    seen.add(id(error))
+    if isinstance(error, urllib.error.HTTPError):
+        facts = {"type": "HTTPError", "category": "http"}
+        if type(error.code) is int and 100 <= error.code <= 599:
+            facts["http_status"] = error.code
+    elif isinstance(error, urllib.error.URLError):
+        facts = {"type": "URLError", "category": "url"}
+    elif isinstance(error, ssl.SSLCertVerificationError):
+        facts = {"type": "SSLCertVerificationError", "category": "ssl_certificate"}
+        code = getattr(error, "verify_code", None)
+        if type(code) is int and 0 <= code <= 2147483647:
+            facts["verify_code"] = code
+    elif isinstance(error, ssl.SSLError):
+        facts = {"type": "SSLError", "category": "ssl"}
+    elif isinstance(error, OSError):
+        kinds = (socket.gaierror, socket.herror, TimeoutError, ConnectionRefusedError, ConnectionResetError,
+                 BrokenPipeError, FileNotFoundError, PermissionError)
+        kind = next((value.__name__ for value in kinds if isinstance(error, value)), "OSError")
+        facts = {"type": kind, "category": "os"}
+    elif isinstance(error, AcquisitionError):
+        facts = {"type": "AcquisitionError", "category": "fixture"}
+    else:
+        kind = next((kind for value, kind in ((None, "none"), (str, "str"), (int, "int"), (bool, "bool"), (bytes, "bytes"))
+                     if (error is None if value is None else type(error) is value)), "Exception")
+        facts = {"type": kind, "category": "other"}
+    if isinstance(error, OSError) and type(error.errno) is int and -2147483648 <= error.errno <= 2147483647:
+        facts["errno"] = error.errno
+    if isinstance(error, urllib.error.URLError) and not isinstance(error, urllib.error.HTTPError):
+        facts["reason"] = failure_facts(error.reason, depth + 1, seen)
+    elif isinstance(error, BaseException):
+        cause = error.__cause__ or error.__context__
+        if cause is not None:
+            facts["cause"] = failure_facts(cause, depth + 1, seen)
+    return facts
+
+
 def response_headers(response):
     headers = list(response.headers.items())
     require(len(headers) <= MAX_HEADERS and sum(len(k) + len(v) + 4 for k, v in headers) <= MAX_HEADER_BYTES,
@@ -161,7 +312,9 @@ def download(request, opener=None, redirect=None, clock=time.monotonic):
         http.client._MAXLINE = MAX_HEADER_LINE
         http.client._MAXHEADERS = MAX_HEADERS
         redirect = RegistryRedirect(end, clock)
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), redirect)
+        context = tls_context(request, end, clock)
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), redirect,
+                                            urllib.request.HTTPSHandler(context=context))
     digest512, digest256, count = hashlib.sha512(), hashlib.sha256(), 0
     with opener.open(metadata["tarball"], timeout=min(10, remaining(end, clock))) as response:
         remaining(end, clock)
@@ -202,7 +355,7 @@ def main():
     require(request_path.name == "request.json", "Helper request path differs")
     raw, request = bounded_json(request_path, MAX_REQUEST)
     require(isinstance(request, dict) and set(request) == {"version", "metadata", "fixture_root", "archive", "receipt",
-            "operation_deadline", "worker_sha256", "interpreter", "interpreter_sha256"} and
+            "operation_deadline", "worker_sha256", "interpreter", "interpreter_sha256", "tls"} and
             type(request["version"]) is int and request["version"] == 1, "Helper request schema differs")
     require(hashlib.sha256(raw).hexdigest() == request_hash, "Acquisition request changed")
     end = request["operation_deadline"]
@@ -227,8 +380,9 @@ def main():
         remaining(end)
         return 0
     except Exception as error:
+        failure = failure_facts(error)
         exclusive_json(receipt_path, {"version": 1, "status": "failed", "request_sha256": request_hash,
-                                      "error_type": type(error).__name__[:80]})
+                                      "error_type": failure["type"], "failure": failure})
         return 1
 
 
