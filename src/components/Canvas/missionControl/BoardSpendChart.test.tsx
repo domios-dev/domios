@@ -74,7 +74,8 @@ describe("spend chart", () => {
     expect(unrecorded!.title).toBe("Sep 1 not recorded");
     expect(partial!.style.height).toBe("100%");
     expect(today!.style.height).toBe("50%");
-    expect(view.textContent).toContain("from 17:50");
+    expect(view.textContent).not.toContain("from 17:50");
+    expect(view.querySelectorAll<HTMLElement>(".mc-board-chart-label")[1]!.title).toBe("from 17:50");
     const tones = Array.from(view.querySelectorAll("[data-testid='mc-board-spend-chart-segment']")).map((s) =>
       s.getAttribute("data-tone"),
     );

@@ -1,8 +1,10 @@
 import type { ApiConfig } from "../../lib/types";
-import { activityText, type SupporterActivity } from "./activity";
+import { Chip } from "../shared/Chip";
+import { UI_TEXT } from "../shared/design";
+import { activitySummary, activityText, type SupporterActivity } from "./activity";
 import { useSupporterResource } from "./useSupporterResource";
 
-export function ActivityFeed({ api, teamId }: { api: ApiConfig; teamId?: string }) {
+export function ActivityFeed({ api, teamId, embedded = false }: { api: ApiConfig; teamId?: string; embedded?: boolean }) {
   const query = new URLSearchParams({ limit: "50" });
   if (teamId) query.set("team_id", teamId);
   const { data, failed } = useSupporterResource<{ entries: SupporterActivity[] }>(
@@ -12,38 +14,50 @@ export function ActivityFeed({ api, teamId }: { api: ApiConfig; teamId?: string 
   return (
     <section
       aria-label="Spinal-cord activity"
-      className="rounded border border-[var(--ct-border)] p-3 text-xs text-[var(--ct-fg)]"
+      className={`text-xs text-[var(--ct-fg)] ${embedded ? "" : "ct-panel-card p-3"}`}
     >
-      <h3 className="mb-2 font-semibold">Spinal-cord activity</h3>
-      {failed && <p role="status">Activity is unavailable.</p>}
-      {!data && !failed && <p role="status">Loading activity…</p>}
-      {data && entries.length === 0 && <p>No recorded decisions.</p>}
+      {!embedded && <h3 className={`${UI_TEXT.sectionTitle} mb-1`}>Spinal-cord activity</h3>}
+      {failed && <p role="status" className={UI_TEXT.detailMuted}>Activity is unavailable.</p>}
+      {!data && !failed && <p role="status" className={UI_TEXT.detailMuted}>Loading activity…</p>}
+      {data && entries.length === 0 && <p className={UI_TEXT.detailMuted}>No recorded decisions.</p>}
       <ol
         aria-label={teamId ? "Team Supporter decisions" : "Machine Supporter decisions"}
-        className="max-h-80 overflow-y-auto space-y-3"
+        className="max-h-80 overflow-y-auto divide-y divide-[var(--ct-border)]"
       >
         {entries.map((entry, index) => {
           const text = activityText(entry);
           const date = new Date(entry.time * 1000);
           const validTime = Number.isFinite(entry.time) && !Number.isNaN(date.getTime());
           const budget = entry.budget_reached === true ? "reached" : entry.budget_reached === false ? "available" : "unknown";
+          const attention = entry.fallback === true || text.confidence === "low";
           return (
             <li
               key={`${entry.time}:${index}`}
               data-kind={text.kind}
               data-confidence={text.confidence}
               data-fallback={entry.fallback === true}
-              className="border-b border-[var(--ct-border)] pb-2"
             >
-              <time dateTime={validTime ? date.toISOString() : undefined}>
-                {validTime ? date.toLocaleString() : "Unknown time"}
-              </time>
-              <p>{text.kind} · {text.label} · {text.confidence} confidence</p>
-              <p>Action: {text.action}</p>
-              <p>Reason: {text.reason}</p>
-              <p>
-                Budget: {budget} · {entry.fallback === true ? "deterministic fallback" : "no fallback recorded"}
-              </p>
+              <details className="group">
+                <summary className="flex cursor-pointer list-none items-center gap-2 rounded px-1 py-1 hover:bg-[var(--ct-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]">
+                  <time
+                    dateTime={validTime ? date.toISOString() : undefined}
+                    title={validTime ? date.toLocaleString() : undefined}
+                    className="shrink-0 tabular-nums text-[var(--ct-muted-fg)]"
+                  >
+                    {validTime ? date.toLocaleTimeString() : "Unknown time"}
+                  </time>
+                  <span className="min-w-0 flex-1 truncate">{activitySummary(text)}</span>
+                  {attention && <Chip variant={entry.fallback === true ? "warning" : "muted"}>{entry.fallback === true ? "fallback" : "low confidence"}</Chip>}
+                </summary>
+                <div className={`${UI_TEXT.detailMuted} space-y-0.5 pb-2 pl-1`}>
+                  <p>{text.kind} · {text.label} · {text.confidence} confidence</p>
+                  <p>Action: {text.action}</p>
+                  <p>Reason: {text.reason}</p>
+                  <p>
+                    Budget: {budget} · {entry.fallback === true ? "deterministic fallback" : "no fallback recorded"}
+                  </p>
+                </div>
+              </details>
             </li>
           );
         })}

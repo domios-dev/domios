@@ -133,4 +133,14 @@ describe("Supporter activity", () => {
     expect(new URL(paths[0], "http://fixture").searchParams.get("team_id")).toBe("team_aabbccdd");
   });
 
+  it("rows_show_a_one_line_summary_and_expand_to_details", async () => {
+    entries = [{ ...entry("team_aabbccdd"), kind: "rerank", label: "ranked", action: "rerank", reason: "all_candidates_scored" }];
+    const host = await setup.render(<ActivityFeed api={API} />);
+    const row = host.querySelector("ol > li")!;
+    expect(row.querySelector("summary")?.textContent).toContain("Memory re-rank: ranked");
+    const details = row.querySelector("details")!;
+    expect(details.open).toBe(false);
+    expect(details.textContent).toContain("Reason: all candidates scored");
+  });
+
 });

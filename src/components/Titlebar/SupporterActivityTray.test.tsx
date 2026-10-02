@@ -20,6 +20,7 @@ describe("General Supporter entry", () => {
     const host = await setup.render(<SupporterActivityTray api={API} />);
     const button = host.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!;
     expect(document.querySelector('[role="dialog"]')).toBeNull();
+    const closedListeners = setup.listeners.size;
     await act(async () => button.click());
     const dialog = document.querySelector('[role="dialog"]');
     expect(dialog?.parentElement).toBe(document.body);
@@ -30,6 +31,11 @@ describe("General Supporter entry", () => {
     await act(async () => document.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape" })));
     expect(document.querySelector('[role="dialog"]')).toBeNull();
     expect(document.activeElement).toBe(button);
-    expect(setup.listeners.size).toBe(0);
+    expect(setup.listeners.size).toBe(closedListeners);
+  });
+  it("stays_hidden_until_the_supporter_is_connected", async () => {
+    vi.mocked(fetch).mockImplementation(async () => new Response(JSON.stringify({ ...statusFixture(), connected: false }), { status: 200 }));
+    const host = await setup.render(<SupporterActivityTray api={API} />);
+    expect(host.querySelector('button[aria-haspopup="dialog"]')).toBeNull();
   });
 });

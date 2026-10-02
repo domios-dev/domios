@@ -35,3 +35,15 @@ export function activityText(entry: SupporterActivity) {
     reason: safe(entry.reason, reasons),
   };
 }
+
+const KIND_TITLES: Record<string, string> = {
+  "re-rank": "Memory re-rank",
+  "tab-state": "Tab state",
+  recovery: "Recovery",
+  sentinel: "Sentinel",
+};
+
+export function activitySummary(text: ReturnType<typeof activityText>) {
+  const title = KIND_TITLES[text.kind] ?? text.kind;
+  return text.label === "redacted" ? title : `${title}: ${text.label}`;
+}
