@@ -7,9 +7,24 @@ Synthetic mechanism fixtures only; no event, credential or live-data evidence.
 import json
 from pathlib import Path
 import unittest
-from unittest.mock import patch
 
 import run
+import request_contract as contract
+from jev_request_worker import read_bounded_response, WorkerError
+from jev_transport import TransportFailure, TransportResult
+
+
+class SyntheticReadTransport:
+    def __init__(self, response):
+        self.response = response
+
+    def send(self, raw, **kwargs):
+        try:
+            body = read_bounded_response(self.response, end=60, clock=lambda: 0)
+            return TransportResult(contract.decode(body, contract.MAX_RESPONSE),
+                                   {"fixture_type": "synthetic_mechanism"})
+        except WorkerError as error:
+            raise TransportFailure(error.code) from error
 
 
 class BoundedResponse:
@@ -51,13 +66,12 @@ class LegacyRegressionTests(unittest.TestCase):
         oversized = BoundedResponse(valid_response() + b" " * (64 * 1024 + 1))
         for response, expected_error in ((small, None), (oversized, "response_oversize")):
             with self.subTest(oversized=expected_error is not None):
-                with patch("run.urllib.request.urlopen", return_value=response):
-                    answer, _, error = run.call_jev(
-                        "synthetic mechanism screen", {}, arm="screen",
-                        criteria={label: "opaque" for label in run.LABELS},
-                        token="synthetic-mechanism-token", endpoint=run.DEFAULT_ENDPOINT,
-                        model="synthetic-alias", timeout=60,
-                    )
+                answer, _, error = run.call_jev(
+                    "synthetic mechanism screen", {}, arm="screen",
+                    criteria={label: "opaque" for label in run.LABELS},
+                    token="synthetic-mechanism-token", endpoint=run.DEFAULT_ENDPOINT,
+                    model="synthetic-alias", timeout=60, transport=SyntheticReadTransport(response),
+                )
                 self.assertEqual(error, expected_error)
                 self.assertTrue(response.bounds)
                 if expected_error is None:
