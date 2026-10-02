@@ -18,6 +18,7 @@ import threading
 import time
 
 import request_contract as contract
+import jev_request_worker as worker_support
 
 MAX_CALLS = 300
 REQUEST_SECONDS = 60
@@ -73,13 +74,35 @@ def minimal_environment(*, platform=None):
     platform = os.name if platform is None else platform
     if platform == "nt":
         buffer = ctypes.create_unicode_buffer(32768)
-        length = ctypes.windll.kernel32.GetWindowsDirectoryW(buffer, len(buffer))
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.GetWindowsDirectoryW.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+        kernel.GetWindowsDirectoryW.restype = ctypes.c_uint32
+        length = kernel.GetWindowsDirectoryW(buffer, len(buffer))
         require(0 < length < len(buffer), "windows_system_root")
         return {"SystemRoot": buffer.value}
     return {"LANG": "C"}
 
 
 def identity_hash(path, end, clock):
+    if os.name == "nt":
+        guard, result, failure = None, None, None
+        try:
+            guard = worker_support.WindowsTrust(end, clock=clock)
+            exact, digest, _ = guard.file(path)
+            result = exact, digest
+        except BaseException as error:
+            failure = error
+        facts = {"trust_handles_closed": guard is not None and guard.closed}
+        if guard is not None:
+            try:
+                guard.close()
+                facts["trust_handles_closed"] = guard.closed
+            except BaseException as error:
+                facts.update(trust_handles_closed=guard.closed, trust_cleanup_error=getattr(error, "code", "windows_trust_close"))
+                failure = failure or error
+        if failure is not None:
+            raise TransportFailure(getattr(failure, "code", "windows_file_hash"), facts) from failure
+        return result
     path = Path(path).resolve(strict=True)
     before = path.stat()
     require(stat.S_ISREG(before.st_mode) and not before.st_mode & 0o022 and
@@ -105,13 +128,48 @@ def identity_hash(path, end, clock):
 def native_support():
     require(sys.implementation.name == "cpython" and (3, 9) <= sys.version_info[:2] <= (3, 14),
             "unsupported_interpreter")
+    if os.name == "nt":
+        require(sys.platform == "win32" and sys.version_info[:3] == (3, 14, 6) and
+                worker_support.sysconfig.get_platform() == "win-amd64", "unsupported_windows_runtime")
+        return "nt"
     require(os.name == "posix" and sys.platform in ("linux", "darwin"), "private_directory_unsupported")
     if sys.platform == "linux":
         require(all(hasattr(os, name) for name in ("waitid", "P_PID", "WEXITED", "WNOWAIT")), "waitid_unsupported")
+    return "posix"
 
 
 def prepare_plan(wire, operation_end, hard_end, clock):
-    native_support()
+    platform = native_support()
+    if platform == "nt":
+        try:
+            guard = worker_support.WindowsTrust(operation_end, clock=clock)
+        except worker_support.WorkerError as error:
+            raise TransportFailure(error.code, error.facts) from error
+        try:
+            worker, worker_hash, _ = guard.file(Path(__file__).with_name("jev_request_worker.py"))
+            _, contract_hash, _ = guard.file(Path(__file__).with_name("request_contract.py"))
+            interpreter, interpreter_hash, _ = guard.file(sys.executable)
+            guard.runtime(interpreter)
+            root = guard.create_private()
+            environment = minimal_environment(platform="nt")
+            guard.revalidate()
+            header = {"version": 1, "operation_end": operation_end, "hard_end": hard_end,
+                      "endpoint": contract.ENDPOINT, "wire_sha256": contract.sha256(wire),
+                      "worker_sha256": worker_hash, "contract_sha256": contract_hash,
+                      "interpreter": str(interpreter), "interpreter_sha256": interpreter_hash, "cwd": str(root)}
+            return {"argv": [str(interpreter), "-I", "-S", "-B", str(worker)], "env": environment,
+                    "cwd": root, "header": header, "windows_guard": guard}
+        except BaseException as error:
+            facts = {**getattr(error, "facts", {}), "trust_handles_closed": False,
+                     "cwd_closed": guard.created_directory is None}
+            try:
+                guard.close(remove_cwd=guard.created_directory is not None, cleanup_end=hard_end)
+                facts.update(trust_handles_closed=guard.closed, cwd_closed=guard.created_directory is None)
+            except BaseException as cleanup:
+                facts["preparation_cleanup_error"] = getattr(cleanup, "code", "preparation_cleanup_os")
+            facts.update(trust_handles_closed=guard.closed, cwd_closed=guard.created_directory is None)
+            code = getattr(error, "code", "preparation_os")
+            raise TransportFailure(code, facts) from error
     worker, worker_hash = identity_hash(Path(__file__).with_name("jev_request_worker.py"), operation_end, clock)
     _, contract_hash = identity_hash(Path(__file__).with_name("request_contract.py"), operation_end, clock)
     interpreter, interpreter_hash = identity_hash(sys.executable, operation_end, clock)
@@ -155,14 +213,21 @@ def observe_unreaped_exit(pid):
 
 
 class ProcessAuthority:
-    def __init__(self, process, *, observer=observe_unreaped_exit, reaper=os.waitpid, signaler=os.kill, windows=None):
-        self.process, self.observer, self.reaper, self.signaler = process, observer, reaper, signaler
+    def __init__(self, process, *, observer=observe_unreaped_exit, reaper=None, signaler=os.kill,
+                 windows=None, status_converter=None, kill_signal=None):
+        self.process, self.observer, self.signaler = process, observer, signaler
+        self.reaper = getattr(os, "waitpid", None) if reaper is None else reaper
+        self.status_converter = getattr(os, "waitstatus_to_exitcode", None) if status_converter is None else status_converter
+        self.kill_signal = getattr(signal, "SIGKILL", None) if kill_signal is None else kill_signal
         self.lock = threading.Lock()
         self.reaped, self.lost, self.closed = False, False, False
         self.returncode = None
         self.signal_requested = False
         self.windows = os.name == "nt" if windows is None else windows
         self.handle = process._handle if self.windows else None
+        if self.windows:
+            require(callable(getattr(self.handle, "Close", None)) and not getattr(self.handle, "closed", False) and
+                    0 < int(self.handle) != ctypes.c_void_p(-1).value, "captured_handle_unsupported")
 
     def wait_exact(self):
         try:
@@ -179,12 +244,14 @@ class ProcessAuthority:
                 if self.windows:
                     code = ctypes.c_uint32()
                     kernel.GetExitCodeProcess.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32))
+                    kernel.GetExitCodeProcess.restype = ctypes.c_int32
                     require(kernel.GetExitCodeProcess(int(self.handle), ctypes.byref(code)), "exit_code")
                     self.returncode = code.value
                 else:
                     pid, status = self.reaper(self.process.pid, 0)
                     require(pid == self.process.pid, "reap_identity")
-                    self.returncode = os.waitstatus_to_exitcode(status)
+                    require(callable(self.status_converter), "posix_status_unsupported")
+                    self.returncode = self.status_converter(status)
                 self.process.returncode = self.returncode
                 self.reaped = True
                 return self.returncode
@@ -201,23 +268,32 @@ class ProcessAuthority:
             if self.windows:
                 kernel = ctypes.WinDLL("kernel32", use_last_error=True)
                 kernel.TerminateProcess.argtypes = (ctypes.c_void_p, ctypes.c_uint32)
+                kernel.TerminateProcess.restype = ctypes.c_int32
                 require(kernel.TerminateProcess(int(self.handle), 1), "cancel_os")
             else:
-                self.signaler(self.process.pid, signal.SIGKILL)
+                require(self.kill_signal is not None, "posix_signal_unsupported")
+                self.signaler(self.process.pid, self.kill_signal)
             return True
 
     def close(self):
         with self.lock:
+            if self.closed:
+                return
             require(self.reaped and not self.lost, "handle_unconfirmed")
-            if self.windows:
-                self.handle.Close()
-            self.closed = True
+            try:
+                if self.windows:
+                    self.handle.Close()
+                self.closed = True
+            except BaseException:
+                self.lost = True
+                raise
 
 
 def settlement(facts):
     keys = ("start_finished", "created", "exit_observed", "reap_confirmed", "stdout_complete", "stderr_complete",
             "stdout_closed", "stderr_closed", "credential_channel_closed", "threads_joined", "handle_closed", "cwd_closed")
-    return all(facts.get(key) is True for key in keys) and not facts.get("ownership_lost")
+    return all(facts.get(key) is True for key in keys) and not facts.get("ownership_lost") and (
+        not facts.get("windows_trust_required") or facts.get("trust_handles_closed") is True)
 
 
 class OwnedLease:
@@ -238,6 +314,8 @@ class OwnedLease:
                       "threads_joined": False, "handle_closed": False, "cwd_closed": False,
                       "ownership_lost": False, "cancel_requested": False, "returncode": None,
                       "stdout_bytes": 0, "stderr_bytes": 0, "error": None}
+        if "windows_guard" in plan:
+            self.facts.update(windows_trust_required=True, trust_handles_closed=False)
 
     def mark(self, **values):
         with self.condition:
@@ -390,11 +468,21 @@ class OwnedLease:
             self.mark(threads_joined=True)
             self.authority.close()
             self.mark(handle_closed=True)
-            shutil.rmtree(self.plan["cwd"])
-            self.mark(cwd_closed=True)
+            if "windows_guard" in self.plan:
+                guard = self.plan["windows_guard"]
+                try:
+                    guard.close(remove_cwd=True, cleanup_end=self.hard_end)
+                finally:
+                    self.mark(trust_handles_closed=guard.closed, cwd_closed=guard.created_directory is None,
+                              ownership_lost=self.facts["ownership_lost"] or guard.lost)
+            else:
+                shutil.rmtree(self.plan["cwd"])
+                self.mark(cwd_closed=True)
             remaining(self.hard_end, self.clock)
         except BaseException as error:
-            self.fail(error.code if isinstance(error, TransportFailure) else "cleanup_os")
+            if self.authority is not None and getattr(self.authority, "lost", False):
+                self.mark(ownership_lost=True)
+            self.fail(error.code if isinstance(error, (TransportFailure, worker_support.WorkerError)) else "cleanup_os")
         self.facts["completion_confirmed"] = settlement(self.facts)
         if not self.facts["completion_confirmed"]:
             self.facts["primary_error"] = self.facts["error"]
@@ -447,7 +535,7 @@ class JevTransport:
                 plan = self.plan_factory(wire, operation_end, hard_end, self.clock)
             except BaseException as error:
                 code = error.code if isinstance(error, (TransportFailure, contract.ContractError)) else "preparation_os"
-                receipt = {"error": code, "phase": "preparation", "process_admitted": False,
+                receipt = {**getattr(error, "receipt", {}), "error": code, "phase": "preparation", "process_admitted": False,
                            "request_started": started, "operation_end": operation_end, "hard_end": hard_end,
                            "run_end": self.run_end, "completion_confirmed": False, "calls_used": self.calls}
                 self.last_receipt, self.poisoned = receipt, True
@@ -485,6 +573,8 @@ class JevTransport:
             require(type(payload) is dict and payload.get("version") == 1, "helper_receipt_schema")
             receipt["helper"] = {key: value for key, value in payload.items() if key != "answers"}
             require(payload.get("credential_channel_closed") is True, "helper_channel_unconfirmed")
+            if "windows_guard" in plan:
+                require(payload.get("windows_trust_closed") is True, "helper_trust_unconfirmed")
             if payload.get("status") != "completed":
                 raise TransportFailure(payload.get("error", "helper_failure"), receipt)
             require(receipt["returncode"] == 0 and payload.get("wire_sha256") == receipt["wire_sha256"] and

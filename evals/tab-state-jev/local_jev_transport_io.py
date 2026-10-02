@@ -362,6 +362,8 @@ def oracle_error(case, outcome, receipt, fixture, fixture_receipt, cancel_errors
             "created", "exit_observed", "reap_confirmed", "stdout_closed", "stderr_closed",
             "credential_channel_closed", "threads_joined", "handle_closed", "cwd_closed")):
         return "fixture_native_completion_unconfirmed"
+    if receipt.get("windows_trust_required") and receipt.get("trust_handles_closed") is not True:
+        return "fixture_native_trust_unconfirmed"
     if fixture is None or not all(fixture_receipt.get(key) is True for key in (
             "accept_observed", "accepted_closed", "listener_closed", "selector_closed", "wake_reader_closed",
             "wake_writer_closed", "retirement_observed", "thread_joined")) or \
@@ -406,6 +408,8 @@ def run_case(case):
         t.token_bytes(SYNTHETIC_TOKEN)
         prepared_plan = t.prepare_plan(wire, operation_end, hard_end, time.monotonic)
         report["preparation"]["plan_created"] = True
+        if "windows_guard" in prepared_plan:
+            report["preparation"]["windows_trust"] = prepared_plan["windows_guard"].receipt()
         report["selected_interpreter"] = prepared_plan["header"]["interpreter"]
         report["python_wire_bytes_sha256"] = c.sha256(wire)
         temporary = tempfile.TemporaryDirectory(prefix="jev-public-tls-fixture-")
@@ -474,13 +478,18 @@ def run_case(case):
                                    "errors": cancel_errors}
         if prepared_plan is not None and not lease_created:
             try:
-                t.shutil.rmtree(prepared_plan["cwd"])
+                if "windows_guard" in prepared_plan:
+                    prepared_plan["windows_guard"].close(remove_cwd=True, cleanup_end=hard_end)
+                else:
+                    t.shutil.rmtree(prepared_plan["cwd"])
                 report["preparation"]["cwd_closed"] = True
                 t.remaining(hard_end, time.monotonic)
             except BaseException as error:
                 report["cleanup_errors"].append(getattr(error, "code", "fixture_plan_cleanup_os"))
         elif lease_created:
             report["preparation"]["cwd_closed"] = receipt.get("cwd_closed") is True
+        if prepared_plan is not None and "windows_guard" in prepared_plan:
+            report["preparation"]["windows_trust"] = prepared_plan["windows_guard"].receipt()
         if temporary is not None:
             try:
                 temporary.cleanup()
@@ -512,11 +521,170 @@ def run_case(case):
     return report
 
 
+TRUST_CASES = ("preflight", "trusted_directory", "foreign_write", "null_dacl", "inherited_write", "reparse_refused")
+
+
+def run_trust_case(case):
+    started = time.monotonic()
+    run_end, hard_end = started + 600, started + 60
+    operation_end = hard_end - 5
+    report = {"trust_case": case, "platform": sys.platform, "oracle": "failed", "error": None,
+              "fixture_type": "synthetic_mechanism", "selected_interpreter": sys.executable,
+              "case_started": started, "operation_end": operation_end, "hard_end": hard_end, "run_end": run_end,
+              "helper_count": 0, "requests": 0, "responses": 0, "listener_opened": False,
+              "cleanup_errors": [], "runtime": {}, "fixture": {}, "native_control": "NOT RUN"}
+    plan = guard = probe = None
+    child = target = link = captured = inheriting = inherited_facts = target_facts = None
+    predicate = None
+    expected = {"preflight": None, "trusted_directory": None, "foreign_write": "windows_foreign_authority",
+                "null_dacl": "windows_dacl", "inherited_write": "windows_foreign_authority",
+                "reparse_refused": "windows_reparse_or_links"}[case]
+    try:
+        t.require(t.native_support() == "nt", "windows_native_required")
+        wire = c.encode({"state": "synthetic Windows admission fixture", "model": "fixture-alias", "questions": {
+            "q": {"type": "choice", "instructions": "opaque", "criteria": {"opaque": "opaque"}}}})
+        plan = t.prepare_plan(wire, operation_end, hard_end, time.monotonic)
+        report["selected_interpreter"] = plan["header"]["interpreter"]
+        report["runtime"] = {"implementation": sys.implementation.name, "version": sys.version,
+                             "architecture": "win-amd64", "interpreter_sha256": plan["header"]["interpreter_sha256"],
+                             "helper_sha256": plan["header"]["worker_sha256"],
+                             "contract_sha256": plan["header"]["contract_sha256"],
+                             "subprocess_sha256": t.worker_support.WINDOWS_SUBPROCESS_SHA256,
+                             "trust": plan["windows_guard"].receipt()}
+        plan["windows_guard"].close(remove_cwd=True, cleanup_end=hard_end)
+        report["runtime"]["trust_handles_closed"] = plan["windows_guard"].closed
+        report["runtime"]["cwd_closed"] = plan["windows_guard"].created_directory is None
+        if case != "preflight":
+            guard = t.worker_support.WindowsTrust(operation_end)
+            root = guard.create_private()
+            user = guard.user
+            child = root / "control"
+            secure = f"O:{user}D:P(A;OICI;FA;;;{user})(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)"
+            descriptor = secure
+            if case == "foreign_write":
+                descriptor += "(A;;FW;;;WD)"
+            elif case == "null_dacl":
+                descriptor = f"O:{user}D:NO_ACCESS_CONTROL"
+            elif case == "inherited_write":
+                inheriting = root / "inheriting"
+                guard.api.create_directory(inheriting, secure + "(A;OICIIO;FW;;;WD)")
+                handle = guard.api.open(inheriting, directory=True)
+                try:
+                    inherited_facts = guard.api.inspect(handle)
+                finally:
+                    guard.api.close(handle)
+                child = inheriting / "control"
+                descriptor = secure.replace("D:P", "D:")
+            if case == "reparse_refused":
+                target = root / "target"
+                guard.api.create_directory(target, secure)
+                target_facts = target.lstat()
+                try:
+                    os.symlink(target, child, target_is_directory=True)
+                except OSError as error:
+                    raise t.TransportFailure("windows_reparse_control_unavailable") from error
+                link = (child.lstat(), os.readlink(child))
+            else:
+                guard.api.create_directory(child, descriptor)
+                handle = guard.api.open(child, directory=True)
+                captured = {"handle": handle, "facts": guard.api.inspect(handle), "closed": False}
+                guard.api.close(handle)
+                captured["closed"] = True
+                if case == "inherited_write":
+                    t.require(any(kind == 0 and flags & 0x10 and sid == "S-1-1-0" and mask & 2
+                                  for kind, flags, mask, sid in captured["facts"]["security"]["aces"]),
+                              "windows_inherited_control_unavailable")
+            probe = t.worker_support.WindowsTrust(operation_end)
+            try:
+                probe.directory(child)
+            except t.worker_support.WorkerError as error:
+                predicate = error.code
+            report["native_control"] = "EXECUTED"
+            report["fixture"] = {"observed_predicate": predicate, "expected_predicate": expected,
+                                 "root": guard.receipt(), "probe_handles_closed": False}
+        else:
+            report["native_control"] = "EXECUTED"
+        t.require(predicate == expected, "windows_trust_wrong_predicate")
+    except BaseException as error:
+        report["error"] = getattr(error, "code", type(error).__name__)
+        report["preparation"] = getattr(error, "receipt", {})
+    finally:
+        if probe is not None:
+            try:
+                probe.close(cleanup_end=hard_end)
+                report["fixture"]["probe_handles_closed"] = probe.closed
+            except BaseException as error:
+                report["cleanup_errors"].append(getattr(error, "code", "windows_probe_close"))
+        if guard is not None:
+            report["fixture"].update(root_handles_closed=guard.closed, root_closed=guard.created_directory is None,
+                                     created_child=str(child) if child is not None else None,
+                                     created_target=str(target) if target is not None else None,
+                                     created_inheriting=str(inheriting) if inheriting is not None else None)
+            try:
+                guard.revalidate(end=hard_end)
+                if link is not None:
+                    current = child.lstat()
+                    t.require((current.st_dev, current.st_ino, current.st_mode, current.st_ctime_ns) ==
+                              (link[0].st_dev, link[0].st_ino, link[0].st_mode, link[0].st_ctime_ns) and
+                              os.readlink(child) == link[1], "windows_fixture_identity")
+                    child.unlink()
+                elif captured is not None and captured["closed"]:
+                    handle = guard.api.open(child, directory=True)
+                    try:
+                        t.require(guard.api.inspect(handle)["signature"] == captured["facts"]["signature"],
+                                  "windows_fixture_identity")
+                    finally:
+                        guard.api.close(handle)
+                    t.require(guard.api.remove_directory(child), "windows_fixture_remove")
+                if target is not None:
+                    current = target.lstat()
+                    t.require((current.st_dev, current.st_ino, current.st_mode) ==
+                              (target_facts.st_dev, target_facts.st_ino, target_facts.st_mode), "windows_fixture_identity")
+                    t.require(guard.api.remove_directory(target), "windows_fixture_remove")
+                if inheriting is not None:
+                    handle = guard.api.open(inheriting, directory=True)
+                    try:
+                        t.require(guard.api.inspect(handle)["signature"] == inherited_facts["signature"],
+                                  "windows_fixture_identity")
+                    finally:
+                        guard.api.close(handle)
+                    t.require(guard.api.remove_directory(inheriting), "windows_fixture_remove")
+                guard.close(remove_cwd=True, cleanup_end=hard_end)
+                report["fixture"].update(root_handles_closed=guard.closed, root_closed=guard.created_directory is None,
+                                         child_closed=child is None or not child.exists())
+            except BaseException as error:
+                report["cleanup_errors"].append(getattr(error, "code", "windows_fixture_close"))
+                try:
+                    guard.close(cleanup_end=hard_end)
+                except BaseException as close:
+                    report["cleanup_errors"].append(getattr(close, "code", "windows_fixture_handle_close"))
+        if guard is not None:
+            report["fixture"].update(root_handles_closed=guard.closed, root_closed=guard.created_directory is None)
+        if plan is not None:
+            if not plan["windows_guard"].closed:
+                try:
+                    plan["windows_guard"].close(remove_cwd=True, cleanup_end=hard_end)
+                except BaseException as error:
+                    report["cleanup_errors"].append(getattr(error, "code", "windows_preflight_close"))
+            report["runtime"].update(trust_handles_closed=plan["windows_guard"].closed,
+                                     cwd_closed=plan["windows_guard"].created_directory is None)
+    if report["error"] is None and report["cleanup_errors"]:
+        report["error"] = "windows_cleanup_unconfirmed"
+    if time.monotonic() >= hard_end and report["error"] is None:
+        report["error"] = "deadline"
+    report["oracle"] = "satisfied" if report["error"] is None else \
+        "not_run" if report["native_control"] == "NOT RUN" else "failed"
+    report["elapsed_seconds"] = time.monotonic() - started
+    return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--case", choices=CASES, required=True)
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--case", choices=CASES)
+    mode.add_argument("--trust-case", choices=TRUST_CASES)
     args = parser.parse_args()
-    receipt = run_case(args.case)
+    receipt = run_case(args.case) if args.case else run_trust_case(args.trust_case)
     print(json.dumps(receipt, sort_keys=True))
     return 0 if receipt["oracle"] == "satisfied" else 1
 
