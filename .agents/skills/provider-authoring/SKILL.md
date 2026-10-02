@@ -104,7 +104,7 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 | `binaryName` | string? | Process name used for type-mapping a PTY to this provider. Defaults to `id`. |
 | `cliBinary` | string? | Binary probed for install/version checks. |
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
-| `updater` | map platform→string | Per-OS update command launched in a visible shell from an update notification. |
+| `updater` | map platform→string | Per-OS update command run automatically in a bounded utility process by the provider coordinator; working tabs keep running. |
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |
 | `modelCatalogue` | `{authority: "authoritative"|"free_form", liveDiscoveryRequired?: bool}` | `authoritative` closes model selection to catalogue ids; `free_form` preserves provider-owned ids. Set `liveDiscoveryRequired` when the seed is not a trustworthy validation list. If no live snapshot is available, CodeTerm preserves the requested id and returns a warning. |
 | `modelGroups` | `[{id, label}]` | Provider-owned groupings of `models` for the picker (e.g. the upstream company a routed model belongs to). `id` matches a model-id prefix, `label` is the text the picker renders; core never maps a vendor id to a label. Empty ⇒ one flat list. |
@@ -235,6 +235,8 @@ instead.
 
 | Export | Called with | Returns | When missing |
 |---|---|---|---|
+| `updatePromptSafeChoice(prompt)` | parsed prompt | one uniquely declared safe option value or `null` | native fallback; else `null`. Core uses the option-response API after ManualUpdate classification; never choose the apply-update option. |
+| `updatePromptAvailability(screen)` | classified ManualUpdate screen | `{currentVersion, latestVersion}` or `null` | one unambiguous structural three-component version pair (`->` or `→`); otherwise `null`. The target supplies the durable provider/version update key. |
 | `parsePrompt(text)` | screen text | `{question, options: [[id, label], …]}` or `null` | universal permission-prompt parser. |
 | `buildPromptResponse(optionIndex, screen)` | selected index, live screen | array of **base64-encoded** byte strings, one per PTY write step (vim j/k, arrows, escape sequences — whatever the TUI expects; `screen` lets you navigate relative to the live highlight) | arrow-down × index + Enter. |
 | `directoryTrustPromptResponse(screen)` | live clean screen text | `[key]` (exactly one base64 key toward trusting the folder), `[]` to hold a recognized trust dialog for the user, or `null` when none is shown. Core writes one key per observed frame only when `isDirectoryTrusted(cwd)` confirms the exact current folder. | `null` — directory-trust dialogs stay with the user. |

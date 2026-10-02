@@ -149,7 +149,7 @@ The connected observer ignores confidence below 0.60. Model-only owner notificat
 
 | State | Recovery authority |
 |---|---|
-| Update prompt | Manual-update prompt, provider-declared safe option and matching model choice at 0.90; otherwise notify. Answers use the prompt option API. |
+| Update prompt | The automatic provider coordinator answers classified ManualUpdate prompts through the prompt option API with the declared safe option. Outside that coordinator, model recovery also requires a matching choice at 0.90. See `codeterm docs CONFIG`. |
 | Crashed to shell | Confirmed provider exit event, provider absent from this tab's process tree and live shell PTY; resume a verified recovery session, otherwise launch fresh. Jev is audit-only. |
 | Starting past deadline | One restart, with provider absence or a dead PTY. |
 | Error loop | One restart, then notify; provider absence or a dead PTY is required. |
@@ -162,4 +162,4 @@ Automatic model recovery remains disabled until a separate human-labelled held-o
 
 UI-created tabs suppress trust, permission and login owner notifications unless parent/spawner, team, cron, hidden-worker or General Agent ownership applies. The journal still records observations. Restored-tab notices are held for restore-wave settlement and grouped by state. Durable tab/state/launch keys prevent repeated notices across application restarts; a new launch can notify again.
 
-<!-- revision: 34 -->
+<!-- revision: 35 -->

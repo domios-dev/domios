@@ -261,6 +261,21 @@ impl SupporterRuntime {
         Ok(())
     }
 
+    pub(crate) fn provider_update_action(
+        &self,
+        provider: &str,
+        target: Option<&str>,
+        record: ActionRecord<'_>,
+    ) -> std::io::Result<()> {
+        let mut value = serde_json::to_value(record)?;
+        let now = chrono::Utc::now().timestamp_millis();
+        value["time"] = json!(now / 1000);
+        value["provider"] = json!(provider);
+        value["target_version"] = json!(target);
+        self.activity.lock().last_activity = Some(now);
+        self.append(value)
+    }
+
     pub(crate) fn action(&self, record: ActionRecord<'_>) {
         let now = chrono::Utc::now().timestamp_millis();
         let mut value = serde_json::to_value(record).unwrap_or(Value::Null);

@@ -74,6 +74,16 @@ What makes a tab an agent: provider capabilities, launch and resume, detection, 
 - Part of: core:service-layer.
 - Invariants: each provider declares its transport, behavior, models, reasoning efforts, and presets; core asks capabilities, never provider identities or display names; a provider may declare a safe onboarding choice for delegated Worker and Planner launches, while owner-facing prompts stay visible to the owner; a session is bound only from the provider's own report or an explicit launch or resume choice, never inferred; `agent restart` resumes only a verified session, and fresh-launches a known provider from a confirmed `LaunchBindingUnconfirmed` shell when no verified recovery session is available; its result reports `resumed` or `fresh_launch` and never succeeds without an observed ready agent; model, status, usage, and transcript reads use only the tab's own bound session, and unknown stays unknown; detection uses structural signals, never vendor wording alone; native and plugin providers honor the same capability contract.
 
+Provider updates use the provider's declared command and target version, shared
+across tabs and instances. The production instance coordinates automatically;
+other instances opt in. A classified update prompt answers only the declared
+safe option. A successful update resumes each idle tab, including the General
+Agent; an active turn or task attempt defers that tab to its next idle event.
+There is at most one automatic restart per tab per update. A failed command
+restarts nothing, preserves working tabs and reports its captured error. One
+summary tracks restarted and pending tabs, and the Supporter journal records
+the run and restart outcomes.
+
 ### Prompts {#core:prompts}
 
 The words an agent starts from: shared guidance, role contracts for Orchestrator, Planner and Worker, the task's own framing, the General Agent's permanent prompt and first-run bootstrap, and the memory worker prompts.

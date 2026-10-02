@@ -237,4 +237,31 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`.
 
-<!-- revision: 83 -->
+## Provider updates
+
+The production instance automatically coordinates provider updates. This replaces
+owner consent offers with an automatic update and one verbose summary. Named and
+non-production instances participate only with
+`updater.allow_provider_updates_in_non_prod = true`.
+
+A provider update check or a classified ManualUpdate prompt starts the
+provider-declared update command in a utility process with a 300-second failure
+deadline. Provider and target-version claims are durable and shared across
+instances: the command runs once per target version, with one run per provider
+at a time. Prompts use only the provider-declared safe option through the prompt
+response API; CodeTerm never chooses Update now inside an agent tab.
+
+Working tabs keep running throughout the update. On success, idle tabs,
+including the General Agent, restart through `agent restart` with verified
+session resume (`resumed`), or the pipeline's eligible `fresh_launch` fallback.
+A tab with an active turn or an in-progress task attempt stays pending until its
+next idle or task-settlement event. Each tab gets at most one automatic restart
+for that update. On command failure, no tab restarts; the owner receives one
+failure notice with bounded captured stdout and stderr. An interrupted durable
+claim is retained to prevent an unconfirmed updater from running twice.
+
+The summary reports restarted, pending and failed restart counts, and updates
+in place as pending tabs finish. Update runs, safe prompt answers and individual
+restart outcomes enter the Supporter journal.
+
+<!-- revision: 84 -->

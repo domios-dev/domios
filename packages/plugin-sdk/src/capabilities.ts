@@ -239,6 +239,7 @@ export interface AgentProvider {
   /** Safe response role for a prompt only after core accepted its classifier. */
   classifiedPromptAutoResponse?(state: TabState, screen: string): "skip" | null;
   updatePromptSafeChoice?(prompt: ParsedPrompt): string | null;
+  updatePromptAvailability?(screen: string): { currentVersion: string; latestVersion: string } | null;
   parsePrompt?(text: string): ParsedPrompt | null;
   sessionFilePath?(cwd: string, sessionId: string): string | null;
   sessionJsonlPath?(cwd: string, sessionId: string): string | null;

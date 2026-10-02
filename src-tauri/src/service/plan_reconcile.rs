@@ -252,6 +252,7 @@ impl ServiceContext {
     }
 
     pub(super) fn emit_plan_changed(&self, plan_id: &str) {
+        self.provider_update_task_state_changed();
         crate::api::events::emit_everywhere(
             &self.app_handle,
             "plan-changed",

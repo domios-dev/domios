@@ -59,6 +59,17 @@ pub(super) fn parsed_prompt_from_js(obj: Value) -> Option<PendingPrompt> {
 }
 
 impl super::JsProvider {
+    pub(super) fn update_prompt_availability_from_js(
+        &self,
+        screen: &str,
+    ) -> Option<crate::provider::ProviderUpdateAvailability> {
+        if self.has_js("updatePromptAvailability") {
+            self.try_call("updatePromptAvailability", &[serde_json::json!(screen)])
+        } else {
+            crate::provider::update_prompt::availability(screen)
+        }
+    }
+
     pub(super) fn update_prompt_safe_choice_from_js(
         &self,
         prompt: &PendingPrompt,
