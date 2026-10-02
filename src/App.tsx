@@ -8,6 +8,8 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import type { SectionId } from "./components/Settings/sections";
+import { GuideNavigationProvider } from "@codeterm/chat-ui";
+import { GUIDE_SECTIONS, guideRequest, type GuideRequest } from "./help/guideNavigation";
 import type { AgentLevelChoice } from "./lib/types";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
@@ -115,6 +117,7 @@ function AppInner() {
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
   const [settingsSection, setSettingsSection] = useState<SectionId | undefined>(undefined);
+  const [requestedGuide, setRequestedGuide] = useState<GuideRequest | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
   const [mountedSettings, setMountedSettings] = useState(false);
@@ -152,6 +155,11 @@ function AppInner() {
     setSettingsSection("agents");
     setSettingsOpen(true);
   }, [setSettingsOpen]);
+  const openGuide = (sectionId: string) => {
+    setRequestedGuide(guideRequest(sectionId));
+    setSettingsSection("guide");
+    setSettingsOpen(true);
+  };
   const setMemoryOpen = useCallback((next: boolean | ((v: boolean) => boolean)) => {
     setMainView((cur) => {
       const wasOpen = cur === "memory";
@@ -533,6 +541,7 @@ function AppInner() {
   }, [stableTheme.background, themeStyles, stableFontConfig.size]);
 
   return (
+    <GuideNavigationProvider sections={GUIDE_SECTIONS} onOpen={openGuide}>
     <div
       className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
       style={{
@@ -627,6 +636,7 @@ function AppInner() {
                 onUpdateConfig={updateConfig}
                 onClose={() => { setSettingsSection(undefined); setSettingsOpen(false); }}
                 initialSection={settingsSection}
+                guideRequest={requestedGuide}
               />
             </div>
           )}
@@ -805,6 +815,7 @@ function AppInner() {
 
       <UpdateProgressLayer />
     </div>
+    </GuideNavigationProvider>
   );
 }
 

@@ -157,6 +157,43 @@
         "Does not run codeterm agent startup-ack on the child's behalf",
         "Keeps task work blocked until authoritative binding and the child's own acknowledgement"
       ]
+    },
+    {
+      "id": 14,
+      "name": "bootstrap-waits-for-identity-before-post-setup-fragment",
+      "response_mode": "text",
+      "prompt": "First-run state: locale is English, Step 1 is complete, and the user just replied \"Alex\". No main work area has been supplied. identity.md and soul.md have not been written and bootstrap.md still exists. Describe only the next bootstrap step and where you wait. Represent user-visible fragments by their step or fragment id, never their wording. The optional fragment id bootstrap:post-setup-supporter is opaque; emit its id only if the bootstrap schedules it now.",
+      "expected_output": "The General Agent continues setup and waits for missing identity; the post-setup fragment is absent.",
+      "expectations": [
+        "Does not emit a REPLY or scheduled output token for bootstrap:post-setup-supporter",
+        "Does not delete bootstrap.md or claim Step 4 complete while the main work area is unknown"
+      ],
+      "prompt_family": "bootstrap"
+    },
+    {
+      "id": 15,
+      "name": "bootstrap-post-setup-fragment-follows-final-setup-marker",
+      "response_mode": "text",
+      "prompt": "First-run state: locale is English, the user is Alex and builds desktop apps, the tour is finished, and Step 4 actions 1\u20133 have succeeded. bootstrap.md still exists. Show the remaining commands and user-visible fragments in chronological order; do not execute them. Replace ALL user-visible prose with opaque token lines: REPLY bootstrap:setup-complete for the last numbered action of Step 4, and REPLY bootstrap:post-setup-supporter for the optional fragment with that id, only if the bootstrap schedules it. Do not copy either fragment's wording. Stop where the bootstrap stops.",
+      "expected_output": "Bootstrap deletion precedes the final setup token; the single optional fragment token follows that token.",
+      "expectations": [
+        "The chronological output contains the command deleting bootstrap.md before REPLY bootstrap:setup-complete",
+        "Exactly one REPLY bootstrap:post-setup-supporter token appears strictly after REPLY bootstrap:setup-complete, with none before it",
+        "Does not execute adapter selection or token-setting commands as part of first-run setup"
+      ],
+      "prompt_family": "bootstrap"
+    },
+    {
+      "id": 16,
+      "name": "bootstrap-post-setup-fragment-is-not-repeated",
+      "response_mode": "text",
+      "prompt": "The first-run flow has finished: Step 4 actions 1\u20135 succeeded, bootstrap.md was deleted, and the optional fragment bootstrap:post-setup-supporter was already emitted once. The user now asks \"Can you help with my next desktop app?\". State the next conversational action using step/fragment ids for any bootstrap output; never quote its prose.",
+      "expected_output": "The General Agent handles the new request without repeating bootstrap output.",
+      "expectations": [
+        "Does not emit or schedule another REPLY bootstrap:post-setup-supporter token",
+        "Does not repeat the first-run tour, delete bootstrap.md again, or connect an adapter without a request"
+      ],
+      "prompt_family": "bootstrap"
     }
   ]
 }

@@ -50,7 +50,7 @@ A tab title is one word. A tab that is not task-bound may choose a stable name w
 
 ### Rendering in the chat
 
-Replies render as GitHub-flavored markdown. When a picture beats a paragraph, a `mermaid` fence renders a diagram (labels are sanitized and click handlers disabled) and an `html` fence runs with bundled Tailwind v4, CSS, and JavaScript. Render a known local file without copying it via standalone `@ct-page ABSOLUTE_PATH`, `@ct-image ABSOLUTE_PATH`, or `@ct-document ABSOLUTE_PATH`; unknown files go through `ct.file.pick()`. Direct network and arbitrary filesystem access are blocked. Inline HTML is for light markup (`<kbd>`, `<mark>`, `<details>`/`<summary>`, `<sub>`, `<sup>`, `<span style="color:…">`, `colspan`); scripts, iframes, event handlers, and `position:`/`url()` styles are stripped.
+Replies render as GitHub-flavored markdown. When a picture beats a paragraph, a `mermaid` fence renders a diagram (labels are sanitized and click handlers disabled) and an `html` fence runs with bundled Tailwind v4, CSS, and JavaScript. Render a known local file without copying it via standalone `@ct-page ABSOLUTE_PATH`, `@ct-image ABSOLUTE_PATH`, or `@ct-document ABSOLUTE_PATH`; unknown files go through `ct.file.pick()`. Open an in-app Guide section with a standalone `@ct-guide <section-id>` paragraph. Direct network and arbitrary filesystem access are blocked. Inline HTML is for light markup (`<kbd>`, `<mark>`, `<details>`/`<summary>`, `<sub>`, `<sup>`, `<span style="color:…">`, `colspan`); scripts, iframes, event handlers, and `position:`/`url()` styles are stripped.
 
 ### Secrets
 
@@ -62,4 +62,4 @@ Where a credential lives depends on whose it is. CodeTerm's own credentials, any
 
 Telegram setup and config options are in the `codeterm` skill; `codeterm config get/set` reads and writes config. Agent-to-agent communication (task prompts, `--task` arguments, reports, mesh messages, cron tasks) is in English; reply to the user in their language.
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->
