@@ -94,20 +94,15 @@ pub fn run(command: &str, cwd: &Path, limit: Duration) -> Result<Output, &'stati
     };
     #[cfg(windows)]
     let mut cmd = {
-        use std::os::windows::process::CommandExt;
-        use windows_sys::Win32::System::Threading::{CREATE_NO_WINDOW, CREATE_SUSPENDED};
         let mut cmd = Command::new("powershell.exe");
         crate::process_util::no_window_std(&mut cmd);
-        // Suspended start lets the job object own the probe before it runs, so the
-        // flags are set together after the shared no-window helper.
         cmd.args([
             "-NoLogo",
             "-NoProfile",
             "-NonInteractive",
             "-Command",
             command,
-        ])
-        .creation_flags(CREATE_NO_WINDOW | CREATE_SUSPENDED);
+        ]);
         cmd
     };
     cmd.current_dir(cwd)
@@ -173,9 +168,10 @@ impl Process {
                 AssignProcessToJobObject, CreateJobObjectW,
             };
             let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
-            if job.is_null()
-                || unsafe { AssignProcessToJobObject(job, child.as_raw_handle() as _) } == 0
-            {
+            let assigned = !job.is_null()
+                && unsafe { AssignProcessToJobObject(job, child.as_raw_handle() as _) } != 0;
+            // A probe can finish before assignment; an exited child has nothing left to contain.
+            if !assigned && !matches!(child.try_wait(), Ok(Some(_))) {
                 let _ = child.kill();
                 let _ = child.wait();
                 if !job.is_null() {
@@ -190,7 +186,6 @@ impl Process {
                 terminated: false,
                 job,
             };
-            super::probe_windows::resume(process.child.id())?;
             Ok(process)
         }
         #[cfg(unix)]

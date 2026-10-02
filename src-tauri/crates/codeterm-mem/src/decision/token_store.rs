@@ -100,7 +100,7 @@ impl TokenStore {
             fs::set_permissions(&self.base_dir, fs::Permissions::from_mode(0o700))?;
         }
         #[cfg(windows)]
-        windows::restrict(&self.base_dir)?;
+        windows::restrict_dir(&self.base_dir)?;
         let target = self.token_path(adapter_id)?;
         let temp = target.with_file_name(format!(
             ".{}.{}.tmp",
