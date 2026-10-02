@@ -687,6 +687,9 @@ class FakeOpener:
 
 class HelperControls(unittest.TestCase):
     def setUp(self):
+        tls_patch = patch.object(parent, "validated_tls", return_value=None)
+        tls_patch.start()
+        self.addCleanup(tls_patch.stop)
         self.clock = Clock()
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)

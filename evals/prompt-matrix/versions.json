@@ -2796,6 +2796,10 @@
       "bytes": 33763
     }
   },
-  "native_assembly_status": "source_authored_NOT_RUN",
-  "native_transport_status": "owned_helper_source_authored_NOT_RUN"
+  "native_assembly_status": "first_canonical_claude_2.1.286_darwin_arm64_attempt_failed_unqualified",
+  "native_transport_status": "canonical_pure217_passed_actual_wrapper_acquisition_failed_URLError",
+  "native_tls_source_status": "fixed_macos_public_ca_snapshot_and_typed_failure_source_authored_NOT_RUN",
+  "native_version_status": "NOT_RUN",
+  "native_failure_receipt": "/tmp/codeterm-qa/probe-native-first-20261002-193022-32030",
+  "native_failed_fixture_disposition": "preserve promptmatrix:7794 native/claude/2.1.286 unchanged; no retry or overwrite authorization"
 }
