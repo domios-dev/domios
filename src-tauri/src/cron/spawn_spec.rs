@@ -42,6 +42,8 @@ pub(crate) fn build_cron_spawn_spec(
         reasoning_effort: inputs.reasoning_effort,
         task: Some(inputs.task_text),
         role: inputs.role,
+        // The owner chose this directory when authoring the schedule, so its trust prompt is answered.
+        provisioned_cwd: inputs.cwd.clone(),
         cwd: inputs.cwd,
         workspace_id: inputs.workspace_id,
         report_target_tab_id: inputs.report_target_tab_id,

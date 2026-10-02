@@ -128,7 +128,9 @@ pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteRes
         let selected_token = store.status(&cfg.adapter)?;
         let selected_model = models.get(&cfg.adapter);
         let adapter_registered = selected_model.is_some();
-        let token_mode = selected_model.map_or(TokenMode::Required, |model| model.token_mode());
+        let token_mode = selected_model
+            .as_ref()
+            .map_or(TokenMode::Required, |model| model.token_mode());
         let mut state = supporter_state(
             !cfg.adapter.is_empty(),
             &selected_token,

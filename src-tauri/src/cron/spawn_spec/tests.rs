@@ -43,6 +43,7 @@ fn expected_pty_spec() -> SpawnTabSpec {
             report_target_tab_id: Some("tab-report".into()),
             spawned_by: Some("cron:job-7".into()),
             spawned_by_tab_id: Some("tab-creator".into()),
+            provisioned_cwd: Some("/lane".into()),
             ..Default::default()
         }),
     }

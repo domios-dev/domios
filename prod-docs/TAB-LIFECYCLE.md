@@ -140,4 +140,26 @@ Closed attempts cannot become ready or be reactivated; recover through the Plan 
 - **Tab creation** is not journaled; the first `epoch_opened` marks its lifecycle.
 - **chatBackend lifecycle authority does not exist.** Those tabs may have detached provider-label audit records, but no lifecycle operation or checkpoint.
 - **Rollback to a named checkpoint** is not implemented. The journal records history; it does not replay it.
-<!-- revision: 33 -->
+
+## General Agent recovery
+
+Recovery observes launch settlement, startup deadlines, PTY death, provider exit to a surviving shell, idle and busy without output. The watchdog uses those events and checks shutdown, launch grace, PTY liveness and restart bounds when each event occurs. A live PTY never authorizes a restart from screen evidence. Confirmed dead-PTY recovery retains the watchdog predicates independently of model availability.
+
+The connected observer ignores confidence below 0.60. Model-only owner notifications require two agreeing observations at or above 0.80; model-authorized automatic actions require both observations at or above 0.90 and deterministic evidence:
+
+| State | Recovery authority |
+|---|---|
+| Update prompt | Manual-update prompt, provider-declared safe option and matching model choice at 0.90; otherwise notify. Answers use the prompt option API. |
+| Crashed to shell | Confirmed provider exit event, provider absent from this tab's process tree and live shell PTY; resume a verified recovery session, otherwise launch fresh. Jev is audit-only. |
+| Starting past deadline | One restart, with provider absence or a dead PTY. |
+| Error loop | One restart, then notify; provider absence or a dead PTY is required. |
+| Login or unavailable model/quota | Owner notification with choices. |
+| Folder trust | Existing trust responder checks provenance, shared trust cache or a live same-provider tab with a verified session in the exact canonical directory. |
+| Command/tool permission | The tab's own permission policy; the observer does not approve it. |
+| Other | No recovery. |
+
+Automatic model recovery remains disabled until a separate human-labelled held-out set reaches 0.95 precision in the 0.90 automatic band and the live recovery oracle is recorded. Each automatic dispatch first writes the Supporter journal and emits a verbose notification. At most two automatic restarts are reserved durably per General Agent episode, even if configured higher. Exhaustion emits one failure notification and stops recovery until an owner restart resets the episode.
+
+UI-created tabs suppress trust, permission and login owner notifications unless parent/spawner, team, cron, hidden-worker or General Agent ownership applies. The journal still records observations. Restored-tab notices are held for restore-wave settlement and grouped by state. Durable tab/state/launch keys prevent repeated notices across application restarts; a new launch can notify again.
+
+<!-- revision: 34 -->
