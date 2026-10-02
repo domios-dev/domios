@@ -138,13 +138,7 @@ fn retire_and_clean(
     assert_eq!(task.peer, None);
 }
 
-fn set_status_label(
-    store: &PlanStore,
-    plan_id: &str,
-    task_id: &str,
-    label: &str,
-    now_ms: u64,
-) {
+fn set_status_label(store: &PlanStore, plan_id: &str, task_id: &str, label: &str, now_ms: u64) {
     store
         .update_task(
             plan_id,
@@ -170,30 +164,13 @@ fn set_status_label(
         .unwrap();
 }
 
-fn two_reported_cleaned_generations() -> (
-    tempfile::TempDir,
-    PlanStore,
-    String,
-    String,
-    Vec<String>,
-) {
+fn two_reported_cleaned_generations() -> (tempfile::TempDir, PlanStore, String, String, Vec<String>)
+{
     let (dir, store, plan_id, task_id) = setup();
     let first = add_reported_generation(&dir, &store, &plan_id, &task_id, "worker-one", 1);
-    retire_and_clean(
-        &store,
-        &plan_id,
-        &task_id,
-        TaskStatus::Pending,
-        13,
-    );
+    retire_and_clean(&store, &plan_id, &task_id, TaskStatus::Pending, 13);
     let second = add_reported_generation(&dir, &store, &plan_id, &task_id, "worker-two", 2);
-    retire_and_clean(
-        &store,
-        &plan_id,
-        &task_id,
-        TaskStatus::InReview,
-        25,
-    );
+    retire_and_clean(&store, &plan_id, &task_id, TaskStatus::InReview, 25);
     set_status_label(&store, &plan_id, &task_id, "review", 27);
     (dir, store, plan_id, task_id, vec![first, second])
 }
@@ -201,24 +178,12 @@ fn two_reported_cleaned_generations() -> (
 fn one_reported_cleaned_generation() -> (tempfile::TempDir, PlanStore, String, String, String) {
     let (dir, store, plan_id, task_id) = setup();
     let attempt_id = add_reported_generation(&dir, &store, &plan_id, &task_id, "worker-one", 1);
-    retire_and_clean(
-        &store,
-        &plan_id,
-        &task_id,
-        TaskStatus::InReview,
-        13,
-    );
+    retire_and_clean(&store, &plan_id, &task_id, TaskStatus::InReview, 13);
     set_status_label(&store, &plan_id, &task_id, "review", 15);
     (dir, store, plan_id, task_id, attempt_id)
 }
 
-fn set_status(
-    store: &PlanStore,
-    plan_id: &str,
-    task_id: &str,
-    status: &str,
-    now_ms: u64,
-) {
+fn set_status(store: &PlanStore, plan_id: &str, task_id: &str, status: &str, now_ms: u64) {
     store
         .update_task(
             plan_id,
@@ -308,7 +273,10 @@ fn assert_attempt_history_preserved(
     selected_index: usize,
     bounced: &crate::service_plan::review_gate::ReviewTransitionResult,
 ) {
-    assert_eq!(after.execution_attempts.len(), before.execution_attempts.len());
+    assert_eq!(
+        after.execution_attempts.len(),
+        before.execution_attempts.len()
+    );
     for (index, attempt) in after.execution_attempts.iter().enumerate() {
         let mut expected = before.execution_attempts[index].clone();
         if index == selected_index {
@@ -398,10 +366,7 @@ fn report_authority(store: &PlanStore, task_id: &str, tab_id: &str) -> TaskMutat
     TaskMutationAuthority {
         tab_id: tab_id.into(),
         session_id: attempt.session_id.clone().unwrap_or_default(),
-        session_binding_nonce: attempt
-            .session_binding_nonce
-            .clone()
-            .unwrap_or_default(),
+        session_binding_nonce: attempt.session_binding_nonce.clone().unwrap_or_default(),
         owner_epoch: task.interruption.owner_epoch,
     }
 }
@@ -414,8 +379,7 @@ fn review_bounce_cleaned_two_generations_returns_pending() {
     assert_eq!(before.status, TaskStatus::InReview);
     assert_eq!(before.execution_attempts.len(), 2);
     assert_eq!(
-        before.execution_attempts[1].id,
-        attempt_ids[1],
+        before.execution_attempts[1].id, attempt_ids[1],
         "persisted append order establishes the terminal generation"
     );
 
@@ -436,7 +400,10 @@ fn review_bounce_cleaned_two_generations_returns_pending() {
     let after = store.show_task(&task_id).unwrap().task;
     assert_eq!(after.status, TaskStatus::Pending);
     assert_eq!(after.status_label.as_deref(), Some("review bounced"));
-    assert_eq!(after.review_evidence.len(), before.review_evidence.len() + 1);
+    assert_eq!(
+        after.review_evidence.len(),
+        before.review_evidence.len() + 1
+    );
     assert_eq!(after.milestones.len(), before.milestones.len() + 1);
     assert_eq!(
         after.review_evidence.last().unwrap().note,
@@ -791,13 +758,7 @@ fn incomplete_terminal_history(case: &str) -> (tempfile::TempDir, PlanStore, Str
         _ => unreachable!(),
     }
     let retire_at = if case == "non_review_report" { 14 } else { 13 };
-    retire_and_clean(
-        &store,
-        &plan_id,
-        &task_id,
-        TaskStatus::InReview,
-        retire_at,
-    );
+    retire_and_clean(&store, &plan_id, &task_id, TaskStatus::InReview, retire_at);
     set_status_label(&store, &plan_id, &task_id, "review", retire_at + 2);
     (dir, store, plan_id, task_id)
 }
@@ -808,16 +769,19 @@ fn review_bounce_cleaned_refuses_invalid_generation_order() {
         let (_dir, store, plan_id, task_id, _) = two_reported_cleaned_generations();
         store
             .with_plan(&plan_id, 28, |plan| {
-                let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+                let task = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .unwrap();
                 match case {
                     0 => {
                         task.execution_attempts[1].assigned_at =
                             task.execution_attempts[0].assigned_at;
                     }
                     1 => {
-                        task.execution_attempts[1].assigned_at = Some(
-                            task.execution_attempts[0].assigned_at.unwrap() - 1,
-                        );
+                        task.execution_attempts[1].assigned_at =
+                            Some(task.execution_attempts[0].assigned_at.unwrap() - 1);
                     }
                     2 => {
                         task.execution_attempts[1].id = task.execution_attempts[0].id.clone();
@@ -827,9 +791,8 @@ fn review_bounce_cleaned_refuses_invalid_generation_order() {
                             task.execution_attempts[0].session_id.clone();
                     }
                     _ => {
-                        task.execution_attempts[0].closed_at = Some(
-                            task.execution_attempts[1].assigned_at.unwrap() + 1,
-                        );
+                        task.execution_attempts[0].closed_at =
+                            Some(task.execution_attempts[1].assigned_at.unwrap() + 1);
                     }
                 }
                 Ok(())
@@ -857,30 +820,10 @@ fn review_bounce_cleaned_refuses_incomplete_terminal_report() {
 fn review_bounce_cleaned_refuses_later_failed_generation() {
     let (dir, store, plan_id, task_id) = setup();
     let earlier_report = add_reported_generation(&dir, &store, &plan_id, &task_id, "worker-one", 1);
-    retire_and_clean(
-        &store,
-        &plan_id,
-        &task_id,
-        TaskStatus::Pending,
-        13,
-    );
-    let failed = add_unreported_generation(
-        &dir,
-        &store,
-        &plan_id,
-        &task_id,
-        "worker-two",
-        2,
-        true,
-    );
+    retire_and_clean(&store, &plan_id, &task_id, TaskStatus::Pending, 13);
+    let failed = add_unreported_generation(&dir, &store, &plan_id, &task_id, "worker-two", 2, true);
     set_status(&store, &plan_id, &task_id, "in_review", 22);
-    retire_and_clean(
-        &store,
-        &plan_id,
-        &task_id,
-        TaskStatus::InReview,
-        25,
-    );
+    retire_and_clean(&store, &plan_id, &task_id, TaskStatus::InReview, 25);
     set_status_label(&store, &plan_id, &task_id, "review", 27);
     let task = store.show_task(&task_id).unwrap().task;
     assert!(task.execution_attempts[0].report.is_some());
@@ -889,12 +832,7 @@ fn review_bounce_cleaned_refuses_later_failed_generation() {
     assert_ne!(task.execution_attempts[0].id, task.execution_attempts[1].id);
     assert_review_bounce_refused_unchanged(&store, &plan_id, &task_id, 28);
     assert_eq!(
-        store
-            .show_task(&task_id)
-            .unwrap()
-            .task
-            .execution_attempts[0]
-            .id,
+        store.show_task(&task_id).unwrap().task.execution_attempts[0].id,
         earlier_report
     );
 }
@@ -913,7 +851,14 @@ fn review_bounce_cleaned_refuses_replay_conflict() {
             16,
         )
         .unwrap();
-    set_status_and_label(&store, &plan_id, &task_id, "in_review", "review bounced", 17);
+    set_status_and_label(
+        &store,
+        &plan_id,
+        &task_id,
+        "in_review",
+        "review bounced",
+        17,
+    );
 
     assert_review_bounce_refused_unchanged(&store, &plan_id, &task_id, 18);
 
@@ -924,7 +869,11 @@ fn review_bounce_cleaned_refuses_replay_conflict() {
     let (_dir, store, plan_id, task_id, _) = one_reported_cleaned_generation();
     store
         .with_plan(&plan_id, 16, |plan| {
-            let task = plan.tasks.iter_mut().find(|task| task.id == task_id).unwrap();
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
             let round = task.review_round + 1;
             let attempt = task.execution_attempts.last_mut().unwrap();
             attempt.continuation.epoch = 1;
