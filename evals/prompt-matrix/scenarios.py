@@ -215,8 +215,6 @@ def install_older(dev, root, version, provider="codex"):
 
 
 def pending_special(options):
-    if options.case == "sentinel":
-        raise Pending("Lookout final CLI/evaluation contract is not merged; no Sentinel was created")
     if options.case == "update-coordinator":
         raise Pending("Courier consent, update journal and per-tab version contract must bind before execution")
     if options.variant == "disagreement":

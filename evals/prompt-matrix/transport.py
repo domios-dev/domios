@@ -154,6 +154,22 @@ class Dev:
         self.transcript.record("screen", {"tab_id": tab, "screen": screen})
         return match, payload
 
+    def get(self, path):
+        if path != "/api/supporter/activity?limit=100":
+            raise Finding("Direct API read is outside the bound CLI-less activity surface")
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.env['CODETERM_API_PORT']}{path}",
+            headers={"Authorization": "Bearer " + self.env["CODETERM_API_TOKEN"]},
+        )
+        self.transcript.record("api_read", path)
+        with urllib.request.urlopen(request, timeout=min(5, self.remaining())) as response:
+            payload = response.read(256 * 1024 + 1)
+        if len(payload) > 256 * 1024:
+            raise Finding("Activity API payload exceeds read cap")
+        result = json.loads(payload)
+        self.transcript.record("api_response", result)
+        return result
+
 
 def objects(value):
     if isinstance(value, dict):

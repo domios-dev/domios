@@ -1,6 +1,6 @@
 # Canonical gate commands
 
-Source authored only. None executed. Run after final dependency bindings and exact authorization.
+Source authored only. None executed. Policy cells require final dependency bindings and exact authorization. The focused feed regression and activity-feed cell can run before Auditor binds, only in canonical under their exact authorization.
 
 Run start/stop in a Team-bound utility shell; QA is serialized on the physical machine.
 
@@ -59,7 +59,6 @@ bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --provider c
 bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --case sentinel --variant git --jev off
 bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --case sentinel --variant fake-ci --jev off
 bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --case sentinel --variant regex-no-jev --jev off
-bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --case sentinel --variant budget-exhausted --jev off
 ```
 
 ## Jev on
@@ -114,16 +113,21 @@ bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --case senti
 bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --case sentinel --variant fake-ci --jev on
 bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --case sentinel --variant regex-no-jev --jev on
 bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --case sentinel --variant budget-exhausted --jev on
+bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --case sentinel --variant activity-feed --jev on
 ```
 
 ## Validator, report and teardown
 
 ```bash
 python3 evals/prompt-matrix/oracle_tests.py --red-demo
+python3 evals/prompt-matrix/oracle_tests.py --red-sentinel-demo
 python3 evals/prompt-matrix/oracle_tests.py
+./build.sh test-one app supporter_sentinel_verdict_is_visible_in_activity_feed
 python3 evals/prompt-matrix/report.py --root target-check/evals/prompt-matrix/promptmatrix
 bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --remove-owner
 bash evals/prompt-matrix/run.sh --instance promptmatrix --port 7794 --stop
 ```
 
-Red-demo must fail for the duplicate alert oracle. Pure controls must pass 13 checks. Report is nonzero until all 86 base cells plus Auditor disagreements pass. Special variants currently return PENDING and are never release passes.
+Both red demos must exit nonzero for duplicate alert/transition rejection. Pure controls must pass 22 checks. The focused Rust feed test is expected red before the owner's scheduled feed repair, then must pass after that merge. The activity-feed live cell must likewise expose the persisted verdict on the owner API surface. Report is nonzero until all 86 executable cells plus Auditor disagreements pass; the sole budget-off N/A is explicitly owner accepted. Coordinator and Sentinel policy-path cells remain PENDING until Courier/Auditor bind.
+
+No command is requested for Sentinel budget-exhausted/Jev-off: Brahms accepted N/A because regex classification never spends model budget. Exact approval must name each command above and the one named instance. All commands remain deferred; none ran in this lane.

@@ -2,7 +2,7 @@
 
 Source phase only. No live matrix or red-green demonstration ran in this lane.
 
-The 86 required cells below are NOT RUN. No transcript is claimed. The release gate remains closed.
+The 87 cells below comprise 86 NOT RUN and one owner-accepted N/A. No transcript is claimed. The release gate remains closed.
 
 Jev off is the heuristic arm. Jev on is the primary adapter arm with any actual fallback recorded. Deciding paths remain unobserved until journal-backed execution. Auditor disagreement points are pending its covered-point list.
 
@@ -50,9 +50,14 @@ Jev off is the heuristic arm. Jev on is the primary adapter arm with any actual 
 | host | sentinel | git | NOT RUN / unobserved | NOT RUN / unobserved | none |
 | host | sentinel | fake-ci | NOT RUN / unobserved | NOT RUN / unobserved | none |
 | host | sentinel | regex-no-jev | NOT RUN / unobserved | NOT RUN / unobserved | none |
-| host | sentinel | budget-exhausted | NOT RUN / unobserved | NOT RUN / unobserved | none |
+| host | sentinel | budget-exhausted | N/A: regex never spends model budget; owner accepted (Brahms, 2026-10-02) | NOT RUN / unobserved | none |
+| host | sentinel | activity-feed | No off-arm cell: feed projection regression | NOT RUN / expected RED: persisted Sentinel rows are currently excluded | none |
 
-Counts: PASS=0; FAIL=0; NOT RUN=86. Auditor disagreement cells: pending point list, additional to these 86.
+Counts: PASS=0; FAIL=0; NOT RUN=86; N/A=1. Auditor disagreement cells: pending point list, additional to these 87.
+
+Owner decision: budget-exhausted with Jev off is not applicable because regex mode never spends model budget. The Jev-on explicit cap plus a disconnected regex companion covers exhaustion. Source binding does not claim an executed outcome.
+
+Source-expected red: Sentinel verdicts must appear in the activity feed. The feed cell and focused Rust regression are authored to fail until the scheduled repair lands. No live FAIL has been observed here. Lookout CLI/outcome and Lens cap contracts are bound; Auditor paths and Courier remain PENDING.
 
 Executed evidence: ACK confirmed; source/CLI-help discovery only. No provider was launched, no prompt provoked, and no dev or project gate executed.
 

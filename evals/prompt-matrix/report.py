@@ -12,6 +12,7 @@ import sys
 from fixtures import HERE, PROVIDERS
 from oracles import judge
 from scenarios import CASES
+from sentinel_oracles import judge_sentinel, judge_sentinel_feed
 
 
 def cells():
@@ -25,6 +26,7 @@ def cells():
     for variant in ("git", "fake-ci", "regex-no-jev", "budget-exhausted"):
         for jev in ("off", "on"):
             yield "host", "sentinel", jev, variant, ""
+    yield "host", "sentinel", "on", "activity-feed", ""
     points = json.loads((HERE / "contracts.json").read_text())["decision"]["covered_points"]
     for point in points:
         yield point["provider"], point["case"], "on", "disagreement", point["id"]
@@ -46,7 +48,10 @@ def records(root):
                 lines = [json.loads(line) for line in transcript.read_text().splitlines()]
                 if any(line["kind"] == "finding" for line in lines):
                     raise ValueError("Transcript contains an unresolved finding")
-                judge(result["evidence"])
+                oracle = judge
+                if result["case"] == "sentinel":
+                    oracle = judge_sentinel_feed if result["variant"] == "activity-feed" else judge_sentinel
+                oracle(result["evidence"])
                 if result.get("path") != result["evidence"]["path"]:
                     raise ValueError("Result and oracle disagree on decision path")
             except Exception as error:
@@ -63,26 +68,41 @@ def escaped(value):
 
 
 def render(results):
+    accepted = json.loads((HERE / "contracts.json").read_text())["sentinel"]["not_applicable"]
     lines = [
         "# Provider prompt matrix", "",
         "Release gate remains closed until every required cell passes or has explicit owner acceptance.",
         "Missing evidence is NOT RUN. Pending contracts are PENDING. Neither is a pass.", "",
         "Off is the heuristic arm. On exercises connected Jev primary and records any actual fallback.",
         "The deciding path comes only from `decided_by` plus `observation_id`, never from Jev configuration.", "",
-        "| Provider | Case | Jev | Variant | Decision point | Result | Deciding path | Transcript / finding |",
-        "|---|---|---|---|---|---|---|---|",
+        "| Provider | Case | Jev | Variant | Decision point | Result | Jev primary | Heuristic / regex | Deciding path | Transcript / finding |",
+        "|---|---|---|---|---|---|---|---|---|---|",
     ]
     counts = Counter()
     for cell in cells():
         result = results.get(cell, {})
+        exception = next((item for item in accepted if cell[:4] ==
+                          ("host", "sentinel", item["jev"], item["variant"])), None)
+        if exception:
+            result = {"status": "N/A", "reason": exception["reason"] + " Authority: " + exception["authority"],
+                      "path": "not_applicable_disconnected_regex"}
+        elif result.get("status") == "N/A":
+            result = {"status": "FAIL", "reason": "No owner acceptance exists for this N/A cell"}
         status = result.get("status", "NOT RUN")
         counts[status] += 1
         path = result.get("path") or "unobserved"
+        evidence = result.get("evidence", {})
+        primary = "recorded" if evidence.get("jev_arm") else "unobserved"
+        heuristic = "recorded" if evidence.get("heuristic_arm") else "unobserved"
+        if exception:
+            primary, heuristic = "N/A: disconnected", "N/A: regex does not spend model budget"
+        if cell[3] == "activity-feed":
+            primary = heuristic = "N/A: visibility projection"
         artifact = result.get("artifact")
         note = result.get("reason", "No live gate executed")
         if artifact:
             note = f"[transcript]({artifact}/transcript.jsonl): {escaped(note)}"
-        lines.append("| " + " | ".join(map(escaped, (*cell, status, path, note))) + " |")
+        lines.append("| " + " | ".join(map(escaped, (*cell, status, primary, heuristic, path, note))) + " |")
     lines += ["", "Counts: " + "; ".join(f"{key}={value}" for key, value in sorted(counts.items())) + ".", "",
               "Auditor disagreement cells: pending the covered-point list in contracts.json.", "",
               "Red-green demonstration: deferred to canonical QA; no executed demonstration is claimed.", "",
@@ -98,7 +118,7 @@ def main():
     body, counts = render(records(options.root))
     options.out.write_text(body)
     print("; ".join(f"{key}={value}" for key, value in sorted(counts.items())))
-    return 0 if counts and counts.get("PASS", 0) == sum(counts.values()) else 1
+    return 0 if counts and counts.get("PASS", 0) + counts.get("N/A", 0) == sum(counts.values()) else 1
 
 
 if __name__ == "__main__":
