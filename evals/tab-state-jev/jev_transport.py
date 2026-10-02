@@ -29,8 +29,8 @@ CHUNK = 4096
 
 
 class TransportFailure(ValueError):
-    def __init__(self, code, receipt=None):
-        self.code, self.receipt = code, receipt or {}
+    def __init__(self, code, receipt=None, *, owner=None):
+        self.code, self.receipt, self.owner = code, receipt or {}, owner
         super().__init__(code)
 
 
@@ -92,7 +92,8 @@ def identity_hash(path, end, clock):
             result = exact, digest
         except BaseException as error:
             failure = error
-        facts = {"trust_handles_closed": guard is not None and guard.closed}
+            guard = guard or getattr(error, "owner", None)
+        facts = {**getattr(failure, "facts", {}), "trust_handles_closed": guard is not None and guard.closed}
         if guard is not None:
             try:
                 guard.close()
@@ -101,7 +102,9 @@ def identity_hash(path, end, clock):
                 facts.update(trust_handles_closed=guard.closed, trust_cleanup_error=getattr(error, "code", "windows_trust_close"))
                 failure = failure or error
         if failure is not None:
-            raise TransportFailure(getattr(failure, "code", "windows_file_hash"), facts) from failure
+            if guard is not None:
+                facts["windows_trust"] = guard.receipt()
+            raise TransportFailure(getattr(failure, "code", "windows_file_hash"), facts, owner=guard) from failure
         return result
     path = Path(path).resolve(strict=True)
     before = path.stat()
@@ -144,7 +147,7 @@ def prepare_plan(wire, operation_end, hard_end, clock):
         try:
             guard = worker_support.WindowsTrust(operation_end, clock=clock)
         except worker_support.WorkerError as error:
-            raise TransportFailure(error.code, error.facts) from error
+            raise TransportFailure(error.code, error.facts, owner=getattr(error, "owner", None)) from error
         try:
             worker, worker_hash, _ = guard.file(Path(__file__).with_name("jev_request_worker.py"))
             _, contract_hash, _ = guard.file(Path(__file__).with_name("request_contract.py"))
@@ -168,8 +171,11 @@ def prepare_plan(wire, operation_end, hard_end, clock):
             except BaseException as cleanup:
                 facts["preparation_cleanup_error"] = getattr(cleanup, "code", "preparation_cleanup_os")
             facts.update(trust_handles_closed=guard.closed, cwd_closed=guard.created_directory is None)
+            trust_receipt = guard.receipt()
+            if type(trust_receipt) is dict:
+                facts["windows_trust"] = trust_receipt
             code = getattr(error, "code", "preparation_os")
-            raise TransportFailure(code, facts) from error
+            raise TransportFailure(code, facts, owner=guard) from error
     worker, worker_hash = identity_hash(Path(__file__).with_name("jev_request_worker.py"), operation_end, clock)
     _, contract_hash = identity_hash(Path(__file__).with_name("request_contract.py"), operation_end, clock)
     interpreter, interpreter_hash = identity_hash(sys.executable, operation_end, clock)
@@ -539,7 +545,10 @@ class JevTransport:
                            "request_started": started, "operation_end": operation_end, "hard_end": hard_end,
                            "run_end": self.run_end, "completion_confirmed": False, "calls_used": self.calls}
                 self.last_receipt, self.poisoned = receipt, True
-                raise TransportFailure(code, receipt) from error
+                owner = getattr(error, "owner", None)
+                if owner is not None:
+                    self.retained.append(owner)
+                raise TransportFailure(code, receipt, owner=owner) from error
             lease = self.lease_factory(plan, operation_end, hard_end, clock=self.clock)
             self.active = lease
             self.retained.append(lease)
@@ -572,9 +581,15 @@ class JevTransport:
             payload = contract.decode(lease.stdout, MAX_CAPTURE)
             require(type(payload) is dict and payload.get("version") == 1, "helper_receipt_schema")
             receipt["helper"] = {key: value for key, value in payload.items() if key != "answers"}
+            if "windows_guard" in plan and payload.get("windows_trust_closed") is not True:
+                receipt.update(process_completion_confirmed=receipt["completion_confirmed"],
+                               completion_confirmed=False, helper_trust_unconfirmed=True)
+                with self.lock:
+                    self.poisoned, self.active = True, lease
+                code = payload.get("error", "helper_trust_unconfirmed") if payload.get("status") == "failed" else \
+                    "helper_trust_unconfirmed"
+                raise TransportFailure(code, receipt)
             require(payload.get("credential_channel_closed") is True, "helper_channel_unconfirmed")
-            if "windows_guard" in plan:
-                require(payload.get("windows_trust_closed") is True, "helper_trust_unconfirmed")
             if payload.get("status") != "completed":
                 raise TransportFailure(payload.get("error", "helper_failure"), receipt)
             require(receipt["returncode"] == 0 and payload.get("wire_sha256") == receipt["wire_sha256"] and
