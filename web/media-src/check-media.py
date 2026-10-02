@@ -59,8 +59,11 @@ def audio_packet_oracle(candidate, mixed_audio):
     actual = run(['ffmpeg', '-v', 'error', '-i', candidate, '-map', '0:a:0', '-c:a', 'copy',
                   '-f', 'streamhash', '-hash', 'sha256', '-'], capture=True).decode().strip()
     codec, bitrate = ('aac', '64k') if candidate.suffix == '.mp4' else ('libopus', '48k')
-    expected = run(['ffmpeg', '-v', 'error', '-i', mixed_audio, '-map', '0:a:0', '-c:a', codec,
-                    '-b:a', bitrate, '-ar', '48000', '-ac', '1', '-f', 'streamhash', '-hash', 'sha256', '-'], capture=True).decode().strip()
+    reference = ['ffmpeg', '-v', 'error', '-i', mixed_audio, '-map', '0:a:0', '-c:a', codec,
+                 '-b:a', bitrate, '-ar', '48000', '-ac', '1']
+    if candidate.suffix == '.mp4':
+        reference += ['-aac_coder', 'fast']
+    expected = run(reference + ['-f', 'streamhash', '-hash', 'sha256', '-'], capture=True).decode().strip()
     require(actual == expected, 'Encoded soundtrack differs from the aligned/mixed proof WAV')
     return actual
 
