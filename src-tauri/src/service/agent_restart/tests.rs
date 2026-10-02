@@ -447,10 +447,7 @@ fn session_action_fresh_when_stale_or_missing() {
         outcome(Some("sid"), true, true).session_action(),
         "fresh_launch"
     );
-    assert_eq!(
-        outcome(None, false, true).session_action(),
-        "fresh_launch"
-    );
+    assert_eq!(outcome(None, false, true).session_action(), "fresh_launch");
 }
 
 #[test]
