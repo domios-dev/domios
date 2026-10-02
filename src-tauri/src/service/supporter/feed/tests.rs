@@ -127,3 +127,28 @@ fn supporter_feed_question_count_is_bounded_and_malformed_pairs_are_omitted() {
         assert!(entry(&record(asked)).unwrap().get("asked").is_none());
     }
 }
+
+#[test]
+fn supporter_feed_keeps_observation_identity_and_capped_narrative_together() {
+    let secret = "supplied-query-secret";
+    let code = "918273";
+    let question = format!(
+        "supplied-question https://example.test/auth?token={secret} {code} {}",
+        "界".repeat(500)
+    );
+    let answer = "supplied-answer";
+    let value = json!({
+        "time": 1, "kind": "tab_state", "label": "other", "action": "classification",
+        "reason": "model_answer", "decided_by": "fallback(timeout)", "observation_id": 42,
+        "asked": [{"name": "supplied-name", "question": question, "answer": answer}],
+    });
+    let projected = entry(&value).unwrap();
+    assert_eq!(projected["observation_id"], 42);
+    assert_eq!(projected["decided_by"], "fallback(timeout)");
+    assert_eq!(projected["asked"][0]["answer"], answer);
+    let question = projected["asked"][0]["question"].as_str().unwrap();
+    assert!(question.contains("supplied-question"));
+    assert!(question.chars().count() <= narrative::MAX_QUESTION_CHARS);
+    assert!(!projected.to_string().contains(secret));
+    assert!(!projected.to_string().contains(code));
+}

@@ -94,7 +94,9 @@ fn bundled_providers_advertise_only_efforts_they_can_launch() {
     };
     let mut provider_ids: Vec<String> = std::fs::read_dir(&plugins_root)
         .expect("read plugins dir")
-        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().join("plugin.json").is_file())
+        .filter_map(|entry| entry.file_name().into_string().ok())
         .filter_map(|name| name.strip_prefix("provider-").map(str::to_string))
         .collect();
     provider_ids.sort();

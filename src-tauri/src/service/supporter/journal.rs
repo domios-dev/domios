@@ -137,7 +137,12 @@ impl Journal {
     pub(super) fn append(&self, value: &Value) -> io::Result<()> {
         let mut value = value.clone();
         if let Some(asked) = value.get("asked") {
-            value["asked"] = serde_json::to_value(super::narrative::project(asked))?;
+            let asked = if value["kind"] == "tab_state" {
+                crate::service::supporter_tab_state::redact_decision_diagnostic(asked)
+            } else {
+                asked.clone()
+            };
+            value["asked"] = serde_json::to_value(super::narrative::project(&asked))?;
         }
         let mut bytes = serde_json::to_vec(&value)?;
         bytes.push(b'\n');

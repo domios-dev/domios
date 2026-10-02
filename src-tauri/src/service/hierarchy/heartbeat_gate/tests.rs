@@ -43,6 +43,7 @@ impl DecisionModel for FixtureModel {
         request: &DecisionQuestionsRequest,
         _: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
+        codeterm_types::decision::physical::before_request()?;
         self.calls.fetch_add(1, Ordering::SeqCst);
         if let Some(error) = &self.error {
             return Err(error.clone());
@@ -355,6 +356,14 @@ fn heartbeat_gate_budget_and_redacted_feed_share_runtime() {
         .heartbeat_event(decision.observation_event(&snapshot, "private-tab", "private-plan", 100))
         .unwrap();
     let private = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
+    assert_eq!(
+        private
+            .lines()
+            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+            .filter(|row| row["kind"] == "model_call")
+            .count(),
+        1
+    );
     let recorded: Value = private
         .lines()
         .filter_map(|line| serde_json::from_str::<Value>(line).ok())

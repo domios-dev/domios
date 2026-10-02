@@ -5,7 +5,14 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub mod physical;
+
 pub trait DecisionModel: Send + Sync {
+    /// Batches all named questions into at most one physical request.
+    /// Transports account each attempt through `physical::before_request`.
+    fn supports_question_batch(&self) -> bool {
+        false
+    }
     fn id(&self) -> &str;
     fn token_mode(&self) -> TokenMode;
     fn model_id(&self) -> Option<String> {

@@ -93,6 +93,34 @@ impl SupporterRuntime {
         }
     }
 
+    pub(crate) fn admit_adapter(&self, adapter: &str) -> Result<(), DecisionError> {
+        self.spend
+            .admit(adapter, chrono::Utc::now().timestamp_millis())
+    }
+
+    pub(crate) fn admit_request_budget(&self, cap: usize) -> Result<(), DecisionError> {
+        if cap == 0 {
+            return Ok(());
+        }
+        let oldest = chrono::Utc::now().timestamp_millis() - HOUR;
+        let hour = self
+            .activity
+            .lock()
+            .calls
+            .iter()
+            .filter(|time| **time > oldest)
+            .count();
+        if hour >= cap {
+            Err(DecisionError::Budget)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn decision(&self, decision: Value) -> std::io::Result<()> {
+        self.append(decision)
+    }
+
     pub(crate) fn reserve_request(
         &self,
         cap: usize,
@@ -204,6 +232,11 @@ impl SupporterRuntime {
             "distribution": journal_answers(&response.answers), "usage": response.usage, "model_id": evidence.model_id,
             "criteria_version": evidence.criteria_version, "state_hash": evidence.state_hash, "question_set_hash": evidence.question_set_hash,
             "question_count": response.answers.len(), "asked": evidence.asked });
+        let value = if matches!(kind, VerdictKind::TabState) {
+            super::super::supporter_tab_state::redact_decision_diagnostic(&value)
+        } else {
+            value
+        };
         let mut state = self.activity.lock();
         state.last_activity = Some(chrono::Utc::now().timestamp_millis());
         state.last_verdict.insert(kind.name().into(), value.clone());

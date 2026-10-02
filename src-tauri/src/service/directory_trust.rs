@@ -10,6 +10,16 @@ use super::ServiceContext;
 use crate::multiplexer::types::Tab;
 
 static LEDGER: LazyLock<parking_lot::Mutex<TrustLedger>> = LazyLock::new(Default::default);
+pub(crate) fn observation_revision(tab_id: &str) -> u64 {
+    let ledger = LEDGER.lock();
+    ledger.tabs.get(tab_id).map_or(0, |tab| {
+        super::supporter_tab_state::frame_hash(&format!(
+            "{:?}:{}",
+            tab.answered_frame, tab.in_flight
+        ))
+    })
+}
+
 static SHARED_TRUST: LazyLock<parking_lot::Mutex<SharedTrustCache>> =
     LazyLock::new(Default::default);
 

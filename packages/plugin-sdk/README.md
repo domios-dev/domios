@@ -46,6 +46,14 @@ carries `state`, `instructions`, and a tagged
 shapes as the Rust decision types. Use `host.fetch.async` for network calls so
 the host can serve other candidate decisions while a request is in flight.
 
+`decideQuestions(request)` is optional; without it the host asks questions
+sequentially. Event observation adapters must also export
+`supportsQuestionBatch() { return true; }` and answer the complete named question
+set using at most one physical HTTP request. Merely exporting `decideQuestions` does not
+declare batching. The host counts actual `host.fetch` transport attempts,
+including async and stream calls, and enforces the event's request deadline and
+one-request limit. A local decision with no HTTP call spends no request budget.
+
 Bare `true` means the token is optional and remains readable by older hosts.
 For a required or token-free adapter, use
 `"decisionModel": { "tokenMode": "required" }` or
