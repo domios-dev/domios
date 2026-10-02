@@ -29,6 +29,14 @@ fn claude_onboarding_prompt_native_js_parity() {
             "response parity for {file}"
         );
         let response = native_response.expect("classified onboarding frame");
+        assert_eq!(
+            native.launch_onboarding_safe_choice(&screen),
+            Some("2".into())
+        );
+        assert_eq!(
+            native.launch_onboarding_safe_choice(&screen),
+            js.launch_onboarding_safe_choice(&screen)
+        );
         let expected_step = if file == "auto-environment-captured.txt" {
             b"j".as_slice()
         } else {
@@ -84,4 +92,34 @@ fn claude_onboarding_prompt_native_js_parity() {
     let changed_question = capture.replacen(question, "A different startup question?", 1);
     assert_eq!(native.launch_onboarding_response(&changed_question), None);
     assert_eq!(js.launch_onboarding_response(&changed_question), None);
+    assert_eq!(
+        native.launch_onboarding_safe_choice(&changed_question),
+        None
+    );
+    assert_eq!(js.launch_onboarding_safe_choice(&changed_question), None);
+}
+
+#[test]
+fn claude_onboarding_safe_choice_reordered_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let screen = "Auto configure your environment?\n 1. Don't show again\n❯ 2. Yes\n 3. Not now\nEnter to select · Esc to cancel\n";
+    assert_eq!(
+        native.launch_onboarding_safe_choice(screen),
+        Some("3".into())
+    );
+    assert_eq!(
+        native.launch_onboarding_safe_choice(screen),
+        js.launch_onboarding_safe_choice(screen)
+    );
+    assert_eq!(
+        native.launch_onboarding_response(screen),
+        js.launch_onboarding_response(screen)
+    );
+    assert_eq!(
+        native.launch_onboarding_response(screen).unwrap().step,
+        b"j"
+    );
 }

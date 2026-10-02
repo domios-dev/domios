@@ -30,6 +30,7 @@ pub(crate) use observer::{prepare_observation, spawn_observer};
 pub(crate) use privacy::value as redact_decision_diagnostic;
 mod questions;
 pub(crate) mod safe_choice;
+mod safe_response;
 mod state;
 
 pub(crate) use state::{
