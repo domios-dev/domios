@@ -1050,3 +1050,6 @@ mod metadata_tests;
 
 #[path = "first_opinion_tests.rs"]
 mod first_opinion_tests;
+
+#[path = "candidate_tests.rs"]
+mod candidate_tests;
