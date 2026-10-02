@@ -32,7 +32,8 @@ impl VerdictKind {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Action {
     SpawnOk,
-    StrongAction,
+    #[serde(rename = "strong_action")]
+    Strong,
     WeakHint,
     Rerank,
     Recovery,

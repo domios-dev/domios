@@ -651,34 +651,6 @@ pub(crate) fn recovery_attempted(result: &InjectionResult) -> bool {
     result.submit_key_writes > 1
 }
 
-#[cfg(test)]
-pub(crate) fn submit_text_with_key_claimed(
-    svc: &ServiceContext,
-    pty_id: &str,
-    text: &str,
-    enter: bool,
-    submit_key: &[u8],
-    strategy: VerifySubmitStrategy,
-    opts: VerifyOpts,
-    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
-    track_exact_session_turn: bool,
-    claim: SubmitCycleClaim,
-) -> Result<InjectionResult, InjectionError> {
-    submit_text_with_key_claimed_and_follow_up(
-        svc,
-        pty_id,
-        text,
-        None,
-        enter,
-        submit_key,
-        strategy,
-        opts,
-        permit,
-        track_exact_session_turn,
-        claim,
-    )
-}
-
 pub(crate) fn submit_text_with_key_claimed_and_follow_up(
     svc: &ServiceContext,
     pty_id: &str,

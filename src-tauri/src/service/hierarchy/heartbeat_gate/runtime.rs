@@ -24,12 +24,13 @@ pub(crate) fn decide(
         .flatten()
         .filter(|model| model.primitives().choice)
         .map(|model| {
-            supporter::budgeted_model(
+            supporter::budgeted_model_with_activity(
                 model,
                 runtime.clone(),
                 cfg.calls_per_hour.unwrap_or(0),
                 supporter::VerdictKind::Heartbeat,
                 Some(tab.into()),
+                None,
                 None,
             )
         });
