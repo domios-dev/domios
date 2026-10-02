@@ -18,7 +18,25 @@
   "sentinel": {
     "status": "pending",
     "owner": "Lookout",
+    "cli_status": "bound",
+    "outcome_status": "bound",
+    "source_commit": "49be4862d3bc76ff256cf4e056bc9661cebb39a5",
+    "visibility_commit": "b1c93918ea3d12191b138840451cabd7c51e0b13",
+    "commands": ["create", "list", "show", "stop"],
+    "routes": ["notify", "send:<tab>", "cron:<name>", "stop"],
+    "journal_fields": ["sentinel_id", "tab", "state_hash", "label", "confidence", "action", "reason", "route"],
+    "actions": ["decision", "route_claim", "notify", "send", "cron", "stop", "skip"],
     "variants": ["git", "fake-ci", "regex-no-jev", "budget-exhausted"],
-    "reason": "No sentinel CLI exists in this lane; bind final supported commands before live invocation."
+    "not_applicable": [{"variant": "budget-exhausted", "jev": "off", "authority": "Brahms b8a1e869, 2026-10-02", "reason": "Owner accepted N/A: regex mode never spends model budget; the Jev-on explicit cap plus regex companion covers exhaustion."}],
+    "reason": "Final CLI/outcome provokers are bound; Auditor decision-path and both-arm fields remain pending."
+  },
+  "visibility": {
+    "status": "bound",
+    "uncapped_budget": null,
+    "status_budget_field": "budget.calls_per_hour",
+    "feed_fields": ["time", "team_id", "kind", "label", "confidence_band", "action", "reason", "budget_reached", "fallback"],
+    "feed_variant": "activity-feed",
+    "sentinel_feed_status": "expected_red",
+    "reason": "Owner confirmed Sentinel feed exclusion is a defect; activity-feed cell and focused Rust regression must fail until the scheduled repair lands. No execution is claimed."
   }
 }

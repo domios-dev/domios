@@ -18,6 +18,8 @@ from fixtures import (HERE, REPO, PROVIDERS, canonical, case_fixture, environmen
 from oracles import (decision_path, judge, load_journal, objects, prompt_kind,
                      ready, require, tab_notifications)
 from scenarios import CASES, Scenario, identifier, install_older, pending_special
+from sentinel_oracles import judge_sentinel
+from sentinel_scenarios import SentinelScenario
 from transport import Dev, Events, Finding, InstanceLock, Pending, Transcript, read_secret, run_group
 
 
@@ -36,7 +38,7 @@ def arguments():
     parser.add_argument("--case", choices=(*CASES, "update-coordinator", "sentinel"))
     parser.add_argument("--jev", choices=("off", "on"), default="off")
     parser.add_argument("--variant", choices=("default", "busy", "fail", "git", "fake-ci",
-                                             "regex-no-jev", "budget-exhausted", "disagreement"),
+                                             "regex-no-jev", "budget-exhausted", "activity-feed", "disagreement"),
                         default="default")
     parser.add_argument("--older-version")
     parser.add_argument("--owner-tab")
@@ -225,24 +227,66 @@ def live(options, root):
                             ("notify", "list"), ("supporter", "status")):
                 dev.dc(*command)
             for command in (("agent", "spawn"), ("tab", "capture", "start"),
-                            ("tab", "inspect"), ("cron", "trigger"), ("mem", "worker", "spawn")):
+                            ("tab", "inspect"), ("cron", "trigger"), ("mem", "worker", "spawn"),
+                            ("sentinel", "create"), ("sentinel", "list"),
+                            ("sentinel", "show"), ("sentinel", "stop")):
                 dev.dc(*command, "--help", json_mode=False)
             result.update(status="SMOKE", reason="Real named-instance CLI read/help calls completed")
             return 0
         require(options.case, "--case is required for a live cell")
+        contracts = json.loads((HERE / "contracts.json").read_text())
+        if options.case == "sentinel":
+            accepted = next((cell for cell in contracts["sentinel"]["not_applicable"]
+                             if cell["variant"] == options.variant and cell["jev"] == options.jev), None)
+            if accepted:
+                result.update(status="N/A", reason=accepted["reason"], authority=accepted["authority"],
+                              path="not_applicable_disconnected_regex")
+                return 0
         status = dev.dc("supporter", "status")
         require(status_connected(status) == (options.jev == "on"),
                 "Connected Jev precondition differs from requested arm")
         if options.jev == "on":
             require(status.get("adapter") == "typesafe-jev", "Requested arm is not connected Jev")
         pending_special(options)
-        decision_contract = json.loads((HERE / "contracts.json").read_text())["decision"]
+        if options.case == "sentinel" and options.variant == "activity-feed":
+            require(options.jev == "on", "Feed regression has one connected-Jev cell")
+            fixture = case_fixture(root, "codex", options.case, options.variant, options.bad_model)
+            with Events(dev) as events:
+                scenario = SentinelScenario(dev, events, root, fixture, options, data_dir)
+                evidence = scenario.run()
+                result.update(status="PASS", evidence=evidence, path=evidence["path"],
+                              reason="Persisted Sentinel verdict appeared in the owner activity API")
+            return 0
+        decision_contract = contracts["decision"]
         if decision_contract["status"] != "bound":
             raise Pending(decision_contract["reason"])
         point_field = decision_contract.get("point_field")
         point = decision_contract.get("case_points", {}).get(options.case)
         if not point_field or not point:
             raise Pending("Final per-decision-point journal correlation is not bound for this case")
+        if options.case == "sentinel":
+            sentinel_contract = json.loads((HERE / "contracts.json").read_text())["sentinel"]
+            require(sentinel_contract["cli_status"] == "bound", "Sentinel CLI contract is not bound")
+            require(options.variant in sentinel_contract["variants"], "Sentinel variant is not bound")
+            fixture = case_fixture(root, "codex", options.case, options.variant, options.bad_model)
+            with Events(dev) as events:
+                scenario = SentinelScenario(dev, events, root, fixture, options, data_dir)
+                evidence = scenario.run()
+                rows = [row for row in evidence["journal"] if row.get(point_field) == point]
+                evidence.update(
+                    path=decision_path(rows, scenario.tab, options.jev),
+                    heuristic_arm=[row for row in rows if row.get("heuristic_verdict") or
+                                   row.get("decided_by") == "heuristic"],
+                    jev_arm=[row for row in rows if row.get("action") == "verdict" or
+                             str(row.get("decided_by", "")).startswith("fallback(")],
+                    observation_ids=[row["observation_id"] for row in rows if row.get("observation_id") is not None],
+                )
+                if evidence["path"] is None:
+                    result.update(evidence=evidence)
+                    raise Pending("Sentinel outcomes captured; final correlated Auditor path is absent")
+                judge_sentinel(evidence)
+                result.update(status="PASS", evidence=evidence, path=evidence["path"], reason="Bound Sentinel oracles passed")
+            return 0
         require(options.provider, "--provider is required")
         meta = json.loads((root / "instance.json").read_text())
         if not meta["binaries"].get(options.provider):
@@ -303,7 +347,7 @@ def live(options, root):
             except Exception as error:
                 result.update(status="FAIL", cleanup_failure=str(error))
         if fixture:
-            transcript.record("provider_launches", scenario.launches() if scenario else [])
+            transcript.record("provider_launches", scenario.launches() if isinstance(scenario, Scenario) else [])
             shutil.rmtree(fixture["case_root"])
             (root / "active.json").unlink(missing_ok=True)
         write_json(transcript.directory / "result.json", result)

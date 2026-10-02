@@ -302,3 +302,58 @@ fn supporter_explicit_cap_can_be_removed_after_reaching_limit() {
         .unwrap();
     assert_eq!(runtime.status_at(0, 100003)["budget"]["reached"], false);
 }
+
+/// WHAT: Expose both Sentinel verdict journal paths in the owner activity feed.
+/// WHY: Hidden watch decisions make the spinal cord invisible; ORACLE: persisted verdicts survive safe projection.
+#[test]
+fn supporter_sentinel_verdict_is_visible_in_activity_feed() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    runtime.attach_visibility(
+        Arc::new(|_| Some("team_aabbccdd".into())),
+        Arc::new(|_| {}),
+    );
+    runtime.response(
+        VerdictKind::Sentinel,
+        Some("private-creator"),
+        &DecisionResponse {
+            answers: std::collections::BTreeMap::from([(
+                "bucket".into(),
+                DecisionAnswer::Choice {
+                    choice: "fixture-bucket".into(),
+                    probabilities: Default::default(),
+                    confidence: Some(0.95),
+                },
+            )]),
+            usage: None,
+        },
+        DecisionEvidence {
+            model_id: Some("fixture-model".into()),
+            criteria_version: "fixture-criteria",
+            state_hash: "private-state",
+            question_set_hash: "fixture-questions",
+        },
+    );
+    runtime
+        .sentinel_event(json!({
+            "time": chrono::Utc::now().timestamp(), "kind": "sentinel", "tab": "private-creator",
+            "sentinel_id": "private-watch", "action": "decision", "reason": "transition",
+            "label": "fixture-label", "confidence": 0.95, "state_hash": "private-state"
+        }))
+        .unwrap();
+    assert_eq!(lines(&dir).len(), 2);
+    let feed = runtime.feed(10, Some("team_aabbccdd")).unwrap();
+    assert_eq!(
+        feed.len(),
+        2,
+        "Persisted Sentinel verdicts disappeared from the owner feed"
+    );
+    for entry in feed {
+        assert_eq!(entry["kind"], "sentinel");
+        assert_eq!(entry["team_id"], "team_aabbccdd");
+        assert!(entry["time"].is_i64());
+        assert!(entry.get("tab").is_none());
+        assert!(entry.get("sentinel_id").is_none());
+        assert!(entry.get("state_hash").is_none());
+    }
+}
