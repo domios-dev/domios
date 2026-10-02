@@ -215,9 +215,11 @@ class AdmissionTests(unittest.TestCase):
             transport.send(synthetic_wire(), token="synthetic-token")
         plan.assert_not_called()
 
-    def test_windows_private_directory_is_an_explicit_gap(self):
-        with patch.object(t.os, "name", "nt"):
-            with self.assertRaisesRegex(t.TransportFailure, "private_directory_unsupported"):
+    def test_windows_admission_requires_exact_native_runtime(self):
+        with patch.object(t.os, "name", "nt"), patch.object(t.sys, "platform", "win32"), \
+                patch.object(t.sys, "version_info", (3, 14, 5)), \
+                patch.object(w.sysconfig, "get_platform", return_value="win-amd64"):
+            with self.assertRaisesRegex(t.TransportFailure, "unsupported_windows_runtime"):
                 t.native_support()
 
 
@@ -227,7 +229,8 @@ class OwnershipTests(unittest.TestCase):
         process = SimpleNamespace(pid=123, returncode=None)
         authority = t.ProcessAuthority(process, observer=lambda pid: log.append(("event", pid)),
                                        reaper=lambda pid, options: (log.append(("reap", pid)) or (pid, 0)),
-                                       signaler=lambda *args: log.append(("signal", args)), windows=False)
+                                       signaler=lambda *args: log.append(("signal", args)), windows=False,
+                                       status_converter=lambda status: status, kill_signal=9)
         self.assertEqual(authority.wait_exact(), 0)
         self.assertFalse(authority.cancel())
         authority.close()
@@ -237,12 +240,13 @@ class OwnershipTests(unittest.TestCase):
     def test_cancel_before_reap_keeps_original_authority(self):
         signaler = Mock()
         authority = t.ProcessAuthority(SimpleNamespace(pid=123, returncode=None), observer=lambda pid: None,
-                                       reaper=lambda pid, options: (pid, 0), signaler=signaler, windows=False)
+                                       reaper=lambda pid, options: (pid, 0), signaler=signaler, windows=False,
+                                       status_converter=lambda status: status, kill_signal=9)
         self.assertTrue(authority.cancel())
         self.assertFalse(authority.cancel())
         authority.wait_exact()
         self.assertFalse(authority.cancel())
-        signaler.assert_called_once_with(123, t.signal.SIGKILL)
+        signaler.assert_called_once_with(123, 9)
 
     def test_lost_reap_authority_never_signals_stale_pid(self):
         signaler = Mock()
