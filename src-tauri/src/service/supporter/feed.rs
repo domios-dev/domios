@@ -135,6 +135,13 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             "redacted"
         ));
         entry["observation_id"] = value["observation_id"].clone();
+        if entry["decided_by"]
+            .as_str()
+            .is_some_and(|source| source.starts_with("fallback("))
+        {
+            entry["fallback"] = json!(true);
+        }
+        crate::service::supporter_tab_state::project_observation_diagnostics(value, &mut entry);
     }
     let asked = if value["kind"] == "tab_state" {
         crate::service::supporter_tab_state::redact_decision_diagnostic(&value["asked"])

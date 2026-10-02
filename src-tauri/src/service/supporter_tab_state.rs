@@ -24,6 +24,7 @@ mod observer;
 mod privacy;
 pub(super) mod scheduler;
 
+pub(crate) use identity::correlation::project_diagnostics as project_observation_diagnostics;
 #[cfg(test)]
 use observer::{choice_model, observation_answers, observe_guarded};
 pub(crate) use observer::{prepare_observation, spawn_observer};

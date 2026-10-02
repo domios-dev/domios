@@ -97,6 +97,7 @@ struct Pending<H: ShadowHost> {
     metadata: TabStateMetadata,
     source: identity::DecisionSource,
     recorded: bool,
+    model_verdict: Option<identity::correlation::ModelVerdict>,
 }
 
 impl<H: ShadowHost> Pending<H> {
@@ -120,7 +121,11 @@ impl<H: ShadowHost> Pending<H> {
             observer::record(
                 &self.host,
                 &self.tab,
-                envelope.observation_id,
+                identity::correlation::RecordIdentity::captured(
+                    envelope.observation_id,
+                    &envelope.correlation,
+                )
+                .with_model_verdict(self.model_verdict.clone()),
                 source,
                 verdict.map_or(OTHER, |verdict| verdict.label.as_str()),
                 verdict.map(|verdict| verdict.confidence),
@@ -170,6 +175,7 @@ pub(crate) fn spawn<H: ShadowHost>(
         metadata,
         source: identity::DecisionSource::Error,
         recorded: false,
+        model_verdict: None,
     };
     if expected_screen.is_some_and(|screen| {
         pending
@@ -214,6 +220,10 @@ pub(crate) fn spawn<H: ShadowHost>(
             );
             model.decide_questions(&request, deadline)
         };
+        pending.model_verdict = result
+            .as_ref()
+            .ok()
+            .and_then(identity::correlation::ModelVerdict::from_response);
         if !pending.current(&adapter_id, &adapter) {
             return None;
         }
