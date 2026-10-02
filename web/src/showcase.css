@@ -11,16 +11,18 @@
 .clip-number { color: var(--ct-accent); font: 9px var(--ct-font-mono); }
 .clip-shelf button[aria-selected="true"] { color: var(--ct-heading); }
 .shelf-thumb { position: absolute; top: 5px; left: 5px; width: calc(100% - 10px); height: calc((100% - 10px) / 4); border: 1px solid var(--ct-accent); border-radius: 9px; background: var(--ct-bg); transform: translate(var(--sx-to), var(--sy-to)); pointer-events: none; }
-.shelf-thumb.travel { animation: shelf-travel var(--ct-duration-liquid-segmented) var(--ct-ease-liquid-settle) both; }
+.shelf-thumb.travel { animation: common-channel var(--ct-duration-liquid-segmented) both; }
 .clip-panel { min-width: 0; }
 .clip-panel .showcase-caption { display: block; padding-top: 8px; min-height: 133px; }
 .clip-panel .showcase-caption p { max-width: 620px; margin-top: 13px; }
-@keyframes shelf-travel {
-  0% { transform: translate(var(--sx-from), var(--sy-from)) scale(1); }
-  55% { transform: translate(var(--sx-to), var(--sy-to)) scale(.97, 1.035); }
-  80% { transform: translate(var(--sx-to), var(--sy-to)) scale(1.012, .985); }
+@keyframes common-channel {
+  0% { transform: translate(var(--sx-from), var(--sy-from)) scale(1); animation-timing-function: cubic-bezier(.5, 0, .6, .6); }
+  38% { transform: translate(calc(var(--sx-from) + (var(--sx-to) - var(--sx-from)) * .55), calc(var(--sy-from) + (var(--sy-to) - var(--sy-from)) * .55)) scale(1.22, .82); animation-timing-function: cubic-bezier(.3, .3, .3, 1); }
+  60% { transform: translate(var(--sx-to), var(--sy-to)) scale(.93, 1.08); animation-timing-function: cubic-bezier(.2, 0, .4, 1); }
+  78% { transform: translate(var(--sx-to), var(--sy-to)) scale(1.035, .97); animation-timing-function: cubic-bezier(.2, 0, .4, 1); }
   100% { transform: translate(var(--sx-to), var(--sy-to)) scale(1); }
 }
+[data-motion="paused"] .shelf-thumb.travel { animation: none; }
 @media (max-width: 800px) {
   .showcase-workbench { grid-template-columns: minmax(0, 1fr); gap: 20px; }
   .clip-shelf { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, 1fr); }
