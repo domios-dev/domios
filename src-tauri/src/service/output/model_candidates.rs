@@ -21,6 +21,33 @@ impl ServiceContext {
     }
 
     fn resolve_scrape_candidate_heuristically(&self, snapshot: &TabStateSnapshot) {
+        let onboarding = {
+            let mux = self.mux.read();
+            mux.get_tab(&snapshot.tab_id)
+                .filter(|tab| {
+                    super::super::directory_trust::launch_onboarding_check_applies(
+                        tab,
+                        &snapshot.agent_type,
+                    )
+                })
+                .and_then(|tab| tab.pty_id.clone())
+        };
+        if let Some(pty) = onboarding.filter(|_| {
+            self.agent_registry
+                .with_provider(&snapshot.agent_type, |provider| {
+                    provider
+                        .launch_onboarding_response(&snapshot.screen_text)
+                        .is_some()
+                })
+                .unwrap_or(false)
+        }) {
+            self.enqueue_launch_onboarding_screen_check(
+                &snapshot.tab_id,
+                &pty,
+                &snapshot.agent_type,
+            );
+            return;
+        }
         let flags = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(&snapshot.tab_id) else {
@@ -123,6 +150,12 @@ impl ServiceContext {
                 .map_or(PromptKind::Provider, |(_, kind)| *kind)
         };
         if !valid() {
+            return;
+        }
+        if parsed
+            .as_ref()
+            .is_some_and(|_| self.try_model_safe_response(snapshot, verdict))
+        {
             return;
         }
         let decision = self.prompt_detector.lock().evaluate_pty_output_parsed(

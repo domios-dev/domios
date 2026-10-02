@@ -31,6 +31,16 @@ pub(crate) fn clear_manual_update_occurrence(tab_id: &str) {
     RESPONDED_OCCURRENCES.lock().unwrap().remove(tab_id);
 }
 
+pub(crate) fn release_model_update_step(tab_id: &str, occurrence: &str) {
+    let mut answered = RESPONDED_OCCURRENCES.lock().unwrap();
+    if answered
+        .get(tab_id)
+        .is_some_and(|current| current == occurrence)
+    {
+        answered.remove(tab_id);
+    }
+}
+
 pub(crate) fn manual_update_prompt_candidate(screen: &str) -> bool {
     let mut options = Vec::new();
     let mut footer = false;

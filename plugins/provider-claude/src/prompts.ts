@@ -283,6 +283,7 @@ export interface ClaudeOnboardingPrompt {
   options: [string, string][];
   frameKey: string;
   step: string;
+  safeChoice: string;
 }
 
 export function claudeOnboardingPrompt(screen: string): ClaudeOnboardingPrompt | null {
@@ -322,6 +323,7 @@ export function claudeOnboardingPrompt(screen: string): ClaudeOnboardingPrompt |
     options: options.map((option) => [option.label, option.number]),
     frameKey: `onboarding:focus-${current}:target-${target}`,
     step,
+    safeChoice: options[target].number,
   };
 }
 

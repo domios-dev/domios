@@ -143,7 +143,9 @@ impl ActivityContext {
                             "safe_choice" => (
                                 format!("Is a safe response available for tab {title}?"),
                                 match choice(answer) {
-                                    Some("__abstain__") | None => "No safe response selected",
+                                    Some("__abstain__" | "other") | None => {
+                                        "No safe response selected"
+                                    }
                                     Some(selected)
                                         if Some(selected) == declared_safe_choice.as_deref() =>
                                     {

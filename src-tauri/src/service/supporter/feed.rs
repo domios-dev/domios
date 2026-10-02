@@ -70,6 +70,8 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             "busy_without_output",
             "tab_exit",
             "provider_declared_safe_choice",
+            "provider_safe_step_authorized",
+            "provider_safe_step_stale",
             "deterministic_directory_trust",
             "verified_provider_absence",
             "confirmed_provider_exit_to_live_shell",

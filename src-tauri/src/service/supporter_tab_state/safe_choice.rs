@@ -14,7 +14,10 @@ pub(crate) fn safe_choice_question(metadata: &TabStateMetadata) -> Option<Decisi
     {
         return None;
     }
-    if metadata.context.get("pending_prompt_kind")?.as_str()? != "manual_update" {
+    let candidate = metadata.context["safe_response_kind"]
+        .as_str()
+        .is_some_and(|kind| matches!(kind, "update" | "onboarding"));
+    if !candidate && metadata.context["pending_prompt_kind"].as_str() != Some("manual_update") {
         return None;
     }
     let mut options: BTreeMap<_, _> = metadata
@@ -22,12 +25,17 @@ pub(crate) fn safe_choice_question(metadata: &TabStateMetadata) -> Option<Decisi
         .iter()
         .map(|option| (option.value.clone(), option.label.clone()))
         .collect();
-    if options.len() != metadata.prompt_options.len() || options.contains_key("__abstain__") {
+    let abstain = if candidate {
+        super::OTHER
+    } else {
+        "__abstain__"
+    };
+    if options.len() != metadata.prompt_options.len() || options.contains_key(abstain) {
         return None;
     }
     options.insert(
-        "__abstain__".into(),
-        "No safe update choice is visible".into(),
+        abstain.into(),
+        "No provider-declared safe choice is visible".into(),
     );
     Some(DecisionQuestion::Choice { options })
 }
