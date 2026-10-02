@@ -12,6 +12,7 @@ from PIL import Image
 from media_contract import probe, read_timing, require, run, validate_captions, write_json
 from narration_proof import sha256, verify_words, verify_character_alignment
 from timeline_audit import timeline_audit
+from soundtrack_proof import measure_balance, enforce_balance
 
 
 def preserved_baseline(directory, manifest):
@@ -166,8 +167,12 @@ def narration_oracle(proof_path, timing, timing_path):
     for key in ('alignedVoice', 'finalAudio'):
         info = probe(Path(proof[key]['path']))
         require(abs(float(info['format']['duration']) - timing['duration']) <= 1 / 48000, 'PCM duration differs from timing')
+    balance = measure_balance(timing, proof['mixStems'], proof['finalAudio'], proof['mastering'])
+    require(balance == proof['phraseBalance'], 'Recorded phrase levels differ from actual hashed stem samples')
+    enforce_balance(balance)
     return dict(words=len(timing['narration']['words']), sourceAudioSha256=proof['sourceAudio']['sha256'],
                 finalAudioPath=proof['finalAudio']['path'], finalAudioSha256=proof['finalAudio']['sha256'],
+                phraseBalance=balance,
                 listening='Root must audition complete A/V and every cue; metadata cannot prove pronunciation or clicks')
 
 
