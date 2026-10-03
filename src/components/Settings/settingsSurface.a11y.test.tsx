@@ -59,7 +59,7 @@ describe("settings page and card accessibility surface", () => {
   });
 
   it("names each toggle switch from the label it was given", () => {
-    for (const label of ["Ligatures", "Copy on select", "Launch CodeTerm on system start"]) {
+    for (const label of ["Ligatures", "Copy on select", "Launch Domios on system start"]) {
       const html = renderToStaticMarkup(
         <Toggle label={label} checked={false} onChange={() => undefined} />,
       );

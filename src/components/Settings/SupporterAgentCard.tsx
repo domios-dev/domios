@@ -75,7 +75,7 @@ export function SupporterAgentCard({ api, apiBase, apiHeaders, onOpenGuide }: Pr
           {overall}
         </SettingsPill>
       }
-      description="Helps CodeTerm pick useful memory and read what an agent tab is doing."
+      description="Helps Domios pick useful memory and read what an agent tab is doing."
     >
       <div ref={host} className="flex flex-col gap-2">
         <p role="status" aria-live="polite" className="sr-only">

@@ -1,6 +1,6 @@
 ---
 name: review
-description: "Review CodeTerm changes for evidence, tests, docs, code quality, and integration readiness."
+description: "Review Domios changes for evidence, tests, docs, code quality, and integration readiness."
 ---
 
 # PR Review Checklist

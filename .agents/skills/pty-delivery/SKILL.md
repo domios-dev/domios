@@ -1,6 +1,6 @@
 ---
 name: pty-delivery
-description: "Review or change CodeTerm PTY input delivery under its owner-approval and evidence rules."
+description: "Review or change Domios PTY input delivery under its owner-approval and evidence rules."
 ---
 
 # PTY input delivery — the contract

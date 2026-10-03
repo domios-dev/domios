@@ -23,7 +23,7 @@ telegram_allowed_users = []     # Telegram user IDs as strings, empty = allow al
 2. Save token to `~/.codeterm/secrets/telegram.token` (Windows: `%APPDATA%/codeterm/secrets/telegram.token`)
 3. Enable: `codeterm config set integrations.telegram_enabled true`
 4. Optionally restrict users: `codeterm config set integrations.telegram_allowed_users '["123456789"]'`
-5. Restart CodeTerm (hot-reload not yet supported)
+5. Restart Domios (hot-reload not yet supported)
 
 Connected services are shown as icons next to the tab title in the sidebar (`connected_services` field on the tab object).
 
@@ -135,4 +135,4 @@ Full secret-store reference, including CLI, storage internals, error mapping, an
 
 Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

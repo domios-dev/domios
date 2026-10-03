@@ -5,12 +5,12 @@ export const enHelpContent: HelpLocaleContent = {
   sections: [
     {
       id: "overview",
-      title: "What is CodeTerm",
+      title: "What is Domios",
       subtitle: "A terminal where AI agents live and work",
       blocks: [
         {
           type: "paragraph",
-          text: "CodeTerm is a terminal multiplexer built for AI agents. One window holds your regular shells and your agent sessions side by side: agents run real commands, coordinate with each other, remember what they learn, and reach across your machines.",
+          text: "Domios is a terminal multiplexer built for AI agents. One window holds your regular shells and your agent sessions side by side: agents run real commands, coordinate with each other, remember what they learn, and reach across your machines.",
         },
         {
           type: "paragraph",
@@ -35,7 +35,7 @@ export const enHelpContent: HelpLocaleContent = {
     {
       id: "workspaces",
       title: "Workspaces, tabs",
-      subtitle: "How CodeTerm organizes your work",
+      subtitle: "How Domios organizes your work",
       blocks: [
         {
           type: "paragraph",
@@ -143,7 +143,7 @@ export const enHelpContent: HelpLocaleContent = {
       blocks: [
         {
           type: "paragraph",
-          text: "Agents forget everything when a session ends — unless they save it to mem, CodeTerm's persistent memory store. It combines keyword search and semantic vectors, so both exact terms and fuzzy meaning find what was saved. Say \"remember this\" to any agent and the fact becomes recallable from every future session, by every agent.",
+          text: "Agents forget everything when a session ends — unless they save it to mem, Domios's persistent memory store. It combines keyword search and semantic vectors, so both exact terms and fuzzy meaning find what was saved. Say \"remember this\" to any agent and the fact becomes recallable from every future session, by every agent.",
         },
         {
           type: "list",
@@ -173,7 +173,7 @@ export const enHelpContent: HelpLocaleContent = {
       blocks: [
         {
           type: "paragraph",
-          text: "The Supporter Agent helps CodeTerm put useful memories first, notice stuck tabs and recover the General Agent within limits. Once an adapter is connected, it works automatically. There are no feature switches. Without a connected adapter, memory search and tabs work as before.",
+          text: "The Supporter Agent helps Domios put useful memories first, notice stuck tabs and recover the General Agent within limits. Once an adapter is connected, it works automatically. There are no feature switches. Without a connected adapter, memory search and tabs work as before.",
         },
         { type: "heading", text: "What it does for you" },
         {
@@ -183,21 +183,21 @@ export const enHelpContent: HelpLocaleContent = {
         { type: "figure", figureId: "supporter-recall" },
         {
           type: "paragraph",
-          text: "Watch tabs. It looks at recent tab text when something changes and helps CodeTerm notice a sign-in prompt, an unavailable model or a crash. CodeTerm checks its own evidence before taking action.",
+          text: "Watch tabs. It looks at recent tab text when something changes and helps Domios notice a sign-in prompt, an unavailable model or a crash. Domios checks its own evidence before taking action.",
         },
         { type: "figure", figureId: "supporter-tab-state" },
         {
           type: "paragraph",
-          text: "Recover the General Agent. CodeTerm can resume it after a confirmed crash or try a restart when startup fails. It makes at most two automatic restarts in one recovery episode, then stops and tells you. Automatic recovery starts only after its accuracy check passes; until then it asks you. Sign-in, unavailable models and uncovered folder trust need your decision; tool permissions follow the tab's own policy.",
+          text: "Recover the General Agent. Domios can resume it after a confirmed crash or try a restart when startup fails. It makes at most two automatic restarts in one recovery episode, then stops and tells you. Automatic recovery starts only after its accuracy check passes; until then it asks you. Sign-in, unavailable models and uncovered folder trust need your decision; tool permissions follow the tab's own policy.",
         },
         {
           type: "paragraph",
-          text: "Quiet team heartbeats. On existing scheduler ticks, CodeTerm checks reports, task changes and each Worker's own session, ACK, provider process, turns, lane commits and classified prompt. A connected Supporter makes one shared-budget decision. Healthy, unchanged work stays quiet without model calls; coarse health hashes ignore changing turn counters and timestamps. Repeated soft decisions share the existing nudge interval. Undelivered reports, failed gates, owner messages and answers, worker incidents and mode changes always wake the Orchestrator with a next step. Uncertain answers wake too. Without a model or when its budget is exhausted, changed plan evidence or unhealthy workers wake deterministically. After two hours of silence a short status confirms the scheduler is active. Review hold notes excuse deliberate review inactivity until the state or verdict changes. Relevant learnings are capped at three; fallback uses recent learnings. Settings shows wakes and suppressions in the activity feed. This is automatic, with no feature switch.",
+          text: "Quiet team heartbeats. On existing scheduler ticks, Domios checks reports, task changes and each Worker's own session, ACK, provider process, turns, lane commits and classified prompt. A connected Supporter makes one shared-budget decision. Healthy, unchanged work stays quiet without model calls; coarse health hashes ignore changing turn counters and timestamps. Repeated soft decisions share the existing nudge interval. Undelivered reports, failed gates, owner messages and answers, worker incidents and mode changes always wake the Orchestrator with a next step. Uncertain answers wake too. Without a model or when its budget is exhausted, changed plan evidence or unhealthy workers wake deterministically. After two hours of silence a short status confirms the scheduler is active. Review hold notes excuse deliberate review inactivity until the state or verdict changes. Relevant learnings are capped at three; fallback uses recent learnings. Settings shows wakes and suppressions in the activity feed. This is automatic, with no feature switch.",
         },
         { type: "heading", text: "Budget and fallback" },
         {
           type: "paragraph",
-          text: "Model requests have no cap by default. An optional positive supporter.calls_per_hour value sets a shared rolling hourly cap; 0 also means no cap. A search can use more than one request. Jev usage is charged to your TypeSafe account; local models use your machine. Settings > Agents shows recent activity, requests per hour and day, today's and this month's estimated Jev spend, and an optional balance you enter after a top-up. CodeTerm alerts you once when the estimated balance drops below $1, and once if Jev reports the account is out of credit. When an explicit request cap is reached, memory returns its normal results and tab observations pause until capacity is available.",
+          text: "Model requests have no cap by default. An optional positive supporter.calls_per_hour value sets a shared rolling hourly cap; 0 also means no cap. A search can use more than one request. Jev usage is charged to your TypeSafe account; local models use your machine. Settings > Agents shows recent activity, requests per hour and day, today's and this month's estimated Jev spend, and an optional balance you enter after a top-up. Domios alerts you once when the estimated balance drops below $1, and once if Jev reports the account is out of credit. When an explicit request cap is reached, memory returns its normal results and tab observations pause until capacity is available.",
         },
         { type: "heading", text: "Connect an adapter" },
         {
@@ -212,7 +212,7 @@ export const enHelpContent: HelpLocaleContent = {
         { type: "settings-link", label: "Open Supporter Agent settings", target: "supporter-agent" },
         {
           type: "tip",
-          text: "If an adapter is unavailable, a required token is missing or a request times out, CodeTerm keeps normal memory search and skips the model observation. The status and activity tell you why.",
+          text: "If an adapter is unavailable, a required token is missing or a request times out, Domios keeps normal memory search and skips the model observation. The status and activity tell you why.",
         },
         { type: "heading", text: "What it receives" },
         {
@@ -242,7 +242,7 @@ export const enHelpContent: HelpLocaleContent = {
             },
             {
               type: "paragraph",
-              text: "Trusted folders use CodeTerm's existing trust responder. An uncovered folder asks you; command and tool permissions use the tab's own policy. Tabs you open yourself from the UI do not also send trust, permission or login notifications. Restored tabs with the same condition are grouped, and the same tab, condition and launch are not reported twice across restarts. Automatic recovery is journaled and sends a brief activity notification.",
+              text: "Trusted folders use Domios's existing trust responder. An uncovered folder asks you; command and tool permissions use the tab's own policy. Tabs you open yourself from the UI do not also send trust, permission or login notifications. Restored tabs with the same condition are grouped, and the same tab, condition and launch are not reported twice across restarts. Automatic recovery is journaled and sends a brief activity notification.",
             },
             {
               type: "list",
@@ -259,7 +259,7 @@ export const enHelpContent: HelpLocaleContent = {
               type: "list",
               items: [
                 "Graph — related memories linked through the knowledge graph. supporter.memory_rerank.sources.graph adds up to 3 by default; 0 turns it off.",
-                "CodeTerm docs — matching sections of the built-in documentation (the same text as codeterm docs NAME), shown with a pointer to the doc. supporter.memory_rerank.sources.docs adds up to 3 by default; 0 turns it off.",
+                "Domios docs — matching sections of the built-in documentation (the same text as codeterm docs NAME), shown with a pointer to the doc. supporter.memory_rerank.sources.docs adds up to 3 by default; 0 turns it off.",
                 "Sessions — matching snippets from past agent sessions. supporter.memory_rerank.sources.sessions is 0 (off) by default and allows up to 5.",
               ],
             },
@@ -306,7 +306,7 @@ export const enHelpContent: HelpLocaleContent = {
             },
             {
               type: "paragraph",
-              text: "Why the gap: a general model writes text. CodeTerm reads how likely it was to write each answer, but that likelihood comes from sampling text, not from a model trained to judge. So the scores are less well calibrated, and the ranking is usually less accurate.",
+              text: "Why the gap: a general model writes text. Domios reads how likely it was to write each answer, but that likelihood comes from sampling text, not from a model trained to judge. So the scores are less well calibrated, and the ranking is usually less accurate.",
             },
             {
               type: "measurement",
@@ -334,7 +334,7 @@ export const enHelpContent: HelpLocaleContent = {
       blocks: [
         {
           type: "paragraph",
-          text: "Mesh pairs your machines into a private peer network — no cloud in the middle. Every machine runs its own CodeTerm daemon with its own General Agent; pairing lets them see each other, message each other's agents, and hand off work. Delegating a heavy task to your desktop from a laptop is one command.",
+          text: "Mesh pairs your machines into a private peer network — no cloud in the middle. Every machine runs its own Domios daemon with its own General Agent; pairing lets them see each other, message each other's agents, and hand off work. Delegating a heavy task to your desktop from a laptop is one command.",
         },
         {
           type: "list",

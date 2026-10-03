@@ -1,11 +1,11 @@
 ---
 name: provider-authoring
-description: "Author and validate JavaScript agent provider plugins for CodeTerm."
+description: "Author and validate JavaScript agent provider plugins for Domios."
 ---
 
 # Authoring an Agent Provider Plugin
 
-How to build a JS drop-in agent provider for CodeTerm — the manifest schema, the
+How to build a JS drop-in agent provider for Domios — the manifest schema, the
 JS exports the host calls, what falls back to what, and what tests you owe.
 General plugin anatomy (build pipeline, QuickJS sandbox, `host.*` API, the
 capability registries) lives in [PLUGINS.md](../PLUGINS.md); this doc covers only
@@ -106,7 +106,7 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
 | `updater` | map platform→string | Per-OS update command run automatically in a bounded utility process by the provider coordinator; working tabs keep running. |
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |
-| `modelCatalogue` | `{authority: "authoritative"|"free_form", liveDiscoveryRequired?: bool}` | `authoritative` closes model selection to catalogue ids; `free_form` preserves provider-owned ids. Set `liveDiscoveryRequired` when the seed is not a trustworthy validation list. If no live snapshot is available, CodeTerm preserves the requested id and returns a warning. |
+| `modelCatalogue` | `{authority: "authoritative"|"free_form", liveDiscoveryRequired?: bool}` | `authoritative` closes model selection to catalogue ids; `free_form` preserves provider-owned ids. Set `liveDiscoveryRequired` when the seed is not a trustworthy validation list. If no live snapshot is available, Domios preserves the requested id and returns a warning. |
 | `modelGroups` | `[{id, label}]` | Provider-owned groupings of `models` for the picker (e.g. the upstream company a routed model belongs to). `id` matches a model-id prefix, `label` is the text the picker renders; core never maps a vendor id to a label. Empty ⇒ one flat list. |
 | `credentials` | `[{id, file, public?, secret?}]` | Credential files the host reads on the plugin's behalf. Declaring one also revokes the plugin's own read access to that file. A declared file's fingerprint is captured with the cached model snapshot, so connecting a provider (the file appearing or changing) re-probes its models without a rebuild. |
 | `defaultModel` | string? | Default model id. |
@@ -331,7 +331,7 @@ sequence exists. Provider choice and timing stay in the manifest.
 Status parsing, tab-state classification, and usage parsing are tested against
 **captured real TUI screens**, not synthesized strings:
 
-1. Run the real CLI in a CodeTerm tab and drive it to the state you need (a
+1. Run the real CLI in a Domios tab and drive it to the state you need (a
    permission prompt, the `/usage` screen, a model picker, an auth wall).
 2. Capture the visible screen text — `codeterm tab get-text --tab <ID>` — and
    save it verbatim under `tests/fixtures/` (subdirectories per concern:
@@ -371,7 +371,7 @@ harness); the promotion-time boundary is the cheap, honest seam.
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [prompt-detection.md](prompt-detection.md) — provider prompt detection architecture
 - [references/session-storage.md](references/session-storage.md) — provider session storage and search scanning

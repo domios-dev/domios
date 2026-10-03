@@ -1,14 +1,14 @@
 ---
 name: github-release
 description: >-
-  End-to-end GitHub release workflow for CodeTerm. Use when asked to release,
+  End-to-end GitHub release workflow for Domios. Use when asked to release,
   ship, tag, publish, bump a version, trigger the self-hosted build machine,
   monitor release CI, produce signed/notarized macOS/Linux/Windows artifacts,
-  update the public updater mirror, or debug the CodeTerm release pipeline.
+  update the public updater mirror, or debug the Domios release pipeline.
 ---
 
 
-# End-to-end CodeTerm release to GitHub
+# End-to-end Domios release to GitHub
 
 **Default now = one `release-X.Y.Z` tag on master; the self-hosted runners do the rest** (see
 "Default release path" right below). The pipeline: bump version on the open `release/X.Y.Z` branch →
@@ -411,7 +411,7 @@ gh release upload v$VER "$ARM" "$X64" --clobber
 
 The GUI updater fetches `latest.json` anonymously, so the manifest plus the asset copies live in `rollacode/codeterm-releases`. Same files, separate repo.
 
-**⚠️ Format gotcha:** updater artifact names depend on `bundle.createUpdaterArtifacts`. CodeTerm currently uses Tauri v2 mode (`true`), not `"v1Compatible"`:
+**⚠️ Format gotcha:** updater artifact names depend on `bundle.createUpdaterArtifacts`. Domios currently uses Tauri v2 mode (`true`), not `"v1Compatible"`:
 
 - macOS: `CodeTerm_aarch64.app.tar.gz` / `CodeTerm_x64.app.tar.gz` (the `.app` bundle wrapped in gzipped tar)
 - Linux: `CodeTerm_<ver>_amd64.AppImage`
@@ -488,8 +488,8 @@ python3 -m json.tool "$WORK/latest.json" >/dev/null  # validate
 if ! gh release view "v$VER" --repo rollacode/codeterm-releases >/dev/null 2>&1; then
   gh release create "v$VER" \
     --repo rollacode/codeterm-releases \
-    --title "CodeTerm v$VER" \
-    --notes "Auto-mirrored release artifacts for CodeTerm v$VER. Source: rollacode/codeterm v$VER." \
+    --title "Domios v$VER" \
+    --notes "Auto-mirrored release artifacts for Domios v$VER. Source: rollacode/codeterm v$VER." \
     --latest
 fi
 
@@ -826,7 +826,7 @@ The script lives in this skill's folder at `<repo>/.agents/skills/github-release
 
 Gotchas:
 - Don't pass `-Verb RunAs` to the installer. `installMode=currentUser` doesn't need elevation; RunAs triggers UAC and hangs on headless.
-- Helper survives the daemon, not your terminal tab — if invoked from a CodeTerm-managed tab, the tab dies with the daemon. Tail progress from outside: `Get-Content -Wait "$env:LocalAppData\codeterm\self-install.log"`.
+- Helper survives the daemon, not your terminal tab — if invoked from a Domios-managed tab, the tab dies with the daemon. Tail progress from outside: `Get-Content -Wait "$env:LocalAppData\codeterm\self-install.log"`.
 - Auto-resume of agent tabs is best-effort — `~/.codeterm/sessions/last.json` may be slightly behind if the daemon was killed abruptly.
 
 ### Path 3 — full release publish
@@ -1049,6 +1049,6 @@ meaningful. It then writes the exact same Markdown to both repositories.
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [references/updater-internals.md](references/updater-internals.md) — the auto-install flow

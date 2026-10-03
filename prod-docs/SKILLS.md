@@ -1,10 +1,10 @@
-# CodeTerm Skills for Claude Code
+# Domios Skills for Claude Code
 
-CodeTerm ships skills that teach Claude Code how to control the terminal.
+Domios ships skills that teach Claude Code how to control the terminal.
 
 ## Installation
 
-CodeTerm installs its control skill automatically on every start; register other skills through `codeterm mem skill` and find them with `codeterm mem search`. A skill copy whose `<!-- revision: N -->` is strictly newer than the bundled one is never downgraded; the provider copies are generated, so edit the canonical skill rather than a mirror.
+Domios installs its control skill automatically on every start; register other skills through `codeterm mem skill` and find them with `codeterm mem search`. A skill copy whose `<!-- revision: N -->` is strictly newer than the bundled one is never downgraded; the provider copies are generated, so edit the canonical skill rather than a mirror.
 
 ## Available Skills
 
@@ -15,7 +15,7 @@ CodeTerm installs its control skill automatically on every start; register other
 
 ## How it works
 
-Skills are markdown files that Claude Code loads automatically when relevant. When Claude detects it's running in CodeTerm (via `$CODETERM=1` env var and `$CODETERM_TAB_ID` for self-identification), it can use the `codeterm` CLI to:
+Skills are markdown files that Claude Code loads automatically when relevant. When Claude detects it's running in Domios (via `$CODETERM=1` env var and `$CODETERM_TAB_ID` for self-identification), it can use the `codeterm` CLI to:
 
 1. **Send commands**: `codeterm send "npm test"` (sends immediately to the current tab, newline appended automatically). The CLI refuses task-shaped prose for a raw **shell** tab unless `--to-shell` is explicit; short single-line commands remain eligible. A shell receives only the raw text/keys, with no `-=-codeterm:tab...-=-` return-address marker; the marker is added only when the target is an **agent** tab (so it knows who to reply to). The Chat UI `/chat-send` route refuses PTY tabs without a live agent identity before writing. For quote-heavy or multiline text, use `codeterm send --stdin --tab ID` or `codeterm send --from-file - --tab ID`; message and pad file options accept `-` to read UTF-8 stdin on every platform. For terminal keys, use `codeterm send --actions "esc,delay:200ms,up,enter" --tab ID` (`enter`, arrows, `tab`, `backspace`, `ctrl-c`, `key*3`, and `delay:250ms` are supported) — these deliver as raw key bytes to a shell, with no wrapping. To spawn a bare terminal that runs a command on start, use `codeterm tab new --cmd "cd /repo && ./build.sh dev"`; inside a Team it becomes a Team utility shell unless `--no-team` is explicit. Replace that process later with `codeterm tab restart --tab ID --cwd /repo --cmd "./build.sh dev"`; it preserves the tab and Team metadata instead of creating another tab. To schedule a future tab message without blocking yourself, use `codeterm send --delay 10m --tab ID "text"`, `--delay 4h`, `--delay 1d`, or `--at 2026-06-15T09:00`; an absolute `--at` in the past is due immediately and sends as soon as the scheduler can deliver it. Manage queued items with `codeterm delayed list|edit|send-now|delete`; failed messages remain listed with their failure reason. Use `send --every` to repeat into an EXISTING tab (a monitor/watcher); cron spawns a FRESH agent per scheduled run. With `--mesh`, the remote target Team owns the series; delete it on that peer because closing the caller Team will not cancel it.
 2. **Send notifications**: `codeterm notify send "Done" --level action_needed` — `--level` (verbose|action_needed|failure) is what lets it alert; without one it only files in the bell. An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. A short completion or progress note may be filed at `verbose` — a periodic status, never a running commentary of one notification per step; Worker and Planner tabs still report through their reporting channel instead of notifying. A send that reports `unseen` surfaces under the id is information, not a failure: the record was kept and the exit is still 0, so nothing is waiting to be retried
@@ -75,7 +75,7 @@ and exit 1, so a script must not treat an empty result as success.
 ## Integrations
 
 ### Telegram Bridge
-CodeTerm routes messages between Telegram and the General Agent:
+Domios routes messages between Telegram and the General Agent:
 - **Inbound:** Messages arrive as `[Telegram: user_id] text` in the agent's PTY. Rapid messages within 300ms are debounced. Typing indicator is sent automatically.
 - **Outbound:** Agent sends replies via CLI: `codeterm bridge send --to USER_ID --service telegram "text"`. Within 60s, messages auto-edit the previous one. Use `--append` to concatenate text.
 
@@ -89,13 +89,13 @@ echo -n "BOT_TOKEN" > ~/.codeterm/secrets/telegram.token
 codeterm config set integrations.telegram_enabled true
 codeterm config set integrations.telegram_allowed_users '["USER_ID"]'
 
-# Restart CodeTerm (hot-reload not yet supported)
+# Restart Domios (hot-reload not yet supported)
 ```
 
 Sending messages from the agent:
 ```bash
 # Send a new message
-codeterm bridge send --to 123456789 --service telegram "Hello from CodeTerm"
+codeterm bridge send --to 123456789 --service telegram "Hello from Domios"
 
 # Append to the previous message (edits in-place)
 codeterm bridge send --to 123456789 --service telegram --append "...continued"
@@ -108,7 +108,7 @@ Connected tabs show service icons in the sidebar (`connected_services` field).
 Bridge migration, its flags, exit codes, rollback, and split-brain recovery are owned by `codeterm docs MESH`.
 
 ### Provider Hook Integration
-Session binding needs each provider's CodeTerm hooks installed and trusted. No Settings click is required:
+Session binding needs each provider's Domios hooks installed and trusted. No Settings click is required:
 ```bash
 codeterm integration status --provider codex            # read install/trust state
 codeterm integration install --provider codex           # records consent, installs, grants trust
@@ -119,11 +119,11 @@ codeterm integration sweep-profiles --provider codex    # preview dead profiles 
 codeterm integration sweep-profiles --provider codex --confirm  # delete this instance's dead profiles
 codeterm integration sweep-profiles --provider codex --confirm --include-legacy  # also delete unmarked files
 ```
-Omitting either PreCompact flag preserves the current CodeTerm hook choice or its recorded setting. Once consent is recorded, daemon start and provider plugin reload repair a missing, stale, or untrusted CodeTerm hook by themselves (reinstall plus trust grant). An existing CodeTerm-owned install without a consent record is recorded as consent before reconciliation; foreign hooks are never rewritten or trusted.
+Omitting either PreCompact flag preserves the current Domios hook choice or its recorded setting. Once consent is recorded, daemon start and provider plugin reload repair a missing, stale, or untrusted Domios hook by themselves (reinstall plus trust grant). An existing Domios-owned install without a consent record is recorded as consent before reconciliation; foreign hooks are never rewritten or trusted.
 Profile cleanup is dry-run by default. `--confirm` deletes only files marked for this instance whose tab ids are not live here. `--include-legacy` with `--confirm` deletes every unmarked profile, regardless of tab liveness, so review the preview before opting in.
 
 ### Config Management
-Read/write CodeTerm config at runtime:
+Read/write Domios config at runtime:
 ```bash
 codeterm config get integrations.telegram_enabled
 codeterm config set integrations.telegram_enabled true
@@ -137,4 +137,4 @@ Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
 For `send --every --mesh` and `delayed create/edit --every --mesh`, the peer must advertise `delayed_recurrence` in `codeterm identify` features. If it does not, the request is refused with the peer name and version; update that peer or send a one-shot explicitly.
 
-<!-- revision: 78 -->
+<!-- revision: 79 -->

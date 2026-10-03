@@ -7,7 +7,7 @@ tags: [benchmark, cli, agents, integration]
 # CLI Agent Benchmark
 
 Drive real agents (claude/codex/opencode) in the DEV console (port 7686) through
-every CodeTerm CLI command via natural-language asks, then judge their parsed
+every Domios CLI command via natural-language asks, then judge their parsed
 transcripts. The model is the judge — there is no automated scorer.
 
 ## When to use

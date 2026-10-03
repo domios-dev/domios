@@ -64,7 +64,7 @@ PAYLOAD_SIZES="4096 16384 36435 65536" LONG_PAYLOAD_CHARS=36435 \
   bash evals/long-paste-submit/run.sh
 ```
 
-The script sources `evals/_lib/lib.sh`; every CodeTerm CLI operation uses `dc`,
+The script sources `evals/_lib/lib.sh`; every Domios CLI operation uses `dc`,
 which refuses to fall through to prod. Artifacts are written beneath
 `target-check/evals/long-paste-submit/` and the temporary workspace and tabs are
 closed on exit.
@@ -95,4 +95,4 @@ This is a measurement bench. A non-reproduction is valid: preserve and report
 the printed screens, send exits, input-frame sequence, and audit events for all
 cases.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

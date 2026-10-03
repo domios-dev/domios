@@ -394,10 +394,10 @@ export function SettingsPanel({
                 <SettingsCard
                   icon={<Power size={16} />}
                   title="Startup"
-                  description="Adds CodeTerm to the OS login items so the daemon, mesh, and crons resume without you opening the app manually."
+                  description="Adds Domios to the OS login items so the daemon, mesh, and crons resume without you opening the app manually."
                 >
                   <Toggle
-                    label="Launch CodeTerm on system start"
+                    label="Launch Domios on system start"
                     checked={autostartEnabled ?? false}
                     onChange={handleAutostartToggle}
                   />
@@ -483,7 +483,7 @@ export function SettingsPanel({
               <div className="max-w-5xl mx-auto h-full min-h-[420px] flex flex-col" data-testid="settings-page" data-settings-page="guide">
                 <p className="sr-only">Guide</p>
                 <p className="text-sm text-[var(--ct-muted-fg)] mb-4 shrink-0">
-                  What CodeTerm is and how to work with it.
+                  What Domios is and how to work with it.
                 </p>
                 <div className="flex-1 min-h-0">
                   <HelpPanel
@@ -502,8 +502,8 @@ export function SettingsPanel({
             {top.kind === "section" && top.id === "about" && (
               <SettingsPage title="Check for updates" subtitle="Version, updates, and creator.">
                 <div className="text-center py-4">
-                  <img src={logoUrl} alt="CodeTerm" width="64" height="64" className="rounded-xl mb-3 mx-auto" data-testid="settings-about-logo" />
-                  <div className="text-xl font-bold text-[var(--ct-fg)]">CodeTerm</div>
+                  <img src={logoUrl} alt="Domios" width="64" height="64" className="rounded-xl mb-3 mx-auto" data-testid="settings-about-logo" />
+                  <div className="text-xl font-bold text-[var(--ct-fg)]">Domios</div>
                   <div className="text-xs text-[var(--ct-muted-fg)] mt-1">AI-first terminal multiplexer</div>
                 </div>
 

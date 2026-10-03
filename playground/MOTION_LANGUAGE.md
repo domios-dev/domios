@@ -1,10 +1,10 @@
-# CodeTerm motion direction
+# Domios motion direction
 
-Motion Lab is a visual sketchbook. Its job is to discover movement that feels clear, physical, and specific to CodeTerm. It is not a conformance suite.
+Motion Lab is a visual sketchbook. Its job is to discover movement that feels clear, physical, and specific to Domios. It is not a conformance suite.
 
 ## Character
 
-CodeTerm should feel like a small workshop: focused, capable, slightly playful, and never busy for its own sake. A working indicator shows a recognizable action with weight and consequence. It must not read as a spinner, a random twitch, or decorative particles.
+Domios should feel like a small workshop: focused, capable, slightly playful, and never busy for its own sake. A working indicator shows a recognizable action with weight and consequence. It must not read as a spinner, a random twitch, or decorative particles.
 
 ## Review loop
 
@@ -52,4 +52,4 @@ The current components in `playground/src/ds` and their states in `playground/sr
 - [Apple motion guidance](https://developer.apple.com/design/human-interface-guidelines/motion)
 - [W3C reduced-motion technique](https://www.w3.org/WAI/WCAG22/Techniques/css/C39)
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

@@ -1,6 +1,6 @@
 ---
 name: voice-testing
-description: "Exercise CodeTerm voice transcription with the fake Whisper daemon and fallbacks."
+description: "Exercise Domios voice transcription with the fake Whisper daemon and fallbacks."
 ---
 
 # Voice-transcription testing playbook
@@ -116,6 +116,6 @@ tail -f ~/.codeterm-dev/logs/codeterm.log | grep "bridge\] voice"
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [references/dictation-design.md](references/dictation-design.md) — the historical native dictation proposal

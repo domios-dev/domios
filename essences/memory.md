@@ -2,7 +2,7 @@
 
 Memory keeps facts, notes, preferences and skills available to agents across conversations. Hybrid search, the knowledge graph and nightly consolidation serve that continuity. The [core](core.md#core:memory) owns the service responsibility; the [capability map](capabilities.md) records delivery status.
 
-Persistent memory lives in CodeTerm, never in provider side stores. It is English and its bodies carry no dates. Skills are registered through memory, never written directly into provider skill directories. Conversations are searched as sessions; durable facts are searched as memory.
+Persistent memory lives in Domios, never in provider side stores. It is English and its bodies carry no dates. Skills are registered through memory, never written directly into provider skill directories. Conversations are searched as sessions; durable facts are searched as memory.
 
 ## Decision recall
 
