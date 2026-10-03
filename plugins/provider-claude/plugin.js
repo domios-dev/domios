@@ -1869,6 +1869,14 @@ function isBrailleSpinner(ch) {
   const code = ch.charCodeAt(0);
   return code >= BRAILLE_LO && code <= BRAILLE_HI || ch === "\u2733" || ch === "\u273B";
 }
+function retainForeignPrecompactEntry(entry) {
+  if (!entry || !Array.isArray(entry.hooks)) return true;
+  const previous = entry.hooks;
+  const remaining = previous.filter((hook) => !isCodetermHook({ hooks: [hook] }));
+  if (remaining.length === previous.length) return true;
+  entry.hooks = remaining;
+  return remaining.length > 0;
+}
 var plugin = {
   starterPromptText(prompt) {
     return prompt === "team_bootstrap" ? void 0 : starterPrompt(prompt);
@@ -2567,9 +2575,9 @@ var plugin = {
         return { ok: false, error: "hooks." + k + " is not an array" };
       }
       const existing = Array.isArray(json.hooks[k]) ? json.hooks[k].filter((entry) => {
-        const owned = isCodetermHook(entry);
-        if (!owned) preservedUnclassified++;
-        return !owned;
+        const retained = k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry);
+        if (retained) preservedUnclassified++;
+        return retained;
       }) : [];
       if (newHooks[k]) {
         existing.push(newHooks[k]);
@@ -2621,7 +2629,7 @@ var plugin = {
     for (let i = 0; i < keys.length; i++) {
       const k = keys[i];
       if (Array.isArray(json.hooks[k])) {
-        json.hooks[k] = json.hooks[k].filter((entry) => !isCodetermHook(entry));
+        json.hooks[k] = json.hooks[k].filter((entry) => k === "PreCompact" ? retainForeignPrecompactEntry(entry) : !isCodetermHook(entry));
       }
     }
     const ok = host.fs.writeJson(path, json);

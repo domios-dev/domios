@@ -115,6 +115,17 @@ fn integration_owned(json: &Json) -> bool {
         })
 }
 
+fn remove_retired_precompact_commands(entries: &mut Vec<Json>) {
+    entries.retain_mut(|entry| {
+        let Some(commands) = entry.get_mut("hooks").and_then(Json::as_array_mut) else {
+            return true;
+        };
+        let previous = commands.len();
+        commands.retain(|command| !is_codeterm_hook(&serde_json::json!({"hooks":[command]})));
+        commands.len() == previous || !commands.is_empty()
+    });
+}
+
 fn owned_precompact_hook(json: &Json) -> bool {
     json.pointer("/hooks/PreCompact")
         .and_then(Json::as_array)
@@ -353,7 +364,11 @@ pub fn install_integration_at(
             return Err(format!("hooks.{event} is not an array"));
         }
         if let Some(arr) = hooks.get_mut(event).and_then(|v| v.as_array_mut()) {
-            arr.retain(|h| !is_codeterm_hook(h));
+            if event == "PreCompact" {
+                remove_retired_precompact_commands(arr);
+            } else {
+                arr.retain(|h| !is_codeterm_hook(h));
+            }
         }
     }
 
@@ -428,7 +443,11 @@ pub fn uninstall_integration_at(path: &std::path::Path) -> Result<(), String> {
         .chain(std::iter::once("PreCompact"))
     {
         if let Some(arr) = hooks.get_mut(event).and_then(|value| value.as_array_mut()) {
-            arr.retain(|hook| !is_codeterm_hook(hook));
+            if event == "PreCompact" {
+                remove_retired_precompact_commands(arr);
+            } else {
+                arr.retain(|hook| !is_codeterm_hook(hook));
+            }
         }
     }
 

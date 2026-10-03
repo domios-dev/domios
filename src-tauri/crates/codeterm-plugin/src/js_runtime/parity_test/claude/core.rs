@@ -838,7 +838,10 @@ fn retired_precompact_export_cleanup_native_js_parity() {
     let foreign =
         serde_json::json!({"hooks":[{"type":"command","command":"foreign-fixture-command"}]});
     let owned = serde_json::json!({"hooks":[{"type":"command","command":"echo X-CodeTerm-Hook: codeterm-hook-v3"}]});
-    let input = serde_json::json!({"hooks":{"PreCompact":[owned,foreign.clone()]}});
+    let sibling = serde_json::json!({"matcher":"*","custom":"preserved","hooks":[owned["hooks"][0],foreign["hooks"][0]]});
+    let retained =
+        serde_json::json!({"matcher":"*","custom":"preserved","hooks":[foreign["hooks"][0]]});
+    let input = serde_json::json!({"hooks":{"PreCompact":[owned,foreign.clone(),sibling]}});
     for path in [&native_path, &js_path] {
         std::fs::write(path, input.to_string()).unwrap();
     }
@@ -867,10 +870,13 @@ fn retired_precompact_export_cleanup_native_js_parity() {
         serde_json::from_slice(&std::fs::read(native_path).unwrap()).unwrap();
     let installed: serde_json::Value =
         serde_json::from_slice(&std::fs::read(js_path).unwrap()).unwrap();
-    assert_eq!(native["hooks"]["PreCompact"], installed["hooks"]["PreCompact"]);
+    assert_eq!(
+        native["hooks"]["PreCompact"],
+        installed["hooks"]["PreCompact"]
+    );
     assert_eq!(
         installed["hooks"]["PreCompact"],
-        serde_json::json!([foreign])
+        serde_json::json!([foreign, retained])
     );
     for event in ["PermissionRequest", "Notification", "Stop", "SessionStart"] {
         assert_eq!(installed["hooks"][event].as_array().unwrap().len(), 1);
