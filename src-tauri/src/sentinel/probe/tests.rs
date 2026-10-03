@@ -8,6 +8,12 @@ use std::time::{Duration, Instant};
 
 const OWNER_EVENT_DEADLINE: Duration = Duration::from_secs(3);
 
+#[cfg(windows)]
+#[test]
+fn sentinel_probe_early_job_exit_waits_for_owned_process() {
+    super::windows::ordering_tests::verify_early_exit_notification();
+}
+
 #[test]
 fn sentinel_probe_owner_retirement_refuses_signal() {
     let child_id = 41;
