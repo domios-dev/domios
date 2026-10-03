@@ -28,7 +28,8 @@ impl PlanStore {
         request: RestoreCurrentAttemptBinding,
         now_ms: u64,
     ) -> Result<RestoreCurrentAttemptBindingResult, PlanError> {
-        self.with_plan_if_changed(&request.plan_id, now_ms, |plan| {
+        let plan_id = request.plan_id.clone();
+        self.with_plan_if_changed(&plan_id, now_ms, |plan| {
             if plan.status != PlanStatus::Active
                 || request.owner_epoch == 0
                 || request.plan_id.trim().is_empty()

@@ -2025,9 +2025,11 @@ Show the plan QA queue, or enqueue one in_review task with --task
 
 #### `codeterm plan rebind`
 
-Re-sync a planning binding nonce that went stale after an agent relaunch, recovering plan mutation/approve/dispatch without a full `agent restart`
+Re-sync this planning binding, or restore its original Worker attempt with --task and --attempt
 
-- `<plan_id>` — Optional plan id for context; the rebind re-syncs this tab's binding
+- `--attempt` — Exact attempt id assigned to --task
+- `<plan_id>` — Optional plan id for context; required with --task and --attempt
+- `--task` — Exact task whose existing Worker attempt should regain its authenticated binding
 
 #### `codeterm plan reconcile`
 

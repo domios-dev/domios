@@ -9045,9 +9045,19 @@
         },
         {
           "name": "rebind",
-          "about": "Re-sync a planning binding nonce that went stale after an agent relaunch, recovering plan mutation/approve/dispatch without a full `agent restart`",
+          "about": "Re-sync this planning binding, or restore its original Worker attempt with --task and --attempt",
           "aliases": [],
           "args": [
+            {
+              "name": "attempt",
+              "positional": false,
+              "required": false,
+              "value_name": "ATTEMPT_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Exact attempt id assigned to --task",
+              "aliases": []
+            },
             {
               "name": "plan_id",
               "positional": true,
@@ -9055,7 +9065,17 @@
               "value_name": "PLAN_ID",
               "possible_values": [],
               "default": null,
-              "help": "Optional plan id for context; the rebind re-syncs this tab's binding",
+              "help": "Optional plan id for context; required with --task and --attempt",
+              "aliases": []
+            },
+            {
+              "name": "task",
+              "positional": false,
+              "required": false,
+              "value_name": "TASK_ID",
+              "possible_values": [],
+              "default": null,
+              "help": "Exact task whose existing Worker attempt should regain its authenticated binding",
               "aliases": []
             }
           ],
