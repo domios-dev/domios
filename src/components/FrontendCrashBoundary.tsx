@@ -62,7 +62,7 @@ function CrashWindowChrome() {
   const appWindow = "__TAURI_INTERNALS__" in window ? getCurrentWindow() : null;
   return (
     <header className="frontend-crash__chrome" data-tauri-drag-region>
-      <span data-tauri-drag-region>CodeTerm</span>
+      <span data-tauri-drag-region>Domios</span>
       {appWindow && (
         <nav aria-label="Window controls">
           <button type="button" aria-label="Minimize" onClick={() => void appWindow.minimize()}>—</button>
@@ -107,12 +107,12 @@ export class FrontendCrashBoundary extends Component<Props, State> {
               <p className="frontend-crash__eyebrow">Safe start</p>
               <h1 id="frontend-safe-start-title">Left the location that crashed</h1>
               <p>
-                The restored workspace snapshot and the remote machine target were cleared, so CodeTerm opens on this
+                The restored workspace snapshot and the remote machine target were cleared, so Domios opens on this
                 machine instead of re-entering the view that failed.
               </p>
               <div className="frontend-crash__actions">
                 <button type="button" onClick={this.openAfterSafeStart}>
-                  Open CodeTerm
+                  Open Domios
                 </button>
               </div>
             </section>
@@ -130,7 +130,7 @@ export class FrontendCrashBoundary extends Component<Props, State> {
         <CrashWindowChrome />
         <main className="frontend-crash" role="alert" aria-labelledby="frontend-crash-title">
           <section className="frontend-crash__panel">
-            <p className="frontend-crash__eyebrow">CodeTerm UI error</p>
+            <p className="frontend-crash__eyebrow">Domios UI error</p>
             <h1 id="frontend-crash-title">The interface could not render</h1>
             <p>The daemon and terminals may still be running. Reload the interface after reviewing the error.</p>
             <section className="frontend-crash__detail" aria-labelledby="frontend-crash-message-label">

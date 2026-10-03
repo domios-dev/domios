@@ -127,7 +127,7 @@ export function MeshCanvas({
         webUnavailableReason: !p.online
           ? `${p.name} is offline`
           : p.relay_protocol_version !== RELAY_PROTOCOL_VERSION
-            ? `Update CodeTerm on ${p.name} to use Web UI relay`
+            ? `Update Domios on ${p.name} to use Web UI relay`
             : "The browser gateway is unavailable",
       });
     });

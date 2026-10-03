@@ -228,7 +228,7 @@ export function primaryAction(entry: CatalogEntry): PrimaryAction {
         kind: "install",
         label: "Install",
         disabled: true,
-        reason: entry.blockedReason ?? "Incompatible with this CodeTerm version",
+        reason: entry.blockedReason ?? "Incompatible with this Domios version",
       };
     }
     return { kind: "install", label: "Install", disabled: false };
@@ -239,7 +239,7 @@ export function primaryAction(entry: CatalogEntry): PrimaryAction {
         kind: "update",
         label: "Update",
         disabled: true,
-        reason: entry.blockedReason ?? "Incompatible with this CodeTerm version",
+        reason: entry.blockedReason ?? "Incompatible with this Domios version",
       };
     }
     return { kind: "update", label: "Update", disabled: false };
@@ -257,7 +257,7 @@ export function primaryAction(entry: CatalogEntry): PrimaryAction {
       kind: "none",
       label: entry.system ? "System plugin" : "Built in",
       disabled: true,
-      reason: entry.system ? "Bundled provider — managed by CodeTerm" : undefined,
+      reason: entry.system ? "Bundled provider — managed by Domios" : undefined,
     };
   }
   return { kind: "uninstall", label: "Uninstall", disabled: false };
