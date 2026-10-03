@@ -383,6 +383,8 @@ def mux_continuous(video_dir, audio, timing_path, alignment, captions_path, outp
                    '-metadata', f'copyright={exported_credit["credit"]}']
         if kind == 'mp4':
             command += ['-aac_coder', 'fast', '-movflags', '+faststart']
+        else:
+            command += ['-frame_duration', '10']
         run(command + [output_dir / video.name])
     for path in video_dir.glob('*-poster.webp'):
         shutil.copyfile(path, output_dir / path.name)
