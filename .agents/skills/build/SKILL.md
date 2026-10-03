@@ -390,6 +390,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Restoration integration fails with E0432/E0603 | Cross-crate request/result reexports were removed and the socket imported a private service module. | Export the two store types from task_attempts and route socket imports through the existing service facade; rerun `check-tests` before focused gates. |
 | `check-tests` reports E0505 in same-attempt binding restoration | The transaction borrowed `request.plan_id` while its closure consumed the request receipt. | Clone the transaction lookup ID before the closure; rerun `check-tests` and the focused plan/app restoration selectors. |
 | CI spawn audit flags a command factory and its subprocess fixture; Linux Clippy also reports `err_expect` | Moving command construction separated it from the audited no-window helper; the fixture omitted that helper and assertions used `err().expect()` | Apply `no_window_std` when constructing each command, retain the spawn audit unchanged, and use `expect_err` for these assertions. Run the focused spawn audit and executor tests, then the failed Clippy gate before a fresh-head platform run. |
 | `check` passes but `check-tests` reports E0433 for `mpsc` in shared-state tests | Parent import cleanup removed the module alias inherited by child tests through `super::*` | Import `std::sync::mpsc` explicitly in the owning test module, then rerun `check-tests`. |
@@ -473,4 +474,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

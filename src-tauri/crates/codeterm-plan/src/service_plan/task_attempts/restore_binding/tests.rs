@@ -1,5 +1,5 @@
 use super::*;
-use crate::plan::{OrchestratorRef, Plan, PlanMode, PlanSkillManifestEntry, TaskLaneMetadata};
+use crate::plan::{OrchestratorRef, Plan, PlanMode, PlanSkillManifestEntry};
 use crate::service_plan::task_assignment::AssignmentRuntimeBinding;
 use crate::service_plan::NewTask;
 use std::sync::{Arc, Barrier};

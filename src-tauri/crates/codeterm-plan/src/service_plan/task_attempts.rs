@@ -10,6 +10,8 @@ pub mod remote_dispatch;
 mod report_ingest;
 mod restore_binding;
 
+pub use restore_binding::{RestoreCurrentAttemptBinding, RestoreCurrentAttemptBindingResult};
+
 #[cfg(test)]
 mod compete_lane_tests;
 
