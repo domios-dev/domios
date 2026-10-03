@@ -27,7 +27,7 @@ function VideoPlayer({ clip, player }: { clip: Trailer; player: ReturnType<typeo
       onClick={onSurfaceClick}>
       <div className="video-placeholder"><Icon name="terminal" size={40} /><span>A place for your agents.</span><small>See Domios at work.</small></div>
       {!posterFailed && <img className="video-poster" src={clip.poster.src} alt="Three computers connected through Domios" loading="lazy" width="1280" height="720" onError={() => setPosterFailed(true)} />}
-      {!player.failed && <video ref={player.videoRef} muted={!player.soundEnabled} loop={!player.soundEnabled} playsInline preload={player.loaded ? 'auto' : 'none'} aria-label="Domios: from your desktop to your whole team" aria-describedby={`trailer-description${clip.hasNarration ? ' trailer-narration' : ''}`}
+      {!player.failed && <video ref={player.videoRef} muted={!player.soundEnabled} loop={!player.soundEnabled} playsInline preload="none" aria-label="Domios: from your desktop to your whole team" aria-describedby={`trailer-description${clip.hasNarration ? ' trailer-narration' : ''}`}
         onLoadedMetadata={player.onLoadedMetadata} onLoadedData={player.onLoadedData} onPlay={player.onPlay} onPause={player.onPause} onEnded={player.onEnded} onError={player.onError} onTimeUpdate={player.onTimeUpdate} onSeeked={player.onTimeUpdate}>
         {player.loaded && <><source src={clip.mp4.src} type="video/mp4" /><source src={clip.webm.src} type="video/webm" />{clip.subtitles && <track kind="captions" src={clip.subtitles.src} srcLang="en" label="English" onLoad={(event) => { event.currentTarget.track.mode = 'hidden'; }} />}</>}
       </video>}
