@@ -8,12 +8,6 @@ pub enum IntegrationAction {
         /// Provider id (e.g. claude, codex)
         #[arg(long)]
         provider: String,
-        /// Also export conversation content to memory before compaction
-        #[arg(long, conflicts_with = "no_precompact_memory_export")]
-        precompact_memory_export: bool,
-        /// Disable conversation export before compaction
-        #[arg(long, conflicts_with = "precompact_memory_export")]
-        no_precompact_memory_export: bool,
     },
     /// Show a provider's hook integration state
     Status {

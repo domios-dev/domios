@@ -2571,26 +2571,6 @@
           "aliases": [],
           "args": [
             {
-              "name": "no-precompact-memory-export",
-              "positional": false,
-              "required": false,
-              "value_name": "NO_PRECOMPACT_MEMORY_EXPORT",
-              "possible_values": [],
-              "default": null,
-              "help": "Disable conversation export before compaction",
-              "aliases": []
-            },
-            {
-              "name": "precompact-memory-export",
-              "positional": false,
-              "required": false,
-              "value_name": "PRECOMPACT_MEMORY_EXPORT",
-              "possible_values": [],
-              "default": null,
-              "help": "Also export conversation content to memory before compaction",
-              "aliases": []
-            },
-            {
               "name": "provider",
               "positional": false,
               "required": true,
@@ -3018,34 +2998,6 @@
               "possible_values": [],
               "default": "200",
               "help": "Maximum number of items to queue (default 200)",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "flush",
-          "about": "Flush a tab's PTY scrollback as a kind=conversation mem_item (called by PreCompact hook before context summarization)",
-          "aliases": [],
-          "args": [
-            {
-              "name": "tab",
-              "positional": false,
-              "required": false,
-              "value_name": "TAB",
-              "possible_values": [],
-              "default": null,
-              "help": "Tab id (default: $CODETERM_TAB_ID)",
-              "aliases": []
-            },
-            {
-              "name": "title",
-              "positional": false,
-              "required": false,
-              "value_name": "TITLE",
-              "possible_values": [],
-              "default": null,
-              "help": "Optional title hint",
               "aliases": []
             }
           ],

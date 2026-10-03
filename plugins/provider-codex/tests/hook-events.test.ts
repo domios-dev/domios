@@ -94,7 +94,7 @@ console.log("\n--- Stop hook install/uninstall ---\n");
     },
   }));
 
-  const installed = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const installed = p.installIntegration(7686, { consent: true });
   assert(installed.ok === true, "install succeeds", JSON.stringify(installed));
   const merged = JSON.parse(files.get(hooksPath) || "{}");
   const stopEntries = merged.hooks.Stop as Array<{ hooks?: Array<{ command?: string }> }>;
@@ -144,7 +144,7 @@ console.log("\n--- Windows: one script posting the event name ---\n");
       removeFile: () => true,
     },
   }));
-  const res = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const res = p.installIntegration(7686, { consent: true });
   assert(!!res && res.ok === true, "windows install succeeds", JSON.stringify(res));
   const scriptPaths = [...scripts.keys()].filter((k) => k.endsWith(".cmd"));
   eq(scriptPaths.length, 1, "exactly one hook script is written — never one per event");

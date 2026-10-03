@@ -260,7 +260,6 @@ fn default_hook_event_roster_registration_matches_today() {
             ("PermissionRequest", HookIngestionRoute::Permission),
             ("Notification", HookIngestionRoute::Permission),
             ("Stop", HookIngestionRoute::Stop),
-            ("PreCompact", HookIngestionRoute::MemFlush),
             ("SessionStart", HookIngestionRoute::SessionStart),
         ],
         "claude registers its current events"

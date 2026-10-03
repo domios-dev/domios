@@ -8,8 +8,6 @@ use serde::{Deserialize, Serialize};
 pub struct IntegrationInstallOptions {
     pub consent: bool,
     #[serde(default)]
-    pub precompact_memory_export: bool,
-    #[serde(default)]
     pub repair: bool,
 }
 

@@ -2417,7 +2417,7 @@ var plugin = {
     }
     return { ok: false, error: "removeFile failed for " + expanded };
   },
-  // Manage Claude settings hooks for Notification, Stop, PreCompact, SessionStart.
+  // Manage Claude settings hooks for Notification, Stop, SessionStart.
   // Hooks use a versioned source marker and runtime callback identity.
   checkIntegration() {
     const m = manifest();
@@ -2430,7 +2430,6 @@ var plugin = {
         notification_hook: false,
         permission_request_hook: false,
         stop_hook: false,
-        precompact_hook: false,
         session_start_hook: false,
         target: path || "~/.claude/settings.json",
         backup_exists: !!path && host.fileExists(path + ".codeterm-backup"),
@@ -2460,10 +2459,6 @@ var plugin = {
       }
       return false;
     }
-    function markerOwnedPresent(key) {
-      const arr = json.hooks && json.hooks[key];
-      return Array.isArray(arr) && arr.some((entry) => entryCarriesMarker(entry));
-    }
     function sessionStartCurrent() {
       const arr = json.hooks && json.hooks.SessionStart;
       if (!Array.isArray(arr)) return false;
@@ -2480,7 +2475,7 @@ var plugin = {
     const n = present("Notification");
     const pr = present("PermissionRequest");
     const s = present("Stop");
-    const pc = markerOwnedPresent("PreCompact");
+    const pc = Array.isArray(json.hooks?.PreCompact) && json.hooks.PreCompact.some(isCodetermHook);
     const ss = sessionStartCurrent();
     const installed = n && pr && s && ss;
     const owned = INTEGRATION_HOOK_KEYS.some((key) => {
@@ -2501,11 +2496,10 @@ var plugin = {
       settings_exists: true,
       hooks_installed: installed,
       integration_owned: owned,
-      hook_contract_current: installed && marked,
+      hook_contract_current: installed && marked && !pc,
       notification_hook: n,
       permission_request_hook: pr,
       stop_hook: s,
-      precompact_hook: pc,
       session_start_hook: ss,
       target: path,
       backup_exists: host.fileExists(path + ".codeterm-backup"),
@@ -2547,7 +2541,6 @@ var plugin = {
     const finish = " || true; fi";
     const notifyCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/permission" -H 'Content-Type: application/json' ` + authH + " " + nonceH + " --data-binary @-" + finish;
     const stopCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/stop" -H 'Content-Type: application/json' ` + authH + " -d '{}'" + finish;
-    const precompactCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/mem/flush" -H 'Content-Type: application/json' ` + authH + ` -d '{"tab":"'"$CODETERM_TAB_ID"'","title":"pre-compact"}'` + finish;
     const sessionStartCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" -H 'Content-Type: application/json' ` + authH + " " + nonceH + " --data-binary @-" + finish;
     function newEntry(matcher, cmd, timeout) {
       return {
@@ -2566,9 +2559,6 @@ var plugin = {
       Stop: newEntry("", stopCmd, 5e3),
       SessionStart: newEntry("", sessionStartCmd, 5e3)
     };
-    if (options.precompact_memory_export === true) {
-      newHooks.PreCompact = newEntry("", precompactCmd, 1e4);
-    }
     const keys = INTEGRATION_HOOK_KEYS;
     let preservedUnclassified = 0;
     for (let i = 0; i < keys.length; i++) {

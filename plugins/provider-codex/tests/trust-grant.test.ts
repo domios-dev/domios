@@ -229,7 +229,7 @@ console.log("\n--- trust_grant: degradation negative control (RPCs absent => ena
   const stub = makeAppServerStubExec({ files, reportedHash: "sha256:never-served", rpcsAbsent: true });
   const p = loadCodexWithHost({ ...fsHost(files), exec: stub.exec });
 
-  const install = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const install = p.installIntegration(7686, { consent: true });
   assert(install.ok === true, "trust_grant degradation: enable-only install succeeds", JSON.stringify(install));
   const preGrantConfig = files.get(CONFIG_PATH);
 
@@ -310,7 +310,7 @@ console.log("\n--- trust_grant: trusted state reads back after a successful gran
   const stub = makeAppServerStubExec({ files, reportedHash });
   const p = loadCodexWithHost({ ...fsHost(files), exec: stub.exec });
 
-  const install = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const install = p.installIntegration(7686, { consent: true });
   assert(install.ok === true, "trust_grant install before grant succeeds", JSON.stringify(install));
   const result = p.grantIntegrationTrust(["session_start", "stop"]);
   assert(result.granted === true, "trust_grant grant after install succeeds", JSON.stringify(result));

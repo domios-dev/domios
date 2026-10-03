@@ -547,8 +547,6 @@ Provider hook integration: install it with recorded consent and trust, or read i
 
 Install a provider's hook integration and trust CodeTerm's own hooks. Running it records consent the same way the Settings install does
 
-- `--no-precompact-memory-export` — Disable conversation export before compaction
-- `--precompact-memory-export` — Also export conversation content to memory before compaction
 - `--provider` — Provider id (e.g. claude, codex)
 
 #### `codeterm integration status`
@@ -666,13 +664,6 @@ Run dreaming consolidation via the daemon. Phases: light, deep, normalize, all (
 Re-run extraction workers for items that haven't been extracted yet. Useful after LLM API failures, quota resets, or bulk imports with skip_extract. Workers fire sequentially with a short delay
 
 - `--limit` — Maximum number of items to queue (default 200)
-
-#### `codeterm mem flush`
-
-Flush a tab's PTY scrollback as a kind=conversation mem_item (called by PreCompact hook before context summarization)
-
-- `--tab` — Tab id (default: $CODETERM_TAB_ID)
-- `--title` — Optional title hint
 
 #### `codeterm mem forget`
 

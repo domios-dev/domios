@@ -772,7 +772,7 @@ const plugin: PluginModule = {
     return { ok: false, error: "removeFile failed for " + expanded };
   },
 
-  // Manage Claude settings hooks for Notification, Stop, PreCompact, SessionStart.
+  // Manage Claude settings hooks for Notification, Stop, SessionStart.
   // Hooks use a versioned source marker and runtime callback identity.
 
   checkIntegration(): unknown {
@@ -787,7 +787,7 @@ const plugin: PluginModule = {
         notification_hook: false,
         permission_request_hook: false,
         stop_hook: false,
-        precompact_hook: false,
+
         session_start_hook: false,
         target: path || "~/.claude/settings.json",
         backup_exists: !!path && host.fileExists(path + ".codeterm-backup"),
@@ -823,10 +823,6 @@ const plugin: PluginModule = {
       }
       return false;
     }
-    function markerOwnedPresent(key: string): boolean {
-      const arr = json!.hooks && json!.hooks[key];
-      return Array.isArray(arr) && arr.some((entry) => entryCarriesMarker(entry));
-    }
     // SessionStart must also carry the binding-nonce header, else it's a pre-nonce hook to force-upgrade.
     function sessionStartCurrent(): boolean {
       const arr = json!.hooks && json!.hooks.SessionStart;
@@ -850,7 +846,7 @@ const plugin: PluginModule = {
     const n = present("Notification");
     const pr = present("PermissionRequest");
     const s = present("Stop");
-    const pc = markerOwnedPresent("PreCompact");
+    const pc = Array.isArray(json.hooks?.PreCompact) && json.hooks.PreCompact.some(isCodetermHook);
     const ss = sessionStartCurrent();
     const installed = n && pr && s && ss;
     const owned = INTEGRATION_HOOK_KEYS.some((key) => {
@@ -870,11 +866,11 @@ const plugin: PluginModule = {
       settings_exists: true,
       hooks_installed: installed,
       integration_owned: owned,
-      hook_contract_current: installed && marked,
+      hook_contract_current: installed && marked && !pc,
       notification_hook: n,
       permission_request_hook: pr,
       stop_hook: s,
-      precompact_hook: pc,
+
       session_start_hook: ss,
       target: path,
       backup_exists: host.fileExists(path + ".codeterm-backup"),
@@ -884,7 +880,7 @@ const plugin: PluginModule = {
 
   installIntegration(
     _apiPort: number,
-    options?: { consent?: boolean; precompact_memory_export?: boolean; repair?: boolean },
+    options?: { consent?: boolean; repair?: boolean },
   ): unknown {
     if (!options || options.consent !== true) {
       return { ok: false, error: "provider integration installation requires explicit local-user consent" };
@@ -928,9 +924,6 @@ const plugin: PluginModule = {
     const stopCmd = guard + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL'
       + '/api/tabs/$CODETERM_TAB_ID/hook/stop" '
       + "-H 'Content-Type: application/json' " + authH + " -d '{}'" + finish;
-    const precompactCmd = guard + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/mem/flush" '
-      + "-H 'Content-Type: application/json' " + authH
-      + ' -d \'{"tab":"\'"$CODETERM_TAB_ID"\'","title":"pre-compact"}\'' + finish;
     const sessionStartCmd = guard + 'curl -s -o /dev/null -X POST "$CODETERM_API_URL'
       + '/api/tabs/$CODETERM_TAB_ID/hook/session_start" '
       + "-H 'Content-Type: application/json' " + authH + " " + nonceH + " --data-binary @-" + finish;
@@ -954,9 +947,6 @@ const plugin: PluginModule = {
       Stop:              newEntry("", stopCmd, 5000),
       SessionStart:      newEntry("", sessionStartCmd, 5000),
     };
-    if (options.precompact_memory_export === true) {
-      newHooks.PreCompact = newEntry("", precompactCmd, 10000);
-    }
 
     // Remove existing codeterm hooks before appending to avoid stale leftovers.
     const keys = INTEGRATION_HOOK_KEYS;

@@ -659,7 +659,7 @@ enabled = true
         let path = tmp.path().join("config.toml");
         std::fs::write(
             &path,
-            "[agents.claude]\nresume_sessions = true\nfuture_unknown_key = \"kept\"\nintegration_consent_granted = true\nintegration_consent_recorded_at = 123\nprecompact_memory_export = true\n",
+            "[agents.claude]\nresume_sessions = true\nfuture_unknown_key = \"kept\"\nintegration_consent_granted = true\nintegration_consent_recorded_at = 123\nfixture_extension_flag = true\n",
         )
         .unwrap();
 
@@ -689,7 +689,7 @@ enabled = true
         );
         assert_eq!(
             extra
-                .get("precompact_memory_export")
+                .get("fixture_extension_flag")
                 .and_then(toml::Value::as_bool),
             Some(true)
         );
@@ -724,7 +724,7 @@ enabled = true
         );
         assert_eq!(
             extra
-                .get("precompact_memory_export")
+                .get("fixture_extension_flag")
                 .and_then(toml::Value::as_bool),
             Some(true)
         );

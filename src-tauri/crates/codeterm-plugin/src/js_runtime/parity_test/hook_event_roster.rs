@@ -135,7 +135,7 @@ fn hook_event_roster_fail_closed_on_unknown_route() {
             0,
             &IntegrationInstallOptions {
                 consent: true,
-                precompact_memory_export: false,
+
                 repair: false,
             },
         )
@@ -216,7 +216,6 @@ fn default_hook_event_roster_matches_bundled_manifests() {
             ("PermissionRequest", HookIngestionRoute::Permission),
             ("Notification", HookIngestionRoute::Permission),
             ("Stop", HookIngestionRoute::Stop),
-            ("PreCompact", HookIngestionRoute::MemFlush),
             ("SessionStart", HookIngestionRoute::SessionStart),
         ]
     );

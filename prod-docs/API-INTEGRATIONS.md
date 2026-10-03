@@ -146,7 +146,7 @@ The host owns one binding per receiver plugin id, persisted in the data director
 | GET | `/api/setup/rules` | — | Check if project rules are installed |
 | POST | `/api/setup/rules/install` | — | Install project rules |
 | GET | `/api/setup/hooks` | `?provider=<id>` | Read provider integration target/status (`codeterm integration status --provider <id>`). Codex reports `repair_requires_consent: true` when its owned SessionStart/Stop contract is incomplete. |
-| POST | `/api/setup/hooks/install` | `?provider=<id>[&precompact_memory_export=<bool>]` | Authenticated install is consent. Omit `precompact_memory_export` to preserve the current Domios PreCompact hook or recorded choice; pass `true` or `false` to change it. The install records consent and its timestamp like Settings, installs Domios's marked entries and grants their provider trust (foreign entries untouched). Returns `{ok, provider, status}`; `404` unknown provider. CLI: `codeterm integration install --provider <id>` (works with `--mesh PEER`). |
+| POST | `/api/setup/hooks/install` | `?provider=<id>` | Authenticated install is consent. Raw memory-export hooks are removed; foreign hooks are preserved. The install records consent and its timestamp like Settings, installs Domios's marked entries and grants their provider trust (foreign entries untouched). Returns `{ok, provider, status}`; `404` unknown provider. CLI: `codeterm integration install --provider <id>` (works with `--mesh PEER`). |
 | POST | `/api/setup/hooks/uninstall` | `?provider=<id>` | Remove provider-owned integration entries while preserving foreign configuration |
 | POST | `/api/integration/sweep-profiles` | `?provider=<id>&confirm=<bool>&include_legacy=<bool>` | Preview this instance's dead provider launch artifacts and unmarked legacy files. Both flags default false; deletion requires `confirm=true`. `include_legacy=true` with confirmation deletes every unmarked file regardless of tab liveness. CLI: `codeterm integration sweep-profiles --provider <id>`. |
 
@@ -204,4 +204,4 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage and updates: `codeterm docs API-STATE`.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

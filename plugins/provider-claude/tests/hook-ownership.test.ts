@@ -29,7 +29,7 @@ function eq(actual: unknown, expected: unknown, name: string) {
 }
 
 const MARKER_HEADER = "X-CodeTerm-Hook: codeterm-hook-v3";
-const EVENTS = ["PermissionRequest", "Notification", "Stop", "PreCompact", "SessionStart"];
+const EVENTS = ["PermissionRequest", "Notification", "Stop", "SessionStart"];
 
 const GUARD = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
 const AUTH = '-H "Authorization: Bearer $CODETERM_API_TOKEN"';
@@ -225,7 +225,7 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
   const status = loadClaude(files).checkIntegration();
   eq(status.hooks_installed, true, "the reconciled set reports installed");
   eq(status.integration_owned, true, "the reconciled set reports marker ownership");
-  eq(status.precompact_hook, true, "the owned PreCompact hook reports the saved export choice");
+  eq(status.precompact_hook, undefined, "retired export has no status control");
   eq(status.hook_contract_current, true, "and reports its contract current, so nothing writes again");
 }
 
@@ -233,7 +233,7 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
   const files = settingsWith({ PreCompact: [foreignEntry("PreCompact")] });
   const status = loadClaude(files).checkIntegration();
   eq(status.integration_owned, false, "a foreign hook does not imply CodeTerm consent");
-  eq(status.precompact_hook, false, "a foreign PreCompact hook does not imply CodeTerm export opt-in");
+  eq(status.precompact_hook, undefined, "a foreign PreCompact hook does not imply CodeTerm export opt-in");
 }
 
 {
@@ -242,7 +242,7 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
   });
   const status = loadClaude(files).checkIntegration();
   eq(status.integration_owned, false, "pre-marker compatibility hooks do not imply recorded consent");
-  eq(status.precompact_hook, false, "pre-marker PreCompact is not treated as an explicit export choice");
+  eq(status.precompact_hook, undefined, "pre-marker PreCompact is not treated as an explicit export choice");
 }
 
 {

@@ -38,7 +38,6 @@ REST endpoints for memory items, retrieval, graph operations, workers, calibrati
 | POST | `/api/mem/reembed` | — | Rebuild embeddings. |
 | POST | `/api/mem/learn` | `{...}` | Learn from agent or user context. |
 | POST | `/api/mem/promote/{id}` | — | Promote a learning to a memory item. |
-| POST | `/api/mem/flush` | `{...}` | Flush a tab's pending conversation memory. |
 | POST | `/api/mem/check-duplicate` | `{...}` | Check for duplicate memory. |
 | POST | `/api/mem/dream` | `{...}` | Run memory consolidation. |
 | POST | `/api/mem/extract-pending` | `{...}` | Extract pending memories. |
@@ -119,4 +118,4 @@ Memory skills, workers, sync, and dreaming: `codeterm docs MEMORY-SERVICES`. Ser
 
 Connection failures use JSON `{error: {code, message}}`; codes include unavailable, authentication_failed, unknown_adapter, invalid_model and invalid_request. Token values are never returned.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

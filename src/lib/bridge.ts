@@ -45,7 +45,6 @@ export interface ProviderIntegrationHealth {
   integration_state?: "absent" | "stale_version" | "untrusted_hash" | "installed" | string;
   repair_requires_consent?: boolean;
   hooks_installed?: boolean;
-  precompact_hook?: boolean;
   stop_hook?: boolean;
   session_start_hook?: boolean;
   codeterm_binding_fallback_source?: string;
@@ -877,12 +876,10 @@ export function checkProviderIntegration(providerId: string): Promise<ProviderIn
 
 export function installProviderIntegration(
   providerId: string,
-  precompactMemoryExport?: boolean,
 ): Promise<void> {
   return invoke<void>("install_provider_integration", {
     providerId,
     consent: true,
-    ...(precompactMemoryExport === undefined ? {} : { precompactMemoryExport }),
   });
 }
 

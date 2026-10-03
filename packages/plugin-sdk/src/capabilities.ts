@@ -290,7 +290,7 @@ export interface AgentProvider {
   usesStructuredChat?(): boolean;
   readStructuredChat?(cwd: string, sessionId: string, cursor?: string | null): unknown;
   checkIntegration?(): unknown;
-  installIntegration?(apiPort: number, options: { consent: boolean; precompact_memory_export?: boolean }): unknown;
+  installIntegration?(apiPort: number, options: { consent: boolean }): unknown;
   uninstallIntegration?(): unknown;
   restoreIntegration?(): unknown;
   ensureIntegrationOnStartup?(apiPort: number): unknown;

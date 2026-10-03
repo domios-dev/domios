@@ -728,7 +728,7 @@ for (const [name, fixture] of [
       writeJson: () => { writes += 1; return true; },
     },
   }));
-  const result = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const result = p.installIntegration(7686, { consent: true });
   assert(result.ok === false, `${name} Claude settings JSON is rejected`);
   eq(writes, 0, `${name} rejection has no side effects`);
   eq(files.get(settingsPath), fixture, `${name} Claude input bytes remain unchanged`);
@@ -780,11 +780,11 @@ for (const [name, fixture] of [
   const p = loadClaudeWithHost(host);
   const denied = p.installIntegration(7686, { consent: false });
   assert(denied.ok === false && files.size === 1, "Claude integration writes nothing before consent");
-  assert(p.installIntegration(7686, { consent: true, precompact_memory_export: false }).ok === true, "Claude consented install succeeds");
+  assert(p.installIntegration(7686, { consent: true }).ok === true, "Claude consented install succeeds");
   eq(files.get(settingsPath + ".codeterm-backup"), original, "Claude backup preserves exact original bytes");
   const installed = JSON.parse(files.get(settingsPath) || "{}");
   assert(installed.foreign === true, "Claude install preserves foreign settings");
-  assert(!installed.hooks.PreCompact, "Claude PreCompact export remains separately opt-in");
+  assert(!installed.hooks.PreCompact, "Claude never installs raw memory export");
   assert(p.restoreIntegration().ok === true, "Claude restore succeeds");
   eq(files.get(settingsPath), original, "Claude restore reproduces exact original bytes");
 }
@@ -807,7 +807,7 @@ console.log("--- permission_request ingestion ---");
       writeJson: (path: string, value: unknown) => { files.set(path, JSON.stringify(value)); return true; },
     },
   }));
-  assert(p.installIntegration(7686, { consent: true, precompact_memory_export: false }).ok === true, "Claude install for permission_request succeeds");
+  assert(p.installIntegration(7686, { consent: true }).ok === true, "Claude install for permission_request succeeds");
   const installed = JSON.parse(files.get(settingsPath) || "{}");
   for (const key of ["PermissionRequest", "Notification"]) {
     const cmd = installed.hooks?.[key]?.[0]?.hooks?.[0]?.command as string | undefined;
@@ -1089,7 +1089,7 @@ console.log("\n--- versionless Claude alias catalog ---\n");
     },
   }));
 
-  const result = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const result = p.installIntegration(7686, { consent: true });
   assert(result.ok === true, "install alongside a marker-less hook succeeds");
   const sessionStart = written?.hooks?.SessionStart ?? [];
   eq(sessionStart.length, 2, "an install preserves an unclassified hook and adds its own entry");

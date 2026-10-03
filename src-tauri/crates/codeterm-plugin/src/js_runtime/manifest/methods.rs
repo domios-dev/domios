@@ -162,8 +162,7 @@ pub fn manifest_settings_sections(m: &PluginManifest) -> Vec<SettingField> {
                 state_query: Some("check_provider_integration".into()),
                 args: Some(serde_json::json!({
                     "provider_id": provider_id,
-                    "consent": true,
-                    "precompact_memory_export": false
+                    "consent": true
                 })),
                 confirm: Some(install_confirm),
                 style: ActionStyle::Primary,

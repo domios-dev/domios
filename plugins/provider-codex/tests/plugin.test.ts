@@ -725,7 +725,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
     },
   });
   const p = loadCodexWithHost(host);
-  const res = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const res = p.installIntegration(7686, { consent: true });
   assert(!!res && res.ok === true, "installIntegration succeeds", JSON.stringify(res));
   const cmd = String(writtenJson?.hooks?.SessionStart?.[0]?.hooks?.[0]?.command ?? "");
   assert(
@@ -773,7 +773,7 @@ console.log("\n--- binding nonce (install + outdated detection) ---\n");
   }));
   const denied = p.installIntegration(7686, { consent: false });
   assert(denied.ok === false && files.size === 1, "integration writes nothing before consent");
-  const installed = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const installed = p.installIntegration(7686, { consent: true });
   assert(installed.ok === true, "consented integration install succeeds");
   eq(files.get(hooksPath + ".codeterm-backup"), original, "backup preserves original bytes");
   const merged = JSON.parse(files.get(hooksPath) || "{}");
@@ -805,7 +805,7 @@ for (const [name, fixture] of [
       removeFile: () => false,
     },
   }));
-  const result = p.installIntegration(7686, { consent: true, precompact_memory_export: false });
+  const result = p.installIntegration(7686, { consent: true });
   assert(result.ok === false, `${name} hooks JSON is rejected`);
   eq(writes, 0, `${name} rejection has no side effects`);
   eq(files.get(hooksPath), fixture, `${name} input bytes remain unchanged`);

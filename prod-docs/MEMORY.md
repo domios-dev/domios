@@ -14,7 +14,7 @@ Persistent memory for agents. Survives restarts, provider switches
 - **Skills** — folder skills (`SKILL.md` + scripts) registered via `mem skill new/add`, indexed alongside other items
 - **Librarian** — periodic file-sync daemon: re-vectorizes source-tracked items when their on-disk file changes, flags deletions
 - **Dreaming** — nightly consolidation at 6 AM with 0..30 min delay-only jitter: four SQL phases (light, deep, normalize, calibration) run server-side in `POST /api/mem/dream`, then the LLM REM worker is spawned to handle structural cleanup + diary; the REM prompt is read-only with respect to calibration (sweep already ran); hygiene is reversible (merge archives, never deletes)
-- **Lifecycle capture** — `SessionStart` tracks the active session; optional `PreCompact` export POSTs to the authenticated memory endpoint only after separate local-user consent
+- **Session lifecycle** — hooks bind sessions and report completion; terminal scrollback is never exported into memory.
 - **Protocol** — 7 behavioral rules injected into every agent session
 
 ## Mem vs past-session search
@@ -152,18 +152,17 @@ The Dreamer never hard-deletes duplicates or stale items; both end as `kind = 'a
 
 A dreaming worker that hits its hard deadline is finalized by the host with finalization `partial` and reason `deadline`. A deadline-cut diary remains partial; complete diaries and a finalization the agent already recorded are preserved.
 
-## Auto-flush from agent hooks
+## Session hooks and memory
 
-The mem flush API (`POST /api/mem/flush`) is the entry point providers call from their lifecycle hooks. There is no auth-exempt loopback path — every hook carries `Authorization: Bearer $CODETERM_API_TOKEN` (Domios injects the token into every PTY at spawn). Claude's standard integration installs three hook handlers. `PreCompact` memory export is a separate opt-in because it exports conversation content:
+Claude hooks bind the current session and report permission/completion events. Raw terminal export has been removed: compaction does not create memory items. Consented integration repair removes only the retired Domios-owned PreCompact exporter and preserves foreign hooks.
 
 | Hook | Endpoint | Purpose |
 |---|---|---|
 | `Notification` | `POST /api/tabs/{id}/hook/permission` | Surface a permission prompt without waiting for PTY auto-detect |
 | `Stop` | `POST /api/tabs/{id}/hook/stop` | Mark task complete, fire `agent.task_complete` webhook |
-| `PreCompact` (opt-in) | `POST /api/mem/flush` | Persist conversation summary to mem before Claude compacts the context window |
 | `SessionStart` | `POST /api/tabs/{id}/hook/session_start` | Track the live `session_id` so `/new` and `/clear` inside the TUI don't desync the persisted resume id |
 
-A flush obeys the same 1 MB body cap as `mem save`: scrollback beyond it keeps its most recent tail, and the item gets the `truncated` tag with the kept and original sizes in its summary. Indexing of a large item can stay pending without blocking smaller saves.
+Explicit `mem save` remains available with its 1 MB body cap. Provider transcripts remain in the provider session store.
 
 Hooks are installed through the provider integration action into `~/.claude/settings.json`. The action shows the target and proposed changes, records consent, makes a recoverable backup, and preserves foreign hooks.
 
@@ -171,4 +170,4 @@ Hooks are installed through the provider integration action into `~/.claude/sett
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->

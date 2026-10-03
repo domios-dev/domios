@@ -113,13 +113,11 @@ Session binding needs each provider's Domios hooks installed and trusted. No Set
 codeterm integration status --provider codex            # read install/trust state
 codeterm integration install --provider codex           # records consent, installs, grants trust
 codeterm integration install --provider claude --mesh PEER   # same on a paired peer
-codeterm integration install --provider claude --precompact-memory-export       # enable memory export
-codeterm integration install --provider claude --no-precompact-memory-export    # disable memory export
 codeterm integration sweep-profiles --provider codex    # preview dead profiles and legacy files
 codeterm integration sweep-profiles --provider codex --confirm  # delete this instance's dead profiles
 codeterm integration sweep-profiles --provider codex --confirm --include-legacy  # also delete unmarked files
 ```
-Omitting either PreCompact flag preserves the current Domios hook choice or its recorded setting. Once consent is recorded, daemon start and provider plugin reload repair a missing, stale, or untrusted Domios hook by themselves (reinstall plus trust grant). An existing Domios-owned install without a consent record is recorded as consent before reconciliation; foreign hooks are never rewritten or trusted.
+Once consent is recorded, daemon start and provider plugin reload repair a missing, stale, or untrusted Domios hook by themselves (reinstall plus trust grant). An existing Domios-owned install without a consent record is recorded as consent before reconciliation; foreign hooks are never rewritten or trusted.
 Profile cleanup is dry-run by default. `--confirm` deletes only files marked for this instance whose tab ids are not live here. `--include-legacy` with `--confirm` deletes every unmarked profile, regardless of tab liveness, so review the preview before opting in.
 
 ### Config Management
@@ -137,4 +135,4 @@ Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
 For `send --every --mesh` and `delayed create/edit --every --mesh`, the peer must advertise `delayed_recurrence` in `codeterm identify` features. If it does not, the request is refused with the peer name and version; update that peer or send a one-shot explicitly.
 
-<!-- revision: 79 -->
+<!-- revision: 80 -->
