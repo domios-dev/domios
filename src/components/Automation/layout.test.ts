@@ -97,7 +97,8 @@ test("layout is deterministic and a data-only result change keeps every position
 });
 
 test("a single Sentinel occupies a compact canvas instead of a fixed three-column width", () => {
-  const graph = scoped({ ...fixtureGraph(), edges: [] });
+  const fixture = fixtureGraph();
+  const graph = scoped({ ...fixture, edges: [], nodes: fixture.nodes.map((node) => ({ ...node, outcomes: [] })) });
   const layout = layoutAutomationGraph(graph);
   assert.equal(layout.nodes.length, 1);
   assert.ok(layout.bounds.width < 2 * layout.nodes[0].box.width, "bounds hug the lone node");
