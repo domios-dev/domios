@@ -423,40 +423,47 @@ fn tick_registers_new_plugins_added_after_start() {
 fn hot_reload_reaches_provider_integration_refresh_without_restart() {
     let mut env = codeterm_util::test_env::EnvGuard::lock();
     env.set("CODETERM_API_PORT", "7686");
-    let root = tempfile::tempdir().unwrap();
-    let registrar = TestRegistrar::new();
-    let watcher = HotReloadRegistry::new(
-        vec![root.path().to_path_buf()],
-        registrar.clone(),
-        test_caps(),
-    );
-    let dir = root.path().join("refreshable");
-    write(&dir.join("plugin.json"), &manifest_for("refreshable"));
-    write(
+    for owner in [false, true] {
+        env.set(
+            "CODETERM_MACHINE_OWNER",
+            if owner { "true" } else { "false" },
+        );
+        let root = tempfile::tempdir().unwrap();
+        let registrar = TestRegistrar::new();
+        let watcher = HotReloadRegistry::new(
+            vec![root.path().to_path_buf()],
+            registrar.clone(),
+            test_caps(),
+        );
+        let dir = root.path().join("refreshable");
+        write(&dir.join("plugin.json"), &manifest_for("refreshable"));
+        write(
         &dir.join("plugin.js"),
         "module.exports.default = { ensureIntegrationOnStartup() {}, detectFromTitle() { return false; } };",
     );
-    watcher.tick();
-    assert!(!registrar
-        .with_provider("refreshable", |p| p.detect_from_title("refresh"))
-        .unwrap_or(true));
+        watcher.tick();
+        assert!(!registrar
+            .with_provider("refreshable", |p| p.detect_from_title("refresh"))
+            .unwrap_or(true));
 
-    write(
+        write(
         &dir.join("plugin.js"),
         "let refreshed = false; module.exports.default = { ensureIntegrationOnStartup() { refreshed = true; }, detectFromTitle() { return refreshed; } };",
     );
-    set_mtime(
-        &dir.join("plugin.js"),
-        SystemTime::now() + Duration::from_secs(1),
-    );
-    watcher.tick();
+        set_mtime(
+            &dir.join("plugin.js"),
+            SystemTime::now() + Duration::from_secs(1),
+        );
+        watcher.tick();
 
-    assert!(
-        registrar
-            .with_provider("refreshable", |p| p.detect_from_title("refresh"))
-            .unwrap_or(false),
-        "hot reload must call the provider refresh seam"
-    );
+        assert_eq!(
+            registrar
+                .with_provider("refreshable", |p| p.detect_from_title("refresh"))
+                .unwrap_or(false),
+            owner,
+            "only the machine owner may call the integration refresh seam"
+        );
+    }
 }
 
 #[test]

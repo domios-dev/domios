@@ -913,7 +913,9 @@ fn manual_team_worker_has_system_identity_and_no_starter_turn() {
         crate::agent::provider::StarterPrompt::NoStarter
     );
     assert_eq!(
-        system_context.matches("You are a CodeTerm Worker.").count(),
+        system_context
+            .matches(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY)
+            .count(),
         1
     );
     assert!(!system_context.contains("## Assignment"));
@@ -948,7 +950,9 @@ fn new_explicit_task_worker_gets_exactly_one_assigned_starter() {
     );
     assert_eq!(system_context.matches(brief).count(), 1);
     assert_eq!(
-        system_context.matches("You are a CodeTerm Worker.").count(),
+        system_context
+            .matches(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY)
+            .count(),
         1
     );
 }

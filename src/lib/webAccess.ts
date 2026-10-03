@@ -190,8 +190,8 @@ export function serveSetupTask(status: ServeStatus | null, apiPort: number): str
   const installed = status?.installed ? "yes" : "no";
   const platform = status?.platform || "unknown";
   return [
-    "Set up Tailscale Serve so I can open this CodeTerm over HTTPS from my phone.",
-    `Context: tailscale installed = ${installed}, platform = ${platform}, CodeTerm API port = ${apiPort}.`,
+    "Set up Tailscale Serve so I can open this Domios over HTTPS from my phone.",
+    `Context: tailscale installed = ${installed}, platform = ${platform}, Domios API port = ${apiPort}.`,
     "If Tailscale isn't installed, install it and run `tailscale up` so I'm logged into my tailnet.",
     `Then expose this daemon: \`tailscale serve --bg --https=443 http://127.0.0.1:${apiPort}\` (on macOS provision the cert first with \`tailscale cert <my-magicdns-name>\`).`,
     "Finally verify the HTTPS URL actually responds, then reply with the clean link I can scan.",

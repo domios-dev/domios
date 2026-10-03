@@ -28,7 +28,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: what can you do for me on this machine?",
           question:
-            "A user is reading the CodeTerm guide and pressed 'Ask the agent' in the overview section. Introduce yourself briefly and show what you can do on this machine right now: 3-5 concrete examples based on the actual workspaces, agents, and integrations you can see. Keep it short and practical.",
+            "A user is reading the Domios guide and pressed 'Ask the agent' in the overview section. Introduce yourself briefly and show what you can do on this machine right now: 3-5 concrete examples based on the actual workspaces, agents, and integrations you can see. Keep it short and practical.",
         },
       ],
     },
@@ -58,7 +58,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: how should I organize my projects here?",
           question:
-            "A user is reading the CodeTerm guide (workspaces section) and pressed 'Ask the agent'. Look at their current workspaces and suggest concretely how to organize their projects in CodeTerm: when to make a new workspace, when to open more tabs, how to name things. Short, practical, based on what actually exists on this machine.",
+            "A user is reading the Domios guide (workspaces section) and pressed 'Ask the agent'. Look at their current workspaces and suggest concretely how to organize their projects in Domios: when to make a new workspace, when to open more tabs, how to name things. Short, practical, based on what actually exists on this machine.",
         },
       ],
     },
@@ -97,7 +97,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: set up an orchestration for my next project",
           question:
-            "A user is reading the CodeTerm guide (agents section) and pressed 'Ask the agent'. Explain in a few sentences how you would set up a Planner + Orchestrator pair for a new project on this machine, and offer to do it: ask what project or goal they have in mind. Do not spawn anything yet — just offer.",
+            "A user is reading the Domios guide (agents section) and pressed 'Ask the agent'. Explain in a few sentences how you would set up a Planner + Orchestrator pair for a new project on this machine, and offer to do it: ask what project or goal they have in mind. Do not spawn anything yet — just offer.",
         },
       ],
     },
@@ -132,7 +132,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: walk me through my current plans",
           question:
-            "A user is reading the CodeTerm guide (plans section) and pressed 'Ask the agent'. Check what plans exist on this machine (codeterm plan list) and give a short readable summary of each: goal, progress, what is currently in flight. If there are none, explain in two sentences how to start one.",
+            "A user is reading the Domios guide (plans section) and pressed 'Ask the agent'. Check what plans exist on this machine (codeterm plan list) and give a short readable summary of each: goal, progress, what is currently in flight. If there are none, explain in two sentences how to start one.",
         },
       ],
     },
@@ -162,7 +162,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: what do you remember about me?",
           question:
-            "A user is reading the CodeTerm guide (memory section) and pressed 'Ask the agent'. Run a memory wake-up / search and summarize in a friendly, short way what you actually remember on this machine: who the user is, key projects, notable facts. If memory is nearly empty, say so and suggest what would be worth saving first.",
+            "A user is reading the Domios guide (memory section) and pressed 'Ask the agent'. Run a memory wake-up / search and summarize in a friendly, short way what you actually remember on this machine: who the user is, key projects, notable facts. If memory is nearly empty, say so and suggest what would be worth saving first.",
         },
       ],
     },
@@ -323,7 +323,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: should I set up the Supporter Agent?",
           question:
-            "A user is reading the CodeTerm guide (Supporter Agent section) and pressed 'Ask the agent'. Check codeterm supporter status for the selected adapter, connection, token requirement, activity and shared budget. Explain how to connect it, what text it receives, Jev versus LM Studio, fallback and the two-restart recovery bound. Inspect graph, docs and session sources only if relevant. Keep it short and practical.",
+            "A user is reading the Domios guide (Supporter Agent section) and pressed 'Ask the agent'. Check codeterm supporter status for the selected adapter, connection, token requirement, activity and shared budget. Explain how to connect it, what text it receives, Jev versus LM Studio, fallback and the two-restart recovery bound. Inspect graph, docs and session sources only if relevant. Keep it short and practical.",
         },
       ],
     },
@@ -349,7 +349,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: which machines can you reach right now?",
           question:
-            "A user is reading the CodeTerm guide (mesh section) and pressed 'Ask the agent'. Check the mesh status and report which peers are currently reachable, what is running on them if visible, and one example of what the user could delegate to another machine. If mesh is off or unpaired, explain in two sentences how to enable it.",
+            "A user is reading the Domios guide (mesh section) and pressed 'Ask the agent'. Check the mesh status and report which peers are currently reachable, what is running on them if visible, and one example of what the user could delegate to another machine. If mesh is off or unpaired, explain in two sentences how to enable it.",
         },
       ],
     },
@@ -374,7 +374,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: what integrations are live here?",
           question:
-            "A user is reading the CodeTerm guide (integrations section) and pressed 'Ask the agent'. Check which integrations/bridges are configured and enabled on this machine and summarize their status. If none are set up, recommend which one to start with and where the setup lives in Settings.",
+            "A user is reading the Domios guide (integrations section) and pressed 'Ask the agent'. Check which integrations/bridges are configured and enabled on this machine and summarize their status. If none are set up, recommend which one to start with and where the setup lives in Settings.",
         },
       ],
     },
@@ -414,7 +414,7 @@ export const enHelpContent: HelpLocaleContent = {
           type: "ask",
           label: "Ask the General Agent: give me your top tips for this machine",
           question:
-            "A user is reading the CodeTerm guide (tips section) and pressed 'Ask the agent'. Based on how this machine is actually used (workspaces, plans, integrations you can see), give your top 5 practical CodeTerm tips for THIS user specifically. Short bullets, no generic advice.",
+            "A user is reading the Domios guide (tips section) and pressed 'Ask the agent'. Based on how this machine is actually used (workspaces, plans, integrations you can see), give your top 5 practical Domios tips for THIS user specifically. Short bullets, no generic advice.",
         },
       ],
     },

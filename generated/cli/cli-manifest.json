@@ -5821,7 +5821,7 @@
         },
         {
           "name": "refresh",
-          "about": "Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting CodeTerm",
+          "about": "Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting Domios",
           "aliases": [],
           "args": [],
           "subcommands": []
@@ -14261,7 +14261,7 @@
               "value_name": "BINARY",
               "possible_values": [],
               "default": null,
-              "help": "Override the path to the CodeTerm executable. Defaults to the installed app binary for the current platform",
+              "help": "Override the path to the Domios executable. Defaults to the installed app binary for the current platform",
               "aliases": []
             },
             {

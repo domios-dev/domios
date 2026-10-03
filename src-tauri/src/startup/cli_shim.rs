@@ -49,7 +49,7 @@ pub fn forward_to_cli_if_invoked() {
         None => {
             eprintln!(
                 "codeterm: this binary is the GUI app, not the CLI. \
-                 Install the CLI by launching CodeTerm at least once \
+                 Install the CLI by launching Domios at least once \
                  (it auto-installs to ~/.codeterm/bin/codeterm and symlinks \
                  ~/.local/bin/codeterm), then re-run."
             );

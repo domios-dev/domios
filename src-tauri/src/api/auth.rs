@@ -346,7 +346,7 @@ pub async fn auth_middleware(
                 );
                 return (
                     StatusCode::UPGRADE_REQUIRED,
-                    "Incompatible Mesh relay protocol; update CodeTerm",
+                    "Incompatible Mesh relay protocol; update Domios",
                 )
                     .into_response();
             }

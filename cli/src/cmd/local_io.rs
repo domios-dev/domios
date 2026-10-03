@@ -5,11 +5,11 @@ use crate::client::{RpcClient, SocketClient};
 use crate::cmd::print::{exit_with_cli_error, write_cli_error, CliError, CLI_ERROR_EXIT_CODE};
 
 const NO_WORKSPACE_IDENTITY: &str =
-    "no workspace identity: pass --workspace <id>, run inside a CodeTerm tab where \
+    "no workspace identity: pass --workspace <id>, run inside a Domios tab where \
      CODETERM_TAB_ID is set, or focus a workspace";
 
 const NO_TAB_IDENTITY: &str =
-    "pass --tab <id> or run inside a CodeTerm tab where CODETERM_TAB_ID is set. \
+    "pass --tab <id> or run inside a Domios tab where CODETERM_TAB_ID is set. \
      There is no focused-tab fallback: a caller that cannot prove which tab it is \
      refuses rather than acting on another tab's behalf";
 

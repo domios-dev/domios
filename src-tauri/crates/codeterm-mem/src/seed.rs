@@ -222,7 +222,7 @@ fn bundled_items() -> Vec<NewMemItem> {
             kind: MemKind::Skill,
             scope: MemScope::Global,
             title: "codeterm".into(),
-            summary: Some("CodeTerm CLI skill — tab / workspace / agent / mem control".into()),
+            summary: Some("Domios CLI skill — tab / workspace / agent / mem control".into()),
             area: Some("codeterm".into()),
             tags: vec!["bundled".into(), "core".into(), "cli".into()],
             body: SKILL_CODETERM.trim().into(),

@@ -82,7 +82,7 @@ pub enum MeshAction {
     StopBroadcast,
     /// Re-detect local addresses (Tailscale + LAN) and announce them to all
     /// paired peers. Use after a network swap so peers update their cache
-    /// without restarting CodeTerm.
+    /// without restarting Domios.
     Refresh,
     /// Push our current address list to paired peers without re-detecting
     /// locally. Use --to to limit to one peer.
