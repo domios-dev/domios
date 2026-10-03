@@ -3,10 +3,10 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { AutomationGraphView } from "./AutomationGraphView";
-import { attachment, chainGraph, decisionGraph, fixtureGraph, fixtureNode, FixtureTransport, identity, multiScenarioGraph, sentinelIdentity } from "./fixtures.testdata";
+import { attachment, chainGraph, decisionGraph, fixtureGraph, fixtureNode, FixtureTransport, identity, MODEL_CARDS, modelGraph, multiScenarioGraph, sentinelIdentity } from "./fixtures.testdata";
 import { automationKey, type AutomationGraph, type CommandResultMetadata } from "./types";
 import { COMMAND_FACT, commandResultLabel } from "./CommandResultDetails";
-import { frameAutomation, layoutAutomationOrientations, NODE_WIDTH, preferredOrientation, READABLE_SCALE } from "./layout";
+import { NODE_WIDTH, planAutomationView, READABLE_SCALE } from "./layout";
 import { scopedAutomationGraph } from "./model";
 import { formatLayerTransform } from "../Canvas/useCanvasViewport";
 
@@ -30,10 +30,8 @@ function cameraLayer(host: HTMLElement) {
   assert.ok(layer, "graph camera layer rendered");
   return layer;
 }
-function fitted(graph: AutomationGraph, width: number, height: number, whole = false) {
-  const layouts = layoutAutomationOrientations(scopedAutomationGraph(graph, attachment));
-  const size = { width, height };
-  const fit = frameAutomation(layouts[preferredOrientation(layouts, size)], size, whole);
+function fitted(graph: AutomationGraph, width: number, height: number, whole = false, focus: string | null = null) {
+  const fit = planAutomationView(scopedAutomationGraph(graph, attachment), { width, height }, whole, focus).transform;
   assert.ok(fit);
   return formatLayerTransform(fit);
 }
@@ -353,9 +351,11 @@ test("measured graph fits once, then keeps the user's camera and exact selection
     sameCenter(centered(view.host, 720, 460), center, "a restored camera adapts to the size it reopens at");
     await resize(640, 420);
     await click(button(view.host, "Fit graph"));
-    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 640, 420, true));
+    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 640, 420, false, automationKey(sentinelIdentity)), "Fit frames the selected participant readably");
     await resize(900, 500);
-    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 900, 500, true), "an untouched fitted camera follows the measured size");
+    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 900, 500, false, automationKey(sentinelIdentity)), "an untouched fitted camera follows the measured size");
+    await click(button(view.host, "Overview"));
+    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 900, 500, true), "Overview shows the whole graph on request");
   } finally { await resize(800, 480); await view.close(); }
 });
 
@@ -457,7 +457,7 @@ test("measured 500px canvas opens the chain top to bottom, desktop width runs le
     sameCenter(centered(view.host, 500, 576), moved, "a narrower canvas never resets the moved camera");
     assert.deepEqual(CHAIN.map((name) => view.host.querySelector<HTMLElement>(`button[aria-label*=": ${name} · "]`)!.getAttribute("style")), boxes, "geometry under a moved camera is not re-oriented");
     await click(button(view.host, "Fit graph"));
-    assert.equal(cameraLayer(view.host).style.transform, fitted(transport.graph, 500, 576, true), "explicit Fit uses the current measured canvas");
+    assert.equal(cameraLayer(view.host).style.transform, fitted(transport.graph, 500, 576), "explicit Fit uses the current measured canvas");
     flows(projectedCards(view.host, CHAIN), "down");
   } finally { await resize(800, 480); await view.close(); }
 });
@@ -520,6 +520,55 @@ test("declared decision outcomes fan out to action leaves with taken and untaken
     assert.equal(details(view.host).getAttribute("aria-label"), `Details: ${root.name}`, "an action leaf opens its exact source participant");
     assert.ok(details(view.host).textContent?.includes("notify-d"));
   } finally { await view.close(); }
+});
+
+function allCards(host: HTMLElement) {
+  return Array.from(host.querySelectorAll<HTMLButtonElement>('[aria-label="Automation graph"] > div > button'));
+}
+async function press(host: HTMLElement, code: string, times = 1) {
+  const region = host.querySelector<HTMLElement>('[aria-label="Automation graph"]')!;
+  for (let count = 0; count < times; count++) await act(async () => { region.dispatchEvent(new KeyboardEvent("keydown", { code, bubbles: true })); });
+}
+
+test("the observed seven-card fanout opens readable at 500x782 and Fit always returns a readable view", async () => {
+  Object.assign(viewportSize, { width: 500, height: 782 });
+  const transport = new FixtureTransport();
+  transport.graph = modelGraph();
+  const view = await mount(transport);
+  try {
+    assert.equal(allCards(view.host).length, MODEL_CARDS.length, "no branch is hidden");
+    readable(projectedCards(view.host, MODEL_CARDS), 500, 782);
+    await press(view.host, "Minus", 4);
+    await press(view.host, "ArrowLeft", 5);
+    assert.ok(camera(view.host).scale < READABLE_SCALE, "the user zoomed out on purpose");
+    await click(button(view.host, "Fit graph"));
+    assert.equal(cameraLayer(view.host).style.transform, fitted(transport.graph, 500, 782));
+    readable(projectedCards(view.host, MODEL_CARDS), 500, 782);
+    await resize(500, 600);
+    assert.ok(camera(view.host).scale >= READABLE_SCALE, "a shorter canvas keeps the readable lower bound");
+    assert.ok(projectedCards(view.host, ["Model parent"]).every((card) => card.x >= 0 && card.y >= 0 && card.x + card.width <= 500 && card.y + card.height <= 600), "the root stays framed");
+    await click(button(view.host, "Show list"));
+    await click(button(view.host, "Show graph"));
+    assert.equal(cameraLayer(view.host).style.transform, fitted(transport.graph, 500, 600), "list toggle keeps the readable frame");
+    await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="sentinel: Model child"]')!);
+    await act(async () => { details(view.host).dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
+    await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="sentinel: Model child"]')!);
+    await press(view.host, "ArrowUp", 12);
+    await click(button(view.host, "Fit graph"));
+    readable(projectedCards(view.host, ["Model child"]), 500, 600);
+    await click(button(view.host, "Overview"));
+    assert.equal(cameraLayer(view.host).style.transform, fitted(transport.graph, 500, 600, true));
+    await click(button(view.host, "Fit graph"));
+    assert.ok(camera(view.host).scale >= READABLE_SCALE, "Fit is the readable return from the overview");
+    for (const card of allCards(view.host)) {
+      await act(async () => { card.focus(); });
+      const t = camera(view.host);
+      const [left, top, width, height] = [card.style.left, card.style.top, card.style.width, card.style.height].map((value) => Number.parseFloat(value));
+      const box = { x: left * t.scale + t.x, y: top * t.scale + t.y, width: width * t.scale, height: height * t.scale };
+      assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= 500 && box.y + box.height <= 600, `${card.getAttribute("aria-label")} is reachable by keyboard focus`);
+      assert.ok(t.scale >= READABLE_SCALE);
+    }
+  } finally { await resize(800, 480); await view.close(); }
 });
 
 let finished = false;

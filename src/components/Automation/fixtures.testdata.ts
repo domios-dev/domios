@@ -141,3 +141,35 @@ export function decisionGraph(): AutomationGraph {
     ],
   };
 }
+
+/** The observed seven-card MODEL fanout: parent command + child + stop, child pending + ready stop + failed stop. */
+export function modelGraph(): AutomationGraph {
+  const [parent, child] = ["model-parent", "model-child"].map((id) => identity("sentinel", id));
+  const definition = (target: AutomationIdentity) => ({ source: "stored_agent_definition" as const, definition_id: target.id, creator_tab_id: target.owner_tab_id! });
+  const marker = { status: "completed", execution_id: "model-exec-marker", accepted_at: 100000, command_result: { status: "success" as const, exit_code: 0, resources_confirmed: true, stdout: { total_bytes: 0, retained_bytes: 0, truncated: false }, stderr: { total_bytes: 0, retained_bytes: 0, truncated: false }, started_at: 100001, finished_at: 100209 } };
+  const activation = { status: "completed", execution_id: "model-exec-child", accepted_at: 100000 };
+  const readyStop = { status: "completed", execution_id: "model-exec-ready-stop", accepted_at: 100500 };
+  return {
+    workspace_id: attachment.workspace_id, team_id: attachment.team_id, revision: "model-a",
+    scenarios: [{ id: "scenario-model", name: "Model scenario", root: parent }],
+    nodes: [
+      { ...fixtureNode(parent, "Model parent"), sentinel_definition: definition(parent), state: "stopped", outcomes: [
+        { bucket: "ready", handlers: [
+          { id: "write-model-marker", type: "command", label: "Model marker label", timeout_ms: 10000, target: null, availability: "available", last_result: marker },
+          { id: "activate-model-child", type: "sentinel", target: child, availability: "available", last_result: activation },
+        ] },
+        { bucket: "failed", handlers: [{ id: "parent-failed-stop", type: "stop", target: null, availability: "available", last_result: null }] },
+      ], last_result: { bucket: "ready", accepted_at: 100000, handlers: [{ ...marker, handler_id: "write-model-marker" }, { ...activation, handler_id: "activate-model-child" }] } },
+      { ...fixtureNode(child, "Model child"), sentinel_definition: definition(child), state: "stopped", outcomes: [
+        { bucket: "pending", handlers: [] },
+        { bucket: "ready", handlers: [{ id: "child-ready-stop", type: "stop", target: null, availability: "available", last_result: readyStop }] },
+        { bucket: "failed", handlers: [{ id: "child-failed-stop", type: "stop", target: null, availability: "available", last_result: null }] },
+      ], last_result: { bucket: "ready", accepted_at: 100500, handlers: [{ ...readyStop, handler_id: "child-ready-stop" }] } },
+    ],
+    edges: [
+      { id: "model-edge-child", source: parent, target: child, bucket: "ready", handler_id: "activate-model-child", handler_type: "sentinel", result: activation, evidence: { kind: "configured", route_id: "model-route-child" } },
+    ],
+  };
+}
+
+export const MODEL_CARDS = ["Model parent", "Model child", "Model marker label", "parent-failed-stop", "pending", "child-ready-stop", "child-failed-stop"] as const;
