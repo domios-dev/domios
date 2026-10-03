@@ -153,7 +153,11 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
 }
 
 fn record(result: &ResultRecord) -> Value {
-    json!({"status": result.status, "execution_id":result.execution_id,"accepted_at":result.accepted_at})
+    let mut value = json!({"status": result.status, "execution_id":result.execution_id,"accepted_at":result.accepted_at});
+    if let Some(command) = &result.command_result {
+        value["command_result"] = json!(command);
+    }
+    value
 }
 
 fn placeholder(identity: &Identity) -> Value {
@@ -221,7 +225,7 @@ fn target(
         Route::Sentinel(id) => ("sentinel", id, Some(source.creator_tab_id.clone())),
         Route::Send(id) => ("worker", id, None),
         Route::Cron(id) => ("cron", id, None),
-        Route::Notify | Route::Stop => return None,
+        Route::Notify | Route::Stop | Route::Command(_) => return None,
     };
     let unknown = Identity {
         kind: kind.into(),
@@ -394,7 +398,12 @@ pub fn project(
                     mux,
                     crons,
                 );
-                handlers.push(json!({"id":handler.id,"type":super::routes::action_name(&handler.action),"target":target.as_ref().map(|t| &t.0),"availability":if target.as_ref().is_none_or(|t| t.1){"available"}else{"missing"},"last_result":result}));
+                let mut projected = json!({"id":handler.id,"type":super::routes::action_name(&handler.action),"target":target.as_ref().map(|t| &t.0),"availability":if target.as_ref().is_none_or(|t| t.1){"available"}else{"missing"},"last_result":result});
+                if let Route::Command(parameters) = &handler.action {
+                    projected["label"] = json!(parameters.label);
+                    projected["timeout_ms"] = json!(parameters.timeout_ms);
+                }
+                handlers.push(projected);
                 if let Some((target, available)) = target {
                     if edges.len() >= MAX_EDGES {
                         truncated = true;

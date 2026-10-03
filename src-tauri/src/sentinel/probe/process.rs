@@ -47,6 +47,9 @@ pub(in crate::sentinel) struct ProbeFailure {
     pub cleanup_errors: Vec<String>,
     pub unconfirmed: Vec<ResourceKind>,
     pub late_by: Option<Duration>,
+    pub exit_code: Option<i32>,
+    pub stdout: Option<crate::sentinel::command::Capture>,
+    pub stderr: Option<crate::sentinel::command::Capture>,
 }
 
 impl ProbeFailure {
@@ -57,7 +60,27 @@ impl ProbeFailure {
             cleanup_errors: Vec::new(),
             unconfirmed: Vec::new(),
             late_by: None,
+            exit_code: None,
+            stdout: None,
+            stderr: None,
         }
+    }
+
+    pub(in crate::sentinel) fn with_output(mut self, output: &super::Output) -> Self {
+        self.exit_code = output.exit_code;
+        self.stdout = Some(output.stdout.clone());
+        self.stderr = Some(output.stderr.clone());
+        self
+    }
+
+    pub(in crate::sentinel) fn is_deadline(&self) -> bool {
+        matches!(
+            self.primary,
+            "probe_timeout"
+                | "probe_deadline_before_spawn"
+                | "probe_cleanup_deadline"
+                | "probe_deadline_unavailable"
+        )
     }
 
     pub(super) fn cleanup_error(&mut self, error: impl AsRef<str>) {
@@ -196,7 +219,10 @@ impl Deadlines {
     }
 }
 
-pub(super) fn cancellation_target(ownership: LeaderOwnership, child_id: u32) -> Result<i32, String> {
+pub(super) fn cancellation_target(
+    ownership: LeaderOwnership,
+    child_id: u32,
+) -> Result<i32, String> {
     match ownership {
         LeaderOwnership::Retained(id) if id == child_id && id > 1 && id <= i32::MAX as u32 => {
             Ok(id as i32)

@@ -21,6 +21,7 @@ pub struct Handle {
     wake: Arc<(std::sync::Mutex<u64>, std::sync::Condvar)>,
     probe_owner: Arc<probe::owner::ProbeResourceOwner>,
     app: Option<tauri::AppHandle>,
+    _shutdown: Option<Arc<crate::crash::shutdown::ShutdownSubscription>>,
 }
 
 impl Handle {
@@ -49,6 +50,7 @@ pub(crate) fn fixture_handle(store: Store, app: tauri::AppHandle) -> Handle {
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
         app: Some(app),
+        _shutdown: None,
     }
 }
 
@@ -60,7 +62,7 @@ pub(super) fn emit_changes(store: &Arc<Mutex<Store>>, app: &tauri::AppHandle) {
 }
 
 pub fn start(svc: ServiceState, clock: SharedClock) {
-    let handle = Handle {
+    let mut handle = Handle {
         store: Arc::new(Mutex::new(Store::new(
             codeterm_paths::data_dir().join("sentinels.json"),
             clock,
@@ -68,7 +70,18 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
         app: Some(svc.app_handle.clone()),
+        _shutdown: None,
     };
+    let callback = shutdown_callback(&handle);
+    match crate::crash::shutdown::subscribe_sentinel_shutdown(callback) {
+        Ok(subscription) => handle._shutdown = Some(Arc::new(subscription)),
+        Err(error) => {
+            log::error!("[sentinel] shutdown registration failed: {error}");
+            handle.store.lock().close_admission();
+            handle.probe_owner.close_admission();
+            return;
+        }
+    }
     crate::service::sentinel::graph::install_invalidations(&svc, handle.store.clone());
     svc.app_handle.manage(handle.clone());
     if let Err(error) = handle.store.lock().ensure_available() {
@@ -82,6 +95,9 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
     std::thread::spawn(move || {
         let (generation, wake_condvar) = &*wake;
         loop {
+            if probe_owner.upgrade().is_none_or(|owner| owner.is_closing()) {
+                return;
+            }
             let observed = match generation.lock() {
                 Ok(guard) => *guard,
                 Err(_) => return,
@@ -98,7 +114,11 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
                             wake: wake.clone(),
                             probe_owner: owner,
                             app: Some(svc.app_handle.clone()),
+                            _shutdown: None,
                         };
+                        if worker_handle.probe_owner.is_closing() {
+                            return;
+                        }
                         let svc = svc.clone();
                         std::thread::spawn(move || {
                             tick(&worker_handle, &svc, &lease);
@@ -110,6 +130,9 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
                 Err(error) => log::error!("[sentinel] schedule persistence failed: {error}"),
             }
             emit_changes(&store, &svc.app_handle);
+            if probe_owner.upgrade().is_none_or(|owner| owner.is_closing()) {
+                return;
+            }
             let wait_ms = store.lock().next_deadline().max(1);
             let guard = match generation.lock() {
                 Ok(guard) => guard,
@@ -124,6 +147,35 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
                 });
         }
     });
+}
+
+fn shutdown_callback(handle: &Handle) -> impl FnOnce() + Send + 'static {
+    let store = Arc::downgrade(&handle.store);
+    let owner = Arc::downgrade(&handle.probe_owner);
+    let wake = Arc::downgrade(&handle.wake);
+    move || {
+        if let Some(store) = store.upgrade() {
+            store.lock().close_admission();
+        }
+        if let Some(owner) = owner.upgrade() {
+            owner.close_admission();
+        }
+        if let Some(wake) = wake.upgrade() {
+            let (generation, condvar) = &*wake;
+            if let Ok(mut generation) = generation.lock() {
+                *generation = generation.wrapping_add(1);
+                condvar.notify_all();
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+pub(super) fn fixture_shutdown(
+    handle: &Handle,
+    latch: &crate::crash::shutdown::ShutdownLatch,
+) -> crate::crash::shutdown::ShutdownSubscription {
+    latch.subscribe(shutdown_callback(handle)).unwrap()
 }
 
 fn journal(
@@ -405,6 +457,26 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
                     }
                     .into())
                 }
+                machine::Route::Command(parameters) => {
+                    let remaining = {
+                        let store = handle.store.lock();
+                        if !store.action_permitted(job, transition) {
+                            return Err("command handler source fenced".into());
+                        }
+                        job.expires_at
+                            .map(|at| {
+                                Duration::from_millis(at.saturating_sub(store.clock.now_ms()))
+                            })
+                            .unwrap_or(probe::PROBE_RUNTIME)
+                    };
+                    Ok(super::command::execute(
+                        parameters,
+                        Path::new(&job.cwd),
+                        remaining,
+                        &handle.probe_owner,
+                        &lease.cancelled,
+                    ))
+                }
                 machine::Route::Stop => {
                     {
                         let mut store = handle.store.lock();
@@ -420,6 +492,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
                     Ok(execution_id) => Ok(super::handlers::Effect {
                         status: Status::Completed,
                         execution_id,
+                        command_result: None,
                     }),
                     Err(error) if error.starts_with("submit_unconfirmed") => {
                         Ok(Status::Unconfirmed.into())
@@ -555,6 +628,10 @@ pub(super) fn advance(
             Stage::RouteFailed
         };
         let effect = result.unwrap_or_else(|_| Status::Failed.into());
+        let unsafe_continuation = effect
+            .command_result
+            .as_ref()
+            .is_some_and(|result| !result.resources_confirmed);
         if let Err(error) = store
             .lock()
             .finish_handler_result(&job.id, transition, &accepted, effect)
@@ -563,5 +640,30 @@ pub(super) fn advance(
             return;
         }
         let _ = write_journal(&job, &handler_outcome, stage);
+        if unsafe_continuation {
+            let mut store = store.lock();
+            let _ = store.stop(&job.id, "command_resources_unconfirmed");
+            let _ = store.skip_remaining(&job.id, transition, &outcome.handlers[index + 1..]);
+            return;
+        }
     }
+}
+
+#[cfg(test)]
+pub(super) fn fixture_handle_without_app(store: Store) -> Handle {
+    Handle {
+        store: Arc::new(Mutex::new(store)),
+        wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
+        probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
+        app: None,
+        _shutdown: None,
+    }
+}
+
+#[cfg(test)]
+pub(super) fn fixture_shutdown_status(handle: &Handle) -> (bool, u64) {
+    (
+        handle.probe_owner.is_closing(),
+        *handle.wake.0.lock().unwrap(),
+    )
 }

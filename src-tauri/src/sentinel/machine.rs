@@ -23,6 +23,7 @@ pub enum Route {
     Cron(String),
     Sentinel(String),
     Stop,
+    Command(super::command::Parameters),
 }
 
 impl Route {
