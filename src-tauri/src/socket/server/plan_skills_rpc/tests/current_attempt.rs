@@ -472,3 +472,117 @@ fn current_attempt_startup_ack_keeps_existing_runtime_qualification() {
     assert_eq!(announced, before);
     assert!(caller.loaded_skills().is_empty());
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn current_attempt_early_ack_late_ready_refuses_unproven_binding_without_mutation() {
+    let caller = LiveCaller::new();
+    let tab_id = caller.tab_id();
+    ack(&caller);
+    caller.show(caller.production_params()).unwrap();
+    caller
+        .svc
+        .plan_store
+        .revert_task_dispatch(&caller.plan_id, &caller.task_id, 8)
+        .unwrap();
+    let predecessor = caller
+        .svc
+        .plan_store
+        .show_task(&caller.task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
+        .clone();
+    assert!(predecessor.closed_at.is_some());
+    assert_eq!(predecessor.loaded_plan_skills.len(), 1);
+    {
+        let mut mux = caller.svc.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_booting = true;
+        tab.agent_session_id = None;
+        tab.reported_session_binding_nonce = None;
+    }
+    let attempt_id = caller
+        .svc
+        .plan_store
+        .begin_task_dispatch(
+            &caller.plan_id,
+            &caller.task_id,
+            &tab_id,
+            "Worker",
+            crate::plan::TaskLaneMetadata::default(),
+            9,
+        )
+        .unwrap();
+    let manifest = crate::service::plan::plan_skills::plan_skill_manifest(
+        &caller.svc.plan_store,
+        &caller.plan_id,
+    )
+    .unwrap();
+    assert_eq!(manifest.len(), 1);
+    caller
+        .svc
+        .plan_store
+        .set_attempt_plan_skill_manifest(
+            &caller.plan_id,
+            &caller.task_id,
+            &attempt_id,
+            manifest.clone(),
+            10,
+        )
+        .unwrap();
+    let early = ack(&caller);
+    assert_eq!(early["attempt_id"], attempt_id);
+    assert_eq!(early["state"], "awaiting_runtime_ready");
+    assert_eq!(early["plan_skill_manifest"], json!(manifest));
+    let acknowledged = caller
+        .svc
+        .plan_store
+        .show_task(&caller.task_id)
+        .unwrap()
+        .task;
+    assert_eq!(acknowledged.execution_attempts[0], predecessor);
+    let current = &acknowledged.execution_attempts[1];
+    assert!(current.acknowledged_at.is_some());
+    assert!(current.session_id.is_none());
+    assert!(current.session_binding_nonce.is_none());
+    assert!(current.closed_at.is_none());
+    assert!(current.retired_at.is_none());
+    assert!(current.loaded_plan_skills.is_empty());
+    {
+        let mut mux = caller.svc.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_booting = false;
+        tab.agent_session_id = Some(CALLER_SESSION.into());
+        tab.reported_session_binding_nonce = Some(CALLER_NONCE.into());
+    }
+    let error = crate::socket::server::agent::dispatch(
+        "agent.ack",
+        &Some(json!({ "tab_id": tab_id, "session_binding_nonce": CALLER_NONCE })),
+        &caller.svc.app_handle,
+        &caller.svc,
+    )
+    .unwrap_err();
+    let refusal = error.data.unwrap();
+    assert_eq!(refusal["type"], "plan_skill_attempt_binding_missing");
+    assert_eq!(refusal["plan_id"], caller.plan_id);
+    assert_eq!(refusal["task_id"], caller.task_id);
+    assert_eq!(refusal["attempt_id"], attempt_id);
+    assert_eq!(refusal["acknowledged_at"], early["acknowledged_at"]);
+    assert_eq!(
+        refusal["recovery"],
+        "orchestrator_launch_proven_binding_repair"
+    );
+    let mut read = caller.production_params();
+    read["attempt_id"] = json!(attempt_id);
+    assert!(caller.show(read).is_err());
+    assert_eq!(
+        caller
+            .svc
+            .plan_store
+            .show_task(&caller.task_id)
+            .unwrap()
+            .task,
+        acknowledged
+    );
+}
