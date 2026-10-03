@@ -1,7 +1,9 @@
 use std::collections::{BTreeSet, HashMap};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
-use std::time::Duration;
+use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
@@ -15,6 +17,7 @@ enum Step {
     Ownership(OwnershipEvent),
     Frontend(Result<String, String>),
     Hidden(Result<String, String>),
+    Activated,
 }
 
 type Gates = Arc<Mutex<HashMap<bool, Receiver<()>>>>;
@@ -25,6 +28,9 @@ struct OwnershipRace {
     steps: Receiver<Step>,
     step_tx: Sender<Step>,
     gates: Gates,
+    releases: HashMap<bool, Sender<()>>,
+    actors: Vec<JoinHandle<()>>,
+    outstanding: usize,
     candidates: BTreeSet<String>,
     frontend: Option<Result<String, String>>,
     hidden: Option<Result<String, String>>,
@@ -36,6 +42,10 @@ struct Outcome {
     run_pty: Option<String>,
     launch_claim: Option<String>,
     claim_after_cleanup: Option<String>,
+}
+
+fn actor_result(run: impl FnOnce() -> Result<String, String>) -> Result<String, String> {
+    catch_unwind(AssertUnwindSafe(run)).unwrap_or_else(|_| Err("ownership actor panicked".into()))
 }
 
 impl OwnershipRace {
@@ -62,9 +72,9 @@ impl OwnershipRace {
                     OwnershipEvent::AwaitingActivation => None,
                 };
                 let _ = observer_steps.lock().send(Step::Ownership(event));
+                // Teardown drops the release, and an expired deadline also lets the actor finish.
                 if let Some(gate) = gate {
-                    gate.recv_timeout(EVENT_DEADLINE)
-                        .expect("the race releases every paused ownership actor");
+                    let _ = gate.recv_timeout(EVENT_DEADLINE);
                 }
             },
         ));
@@ -74,37 +84,55 @@ impl OwnershipRace {
             steps,
             step_tx,
             gates,
+            releases: HashMap::new(),
+            actors: Vec::new(),
+            outstanding: 0,
             candidates: BTreeSet::new(),
             frontend: None,
             hidden: None,
         }
     }
 
-    fn pause_linking(&self, launch_owned: bool) -> Sender<()> {
+    fn pause_linking(&mut self, launch_owned: bool) {
         let (release, gate) = mpsc::channel();
         self.gates.lock().insert(launch_owned, gate);
-        release
+        self.releases.insert(launch_owned, release);
+    }
+
+    fn release_linking(&mut self, launch_owned: bool) {
+        let release = self
+            .releases
+            .remove(&launch_owned)
+            .expect("paused linking gate");
+        let _ = release.send(());
+    }
+
+    fn spawn_actor(&mut self, actor: impl FnOnce(Sender<Step>) + Send + 'static) {
+        let done = self.step_tx.clone();
+        self.outstanding += 1;
+        self.actors.push(std::thread::spawn(move || actor(done)));
     }
 
     fn start_frontend(&mut self) {
         self.frontend = None;
         let service = Arc::new(self.fixture.service.clone());
         let tab_id = self.tab_id.clone();
-        let done = self.step_tx.clone();
-        std::thread::spawn(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .expect("frontend runtime");
-            let attached = runtime.block_on(crate::commands::spawn_pty_core(
-                &service,
-                None,
-                None,
-                80,
-                24,
-                None,
-                Some(tab_id),
-            ));
+        self.spawn_actor(move |done| {
+            let attached = actor_result(|| {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|error| format!("frontend runtime: {error}"))?;
+                runtime.block_on(crate::commands::spawn_pty_core(
+                    &service,
+                    None,
+                    None,
+                    80,
+                    24,
+                    None,
+                    Some(tab_id),
+                ))
+            });
             let _ = done.send(Step::Frontend(attached));
         });
     }
@@ -113,11 +141,31 @@ impl OwnershipRace {
         self.hidden = None;
         let service = self.fixture.service.clone();
         let tab_id = self.tab_id.clone();
-        let done = self.step_tx.clone();
-        std::thread::spawn(move || {
-            let launched = service.link_hidden_agent_pty(&tab_id, None, HashMap::new());
+        self.spawn_actor(move |done| {
+            let launched =
+                actor_result(|| service.link_hidden_agent_pty(&tab_id, None, HashMap::new()));
             let _ = done.send(Step::Hidden(launched));
         });
+    }
+
+    fn record(&mut self, step: Step) {
+        match step {
+            Step::Ownership(OwnershipEvent::Linking { candidate, .. }) => {
+                self.candidates.insert(candidate);
+            }
+            Step::Ownership(OwnershipEvent::AwaitingActivation) => {}
+            Step::Frontend(result) => {
+                self.outstanding = self.outstanding.saturating_sub(1);
+                self.candidates.extend(result.iter().cloned());
+                self.frontend = Some(result);
+            }
+            Step::Hidden(result) => {
+                self.outstanding = self.outstanding.saturating_sub(1);
+                self.candidates.extend(result.iter().cloned());
+                self.hidden = Some(result);
+            }
+            Step::Activated => self.outstanding = self.outstanding.saturating_sub(1),
+        }
     }
 
     fn await_step(&mut self, waiting_for: &str, mut reached: impl FnMut(&Step) -> bool) {
@@ -127,14 +175,7 @@ impl OwnershipRace {
                 .recv_timeout(EVENT_DEADLINE)
                 .unwrap_or_else(|_| panic!("ownership race deadline waiting for {waiting_for}"));
             let done = reached(&step);
-            match step {
-                Step::Ownership(OwnershipEvent::Linking { candidate, .. }) => {
-                    self.candidates.insert(candidate);
-                }
-                Step::Ownership(OwnershipEvent::AwaitingActivation) => {}
-                Step::Frontend(result) => self.frontend = Some(result),
-                Step::Hidden(result) => self.hidden = Some(result),
-            }
+            self.record(step);
             if done {
                 return;
             }
@@ -201,7 +242,7 @@ impl OwnershipRace {
             .collect();
         let run_pty = service.agent_run_pty_map.lock().get(&self.tab_id).cloned();
         let launch_claim = service.pty_ownership.launch_claim(&self.tab_id);
-        service.kill_ptys(&live.iter().cloned().collect::<Vec<_>>());
+        self.release_owned_ptys();
         Outcome {
             linked,
             live,
@@ -211,17 +252,50 @@ impl OwnershipRace {
         }
     }
 
-    fn assert_activation_released(&self) {
+    fn release_owned_ptys(&self) {
+        let owned: Vec<String> = self.candidates.iter().cloned().collect();
+        let live: Vec<String> = owned
+            .iter()
+            .filter(|pty_id| self.is_live(pty_id))
+            .cloned()
+            .collect();
+        self.fixture.service.kill_ptys(&live);
+        self.fixture.service.pty_ownership.release_ptys(&owned);
+    }
+
+    fn assert_activation_released(&mut self) {
         let ownership = self.fixture.service.pty_ownership.clone();
         let tab_id = self.tab_id.clone();
-        let (acquired_tx, acquired) = mpsc::channel();
-        std::thread::spawn(move || {
-            let _claim = ownership.acquire(&tab_id);
-            let _ = acquired_tx.send(());
+        self.spawn_actor(move |done| {
+            drop(ownership.acquire(&tab_id));
+            let _ = done.send(Step::Activated);
         });
-        acquired
-            .recv_timeout(EVENT_DEADLINE)
-            .expect("the hidden launch released its tab activation permit");
+        self.await_step("the tab activation permit", |step| {
+            matches!(step, Step::Activated)
+        });
+    }
+}
+
+impl Drop for OwnershipRace {
+    fn drop(&mut self) {
+        self.gates.lock().clear();
+        self.releases.clear();
+        let deadline = Instant::now() + EVENT_DEADLINE;
+        while self.outstanding > 0 {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            match self.steps.recv_timeout(remaining) {
+                Ok(step) => self.record(step),
+                Err(_) => break,
+            }
+        }
+        if self.outstanding == 0 {
+            for actor in self.actors.drain(..) {
+                let _ = actor.join();
+            }
+        }
+        self.release_owned_ptys();
     }
 }
 
@@ -244,7 +318,7 @@ fn assert_launch_pty_conserved(outcome: &Outcome, launch_pty: &str, frontend_pty
 )]
 fn cron_pty_ownership_frontend_first_shell_does_not_displace_launch_pty() {
     let mut race = OwnershipRace::new();
-    let frontend_gate = race.pause_linking(false);
+    race.pause_linking(false);
     race.start_frontend();
     let frontend_candidate = race.await_linking(false);
     race.start_hidden();
@@ -254,7 +328,7 @@ fn cron_pty_ownership_frontend_first_shell_does_not_displace_launch_pty() {
             Step::Hidden(_) | Step::Ownership(OwnershipEvent::AwaitingActivation)
         )
     });
-    frontend_gate.send(()).unwrap();
+    race.release_linking(false);
 
     let frontend = race.await_frontend();
     let launch_pty = race.await_hidden().expect("hidden launch links its PTY");
@@ -277,8 +351,8 @@ fn cron_pty_ownership_frontend_first_shell_does_not_displace_launch_pty() {
 )]
 fn cron_pty_ownership_hidden_first_launch_pty_survives_frontend_attach() {
     let mut race = OwnershipRace::new();
-    let hidden_gate = race.pause_linking(true);
-    let frontend_gate = race.pause_linking(false);
+    race.pause_linking(true);
+    race.pause_linking(false);
     race.start_hidden();
     let launch_candidate = race.await_linking(true);
     race.start_frontend();
@@ -291,9 +365,9 @@ fn cron_pty_ownership_hidden_first_launch_pty_survives_frontend_attach() {
             }) | Step::Ownership(OwnershipEvent::AwaitingActivation)
         )
     });
-    hidden_gate.send(()).unwrap();
+    race.release_linking(true);
     let launch_pty = race.await_hidden().expect("hidden launch links its PTY");
-    frontend_gate.send(()).unwrap();
+    race.release_linking(false);
 
     let frontend = race.await_frontend().expect("frontend attach succeeds");
     let outcome = race.settle_and_cleanup();
