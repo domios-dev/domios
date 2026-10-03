@@ -61,7 +61,7 @@ export function PlanModeControls({ plan, api }: PlanModeControlsProps) {
           className="plan-mode-button plan-mode-button-resume"
           onClick={onResume}
           disabled={!api || busy}
-          title={api ? "Resume parked plan" : "Connect to CodeTerm to resume"}
+          title={api ? "Resume parked plan" : "Connect to Domios to resume"}
         >
           <PlayCircle size={15} />
           <span>Resume</span>
@@ -73,7 +73,7 @@ export function PlanModeControls({ plan, api }: PlanModeControlsProps) {
           className="plan-mode-button plan-mode-button-park"
           onClick={onPark}
           disabled={!api || busy || plan.status !== "active" || plan.mode === "complete"}
-          title={api ? "Park plan" : "Connect to CodeTerm to park"}
+          title={api ? "Park plan" : "Connect to Domios to park"}
         >
           <PauseCircle size={15} />
           <span>Park</span>

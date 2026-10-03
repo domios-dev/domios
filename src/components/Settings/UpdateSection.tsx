@@ -56,7 +56,7 @@ export function UpdateSection() {
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="min-w-0">
             <div className="text-sm font-medium text-[var(--ct-fg)]">
-              {updateAvailable ? `Version ${latestVersion} is ready` : "CodeTerm updates"}
+              {updateAvailable ? `Version ${latestVersion} is ready` : "Domios updates"}
             </div>
             <div className="mt-1 text-xs text-[var(--ct-muted-fg)]">
               Current version: {currentVersion ?? __APP_VERSION__}
@@ -156,9 +156,9 @@ function installLabel(status: string): string {
     case "applying":
       return "Finishing update";
     case "restarting":
-      return "Restarting CodeTerm";
+      return "Restarting Domios";
     default:
-      return "Updating CodeTerm";
+      return "Updating Domios";
   }
 }
 
