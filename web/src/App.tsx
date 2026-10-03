@@ -13,7 +13,7 @@ import { SiteHeader } from './SiteHeader';
 import { MemoryGallery } from './MemoryGallery';
 import { BuiltIn } from './BuiltIn';
 
-const github = 'https://github.com/rollacode/codeterm-releases';
+const github = 'https://github.com/rollacode/codeterm';
 
 export function App() {
   const download = useDownload();
