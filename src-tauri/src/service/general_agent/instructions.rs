@@ -382,6 +382,14 @@ mod tests {
     }
 
     #[test]
+    fn general_agent_shared_cli_fragment_is_injected_once_without_unresolved_slot() {
+        let rendered = render_agent_md("supplied-provider", "");
+        let shared = cli_without_memory_section();
+        assert_eq!(rendered.matches(shared.trim()).count(), 1);
+        assert!(!rendered.contains("{codeterm_cli}"));
+    }
+
+    #[test]
     fn general_agent_receives_shared_child_pty_operation() {
         let rendered = render_agent_md("claude", "");
         let operation = crate::prompts::INTERACTIVE_CHILD_PTY_OPERATION.trim();
