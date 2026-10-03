@@ -51,3 +51,5 @@ If TypeScript rejects an `Object.fromEntries` cast to the media library with TS2
 In Windows PowerShell, use `npm.cmd run preview -- --port 4173 --strictPort` when forwarding flags. The `npm.ps1` shim can consume those flags and pass the port as a positional directory, causing a misleading missing-`dist` error even after a successful build.
 
 If a DOM controller fails with TS18047 inside nested function declarations, an outer null check may not retain its narrowing in those functions. Bind fresh constants after checking the queried elements, so callbacks capture non-null types without assertions. Re-run the website build before browser verification.
+
+If local preview becomes unresponsive while browser QA creates evidence, keep dependency discovery limited to index.html and exclude .local, media-src, dist, and .vercel from the development watcher. These private/generated trees can grow far beyond the application source and contain browser profiles and reports. Restart only the Team-bound website preview, then verify HTTP and actual image/video readiness; a failed DOM deadline alone does not establish a player defect.
