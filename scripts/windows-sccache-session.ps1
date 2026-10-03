@@ -5,7 +5,6 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'Maintenance')]
     [ValidateSet('provision-verify-cleanup')][string]$Operation
 )
-
 $script:Pin = [ordered]@{
     Version = '0.18.0'
     SourceCommit = '01c35e69b97f516c2ebfbdb418b5cd6277bde280'
@@ -23,7 +22,13 @@ $script:Pin = [ordered]@{
     OperationMs = 300000
     CleanupReserveMs = 30000
 }
+$script:RequiredStatsCounters = @('Compile requests', 'Compile requests executed', 'Cache hits', 'Cache misses', 'Cache timeouts', 'Cache read errors', 'Forced recaches', 'Cache write errors', 'Cache errors', 'Compilations', 'Compilation failures', 'Non-cacheable compilations', 'Non-cacheable calls', 'Non-compilation calls', 'Unsupported compiler calls', 'Failed distributed compilations')
 
+function Copy-FactsWithOverrides($Source, $Overrides) {
+    $copy = $Source.Clone()
+    foreach ($key in $Overrides.Keys) { $copy[$key] = $Overrides[$key] }
+    return $copy
+}
 function Get-ArchiveDecision($Facts, $Entries) {
     $reasons = [System.Collections.Generic.List[string]]::new()
     if ($Facts.Size -ne $script:Pin.ArchiveSize) { $reasons.Add('archive_size_mismatch') }
@@ -81,6 +86,29 @@ function Get-InputDecision($Facts) {
     if ($Facts.RemainingMs -le $Facts.CleanupReserveMs) { $reasons.Add('deadline_expired') }
     return [pscustomobject]@{ Valid = ($reasons.Count -eq 0); Reasons = @($reasons | Select-Object -Unique) }
 }
+function Get-PinnedReuseDecision($Facts) {
+    $reasons = [System.Collections.Generic.List[string]]::new()
+    if (-not $Facts.ReceiptValid) { $reasons.Add('pinned_receipt_invalid') }
+    if (-not $Facts.ArchiveValid) { $reasons.Add('pinned_archive_invalid') }
+    if (-not $Facts.PinnedExecutableValid) { $reasons.Add('pinned_executable_invalid') }
+    if (-not $Facts.ExecutableBytesEqual) { $reasons.Add('installed_executable_differs_from_pinned_archive') }
+    return [pscustomobject]@{ Valid = ($reasons.Count -eq 0); Reasons = @($reasons | Select-Object -Unique) }
+}
+function Get-StatsDecision([string]$Text, [bool]$CaptureComplete, [bool]$Truncated) {
+    $reasons = [System.Collections.Generic.List[string]]::new(); $counters = [ordered]@{}
+    if (-not $CaptureComplete) { $reasons.Add('stats_capture_incomplete') }
+    if ($Truncated) { $reasons.Add('stats_capture_truncated') }
+    foreach ($name in $script:RequiredStatsCounters) {
+        $pattern = '(?m)^' + [regex]::Escape($name) + '\s+(?<value>\S+)\s*$'
+        $counterMatches = [regex]::Matches($Text, $pattern)
+        if ($counterMatches.Count -ne 1) { $reasons.Add('stats_counter_missing_or_duplicate:' + $name); continue }
+        $value = $counterMatches[0].Groups['value'].Value
+        if ($value -cnotmatch '^\d+$') { $reasons.Add('stats_counter_malformed:' + $name); continue }
+        $counters[$name] = [long]$value
+        if ([long]$value -ne 0) { $reasons.Add('stats_counter_nonzero:' + $name) }
+    }
+    return [pscustomobject]@{ Valid = ($reasons.Count -eq 0); Counters = $counters; Reasons = @($reasons | Select-Object -Unique) }
+}
 
 function Format-CaptureReceipt($Tail, [long]$TotalBytes, [bool]$WasTruncated) {
     $bytes = [byte[]]$Tail
@@ -92,10 +120,10 @@ function Format-CaptureReceipt($Tail, [long]$TotalBytes, [bool]$WasTruncated) {
     $text = [regex]::Replace($text, '(?i)(https?://)[^/@\s:]+:[^/@\s]+@', '$1[redacted]@')
     return [pscustomobject]@{ Text = $text; TotalBytes = $TotalBytes; Truncated = ($WasTruncated -or $TotalBytes -gt $script:Pin.TailBytes) }
 }
-
 function Get-CompletionDecision($Facts) {
     $reasons = [System.Collections.Generic.List[string]]::new()
-    $ready = $Facts.StartupNotification -and $Facts.CapturedProcess -and $Facts.JobMembership -and $Facts.AccountAndImage -and $Facts.EndpointOwner -and $Facts.StatsCompleted -and $Facts.StatsCaptureComplete
+    $stats = Get-StatsDecision ([string]$Facts.StatsOutput) ([bool]$Facts.StatsOutputComplete) ([bool]$Facts.StatsOutputTruncated)
+    $ready = $Facts.StartupNotification -and $Facts.CapturedProcess -and $Facts.JobMembership -and $Facts.AccountAndImage -and $Facts.EndpointOwner -and $Facts.StatsCompleted -and $Facts.StatsCaptureComplete -and $stats.Valid
     if ($Facts.Cancelled) { $reasons.Add('cancelled') }
     if ($Facts.DeadlineExpired) { $reasons.Add('deadline_expired') }
     if ($Facts.CleanupError) { $reasons.Add('cleanup_error') }
@@ -104,6 +132,7 @@ function Get-CompletionDecision($Facts) {
     if ($Facts.ActiveProcesses -ne 0) { $reasons.Add('active_processes_unconfirmed') }
     if (-not $Facts.ProcessExited) { $reasons.Add('process_exit_unconfirmed') }
     if (-not $Facts.HandlesClosed) { $reasons.Add('handle_closure_unconfirmed') }
+    if (-not $stats.Valid) { $reasons.AddRange([string[]]$stats.Reasons) }
     if ($Facts.TerminationKind -eq 'deliberate' -and -not $Facts.TerminateResult) { $reasons.Add('job_termination_failed') }
     if ($Facts.TerminationKind -notin @('deliberate', 'natural')) { $reasons.Add('termination_kind_unconfirmed') }
     if (-not $ready -and $Facts.RequireReadiness) { $reasons.Add('owned_readiness_unconfirmed') }
@@ -111,7 +140,7 @@ function Get-CompletionDecision($Facts) {
     if (-not $Facts.ArtifactFresh) { $reasons.Add('artifact_not_fresh') }
     $primary = if ($Facts.PrimaryFailure) { [string]$Facts.PrimaryFailure } else { $null }
     $success = ($reasons.Count -eq 0 -and -not $primary)
-    return [pscustomobject]@{ Success = $success; Ready = $ready; Reasons = @($reasons | Select-Object -Unique); PrimaryFailure = $primary; Outcome = $(if ($primary) { 'primary_failure_preserved' } elseif ($success) { 'passed' } else { 'unqualified' }) }
+    return [pscustomobject]@{ Success = $success; Ready = $ready; StatsCounters = $stats.Counters; Reasons = @($reasons | Select-Object -Unique); PrimaryFailure = $primary; Outcome = $(if ($primary) { 'primary_failure_preserved' } elseif ($success) { 'passed' } else { 'unqualified' }) }
 }
 
 function Get-TerminationPlan($Facts) {
@@ -131,6 +160,10 @@ function Invoke-ContractGroup($Name, $Cases, [scriptblock]$Decision) {
         $results.Add([ordered]@{ selector = $case.Name; passed = $ok; reasons = @($actual.Reasons) })
     }
     return [pscustomobject]@{ Group = $Name; Selected = $Cases.Count; Passed = $passed; Failed = $failed; Cases = @($results) }
+}
+
+function New-ContractZeroStatsOutput {
+    return (($script:RequiredStatsCounters | ForEach-Object { $_ + ' 0' }) -join "`n")
 }
 
 function Invoke-ContractOnly {
@@ -157,46 +190,58 @@ function Invoke-ContractOnly {
     $goodInput = @{ ExpectedSha = 'a' * 40; WorkflowSha = 'a' * 40; EventSha = 'a' * 40; CheckoutSha = 'a' * 40; Clean = $true; Runner = 'ROG-windows-build'; Arch = 'X64'; Account = 'amigo'; UserProfile = 'C:\Users\amigo'; ToolResolutionPreserved = $true; DestinationState = 'known_receipt'; ReceiptValid = $true; OwnerCount = 0; OwnerIsCapturedServer = $false; RemainingMs = 60000; CleanupReserveMs = 30000 }
     $inputCases = @(
         @{ Name = 'known_receipt_owner_positive'; Facts = $goodInput; Expected = $true },
-        @{ Name = 'absent_destination_owner_positive'; Facts = ($goodInput.Clone() + @{ DestinationState = 'absent'; ReceiptValid = $false }); Expected = $true },
-        @{ Name = 'wrong_runner_refused'; Facts = ($goodInput.Clone() + @{ Runner = 'other' }); Expected = $false },
-        @{ Name = 'wrong_architecture_refused'; Facts = ($goodInput.Clone() + @{ Arch = 'ARM64' }); Expected = $false },
-        @{ Name = 'wrong_account_refused'; Facts = ($goodInput.Clone() + @{ Account = 'other' }); Expected = $false },
-        @{ Name = 'foreign_destination_refused'; Facts = ($goodInput.Clone() + @{ DestinationState = 'foreign' }); Expected = $false },
-        @{ Name = 'missing_receipt_refused'; Facts = ($goodInput.Clone() + @{ DestinationState = 'missing_receipt' }); Expected = $false },
-        @{ Name = 'invalid_receipt_refused'; Facts = ($goodInput.Clone() + @{ ReceiptValid = $false }); Expected = $false },
-        @{ Name = 'foreign_endpoint_owner_refused'; Facts = ($goodInput.Clone() + @{ OwnerCount = 1; OwnerIsCapturedServer = $false }); Expected = $false },
-        @{ Name = 'ambiguous_ownership_refused'; Facts = ($goodInput.Clone() + @{ OwnerCount = 2 }); Expected = $false },
-        @{ Name = 'tool_resolution_change_refused'; Facts = ($goodInput.Clone() + @{ ToolResolutionPreserved = $false }); Expected = $false },
-        @{ Name = 'source_mismatch_refused'; Facts = ($goodInput.Clone() + @{ EventSha = 'b' * 40 }); Expected = $false },
-        @{ Name = 'deadline_expiry_refused'; Facts = ($goodInput.Clone() + @{ RemainingMs = 30000 }); Expected = $false }
+        @{ Name = 'absent_destination_owner_positive'; Facts = (Copy-FactsWithOverrides $goodInput @{ DestinationState = 'absent'; ReceiptValid = $false }); Expected = $true },
+        @{ Name = 'wrong_runner_refused'; Facts = (Copy-FactsWithOverrides $goodInput @{ Runner = 'other' }); Expected = $false },
+        @{ Name = 'wrong_architecture_refused'; Facts = (Copy-FactsWithOverrides $goodInput @{ Arch = 'ARM64' }); Expected = $false },
+        @{ Name = 'wrong_account_refused'; Facts = (Copy-FactsWithOverrides $goodInput @{ Account = 'other' }); Expected = $false },
+        @{ Name = 'foreign_destination_refused'; Facts = (Copy-FactsWithOverrides $goodInput @{ DestinationState = 'foreign' }); Expected = $false },
+        @{ Name = 'missing_receipt_refused'; Facts = (Copy-FactsWithOverrides $goodInput @{ DestinationState = 'missing_receipt' }); Expected = $false },
+        @{ Name = 'invalid_receipt_refused'; Facts = (Copy-FactsWithOverrides $goodInput @{ ReceiptValid = $false }); Expected = $false },
+        @{ Name = 'foreign_endpoint_owner_refused'; Facts = (Copy-FactsWithOverrides $goodInput @{ OwnerCount = 1; OwnerIsCapturedServer = $false }); Expected = $false },
+        @{ Name = 'ambiguous_ownership_refused'; Facts = (Copy-FactsWithOverrides $goodInput @{ OwnerCount = 2 }); Expected = $false },
+        @{ Name = 'tool_resolution_change_refused'; Facts = (Copy-FactsWithOverrides $goodInput @{ ToolResolutionPreserved = $false }); Expected = $false },
+        @{ Name = 'source_mismatch_refused'; Facts = (Copy-FactsWithOverrides $goodInput @{ EventSha = 'b' * 40 }); Expected = $false },
+        @{ Name = 'deadline_expiry_refused'; Facts = (Copy-FactsWithOverrides $goodInput @{ RemainingMs = 30000 }); Expected = $false },
+        @{ Name = 'pinned_runtime_reuse_positive'; Facts = @{ DecisionKind = 'pinned_reuse'; ReceiptValid = $true; ArchiveValid = $true; PinnedExecutableValid = $true; ExecutableBytesEqual = $true }; Expected = $true },
+        @{ Name = 'recomputed_receipt_cannot_replace_archive_bytes'; Facts = @{ DecisionKind = 'pinned_reuse'; ReceiptValid = $true; ArchiveValid = $true; PinnedExecutableValid = $true; ExecutableBytesEqual = $false }; Expected = $false },
+        @{ Name = 'pinned_archive_reuse_refused'; Facts = @{ DecisionKind = 'pinned_reuse'; ReceiptValid = $true; ArchiveValid = $false; PinnedExecutableValid = $true; ExecutableBytesEqual = $true }; Expected = $false }
     )
-    $group2 = Invoke-ContractGroup 'inputs_ownership_and_deadline' $inputCases { param($facts) Get-InputDecision $facts }
-    $readyFacts = @{ StartupNotification = $true; CapturedProcess = $true; JobMembership = $true; AccountAndImage = $true; EndpointOwner = $true; StatsCompleted = $true; StatsCaptureComplete = $true; StatsExitCode = 0; RequireReadiness = $true; CaptureComplete = $true; ActiveZeroEvent = $true; ActiveProcesses = 0; ProcessExited = $true; HandlesClosed = $true; TerminationKind = 'deliberate'; TerminateResult = $true; Cancelled = $false; DeadlineExpired = $false; CleanupError = $false; ArtifactFresh = $true; PrimaryFailure = $null }
+    $group2 = Invoke-ContractGroup 'inputs_ownership_deadline_and_pinned_reuse' $inputCases {
+        param($facts)
+        if ($facts.DecisionKind -eq 'pinned_reuse') { Get-PinnedReuseDecision $facts } else { Get-InputDecision $facts }
+    }
+    $readyFacts = @{ StartupNotification = $true; CapturedProcess = $true; JobMembership = $true; AccountAndImage = $true; EndpointOwner = $true; StatsCompleted = $true; StatsCaptureComplete = $true; StatsOutput = (New-ContractZeroStatsOutput); StatsOutputComplete = $true; StatsOutputTruncated = $false; StatsExitCode = 0; RequireReadiness = $true; CaptureComplete = $true; ActiveZeroEvent = $true; ActiveProcesses = 0; ProcessExited = $true; HandlesClosed = $true; TerminationKind = 'deliberate'; TerminateResult = $true; Cancelled = $false; DeadlineExpired = $false; CleanupError = $false; ArtifactFresh = $true; PrimaryFailure = $null }
     $completionCases = @(
         @{ Name = 'fresh_zero_stats_owned_readiness_positive'; Facts = $readyFacts; Expected = $true },
-        @{ Name = 'stats_exit_alone_refused'; Facts = ($readyFacts.Clone() + @{ StartupNotification = $false; CapturedProcess = $false; JobMembership = $false; AccountAndImage = $false; EndpointOwner = $false }); Expected = $false },
-        @{ Name = 'active_process_unconfirmed_refused'; Facts = ($readyFacts.Clone() + @{ ActiveProcesses = 1 }); Expected = $false },
-        @{ Name = 'active_zero_event_unconfirmed_refused'; Facts = ($readyFacts.Clone() + @{ ActiveZeroEvent = $false }); Expected = $false },
-        @{ Name = 'capture_unconfirmed_refused'; Facts = ($readyFacts.Clone() + @{ CaptureComplete = $false }); Expected = $false },
-        @{ Name = 'cancelled_refused'; Facts = ($readyFacts.Clone() + @{ Cancelled = $true }); Expected = $false },
-        @{ Name = 'deadline_refused'; Facts = ($readyFacts.Clone() + @{ DeadlineExpired = $true }); Expected = $false },
-        @{ Name = 'process_exit_unconfirmed_refused'; Facts = ($readyFacts.Clone() + @{ ProcessExited = $false }); Expected = $false },
-        @{ Name = 'termination_error_refused'; Facts = ($readyFacts.Clone() + @{ TerminateResult = $false }); Expected = $false },
-        @{ Name = 'cleanup_error_refused'; Facts = ($readyFacts.Clone() + @{ CleanupError = $true }); Expected = $false },
-        @{ Name = 'capture_error_refused'; Facts = ($readyFacts.Clone() + @{ CaptureComplete = $false; CleanupError = $true }); Expected = $false },
-        @{ Name = 'handle_close_unconfirmed_refused'; Facts = ($readyFacts.Clone() + @{ HandlesClosed = $false }); Expected = $false },
-        @{ Name = 'primary_failure_preserved'; Facts = ($readyFacts.Clone() + @{ PrimaryFailure = 'case_failed' }); Expected = $false; ExpectedPrimary = 'case_failed' },
-        @{ Name = 'stale_artifact_refused'; Facts = ($readyFacts.Clone() + @{ ArtifactFresh = $false }); Expected = $false },
+        @{ Name = 'stats_exit_alone_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ StartupNotification = $false; CapturedProcess = $false; JobMembership = $false; AccountAndImage = $false; EndpointOwner = $false }); Expected = $false },
+        @{ Name = 'stats_nonzero_counter_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ StatsOutput = $readyFacts.StatsOutput.Replace('Cache hits 0', 'Cache hits 1') }); Expected = $false },
+        @{ Name = 'stats_missing_counter_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ StatsOutput = [regex]::Replace($readyFacts.StatsOutput, '(?m)^Cache hits\s+0\n?', '') }); Expected = $false },
+        @{ Name = 'stats_malformed_counter_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ StatsOutput = $readyFacts.StatsOutput.Replace('Cache hits 0', 'Cache hits unknown') }); Expected = $false },
+        @{ Name = 'stats_incomplete_capture_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ StatsOutputComplete = $false }); Expected = $false },
+        @{ Name = 'stats_truncated_capture_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ StatsOutputTruncated = $true }); Expected = $false },
+        @{ Name = 'stats_duplicate_counter_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ StatsOutput = $readyFacts.StatsOutput + "`nCache hits 0" }); Expected = $false },
+        @{ Name = 'active_process_unconfirmed_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ ActiveProcesses = 1 }); Expected = $false },
+        @{ Name = 'active_zero_event_unconfirmed_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ ActiveZeroEvent = $false }); Expected = $false },
+        @{ Name = 'capture_unconfirmed_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ CaptureComplete = $false }); Expected = $false },
+        @{ Name = 'cancelled_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ Cancelled = $true }); Expected = $false },
+        @{ Name = 'deadline_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ DeadlineExpired = $true }); Expected = $false },
+        @{ Name = 'process_exit_unconfirmed_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ ProcessExited = $false }); Expected = $false },
+        @{ Name = 'termination_error_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ TerminateResult = $false }); Expected = $false },
+        @{ Name = 'cleanup_error_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ CleanupError = $true }); Expected = $false },
+        @{ Name = 'capture_error_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ CaptureComplete = $false; CleanupError = $true }); Expected = $false },
+        @{ Name = 'handle_close_unconfirmed_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ HandlesClosed = $false }); Expected = $false },
+        @{ Name = 'primary_failure_preserved'; Facts = (Copy-FactsWithOverrides $readyFacts @{ PrimaryFailure = 'case_failed' }); Expected = $false; ExpectedPrimary = 'case_failed' },
+        @{ Name = 'stale_artifact_refused'; Facts = (Copy-FactsWithOverrides $readyFacts @{ ArtifactFresh = $false }); Expected = $false },
         @{ Name = 'endpoint_reuse_terminates_only_captured_job'; Facts = @{ CapturedJobHandle = $true; EndpointReused = $true }; Expected = $true },
         @{ Name = 'missing_job_handle_refused'; Facts = @{ CapturedJobHandle = $false; EndpointReused = $true }; Expected = $false }
     )
     $group3 = Invoke-ContractGroup 'completion_output_and_freshness' $completionCases {
         param($facts)
-        $decision = Get-CompletionDecision $facts
+        $decision = if ($facts.ContainsKey('CapturedJobHandle')) { $null } else { Get-CompletionDecision $facts }
         $formatted = Format-CaptureReceipt ([Text.Encoding]::UTF8.GetBytes((('x' * 33000) + 'ghp_' + ('a' * 24))) ) 33028 $false
         $plan = Get-TerminationPlan $facts
         $valid = if ($facts.ContainsKey('CapturedJobHandle')) { $plan.Valid -and $plan.Action -eq 'terminate_captured_job_handle' -and -not $plan.ProtocolShutdown -and -not $plan.ForeignSignal -and $plan.EndpointReuseIgnored -eq [bool]$facts.EndpointReused } else { $decision.Success -and $formatted.Text.Length -le $script:Pin.TailBytes -and $formatted.Truncated -and -not $formatted.Text.Contains('ghp_') -and $formatted.TotalBytes -eq 33028 }
-        [pscustomobject]@{ Valid = $valid; Reasons = $decision.Reasons; PrimaryFailure = $decision.PrimaryFailure }
+        [pscustomobject]@{ Valid = $valid; Reasons = $(if ($decision) { $decision.Reasons } else { @($plan.Reason) }); PrimaryFailure = $decision.PrimaryFailure }
     }
     $groups = @($group1, $group2, $group3)
     $selected = ($groups | Measure-Object -Property Selected -Sum).Sum
@@ -207,19 +252,18 @@ function Invoke-ContractOnly {
     if ($selected -eq 0 -or $failed -ne 0 -or $passed -ne $selected) { return 1 }
     return 0
 }
-
 $script:NativeSource = @'
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
-
 public static class WindowsSccacheNative {
     const uint CREATE_SUSPENDED = 0x00000004;
     const uint CREATE_NEW_PROCESS_GROUP = 0x00000200;
@@ -237,7 +281,9 @@ public static class WindowsSccacheNative {
     const uint STILL_ACTIVE = 259;
     const uint WAIT_OBJECT_0 = 0;
     const uint WAIT_TIMEOUT = 258;
+    const uint WAIT_FAILED = UInt32.MaxValue;
     const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    const uint SYNCHRONIZE = 0x00100000;
     const uint TOKEN_QUERY = 0x0008;
     const uint GENERIC_READ = 0x80000000;
     const uint FILE_SHARE_READ = 1;
@@ -245,7 +291,6 @@ public static class WindowsSccacheNative {
     const uint OPEN_EXISTING = 3;
     const uint FILE_ATTRIBUTE_NORMAL = 0x80;
     const uint HANDLE_FLAG_INHERIT = 1;
-
     [StructLayout(LayoutKind.Sequential)] struct SECURITY_ATTRIBUTES { public int nLength; public IntPtr lpSecurityDescriptor; public int bInheritHandle; }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct STARTUPINFO { public int cb; public string lpReserved; public string lpDesktop; public string lpTitle; public uint dwX; public uint dwY; public uint dwXSize; public uint dwYSize; public uint dwXCountChars; public uint dwYCountChars; public uint dwFillAttribute; public uint dwFlags; public ushort wShowWindow; public ushort cbReserved2; public IntPtr lpReserved2; public IntPtr hStdInput; public IntPtr hStdOutput; public IntPtr hStdError; }
     [StructLayout(LayoutKind.Sequential)] struct STARTUPINFOEX { public STARTUPINFO StartupInfo; public IntPtr lpAttributeList; }
@@ -255,7 +300,6 @@ public static class WindowsSccacheNative {
     [StructLayout(LayoutKind.Sequential)] struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION { public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation; public IO_COUNTERS IoInfo; public UIntPtr ProcessMemoryLimit; public UIntPtr JobMemoryLimit; public UIntPtr PeakProcessMemoryUsed; public UIntPtr PeakJobMemoryUsed; }
     [StructLayout(LayoutKind.Sequential)] struct JOBOBJECT_ASSOCIATE_COMPLETION_PORT { public IntPtr CompletionKey; public IntPtr CompletionPort; }
     [StructLayout(LayoutKind.Sequential)] struct JOBOBJECT_BASIC_ACCOUNTING_INFORMATION { public long TotalUserTime; public long TotalKernelTime; public long ThisPeriodTotalUserTime; public long ThisPeriodTotalKernelTime; public uint TotalPageFaults; public uint TotalProcesses; public uint ActiveProcesses; public uint TotalTerminatedProcesses; }
-
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool CreatePipe(out IntPtr hReadPipe, out IntPtr hWritePipe, ref SECURITY_ATTRIBUTES attrs, uint size);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern IntPtr CreateFileW(string name, uint access, uint share, ref SECURITY_ATTRIBUTES attrs, uint creation, uint flags, IntPtr template);
@@ -270,7 +314,7 @@ public static class WindowsSccacheNative {
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit, out long kernel, out long user);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern bool QueryFullProcessImageNameW(IntPtr process, uint flags, StringBuilder image, ref int size);
-    [DllImport("kernel32.dll", SetLastError = true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
+    [DllImport("advapi32.dll", SetLastError = true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
     [DllImport("advapi32.dll", SetLastError = true)] static extern bool GetTokenInformation(IntPtr token, int infoClass, IntPtr info, int length, out int needed);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool CloseHandle(IntPtr handle);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)] static extern IntPtr CreateJobObjectW(IntPtr attrs, string name);
@@ -283,11 +327,10 @@ public static class WindowsSccacheNative {
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetQueuedCompletionStatus(IntPtr port, out uint bytes, out UIntPtr key, out IntPtr overlapped, uint milliseconds);
     [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
     [DllImport("iphlpapi.dll", SetLastError = true)] static extern int GetExtendedTcpTable(byte[] table, ref int size, bool order, int family, int tableClass, uint reserved);
-
     static Exception Last(string op) { return new Win32Exception(Marshal.GetLastWin32Error(), op); }
     static void Need(bool ok, string op) { if (!ok) throw Last(op); }
+    static bool WaitSignaledOrTimeout(IntPtr handle, int ms, string op) { uint result = WaitForSingleObject(handle, (uint)Math.Max(0, ms)); if (result == WAIT_OBJECT_0) return true; if (result == WAIT_TIMEOUT) return false; if (result == WAIT_FAILED) throw Last(op); throw new InvalidOperationException(op + "_unexpected_wait_result_" + result); }
     static int Remaining(long until) { long left = until - Environment.TickCount64; return left <= 0 ? 0 : (int)Math.Min(Int32.MaxValue, left); }
-
     public sealed class Capture : IDisposable {
         readonly IntPtr rawHandle;
         readonly SafeFileHandle handle;
@@ -339,16 +382,15 @@ public static class WindowsSccacheNative {
         }
         public void Dispose() { CloseChecked(0); }
     }
-
     public sealed class ProcessLease : IDisposable {
         public readonly IntPtr Handle;
         public readonly uint Pid;
         public readonly Capture Stdout;
         public readonly Capture Stderr;
         public ProcessLease(IntPtr process, uint pid, Capture stdout, Capture stderr) { Handle = process; Pid = pid; Stdout = stdout; Stderr = stderr; }
-        public bool Wait(int milliseconds) { return WaitForSingleObject(Handle, (uint)Math.Max(0, milliseconds)) == WAIT_OBJECT_0; }
+        public bool Wait(int milliseconds) { return WaitSignaledOrTimeout(Handle, milliseconds, "WaitForSingleObject(process)"); }
         public uint ExitCode { get { uint code; Need(GetExitCodeProcess(Handle, out code), "GetExitCodeProcess"); return code; } }
-        public bool Alive { get { uint code; Need(GetExitCodeProcess(Handle, out code), "GetExitCodeProcess"); return code == STILL_ACTIVE && WaitForSingleObject(Handle, 0) == WAIT_TIMEOUT; } }
+        public bool Alive { get { uint code; Need(GetExitCodeProcess(Handle, out code), "GetExitCodeProcess"); return code == STILL_ACTIVE && !WaitSignaledOrTimeout(Handle, 0, "WaitForSingleObject(process_liveness)"); } }
         public long CreationFileTime { get { long created, exited, kernel, user; Need(GetProcessTimes(Handle, out created, out exited, out kernel, out user), "GetProcessTimes"); return created; } }
         public string Image { get { var b = new StringBuilder(32768); int n = b.Capacity; Need(QueryFullProcessImageNameW(Handle, 0, b, ref n), "QueryFullProcessImageNameW"); return b.ToString(0, n); } }
         public string UserSid {
@@ -370,7 +412,6 @@ public static class WindowsSccacheNative {
         }
         public void Dispose() { CloseChecked(0); }
     }
-
     public sealed class JobLease : IDisposable {
         public readonly IntPtr Handle;
         readonly IntPtr port;
@@ -429,7 +470,6 @@ public static class WindowsSccacheNative {
         public bool CloseChecked() { bool a = CloseHandle(port); bool b = CloseHandle(Handle); return a && b; }
         public void Dispose() { CloseChecked(); }
     }
-
     public static JobLease CreateJob() { return new JobLease(); }
     public static void CreateDirectoryNew(string path) { Need(CreateDirectoryW(path, IntPtr.Zero), "CreateDirectoryW"); }
     public static ProcessLease Launch(IntPtr job, string app, string commandLine, string cwd, IDictionary<string,string> env, int cleanupMs) {
@@ -475,7 +515,7 @@ public static class WindowsSccacheNative {
             long until = Environment.TickCount64 + Math.Max(0, cleanupMs);
             bool exited = !created;
             bool unassignedExitUnconfirmed = false;
-            if (created && !assigned) { bool requested = TerminateProcess(pi.hProcess, 1); exited = WaitForSingleObject(pi.hProcess, (uint)Remaining(until)) == WAIT_OBJECT_0; unassignedExitUnconfirmed = !requested && !exited; }
+            if (created && !assigned) { bool requested = TerminateProcess(pi.hProcess, 1); exited = WaitSignaledOrTimeout(pi.hProcess, Remaining(until), "WaitForSingleObject(unassigned_process)"); unassignedExitUnconfirmed = !requested && !exited; }
             if (stdout != null) { if (exited) stdout.WaitEof(Remaining(until)); stdout.CloseChecked(assigned ? 0 : Remaining(until)); }
             if (stderr != null) { if (exited) stderr.WaitEof(Remaining(until)); stderr.CloseChecked(assigned ? 0 : Remaining(until)); }
             if (pi.hThread != IntPtr.Zero) CloseHandle(pi.hThread);
@@ -491,7 +531,7 @@ public static class WindowsSccacheNative {
         }
     }
     public static bool InJob(IntPtr process, IntPtr job) { bool result; Need(IsProcessInJob(process, job, out result), "IsProcessInJob"); return result; }
-    public static IntPtr OpenProcessHandle(uint pid) { IntPtr p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid); if (p == IntPtr.Zero) throw Last("OpenProcess"); return p; }
+    public static IntPtr OpenProcessHandle(uint pid) { IntPtr p = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, false, pid); if (p == IntPtr.Zero) throw Last("OpenProcess"); return p; }
     public static long ProcessCreation(IntPtr p) { long created, exited, kernel, user; Need(GetProcessTimes(p, out created, out exited, out kernel, out user), "GetProcessTimes"); return created; }
     public static string ProcessImage(IntPtr p) { var b = new StringBuilder(32768); int n = b.Capacity; Need(QueryFullProcessImageNameW(p, 0, b, ref n), "QueryFullProcessImageNameW"); return b.ToString(0, n); }
     public static string ProcessUserSid(IntPtr p) {
@@ -499,9 +539,9 @@ public static class WindowsSccacheNative {
         try { int needed; GetTokenInformation(token, 1, IntPtr.Zero, 0, out needed); if (needed <= 0 || needed > 65536) throw new InvalidOperationException("token_information_size_invalid"); IntPtr data = Marshal.AllocHGlobal(needed); try { Need(GetTokenInformation(token, 1, data, needed, out needed), "GetTokenInformation"); return new SecurityIdentifier(Marshal.ReadIntPtr(data)).Value; } finally { Marshal.FreeHGlobal(data); } }
         finally { Need(CloseHandle(token), "CloseHandle(process_token)"); }
     }
-    public static bool HandleAlive(IntPtr p) { uint code; Need(GetExitCodeProcess(p, out code), "GetExitCodeProcess"); return code == STILL_ACTIVE && WaitForSingleObject(p, 0) == WAIT_TIMEOUT; }
+    public static bool HandleAlive(IntPtr p) { uint code; Need(GetExitCodeProcess(p, out code), "GetExitCodeProcess"); return code == STILL_ACTIVE && !WaitSignaledOrTimeout(p, 0, "WaitForSingleObject(handle_liveness)"); }
     public static uint ExitCodeHandle(IntPtr p) { uint code; Need(GetExitCodeProcess(p, out code), "GetExitCodeProcess"); return code; }
-    public static bool WaitHandle(IntPtr p, int ms) { return WaitForSingleObject(p, (uint)Math.Max(0, ms)) == WAIT_OBJECT_0; }
+    public static bool WaitHandle(IntPtr p, int ms) { return WaitSignaledOrTimeout(p, ms, "WaitForSingleObject(handle)"); }
     public static bool WaitCapture(Capture c, int ms) { return c.WaitEof(ms); }
     public static object CaptureFacts(Capture c) { return new { Tail = c.Tail, TotalBytes = c.TotalBytes, Truncated = c.Truncated, Error = c.Error, Eof = c.Eof.WaitOne(0), ReaderComplete = c.ReaderComplete }; }
     static byte[] TcpTable(int family) {
@@ -525,17 +565,14 @@ public static class WindowsSccacheNative {
     public static bool CloseHandlePublic(IntPtr handle) { return handle != IntPtr.Zero && CloseHandle(handle); }
 }
 '@
-
 function Initialize-WindowsSccacheNative {
     if (-not ('WindowsSccacheNative' -as [type])) { Add-Type -TypeDefinition $script:NativeSource -Language CSharp -ErrorAction Stop }
 }
-
 function Get-RemainingMs([long]$DeadlineTicks, [int]$ReserveMs = 0) {
     $remaining = [long](($DeadlineTicks - [Diagnostics.Stopwatch]::GetTimestamp()) * 1000 / [Diagnostics.Stopwatch]::Frequency) - $ReserveMs
     if ($remaining -lt 0) { return 0 }
     return [int][Math]::Min([int]::MaxValue, $remaining)
 }
-
 function Get-RunIdentity {
     $root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
     if (Test-Path -LiteralPath (Join-Path $root '.env')) { throw 'ambient_dotenv_refused' }
@@ -558,7 +595,6 @@ function Get-RunIdentity {
     if (-not $decision.Valid) { throw ('source_runner_or_checkout_refused:' + ($decision.Reasons -join ',')) }
     return [pscustomobject]@{ Root = $root; Head = $headText; Git = $git; UserSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value }
 }
-
 function Quote-WindowsArgument([string]$Value) {
     if ($Value -notmatch '[\s"]') { return $Value }
     $builder = [Text.StringBuilder]::new('"')
@@ -569,11 +605,10 @@ function Quote-WindowsArgument([string]$Value) {
         if ($slashes) { [void]$builder.Append(('\' * $slashes)); $slashes = 0 }
         [void]$builder.Append($char)
     }
-    if ($slashes) { [void]$builder.Append(('\' * (2 * $slashes)) }
+    if ($slashes) { [void]$builder.Append(('\' * (2 * $slashes))) }
     [void]$builder.Append('"')
     return $builder.ToString()
 }
-
 function Launch-OwnedProcess($Session, [string]$Executable, [string]$CommandLine, [string]$WorkingDirectory, $Environment) {
     $cleanupMs = Get-RemainingMs $Session.CleanupDeadlineTicks
     try {
@@ -583,7 +618,6 @@ function Launch-OwnedProcess($Session, [string]$Executable, [string]$CommandLine
     }
     catch { $Session.LaunchFailure = $true; throw }
 }
-
 function Get-ToolResolutions {
     $result = [ordered]@{}
     foreach ($name in @('rustup', 'rustc', 'cargo', 'node')) {
@@ -592,7 +626,6 @@ function Get-ToolResolutions {
     }
     return $result
 }
-
 function Get-ChildEnvironment($ToolPaths) {
     $tools = @{}
     if ($ToolPaths) { foreach ($key in $ToolPaths.Keys) { $tools[$key] = $ToolPaths[$key] } }
@@ -612,11 +645,9 @@ function Get-ChildEnvironment($ToolPaths) {
     $map['SCCACHE_SERVER_PORT'] = [string]$script:Pin.ServerPort
     return $map
 }
-
 function Get-ProcessCommandLine([string]$Executable, [string[]]$Arguments) {
     return ((@((Quote-WindowsArgument $Executable)) + @($Arguments | ForEach-Object { Quote-WindowsArgument ([string]$_) })) -join ' ')
 }
-
 function Wait-OwnedProcess($Session, $Process, [long]$DeadlineTicks) {
     if (-not $Session.Processes.Contains($Process)) { $Session.Processes.Add($Process) }
     try {
@@ -636,13 +667,11 @@ function Wait-OwnedProcess($Session, $Process, [long]$DeadlineTicks) {
         $timing.elapsed_ms = [long](($now - $timing.launched_ticks) * 1000 / [Diagnostics.Stopwatch]::Frequency)
     }
 }
-
 function Get-CaptureRecord($Capture) {
     $facts = [WindowsSccacheNative]::CaptureFacts($Capture)
     $tail = Format-CaptureReceipt $facts.Tail ([long]$facts.TotalBytes) ([bool]$facts.Truncated)
     return [ordered]@{ total_bytes = $tail.TotalBytes; truncated = $tail.Truncated; output_tail = $tail.Text; eof = [bool]$facts.Eof; reader_complete = [bool]$facts.ReaderComplete; error = $facts.Error }
 }
-
 function Get-ArchiveEntries([string]$Path) {
     $entries = [System.Collections.Generic.List[object]]::new()
     $archive = [IO.Compression.ZipFile]::OpenRead($Path)
@@ -657,7 +686,6 @@ function Get-ArchiveEntries([string]$Path) {
     } finally { $archive.Dispose() }
     return ,$entries.ToArray()
 }
-
 function Get-PEIdentity([string]$Path) {
     $stream = [IO.File]::OpenRead($Path)
     try {
@@ -673,7 +701,6 @@ function Get-PEIdentity([string]$Path) {
         return [pscustomobject]@{ Machine = 'x64'; Size = $stream.Length; Sha256 = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
     } finally { $stream.Dispose() }
 }
-
 function Get-InstallPaths {
     if ($env:USERPROFILE -ine 'C:\Users\amigo' -or [IO.Path]::GetFullPath($env:USERPROFILE) -ine 'C:\Users\amigo') { throw 'runner_profile_mismatch' }
     $toolsRoot = Join-Path $env:USERPROFILE 'tools\sccache'
@@ -746,10 +773,41 @@ function Receive-PinnedArchive([string]$Directory, [long]$DeadlineTicks) {
     } finally { if ($response) { $response.Dispose() }; $client.Dispose(); $handler.Dispose() }
 }
 
+function Test-ArchiveEntryMatchesFile($Entry, [string]$Path) {
+    $archive = $null; $file = $null
+    try { $archive = $Entry.Open(); $file = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+        if ($archive.Length -ne $file.Length) { return $false }
+        $left = [byte[]]::new(65536); $right = [byte[]]::new(65536)
+        while ($true) {
+            $a = 0; $b = 0
+            while ($a -lt $left.Length) { $n = $archive.Read($left, $a, $left.Length - $a); if ($n -eq 0) { break }; $a += $n }
+            while ($b -lt $right.Length) { $n = $file.Read($right, $b, $right.Length - $b); if ($n -eq 0) { break }; $b += $n }
+            if ($a -ne $b) { return $false }
+            if ($a -eq 0) { return $true }
+            for ($i = 0; $i -lt $a; $i++) { if ($left[$i] -ne $right[$i]) { return $false } }
+        }
+    } finally { if ($file) { $file.Dispose() }; if ($archive) { $archive.Dispose() } }
+}
+function Confirm-PinnedRuntimeReuse($Session, $Paths) {
+    $receiptValid = Test-InstalledReceipt $Paths
+    $Session.ArchivePath = Join-Path $Session.OperationDirectory 'sccache-v0.18.0-x64.zip'
+    $archive = Receive-PinnedArchive $Session.OperationDirectory $Session.WorkDeadlineTicks
+    $Session.ArchivePath = $archive.Path
+    $archiveDecision = Get-ArchiveDecision @{ Size = $archive.Size; Sha256 = $archive.Sha256 } (Get-ArchiveEntries $archive.Path)
+    if (-not $archiveDecision.Valid) { throw ('pinned_reuse_archive_refused:' + ($archiveDecision.Reasons -join ',')) }
+    $zip = [IO.Compression.ZipFile]::OpenRead($archive.Path)
+    try { $matches = Test-ArchiveEntryMatchesFile ($zip.GetEntry($script:Pin.Root + '/' + $script:Pin.Executable)) $Paths.Executable } finally { $zip.Dispose() }
+    $pe = Get-PEIdentity $Paths.Executable
+    $decision = Get-PinnedReuseDecision @{ ReceiptValid = ($receiptValid -and (Test-InstalledReceipt $Paths)); ArchiveValid = $archiveDecision.Valid; PinnedExecutableValid = ($pe.Machine -eq 'x64'); ExecutableBytesEqual = $matches }
+    if (-not $decision.Valid) { throw ('pinned_runtime_reuse_refused:' + ($decision.Reasons -join ',')) }
+    $Session.Receipt.pinned_runtime = @{ archive_size = $archive.Size; archive_sha256 = $archive.Sha256; executable_size = $pe.Size; executable_sha256 = $pe.Sha256; archive_entry_bytes_equal = $matches }
+}
+
 function Install-PinnedSccache($Session) {
     $installStartedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
     $paths = Get-InstallPaths
     if (Test-InstalledReceipt $paths) {
+        Confirm-PinnedRuntimeReuse $Session $paths
         $Session.Receipt.install = 'reused_known_receipt'
         $Session.Receipt.install_elapsed_ms = [long](([Diagnostics.Stopwatch]::GetTimestamp() - $installStartedTicks) * 1000 / [Diagnostics.Stopwatch]::Frequency)
         return $paths
@@ -874,7 +932,7 @@ function Start-WindowsSccacheSession {
         $inputFacts = @{ ExpectedSha = $env:EXPECTED_SOURCE_SHA; WorkflowSha = $env:WORKFLOW_SOURCE_SHA; EventSha = $env:EVENT_SOURCE_SHA; CheckoutSha = $run.Head; Clean = $true; Runner = $env:RUNNER_NAME; Arch = $env:RUNNER_ARCH; Account = [Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\')[-1]; UserProfile = $env:USERPROFILE; ToolResolutionPreserved = $true; DestinationState = $destinationState; ReceiptValid = $receiptValid; OwnerCount = $listener.Count; OwnerIsCapturedServer = $false; RemainingMs = (Get-RemainingMs $workDeadline); CleanupReserveMs = 0 }
         $preflight = Get-InputDecision $inputFacts
         if (-not $preflight.Valid) { throw ('preflight_refused:' + ($preflight.Reasons -join ',')) }
-        if ($Maintenance) { $paths = Install-PinnedSccache $session } elseif (-not $receiptValid) { throw 'pinned_install_receipt_required' }
+        if ($Maintenance) { $paths = Install-PinnedSccache $session } elseif (-not $receiptValid) { throw 'pinned_install_receipt_required' } else { Confirm-PinnedRuntimeReuse $session $paths }
         $session.Paths = $paths
         $beforeTools = Get-ToolResolutions
         $session.ToolResolution = Get-SafeToolReceipt $paths $beforeTools
@@ -924,8 +982,14 @@ function Start-WindowsSccacheSession {
         $session.StatsProcess = $stats
         Wait-OwnedProcess $session $stats $workDeadline
         if ($stats.ExitCode -ne 0) { throw 'show_stats_protocol_failed' }
+        $statsOut = [WindowsSccacheNative]::CaptureFacts($stats.Stdout); $statsErr = [WindowsSccacheNative]::CaptureFacts($stats.Stderr)
+        $statsComplete = $statsOut.Eof -and $statsOut.ReaderComplete -and -not $statsOut.Error -and $statsErr.Eof -and $statsErr.ReaderComplete -and -not $statsErr.Error
+        $statsTruncated = $statsOut.Truncated -or $statsErr.Truncated
+        $statsDecision = Get-StatsDecision $stats.Stdout.Text $statsComplete $statsTruncated
+        if (-not $statsDecision.Valid) { throw ('show_stats_counters_refused:' + ($statsDecision.Reasons -join ',')) }
         if (-not [WindowsSccacheNative]::HandleAlive($serverHandle) -or -not [WindowsSccacheNative]::Contains($session.Job, $serverHandle)) { throw 'captured_server_not_live_after_stats' }
         $session.Receipt.stats = 'completed_after_owned_readiness;diagnostic_only'
+        $session.Receipt.stats_counters = $statsDecision.Counters
         $session.Receipt.stats_stdout = Get-CaptureRecord $stats.Stdout
         $session.Receipt.stats_stderr = Get-CaptureRecord $stats.Stderr
         $session.Receipt.startup_stdout = Get-CaptureRecord $start.Stdout
@@ -983,19 +1047,19 @@ function Stop-WindowsSccacheSession($Session, [string]$PrimaryFailure = $null, [
             }
         }
     } else { $Session.TerminationKind = 'natural'; $Session.TerminateResult = $null }
+    $serverExitConfirmed = $false
     if ($Session.Server -and $Session.Server.Handle -ne [IntPtr]::Zero) {
         try {
             $remaining = Get-RemainingMs $Session.CleanupDeadlineTicks
-            if ($remaining -le 0 -or -not [WindowsSccacheNative]::WaitHandle($Session.Server.Handle, $remaining)) { $cleanErrors.Add('server_process_exit_unconfirmed') }
-            else { $Session.Server.ExitCode = [WindowsSccacheNative]::ExitCodeHandle($Session.Server.Handle) }
-        } catch { $cleanErrors.Add('server_process_exit_unconfirmed') }
+            if ($remaining -le 0) { $cleanErrors.Add('server_process_exit_deadline_expired') } elseif (-not [WindowsSccacheNative]::WaitHandle($Session.Server.Handle, $remaining)) { $cleanErrors.Add('server_process_wait_timeout') } else { $Session.Server.ExitCode = [WindowsSccacheNative]::ExitCodeHandle($Session.Server.Handle); $serverExitConfirmed = $true }
+        } catch { $win32 = if ($_.Exception -is [System.ComponentModel.Win32Exception]) { $_.Exception.NativeErrorCode } else { 'not_win32' }; $cleanErrors.Add('server_process_wait_api_error:' + $_.Exception.GetType().Name + ':' + $win32 + ':' + $_.Exception.Message) }
     }
     $zeroConfirmed = $false; $activeAfter = $null
     if ($Session.Job) {
         try {
             $remaining = Get-RemainingMs $Session.CleanupDeadlineTicks
             if ($remaining -gt 0) { $zeroConfirmed = [WindowsSccacheNative]::WaitJobZero($Session.Job, $remaining) }
-        } catch { $cleanErrors.Add('job_active_zero_wait_failed') }
+        } catch { $win32 = if ($_.Exception -is [System.ComponentModel.Win32Exception]) { $_.Exception.NativeErrorCode } else { 'not_win32' }; $cleanErrors.Add('job_active_zero_wait_api_error:' + $_.Exception.GetType().Name + ':' + $win32 + ':' + $_.Exception.Message) }
         if (-not $zeroConfirmed) { $cleanErrors.Add('job_active_zero_event_unconfirmed') }
         try {
             $activeAfter = [WindowsSccacheNative]::ActiveCount($Session.Job)
@@ -1006,8 +1070,8 @@ function Stop-WindowsSccacheSession($Session, [string]$PrimaryFailure = $null, [
     foreach ($process in $Session.Processes) {
         try {
             $remaining = Get-RemainingMs $Session.CleanupDeadlineTicks
-            if ($remaining -le 0 -or -not $process.Wait($remaining)) { $processExitsComplete = $false; $cleanErrors.Add('owned_command_exit_unconfirmed') }
-        } catch { $processExitsComplete = $false; $cleanErrors.Add('owned_command_exit_unconfirmed') }
+            if ($remaining -le 0) { $processExitsComplete = $false; $cleanErrors.Add('owned_command_exit_deadline_expired') } elseif (-not $process.Wait($remaining)) { $processExitsComplete = $false; $cleanErrors.Add('owned_command_wait_timeout') }
+        } catch { $processExitsComplete = $false; $win32 = if ($_.Exception -is [System.ComponentModel.Win32Exception]) { $_.Exception.NativeErrorCode } else { 'not_win32' }; $cleanErrors.Add('owned_command_wait_api_error:' + $_.Exception.GetType().Name + ':' + $win32 + ':' + $_.Exception.Message) }
     }
     $captureComplete = -not [bool]$Session.LaunchFailure
     if ($Session.LaunchFailure) { $cleanErrors.Add('partial_assigned_launch_process_or_capture_unconfirmed') }
@@ -1035,11 +1099,13 @@ function Stop-WindowsSccacheSession($Session, [string]$PrimaryFailure = $null, [
     foreach ($process in $Session.Processes) {
         try { $Session.Receipt.commands += @(@{ pid = $process.Pid; exit_code = $(if ($process.Wait(0)) { $process.ExitCode } else { $null }); timing = $Session.ProcessTiming[[string]$process.Pid]; stdout = Get-CaptureRecord $process.Stdout; stderr = Get-CaptureRecord $process.Stderr }) } catch { $cleanErrors.Add('process_receipt_error') }
     }
-    $statsCaptureComplete = $false; $statsExit = $null
+    $statsCaptureComplete = $false; $statsExit = $null; $statsOutput = ''; $statsOutputComplete = $false; $statsOutputTruncated = $true
     if ($Session.StatsProcess) {
         try {
             $statsExit = if ($Session.StatsProcess.Wait(0)) { $Session.StatsProcess.ExitCode } else { $null }
-            $statsCaptureComplete = $Session.StatsProcess.Stdout.Eof.WaitOne(0) -and $Session.StatsProcess.Stderr.Eof.WaitOne(0) -and -not $Session.StatsProcess.Stdout.Error -and -not $Session.StatsProcess.Stderr.Error
+            $outFacts = [WindowsSccacheNative]::CaptureFacts($Session.StatsProcess.Stdout); $errFacts = [WindowsSccacheNative]::CaptureFacts($Session.StatsProcess.Stderr)
+            $statsCaptureComplete = $outFacts.Eof -and $outFacts.ReaderComplete -and -not $outFacts.Error -and $errFacts.Eof -and $errFacts.ReaderComplete -and -not $errFacts.Error
+            $statsOutput = $Session.StatsProcess.Stdout.Text; $statsOutputComplete = $statsCaptureComplete; $statsOutputTruncated = $outFacts.Truncated -or $errFacts.Truncated
         } catch { $cleanErrors.Add('stats_completion_unconfirmed') }
     }
     $handlesClosed = $true
@@ -1061,13 +1127,14 @@ function Stop-WindowsSccacheSession($Session, [string]$PrimaryFailure = $null, [
     $nowTicks = [Diagnostics.Stopwatch]::GetTimestamp()
     $Session.Receipt.cleanup_elapsed_ms = [long](($nowTicks - $cleanupStartedTicks) * 1000 / [Diagnostics.Stopwatch]::Frequency)
     $Session.Receipt.session_elapsed_ms = [long](($nowTicks - $Session.StartedTicks) * 1000 / [Diagnostics.Stopwatch]::Frequency)
-    $facts = @{ StartupNotification = $startupProven; CapturedProcess = [bool]$Session.Server; JobMembership = [bool]$Session.Server; AccountAndImage = [bool]$Session.Server; EndpointOwner = $startupProven; StatsCompleted = ($Session.Receipt.stats -eq 'completed_after_owned_readiness;diagnostic_only'); StatsCaptureComplete = $statsCaptureComplete; StatsExitCode = $statsExit; RequireReadiness = $true; CaptureComplete = ($captureComplete -and $cleanErrors.Count -eq 0); ActiveZeroEvent = $zeroConfirmed; ActiveProcesses = $activeAfter; ProcessExited = ($processExitsComplete -and $cleanErrors -notcontains 'server_process_exit_unconfirmed'); HandlesClosed = $handlesClosed; TerminationKind = $Session.TerminationKind; TerminateResult = $Session.TerminateResult; Cancelled = $Cancelled; DeadlineExpired = ((Get-RemainingMs $Session.CleanupDeadlineTicks) -le 0); CleanupError = ($cleanErrors.Count -gt 0); ArtifactFresh = [bool]$Session.ArtifactFresh; PrimaryFailure = $PrimaryFailure }
+    $facts = @{ StartupNotification = $startupProven; CapturedProcess = [bool]$Session.Server; JobMembership = [bool]$Session.Server; AccountAndImage = [bool]$Session.Server; EndpointOwner = $startupProven; StatsCompleted = ($Session.Receipt.stats -eq 'completed_after_owned_readiness;diagnostic_only'); StatsCaptureComplete = $statsCaptureComplete; StatsOutput = $statsOutput; StatsOutputComplete = $statsOutputComplete; StatsOutputTruncated = $statsOutputTruncated; StatsExitCode = $statsExit; RequireReadiness = $true; CaptureComplete = ($captureComplete -and $cleanErrors.Count -eq 0); ActiveZeroEvent = $zeroConfirmed; ActiveProcesses = $activeAfter; ProcessExited = ($processExitsComplete -and $serverExitConfirmed); HandlesClosed = $handlesClosed; TerminationKind = $Session.TerminationKind; TerminateResult = $Session.TerminateResult; Cancelled = $Cancelled; DeadlineExpired = ((Get-RemainingMs $Session.CleanupDeadlineTicks) -le 0); CleanupError = ($cleanErrors.Count -gt 0); ArtifactFresh = [bool]$Session.ArtifactFresh; PrimaryFailure = $PrimaryFailure }
     $decision = Get-CompletionDecision $facts
     $Session.Receipt.outcome = $decision.Outcome
     $Session.Receipt.completion_reasons = $decision.Reasons
+    $Session.Receipt.stats_counters = $decision.StatsCounters
     $Session.Receipt.active_zero_event = $zeroConfirmed
     $Session.Receipt.handles_closed = $handlesClosed
-    $ownedSettled = $zeroConfirmed -and $activeAfter -eq 0 -and $handlesClosed -and ($cleanErrors -notcontains 'server_process_exit_unconfirmed') -and ($cleanErrors -notcontains 'capture_eof_unconfirmed')
+    $ownedSettled = $zeroConfirmed -and $activeAfter -eq 0 -and $serverExitConfirmed -and $handlesClosed -and ($cleanErrors -notcontains 'capture_eof_unconfirmed')
     if ($Session.InstallCreated -and -not $decision.Success -and $ownedSettled) { Remove-CreatedInstall $Session }
     $Session.Receipt.cleanup_errors = @($cleanErrors)
     try { Write-SessionReceipt $Session } catch { $cleanErrors.Add('receipt_write_failed') }

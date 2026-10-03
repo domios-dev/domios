@@ -110,7 +110,10 @@ does not independently attest that the binary was built from that source. The op
 the downloaded bytes, ZIP entry descriptors, x64 PE identity, measured executable hash, exact
 version output, runner/account/SHA joins, and a receipt before using or retaining the versioned
 tool. It never overwrites Cargo's `sccache.exe`, another version, runner service state, or global
-PATH.
+PATH. Reusing an existing receipt also fetches the same fixed archive, validates the pinned ZIP
+and entry shape, then compares the installed executable byte-for-byte with the executable stream
+from that verified archive before launch. This is verification only; the opt-in task session does
+not install or replace the tool, and the default no-install path is unchanged.
 
 The helper creates a non-breakaway, kill-on-close Windows Job before its first owned executable.
 It starts the pinned client suspended, assigns it to that Job, then resumes it. The pinned client
@@ -118,22 +121,39 @@ source starts the server with `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW` and 
 breakaway. The helper still verifies one Job process-membership snapshot after the real startup
 notification, retains and validates the server process handle, and checks the loopback listener
 PID at that readiness boundary. Only then does it run bounded `--show-stats` as diagnostic evidence.
+The captured output must be complete and untruncated, with each of the 16 pinned aggregate integer
+counters exactly once and zero: `Compile requests`, `Compile requests executed`, `Cache hits`,
+`Cache misses`, `Cache timeouts`, `Cache read errors`, `Forced recaches`, `Cache write errors`,
+`Cache errors`, `Compilations`, `Compilation failures`, `Non-cacheable compilations`,
+`Non-cacheable calls`, `Non-compilation calls`, `Unsupported compiler calls`, and
+`Failed distributed compilations`. Parsed output counters are retained in the receipt; nonzero,
+absent, malformed, duplicated, or incomplete data refuses the session. Pinned `commands.rs` may print
+default counters when the stats connection fails, so these values remain diagnostic and do not prove
+connection to the server. Readiness still requires the separate startup/process/Job/account/listener
+proof before and after stats.
 An occupied endpoint is a refusal; later endpoint reuse never changes shutdown authority.
 
 Cleanup deliberately calls `TerminateJobObject` only through the retained Job handle. It records
 whether the server exited naturally or the helper terminated the owned Job, then requires the
 captured process exit, Job active-zero completion event and zero accounting, complete output
 captures, and closed handles inside the original 30-second cleanup reserve of the 300-second
-maintenance bound. No `--stop-server` protocol request is sent. Job termination is not a graceful
-cache flush and may lose in-flight disposable cache writes; persistent cache bytes under
-`%LOCALAPPDATA%\Mozilla\sccache` are never removed. A fresh run/attempt receipt directory is
+maintenance bound. The retained server handle requests `PROCESS_QUERY_LIMITED_INFORMATION` and
+`SYNCHRONIZE`; waits classify signal, bounded timeout, and `WAIT_FAILED` with its Win32 error
+separately. No `--stop-server` protocol request is sent. Job termination is not a graceful cache
+flush and may lose in-flight disposable cache writes. The persistent cache under
+`%LOCALAPPDATA%\Mozilla\sccache` is never removed. A fresh run/attempt receipt directory is
 uploaded only when the helper created it. Unconfirmed cleanup remains a failed qualification, even
 if a termination request succeeded.
 
 The maintenance operation does not run a Rust case and does not leave a daemon for later jobs.
 Native success must be reviewed from one separately admitted run at the reviewed full SHA, with
 actual archive, PE, process/Job/listener, capture, exit, and handle evidence. Portable contract
-controls establish only the pure source decisions. After canonical merge and review, request:
+controls establish only the pure source decisions. The three groups select 51 subcases: 13 archive
+pin/shape cases, 16 runner/input/deadline/pinned-reuse cases, and 22 completion/capture/statistics
+cases. The fresh-zero statistics positive and nonzero, missing, malformed, duplicated, incomplete,
+and truncated counter refusals all exercise the same parser used on captured `--show-stats` output.
+Reuse controls also prove that a matching mutable receipt cannot excuse executable bytes that differ
+from the verified pinned archive. After canonical merge and review, request:
 
 ```sh
 actionlint .github/workflows/tests.yml
