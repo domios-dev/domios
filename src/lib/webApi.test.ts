@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
+import { withFailureDeadline } from "../test/withFailureDeadline";
 import { webJson, invalidateWebRequestContext } from "./webApi";
 
 describe("web JSON prompt response transport", () => {
@@ -72,10 +73,12 @@ describe("web config response context", () => {
     });
     const result = webJson("GET", "/api/config");
     const refused = expect(result).rejects.toThrow("Peer context changed");
-    await bodyStarted;
-    invalidateWebRequestContext();
-    finishBody(JSON.stringify({ mesh: { instance_name: "opaque-a" } }));
-    await refused;
+    try {
+      await withFailureDeadline(bodyStarted, "local config response body");
+      invalidateWebRequestContext();
+      finishBody(JSON.stringify({ mesh: { instance_name: "opaque-a" } }));
+      await withFailureDeadline(refused, "stale body refusal");
+    } finally { finishBody("{}"); }
   });
 });
 
