@@ -2249,7 +2249,7 @@ Create a new plan skill folder (SKILL.md + scripts/)
 
 - `--area`
 - `--check` — Optional verification command persisted in SKILL.md frontmatter
-- `--plan` — Plan id (omit to use $CODETERM_PLAN_ID or the single active plan)
+- `--plan` — Plan id (omit for the caller Team's active plan; outside a tab, $CODETERM_PLAN_ID)
 - `--rationale` — One-line ledger rationale (default: "created")
 - `<slug>`
 - `--title`
