@@ -7,8 +7,8 @@ export function JevSection() {
 
   return <section id="jev" className="jev-section section-wrap" aria-labelledby="jev-title">
     <div className="jev-heading">
-      <h2 id="jev-title">A home for your whole team.</h2>
-      <p>Your team, memory and messages in one place.</p>
+      <h2 id="jev-title">A home for your AI team.</h2>
+      <p>Your agents, memory and messages in one place.</p>
     </div>
     <figure
       className="jev-board jev-scene"
@@ -16,7 +16,7 @@ export function JevSection() {
       data-story-motion="paused"
       data-story-phase="static"
       role="img"
-      aria-label="The Team’s Orchestrator, Planner and Worker roles ask Domios to recall this machine’s memory. JEV is pluggable and names states; Domios authorizes actions from evidence. A connected Telegram notification and reply return through Domios to the Team."
+      aria-label="The AI team’s Orchestrator, Planner and Worker roles ask Domios to recall this machine’s memory. JEV is pluggable and names states; Domios authorizes actions from evidence. A connected Telegram notification and reply return through Domios to the AI team."
     >
       <svg className="jev-routes" aria-hidden="true" preserveAspectRatio="none">
         <defs>
@@ -31,7 +31,7 @@ export function JevSection() {
         <ellipse className="jev-signal" data-story-signal cx="0" cy="0" rx="7" ry="4" opacity="0" />
       </svg>
       <div className="jev-team jev-node" data-story-node="team">
-        <strong>Team</strong>
+        <strong>AI team</strong>
         <span className="jev-roles">Orchestrator · Planner · Worker</span>
       </div>
       <div className="jev-core-group">
