@@ -160,7 +160,7 @@ async function run() {
   const systemPointer = host.querySelector<HTMLElement>('[data-testid="chat-system-event"]');
   const systemPointerTitle = systemPointer?.querySelector("button > span");
   const systemPointerToggle = systemPointer?.querySelector<HTMLButtonElement>("button");
-  assert(systemPointer?.getAttribute("role") === "status", "parsed System remains a status message");
+  assert(systemPointer?.parentElement?.getAttribute("role") === "status", "parsed System remains a status message");
   assert(systemPointerTitle?.textContent === "System", "duplicate System context is omitted from the event title");
   assert(systemPointerToggle?.getAttribute("aria-expanded") === "false", "System disclosure remains collapsed initially");
   assert(!systemPointer?.textContent?.includes("opaque-dom-system-14.md"), "collapsed System event hides its opaque pointer body");
