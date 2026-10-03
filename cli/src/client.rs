@@ -99,7 +99,7 @@ fn select_transport<T>(
         Err(socket_error) => http()
             .map(TransportChoice::Http)
             .map_err(|error| {
-                format!("CodeTerm socket attempt failed: {socket_error}; loopback HTTP attempt failed: {error}")
+                format!("Domios socket attempt failed: {socket_error}; loopback HTTP attempt failed: {error}")
             }),
     }
 }
@@ -257,7 +257,7 @@ impl SocketClient {
             TransportChoice::Http(config) => Self::connect_http(config)
                 .map(|client| (client, fallback_socket))
                 .map_err(|http_error| {
-                    format!("CodeTerm socket attempt failed: {socket_error}; loopback HTTP attempt failed: {http_error}")
+                    format!("Domios socket attempt failed: {socket_error}; loopback HTTP attempt failed: {http_error}")
                 }),
         }
     }
@@ -503,9 +503,9 @@ fn render_protocol_mismatch(method: &str, cli_version: &str, daemon_version: &st
         _ => "CLI and daemon versions differ",
     };
     format!(
-        "CodeTerm CLI/daemon protocol mismatch: {direction} \
+        "Domios CLI/daemon protocol mismatch: {direction} \
          (CLI {cli_version}, daemon {daemon_version}); method '{method}' is unavailable. \
-         Restart or update CodeTerm so the running daemon and installed CLI versions match."
+         Restart or update Domios so the running daemon and installed CLI versions match."
     )
 }
 
@@ -565,7 +565,7 @@ pub fn discover_socket_resolution() -> Result<ResolvedSocket, String> {
             return Ok(resolved);
         }
         return Err(format!(
-            "CodeTerm socket '{}' is not live. Check CODETERM_INSTANCE/CODETERM_API_PORT or set CODETERM_SOCKET_PATH.",
+            "Domios socket '{}' is not live. Check CODETERM_INSTANCE/CODETERM_API_PORT or set CODETERM_SOCKET_PATH.",
             resolved.path
         ));
     }
@@ -747,7 +747,7 @@ fn discover_windows_pipe() -> Result<String, String> {
             if let Some(name) = pick_preferred_socket(&candidates, prefers_dev_socket()) {
                 return Ok(name);
             }
-            Err("No CodeTerm socket found. Is CodeTerm running?".to_string())
+            Err("No Domios socket found. Is Domios running?".to_string())
         }
         Err(_) => {
             // Fallback to alternate pipe discovery when read_dir on `\\.\pipe` fails.
@@ -790,7 +790,7 @@ fn resolve_scanned_socket(
     }
 
     probe_running_daemon()
-        .ok_or_else(|| "No CodeTerm socket found. Is CodeTerm running?".to_string())
+        .ok_or_else(|| "No Domios socket found. Is Domios running?".to_string())
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -836,14 +836,14 @@ fn connect_failure_message(socket_path: &str, denied: bool, caller_tab: Option<&
     let restart = |tab: &str| format!("from another tab run `codeterm agent restart --tab {tab}`");
     match (denied, caller_tab) {
         (true, Some(tab)) => format!(
-            "{base}: access denied. This agent is likely confined by its provider sandbox, launched without CodeTerm's permission bypass; {}",
+            "{base}: access denied. This agent is likely confined by its provider sandbox, launched without Domios's permission bypass; {}",
             restart(tab)
         ),
         (true, None) => {
             format!("{base}: access denied; this process is likely confined by a sandbox")
         }
         (false, Some(tab)) => format!(
-            "{base}. If CodeTerm is running, this agent may be confined by its provider sandbox; {}",
+            "{base}. If Domios is running, this agent may be confined by its provider sandbox; {}",
             restart(tab)
         ),
         (false, None) => base,

@@ -228,7 +228,7 @@ fix: report only a declared gate, or ask the Orchestrator to dispatch with --aut
 Use spec/plan sections for plan rules or mem for durable preferences:\n\
   codeterm docs ORCHESTRATION\n\
   codeterm plan state {plan_id}\n\
-  codeterm mem save-preference --scope global --title \"CodeTerm planner preference\" \"<preference>\""
+  codeterm mem save-preference --scope global --title \"Domios planner preference\" \"<preference>\""
         )),
         "budget_exhausted" => {
             let count = data.get("count").and_then(|v| v.as_u64()).unwrap_or(0);
