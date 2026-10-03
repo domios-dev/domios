@@ -3,12 +3,11 @@ import { Icon } from './Icon';
 import { BrandMark } from './BrandMark';
 import type { IconName } from './Icon';
 import { ProviderStrip } from './ProviderStrip';
-import { GatherLink } from './GatherLink';
 import { BuilderNotes } from './BuilderNotes';
 import { JevSection } from './JevSection';
 import { Showcase } from './Showcase';
 import { useMediaQuery, useTheme } from './usePreferences';
-import { DownloadControl } from './download/DownloadControl';
+import { DownloadActions } from './download/DownloadActions';
 import { useDownload } from './download/useDownload';
 import { DownloadFeedback } from './download/DownloadFeedback';
 import { useBrandEntrance } from './brand/useBrandEntrance';
@@ -44,7 +43,7 @@ export function App() {
           <li><span>Scheduled work</span><small>Tasks on your schedule.</small></li>
           <li><span>Your messenger</span><small>Telegram updates &amp; replies</small></li>
         </ul>
-        <div className="hero-actions"><DownloadControl download={download} /><a className="button secondary" href={github}><Icon name="github" size={18} /><span>Find us on GitHub</span><Icon name="arrow" size={16} /></a></div>
+        <DownloadActions download={download} github={github} />
         <ProviderStrip />
         <AgentNetwork />
       </section>
@@ -59,7 +58,7 @@ export function App() {
         </div>
         <aside className="coming-note"><span className="eyebrow">COMING / THE MESH FABRIC</span><p>Shared memory across machines. Project awareness across your mesh. Delegation that finds the right machine for the task.</p></aside>
       </section>
-      <section className="closing section-wrap" aria-labelledby="closing-title"><span className="eyebrow">MAKE ROOM FOR WHAT’S NEXT</span><h2 id="closing-title">Your next idea.<br /><span>A whole team behind it.</span></h2><GatherLink data-download-trigger="closing" onClick={event => download.onClick(event)} href={download.href} aria-label={`Get Domios: ${download.label}`}>Get Domios</GatherLink><p>Available for macOS, Windows, and Linux.</p></section>
+      <section className="closing section-wrap" aria-labelledby="closing-title"><span className="eyebrow">MAKE ROOM FOR WHAT’S NEXT</span><h2 id="closing-title">Your next idea.<br /><span>A whole team behind it.</span></h2><DownloadActions download={download} github={github} placement="closing" /><p>Available for macOS, Windows, and Linux.</p></section>
     </main>
     <footer className="site-footer section-wrap"><a className="brand" href="#" aria-label="Domios home"><BrandMark motion="interactive" />domios</a><span>A place for agents. Built for you.</span><nav aria-label="Footer navigation"><a href={download.href} data-download-trigger="footer" onClick={event => download.onClick(event)} aria-label={download.label}>Download</a><a href={github}>GitHub <span aria-hidden="true">↗</span></a><a href="#explore">Explore</a></nav></footer>
     <DownloadFeedback download={download} />

@@ -78,7 +78,7 @@ h2 { color: var(--ct-heading); font-size: clamp(28px, 3.4vw, 39px); line-height:
 
 .closing h2 { margin-top: 24px; font-size: clamp(36px, 4.7vw, 56px); line-height: 1.15; letter-spacing: -2.5px; }
 .closing h2 span { color: var(--ct-muted-fg); }
-.closing .button { margin-top: 29px; }.closing p { margin-top: 20px; font-size: 11px; color: var(--ct-muted-fg); }
+.closing > p { margin-top: 52px; font-size: 11px; color: var(--ct-muted-fg); }
 .site-footer { display: flex; align-items: center; gap: 30px; border-top: 1px solid var(--ct-border); min-height: 104px; }
 .site-footer .brand { font-size: 21px; }.site-footer > span { font-size: 11px; color: var(--ct-muted-fg); }.site-footer nav { display: flex; gap: 25px; margin-left: auto; }
 [data-motion="paused"] .agent-network * { animation-play-state: paused !important; }
