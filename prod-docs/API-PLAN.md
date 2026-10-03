@@ -12,37 +12,19 @@ After a committed restoration, rollback must preserve the current nonce and rece
 
 ### Durable task keys and references
 
-Every socket, REST, and CLI argument that names a task accepts its `task_xxxxxx` id, its handle, or its human key
-(`PREFIX-N`, any case). The id stays primary. A new key is issued once from the plan's owning local workspace: a 2-4
-character uppercase prefix derived from the workspace name (collisions take the next deterministic candidate), fixed by
-the first key, plus a counter that never decreases or reuses a number. A legacy task stores no `key`; its display key is
-its id without `task_`, uppercased. An exact id wins; a handle and key naming different tasks are refused as
-`ref_ambiguous`. Task list/detail JSON carries `display_key` beside `task.id` (`task.key` only when stored),
-sibling/parent labels carry `display_key`, and `plan.task.add`, `POST /api/plans/{id}/tasks`, and `POST /api/tasks`
-return `key`.
+Every socket, REST, and CLI argument that names a task accepts its `task_xxxxxx` id, its handle, or its human key (`PREFIX-N`, any case). The id stays primary. A new key is issued once from the plan's owning local workspace: a 2-4 character uppercase prefix derived from the workspace name (collisions take the next deterministic candidate), fixed by the first key, plus a counter that never decreases or reuses a number. A legacy task stores no `key`; its display key is its id without `task_`, uppercased. An exact id wins; a handle and key naming different tasks are refused as `ref_ambiguous`. Task list/detail JSON carries `display_key` beside `task.id` (`task.key` only when stored), sibling/parent labels carry `display_key`, and `plan.task.add`, `POST /api/plans/{id}/tasks`, and `POST /api/tasks` return `key`.
 
-`plan task add|update --group <key>` declares an unknown group with its key as label (`plan groups set` relabels), so
-`plan groups close` accepts every group a heartbeat names.
+`plan task add|update --group <key>` declares an unknown group with its key as label (`plan groups set` relabels), so `plan groups close` accepts every group a heartbeat names.
 
-Task text is capped at 256 KiB per task (all fields together), every other plan text field at 256 KiB, and stored plan
-text at 16 MiB. Control bytes such as ESC and BEL are refused (bodies and narratives keep line breaks). Plan, section,
-and task names are required, one line, and at most 256 characters.
+Task text is capped at 256 KiB per task (all fields together), every other plan text field at 256 KiB, and stored plan text at 16 MiB. Control bytes such as ESC and BEL are refused (bodies and narratives keep line breaks). Plan, section, and task names are required, one line, and at most 256 characters.
 
 ### Planner authority over task structure
 
-A tab bound as a plan's Planner (`role = Manager`, `role_profile = planner`, same Team as the plan) holds **durable**
-authority over task *structure* for the plan's whole life — name, body, sections, acceptance criteria, test plan, QA
-plan, correctness, tags, dependencies and routing. That authority does not lapse when a task is dispatched: it applies
-to a `pending` task and an `in_progress` one alike. Fresh pair Planners are bound to their first Plan from live Team
-membership. Each write still requires that Planner tab's current session and binding nonce; when startup binding is
-pending, the write waits for that event instead of requiring `plan rebind`.
+A tab bound as a plan's Planner (`role = Manager`, `role_profile = planner`, same Team as the plan) holds **durable** authority over task *structure* for the plan's whole life — name, body, sections, acceptance criteria, test plan, QA plan, correctness, tags, dependencies and routing. That authority does not lapse when a task is dispatched: it applies to a `pending` task and an `in_progress` one alike. Fresh pair Planners are bound to their first Plan from live Team membership. Each write still requires that Planner tab's current session and binding nonce; when startup binding is pending, the write waits for that event instead of requiring `plan rebind`.
 
-It stops at execution. A Planner is refused for `status`, `status_label`, `lane`, `tab`/`assign_tab`/`assigned_tab_id`,
-`peer`, attempt fields, `competition`, `review_stage` and `qa_state`, and it may not assign, dispatch or approve. One
-field list bounds the Planner on every write path.
+It stops at execution. A Planner is refused for `status`, `status_label`, `lane`, `tab`/`assign_tab`/`assigned_tab_id`, `peer`, attempt fields, `competition`, `review_stage` and `qa_state`, and it may not assign, dispatch or approve. One field list bounds the Planner on every write path.
 
-Refusals carry a stable `data.type`: `caller_is_not_task_owner_or_plan_owner` when the caller holds no authority over
-the task at all, and a `-32003` `plan_role_authorization_required` when the binding is live but the role is not.
+Refusals carry a stable `data.type`: `caller_is_not_task_owner_or_plan_owner` when the caller holds no authority over the task at all, and a `-32003` `plan_role_authorization_required` when the binding is live but the role is not.
 
 ### `plan goal set` is a partial update
 
@@ -245,4 +227,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->
