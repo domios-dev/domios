@@ -429,7 +429,8 @@ def mux_continuous(video_dir, audio, timing_path, alignment, captions_path, outp
 
 def mux(video_dir, audio, timing_path, alignment, captions_path, output_dir, proof_dir, music=None, music_metadata=None,
         music_prepared=False, private_review=False, opening_source=None, baseline_audio_proof=None,
-        opening_source_start=2.6, opening_end=4, continuous_music_proof=None):
+        opening_source_start=2.6, opening_end=4, continuous_music_proof=None, opus_frame_duration=20):
+    require(opus_frame_duration in (10, 20), 'Unsupported Opus frame duration')
     if continuous_music_proof is not None:
         require(opening_source is None and baseline_audio_proof is None and music is not None
                 and music_metadata is not None and music_prepared,
@@ -514,6 +515,8 @@ def mux(video_dir, audio, timing_path, alignment, captions_path, output_dir, pro
             command += ['-metadata', f'comment={exported_credit["credit"]}', '-metadata', f'copyright={exported_credit["credit"]}']
         if kind == 'mp4':
             command += ['-aac_coder', 'fast', '-movflags', '+faststart']
+        else:
+            command += ['-frame_duration', str(opus_frame_duration)]
         run(command + [output_dir / video.name])
     for path in video_dir.glob('*-poster.webp'):
         shutil.copyfile(path, output_dir / path.name)
@@ -533,7 +536,7 @@ def mux(video_dir, audio, timing_path, alignment, captions_path, output_dir, pro
                  sourceMusic=dict(path=str(music.resolve()), sha256=sha256(music)) if music else None,
                  narration=timing['narration'], music=credit, loudnessFirstPass=mastering['measurement'],
                  mixGraph=graph, mixStems=stems, mastering=mastering, phraseBalance=balance,
-                 musicInput=music_input,
+                 musicInput=music_input, audioEncoding=dict(opusFrameDurationMs=opus_frame_duration),
                  **markers,
                  listening='Pending root full A/V audition and cue-boundary review')
     write_json(proof_dir / 'narration-alignment.json', proof)
@@ -553,8 +556,9 @@ if __name__ == '__main__':
     parser.add_argument('--opening-source-start', type=float, default=2.6)
     parser.add_argument('--opening-end', type=float, default=4)
     parser.add_argument('--continuous-music-proof', type=Path)
+    parser.add_argument('--opus-frame-duration', type=int, choices=(10, 20), default=20)
     args = parser.parse_args()
     mux(args.video_dir, args.audio, args.timing, args.alignment, args.captions, args.output_dir,
         args.proof_dir, args.music, args.music_metadata, args.music_prepared, args.private_review,
         args.opening_source, args.baseline_audio_proof, args.opening_source_start, args.opening_end,
-        args.continuous_music_proof)
+        args.continuous_music_proof, args.opus_frame_duration)
