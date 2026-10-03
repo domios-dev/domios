@@ -689,6 +689,27 @@ fn agent_providers_renders_the_three_valued_descriptor_field() {
 }
 
 #[test]
+fn agent_link_transfer_outcome_round_trips_through_the_existing_json_response_path() {
+    let response = serde_json::json!({
+        "status": "committed_observation_unconfirmed",
+        "receipt_id": "transfer-receipt",
+        "worker_tab_id": "worker",
+        "source_manager_tab_id": "source",
+        "destination_manager_tab_id": "destination",
+        "source_team_id": "source-team",
+        "destination_team_id": "destination-team",
+        "plan_id": "plan",
+        "task_id": "task",
+        "attempt_id": "attempt"
+    });
+
+    let parsed = parse_agent_mutation_response(reqwest::StatusCode::OK, response.to_string())
+        .expect("successful typed responses stay JSON values");
+
+    assert_eq!(parsed, response);
+}
+
+#[test]
 fn a_relative_spawn_cwd_resolves_against_the_caller_directory() {
     let caller = std::env::temp_dir().join("caller-dir-51c0");
     let resolved = caller_resolved_spawn_cwd("nested-9e", Some(caller.as_path()));
