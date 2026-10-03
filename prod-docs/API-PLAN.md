@@ -186,31 +186,17 @@ refuses with the Plan identity and creates no tab, and an explicit parent wins.
 
 ### Task-bound plan skill reads
 
-An omitted `--plan` on `codeterm plan skill` uses the authenticated caller's
-Team active plan. Inherited launch plan, task, and attempt values do not override
-that live binding. An explicit `--plan` reads the named plan without rebinding
-the Team; a read of another plan records no current-task skill-load receipt.
+An omitted `--plan` on `codeterm plan skill` uses the authenticated caller's Team active plan. Inherited launch plan, task, and attempt values do not override that live binding.
+An explicit `--plan` reads the named plan without rebinding the Team; a read of another plan records no current-task skill-load receipt.
 
-The caller supplies its tab and binding nonce. The daemon derives its session
-only when the issued and session-reported nonces match; a supplied session must
-match too. Same-plan task evidence requires exactly one current assignment and
-an exact announced content digest. Explicit task or attempt conflicts,
-ambiguous assignments, unannounced skills, and changed bytes refuse.
+The caller supplies its tab and binding nonce. The daemon derives its session only when the issued and session-reported nonces match; a supplied session must match too.
+Same-plan task evidence requires exactly one current assignment and an exact announced content digest. Explicit task or attempt conflicts, ambiguous assignments, unannounced skills, and changed bytes refuse.
 
-Dispatch announces the manifest in its brief. For a supported existing-tab
-assignment, an authenticated `codeterm agent ack` returns the current manifest
-and its brief, recording that announcement on the current attempt before a
-load can be recorded. Repeating ACK retains an existing announcement and ACK;
-it never copies predecessor loads or replaces an announced digest. A startup
-ACK can still precede runtime binding; the first ACK returns only the manifest
-already announced by dispatch. If repeated ACK finds the same attempt still
-missing its session or nonce, it refuses with
-`plan_skill_attempt_binding_missing`, the retained ACK timestamp, and the plan,
-task, and attempt identifiers. Report those identifiers to the Orchestrator for
-repair at the dispatch startup ownership boundary using retained launch
-provenance. A verified session now occupying the tab cannot establish the
-attempt's launch authority; this operation does not backfill binding or erase
-ACK. This is an explicit refusal, not a local recovery command.
+Dispatch announces the manifest in its brief. For a supported existing-tab assignment, an authenticated `codeterm agent ack` returns the current manifest and its brief, recording that announcement on the current attempt before a load can be recorded.
+Repeating ACK retains an existing announcement and ACK; it never copies predecessor loads or replaces an announced digest. A startup ACK can still precede runtime binding; the first ACK returns only the manifest already announced by dispatch.
+If repeated ACK finds the same attempt still missing its session or nonce, it refuses with `plan_skill_attempt_binding_missing`, the retained ACK timestamp, and the plan, task, and attempt identifiers.
+Report those identifiers to the Orchestrator for repair at the dispatch startup ownership boundary using retained launch provenance. A verified session now occupying the tab cannot establish the attempt's launch authority; this operation does not backfill binding or erase ACK.
+This is an explicit refusal, not a local recovery command.
 
 ### A spawned Worker is not an accepted dispatch
 
