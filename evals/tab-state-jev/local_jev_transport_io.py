@@ -553,7 +553,9 @@ def run_trust_case(case):
             try:
                 os.symlink(target, path, target_is_directory=True)
             except OSError as error:
-                raise t.TransportFailure("windows_reparse_control_unavailable") from error
+                facts = {name: value for name in ("errno", "winerror")
+                         if type(value := getattr(error, name, None)) is int and -(2 ** 31) <= value < 2 ** 32}
+                raise t.TransportFailure("windows_reparse_control_unavailable", {"reparse_creation_os": facts}) from error
         node["creation_confirmed"] = True
         entry = guard.capture(path, directory=True)
         node["entry"] = entry
