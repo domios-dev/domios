@@ -56,7 +56,8 @@
   .clip-label > svg { display: none; }
   .clip-number { font-size: 8px; }
   .showcase > .showcase-caption { min-height: 160px; }
-  .video-rail { right: 8px; bottom: 8px; left: 8px; gap: 6px; }
+  .video-rail { right: 8px; bottom: 2px; left: 8px; gap: 6px; }
+  .video-rail::before { inset-block: 0; }
   .video-time { padding-inline: 6px; font-size: 10px; }
   .video-controls { gap: 5px; }
   .caption-region { inset: 8px 34% auto 8px; justify-content: flex-start; }
