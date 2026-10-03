@@ -282,5 +282,20 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
     "retired export cleanup preserves session and completion hooks");
 }
 
+{
+  const foreign = { type: "command", command: "foreign-shared-group", timeout: 1234 };
+  const group = { matcher: "*", hooks: [...entry("", CURRENT_PRECOMPACT, "codeterm-hook-v3").hooks!, foreign] };
+  for (const operation of ["install", "uninstall"]) {
+    const files = settingsWith({ PreCompact: [group] });
+    const provider = loadClaude(files);
+    const result = operation === "install"
+      ? provider.installIntegration(7686, { consent: true, repair: true })
+      : provider.uninstallIntegration();
+    assert(result.ok === true, operation + " accepts mixed retired hook group");
+    const written = JSON.parse(files.get(SETTINGS_PATH) as string);
+    eq(written.hooks.PreCompact, [{ matcher: "*", hooks: [foreign] }], operation + " preserves foreign sibling in retired hook group");
+  }
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
