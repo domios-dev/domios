@@ -98,6 +98,17 @@ impl Drop for Registration {
 pub(in crate::sentinel) enum WaitPhase {
     Capture,
     Parent,
+    #[cfg(windows)]
+    ParentAfterEof,
+    #[cfg(windows)]
+    WindowsCapture {
+        stdout_eof: bool,
+        stderr_eof: bool,
+        stdout_pending: bool,
+        stderr_pending: bool,
+        parent_exited: bool,
+        cancel_attempted: bool,
+    },
 }
 
 #[cfg(test)]

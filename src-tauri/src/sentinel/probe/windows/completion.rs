@@ -8,7 +8,15 @@ impl WindowsRun {
             .ok_or_else(|| "probe pending process handle missing".to_string())?;
         #[cfg(test)]
         if let Some(events) = &self.events {
-            events.waiting(super::super::cancellation::WaitPhase::Parent);
+            use super::super::cancellation::WaitPhase;
+            if self.stdout.eof
+                && self.stderr.eof
+                && !self.cancel_attempted
+                && unsafe { WaitForSingleObject(process, 0) } == WAIT_TIMEOUT
+            {
+                events.waiting(WaitPhase::ParentAfterEof);
+            }
+            events.waiting(WaitPhase::Parent);
         }
         let result = if !self.cancel_attempted {
             if let Some(cancel) = self.events.as_ref().and_then(Events::event) {
@@ -113,7 +121,10 @@ impl WindowsRun {
 }
 
 impl WindowsRun {
-    pub(in crate::sentinel::probe) fn wait_event(&mut self, timeout: Option<Duration>) -> Result<bool, String> {
+    pub(in crate::sentinel::probe) fn wait_event(
+        &mut self,
+        timeout: Option<Duration>,
+    ) -> Result<bool, String> {
         if self.parent_exit_pending
             || (self.stdout.eof && self.stderr.eof && self.process.is_open())
         {
@@ -128,7 +139,16 @@ impl WindowsRun {
         let millis = timeout.map(timeout_ms).unwrap_or(u32::MAX);
         #[cfg(test)]
         if let Some(events) = &self.events {
-            events.waiting(super::super::cancellation::WaitPhase::Capture);
+            use super::super::cancellation::WaitPhase;
+            events.waiting(WaitPhase::WindowsCapture {
+                stdout_eof: self.stdout.eof,
+                stderr_eof: self.stderr.eof,
+                stdout_pending: self.stdout.pending_active,
+                stderr_pending: self.stderr.pending_active,
+                parent_exited: self.parent_exited,
+                cancel_attempted: self.cancel_attempted,
+            });
+            events.waiting(WaitPhase::Capture);
         }
         let succeeded = unsafe {
             GetQueuedCompletionStatus(port, &mut bytes, &mut key, &mut overlapped, millis)
