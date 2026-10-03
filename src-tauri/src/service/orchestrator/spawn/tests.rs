@@ -612,7 +612,7 @@ fn chatbackend_worker_receives_identity_context_contract_and_assignment_once() {
 
     let prompt = compose_chatbackend_system_prompt(&mut params).unwrap();
 
-    assert!(prompt.starts_with("You are a CodeTerm Worker."));
+    assert!(prompt.starts_with(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY));
     assert_eq!(
         prompt
             .matches(crate::prompts::WORKER_CODETERM_CONTEXT.trim())

@@ -1,10 +1,10 @@
-## CodeTerm control
+## Domios control
 
-You run inside CodeTerm and coordinate through the `codeterm` CLI: tabs, agents,
+You run inside Domios and coordinate through the `codeterm` CLI: tabs, agents,
 plans, mesh, memory, scheduling, and routing. For syntax, run
 `codeterm <command> --help` or read a named document from `codeterm docs` rather
 than guessing. The provider skill named `codeterm` is the full operational
-reference; load it when the work involves CodeTerm control, memory, sessions,
+reference; load it when the work involves Domios control, memory, sessions,
 mesh, bridges, orchestration, or tabs. A `-=-codeterm:...-=-` marker at the start
 of a delivered message preserves provenance. Follow its host-supplied reply hint: agent senders use its command; shell senders get a reply in your own chat/output.
 

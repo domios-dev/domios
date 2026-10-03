@@ -1,10 +1,10 @@
 # Prompts
-How CodeTerm ships instructions to LLM agents: where prompt files live, how they are compiled and injected, and how to edit them safely.
+How Domios ships instructions to LLM agents: where prompt files live, how they are compiled and injected, and how to edit them safely.
 
 ## Overview
-Every system-level prompt in CodeTerm is compiled into the binary via `include_str!()`. There is no runtime prompt store and no hot-reload — **editing a prompt requires a rebuild**. Prompt fragments live under `src-tauri/prompts/`; the complete Orchestrator and Planner manuals remain canonical in `prod-docs/ORCHESTRATION.md` and `prod-docs/PLANNER.md` and are embedded into their startup contracts. Loaders are split by ownership: the app catalog is `src-tauri/src/prompts.rs`, plan worker fragments are in `codeterm-plan`, memory prompts and private seed constants are in `codeterm-mem`, and the provider bridge rule is also loaded by `codeterm-plugin`.
+Every system-level prompt in Domios is compiled into the binary via `include_str!()`. There is no runtime prompt store and no hot-reload — **editing a prompt requires a rebuild**. Prompt fragments live under `src-tauri/prompts/`; the complete Orchestrator and Planner manuals remain canonical in `prod-docs/ORCHESTRATION.md` and `prod-docs/PLANNER.md` and are embedded into their startup contracts. Loaders are split by ownership: the app catalog is `src-tauri/src/prompts.rs`, plan worker fragments are in `codeterm-plan`, memory prompts and private seed constants are in `codeterm-mem`, and the provider bridge rule is also loaded by `codeterm-plugin`.
 
-**One in-binary prompt location.** Every prompt the project owns and ships with CodeTerm lives here:
+**One in-binary prompt location.** Every prompt the project owns and ships with Domios lives here:
 
 1. **`src-tauri/prompts/`** — all in-binary prompt sources. Loaded via `include_str!()` by the owning app or crate module. Includes the GA system prompt, role suffixes, framework rules, bridge memory protocol, cron suffixes, seed prompts, AND every memory-worker prompt (extraction, REM dreaming, reranking, worker preamble).
 
@@ -28,7 +28,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `interactive_child_pty.md` | `INTERACTIVE_CHILD_PTY_OPERATION` | Shared child PTY recovery procedure | — | `service/general_agent/instructions.rs`, `prompts.rs`, and `commands/skills.rs` — delivered to the General Agent and codeterm skill; the Orchestrator trigger refers to it by capability id |
 | `bootstrap_instructions.md` | `BOOTSTRAP_INSTRUCTIONS_TEMPLATE` | First-run onboarding | — | `service/general_agent/instructions.rs` — written to `bootstrap.md` once, deleted after GA completes onboarding |
 | `agent_codeterm_primer.md` | `AGENT_CODETERM_PRIMER` | Spawned-agent system primer, including the task test/QA lifecycle boundary | — | `service/orchestrator/prompt_compose.rs` — prepended once before assignment and role contract for PTY and ChatBackend launches |
-| `worker_codeterm_context.md` | `WORKER_CODETERM_CONTEXT` | Worker CodeTerm context | — | `service/orchestrator/prompt_compose.rs` — injected once into Worker launches before assignment work |
+| `worker_codeterm_context.md` | `WORKER_CODETERM_CONTEXT` | Worker Domios context | — | `service/orchestrator/prompt_compose.rs` — injected once into Worker launches before assignment work |
 | `rich_rendering_guidance.md` | `RICH_RENDERING_GUIDANCE` | Shared rendering capability | — | `service/orchestrator/prompt_compose.rs` — included for capable spawned agents |
 | `agent_pad_rule.md` | `AGENT_PAD_RULE` | Shared AgentPad contract — the one semantic source | — | `service/orchestrator/prompt_compose.rs` for every spawned class; `service/general_agent/instructions.rs` (`general_cli_reference`) for the GA; `commands/skills.rs` renders it into the `codeterm` skill via `{agent_pad_rule}` |
 | `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs` and `service/spawn.rs` — appended when spawned with `--role Worker` |
@@ -38,8 +38,8 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `planning_compaction.md` | `PLANNING_COMPACTION_CONTRACT` | Shared planning fragment | — | `prompts.rs` — substituted into both `planner_suffix.md` and `orchestrator_suffix.md` so the role that cuts a task graph and the role that judges it share one decomposition contract |
 | `team_creation_contract.md` | `TEAM_CREATION_CONTRACT` | Shared Team-boundary fragment | — | `prompts.rs` — substituted into both `planner_suffix.md` and `orchestrator_suffix.md` so the role that can create agents and the role that must ask for them share one contract |
 | `task_sequencing_contract.md` | `TASK_SEQUENCING_CONTRACT` | Orchestrator sequencing fragment | — | `prompts.rs` — substituted into `orchestrator_suffix.md`: which tasks are actionable, group regression and retrospective records, and the rare plan-level pause |
-| `planner_suffix.md` | `PLANNER_SUFFIX` | Compact role prefix | `{test_author_guidance}` `{planning_compaction_contract}` `{team_creation_contract}` | `prompts.rs` — rendered before the complete embedded `prod-docs/PLANNER.md`; delivered through the provider's system-prompt channel or CodeTerm system-message fallback |
-| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Compact role prefix | `{task_sequencing_contract}` `{planning_compaction_contract}` `{team_creation_contract}` `{child_pty_recovery_trigger}` | `prompts.rs` — rendered before the complete embedded `prod-docs/ORCHESTRATION.md`; delivered through the provider's system-prompt channel or CodeTerm system-message fallback |
+| `planner_suffix.md` | `PLANNER_SUFFIX` | Compact role prefix | `{test_author_guidance}` `{planning_compaction_contract}` `{team_creation_contract}` | `prompts.rs` — rendered before the complete embedded `prod-docs/PLANNER.md`; delivered through the provider's system-prompt channel or Domios system-message fallback |
+| `orchestrator_suffix.md` | `ORCHESTRATOR_SUFFIX` | Compact role prefix | `{task_sequencing_contract}` `{planning_compaction_contract}` `{team_creation_contract}` `{child_pty_recovery_trigger}` | `prompts.rs` — rendered before the complete embedded `prod-docs/ORCHESTRATION.md`; delivered through the provider's system-prompt channel or Domios system-message fallback |
 | `orchestrator_onboarding.md` | `ORCHESTRATOR_ONBOARDING` | Promotion onboarding | `{planner_spawn_cmd}` `{orchestrator_suffix}` | `service/orchestrator_onboard.rs` — delivered when an existing agent tab becomes Orchestrator |
 | `manager_bootstrap.md` | `MANAGER_BOOTSTRAP_TEMPLATE` | Team manager bootstrap | role/team/plan/project placeholders | `service/role_identity.rs` — shared manager identity rendered before launch delivery |
 | `team_bootstrap_starter.md` | `TEAM_BOOTSTRAP_STARTER` | Provider-visible team wake-up turn | — | `codeterm-plugin` host injects one shared starter into every provider launch |
@@ -96,7 +96,7 @@ Four of the prompts above (`worker_task_preamble`, `mem_extraction`, `dreaming_r
 - **`worker_task_preamble.md`** — wrapper applied by `workers::build_worker_task()` to every headless memory worker. Sets the "you are a Graph Worker" framing, tells the worker how to call back via `codeterm mem worker progress|report`, then injects the inner `{task}`.
 - **`mem_extraction.md`** — inner task body for the auto-extraction worker spawned on `mem save` unless `skip_extract` is set. The code excludes only `MemKind::Summary`; all other kinds are eligible. Worker extracts people, projects, decisions, problems, area; calls back via `codeterm mem graph` commands. The body is truncated to 50,000 chars before substitution.
 - **`dreaming_rem.md`** — inner task body for REM, the only LLM-driven dreaming phase; Light, Deep, Normalize, and Calibration run as server-side SQL in `mem_dream` before `dreaming::spawn_rem_worker()` fires it. The bundled `mem-dreaming-auto` cron triggers it daily (see RUNTIME-CONFIG). A capped stage checklist opens it; it uses CLI JSON only, never scripts: a hidden run cannot answer approvals. Stages: A structural cleanup (A.1 from hub `clusters`; A.3 merges duplicates with the reversible `mem merge`, never `mem delete`), B diary + worker report listing merged and archived ids with reasons, C maintenance, D read-only calibration summary. The supervisor runs the calibration sweep and gated stale archive; STAGE D only reads `mem calibration log`. Server-side gates and caps: `codeterm docs API-MEMORY`.
-- **`mem_rerank.md`** — sent via raw `reqwest` POST from `mem/rerank.rs` to `api.anthropic.com/v1/messages` (`call_anthropic`) or the OpenAI equivalent. The only place in CodeTerm that talks to a model API directly. Used when search needs higher precision than FTS5 + vector cosine alone. The `{items}` placeholder is built in Rust by formatting each `SearchHit` and joining them.
+- **`mem_rerank.md`** — sent via raw `reqwest` POST from `mem/rerank.rs` to `api.anthropic.com/v1/messages` (`call_anthropic`) or the OpenAI equivalent. The only place in Domios that talks to a model API directly. Used when search needs higher precision than FTS5 + vector cosine alone. The `{items}` placeholder is built in Rust by formatting each `SearchHit` and joining them.
 
 ## Plugin-spawned agent prompts
 
@@ -126,7 +126,7 @@ it speaks with no payload. Occasions:
 | Occasion | Injection point | Fragments | Declared fallback |
 |---|---|---|---|
 | `launch_assignment` | `service/orchestrator/prompt_compose.rs` | contract (`builtin`/`inherited_base` + `disk_overlay`) | the assignment alone |
-| `worker_launch_identity` | `service/orchestrator/prompt_compose.rs` | `task_overlay` only | `You are a CodeTerm Worker.` |
+| `worker_launch_identity` | `service/persona/occasion.rs` | `task_overlay` only | `You are a Domios Worker.` |
 | `manager_bootstrap` | `service/role_identity.rs` | contract | `planner_suffix.md` |
 
 Every occasion declares a fallback, and an unmatched `(occasion, kind)` pair
