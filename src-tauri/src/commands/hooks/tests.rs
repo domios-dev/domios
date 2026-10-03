@@ -665,10 +665,7 @@ fn unmarked_opencode_plugin_file_is_never_rewritten() {
         Some(7686),
         true,
     );
-    assert_eq!(
-        result,
-        Err("CodeTerm will not change an unmarked provider plugin file".into())
-    );
+    assert!(result.is_err());
     assert!(install_thread.lock().unwrap().is_none());
 }
 

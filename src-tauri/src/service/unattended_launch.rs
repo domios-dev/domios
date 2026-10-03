@@ -134,7 +134,7 @@ pub(crate) fn preflight(
     }
     let supported = mode.capability.unattended_mode_models.join(", ");
     let need = if launch.managing() {
-        "coordinates through CodeTerm commands on every turn".to_string()
+        "coordinates through Domios commands on every turn".to_string()
     } else {
         format!("must run {} unattended", owed.join(", "))
     };
