@@ -4,7 +4,8 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { AutomationGraphView } from "./AutomationGraphView";
 import { attachment, fixtureGraph, fixtureNode, FixtureTransport, identity, multiScenarioGraph, sentinelIdentity } from "./fixtures.testdata";
-import { automationKey, type AutomationGraph } from "./types";
+import { automationKey, type AutomationGraph, type CommandResultMetadata } from "./types";
+import { COMMAND_FACT, commandResultLabel } from "./CommandResultDetails";
 import { layoutAutomationGraph } from "./layout";
 import { scopedAutomationGraph } from "./model";
 import { computeFitTransform, formatLayerTransform } from "../Canvas/useCanvasViewport";
@@ -331,6 +332,43 @@ test("details Escape stays inside the graph and returning to Sentinels restores 
     window.removeEventListener("keydown", listener as never);
     await view.close();
   }
+});
+
+test("authoritative event replaces the selected command result and execution without reselection", async () => {
+  const transport = new FixtureTransport();
+  const capture = { total_bytes: 3, retained_bytes: 3, truncated: false };
+  const success: CommandResultMetadata = { status: "success", exit_code: 0, resources_confirmed: true, stdout: capture, stderr: capture, started_at: 100001, finished_at: 100010 };
+  const withCommand = (execution_id: string, status: string, command_result: CommandResultMetadata): AutomationGraph => {
+    const graph = fixtureGraph();
+    const result = { status, execution_id, accepted_at: 100000, command_result };
+    const handler = { id: "marker", type: "command", target: null, availability: "available" as const, label: "Write marker", timeout_ms: 1000, last_result: result };
+    return { ...graph, revision: execution_id, nodes: graph.nodes.map((node) => node.identity.kind === "sentinel" ? { ...node, outcomes: [...node.outcomes, { bucket: "command-outcome", handlers: [handler] }], last_result: { bucket: "command-outcome", accepted_at: 100000, handlers: [{ ...result, handler_id: handler.id }] } } : node) };
+  };
+  const commandFacts = (host: HTMLElement) => {
+    const list = Array.from(details(host).querySelectorAll('ul[aria-label="Last accepted handler results"] dl')).find((entry) => entry.getAttribute("aria-label") === commandResultLabel("marker"));
+    assert.ok(list, "selected node renders its accepted command result");
+    return { row: list.closest("li"), facts: new Map(Array.from(list.querySelectorAll("dt")).map((term) => [term.textContent, term.nextElementSibling?.textContent])) };
+  };
+  transport.graph = withCommand("command-execution-a", "completed", success);
+  const view = await mount(transport);
+  try {
+    await click(button(view.host, "Watcher A"));
+    const panel = details(view.host);
+    assert.equal(commandFacts(view.host).facts.get(COMMAND_FACT.outcome), "success");
+    assert.ok(commandFacts(view.host).row?.textContent?.includes("command-execution-a"));
+    assert.equal(document.activeElement, panel);
+    view.transport.graph = withCommand("command-execution-b", "failed", { ...success, status: "nonzero", exit_code: 7 });
+    await act(async () => { view.transport.changed!(); });
+    assert.equal(details(view.host), panel, "the same details region stays mounted");
+    assert.equal(document.activeElement, panel, "focus is preserved across the authoritative refresh");
+    assert.equal(view.host.querySelector(`[aria-label^="sentinel: Watcher A"]`)?.getAttribute("aria-pressed"), "true");
+    const { row, facts } = commandFacts(view.host);
+    assert.equal(facts.get(COMMAND_FACT.outcome), "nonzero");
+    assert.equal(facts.get(COMMAND_FACT.exit), "7");
+    assert.ok(row?.textContent?.includes("command-execution-b"));
+    assert.ok(!details(view.host).textContent?.includes("command-execution-a"), "the previous execution is not retained");
+    assert.equal(view.transport.reads, 2);
+  } finally { await view.close(); }
 });
 
 let finished = false;
