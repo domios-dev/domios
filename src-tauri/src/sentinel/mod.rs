@@ -13,3 +13,6 @@ mod connected_tests;
 
 #[cfg(test)]
 mod provenance_tests;
+
+#[cfg(test)]
+mod handlers_tests;
