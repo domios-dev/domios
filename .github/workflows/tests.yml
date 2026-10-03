@@ -32,7 +32,7 @@ on:
       rust_boundary:
         description: Fixed Windows task boundary; ignored by other scopes
         type: choice
-        options: [none, cantor-red, cantor-green, auditor-red, auditor-green, both-red, both-green]
+        options: [none, cantor-red, cantor-green, auditor-red, auditor-green, both-red, both-green, lookout-green]
         default: none
         required: true
       cache_session_opt_in:
@@ -1169,6 +1169,37 @@ jobs:
             $resolution.selected = $selected
           }
           function Resolve-TaskLocalBoundary {
+            if ($env:TASK_BOUNDARY -eq 'lookout-green') {
+              return @(
+                @{
+                  selector = 'sentinel::probe::tests::'; mode = 'green'; owner = 'lookout'
+                  log_stem = 'lookout-sentinel-probe-controls'; expected_module = 'sentinel::probe::tests::'
+                  expected_suffixes = @(
+                    'sentinel_probe_owner_retirement_refuses_signal'
+                    'sentinel_probe_windows_assigns_before_resume'
+                    'sentinel_probe_capture_failure_cannot_return_output'
+                    'sentinel_probe_original_deadline_is_not_renewed'
+                    'sentinel_probe_owner_capacity_refuses_before_spawn'
+                    'sentinel_probe_owner_close_refuses_and_requests_cleanup'
+                    'sentinel_probe_owner_drop_closes_without_retained_arc_cycle'
+                    'sentinel_probe_owner_signalled_event_releases_exact_slot'
+                    'sentinel_probe_owner_unresolved_slot_does_not_starve_settled_slot'
+                    'sentinel_probe_owner_callback_observes_state_without_owner_lock'
+                    'sentinel_probe_windows_permanent_close_uncertainty_is_retained'
+                  )
+                }
+                @{
+                  selector = 'sentinel_probe_native_'; mode = 'green'; owner = 'lookout'
+                  log_stem = 'lookout-sentinel-probe-native'; expected_module = 'sentinel::probe::native_tests::'
+                  expected_suffixes = @(
+                    'sentinel_probe_native_success_and_nonzero'
+                    'sentinel_probe_native_output_is_bounded_and_drained'
+                    'sentinel_probe_native_windows_preexecution_containment'
+                    'sentinel_probe_native_cancelled_capture_settles'
+                  )
+                }
+              )
+            }
             if ($env:TASK_BOUNDARY -notmatch '^(cantor|auditor|both)-(red|green)$') { throw 'invalid_task_boundary' }
             $pair = $Matches[1]
             $mode = $Matches[2]
@@ -1187,17 +1218,53 @@ jobs:
             $summaries = [regex]::Matches($text, '(?m)^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out; finished in ([0-9.]+)s\r?$')
             $results = [regex]::Matches($text, '(?m)^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED|ignored)\r?$')
             $row.passed = 0; $row.failed = 0; $row.ignored = 0; $row.filtered_out = 0
+            $row.measured = 0
             $row.libtest_seconds = 0.0
             foreach ($summary in $summaries) {
               $row.passed += [int]$summary.Groups[2].Value
               $row.failed += [int]$summary.Groups[3].Value
               $row.ignored += [int]$summary.Groups[4].Value
+              $row.measured += [int]$summary.Groups[5].Value
               $row.filtered_out += [int]$summary.Groups[6].Value
               $row.libtest_seconds += [double]::Parse($summary.Groups[7].Value, [Globalization.CultureInfo]::InvariantCulture)
-              if ([int]$summary.Groups[5].Value -ne 0) { throw 'unexpected_measured_cases' }
+              if ($row.measured -ne 0) { throw 'unexpected_measured_cases' }
             }
             $row.selected = $row.passed + $row.failed + $row.ignored
             $row.function_results = @($results | ForEach-Object { $_.Value })
+            if ($row.owner -eq 'lookout') {
+              $row.actual_tests = @($results | ForEach-Object {
+                $fullName = $_.Groups[1].Value
+                $suffix = $null
+                if ($fullName.StartsWith($row.expected_module, [StringComparison]::Ordinal)) {
+                  $suffix = $fullName.Substring($row.expected_module.Length)
+                }
+                [ordered]@{ full_name = $fullName; suffix = $suffix; outcome = $_.Groups[2].Value }
+              })
+              if ($summaries.Count -ne 1) { throw 'lookout_summary_count_mismatch' }
+              if ($summaries[0].Groups[1].Value -cne 'ok' -or $row.exit_code -ne 0) { throw 'lookout_raw_process_or_summary_failure' }
+              if ($row.selector -ceq 'sentinel::probe::tests::') {
+                $expectedCount = 11
+                $expectedModule = 'sentinel::probe::tests::'
+              } elseif ($row.selector -ceq 'sentinel_probe_native_') {
+                $expectedCount = 4
+                $expectedModule = 'sentinel::probe::native_tests::'
+              } else {
+                throw 'lookout_selector_unknown'
+              }
+              if ($row.expected_module -cne $expectedModule -or $row.expected_suffixes.Count -ne $expectedCount -or $row.expected_full_names.Count -ne $expectedCount) { throw 'lookout_expected_receipt_invalid' }
+              if (@($row.expected_suffixes | Select-Object -Unique).Count -ne $expectedCount) { throw 'lookout_duplicate_expected_suffix' }
+              if ($row.selected -ne $expectedCount -or $row.passed -ne $expectedCount -or $row.failed -ne 0 -or $row.ignored -ne 0 -or $row.measured -ne 0 -or $row.actual_tests.Count -ne $expectedCount) { throw 'lookout_selection_counts_mismatch' }
+              $actualFullNames = @($row.actual_tests | ForEach-Object { $_.full_name })
+              if (@($actualFullNames | Select-Object -Unique).Count -ne $actualFullNames.Count) { throw 'lookout_duplicate_full_name' }
+              foreach ($actual in $row.actual_tests) {
+                if ($row.expected_full_names -cnotcontains $actual.full_name -or $actual.outcome -cne 'ok') { throw 'lookout_unknown_or_failed_test' }
+              }
+              foreach ($expectedSuffix in $row.expected_suffixes) {
+                if (@($row.actual_tests | Where-Object { $_.suffix -ceq $expectedSuffix -and $_.outcome -ceq 'ok' }).Count -ne 1) { throw 'lookout_suffix_missing_duplicate_or_not_ok' }
+              }
+              $row.outcome = 'passed'
+              return
+            }
             if ($summaries.Count -ne 1 -or $results.Count -ne 1 -or $row.selected -ne 1 -or $row.ignored -ne 0) { throw 'unqualified_test_selection' }
             if ($results[0].Groups[1].Value -notmatch ('::' + [regex]::Escape($row.selector) + '$')) { throw 'unexpected_selected_function' }
             if ($row.mode -eq 'green') {
@@ -1213,12 +1280,18 @@ jobs:
             }
           }
           function Invoke-TaskLocalCase($case) {
-            $logPath = Join-Path $receiptDir ($case.selector + '.log')
+            $logName = if ($case.owner -eq 'lookout') { $case.log_stem } else { $case.selector }
+            $logPath = Join-Path $receiptDir ($logName + '.log')
             $row = [ordered]@{
               selector = $case.selector; owner = $case.owner; mode = $case.mode
               command = @($pwsh, '-NoProfile', '-File', '.\build.ps1', 'test-one', 'app', $case.selector)
               phase = 'running'; outcome = 'unqualified'; exit_code = $null
               wall_seconds = $null; log = $logPath
+            }
+            if ($case.owner -eq 'lookout') {
+              $row.expected_module = $case.expected_module
+              $row.expected_suffixes = @($case.expected_suffixes)
+              $row.expected_full_names = @($case.expected_suffixes | ForEach-Object { $case.expected_module + $_ })
             }
             $receipt.cases += $row
             Write-TaskLocalReceipt
@@ -1279,6 +1352,20 @@ jobs:
             $paths = @('.github/workflows/tests.yml', 'build.ps1', 'build.sh', 'scripts/test-capped.sh')
             if ($cases.owner -contains 'cantor') { $paths += @('src-tauri/src/socket/server/plan_mode/attempt_binding/tests.rs', 'src-tauri/src/service/plan_authority/tests.rs') }
             if ($cases.owner -contains 'auditor') { $paths += @('src-tauri/src/service/supporter_tab_state/safe_response/qualified_tests.rs', 'src-tauri/src/service/directory_trust/tests.rs') }
+            if ($cases.owner -contains 'lookout') {
+              $paths += @(
+                'src-tauri/Cargo.toml'
+                'src-tauri/src/sentinel/probe.rs'
+                'src-tauri/src/sentinel/probe/capture.rs'
+                'src-tauri/src/sentinel/probe/native_tests.rs'
+                'src-tauri/src/sentinel/probe/owner.rs'
+                'src-tauri/src/sentinel/probe/process.rs'
+                'src-tauri/src/sentinel/probe/tests.rs'
+                'src-tauri/src/sentinel/probe/unix.rs'
+                'src-tauri/src/sentinel/probe/windows.rs'
+                'src-tauri/src/sentinel/scheduler.rs'
+              )
+            }
             foreach ($path in $paths) { $receipt.inputs += @{ path = $path; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash } }
             if ($env:CACHE_SESSION_OPT_IN -eq 'true') {
               if ($env:CACHE_SESSION_DEADLINE_TICKS -notmatch '^\d+$') { throw 'cache_session_deadline_missing' }
