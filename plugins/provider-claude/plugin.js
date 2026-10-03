@@ -1634,7 +1634,8 @@ function claudeOnboardingPrompt(screen) {
     question,
     options: options.map((option) => [option.label, option.number]),
     frameKey: `onboarding:focus-${current}:target-${target}`,
-    step
+    step,
+    safeChoice: options[target].number
   };
 }
 function claudeOnboardingNotNowStep(screen) {
@@ -1988,6 +1989,9 @@ var plugin = {
   },
   launchOnboardingResponse(screen) {
     return claudeOnboardingNotNowStep(screen);
+  },
+  launchOnboardingSafeChoice(screen) {
+    return claudeOnboardingPrompt(screen)?.safeChoice ?? null;
   },
   permissionPromptResponse(toolName, prompt, screen) {
     return claudePermissionPromptResponse(toolName, prompt, screen);
