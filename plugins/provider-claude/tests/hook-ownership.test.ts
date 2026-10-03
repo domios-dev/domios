@@ -268,5 +268,19 @@ function settingsWith(hooks: Record<string, Entry[]>): Map<string, string> {
   "hook commands contain no instance host or port");
 }
 
+{
+  const foreign = foreignEntry("PreCompact");
+  const owned = entry("", CURRENT_PRECOMPACT, "codeterm-hook-v3");
+  const files = settingsWith({ PreCompact: [owned, foreign] });
+  const provider = loadClaude(files);
+  assert(provider.installIntegration(7686, {
+    consent: true, precompact_memory_export: true, repair: true,
+  }).ok === true, "retired export cleanup installs normal hooks");
+  const written = JSON.parse(files.get(SETTINGS_PATH) as string);
+  eq(written.hooks.PreCompact, [foreign], "retired export removes only the owned PreCompact hook");
+  assert(written.hooks.SessionStart.length > 0 && written.hooks.Stop.length > 0,
+    "retired export cleanup preserves session and completion hooks");
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
