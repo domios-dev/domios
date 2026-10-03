@@ -60,7 +60,10 @@ HARD_CUTS = {4: 'Desktop establishing view to recorded app; same source frame16'
 def timed_shots(timing):
     groups = [[0], [1], [2], [3], [4], [5], [6, 7], [8], [9], [10], [11], [12], [13]]
     edits = []
-    for cue, indices in zip(timing['cues'], groups):
+    cues = timing['cues']
+    require(len(cues) in (13, 14), 'Unsupported picture episode count')
+    indexed_cues = cues if len(cues) == 13 else cues[:12] + cues[13:]
+    for cue, indices in zip(indexed_cues, groups):
         total = cue['visualEnd'] - cue['visualStart']
         for part, index in enumerate(indices):
             edit = SHOTS[index].copy()
@@ -70,6 +73,12 @@ def timed_shots(timing):
             if index in (1, 5, 6, 7):
                 edit['end'] = edit['start'] + min(edit['duration'], 4 if index in (1, 5) else 2)
             edits.append(edit)
+    if len(cues) == 14:
+        cue = cues[12]
+        edits.insert(-1, shot('Shared Memory', cue['visualStart'], cue['visualEnd'] - cue['visualStart'],
+                              'memory', 6.2, 6.2 + cue['visualEnd'] - cue['visualStart'],
+                              (0, 0, 1), (0, 0, 1), scene='memory'))
+        edits[-2]['cueId'] = cue['id']
     board_at = timing['cues'][2]['visualStart']
     board_duration = timing['cues'][3]['visualEnd'] - board_at
     for edit in edits:
