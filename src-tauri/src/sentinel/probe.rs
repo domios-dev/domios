@@ -13,6 +13,9 @@ pub const PROBE_RUNTIME: Duration = Duration::from_secs(10);
 pub const PROBE_RUNTIME: Duration = Duration::from_secs(3);
 pub const MAX_OUTPUT_BYTES: usize = 65_536;
 
+#[cfg(test)]
+mod tests;
+
 #[derive(Debug)]
 pub struct Output {
     pub bytes: Vec<u8>,
@@ -203,13 +206,18 @@ impl Process {
         }
         self.terminated = true;
         #[cfg(unix)]
-        unsafe {
-            libc::kill(-(self.child.id() as i32), libc::SIGKILL);
-        }
+        self.terminate_group_with(|pgid| unsafe {
+            libc::kill(pgid, libc::SIGKILL);
+        });
         #[cfg(windows)]
         unsafe {
             windows_sys::Win32::System::JobObjects::TerminateJobObject(self.job, 1);
         }
+    }
+
+    #[cfg(unix)]
+    fn terminate_group_with(&mut self, signal: impl FnOnce(i32)) {
+        signal(-(self.child.id() as i32));
     }
 }
 
