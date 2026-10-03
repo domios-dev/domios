@@ -500,7 +500,7 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "about" && (
-              <SettingsPage title="Check for updates" subtitle="Version, updates, and creator.">
+              <SettingsPage title="Check for updates">
                 <div className="text-center py-4">
                   <img src={logoUrl} alt="Domios" width="64" height="64" className="rounded-xl mb-3 mx-auto" data-testid="settings-about-logo" />
                   <div className="text-xl font-bold text-[var(--ct-fg)]">Domios</div>
