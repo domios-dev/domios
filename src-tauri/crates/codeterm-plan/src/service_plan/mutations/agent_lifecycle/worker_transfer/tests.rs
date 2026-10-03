@@ -3,7 +3,6 @@ use crate::plan::{OrchestratorRef, Plan, TaskExecutionAttempt, TaskLaneMetadata}
 use crate::service_plan::NewTask;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
-use std::time::Duration;
 
 fn fixture() -> (tempfile::TempDir, PlanStore, VerifiedWorkerTransferBinding) {
     let directory = tempfile::tempdir().unwrap();
@@ -86,6 +85,114 @@ fn fixture() -> (tempfile::TempDir, PlanStore, VerifiedWorkerTransferBinding) {
     (directory, store, binding)
 }
 
+fn second_plan_with_unrelated_lane(
+    directory: &tempfile::TempDir,
+    store: &PlanStore,
+) -> (String, String) {
+    let mut plan = Plan::new(
+        "unrelated transfer plan".into(),
+        directory.path().display().to_string(),
+        OrchestratorRef::from_tab("other-owner"),
+    );
+    plan.team_id = Some("other-team".into());
+    store.save(&mut plan, 5).unwrap();
+    let task_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "unrelated assigned task".into(),
+                kind: "implement".into(),
+                ..Default::default()
+            },
+            6,
+        )
+        .unwrap();
+    let plan_id = plan.id;
+    let worktree_path = directory.path().join("other-lane").display().to_string();
+    store
+        .with_plan(&plan_id, 7, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.status = TaskStatus::InProgress;
+            task.lane = TaskLaneMetadata {
+                tab_id: Some("other-worker".into()),
+                workspace_id: Some("other-workspace".into()),
+                worktree_path: Some(worktree_path),
+                branch: Some("lane/other-worker".into()),
+                base: Some("other-base".into()),
+                ..Default::default()
+            };
+            Ok(())
+        })
+        .unwrap();
+    (plan_id, task_id)
+}
+
+fn assert_cross_plan_ownership_duplicate_refused(
+    mutate_second_task: impl FnOnce(&mut Plan, &VerifiedWorkerTransferBinding, &str),
+) {
+    let (directory, store, binding) = fixture();
+    let (second_plan_id, second_task_id) = second_plan_with_unrelated_lane(&directory, &store);
+    let first_positive_record = store.get(&binding.plan_id).unwrap();
+    let second_positive_record = store.get(&second_plan_id).unwrap();
+    let positive_callback = AtomicBool::new(false);
+
+    store
+        .with_verified_worker_transfer_binding(&binding, || {
+            positive_callback.store(true, Ordering::Release);
+        })
+        .unwrap();
+
+    assert!(positive_callback.load(Ordering::Acquire));
+    assert_eq!(store.get(&binding.plan_id).unwrap(), first_positive_record);
+    assert_eq!(store.get(&second_plan_id).unwrap(), second_positive_record);
+    store
+        .with_plan(&second_plan_id, 8, |plan| {
+            mutate_second_task(plan, &binding, &second_task_id);
+            Ok(())
+        })
+        .unwrap();
+
+    let first_before_refusal = store.get(&binding.plan_id).unwrap();
+    let second_before_refusal = store.get(&second_plan_id).unwrap();
+    let refusal_callback = AtomicBool::new(false);
+    assert!(store
+        .with_verified_worker_transfer_binding(&binding, || {
+            refusal_callback.store(true, Ordering::Release);
+        })
+        .is_err());
+
+    assert!(!refusal_callback.load(Ordering::Acquire));
+    assert_eq!(store.get(&binding.plan_id).unwrap(), first_before_refusal);
+    assert_eq!(store.get(&second_plan_id).unwrap(), second_before_refusal);
+}
+
+fn assert_fence_refusal_preserves_plan(
+    mutate_plan: impl FnOnce(&mut Plan, &VerifiedWorkerTransferBinding),
+) {
+    let (_directory, store, binding) = fixture();
+    store
+        .with_plan(&binding.plan_id, 8, |plan| {
+            mutate_plan(plan, &binding);
+            Ok(())
+        })
+        .unwrap();
+    let before = store.get(&binding.plan_id).unwrap();
+    let callback_called = AtomicBool::new(false);
+
+    assert!(store
+        .with_verified_worker_transfer_binding(&binding, || {
+            callback_called.store(true, Ordering::Release);
+        })
+        .is_err());
+
+    assert!(!callback_called.load(Ordering::Acquire));
+    assert_eq!(store.get(&binding.plan_id).unwrap(), before);
+}
+
 #[test]
 fn transfer_fence_commits_only_mux_and_preserves_the_whole_plan_record() {
     let (_directory, store, binding) = fixture();
@@ -103,46 +210,54 @@ fn transfer_fence_commits_only_mux_and_preserves_the_whole_plan_record() {
 }
 
 #[test]
-fn transfer_fence_refuses_duplicate_assignment_and_lane_without_committing() {
-    let (_directory, store, binding) = fixture();
-    store
-        .add_task(
-            &binding.plan_id,
-            NewTask {
-                name: "duplicate lane".into(),
-                kind: "implement".into(),
-                ..Default::default()
-            },
-            5,
-        )
-        .unwrap();
-    store
-        .with_plan(&binding.plan_id, 6, |plan| {
-            let duplicate = plan.tasks.last_mut().unwrap();
-            duplicate.status = TaskStatus::InProgress;
-            duplicate.assigned_tab_id = Some(binding.worker_tab_id.clone());
-            duplicate.lane.tab_id = Some(binding.worker_tab_id.clone());
-            duplicate.lane.workspace_id = Some(binding.workspace_id.clone());
-            duplicate.lane.worktree_path = Some(binding.worktree_path.clone());
-            duplicate.execution_attempts.push(TaskExecutionAttempt {
-                id: "duplicate-attempt".into(),
+fn transfer_fence_refuses_duplicate_assignment_in_another_plan() {
+    assert_cross_plan_ownership_duplicate_refused(|plan, binding, task_id| {
+        plan.tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap()
+            .assigned_tab_id = Some(binding.worker_tab_id.clone());
+    });
+}
+
+#[test]
+fn transfer_fence_refuses_duplicate_lane_tab_in_another_plan() {
+    assert_cross_plan_ownership_duplicate_refused(|plan, binding, task_id| {
+        plan.tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap()
+            .lane
+            .tab_id = Some(binding.worker_tab_id.clone());
+    });
+}
+
+#[test]
+fn transfer_fence_refuses_duplicate_worktree_in_another_plan() {
+    assert_cross_plan_ownership_duplicate_refused(|plan, binding, task_id| {
+        plan.tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap()
+            .lane
+            .worktree_path = Some(binding.worktree_path.clone());
+    });
+}
+
+#[test]
+fn transfer_fence_refuses_duplicate_open_attempt_in_another_plan() {
+    assert_cross_plan_ownership_duplicate_refused(|plan, binding, task_id| {
+        plan.tasks
+            .iter_mut()
+            .find(|task| task.id == task_id)
+            .unwrap()
+            .execution_attempts
+            .push(TaskExecutionAttempt {
+                id: "other-open-attempt".into(),
                 executor_tab_id: binding.worker_tab_id.clone(),
-                closed_at: None,
                 ..Default::default()
             });
-            Ok(())
-        })
-        .unwrap();
-    let before = store.get(&binding.plan_id).unwrap();
-    let committed = AtomicBool::new(false);
-
-    let result = store.with_verified_worker_transfer_binding(&binding, || {
-        committed.store(true, Ordering::Release);
     });
-
-    assert!(result.is_err());
-    assert!(!committed.load(Ordering::Acquire));
-    assert_eq!(store.get(&binding.plan_id).unwrap(), before);
 }
 
 #[test]
@@ -164,9 +279,67 @@ fn transfer_fence_refuses_a_stale_worker_nonce_without_plan_changes() {
 }
 
 #[test]
+fn transfer_fence_refuses_closed_attempt_without_plan_changes() {
+    assert_fence_refusal_preserves_plan(|plan, binding| {
+        plan.tasks
+            .iter_mut()
+            .find(|task| task.id == binding.task_id)
+            .unwrap()
+            .execution_attempts
+            .iter_mut()
+            .find(|attempt| attempt.id == binding.attempt_id)
+            .unwrap()
+            .closed_at = Some(9);
+    });
+}
+
+#[test]
+fn transfer_fence_refuses_retired_attempt_without_plan_changes() {
+    assert_fence_refusal_preserves_plan(|plan, binding| {
+        plan.tasks
+            .iter_mut()
+            .find(|task| task.id == binding.task_id)
+            .unwrap()
+            .execution_attempts
+            .iter_mut()
+            .find(|attempt| attempt.id == binding.attempt_id)
+            .unwrap()
+            .retired_at = Some(9);
+    });
+}
+
+#[test]
+fn transfer_fence_refuses_wrong_owner_epoch_without_plan_changes() {
+    assert_fence_refusal_preserves_plan(|plan, binding| {
+        plan.tasks
+            .iter_mut()
+            .find(|task| task.id == binding.task_id)
+            .unwrap()
+            .interruption
+            .owner_epoch += 1;
+    });
+}
+
+#[test]
+fn transfer_fence_refuses_wrong_plan_owner_without_plan_changes() {
+    assert_fence_refusal_preserves_plan(|plan, _binding| {
+        plan.owner.tab_id = Some("other-owner".into());
+    });
+}
+
+#[test]
+fn transfer_fence_refuses_wrong_plan_mode_without_plan_changes() {
+    assert_fence_refusal_preserves_plan(|plan, _binding| {
+        plan.mode = PlanMode::Planning;
+    });
+}
+
+#[test]
 fn transfer_fence_serializes_plan_writers_behind_its_mux_commit_callback() {
     let (_directory, store, binding) = fixture();
     let store = Arc::new(store);
+    let plan_id = binding.plan_id.clone();
+    let before = store.get(&plan_id).unwrap();
     let (callback_entered_tx, callback_entered_rx) = mpsc::sync_channel(0);
     let (callback_release_tx, callback_release_rx) = mpsc::sync_channel(0);
     let transfer_store = store.clone();
@@ -178,31 +351,40 @@ fn transfer_fence_serializes_plan_writers_behind_its_mux_commit_callback() {
     });
     callback_entered_rx.recv().unwrap();
 
-    let (writer_started_tx, writer_started_rx) = mpsc::sync_channel(0);
-    let (writer_done_tx, writer_done_rx) = mpsc::sync_channel(0);
+    let writer_ticket = {
+        let state = store.mutation_writer.state.lock();
+        state.next_ticket
+    };
+    let (writer_entered_tx, writer_entered_rx) = mpsc::channel();
+    let (writer_done_tx, writer_done_rx) = mpsc::channel();
     let writer_store = store.clone();
-    let plan_id = store.list_full()[0].id.clone();
+    let writer_plan_id = plan_id.clone();
     let writer = std::thread::spawn(move || {
-        writer_started_tx.send(()).unwrap();
         writer_store
-            .with_plan(&plan_id, 8, |plan| {
+            .with_plan(&writer_plan_id, 8, |plan| {
+                writer_entered_tx.send(()).unwrap();
                 plan.title = "after transfer fence".into();
                 Ok(())
             })
             .unwrap();
         writer_done_tx.send(()).unwrap();
     });
-    writer_started_rx.recv().unwrap();
-    let writer_was_blocked = writer_done_rx
-        .recv_timeout(Duration::from_millis(50))
-        .is_err();
+
+    {
+        let mut state = store.mutation_writer.state.lock();
+        while state.next_ticket <= writer_ticket {
+            store.mutation_writer.ready.wait(&mut state);
+        }
+        assert_eq!(state.next_ticket, writer_ticket + 1);
+        assert!(state.serving_ticket < writer_ticket);
+    }
+    assert!(writer_entered_rx.try_recv().is_err());
+    assert_eq!(store.get(&plan_id).unwrap(), before);
     callback_release_tx.send(()).unwrap();
 
+    writer_entered_rx.recv().unwrap();
+    writer_done_rx.recv().unwrap();
     transfer.join().unwrap().unwrap();
     writer.join().unwrap();
-    assert!(writer_was_blocked);
-    assert_eq!(
-        store.get(&store.list_full()[0].id).unwrap().title,
-        "after transfer fence"
-    );
+    assert_eq!(store.get(&plan_id).unwrap().title, "after transfer fence");
 }
