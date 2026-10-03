@@ -41,9 +41,9 @@ on:
         default: false
         required: true
       maintenance_operation:
-        description: Fixed additive pinned-cache maintenance operation
+        description: Pure contract controls or fixed additive pinned-cache maintenance
         type: choice
-        options: [provision-verify-cleanup]
+        options: [contract-only, provision-verify-cleanup]
         default: provision-verify-cleanup
         required: true
   # Nightly full matrix on master while the farm is idle, so parallel-test races
@@ -1330,7 +1330,7 @@ jobs:
 
   windows-sccache-maintenance:
     name: Pinned Windows sccache maintenance
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'windows-sccache-maintenance' && inputs.maintenance_operation == 'provision-verify-cleanup' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'windows-sccache-maintenance' && (inputs.maintenance_operation == 'contract-only' || inputs.maintenance_operation == 'provision-verify-cleanup') }}
     runs-on: [self-hosted, windows-build]
     timeout-minutes: 6
     env:
@@ -1348,7 +1348,23 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
+      - name: Compile source and run pure contract controls
+        if: ${{ inputs.maintenance_operation == 'contract-only' }}
+        shell: pwsh
+        run: |
+          $sha = $env:EXPECTED_SOURCE_SHA
+          $workflowSha = $env:WORKFLOW_SOURCE_SHA
+          $eventSha = $env:EVENT_SOURCE_SHA
+          $checkoutSha = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $sha -cnotmatch '^[0-9a-f]{40}$' -or $workflowSha -cne $sha -or $eventSha -cne $sha -or $checkoutSha -cne $sha) { throw 'contract_source_sha_join_refused' }
+          $status = & git status --porcelain=v1 --untracked-files=all
+          if ($LASTEXITCODE -ne 0 -or $status) { throw 'contract_checkout_not_clean' }
+          $account = [Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\')[-1]
+          if ($env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_NAME -cne 'ROG-windows-build' -or $env:RUNNER_ARCH -cne 'X64' -or $account -cne 'amigo') { throw 'contract_runner_identity_refused' }
+          Write-Host 'contract_only_selected=true'
+          & .\scripts\windows-sccache-session.ps1 -ContractOnly
       - name: Provision, verify, and terminate only the captured Job
+        if: ${{ inputs.maintenance_operation == 'provision-verify-cleanup' }}
         id: maintenance
         shell: pwsh
         run: |
