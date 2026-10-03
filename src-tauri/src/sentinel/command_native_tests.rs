@@ -117,15 +117,33 @@ fn cancellation_control(close_streams: bool, shutdown: bool) {
     });
     fixture.wait_ready();
     let expected = if close_streams {
-        WaitPhase::Parent
+        #[cfg(unix)]
+        let phase = WaitPhase::Parent;
+        #[cfg(windows)]
+        let phase = WaitPhase::ParentAfterEof;
+        phase
     } else {
         WaitPhase::Capture
     };
     let deadline = Instant::now() + probe::PROBE_RUNTIME;
+    let mut last_native_state = None;
     loop {
-        let phase = waits
-            .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-            .expect("native wait did not enroll before failure deadline");
+        let phase = match waits.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            Ok(phase) => phase,
+            Err(error) => {
+                signal.cancel();
+                let completed = rx.try_recv().ok().and_then(|effect| effect.command_result);
+                panic!("native wait did not enroll before failure deadline: {error:?}; last_native_state={last_native_state:?}; completed_result={completed:?}");
+            }
+        };
+        #[cfg(windows)]
+        if matches!(phase, WaitPhase::WindowsCapture { .. }) {
+            last_native_state = Some(phase);
+        }
+        #[cfg(unix)]
+        {
+            last_native_state = Some(phase);
+        }
         if phase == expected {
             break;
         }
@@ -260,11 +278,11 @@ impl Fixture {
 
     fn command(&self) -> String {
         let close = if self.close_streams {
-            "Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public static class CaptureFixture { [DllImport(\"kernel32.dll\")] public static extern IntPtr GetStdHandle(int n); [DllImport(\"kernel32.dll\")] public static extern bool CloseHandle(IntPtr h); }'; [CaptureFixture]::CloseHandle([CaptureFixture]::GetStdHandle(-11)) | Out-Null; [CaptureFixture]::CloseHandle([CaptureFixture]::GetStdHandle(-12)) | Out-Null;"
+            r#"Add-Type -ErrorAction Stop -TypeDefinition 'using System; using System.ComponentModel; using System.Runtime.InteropServices; public static class CaptureFixture { [DllImport("kernel32.dll", SetLastError=true)] private static extern IntPtr GetStdHandle(int n); [DllImport("kernel32.dll", SetLastError=true)] private static extern uint GetFileType(IntPtr h); [DllImport("kernel32.dll", SetLastError=true)] private static extern bool CloseHandle(IntPtr h); public static void CloseStreams() { IntPtr output=GetStdHandle(-11), error=GetStdHandle(-12); if (GetFileType(output)!=3 || GetFileType(error)!=3 || output==error) throw new InvalidOperationException("fixture stdout/stderr must be distinct pipe handles"); if (!CloseHandle(output)) throw new Win32Exception(Marshal.GetLastWin32Error(), "fixture stdout close failed"); if (!CloseHandle(error)) throw new Win32Exception(Marshal.GetLastWin32Error(), "fixture stderr close failed"); } }'; [CaptureFixture]::CloseStreams();"#
         } else {
             "[Console]::Out.Write('out'); [Console]::Error.Write('err');"
         };
-        format!("$ready=[Threading.EventWaitHandle]::OpenExisting('{}'); $release=[Threading.EventWaitHandle]::OpenExisting('{}'); {close} $ready.Set() | Out-Null; if (!$release.WaitOne(10000)) {{ exit 13 }}; exit 0", self.ready_name, self.release_name)
+        format!("$ErrorActionPreference='Stop'; $ready=[Threading.EventWaitHandle]::OpenExisting('{}'); $release=[Threading.EventWaitHandle]::OpenExisting('{}'); try {{ {close} $ready.Set() | Out-Null; if (!$release.WaitOne(10000)) {{ exit 13 }}; exit 0 }} catch {{ $message=$_.Exception.Message; [IO.File]::WriteAllText('fixture-error.txt',$message.Substring(0,[Math]::Min(1024,$message.Length))); $ready.Set() | Out-Null; exit 14 }}", self.ready_name, self.release_name)
     }
 
     fn wait_ready(&self) {
@@ -281,6 +299,12 @@ impl Fixture {
             },
             WAIT_OBJECT_0,
             "child readiness was not observed"
+        );
+        let failure = self.dir.path().join("fixture-error.txt");
+        assert!(
+            !failure.exists(),
+            "fixture readiness failed: {}",
+            std::fs::read_to_string(failure).unwrap_or_else(|error| error.to_string())
         );
     }
 }
