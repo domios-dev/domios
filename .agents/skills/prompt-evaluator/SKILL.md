@@ -153,6 +153,10 @@ Eval sets live in `evals/<name>/evals.json`. The shape is:
 
 Tips for writing good evals:
 
+- Set `response_mode: "text"` when evaluating explained decisions; omit it for
+  command lists. Both actor and judge receive that mode. Explicit command
+  expectations still require the requested syntax in either mode.
+
 - **One eval = one behavior.** Don't bundle "spawns the right role AND uses the right CLI flags AND replies via the right channel" into one eval — make three.
 - **Expectations are independent assertions, not steps.** Each one is checked separately; an eval passes only if ALL expectations pass.
 - **Use technical expectations whenever possible** — they're matched by regex without an LLM call, so they're free and deterministic. Reserve behavioral expectations (LLM-as-judge) for things you genuinely can't grep for.
@@ -211,4 +215,4 @@ eval (`live` / `cached` / `k/N cached`). Treat them as part of the numbers:
 
 To debug a single eval without rerunning the whole set: `python runner.py --prompt-file ... --eval-set ... --only-id 8 --runs 1 --verbose`. The runner will print the full agent response and matcher decisions for that one eval.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
