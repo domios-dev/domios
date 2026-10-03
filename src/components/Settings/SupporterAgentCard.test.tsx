@@ -382,8 +382,8 @@ describe("Supporter saved connections", () => {
   it("inactive_connections_are_read_only", async () => {
     await mount();
     const inactive = section("optional");
-    expect(inactive.textContent).toContain("Inactive");
     expect(inactive.querySelector("select")).toBeNull();
+    expect(inactive.textContent).toContain("Inactive");
     expect(inactive.querySelector("input[type='password']")).toBeNull();
     expect(inactive.textContent).toContain("No token stored");
     expect(host.innerHTML).not.toContain(TOKEN);
@@ -533,7 +533,7 @@ describe("Supporter saved connections", () => {
     await click("Remove connection", dialog);
     expect(section("optional")).toBeDefined();
     expect(host.textContent).toContain("Status stale");
-    expect(host.querySelector("[aria-live='polite']")?.textContent).not.toContain("optional removed");
+    expect(host.querySelector("[aria-live='polite']")?.textContent).toBe("");
     expect(
       writes().filter((call) => call.method === "DELETE" && call.path.endsWith("/connections/optional")),
     ).toHaveLength(1);
