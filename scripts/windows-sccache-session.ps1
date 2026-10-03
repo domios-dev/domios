@@ -153,7 +153,6 @@ function Get-InstallRollbackDecision($Facts) {
     if ($Facts.TerminationKind -eq 'deliberate' -and -not $Facts.TerminateResult) { $reasons.Add('job_termination_unconfirmed') }
     return [pscustomobject]@{ Remove = ($reasons.Count -eq 0); Reasons = @($reasons | Select-Object -Unique) }
 }
-
 function Get-JobMembershipDecision($Facts) {
     $evidence = [WindowsSccacheNative]::ClassifyJobMembers($Facts.Snapshot, [object[]]$Facts.Leases)
     $reasons = [System.Collections.Generic.List[string]]::new()
@@ -181,33 +180,31 @@ function Get-JobMembershipDecision($Facts) {
     }
     return [pscustomobject]@{ Valid = ($reasons.Count -eq 0); Reasons = @($reasons | Select-Object -Unique); Members = $evidence.Members; CandidatePids = $evidence.CandidatePids; CandidateInventoryTotal = $total; CandidateInventoryTruncated = $truncated; CandidateInventoryComplete = $complete; CapturedCandidatePids = $inventory.CapturedPids; OwnedLaunchFacts = $evidence.OwnedLaunchFacts; ExcludedOwnedExits = @($evidence.ExcludedOwnedExits | ForEach-Object { $_.Pid }); EligibleOwnedExits = $evidence.EligibleOwnedExits; UnlistedOwnedExits = $evidence.UnlistedOwnedExits; AccountingMinimum = $evidence.AccountingMinimum; AccountingMaximum = $evidence.AccountingMaximum }
 }
-
 function Set-CandidateInventoryReceipt($Session, $Inventory, $Proofs, $ReportedPids) {
     $safeProofs = [System.Collections.Generic.List[object]]::new(); $capturedPids = [System.Collections.Generic.List[uint32]]::new()
     foreach ($proof in $Proofs) { $safe = @{}; foreach ($key in $proof.Keys) { if ($key -cne 'Lease') { $safe[$key] = $proof[$key] } }; $safeProofs.Add($safe); $capturedPids.Add([uint32]$proof.Pid) }
     $Session.Receipt.job_membership_candidate_inventory = @{ total = $Inventory.Total; inspected = $Inventory.Inspected; maximum = 32; truncated = $Inventory.Truncated; complete = $Inventory.Complete; collected_pids = $capturedPids.ToArray(); reported_pids = @($ReportedPids); error = $Inventory.Error }
     $Session.Receipt.job_membership_candidate_proofs = $safeProofs.ToArray()
 }
-
 function Get-OwnedLaunchIdentityFacts($Leases) {
     $facts = [System.Collections.Generic.List[object]]::new()
     foreach ($lease in $Leases) {
         if (-not $lease.Created) { continue }
-        $handlePid = [uint32]0; $currentCreation = [long]0; $handleRetained = ($lease.Handle -ne [IntPtr]::Zero); $identityError = $null
+        $handlePid = [uint32]0; $currentCreation = [long]0; $handleRetained = ($lease.Handle -ne [IntPtr]::Zero); $identityError = $null; $directServer = [bool]$lease.DirectServer; $alive = $false
         try {
             if (-not $handleRetained) { throw 'owned_process_handle_missing' }
             $handlePid = [WindowsSccacheNative]::HandleProcessId($lease.Handle)
             $currentCreation = [WindowsSccacheNative]::ProcessCreation($lease.Handle)
+            if ($directServer) { $alive = [WindowsSccacheNative]::HandleAlive($lease.Handle) }
         } catch {
             $win32 = if ($_.Exception -is [System.ComponentModel.Win32Exception]) { $_.Exception.NativeErrorCode } else { 'not_win32' }
             $identityError = $_.Exception.GetType().Name + ':' + $win32
         }
         $identityValid = $handleRetained -and $lease.Pid -eq $handlePid -and $lease.CreatedFileTime -gt 0 -and $lease.CreatedFileTime -eq $currentCreation -and -not $identityError
-        $facts.Add(@{ Created = $true; Pid = [uint32]$lease.Pid; HandlePid = $handlePid; CapturedCreationFileTime = [long]$lease.CreatedFileTime; CurrentCreationFileTime = $currentCreation; Assigned = [bool]$lease.Assigned; HandleRetained = [bool]$handleRetained; IdentityValid = [bool]$identityValid; IdentityError = $identityError; ProcessExitConfirmed = [bool]$lease.ProcessExitConfirmed; ExitCode = $(if ($lease.ProcessExitConfirmed) { $lease.ExitCode } else { $null }); CapturesComplete = [bool]$lease.CapturesComplete })
+        $facts.Add(@{ Created = $true; Pid = [uint32]$lease.Pid; HandlePid = $handlePid; CapturedCreationFileTime = [long]$lease.CreatedFileTime; CurrentCreationFileTime = $currentCreation; Assigned = [bool]$lease.Assigned; HandleRetained = [bool]$handleRetained; IdentityValid = [bool]$identityValid; IdentityError = $identityError; ProcessExitConfirmed = [bool]$lease.ProcessExitConfirmed; ExitCode = $(if ($lease.ProcessExitConfirmed) { $lease.ExitCode } else { $null }); CapturesComplete = [bool]$lease.CapturesComplete; DirectServer = $directServer; Alive = $alive })
     }
     return @($facts)
 }
-
 function Format-CaptureReceipt($Tail, [long]$TotalBytes, [bool]$WasTruncated) {
     $bytes = [byte[]]$Tail
     if ($bytes.Length -gt $script:Pin.TailBytes) { $bytes = $bytes[($bytes.Length - $script:Pin.TailBytes)..($bytes.Length - 1)]; $WasTruncated = $true }
@@ -342,6 +339,8 @@ function Invoke-ContractOnly {
     $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::TcpDecoderContractControls()) 6
     $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::LaunchLeaseContractControls()) 7
     $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::CandidateInventoryContractControls()) 3
+    $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::StartupNotificationContractControls()) 18
+    $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::DirectServerMemberContractControls()) 3
     $group2 = Invoke-ContractGroup 'inputs_ownership_deadline_and_pinned_reuse' $inputCases {
         param($facts)
         if ($facts.ContainsKey('NativePassed')) { [pscustomobject]@{ Valid = $facts.NativePassed; Reasons = $(if ($facts.NativeError) { @($facts.NativeError) } else { @() }) } }
@@ -495,8 +494,8 @@ function Quote-WindowsArgument([string]$Value) {
     [void]$builder.Append('"')
     return $builder.ToString()
 }
-function Launch-OwnedProcess($Session, [string]$Executable, [string]$CommandLine, [string]$WorkingDirectory, $Environment) {
-    $process = [WindowsSccacheNative]::RegisterLaunch($Session.LaunchRegistry)
+function Launch-OwnedProcess($Session, [string]$Executable, [string]$CommandLine, [string]$WorkingDirectory, $Environment, [switch]$DirectServer) {
+    $process = if ($DirectServer) { [WindowsSccacheNative]::RegisterDirectServerLaunch($Session.LaunchRegistry) } else { [WindowsSccacheNative]::RegisterLaunch($Session.LaunchRegistry) }
     $launchedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
     try {
         [WindowsSccacheNative]::Launch($Session.Job.Handle, $Executable, $CommandLine, $WorkingDirectory, $Environment, $process)
@@ -795,7 +794,7 @@ function Start-WindowsSccacheSession {
     $profile = Join-Path $env:RUNNER_TEMP ('rust-windows-task-local-' + $env:GITHUB_RUN_ID + '-' + $env:GITHUB_RUN_ATTEMPT)
     if ($Maintenance) { $profile = Join-Path $env:RUNNER_TEMP ('windows-sccache-maintenance-' + $env:GITHUB_RUN_ID + '-' + $env:GITHUB_RUN_ATTEMPT) }
     if ($OperationStartedTicks -le 0) { $OperationStartedTicks = [Diagnostics.Stopwatch]::GetTimestamp() }
-    $session = [ordered]@{ WorkDeadlineTicks = $workDeadline; CleanupDeadlineTicks = $DeadlineTicks; StartedTicks = $OperationStartedTicks; Processes = [System.Collections.Generic.List[object]]::new(); CandidateHandles = [System.Collections.Generic.List[object]]::new(); LaunchRegistry = $null; ProcessTiming = @{}; PrimaryFailure = $null; CleanupError = $null; CleanupAttempted = $false; CleanupResult = $null; InstallCreated = $false; TerminateResult = $null; TerminationKind = 'unconfirmed'; Server = $null; ConfigPath = $null; CachePath = $null; OperationDirectory = (Join-Path $profile 'cache-session'); ReceiptPath = (Join-Path $profile 'cache-session-receipt.json'); ArtifactFresh = $ArtifactFresh; Receipt = [ordered]@{ version = $script:Pin.Version; source_commit = $script:Pin.SourceCommit; endpoint = $script:Pin.Endpoint; startup = 'unproven'; stats = 'not_run'; termination = 'unconfirmed'; environment_keys = @(); environment_paths = @{}; commands = @() } }
+    $session = [ordered]@{ WorkDeadlineTicks = $workDeadline; CleanupDeadlineTicks = $DeadlineTicks; StartedTicks = $OperationStartedTicks; Processes = [System.Collections.Generic.List[object]]::new(); CandidateHandles = [System.Collections.Generic.List[object]]::new(); LaunchRegistry = $null; ProcessTiming = @{}; PrimaryFailure = $null; CleanupError = $null; CleanupAttempted = $false; CleanupResult = $null; InstallCreated = $false; TerminateResult = $null; TerminationKind = 'unconfirmed'; Server = $null; StartupNotification = $null; ConfigPath = $null; CachePath = $null; OperationDirectory = (Join-Path $profile 'cache-session'); ReceiptPath = (Join-Path $profile 'cache-session-receipt.json'); ArtifactFresh = $ArtifactFresh; Receipt = [ordered]@{ version = $script:Pin.Version; source_commit = $script:Pin.SourceCommit; endpoint = $script:Pin.Endpoint; startup = 'unproven'; stats = 'not_run'; termination = 'unconfirmed'; environment_keys = @(); environment_paths = @{}; commands = @() } }
     $session.Receipt.operation_budget_ms = [long](($DeadlineTicks - $session.StartedTicks) * 1000 / [Diagnostics.Stopwatch]::Frequency)
     $session.Receipt.cleanup_reserve_ms = $script:Pin.CleanupReserveMs
     $script:Session = $session
@@ -855,10 +854,16 @@ function Start-WindowsSccacheSession {
         $versionText = $version.Stdout.Text.Trim()
         if ($version.ExitCode -ne 0 -or $versionText -cne ('sccache ' + $script:Pin.Version)) { throw 'pinned_version_output_mismatch' }
         $session.Receipt.version_output = $versionText
-        $start = Launch-OwnedProcess $session $paths.Executable (Get-ProcessCommandLine $paths.Executable @('--start-server')) $paths.Destination $childEnv
-        Wait-OwnedProcess $session $start $workDeadline
-        $startupText = $start.Stdout.Text
-        if ($start.ExitCode -ne 0 -or $startupText -notmatch '(?m)^sccache: Listening on address 127\.0\.0\.1:4226\r?$') { throw 'startup_notification_missing' }
+        $session.StartupNotification = [WindowsSccacheNative]::CreateStartupNotificationLease()
+        $pipePath = [WindowsSccacheNative]::OpenStartupNotificationPipe($session.StartupNotification)
+        [WindowsSccacheNative]::BeginStartupNotificationRead($session.StartupNotification)
+        $serverEnv = [WindowsSccacheNative]::StartupServerEnvironment($childEnv, $pipePath)
+        $session.Receipt.server_environment_keys = @($serverEnv.Keys)
+        $start = Launch-OwnedProcess $session $paths.Executable (Get-ProcessCommandLine $paths.Executable @()) $paths.Destination $serverEnv -DirectServer
+        $notice = [WindowsSccacheNative]::WaitForStartupNotification($session.StartupNotification, $start, $session.Job, (Get-RemainingMs $workDeadline))
+        $session.Receipt.startup_notification = @{ pipe_path = $notice.PipePath; connected = $notice.Connected; reader_complete = $notice.ReaderComplete; client_pid = $notice.ClientPid; server_pid = $notice.ServerPid; handle_pid_before = $notice.HandlePidBefore; handle_pid_after = $notice.HandlePidAfter; captured_creation_filetime = $notice.CapturedCreationFileTime; creation_filetime_before = $notice.CreationFileTimeBefore; creation_filetime_after = $notice.CreationFileTimeAfter; job_membership_before = $notice.JobMembershipBefore; job_membership_after = $notice.JobMembershipAfter; alive_before = $notice.AliveBefore; alive_after = $notice.AliveAfter; status = $(if ($notice.Frame) { $notice.Frame.Status } else { $null }); address = $(if ($notice.Frame) { $notice.Frame.Address } else { $null }); payload_bytes = $(if ($notice.Frame) { $notice.Frame.PayloadBytes } else { 0 }); valid = $notice.Valid; reasons = @($notice.Reasons); error = $notice.ReaderError }
+        Write-SessionReceipt $session
+        if (-not $notice.Valid) { throw ('direct_server_startup_refused:' + ($notice.Reasons -join ',')) }
         $session.Receipt.startup_elapsed_ms = [long](([Diagnostics.Stopwatch]::GetTimestamp() - $session.StartedTicks) * 1000 / [Diagnostics.Stopwatch]::Frequency)
         $snapshotStartedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
         $nativeSnapshot = $null; $snapshotException = $null
@@ -882,6 +887,7 @@ function Start-WindowsSccacheSession {
         } else { $candidateInventory.Truncated = $false; $candidateInventory.Complete = $true }
         Set-CandidateInventoryReceipt $session $candidateInventory $candidateProofs $memberEvidence.CandidatePids
         Write-SessionReceipt $session
+        $proofOwned = $false
         if ($candidateProofs.Count -eq 1 -and $candidateProofs[0].HandleRetained) {
             $proof = $candidateProofs[0]; $candidate = $proof.Lease; $serverPid = [uint32]$proof.Pid
             try {
@@ -903,8 +909,11 @@ function Start-WindowsSccacheSession {
         $membership = Get-JobMembershipDecision @{ Snapshot = $jobSnapshot; Leases = $launchFacts; CandidateProofs = $candidateProofs; CandidateInventoryTotal = $candidateInventory.Total; CandidateInventoryTruncated = $candidateInventory.Truncated; CandidateInventoryComplete = $candidateInventory.Complete }
         Set-CandidateInventoryReceipt $session $candidateInventory $candidateProofs $memberEvidence.CandidatePids
         $session.Receipt.job_membership_decision = $membership
+        $directDecision = [WindowsSccacheNative]::ClassifyDirectServerReadiness($notice, [uint32[]]$memberEvidence.CandidatePids, [bool]$membership.Valid, [bool]$candidateInventory.Complete, [bool]$proofOwned)
+        $session.Receipt.direct_server_readiness = $directDecision
         Write-SessionReceipt $session
         if (-not $membership.Valid) { throw ('job_membership_refused:' + ($membership.Reasons -join ',')) }
+        if (-not $directDecision.Valid) { throw ('direct_server_readiness_refused:' + ($directDecision.Reasons -join ',')) }
         $serverPid = [uint32]$session.Server.Pid
         $serverHandle = $session.Server.Handle
         $session.Receipt.startup = 'notification_process_job_account_image_hash_listener_proven'
@@ -923,8 +932,8 @@ function Start-WindowsSccacheSession {
         $session.Receipt.stats_counters = $statsDecision.Counters
         $session.Receipt.stats_stdout = Get-CaptureRecord $stats.Stdout
         $session.Receipt.stats_stderr = Get-CaptureRecord $stats.Stderr
-        $session.Receipt.startup_stdout = Get-CaptureRecord $start.Stdout
-        $session.Receipt.startup_stderr = Get-CaptureRecord $start.Stderr
+        $session.Receipt.server_stdout_at_readiness = Get-CaptureRecord $start.Stdout
+        $session.Receipt.server_stderr_at_readiness = Get-CaptureRecord $start.Stderr
         $session.Receipt.tool_resolution = $session.ToolResolution
         Write-SessionReceipt $session
         return $session
@@ -982,7 +991,7 @@ function Stop-WindowsSccacheSession($Session, [string]$PrimaryFailure = $null, [
         }
     } else { $Session.TerminationKind = 'natural'; $Session.TerminateResult = $null }
 
-    foreach ($lease in $leases) {
+    if ($Session.StartupNotification) { try { $Session.Receipt.startup_notification_cancelled = [WindowsSccacheNative]::CancelStartupNotification($Session.StartupNotification); if (-not $Session.Receipt.startup_notification_cancelled) { $cleanErrors.Add('startup_notification_cancel_failed') } } catch { $Session.Receipt.startup_notification_cancelled = $false; $cleanErrors.Add('startup_notification_cancel_error:' + $_.Exception.GetType().Name) } }; foreach ($lease in $leases) {
         try { if (-not [WindowsSccacheNative]::CloseLaunchParentHandles($lease)) { $cleanErrors.Add('launch_parent_handle_close_failed') } }
         catch { $cleanErrors.Add('launch_parent_handle_close_error:' + $_.Exception.GetType().Name) }
         if ($lease.Created -and -not $lease.Assigned -and -not $lease.ProcessExitConfirmed) {
@@ -1043,6 +1052,9 @@ function Stop-WindowsSccacheSession($Session, [string]$PrimaryFailure = $null, [
         }
         $lease.RecordCapturesSettled($leaseCaptureComplete)
     }
+    $notificationComplete = $true
+    if ($Session.StartupNotification) { try { $notificationComplete = [WindowsSccacheNative]::CloseStartupNotification($Session.StartupNotification, (Get-RemainingMs $Session.CleanupDeadlineTicks)) } catch { $notificationComplete = $false }; if (-not $notificationComplete) { $cleanErrors.Add('startup_notification_cleanup_unconfirmed') } }
+    $Session.Receipt.startup_notification_cleanup_complete = $notificationComplete
     $Session.Receipt.termination = $Session.TerminationKind
     $Session.Receipt.terminate_job_result = $Session.TerminateResult
     $Session.Receipt.job_active_processes = $activeAfter
@@ -1070,11 +1082,11 @@ function Stop-WindowsSccacheSession($Session, [string]$PrimaryFailure = $null, [
             $statsOutput = $Session.StatsProcess.Stdout.Text; $statsOutputComplete = $statsCaptureComplete; $statsOutputTruncated = $outFacts.Truncated -or $errFacts.Truncated
         } catch { $cleanErrors.Add('stats_completion_unconfirmed') }
     }
-    $resourcesSettled = $zeroConfirmed -and $activeAfter -eq 0 -and $processExitsComplete -and $captureComplete
+    $resourcesSettled = $zeroConfirmed -and $activeAfter -eq 0 -and $processExitsComplete -and $captureComplete -and $notificationComplete
     if ($resourcesSettled) { try { Remove-OperationFiles $Session } catch { $cleanErrors.Add('operation_file_cleanup_failed') } }
     else { $cleanErrors.Add('operation_files_retained_for_unsettled_resources') }
 
-    $handlesClosed = $true
+    $handlesClosed = $notificationComplete
     if ($Session.Server -and $Session.Server.Handle -ne [IntPtr]::Zero -and $resourcesSettled) {
         try {
             if ([WindowsSccacheNative]::CloseHandlePublic($Session.Server.Handle)) { $Session.Server.Handle = [IntPtr]::Zero }

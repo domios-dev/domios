@@ -151,20 +151,32 @@ from that verified archive before launch. This is verification only; the opt-in 
 not install or replace the tool, and the default no-install path is unchanged.
 
 The helper creates a non-breakaway, kill-on-close Windows Job before its first owned executable.
-It starts the pinned client suspended, assigns it to that Job, then resumes it. The pinned client
-source starts the server with `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW` and does not request
-breakaway. After the start client exits and both captures complete, the helper queries
+The owning launch registers one direct server lease, starts the pinned executable suspended with
+`SCCACHE_START_SERVER=1` and no command, assigns it to that Job, then resumes it. The sccache child
+uses the pinned `InternalStartServer` path; on Windows its daemonizer is a no-op. Before launch the
+helper creates a random first-instance local named pipe that rejects remote clients and starts its
+asynchronous reader. The server receives its path in `SCCACHE_STARTUP_NOTIFY`. The reader bounds the
+4-byte big-endian frame and bincode payload to 4 KiB, requires a complete frame followed by EOF, and
+accepts only `Ok { addr: "127.0.0.1:4226" }`. It refuses malformed, partial, oversized, error,
+address-in-use, timeout, and unknown variants. The connected pipe client's PID must match the
+retained direct server handle; PID, creation time, liveness, and `IsProcessInJob` are checked around
+the notification. Pipe identity or completion uncertainty is a refusal. The no-window and process
+group flags remain as-is; direct mode does not establish that Windows will omit a console host.
+
+Once notification and direct-process checks complete, the helper queries
 `JobObjectBasicAccountingInformation` and `JobObjectBasicProcessIdList` once each. The accounting
 API's `ActiveProcesses` can include exited processes until their references are released; the
 process-list API separately returns assigned and listed PID counts, with a smaller returned list
-indicating incomplete buffer capacity. The helper records both API results, errors, counts,
-required/returned sizes, PIDs, and query timestamps before readiness classification. It requires a
-complete unique PID list (`assigned == listed == returned PID count`) and accepts accounting only
-in this range: `listed PID count <= ActiveProcesses <= listed PID count + verified owned exited
-launch handles absent from that list`. Each allowance requires a retained launch handle whose PID
-and creation time still match, confirmed process exit, and completed captures; all launch facts and
-excluded PIDs remain in the receipt. Any query error, incomplete or inconsistent snapshot, unknown
-member, or out-of-range accounting refuses. See Microsoft's definitions for
+indicating incomplete buffer capacity. The direct retained live server lease remains a candidate in
+the list; it is not treated as an exited helper. The helper records both API results, errors,
+counts, required/returned sizes, PIDs, and query timestamps before readiness classification. It
+requires a complete unique PID list (`assigned == listed == returned PID count`) and accepts
+accounting only in this range: `listed PID count <= ActiveProcesses <= listed PID count + verified
+owned exited launch handles absent from that list`. Each allowance requires a retained launch
+handle whose PID and creation time still match, confirmed process exit, and completed captures; all
+launch facts and excluded PIDs remain in the receipt. Any query error, incomplete or inconsistent
+snapshot, unknown member (including an additional `conhost.exe`), or out-of-range accounting
+refuses. See Microsoft's definitions for
 [`JOBOBJECT_BASIC_ACCOUNTING_INFORMATION`](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_accounting_information)
 and [`JOBOBJECT_BASIC_PROCESS_ID_LIST`](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_process_id_list).
 
@@ -197,7 +209,8 @@ Cleanup deliberately calls `TerminateJobObject` only through the retained Job ha
 whether the server exited naturally or the helper terminated the owned Job, then requires the
 captured process exit, Job active-zero completion event and zero accounting, complete output
 captures, and closed handles inside the original 30-second cleanup reserve of the 300-second
-maintenance bound. The retained server handle requests `PROCESS_QUERY_LIMITED_INFORMATION` and
+maintenance bound. Cleanup also cancels and settles the startup pipe reader and closes its pipe and
+completion handles. The retained server handle requests `PROCESS_QUERY_LIMITED_INFORMATION` and
 `SYNCHRONIZE`; waits classify signal, bounded timeout, and `WAIT_FAILED` with its Win32 error
 separately. No `--stop-server` protocol request is sent. Job termination is not a graceful cache
 flush and may lose in-flight disposable cache writes. The persistent cache under
@@ -208,9 +221,9 @@ if a termination request succeeded.
 The provisioning operation does not run a Rust case and does not leave a daemon for later jobs.
 Native success must be reviewed from one separately admitted run at the reviewed full SHA, with
 actual archive, PE, process/Job/listener, capture, exit, and handle evidence. Portable contract
-controls establish only pure source decisions. The three groups select 96 cases: 14 archive
-pin/shape cases, 34 input/ownership/deadline/reuse and actual C# decoder/lease/candidate-inventory
-cases, and 48
+controls establish only pure source decisions. The three groups select 117 cases: 14 archive
+pin/shape cases, 55 input/ownership/deadline/reuse and actual C# decoder/lease/candidate-inventory/
+direct-startup cases, and 48
 completion/output/freshness/statistics/rollback and Job membership cases. Membership controls
 exercise one candidate, retained exited launches plus one candidate, no candidate, ambiguous or
 unverified members, unsettled captures, accounting and PID-list API/incomplete failures, accounting
@@ -218,6 +231,11 @@ length failure, and out-of-bound accounting through the production classifier. T
 16-counter zero output schema; fresh-zero statistics remains diagnostic and is not readiness proof.
 Candidate-inventory controls exercise two retained diagnostic identities with an ambiguity refusal,
 an API-error refusal, and a truncation refusal through the production inventory classifier.
+Direct-startup controls use independent literal bytes for the pinned bincode replies and exercise
+the production frame decoder/readiness decision, direct live lease classification, foreign sender,
+identity/Job/liveness, wrong endpoint, trailing or incomplete frame, reader completion, listener
+proof, additional-member, API-error, and incomplete inventory refusals. They establish no native
+pipe, Job, process, hash, or listener result.
 If candidate validation fails C# compilation on an object-to-IDictionary conversion, keep the
 read-only fact predicate on the shared object-based Fact boundary and rerun ContractOnly.
 Reuse controls reject invalid receipts, invalid executable identity, or executable bytes that differ
