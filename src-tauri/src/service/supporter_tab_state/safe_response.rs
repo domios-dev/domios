@@ -169,6 +169,33 @@ impl Agreement {
 
 static AGREEMENT: LazyLock<Mutex<HashMap<String, Agreement>>> = LazyLock::new(Default::default);
 
+#[cfg(test)]
+static QUALIFICATION_OVERRIDES: LazyLock<
+    Mutex<HashMap<(String, String, String), serde_json::Value>>,
+> = LazyLock::new(Default::default);
+
+#[cfg(test)]
+pub(super) struct QualificationOverrideGuard((String, String, String));
+
+#[cfg(test)]
+impl Drop for QualificationOverrideGuard {
+    fn drop(&mut self) {
+        QUALIFICATION_OVERRIDES.lock().remove(&self.0);
+    }
+}
+
+#[cfg(test)]
+pub(super) fn override_qualification_for_test(
+    adapter: &str,
+    model: &str,
+    criteria: &str,
+    receipt: serde_json::Value,
+) -> QualificationOverrideGuard {
+    let key = (adapter.to_string(), model.to_string(), criteria.to_string());
+    QUALIFICATION_OVERRIDES.lock().insert(key.clone(), receipt);
+    QualificationOverrideGuard(key)
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct Receipt {
     pub(super) metadata: TabStateMetadata,
@@ -468,3 +495,6 @@ impl ServiceContext {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod qualified_tests;

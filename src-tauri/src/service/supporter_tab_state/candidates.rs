@@ -262,7 +262,7 @@ pub(crate) fn spawn<H: ShadowHost>(
 
 impl ServiceContext {
     pub(crate) fn scrape_model_connected(&self) -> bool {
-        let config = crate::config::load_config().supporter;
+        let config = self.supporter_decision_config();
         config
             .active_id()
             .is_some_and(|adapter| observer::connected(self, &config, adapter))
@@ -295,7 +295,7 @@ impl ServiceContext {
             identity::LocalIdentity::of_tab(tab)
         };
         let host = self.clone();
-        let config = crate::config::load_config().supporter;
+        let config = self.supporter_decision_config();
         let tab = snapshot.tab_id.clone();
         let screen = snapshot.screen_text.clone();
         let _ = spawn(
