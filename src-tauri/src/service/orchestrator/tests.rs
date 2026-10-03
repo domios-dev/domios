@@ -63,7 +63,7 @@ fn ordinary_tab_receives_primer_only_through_a_system_prompt_channel() {
 #[test]
 fn team_assignment_keeps_codeterm_context_on_fallback_providers() {
     let worker = role_launch_task(Some("repair delivery"), Some("Worker"), None, false).unwrap();
-    assert!(worker.starts_with("You are a CodeTerm Worker."));
+    assert!(worker.starts_with(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY));
     assert!(worker.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
     assert!(worker.contains(crate::prompts::WORKER_SUFFIX.trim()));
     assert_eq!(
@@ -128,7 +128,7 @@ fn worker_without_task_identity_still_leads_with_a_generic_identity() {
         .unwrap()
         .contains(crate::prompts::WORKER_SUFFIX.trim()));
     let prompt = role_onboarding_task(None, Some("Worker"), None).unwrap();
-    assert!(prompt.starts_with("You are a CodeTerm Worker."));
+    assert!(prompt.starts_with(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY));
     assert!(prompt.contains(crate::prompts::WORKER_CODETERM_CONTEXT.trim()));
 }
 

@@ -279,7 +279,7 @@ fn emit_batch(service: &ServiceContext, notices: Vec<Notice>) {
         Some("warning"),
         Some(vec![
             CallerAction::Answer {
-                label: "I will resolve it in CodeTerm".into(),
+                label: "I will resolve it in Domios".into(),
             },
             CallerAction::Dismiss {
                 label: "Dismiss".into(),
