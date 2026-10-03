@@ -18,13 +18,6 @@ export interface ScenarioState {
   stop: (identity: AutomationIdentity) => Promise<void>;
 }
 
-function Legend() {
-  return <div className="flex flex-wrap items-center gap-x-5 gap-y-1 px-4 py-2 text-xs text-[var(--ct-muted-fg)]">
-    <span className="flex items-center gap-2"><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" stroke="var(--ct-muted-fg)" strokeWidth="1.5" strokeDasharray="6 5" /></svg>Dashed: configured route</span>
-    <span className="flex items-center gap-2"><svg width="28" height="6" aria-hidden="true"><line x1="0" y1="3" x2="28" y2="3" stroke="var(--ct-fg)" strokeWidth="2" /></svg>Solid: recorded execution</span>
-  </div>;
-}
-
 function ParticipantList({ graph, selected, onSelect }: { graph: AutomationGraph; selected: string | null; onSelect: (node: AutomationNode) => void }) {
   return <div className="@container"><ul aria-label="Automation participants" className="grid gap-2 p-3 @2xl:grid-cols-2">{graph.nodes.map((entry) => {
     const key = automationKey(entry.identity);
@@ -73,7 +66,6 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
     {children}
     {graph && <div ref={body}>
       {graph.nodes.length === 0 && <p role="alert" className="px-4 py-3">The Sentinel root is unavailable.</p>}
-      {!list && <Legend />}
       {list ? <ParticipantList graph={graph} selected={selected} onSelect={select} /> : <AutomationCanvas graph={graph} selected={selected} camera={camera} onSelect={select} />}
       {node
         ? <AutomationDetails node={node} nodes={graph.nodes} edges={graph.edges} stale={state.failed} stopping={state.stopping === selected} stopFailed={state.stopFailed === selected} onStop={() => { void state.stop(node.identity); }} onSelect={select} onClose={closeDetails} />
