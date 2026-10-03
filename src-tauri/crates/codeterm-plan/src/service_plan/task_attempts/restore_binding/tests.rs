@@ -151,7 +151,7 @@ fn assert_refused_unchanged(
     let fixture = fixture();
     let mut request = request(&fixture, now_ms);
     mutate(&fixture, &mut request);
-    let before = fixture.store.show_task(&fixture.task_id).unwrap().task;
+    let before = fixture.store.get(&fixture.plan_id).unwrap();
     assert!(
         fixture
             .store
@@ -160,8 +160,9 @@ fn assert_refused_unchanged(
         "{name} must be refused"
     );
     assert_eq!(
-        fixture.store.show_task(&fixture.task_id).unwrap().task,
-        before
+        fixture.store.get(&fixture.plan_id).unwrap(),
+        before,
+        "{name} must preserve the complete plan"
     );
 }
 
