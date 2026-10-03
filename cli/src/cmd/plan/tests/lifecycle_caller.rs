@@ -1,4 +1,5 @@
 use super::*;
+use crate::args::plan::PlanReviewAction;
 use crate::client::{RpcClient, SocketCallError};
 
 struct CallerEnv {
@@ -200,6 +201,54 @@ fn lifecycle_rpcs_do_not_invent_identity_or_human_confirmation() {
         ] {
             assert!(params.get(field).is_none());
         }
+    }
+}
+
+#[test]
+fn review_bounce_forwards_trusted_binding_and_keeps_from_as_attribution() {
+    let _lock = crate::test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    for (session, nonce) in [
+        (None, Some("owner-nonce")),
+        (Some("owner-session"), Some("owner-nonce")),
+        (Some("owner-session"), None),
+    ] {
+        let _env = CallerEnv::set(Some("owner-tab"), session, nonce);
+        let mut recorder = Recorder::default();
+        run_plan(
+            &mut recorder,
+            true,
+            PlanAction::Review {
+                action: PlanReviewAction::Bounce {
+                    plan_id: Some("pl_review".into()),
+                    task_id: "task_review".into(),
+                    note: "review the terminal generation".into(),
+                    changed_executable_surfaces: true,
+                    distinct_oracle: false,
+                },
+            },
+        )
+        .unwrap();
+
+        assert_eq!(recorder.calls.len(), 1);
+        let (method, params) = &recorder.calls[0];
+        assert_eq!(method, "plan.review.bounce");
+        assert_eq!(params["caller_tab_id"], "owner-tab");
+        assert_eq!(
+            params.get("session_id"),
+            session.map(|value| json!(value)).as_ref()
+        );
+        assert_eq!(
+            params.get("session_binding_nonce"),
+            nonce.map(|value| json!(value)).as_ref()
+        );
+        assert_eq!(params["from"]["tab_id"], "owner-tab");
+        assert_eq!(
+            params["from"]["session_id"],
+            session.map(|value| json!(value)).unwrap_or(Value::Null)
+        );
+        assert!(params["from"].get("session_binding_nonce").is_none());
     }
 }
 
