@@ -401,6 +401,8 @@ Runner-local environment:
 
 ## Incident Record
 
+Direct-server maintenance at `ba3f4ffb1` authenticated the startup notification but still observed `sccache.exe` plus `conhost.exe` and refused readiness. Cleanup confirmed active zero and closed handles. The cache-only direct launch now uses `DETACHED_PROCESS`; finite helper launches retain `CREATE_NO_WINDOW`. Absence of a console-host member remains a native hypothesis until the exact-head operation passes; the exact-one rule and original cleanup deadline remain unchanged.
+
 | Symptom | Root Cause | Automated check/fix | Manual escalation boundary |
 | --- | --- | --- | --- |
 | No runner existed after OS wipe; GitHub had no online Windows builder. | Runner install and registration state was lost with the OS. | Download official `actions/runner` `win-x64`, configure with repo URL, name, labels, and caller-supplied one-use token. | If service mode is required, rerun elevated with `-RunAsService`; otherwise keep `run.cmd` listener alive. |

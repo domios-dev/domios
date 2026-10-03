@@ -16,6 +16,7 @@ public static class WindowsSccacheNative {
     const uint CREATE_SUSPENDED = 0x00000004;
     const uint CREATE_NEW_PROCESS_GROUP = 0x00000200;
     const uint CREATE_NO_WINDOW = 0x08000000;
+    const uint DETACHED_PROCESS = 0x00000008;
     const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
     const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
     const uint STARTF_USESTDHANDLES = 0x00000100;
@@ -691,7 +692,8 @@ public static class WindowsSccacheNative {
             var si = new STARTUPINFOEX(); si.lpAttributeList = list; si.StartupInfo.cb = Marshal.SizeOf(typeof(STARTUPINFOEX)); si.StartupInfo.dwFlags = STARTF_USESTDHANDLES; si.StartupInfo.hStdInput = lease.NullInputHandle; si.StartupInfo.hStdOutput = lease.StdoutWriteHandle; si.StartupInfo.hStdError = lease.StderrWriteHandle;
             var envText = new StringBuilder(); foreach (var pair in env) envText.Append(pair.Key).Append('=').Append(pair.Value).Append('\0'); envText.Append('\0');
             var mutableCommand = new StringBuilder(commandLine);
-            Need(CreateProcessW(app, mutableCommand, IntPtr.Zero, IntPtr.Zero, true, CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT, envText, cwd, ref si, out pi), "CreateProcessW");
+            uint consoleMode = lease.DirectServer ? DETACHED_PROCESS : CREATE_NO_WINDOW;
+            Need(CreateProcessW(app, mutableCommand, IntPtr.Zero, IntPtr.Zero, true, CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | consoleMode | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT, envText, cwd, ref si, out pi), "CreateProcessW");
             lease.RecordProcessCreated(pi.hProcess, pi.hThread, pi.dwProcessId);
             lease.RecordCreationFileTime(ProcessCreation(lease.Handle));
             Need(AssignProcessToJobObject(job, lease.Handle), "AssignProcessToJobObject");
