@@ -2,6 +2,8 @@ use crate::multiplexer::types::Tab;
 use codeterm_types::decision::DecisionError;
 use serde_json::{json, Value};
 
+pub(crate) mod correlation;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LocalIdentity {
     pub(crate) launch_key: String,
@@ -118,14 +120,15 @@ impl DecisionSource {
     }
 }
 
-pub(crate) fn journal(
+pub(crate) fn journal<'a>(
     tab: &str,
-    observation: u64,
+    observation: impl Into<correlation::RecordIdentity<'a>>,
     source: DecisionSource,
     label: &str,
     confidence: Option<f64>,
     title: &str,
 ) -> Value {
+    let observation = observation.into();
     let title = super::privacy::text(title);
     let asked = match source {
         DecisionSource::Adapter | DecisionSource::Other | DecisionSource::LowConfidence => {
@@ -142,10 +145,12 @@ pub(crate) fn journal(
         }),
     };
     let asked = super::privacy::value(&serde_json::to_value(asked).unwrap_or_default());
-    json!({ "time": chrono::Utc::now().timestamp(), "kind": "tab_state",
+    let mut event = json!({ "time": chrono::Utc::now().timestamp(), "kind": "tab_state",
         "tab": tab, "action": "classification", "decided_by": source.as_str(),
-        "observation_id": observation, "label": label, "confidence": confidence,
-        "reason": "model_answer", "asked": asked })
+        "observation_id": observation.observation_id, "label": label, "confidence": confidence,
+        "reason": "model_answer", "asked": asked });
+    observation.decorate(&mut event, source, label, confidence);
+    event
 }
 
 impl super::super::ServiceContext {

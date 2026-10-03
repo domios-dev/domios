@@ -228,6 +228,8 @@ export interface AgentProvider {
   directoryTrustState?(path: string, skipPermissions: boolean): "trusted" | "untrusted" | "unknown";
   /** One next base64 key plus its stable choice/focus identity, or null. */
   launchOnboardingResponse?(screen: string): { frameKey: string; step: string } | null;
+  /** Exact option value for that same narrow, provider-declared onboarding response. */
+  launchOnboardingSafeChoice?(screen: string): string | null;
   /** Parse only the active directory-trust dialog for tab status/respond. */
   parseDirectoryTrustPrompt?(screen: string): ParsedPrompt | null;
   /** Tool-permission approval for the hook-reported tool; `null` leaves the prompt to the user. */

@@ -1,4 +1,6 @@
 use std::collections::BTreeMap;
+#[cfg(test)]
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -9,6 +11,21 @@ use codeterm_types::decision::{
     DecisionAnswer, DecisionModel, DecisionQuestionsRequest, DecisionResponse,
 };
 use serde_json::Value;
+
+#[cfg(test)]
+static TEST_SUPPORTER_OVERRIDES: std::sync::LazyLock<
+    parking_lot::Mutex<HashMap<usize, (SupporterConfig, Arc<SupporterRuntime>)>>,
+> = std::sync::LazyLock::new(Default::default);
+
+#[cfg(test)]
+pub(crate) struct TestSupporterOverrideGuard(usize);
+
+#[cfg(test)]
+impl Drop for TestSupporterOverrideGuard {
+    fn drop(&mut self) {
+        TEST_SUPPORTER_OVERRIDES.lock().remove(&self.0);
+    }
+}
 
 use super::startup_nudge::StartupNudge;
 use super::tab_transport::TabTransport;
@@ -24,12 +41,14 @@ mod observer;
 mod privacy;
 pub(super) mod scheduler;
 
+pub(crate) use identity::correlation::project_diagnostics as project_observation_diagnostics;
 #[cfg(test)]
 use observer::{choice_model, observation_answers, observe_guarded};
 pub(crate) use observer::{prepare_observation, spawn_observer};
 pub(crate) use privacy::value as redact_decision_diagnostic;
 mod questions;
 pub(crate) mod safe_choice;
+mod safe_response;
 mod state;
 
 pub(crate) use state::{
@@ -219,7 +238,7 @@ impl ShadowHost for ServiceContext {
         coordinator::LedgerSnapshot::capture(self, tab)
     }
     fn connection_is_current(&self, adapter: &str) -> bool {
-        let settings = crate::config::load_config().supporter;
+        let settings = self.supporter_decision_config();
         settings.active_id() == Some(adapter)
             && supporter::supporter_connected(
                 &settings,
@@ -232,7 +251,7 @@ impl ShadowHost for ServiceContext {
             return false;
         };
         if envelope.policy_hash.as_ref().is_some_and(|expected| {
-            identity::supporter_policy(&crate::config::load_config().supporter) != *expected
+            identity::supporter_policy(&self.supporter_decision_config()) != *expected
         }) {
             return false;
         }
@@ -258,6 +277,13 @@ impl ShadowHost for ServiceContext {
     }
 
     fn supporter_runtime(&self) -> Arc<SupporterRuntime> {
+        #[cfg(test)]
+        if let Some((_, runtime)) = TEST_SUPPORTER_OVERRIDES
+            .lock()
+            .get(&(Arc::as_ptr(&self.mux) as usize))
+        {
+            return runtime.clone();
+        }
         supporter::runtime_with_notifications(self)
     }
     fn transport(&self, tab_id: &str) -> Result<Box<dyn TabTransport + '_>, String> {
@@ -402,7 +428,7 @@ impl ShadowHost for ServiceContext {
             .as_deref()
             .and_then(|pty| self.provider_tree_key_for_tab(&tab.id, pty));
         let tab_snapshot = Some(tab.clone());
-        Ok(TabStateMetadata {
+        let mut metadata = TabStateMetadata {
             envelope: None,
             declared_safe_choice,
             tab_snapshot,
@@ -416,7 +442,11 @@ impl ShadowHost for ServiceContext {
             task_id: task_binding.and_then(|binding| binding.task_id.clone()),
             attempt_id: task_binding.and_then(|binding| binding.attempt_id.clone()),
             prompt_options,
-        })
+        };
+        if matches!(trigger, ObservationTrigger::PromptCandidate) {
+            self.add_safe_response_metadata(tab_id, screen, &mut metadata);
+        }
+        Ok(metadata)
     }
 
     fn deliver(
@@ -469,6 +499,28 @@ impl ShadowHost for ServiceContext {
 }
 
 impl ServiceContext {
+    pub(crate) fn supporter_decision_config(&self) -> SupporterConfig {
+        #[cfg(test)]
+        if let Some((config, _)) = TEST_SUPPORTER_OVERRIDES
+            .lock()
+            .get(&(Arc::as_ptr(&self.mux) as usize))
+        {
+            return config.clone();
+        }
+        crate::config::load_config().supporter
+    }
+
+    #[cfg(test)]
+    pub(crate) fn override_supporter_decision_for_test(
+        &self,
+        config: SupporterConfig,
+        runtime: Arc<SupporterRuntime>,
+    ) -> TestSupporterOverrideGuard {
+        let key = Arc::as_ptr(&self.mux) as usize;
+        TEST_SUPPORTER_OVERRIDES.lock().insert(key, (config, runtime));
+        TestSupporterOverrideGuard(key)
+    }
+
     pub(crate) fn observe_launch_settlement_tab_state(
         &self,
         tab_id: &str,
@@ -502,7 +554,7 @@ impl ServiceContext {
         trigger: ObservationTrigger,
         structural_verdict: &str,
     ) {
-        let settings = crate::config::load_config().supporter;
+        let settings = self.supporter_decision_config();
         let _ = spawn_observer(
             self,
             &settings,
@@ -518,7 +570,7 @@ impl ServiceContext {
         &self,
         tab_id: &str,
     ) -> Option<(DecisionQuestionsRequest, TabStateMetadata)> {
-        let config = crate::config::load_config().supporter;
+        let config = self.supporter_decision_config();
         let tokens = TokenSnapshot::read(
             &crate::api::mem_routes::decision::token_store(),
             config.active_id().unwrap_or(""),

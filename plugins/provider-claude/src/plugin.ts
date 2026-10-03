@@ -305,6 +305,10 @@ const plugin: PluginModule = {
     return claudeOnboardingNotNowStep(screen);
   },
 
+  launchOnboardingSafeChoice(screen: string): string | null {
+    return claudeOnboardingPrompt(screen)?.safeChoice ?? null;
+  },
+
   permissionPromptResponse(toolName: string, prompt: ParsedPrompt, screen?: string) {
     return claudePermissionPromptResponse(toolName, prompt, screen);
   },

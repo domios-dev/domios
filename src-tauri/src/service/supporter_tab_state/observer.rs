@@ -4,6 +4,7 @@ use codeterm_types::decision::DecisionError;
 #[derive(Clone)]
 pub(crate) struct EnvelopeContext {
     pub(crate) local: Option<identity::LocalIdentity>,
+    pub(crate) correlation: identity::correlation::Correlation,
     pub(crate) frame_hash: u64,
     pub(super) raw_tail_hash: u64,
     pub(super) observation: coordinator::ObservationIdentity,
@@ -29,6 +30,7 @@ struct QueuedObservation<H: ShadowHost> {
     tab: String,
     title: String,
     observation_id: u64,
+    correlation: Option<identity::correlation::Correlation>,
     pending: bool,
     source: identity::DecisionSource,
 }
@@ -39,7 +41,10 @@ impl<H: ShadowHost> Drop for QueuedObservation<H> {
             record(
                 &self.host,
                 &self.tab,
-                self.observation_id,
+                identity::correlation::RecordIdentity::with_correlation(
+                    self.observation_id,
+                    self.correlation.as_ref(),
+                ),
                 self.source,
                 OTHER,
                 None,
@@ -100,7 +105,10 @@ pub(crate) fn enqueue_prepared<H: ShadowHost>(
             record(
                 host,
                 tab_id,
-                envelope.observation_id,
+                identity::correlation::RecordIdentity::captured(
+                    envelope.observation_id,
+                    &envelope.correlation,
+                ),
                 identity::DecisionSource::Error,
                 OTHER,
                 None,
@@ -122,6 +130,7 @@ pub(crate) fn enqueue_prepared<H: ShadowHost>(
         tab: tab.clone(),
         title: prepared.1.title.clone(),
         observation_id: prepared.1.envelope.as_ref()?.observation_id,
+        correlation: Some(prepared.1.envelope.as_ref()?.correlation.clone()),
         pending: true,
         source: identity::DecisionSource::Budget,
     };
@@ -202,7 +211,10 @@ fn observe_guarded_inner<H: ShadowHost>(
             record(
                 host,
                 tab_id,
-                envelope.observation_id,
+                identity::correlation::RecordIdentity::captured(
+                    envelope.observation_id,
+                    &envelope.correlation,
+                ),
                 identity::DecisionSource::Error,
                 OTHER,
                 None,
@@ -227,7 +239,10 @@ fn observe_guarded_inner<H: ShadowHost>(
         record(
             host,
             tab_id,
-            envelope.observation_id,
+            identity::correlation::RecordIdentity::captured(
+                envelope.observation_id,
+                &envelope.correlation,
+            ),
             identity::DecisionSource::Error,
             OTHER,
             None,
@@ -244,7 +259,10 @@ fn observe_guarded_inner<H: ShadowHost>(
         record(
             host,
             tab_id,
-            envelope.observation_id,
+            identity::correlation::RecordIdentity::captured(
+                envelope.observation_id,
+                &envelope.correlation,
+            ),
             identity::DecisionSource::Error,
             OTHER,
             None,
@@ -266,7 +284,10 @@ fn observe_guarded_inner<H: ShadowHost>(
             record(
                 host,
                 tab_id,
-                envelope.observation_id,
+                identity::correlation::RecordIdentity::captured(
+                    envelope.observation_id,
+                    &envelope.correlation,
+                ),
                 if matches!(trigger, ObservationTrigger::TabExit) {
                     identity::DecisionSource::Error
                 } else {
@@ -285,7 +306,10 @@ fn observe_guarded_inner<H: ShadowHost>(
         record(
             host,
             tab_id,
-            permit.observation_id,
+            identity::correlation::RecordIdentity::captured(
+                permit.observation_id,
+                &envelope.correlation,
+            ),
             identity::DecisionSource::Error,
             OTHER,
             None,
@@ -298,7 +322,10 @@ fn observe_guarded_inner<H: ShadowHost>(
         record(
             host,
             tab_id,
-            permit.observation_id,
+            identity::correlation::RecordIdentity::captured(
+                permit.observation_id,
+                &envelope.correlation,
+            ),
             identity::DecisionSource::Budget,
             OTHER,
             None,
@@ -329,10 +356,10 @@ fn observe_guarded_inner<H: ShadowHost>(
     observe(host, &model, config, adapter_id, tab_id, trigger, envelope)
 }
 
-pub(super) fn record<H: ShadowHost>(
+pub(super) fn record<'a, H: ShadowHost>(
     host: &H,
     tab: &str,
-    observation: u64,
+    observation: impl Into<identity::correlation::RecordIdentity<'a>>,
     source: identity::DecisionSource,
     label: &str,
     confidence: Option<f64>,
@@ -385,7 +412,10 @@ fn observe<H: ShadowHost>(
         record(
             host,
             tab_id,
-            envelope.permit.observation_id,
+            identity::correlation::RecordIdentity::from_metadata(
+                envelope.permit.observation_id,
+                &envelope.metadata,
+            ),
             identity::DecisionSource::Error,
             OTHER,
             None,
@@ -395,17 +425,24 @@ fn observe<H: ShadowHost>(
         return None;
     }
     let classified_frame_hash = envelope.metadata.envelope.as_ref()?.raw_tail_hash;
-    let result = model
-        .decide_questions(&envelope.request, envelope.deadline)
-        .and_then(|response| {
-            observation_answers(response)
-                .map_err(|_| DecisionError::Parse("invalid_observation".into()))
-        });
+    let response = model.decide_questions(&envelope.request, envelope.deadline);
+    let model_verdict = response
+        .as_ref()
+        .ok()
+        .and_then(identity::correlation::ModelVerdict::from_response);
+    let result = response.and_then(|response| {
+        observation_answers(response)
+            .map_err(|_| DecisionError::Parse("invalid_observation".into()))
+    });
     if !current(host, adapter_id, tab_id, &envelope) {
         record(
             host,
             tab_id,
-            envelope.permit.observation_id,
+            identity::correlation::RecordIdentity::from_metadata(
+                envelope.permit.observation_id,
+                &envelope.metadata,
+            )
+            .with_model_verdict(model_verdict.clone()),
             identity::DecisionSource::Error,
             OTHER,
             None,
@@ -423,7 +460,11 @@ fn observe<H: ShadowHost>(
             record(
                 host,
                 tab_id,
-                permit.observation_id,
+                identity::correlation::RecordIdentity::from_metadata(
+                    permit.observation_id,
+                    &metadata,
+                )
+                .with_model_verdict(model_verdict.clone()),
                 source,
                 &verdict.label,
                 Some(verdict.confidence),
@@ -569,7 +610,11 @@ fn observe<H: ShadowHost>(
             record(
                 host,
                 tab_id,
-                permit.observation_id,
+                identity::correlation::RecordIdentity::from_metadata(
+                    permit.observation_id,
+                    &metadata,
+                )
+                .with_model_verdict(model_verdict.clone()),
                 identity::DecisionSource::error(&error),
                 OTHER,
                 None,
@@ -592,6 +637,7 @@ pub(crate) fn prepare_observation<H: ShadowHost>(
         tab: tab_id.into(),
         title: tab_id.into(),
         observation_id: state::next_observation_id(),
+        correlation: None,
         pending: true,
         source: identity::DecisionSource::Error,
     };
@@ -617,16 +663,23 @@ pub(crate) fn prepare_observation<H: ShadowHost>(
         .as_ref()
         .and_then(identity::prompt_hash)
         .map(|prompt| super::frame_hash(&format!("{prompt}:{}", ledgers.prompt)));
+    let observation =
+        coordinator::global().observe(tab_id, &metadata.session_key, prompt, frame_hash);
+    let correlation = identity::correlation::Correlation::capture(
+        local.as_ref(),
+        &metadata.session_key,
+        trigger,
+        observation.occurrence,
+        capture.observation_id,
+        frame_hash,
+        metadata.context["safe_response_kind"].as_str(),
+    );
     metadata.envelope = Some(EnvelopeContext {
         local,
+        correlation,
         frame_hash,
         raw_tail_hash: super::frame_hash(&screen_tail(text)),
-        observation: coordinator::global().observe(
-            tab_id,
-            &metadata.session_key,
-            prompt,
-            frame_hash,
-        ),
+        observation,
         ledgers,
         captured_at,
         observation_id: capture.observation_id,

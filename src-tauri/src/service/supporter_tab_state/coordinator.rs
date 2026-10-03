@@ -86,10 +86,10 @@ impl ActionOwner {
             state.generation = generation.into();
             state.prompt = prompt;
             state.occurrence = state.occurrence.saturating_add(1);
-            state.claimed = false;
         }
         state.frame = frame;
         state.revision = state.revision.saturating_add(1);
+        state.claimed = false;
         ObservationIdentity {
             tab: tab.into(),
             generation: generation.into(),
