@@ -22,6 +22,7 @@ import time
 
 import jev_transport as t
 import request_contract as c
+from windows_junction_fixture import create_junction
 
 CASES = ("success", "response_oversize", "redirect_refused", "held_response_deadline",
          "cancel_after_headers", "partial_capture_failure")
@@ -551,7 +552,7 @@ def run_trust_case(case):
             guard.api.create_directory(path, descriptor)
         else:
             try:
-                os.symlink(target, path, target_is_directory=True)
+                report["fixture"]["reparse"] = create_junction(guard, path, target, descriptor)
             except OSError as error:
                 facts = {name: value for name in ("errno", "winerror")
                          if type(value := getattr(error, name, None)) is int and -(2 ** 31) <= value < 2 ** 32}
@@ -600,7 +601,9 @@ def run_trust_case(case):
             if case == "reparse_refused":
                 target = root / "target"
                 created(target, secure)
-                control = created(child, target=target)
+                control = created(child, secure, target=target)
+                t.require(control["entry"]["facts"]["identity"].hex() == report["fixture"]["reparse"]["identity"],
+                          "windows_fixture_identity")
                 t.require(control["entry"]["facts"]["attributes"] & 0x400, "windows_reparse_control_unavailable")
             else:
                 control = created(child, descriptor, inherit=case == "inherited_write")

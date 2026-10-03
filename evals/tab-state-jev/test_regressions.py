@@ -907,7 +907,7 @@ class WindowsAcquisitionRepairTests(unittest.TestCase):
             api, guards = self.fixture(stack)
             error = OSError(13, "opaque path-bearing detail", "opaque private path")
             error.winerror = 1314
-            stack.enter_context(patch.object(local_module.os, "symlink", side_effect=error))
+            stack.enter_context(patch.object(local_module, "create_junction", side_effect=error))
             report = local_module.run_trust_case("reparse_refused")
         self.assertEqual(report["error"], "windows_reparse_control_unavailable")
         self.assertEqual(report["preparation"], {"reparse_creation_os": {"errno": 13, "winerror": 1314}})
