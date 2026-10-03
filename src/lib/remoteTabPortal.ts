@@ -8,6 +8,17 @@ export interface RemotePeerTabs {
 
 const STORAGE_KEY = "codeterm.remote-tab-attachments.v1";
 
+export function reconcileAttachedRemoteTabs(
+  live: Record<string, Tab>,
+  attached: Record<string, Tab>,
+): Record<string, Tab> {
+  const tabs = { ...attached, ...live };
+  for (const [id, attachment] of Object.entries(attached)) {
+    if (live[id]) tabs[id] = { ...live[id], workspace_id: attachment.workspace_id };
+  }
+  return tabs;
+}
+
 export function loadAttachedRemoteTabs(): Record<string, Tab> {
   try {
     const value = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}") as Record<string, Tab>;

@@ -46,6 +46,7 @@ import { remoteTabsFromOrdinaryProjection } from "./remoteTabProjection";
 import {
   loadAttachedRemoteTabs,
   projectAttachedRemoteTab,
+  reconcileAttachedRemoteTabs,
   saveAttachedRemoteTabs,
   type RemotePeerTabs,
 } from "../../lib/remoteTabPortal";
@@ -142,7 +143,7 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
   const attachedRemoteTabsRef = useRef<Record<string, Tab>>(loadAttachedRemoteTabs());
 
   const applyRemoteProjection = useCallback((tabs: Record<string, Tab>) => {
-    dispatch({ type: "SET_REMOTE_TABS", tabs: { ...tabs, ...attachedRemoteTabsRef.current } });
+    dispatch({ type: "SET_REMOTE_TABS", tabs: reconcileAttachedRemoteTabs(tabs, attachedRemoteTabsRef.current) });
   }, []);
 
   const applyBackendState = useCallback((s: MultiplexerState) => {
