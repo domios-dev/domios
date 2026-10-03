@@ -442,7 +442,7 @@ fn sentinel_probe_unconfirmed_cleanup_stops_watch_without_classification() {
     assert!(stopped.machine.stopped);
     assert_eq!(stopped.machine.last_hash, None);
     assert_eq!(stopped.machine.last_bucket, None);
-    assert!(store.lock().due().unwrap().is_empty());
+    assert!(store.lock().due().unwrap_err().starts_with("sentinel_store_load_failed:"));
     assert!(lease.cancelled.load(std::sync::atomic::Ordering::SeqCst));
     crate::persisted_state::release_hold(&state_path);
 }
