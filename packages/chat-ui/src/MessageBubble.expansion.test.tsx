@@ -157,6 +157,12 @@ async function run() {
   await act(async () => reportToggle?.click());
   assert(reportToggle?.getAttribute("aria-expanded") === "true", "report card expands on demand");
   assert(reportPointer?.textContent?.includes("opaque-dom-report-13.md"), "expanded report body keeps its opaque pointer");
+  await act(async () => {
+    tabToggle?.click();
+    reportToggle?.click();
+  });
+  assert(!tabPointer?.querySelector('[data-testid="raw-command-disclosure"]'), "collapsed Tab card hides its detail disclosure");
+  assert(!reportPointer?.querySelector('[data-testid="raw-command-disclosure"]'), "collapsed report card hides its detail disclosure");
   const systemPointer = host.querySelector<HTMLElement>('[data-testid="chat-system-event"]');
   const systemPointerTitle = systemPointer?.querySelector("button > span");
   const systemPointerToggle = systemPointer?.querySelector<HTMLButtonElement>("button");
@@ -182,7 +188,7 @@ async function run() {
   const editDetails = editDetailsId ? edit?.querySelector<HTMLElement>(`#${editDetailsId}`) : null;
   assert(editDetails?.style.maxHeight === "600px" && editDetails.style.overflowY === "auto", "expanded code output should use the 600px internal scroll cap");
   const rawDisclosures = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="raw-command-disclosure"]'));
-  assert(rawDisclosures.length === 2, "raw command disclosures render only inside expanded tool cards");
+  assert(rawDisclosures.length === 2, `raw command disclosures render only inside expanded tool cards: expected 2, got ${rawDisclosures.length}`);
   assert(rawDisclosures.every((view) => view.closest('[data-testid="chat-tool-call"]')), "raw command disclosures live inside tool cards");
   assert(rawDisclosures.every((view) => !view.textContent?.includes("User formatted") && !view.textContent?.includes("Assistant formatted")), "ordinary messages have no raw command disclosure");
   const commandDisclosure = completedCommandCard?.querySelector<HTMLButtonElement>('[aria-label="Show full command"]');
