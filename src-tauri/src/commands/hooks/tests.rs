@@ -32,6 +32,7 @@ struct InstallProbeProvider {
 
     grant_outcome: Option<serde_json::Value>,
     grant_thread: ThreadProbe,
+    integration_calls: Arc<StdMutex<Vec<&'static str>>>,
 }
 
 impl InstallProbeProvider {
@@ -53,6 +54,7 @@ impl InstallProbeProvider {
 
             grant_outcome: None,
             grant_thread: Arc::new(StdMutex::new(None)),
+            integration_calls: Arc::new(StdMutex::new(Vec::new())),
         }
     }
 
@@ -115,16 +117,22 @@ impl AgentProvider for InstallProbeProvider {
         None
     }
     fn check_integration(&self) -> serde_json::Value {
+        self.integration_calls.lock().unwrap().push("status");
         self.status.clone()
     }
     fn integration_kind(&self) -> IntegrationKind {
+        self.integration_calls.lock().unwrap().push("kind");
         self.integration_kind
+    }
+    fn ensure_integration_on_startup(&self, _api_port: u16) {
+        self.integration_calls.lock().unwrap().push("startup");
     }
     fn install_integration(
         &self,
         _api_port: u16,
         _options: &IntegrationInstallOptions,
     ) -> Result<(), String> {
+        self.integration_calls.lock().unwrap().push("install");
         *self.install_thread.lock().unwrap() = Some(std::thread::current().id());
         self.install_result.clone()
     }
@@ -145,6 +153,45 @@ fn empty_config() -> crate::config::ConfigState {
     Arc::new(parking_lot::Mutex::new(
         crate::config::schema::AppConfig::default(),
     ))
+}
+
+#[test]
+fn startup_reconciliation_machine_owner_false_never_calls_provider_or_changes_consent() {
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set("CODETERM_MACHINE_OWNER", "false");
+    env.set("CODETERM_INSTANCE", "nonowner-integration-test");
+    let provider = Arc::new(InstallProbeProvider::new("nonowner", Ok(())));
+    let config = empty_config();
+    config
+        .lock()
+        .agents
+        .entry("nonowner".into())
+        .or_default()
+        .extra
+        .insert(
+            crate::config::schema::INTEGRATION_CONSENT_GRANTED.into(),
+            toml::Value::Boolean(true),
+        );
+    let before = serde_json::to_value(&*config.lock()).unwrap();
+    let consented = config.lock().agents.clone();
+
+    super::spawn_reconciliation(provider.clone(), consented, Some(config.clone()), None);
+
+    assert!(provider.integration_calls.lock().unwrap().is_empty());
+    assert!(provider.install_thread.lock().unwrap().is_none());
+    assert!(provider.grant_thread.lock().unwrap().is_none());
+    assert_eq!(serde_json::to_value(&*config.lock()).unwrap(), before);
+}
+
+#[test]
+fn startup_reconciliation_machine_owner_true_keeps_provider_capability_check() {
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set("CODETERM_MACHINE_OWNER", "true");
+    let provider = Arc::new(InstallProbeProvider::new("owner-no-integration", Ok(())));
+
+    super::spawn_reconciliation(provider.clone(), Default::default(), None, None);
+
+    assert_eq!(*provider.integration_calls.lock().unwrap(), vec!["kind"]);
 }
 
 fn current_thread_runtime() -> tokio::runtime::Runtime {
