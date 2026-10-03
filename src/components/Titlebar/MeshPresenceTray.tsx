@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { invoke, listen } from "../../lib/bridge";
+import { invoke } from "../../lib/bridge";
+import { useConfig } from "../../hooks/useConfig";
+import { webRequestContext, assertWebRequestContext } from "../../lib/webApi";
 import { createPortal } from "react-dom";
 
 type Presence = "online" | "offline";
@@ -7,20 +9,14 @@ type Presence = "online" | "offline";
 interface MeshSection { enabled: boolean; [k: string]: unknown }
 interface AppConfigShape { mesh: MeshSection; [k: string]: unknown }
 
-async function fetchEnabled(): Promise<Presence | null> {
+async function setEnabled(next: boolean, generation: number): Promise<boolean> {
   try {
+    assertWebRequestContext(generation);
     const cfg = await invoke<AppConfigShape>("get_config");
-    return cfg?.mesh?.enabled ? "online" : "offline";
-  } catch {
-    return null;
-  }
-}
-
-async function setEnabled(next: boolean): Promise<boolean> {
-  try {
-    const cfg = await invoke<AppConfigShape>("get_config");
+    assertWebRequestContext(generation);
     const updated = { ...cfg, mesh: { ...cfg.mesh, enabled: next } };
     await invoke("update_config", { config: updated });
+    assertWebRequestContext(generation);
     return true;
   } catch {
     return false;
@@ -28,44 +24,23 @@ async function setEnabled(next: boolean): Promise<boolean> {
 }
 
 export function MeshPresenceTray() {
-  const [state, setState] = useState<Presence | null>(null);
+  const { config, ready } = useConfig();
+  const generation = webRequestContext();
+  const [presence, setPresence] = useState<{ generation: number; value: Presence } | null>(null);
+  const currentPresence = presence?.generation === generation ? presence.value : null;
+  const state = ready ? currentPresence ?? (config.mesh.enabled ? "online" : "offline") : null;
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    let unlisten: (() => void) | null = null;
-
-    (async () => {
-      const v = await fetchEnabled();
-      if (!cancelled && v !== null) setState((prev) => (prev === v ? prev : v));
-    })();
-
-    listen<AppConfigShape>("config-changed", (event) => {
-      if (cancelled) return;
-      const next = event.payload?.mesh?.enabled ? "online" : "offline";
-      setState((prev) => (prev === next ? prev : next));
-    }).then((fn) => {
-      if (cancelled) {
-        fn();
-      } else {
-        unlisten = fn;
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, []);
+  useEffect(() => setPresence(null), [config]);
 
   const choose = useCallback(async (next: Presence) => {
     setOpen(false);
-    if (state === next) return;
-    const ok = await setEnabled(next === "online");
-    if (ok) setState(next);
-  }, [state]);
+    if (!ready || state === next) return;
+    const ok = await setEnabled(next === "online", generation);
+    if (ok) setPresence({ generation, value: next });
+  }, [state, ready, generation]);
 
   useEffect(() => {
     if (!open) return;
