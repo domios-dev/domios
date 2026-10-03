@@ -133,7 +133,7 @@ pub(super) fn handle(
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
-            maybe_inject_caller_tab(&mut params);
+            inject_trusted_session(&mut params);
             call_plan_rpc(client, "plan.review.bounce", params).map(Some)
         }
         PlanReviewAction::Hold {
