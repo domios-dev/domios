@@ -1,6 +1,6 @@
 # Themes
 
-CodeTerm supports built-in and custom themes. A theme is a TOML file with 20 color fields.
+Domios supports built-in and custom themes. A theme is a TOML file with 20 color fields.
 
 ## CLI
 

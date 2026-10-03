@@ -1,4 +1,4 @@
-# CodeTerm local build machine
+# Domios local build machine
 
 One `release-X.Y.Z` tag starts a single `.github/workflows/release.yml` run. Its three self-hosted
 platform jobs run in parallel; the final manifest job publishes and verifies only after they all
@@ -170,4 +170,4 @@ No SSH between machines; each runner signs and uploads its platform assets, and 
 job publishes the verified release. Keep the repo private / gate fork PRs — self-hosted runners
 execute repo workflow code.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

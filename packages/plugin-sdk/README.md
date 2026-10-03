@@ -1,9 +1,9 @@
 # @codeterm/plugin-sdk
 
-Type-only SDK for authoring [CodeTerm](https://github.com/rollacode/codeterm)
+Type-only SDK for authoring [Domios](https://github.com/rollacode/codeterm)
 plugin **logic** in TypeScript.
 
-A CodeTerm plugin's logic half runs in a confined QuickJS VM and talks to the
+A Domios plugin's logic half runs in a confined QuickJS VM and talks to the
 host only through the injected `host.*` API. This package gives you the typed
 contracts for that surface — the `host` global, and the capability interfaces a
 plugin can implement — with zero runtime weight (it's purely types; your bundler
@@ -23,9 +23,9 @@ const plugin: PluginModule = {
 export default plugin;
 ```
 
-Build it to the QuickJS-compatible `plugin.js` with CodeTerm's `build-plugin.mjs`
+Build it to the QuickJS-compatible `plugin.js` with Domios's `build-plugin.mjs`
 (esbuild, CJS, `module.exports.default`). QuickJS has no `console`/`fetch`/timers —
-stay on the `host.*` surface. See the CodeTerm plugin authoring guide for details.
+stay on the `host.*` surface. See the Domios plugin authoring guide for details.
 
 Exports: `Host`, `HostFs`, `HostShell`, `HostPath`, `DirEntry`, `ExecOpts`,
 `ExecResult`, `FetchOpts`, `FetchResult`, and the capability contracts
@@ -59,7 +59,7 @@ For a required or token-free adapter, use
 `"decisionModel": { "tokenMode": "required" }` or
 `"decisionModel": { "tokenMode": "none" }`; the object form requires
 `minCodeterm: "1.12.4"`. An optional object declaration is also accepted.
-CodeTerm stores tokens host-side and attaches a bearer header only for an
+Domios stores tokens host-side and attaches a bearer header only for an
 allowed `host.fetch`, `host.fetch.async`, or `host.fetch.stream` request on
 1.12.4 hosts. This uses the existing `hostApi: 2` contract and needs no plugin
 opt-in. Plugin code never receives the token; older hosts do not add the header.

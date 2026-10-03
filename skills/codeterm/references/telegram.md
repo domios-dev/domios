@@ -1,6 +1,6 @@
 # Telegram Bridge
 
-Connect a Telegram bot to the General Agent. CodeTerm handles inbound routing; the agent sends replies via CLI.
+Connect a Telegram bot to the General Agent. Domios handles inbound routing; the agent sends replies via CLI.
 
 ## Setup
 
@@ -15,7 +15,7 @@ Connect a Telegram bot to the General Agent. CodeTerm handles inbound routing; t
    codeterm config set integrations.telegram_enabled true
    codeterm config set integrations.telegram_allowed_users '["123456789"]'
    ```
-4. Restart CodeTerm (hot-reload not yet supported)
+4. Restart Domios (hot-reload not yet supported)
 
 ## How it works
 
