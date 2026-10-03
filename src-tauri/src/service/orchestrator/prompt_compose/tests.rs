@@ -276,3 +276,39 @@ fn the_roleless_fallback_shape_carries_no_worker_doctrine() {
         "a roleless spawn carries no Worker doctrine, which is why it is not the mesh shape"
     );
 }
+
+#[test]
+fn mesh_spawn_return_route_reaches_the_launch_prompt_once() {
+    const PEER: &str = "opaque-origin-peer-7da32";
+    const TAB: &str = "opaque-origin-tab-b8219";
+    const ASSIGNMENT: &str = "opaque-assignment-936ac";
+    for (role, capable) in [(Some("Orchestrator"), true), (Some("Worker"), true), (None, false)] {
+        let params = SpawnAgentParams {
+            role: role.map(str::to_string),
+            task: Some(ASSIGNMENT.into()),
+            report_target_mesh_peer: Some(PEER.into()),
+            report_target_tab_id: Some(TAB.into()),
+            ..Default::default()
+        };
+        let prompt = super::spawn_launch_task(&params, capable).expect("launch prompt");
+        assert_eq!(prompt.matches(PEER).count(), 1);
+        assert_eq!(prompt.matches(TAB).count(), 1);
+        assert_eq!(prompt.matches(ASSIGNMENT).count(), 1);
+    }
+}
+
+#[test]
+fn mesh_spawn_return_route_does_not_guess_partial_or_local_targets() {
+    for (peer, tab) in [(None, Some("opaque-local-tab")), (Some("opaque-peer"), None), (Some(" "), Some("opaque-tab"))] {
+        let params = SpawnAgentParams {
+            task: Some("opaque-assignment".into()),
+            report_target_mesh_peer: peer.map(str::to_string),
+            report_target_tab_id: tab.map(str::to_string),
+            ..Default::default()
+        };
+        assert_eq!(
+            super::spawn_launch_task(&params, true),
+            super::role_launch_task(params.task.as_deref(), None, None, true),
+        );
+    }
+}
