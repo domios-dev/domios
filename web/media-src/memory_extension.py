@@ -66,7 +66,8 @@ def prepare(original_timing, original_audio, original_alignment, memory_audio,
     extra_text = ''.join(extra_alignment['characters'])
     require(extra_text == addition['text'], 'Memory text differs from service timestamps')
     split = old_text.index(old['cues'][-1]['text'])
-    require(max(base_alignment['character_end_times_seconds'][:split]) <= cut
+    spoken_prefix = [index for index in range(split) if not base_alignment['characters'][index].isspace()]
+    require(max(base_alignment['character_end_times_seconds'][index] for index in spoken_prefix) <= cut
             and base_alignment['character_start_times_seconds'][split] >= cut,
             'Original speech crosses the insertion boundary')
     duration_added = INSERT_FRAMES / 30
@@ -74,12 +75,15 @@ def prepare(original_timing, original_audio, original_alignment, memory_audio,
     alignment['characters'] = base_alignment['characters'][:split] + extra_alignment['characters'] + ['\n', '\n'] + base_alignment['characters'][split:]
     for key in ('character_start_times_seconds', 'character_end_times_seconds'):
         times = [time + cut + MEMORY_LEAD_SAMPLES / RATE for time in extra_alignment[key]]
-        alignment[key] = base_alignment[key][:split] + times + [times[-1], times[-1]] + [time + duration_added for time in base_alignment[key][split:]]
+        prefix = [min(time, cut) if base_alignment['characters'][index].isspace() else time
+                  for index, time in enumerate(base_alignment[key][:split])]
+        alignment[key] = prefix + times + [times[-1], times[-1]] + [time + duration_added for time in base_alignment[key][split:]]
     alignment_path = output / 'alignment.json'
     lineage = dict(originalAudio=record(original_audio), originalAlignment=record(original_alignment),
                    memoryAudio=record(memory_audio), memoryAlignment=record(memory_alignment),
                    insertSourceSample=cut_sample, insertedSamples=INSERT_SAMPLES,
-                   memoryLeadSamples=MEMORY_LEAD_SAMPLES, originalPcmPrefixAndTailExact=True)
+                   memoryLeadSamples=MEMORY_LEAD_SAMPLES, originalPcmPrefixAndTailExact=True,
+                   whitespaceTiming='Nonspoken separator timestamps clipped at insertion; every spoken timestamp retained')
     write_json(alignment_path, dict(alignment=alignment, assembly=lineage))
     timing = copy.deepcopy(old)
     timing['duration'] += duration_added
