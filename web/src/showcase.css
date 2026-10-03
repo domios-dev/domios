@@ -48,6 +48,7 @@
 @media (max-width: 800px) {
   .showcase-workbench { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .clip-shelf { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); }
+  .shelf-thumb { width: calc((100% - 10px) / 2); height: calc((100% - 10px) / 2); }
   .clip-shelf button { flex-direction: column; justify-content: center; gap: 9px; padding: 10px; }
   .clip-still { flex: 0 1 auto; width: 100%; aspect-ratio: 16 / 5; }
   .clip-label { display: grid; grid-template-columns: auto 1fr; align-items: start; min-height: 30px; font-size: 11px; line-height: 1.4; gap: 5px; }
