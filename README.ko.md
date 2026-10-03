@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="CodeTerm" width="128" />
+  <img src="assets/logo.png" alt="Domios" width="128" />
 </p>
 
-<h1 align="center">CodeTerm</h1>
+<h1 align="center">Domios</h1>
 > README.md 번역은 뒤처질 수 있습니다. 영어 버전이 기준입니다.
 
 <p align="center">
@@ -31,7 +31,7 @@
 </p>
 
 <!-- SCREENSHOT PLACEHOLDER: Add screenshots here -->
-<!-- ![CodeTerm Screenshot](assets/screenshot.png) -->
+<!-- ![Domios Screenshot](assets/screenshot.png) -->
 <!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
      1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
      2. Per-OS install subsections instead of one combined "다운로드": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
@@ -39,11 +39,11 @@
 
 ---
 
-## CodeTerm이란?
+## Domios이란?
 
-CodeTerm은 AI 지원 개발을 위해 처음부터 설계된 크로스 플랫폼 터미널 멀티플렉서입니다. tmux와 같은 터미널 멀티플렉서의 강력함에 Claude Code와 같은 AI 코딩 에이전트에 대한 일급 지원을 결합했습니다.
+Domios은 AI 지원 개발을 위해 처음부터 설계된 크로스 플랫폼 터미널 멀티플렉서입니다. tmux와 같은 터미널 멀티플렉서의 강력함에 Claude Code와 같은 AI 코딩 에이전트에 대한 일급 지원을 결합했습니다.
 
-**다른 터미널과의 핵심 차이점:** CodeTerm은 완전한 REST API, CLI 및 Socket API를 제공합니다 — AI 에이전트가 워크스페이스를 생성하고, 패널을 분할하고, 명령을 실행하고, 출력을 읽고, 전체 터미널을 프로그래밍 방식으로 관리할 수 있습니다. AI 어시스턴트가 터미널 워크플로우의 일급 시민이 됩니다.
+**다른 터미널과의 핵심 차이점:** Domios은 완전한 REST API, CLI 및 Socket API를 제공합니다 — AI 에이전트가 워크스페이스를 생성하고, 패널을 분할하고, 명령을 실행하고, 출력을 읽고, 전체 터미널을 프로그래밍 방식으로 관리할 수 있습니다. AI 어시스턴트가 터미널 워크플로우의 일급 시민이 됩니다.
 
 **Tauri v2** (Rust) + **React** + **xterm.js**로 구축되었습니다.
 
@@ -164,7 +164,7 @@ cd cli && cargo build --release
 
 ## API
 
-CodeTerm은 통합을 위한 세 가지 API를 제공합니다:
+Domios은 통합을 위한 세 가지 API를 제공합니다:
 
 ### REST API (포트 7685)
 
@@ -217,11 +217,11 @@ codeterm browser open "http://localhost:3000"
 
 ### 환경 변수
 
-CodeTerm은 모든 PTY 세션에서 다음을 설정합니다:
+Domios은 모든 PTY 세션에서 다음을 설정합니다:
 
 | 변수 | 설명 |
 |----------|-------------|
-| `CODETERM` | 항상 `1` — CodeTerm 내부에서 실행 중인지 감지 |
+| `CODETERM` | 항상 `1` — Domios 내부에서 실행 중인지 감지 |
 | `CODETERM_TAB_ID` | 현재 패널의 UUID |
 | `CODETERM_SOCKET_PATH` | JSON-RPC API용 소켓 경로 |
 | `TERM_PROGRAM` | `CodeTerm` |
@@ -261,7 +261,7 @@ port = 7685
 
 ```
 ┌─────────────────────────────────────────────┐
-│                  CodeTerm                    │
+│                  Domios                    │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
 │  │ React UI │  │ xterm.js │  │  Browser   │  │
 │  │ Sidebar  │  │ Terminal │  │    Tabs    │  │
