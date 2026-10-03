@@ -338,6 +338,8 @@ pub fn run() {
             session::save_session_named,
             session::list_saved_sessions,
             session::load_session,
+            commands::automation_graph_snapshot,
+            commands::automation_graph_stop_sentinel,
             commands::cron_list,
             commands::cron_get,
             commands::cron_create,

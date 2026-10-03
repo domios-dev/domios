@@ -20,10 +20,15 @@ pub struct Handle {
     pub store: Arc<Mutex<Store>>,
     wake: Arc<(std::sync::Mutex<u64>, std::sync::Condvar)>,
     probe_owner: Arc<probe::owner::ProbeResourceOwner>,
+    app: Option<tauri::AppHandle>,
+    _shutdown: Option<Arc<crate::crash::shutdown::ShutdownSubscription>>,
 }
 
 impl Handle {
     pub fn notify(&self) {
+        if let Some(app) = &self.app {
+            emit_changes(&self.store, app);
+        }
         let (generation, wake) = &*self.wake;
         if let Ok(mut generation) = generation.lock() {
             *generation = generation.wrapping_add(1);
@@ -38,16 +43,51 @@ impl Handle {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn fixture_handle(store: Store, app: tauri::AppHandle) -> Handle {
+    Handle {
+        store: Arc::new(Mutex::new(store)),
+        wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
+        probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
+        app: Some(app),
+        _shutdown: None,
+    }
+}
+
+pub(super) fn emit_changes(store: &Arc<Mutex<Store>>, app: &tauri::AppHandle) {
+    let changes = store.lock().take_changes();
+    for change in changes {
+        crate::api::events::emit_everywhere(app, "automation-graph-changed", change);
+    }
+}
+
 pub fn start(svc: ServiceState, clock: SharedClock) {
-    let handle = Handle {
+    let mut handle = Handle {
         store: Arc::new(Mutex::new(Store::new(
             codeterm_paths::data_dir().join("sentinels.json"),
             clock,
         ))),
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
+        app: Some(svc.app_handle.clone()),
+        _shutdown: None,
     };
+    let callback = shutdown_callback(&handle);
+    match crate::crash::shutdown::subscribe_sentinel_shutdown(callback) {
+        Ok(subscription) => handle._shutdown = Some(Arc::new(subscription)),
+        Err(error) => {
+            log::error!("[sentinel] shutdown registration failed: {error}");
+            handle.store.lock().close_admission();
+            handle.probe_owner.close_admission();
+            return;
+        }
+    }
+    crate::service::sentinel::graph::install_invalidations(&svc, handle.store.clone());
     svc.app_handle.manage(handle.clone());
+    if let Err(error) = handle.store.lock().ensure_available() {
+        log::error!("[sentinel] subsystem unavailable: {error}");
+        return;
+    }
     let store = handle.store.clone();
     let wake = handle.wake.clone();
     let probe_owner = Arc::downgrade(&handle.probe_owner);
@@ -55,6 +95,9 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
     std::thread::spawn(move || {
         let (generation, wake_condvar) = &*wake;
         loop {
+            if probe_owner.upgrade().is_none_or(|owner| owner.is_closing()) {
+                return;
+            }
             let observed = match generation.lock() {
                 Ok(guard) => *guard,
                 Err(_) => return,
@@ -70,7 +113,12 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
                             store: store.clone(),
                             wake: wake.clone(),
                             probe_owner: owner,
+                            app: Some(svc.app_handle.clone()),
+                            _shutdown: None,
                         };
+                        if worker_handle.probe_owner.is_closing() {
+                            return;
+                        }
                         let svc = svc.clone();
                         std::thread::spawn(move || {
                             tick(&worker_handle, &svc, &lease);
@@ -81,6 +129,10 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
                 }
                 Err(error) => log::error!("[sentinel] schedule persistence failed: {error}"),
             }
+            emit_changes(&store, &svc.app_handle);
+            if probe_owner.upgrade().is_none_or(|owner| owner.is_closing()) {
+                return;
+            }
             let wait_ms = store.lock().next_deadline().max(1);
             let guard = match generation.lock() {
                 Ok(guard) => guard,
@@ -89,11 +141,41 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
             if *guard != observed {
                 continue;
             }
-            let _ = wake_condvar.wait_timeout_while(guard, Duration::from_millis(wait_ms), |value| {
-                *value == observed
-            });
+            let _ =
+                wake_condvar.wait_timeout_while(guard, Duration::from_millis(wait_ms), |value| {
+                    *value == observed
+                });
         }
     });
+}
+
+fn shutdown_callback(handle: &Handle) -> impl FnOnce() + Send + 'static {
+    let store = Arc::downgrade(&handle.store);
+    let owner = Arc::downgrade(&handle.probe_owner);
+    let wake = Arc::downgrade(&handle.wake);
+    move || {
+        if let Some(store) = store.upgrade() {
+            store.lock().close_admission();
+        }
+        if let Some(owner) = owner.upgrade() {
+            owner.close_admission();
+        }
+        if let Some(wake) = wake.upgrade() {
+            let (generation, condvar) = &*wake;
+            if let Ok(mut generation) = generation.lock() {
+                *generation = generation.wrapping_add(1);
+                condvar.notify_all();
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+pub(super) fn fixture_shutdown(
+    handle: &Handle,
+    latch: &crate::crash::shutdown::ShutdownLatch,
+) -> crate::crash::shutdown::ShutdownSubscription {
+    latch.subscribe(shutdown_callback(handle)).unwrap()
 }
 
 fn journal(
@@ -149,7 +231,11 @@ pub fn record(
     };
     let route_target = match &outcome.route {
         Some(machine::Route::Notify) => Some(job.creator_tab_id.as_str()),
-        Some(machine::Route::Send(target) | machine::Route::Cron(target)) => Some(target.as_str()),
+        Some(
+            machine::Route::Send(target)
+            | machine::Route::Cron(target)
+            | machine::Route::Sentinel(target),
+        ) => Some(target.as_str()),
         _ => None,
     };
     runtime.sentinel_event(json!({
@@ -186,6 +272,7 @@ fn record_failure(
                 reason: failure.primary,
                 verdict: None,
                 route: None,
+                handlers: Vec::new(),
             },
             Stage::Skip,
         );
@@ -198,11 +285,15 @@ fn record_unconfirmed_failure(
     lease: &Lease,
     failure: &probe::process::ProbeFailure,
 ) {
-    let result = record_unconfirmed_failure_with(&handle.store, &lease.job, failure, |job, out, stage| {
-        journal(svc, job, out, stage)
-    });
+    let result =
+        record_unconfirmed_failure_with(&handle.store, &lease.job, failure, |job, out, stage| {
+            journal(svc, job, out, stage)
+        });
     if let Some(error) = result.persistence_error {
-        log::error!("[sentinel] probe stop persistence failed: {error}; resource failure: {}", failure.reason());
+        log::error!(
+            "[sentinel] probe stop persistence failed: {error}; resource failure: {}",
+            failure.reason()
+        );
     }
     if let Some(error) = result.journal_error {
         log::error!(
@@ -237,8 +328,11 @@ pub(super) fn record_unconfirmed_failure_with(
             reason: failure.primary,
             verdict: None,
             route: None,
+            handlers: Vec::new(),
         };
-        write_journal(&stopped, &outcome, Stage::Skip).err().map(|error| error.to_string())
+        write_journal(&stopped, &outcome, Stage::Skip)
+            .err()
+            .map(|error| error.to_string())
     });
     UnconfirmedRecordResult {
         persistence_error,
@@ -304,6 +398,146 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
             .map(|at| Duration::from_millis(at.saturating_sub(now)))
             .unwrap_or(Duration::from_secs(30))
     };
+    advance(
+        &handle.store,
+        lease,
+        &output,
+        || classify::classify(svc, &lease.job, &output.text, remaining),
+        |job, transition, handler| {
+            let mux = svc.mux.read();
+            let live = mux
+                .get_tab(&job.creator_tab_id)
+                .is_some_and(|tab| tab.team_id == job.team_id)
+                && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref()
+                    == Some(&job.workspace_id)
+                && job
+                    .team_id
+                    .as_ref()
+                    .is_none_or(|id| mux.get_team(id).is_some());
+            if !live {
+                return Ok(None);
+            }
+            handle.store.lock().claim_handler(job, transition, handler)
+        },
+        |job, transition, handler, verdict| {
+            use super::handlers::Status;
+            if !routes::creator_live(svc, job) {
+                return Err("sentinel creator or Team is gone".into());
+            }
+            if handler.target.is_some()
+                && crate::service::sentinel::graph::target_identity(svc, job, &handler.action)?
+                    != handler.target
+            {
+                return Err("sentinel exact target scope changed".into());
+            }
+            match &handler.action {
+                machine::Route::Sentinel(target) => {
+                    let mux = svc.mux.read();
+                    let live = mux
+                        .get_tab(&job.creator_tab_id)
+                        .is_some_and(|tab| tab.team_id == job.team_id)
+                        && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref()
+                            == Some(&job.workspace_id)
+                        && job
+                            .team_id
+                            .as_ref()
+                            .is_none_or(|id| mux.get_team(id).is_some());
+                    if !live {
+                        return Err("sentinel creator or Team is gone".into());
+                    }
+                    let changed = handle.store.lock().activate(job, transition, target)?;
+                    drop(mux);
+                    if changed {
+                        handle.notify();
+                    }
+                    Ok(if changed {
+                        Status::Completed
+                    } else {
+                        Status::Noop
+                    }
+                    .into())
+                }
+                machine::Route::Command(parameters) => {
+                    let remaining = {
+                        let store = handle.store.lock();
+                        if !store.action_permitted(job, transition) {
+                            return Err("command handler source fenced".into());
+                        }
+                        job.expires_at
+                            .map(|at| {
+                                Duration::from_millis(at.saturating_sub(store.clock.now_ms()))
+                            })
+                            .unwrap_or(probe::PROBE_RUNTIME)
+                    };
+                    Ok(super::command::execute(
+                        parameters,
+                        Path::new(&job.cwd),
+                        remaining,
+                        &handle.probe_owner,
+                        &lease.cancelled,
+                    ))
+                }
+                machine::Route::Stop => {
+                    {
+                        let mut store = handle.store.lock();
+                        if !store.action_permitted(job, transition) {
+                            return Err("stop handler source fenced".into());
+                        }
+                        store.stop(&job.id, "stop_handler")?;
+                    }
+                    handle.notify();
+                    Ok(Status::Completed.into())
+                }
+                route => match routes::run(svc, job, verdict, route, &output.text) {
+                    Ok(execution_id) => Ok(super::handlers::Effect {
+                        status: Status::Completed,
+                        execution_id,
+                        command_result: None,
+                    }),
+                    Err(error) if error.starts_with("submit_unconfirmed") => {
+                        Ok(Status::Unconfirmed.into())
+                    }
+                    Err(error) => Err(error),
+                },
+            }
+        },
+        |job, outcome, stage| journal(svc, job, outcome, stage),
+    );
+}
+
+pub(super) fn advance(
+    store: &Arc<Mutex<Store>>,
+    lease: &Lease,
+    output: &probe::Output,
+    classify: impl FnOnce() -> super::provenance::Classification,
+    mut claim: impl FnMut(
+        &Sentinel,
+        &str,
+        &super::handlers::Handler,
+    ) -> Result<Option<super::handlers::ResultRecord>, String>,
+    mut execute: impl FnMut(
+        &Sentinel,
+        &str,
+        &super::handlers::Handler,
+        &machine::Verdict,
+    ) -> Result<super::handlers::Effect, String>,
+    mut write_journal: impl FnMut(&Sentinel, &machine::Outcome, Stage) -> std::io::Result<()>,
+) {
+    use super::handlers::Status;
+    if lease.cancelled.load(Ordering::SeqCst) {
+        return;
+    }
+    let current = store.lock().get(&lease.job.id).cloned();
+    if !current.is_some_and(|job| {
+        job.same_owner(&lease.job)
+            && job.revision == lease.job.revision
+            && job.machine.last_hash == lease.job.machine.last_hash
+            && job.machine.last_bucket == lease.job.machine.last_bucket
+            && !job.machine.stopped
+            && !job.machine.paused
+    }) {
+        return;
+    }
     let mut job = lease.job.clone();
     let scope = Scope::from(&job);
     let outcome = machine::evaluate(
@@ -313,49 +547,123 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         &job.routes,
         job.until.as_deref(),
         scope,
-        || classify::classify(svc, &lease.job, &output.text, remaining),
+        classify,
     );
     job.last_reason = Some(outcome.reason.into());
-    let committed = handle.store.lock().finish(&job);
-    match committed {
-        Ok(true) => {}
-        Ok(false) => return,
-        Err(error) => {
-            log::error!("[sentinel] transition persistence failed: {error}");
-            return;
-        }
-    }
-    if journal(svc, &job, &outcome, Stage::Decision).is_err() {
+    let committed = if outcome.reason == "transition" {
+        store.lock().accept_transition(
+            &job,
+            &outcome
+                .verdict
+                .as_ref()
+                .map(|v| v.bucket.clone())
+                .unwrap_or_default(),
+            &outcome.evidence.evaluation_id,
+        )
+    } else {
+        store.lock().finish(&job)
+    };
+    if !matches!(committed, Ok(true)) {
         return;
     }
-    if let (Some(route), Some(verdict)) = (&outcome.route, &outcome.verdict) {
-        if lease.cancelled.load(Ordering::SeqCst) {
+    if write_journal(&job, &outcome, Stage::Decision).is_err() {
+        let _ = store.lock().skip_remaining(
+            &job.id,
+            &outcome.evidence.evaluation_id,
+            &outcome.handlers,
+        );
+        return;
+    }
+    for (index, handler) in outcome.handlers.iter().enumerate() {
+        let transition = &outcome.evidence.evaluation_id;
+        let permitted = !lease.cancelled.load(Ordering::SeqCst)
+            && store.lock().action_permitted(&job, transition);
+        if !permitted {
+            let _ = store
+                .lock()
+                .skip_remaining(&job.id, transition, &outcome.handlers[index..]);
             return;
         }
-        let expired = job
-            .expires_at
-            .is_some_and(|at| handle.store.lock().clock.now_ms() >= at);
-        if expired {
-            return;
-        }
-        if journal(svc, &job, &outcome, Stage::RouteClaim).is_err() {
+        let accepted = match claim(&job, transition, handler) {
+            Ok(Some(claim)) => claim,
+            _ => {
+                let _ =
+                    store
+                        .lock()
+                        .skip_remaining(&job.id, transition, &outcome.handlers[index..]);
+                return;
+            }
+        };
+        let mut handler_outcome = outcome.clone();
+        handler_outcome.route = Some(handler.action.clone());
+        if write_journal(&job, &handler_outcome, Stage::RouteClaim).is_err() {
+            let _ =
+                store
+                    .lock()
+                    .skip_remaining(&job.id, transition, &outcome.handlers[index + 1..]);
             return;
         }
         if lease.cancelled.load(Ordering::SeqCst)
-            || job
-                .expires_at
-                .is_some_and(|at| handle.store.lock().clock.now_ms() >= at)
+            || !store.lock().action_permitted(&job, transition)
         {
+            let _ =
+                store
+                    .lock()
+                    .skip_remaining(&job.id, transition, &outcome.handlers[index + 1..]);
             return;
         }
-        match routes::run(svc, &job, verdict, route, &output.text) {
-            Ok(()) => {
-                let _ = journal(svc, &job, &outcome, Stage::RouteCompleted);
-            }
-            Err(error) => {
-                log::warn!("[sentinel] route failed id={}: {error}", job.id);
-                let _ = journal(svc, &job, &outcome, Stage::RouteFailed);
-            }
+        let Some(verdict) = outcome.verdict.as_ref() else {
+            return;
+        };
+        let result = execute(&job, transition, handler, verdict);
+        let stage = if matches!(
+            &result,
+            Ok(super::handlers::Effect {
+                status: Status::Completed | Status::Noop,
+                ..
+            })
+        ) {
+            Stage::RouteCompleted
+        } else {
+            Stage::RouteFailed
+        };
+        let effect = result.unwrap_or_else(|_| Status::Failed.into());
+        let unsafe_continuation = effect
+            .command_result
+            .as_ref()
+            .is_some_and(|result| !result.resources_confirmed);
+        if let Err(error) = store
+            .lock()
+            .finish_handler_result(&job.id, transition, &accepted, effect)
+        {
+            log::error!("[sentinel] handler result persistence failed: {error}");
+            return;
+        }
+        let _ = write_journal(&job, &handler_outcome, stage);
+        if unsafe_continuation {
+            let mut store = store.lock();
+            let _ = store.stop(&job.id, "command_resources_unconfirmed");
+            let _ = store.skip_remaining(&job.id, transition, &outcome.handlers[index + 1..]);
+            return;
         }
     }
+}
+
+#[cfg(test)]
+pub(super) fn fixture_handle_without_app(store: Store) -> Handle {
+    Handle {
+        store: Arc::new(Mutex::new(store)),
+        wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
+        probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
+        app: None,
+        _shutdown: None,
+    }
+}
+
+#[cfg(test)]
+pub(super) fn fixture_shutdown_status(handle: &Handle) -> (bool, u64) {
+    (
+        handle.probe_owner.is_closing(),
+        *handle.wake.0.lock().unwrap(),
+    )
 }

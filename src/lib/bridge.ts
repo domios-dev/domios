@@ -195,6 +195,17 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", "/api/network/serve/enable", { https_port: a.https_port }),
   disable_web_access: () => webJson("POST", "/api/network/serve/disable"),
 
+  automation_graph_snapshot: (a) => {
+    if (typeof a.workspaceId !== "string" || !a.workspaceId) throw new Error("Automation workspace scope is required");
+    if (!("teamId" in a) || (a.teamId !== null && typeof a.teamId !== "string")) throw new Error("Automation Team scope is required");
+    return webJson("GET", `/api/automation/graph?workspace_id=${enc(s(a, "workspaceId"))}&team_id=${enc(s(a, "teamId"))}`);
+  },
+  automation_graph_stop_sentinel: (a) => {
+    if (typeof a.workspaceId !== "string" || !a.workspaceId) throw new Error("Automation workspace scope is required");
+    if (!("teamId" in a) || (a.teamId !== null && typeof a.teamId !== "string")) throw new Error("Automation Team scope is required");
+    if (typeof a.id !== "string" || !a.id) throw new Error("Sentinel identity is required");
+    return webJson("POST", `/api/automation/sentinels/${enc(s(a, "id"))}/stop`, { workspace_id: s(a, "workspaceId"), team_id: a.teamId });
+  },
   mux_get_state: () => webJson("GET", "/api/mux/state"),
   session_binding_state: (a) =>
     webJson("GET", `/api/tabs/${enc(s(a, "tabId"))}/session/binding-state`),

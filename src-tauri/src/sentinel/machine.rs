@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use super::handlers::Handler;
 use super::provenance::{Classification, Evidence, Scope};
 
 pub const MIN_INTERVAL_MS: u64 = 10_000;
@@ -10,12 +11,19 @@ pub const ROUTE_CONFIDENCE: f64 = 0.80;
 pub const MAX_BUCKETS: usize = 16;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "target", rename_all = "snake_case")]
+#[serde(
+    tag = "kind",
+    content = "target",
+    rename_all = "snake_case",
+    deny_unknown_fields
+)]
 pub enum Route {
     Notify,
     Send(String),
     Cron(String),
+    Sentinel(String),
     Stop,
+    Command(super::command::Parameters),
 }
 
 impl Route {
@@ -24,19 +32,32 @@ impl Route {
             "notify" => Ok(Self::Notify),
             "stop" => Ok(Self::Stop),
             _ => {
-                let (kind, target) = value
-                    .split_once(':')
-                    .ok_or("route: use notify, send:<tab>, cron:<name>, or stop")?;
+                let (kind, target) = value.split_once(':').ok_or(
+                    "route: use notify, sentinel:<exact-id>, send:<tab>, cron:<name>, or stop",
+                )?;
                 if target.trim().is_empty()
                     || target.len() > 256
                     || target.chars().any(char::is_control)
+                    || target.contains(':')
+                    || target.contains('/')
                 {
                     return Err("route: target must be nonempty and bounded".into());
                 }
                 match kind {
                     "send" => Ok(Self::Send(target.into())),
                     "cron" => Ok(Self::Cron(target.into())),
-                    _ => Err("route: use notify, send:<tab>, cron:<name>, or stop".into()),
+                    "sentinel"
+                        if target.starts_with("sentinel_")
+                            && target
+                                .chars()
+                                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') =>
+                    {
+                        Ok(Self::Sentinel(target.into()))
+                    }
+                    _ => Err(
+                        "route: use notify, sentinel:<exact-id>, send:<tab>, cron:<name>, or stop"
+                            .into(),
+                    ),
                 }
             }
         }
@@ -44,10 +65,13 @@ impl Route {
 }
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Machine {
     pub last_hash: Option<String>,
     pub last_bucket: Option<String>,
     pub stopped: bool,
+    #[serde(default)]
+    pub paused: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -62,6 +86,7 @@ pub struct Outcome {
     pub reason: &'static str,
     pub verdict: Option<Verdict>,
     pub route: Option<Route>,
+    pub handlers: Vec<Handler>,
 }
 
 pub fn validate(
@@ -109,7 +134,7 @@ pub fn evaluate(
     machine: &mut Machine,
     output: &[u8],
     buckets: &[String],
-    routes: &BTreeMap<String, Route>,
+    routes: &BTreeMap<String, Vec<Handler>>,
     until: Option<&str>,
     scope: Scope,
     classify: impl FnOnce() -> Classification,
@@ -120,7 +145,11 @@ pub fn evaluate(
         reason,
         verdict: None,
         route: None,
+        handlers: Vec::new(),
     };
+    if machine.paused {
+        return skipped("paused", evidence);
+    }
     if machine.stopped {
         return skipped("stopped", evidence);
     }
@@ -147,24 +176,25 @@ pub fn evaluate(
     } else {
         "transition"
     };
-    let route = if reason == "transition" {
+    let handlers = if reason == "transition" {
         machine.last_bucket = Some(verdict.bucket.clone());
-        let route = routes
-            .get(&verdict.bucket)
-            .cloned()
-            .unwrap_or(Route::Notify);
-        if until == Some(verdict.bucket.as_str()) || route == Route::Stop {
+        if until == Some(verdict.bucket.as_str()) {
             machine.stopped = true;
         }
-        Some(route)
+        routes
+            .get(&verdict.bucket)
+            .cloned()
+            .unwrap_or_else(|| vec![Handler::notify(&verdict.bucket)])
     } else {
-        None
+        Vec::new()
     };
+    let route = handlers.first().map(|handler| handler.action.clone());
     Outcome {
         evidence,
         reason,
         verdict: Some(verdict),
         route,
+        handlers,
     }
 }
 

@@ -30,6 +30,8 @@ import { EssenceMapCanvas } from "./components/Canvas/EssenceMapCanvas";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
+import { WorkspaceAutomationView } from "./components/Automation/WorkspaceAutomationView";
+import type { JobsTarget } from "./components/Jobs/JobsView";
 import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
 import { useConfig } from "./hooks/useConfig";
@@ -112,6 +114,9 @@ function AppInner() {
   });
   const { inset: keyboardInset, keyboardOpen } = useKeyboardInset();
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions" | "analytics">("workspace");
+  const automationOpener = useRef<HTMLElement | null>(null);
+  const [automationWorkspaceId, setAutomationWorkspaceId] = useState<string | null>(null);
+  const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number }) | null>(null);
   const [workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId] = useState<string | null>(null);
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
@@ -389,7 +394,25 @@ function AppInner() {
   const closeWorkspaceMap = useCallback(() => {
     setWorkspaceMapWorkspaceId(null);
   }, []);
+  const closeWorkspaceAutomation = useCallback(() => {
+    setAutomationWorkspaceId(null);
+    if (automationOpener.current?.isConnected) automationOpener.current.focus();
+  }, []);
+  const openWorkspaceAutomation = useCallback((workspaceId: string, target?: JobsTarget) => {
+    if (document.activeElement instanceof HTMLElement) automationOpener.current = document.activeElement;
+    closePluginView();
+    setActiveWorkspace(workspaceId);
+    canvasFocusStore.closeWorkspace();
+    canvasFocusStore.close();
+    cronSelectionStore.close();
+    setWorkspaceMapWorkspaceId(null);
+    setMainView("workspace");
+    setAutomationWorkspaceId(workspaceId);
+    setJobsTarget((current) => target ? { ...target, request: (current?.request ?? 0) + 1 } : null);
+    closeSidebarOnMobile();
+  }, [closePluginView, closeSidebarOnMobile, setActiveWorkspace]);
   const openWorkspaceMap = useCallback((workspaceId: string) => {
+    setAutomationWorkspaceId(null);
     closePluginView();
     setActiveWorkspace(workspaceId);
     canvasFocusStore.closeWorkspace();
@@ -399,6 +422,7 @@ function AppInner() {
     closeSidebarOnMobile();
   }, [closePluginView, closeSidebarOnMobile, setActiveWorkspace]);
   const handleNavigateToTab = useCallback(() => {
+    setAutomationWorkspaceId(null);
     closeWorkspaceMap();
     canvasFocusStore.closeWorkspace();
     cronSelectionStore.close();
@@ -408,6 +432,9 @@ function AppInner() {
   useEffect(() => {
     if (mainView !== "workspace") setWorkspaceMapWorkspaceId(null);
   }, [mainView]);
+  useEffect(() => {
+    if (mainView !== "workspace" || cronSelection || (automationWorkspaceId && !state.workspaces.some((workspace) => workspace.id === automationWorkspaceId))) setAutomationWorkspaceId(null);
+  }, [mainView, cronSelection, automationWorkspaceId, state.workspaces]);
   useEffect(() => {
     if (!activeTab) canvasFocusStore.resetWorkspaceDismissed();
   }, [activeTab]);
@@ -612,8 +639,9 @@ function AppInner() {
                 mainView={mainView}
                 config={config}
                 uiFontScale={uiFontScale}
-                workspaceCanvasActive={workspaceCanvasVisible || !!cronSelection || workspaceMapWorkspaceId !== null}
+                workspaceCanvasActive={workspaceCanvasVisible || !!cronSelection || workspaceMapWorkspaceId !== null || automationWorkspaceId !== null}
                 onOpenWorkspaceMap={openWorkspaceMap}
+                onOpenWorkspaceAutomation={openWorkspaceAutomation}
                 teamActions={teamActions}
               />
             </div>
@@ -714,6 +742,11 @@ function AppInner() {
               <PluginView pluginId={pluginViewId} api={config.api} cwd={pluginViewCwd} onClose={closePluginView} />
             </div>
           )}
+          {automationWorkspaceId && mainView === "workspace" && (
+            <div className="absolute inset-0" style={{ zIndex: 26 }}>
+              <WorkspaceAutomationView key={`${automationWorkspaceId}:${jobsTarget?.request ?? 0}`} workspaceId={automationWorkspaceId} teams={state.teams} initialTeamId={jobsTarget?.teamId ?? null} initialScenarioId={jobsTarget?.scenarioId} onClose={closeWorkspaceAutomation} />
+            </div>
+          )}
           {workspaceMapWorkspaceId && mainView === "workspace" && (
             <div className="absolute inset-0" style={{ zIndex: 26 }}>
               <EssenceMapCanvas workspaceId={workspaceMapWorkspaceId} onClose={closeWorkspaceMap} />
@@ -770,7 +803,7 @@ function AppInner() {
               <div
                 key={tabId}
                 className="absolute inset-0"
-                inert={!isVisible || undefined}
+                inert={!isVisible || !!automationWorkspaceId || undefined}
                 style={{
                   zIndex: isVisible ? 1 : 0,
                   opacity: isVisible ? 1 : 0,

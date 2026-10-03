@@ -39,7 +39,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 | Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent startup-ack`, `agent startup-hold`, `agent report`, `agent providers/models` | `codeterm docs ORCHESTRATION` |
 | Becoming an Orchestrator | You are not automatically an Orchestrator. Use the tab menu Make Orchestrator action or the `--role Orchestrator` flag. | as above |
 | Plans, specs, tasks, strides, canvas | `plan --help`, `spec --help`, `task --help`; targeted same-attempt recovery uses `plan rebind PLAN --task TASK --attempt ATTEMPT` | only the original Worker may target its own current authenticated session and acknowledged nonterminal attempt; mismatched identity or retained lineage is refused |
-| Waiting for CI, build, or external status | `sentinel create --help`, `sentinel list`, `sentinel show <id>`, `sentinel stop <id>`; use a sentinel instead of agent polling; only changed output is classified and only confident transitions route | `docs SENTINELS` |
+| Waiting for CI, build, or external status | `sentinel create --help`, `sentinel list`, `sentinel show <id>`, `sentinel stop <id>`; name the entry Sentinel; create downstream stages with --paused first, then declare ordered handlers per bucket; fixed creator/Team/workspace, finite budgets and independent results; only changed output is classified | `docs SENTINELS` |
 | Recurring/oneshot jobs | `cron create --help` (read it first — flags evolve) | `docs CONFIG` |
 | Telegram / bridges | `bridge send --to ID --service telegram "..."`; long answers: first send, then `--append` parts. A tab's send lands in its own topic; `bridge thread open` prints one relayable sentence; only the General Agent may add `--tab ID` for another tab | `docs TELEGRAM-SETUP` |
 | Remote machines (mesh) | see Mesh block below | `docs MESH` |
@@ -61,7 +61,7 @@ These are the plan/task flags agents most often guess by analogy and get wrong.
 Verified against the clap tree; `codeterm <cmd> --help` has the rest. The command
 words below resolve; the flags are the corrections.
 
-Task-bound Workers use `codeterm agent ack` to move their assigned task to in-progress. A repeated acknowledgement reports already acknowledged for the same task and attempt, without changing the assignment.
+Task-bound Workers use `codeterm agent ack` to move their assigned task to in-progress. A repeated acknowledgement reports already acknowledged for the same bound task and attempt, without changing the assignment. It may complete both missing attempt binding fields only under exact retained launch authority; absent or conflicting proof refuses with `plan_skill_attempt_binding_missing`. Report refused attempt identifiers to the Orchestrator for launch-proven binding repair. The ACK and history are retained. An authenticated ACK also returns the current attempt’s plan skill manifest. Read applicable skills with `codeterm plan skill show <slug>`; the default is your live Team’s active plan despite stale launch hints. An explicit `--plan` reads that named plan without rebinding your Team or recording evidence for a task in another plan.
 
 - `codeterm plan create --title "..."` — NO `--goal`. Optional `--from-spec <id>`, `--kinds`, `--project`. The goal is set separately, after creation. A Team-bound caller without `--project` uses its Team workspace cwd.
 - Message and pad file options accept `-` to read UTF-8 stdin, including `plan task dispatch --message-file -`, `send --from-file -`, and `--from-pad -`.

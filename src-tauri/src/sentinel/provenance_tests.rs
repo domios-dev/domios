@@ -105,7 +105,11 @@ fn sentinel_provenance_route_stages_share_observation_without_recipient_claim() 
     let mut job = job(dir.path());
     job.routes.insert(
         "passed".into(),
-        machine::Route::Send("opaque-target".into()),
+        vec![super::handlers::Handler {
+            id: "send".into(),
+            action: machine::Route::Send("opaque-target".into()),
+            target: None,
+        }],
     );
     let calls = Arc::new(AtomicUsize::new(0));
     let outcome = evaluate(
@@ -387,6 +391,7 @@ fn sentinel_provenance_probe_failure_has_no_observation_or_stale_hash() {
         reason: "probe_timeout",
         verdict: None,
         route: None,
+        handlers: Vec::new(),
     };
     scheduler::record(&runtime, &job, &failed, Stage::Skip).unwrap();
     let rows = rows(dir.path());

@@ -13,6 +13,7 @@ import { anchorsTeam } from "../../lib/roleKind";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
+import { WorkspaceAutomationAction } from "../Automation/WorkspaceAutomationAction";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RecentlyClosed } from "./RecentlyClosed";
@@ -32,6 +33,7 @@ import { isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import type { JobsTarget } from "../Jobs/JobsView";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
@@ -86,6 +88,7 @@ interface SidebarProps {
   uiFontScale?: number;
   workspaceCanvasActive?: boolean;
   onOpenWorkspaceMap?: (workspaceId: string) => void;
+  onOpenWorkspaceAutomation?: (workspaceId: string, target?: JobsTarget) => void;
   teamActions?: Partial<SidebarTeamActions>;
 }
 
@@ -100,6 +103,7 @@ export function Sidebar({
   uiFontScale,
   workspaceCanvasActive = false,
   onOpenWorkspaceMap,
+  onOpenWorkspaceAutomation,
   teamActions,
 }: SidebarProps) {
   const {
@@ -674,6 +678,7 @@ export function Sidebar({
                       >
                         <span className="sidebar-structural-label">GENERAL</span>
                       </SidebarDisclosure>
+                      {onOpenWorkspaceAutomation && <WorkspaceAutomationAction workspaceId={generalWorkspace.id} workspaceName={generalWorkspace.name} onOpen={onOpenWorkspaceAutomation} touchMode={touchMode} />}
                     </div>
                     {generalExpanded && <SidebarWorkspaceTabs
                       workspace={generalWorkspace}
@@ -709,6 +714,7 @@ export function Sidebar({
                       onCloseTeam={teamActions?.onCloseTeam
                         ? (teamId) => requestTeamClose(generalWorkspace.id, teamId)
                         : undefined}
+                      onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(generalWorkspace.id, target) : undefined}
                     />}
                   </section>
                 );
@@ -824,6 +830,7 @@ export function Sidebar({
                       onNewTerminal={() => createTab(ws.id)}
                       onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
                       onOpenMap={() => onOpenWorkspaceMap?.(ws.id)}
+                      onOpenAutomation={() => onOpenWorkspaceAutomation?.(ws.id)}
                       newSessionDisabled={firstRunActive}
                       onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
                       canClose={true}
@@ -873,6 +880,7 @@ export function Sidebar({
                           onCloseTeam={teamActions?.onCloseTeam
                             ? (teamId) => requestTeamClose(ws.id, teamId)
                             : undefined}
+                          onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(ws.id, target) : undefined}
                         />
                       </div>
                     );

@@ -11,12 +11,17 @@ fn sentinel_probe_native_success_and_nonzero() {
     let owner = Arc::new(ProbeResourceOwner::new());
     for status in [0, 1, 2] {
         let command = finite_command(status);
-        let (output, receipt) = super::run_with_receipt(&command, dir.path(), PROBE_RUNTIME, &owner)
-            .unwrap_or_else(|(failure, receipt)| {
-                panic!("exit {status}: {failure:?}; deadline receipt={receipt:?}")
-            });
+        let (output, receipt) =
+            super::run_with_receipt(&command, dir.path(), PROBE_RUNTIME, &owner).unwrap_or_else(
+                |(failure, receipt)| {
+                    panic!("exit {status}: {failure:?}; deadline receipt={receipt:?}")
+                },
+            );
         assert_deadline_receipt(receipt, PROBE_RUNTIME);
-        assert_eq!(i32::from_le_bytes(output.bytes[..4].try_into().unwrap()), status);
+        assert_eq!(
+            i32::from_le_bytes(output.bytes[..4].try_into().unwrap()),
+            status
+        );
         let stdout_len = u64::from_le_bytes(output.bytes[4..12].try_into().unwrap()) as usize;
         assert_eq!(&output.bytes[12..12 + stdout_len], b"out");
         assert_eq!(&output.bytes[12 + stdout_len..], b"err");
@@ -38,7 +43,9 @@ fn sentinel_probe_native_output_is_bounded_and_drained() {
     assert_eq!(output.bytes.len(), MAX_OUTPUT_BYTES + 12);
     let stdout_len = u64::from_le_bytes(output.bytes[4..12].try_into().unwrap()) as usize;
     assert_eq!(stdout_len, 32 * 1024);
-    assert!(output.bytes[12..12 + stdout_len].iter().all(|byte| *byte == b'x'));
+    assert!(output.bytes[12..12 + stdout_len]
+        .iter()
+        .all(|byte| *byte == b'x'));
     assert!(output.bytes[12 + stdout_len..]
         .iter()
         .all(|byte| *byte == b'y'));
@@ -92,10 +99,7 @@ fn sentinel_probe_native_inherited_stream_deadline() {
     assert!(failure
         .unconfirmed
         .contains(&super::process::ResourceKind::Capture));
-    assert!(owner.wait_for_free_slots_with_timeout(
-        MAX_RESOURCE_SLOTS,
-        Duration::from_secs(3)
-    ));
+    assert!(owner.wait_for_free_slots_with_timeout(MAX_RESOURCE_SLOTS, Duration::from_secs(3)));
 }
 
 #[cfg(windows)]
@@ -116,6 +120,7 @@ fn sentinel_probe_native_windows_preexecution_containment() {
         deadlines,
         owner.reserve().unwrap(),
         &owner,
+        &super::cancellation::Cancellation::default(),
         |_, _| Err("injected Job assignment failure".into()),
     );
     assert_deadline_receipt(receipt, PROBE_RUNTIME);
@@ -146,15 +151,11 @@ fn sentinel_probe_native_cancelled_capture_settles() {
         Duration::from_secs(3),
         &owner,
     );
-    let (failure, receipt) =
-        result.expect_err("cancelled Windows capture is not a normal result");
+    let (failure, receipt) = result.expect_err("cancelled Windows capture is not a normal result");
     assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(3));
     assert_eq!(failure.primary, "probe_timeout");
     assert!(!failure.is_unconfirmed());
-    assert!(owner.wait_for_free_slots_with_timeout(
-        MAX_RESOURCE_SLOTS,
-        Duration::from_secs(5)
-    ));
+    assert!(owner.wait_for_free_slots_with_timeout(MAX_RESOURCE_SLOTS, Duration::from_secs(5)));
     assert_eq!(owner.snapshot().free, MAX_RESOURCE_SLOTS);
 }
 
@@ -310,15 +311,12 @@ fn finite_command(status: i32) -> String {
 
 #[cfg(windows)]
 fn finite_command(status: i32) -> String {
-    format!(
-        "[Console]::Out.Write('out'); [Console]::Error.Write('err'); exit {status}"
-    )
+    format!("[Console]::Out.Write('out'); [Console]::Error.Write('err'); exit {status}")
 }
 
 #[cfg(unix)]
 fn large_command() -> String {
-    "head -c 100000 /dev/zero | tr '\\000' x; head -c 100000 /dev/zero | tr '\\000' y >&2"
-        .into()
+    "head -c 100000 /dev/zero | tr '\\000' x; head -c 100000 /dev/zero | tr '\\000' y >&2".into()
 }
 
 #[cfg(windows)]
