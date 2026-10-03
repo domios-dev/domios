@@ -484,7 +484,7 @@ fn reconciliation_log_line(outcome: &IntegrationRepairOutcome, consent_inferred:
         IntegrationRepairOutcome::RepairFailed(detail) => format!("repair failed ({detail})"),
     };
     let inferred = if consent_inferred {
-        "; consent inferred from existing CodeTerm-owned install"
+        "; consent inferred from existing Domios-owned install"
     } else {
         ""
     };

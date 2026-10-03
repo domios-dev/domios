@@ -258,7 +258,7 @@ mod platform {
         );
         let supervisor = quote(&super::cli_path()?.to_string_lossy());
         let body = format!(
-            "[Unit]\nDescription=CodeTerm crash supervisor\nAfter=graphical-session.target\n\n[Service]\nType=simple\nExecStart={supervisor} system supervise --binary {app}\nRestart=no\n\n[Install]\nWantedBy=default.target\n"
+            "[Unit]\nDescription=Domios crash supervisor\nAfter=graphical-session.target\n\n[Service]\nType=simple\nExecStart={supervisor} system supervise --binary {app}\nRestart=no\n\n[Install]\nWantedBy=default.target\n"
         );
         let path = unit_path();
         if let Some(parent) = path.parent() {
