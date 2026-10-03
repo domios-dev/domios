@@ -177,7 +177,7 @@ function WebUiModal({
           </button>
         </div>
         <div className="flex flex-col items-center gap-4 px-4 py-5">
-          {/* CodeTerm-branded QR: gradient frame + centered logo (scan stays robust via EC level H). */}
+          {/* Domios-branded QR: gradient frame + centered logo (scan stays robust via EC level H). */}
           <div
             className="rounded-2xl p-[3px] shadow-[0_10px_30px_rgba(31,111,235,0.25)]"
             style={{ background: "linear-gradient(135deg, var(--ct-accent, #58a6ff) 0%, #7c5cff 100%)" }}

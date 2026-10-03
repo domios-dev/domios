@@ -53,7 +53,7 @@ export function ChatComposerMock({ state = "rest" }: { state?: ChatRoundButtonSt
   return <div className="ds-chat-composer" aria-label="Chat composer button placement">
     {!recording && <ChatRoundButton kind="attach" state={state === "hover" ? "hover" : "rest"} />}
     <div className={`ds-chat-composer__shell${recording ? " is-recording" : ""}`}>
-      {recording ? <><span className="ds-chat-composer__dot" /><span>0:08,42</span><span className="ds-chat-composer__wave" aria-hidden>▁▃▅▂▆▃▇▂</span></> : <><span className="ds-chat-composer__placeholder">Message CodeTerm…</span><ChatRoundButton kind="schedule" /></>}
+      {recording ? <><span className="ds-chat-composer__dot" /><span>0:08,42</span><span className="ds-chat-composer__wave" aria-hidden>▁▃▅▂▆▃▇▂</span></> : <><span className="ds-chat-composer__placeholder">Message Domios…</span><ChatRoundButton kind="schedule" /></>}
     </div>
     {!recording && <ChatRoundButton kind={state === "active" ? "send" : "voice"} state={state} disabled={state === "active" && false} />}
     {recording && <ChatRoundButton kind="voice" state={state} />}

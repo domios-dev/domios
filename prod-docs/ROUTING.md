@@ -1,6 +1,6 @@
 # Message Routing — follow the return hint
 
-Every routed inbound message starts with a CodeTerm marker preserving sender
+Every routed inbound message starts with a Domios marker preserving sender
 provenance. Follow the host-supplied reply hint before responding.
 
 | Incoming prefix | Immediate tip | Reply with | Tab output? |
@@ -69,4 +69,4 @@ If a remote request needs a truly dangerous local decision, ack the remote
 channel first ("blocked pending local confirmation") and ask locally only
 when the local user is actually at the keyboard.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

@@ -95,7 +95,7 @@ function RestApiListenerStatus() {
 }
 
 /**
- * Web Access — everything a browser/phone needs to reach this CodeTerm:
+ * Web Access — everything a browser/phone needs to reach this Domios:
  * the browser URL on each known address and the API token to paste at the
  * token gate. Tokens for OTHER peers come from their own Web Access panel.
  */

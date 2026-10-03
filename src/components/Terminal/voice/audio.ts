@@ -194,10 +194,10 @@ export function audioExt(mime: string): string {
 export function microphoneErrorMessage(error: unknown): string {
   if (error instanceof DOMException) {
     if (error.name === "NotAllowedError" || error.name === "SecurityError") {
-      return "Microphone permission is blocked for CodeTerm.";
+      return "Microphone permission is blocked for Domios.";
     }
     if (error.name === "NotFoundError") {
-      return "No microphone was found for CodeTerm.";
+      return "No microphone was found for Domios.";
     }
   }
   return error instanceof Error ? error.message : String(error);

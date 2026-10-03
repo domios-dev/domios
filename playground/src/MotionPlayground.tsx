@@ -41,7 +41,7 @@ export function MotionPlayground() {
           <span />
         </div>
         <div>
-          <p className="lab-kicker">CodeTerm · internal playground</p>
+          <p className="lab-kicker">Domios · internal playground</p>
           <h1>Motion Lab</h1>
           <p className="lab-lede">
             Small, legible signals for a team that is actively building. Compare motion in context before it enters the product.
