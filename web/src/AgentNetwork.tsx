@@ -30,7 +30,6 @@ export function AgentNetwork() {
     ? 'Domios windows on three separate computers: your laptop, workstation and home server. Named Claude Code, Codex, OpenCode, Grok Build and local LM Studio agents exchange tasks and return reports.'
     : 'Domios windows on four separate computers: your laptop, workstation, home server and cloud VM. Named Claude Code, Codex, OpenCode, Grok Build and local LM Studio agents exchange tasks and return reports.';
   return <figure className="agent-network" role="img" aria-label={description}>
-    <div className="mesh-register" aria-hidden="true"><span>YOUR MACHINES / ONE MESH</span><span><i />PAIRED & CONNECTED</span></div>
     <div className="mesh-desk" ref={desk} aria-hidden="true">
       <svg className="mesh-routes" fill="none">
         {[0, 1, 2, 3].map((index) => <g className="mesh-channel" key={index}>

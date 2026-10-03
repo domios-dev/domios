@@ -9,7 +9,6 @@ export function JevSection() {
   return <section id="jev" className="jev-section section-wrap" aria-labelledby="jev-title">
     <div className="jev-heading">
       <h2 id="jev-title">A home for your AI teams.</h2>
-      <p>Teams share context. Domios connects the rest.</p>
     </div>
     <figure
       className="jev-board jev-scene"
@@ -54,7 +53,5 @@ export function JevSection() {
         <span>Telegram: updates and replies</span>
       </div>
     </figure>
-    <p className="jev-roles-description">AI teams share context and hand off work. Planners shape tasks; Workers execute; Orchestrators coordinate.</p>
-    <p className="jev-authority">Optional model help for recall and tab status. Domios checks the evidence.</p>
   </section>;
 }
