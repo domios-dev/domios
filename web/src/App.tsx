@@ -12,8 +12,9 @@ import { useBrandEntrance } from './brand/useBrandEntrance';
 import { SiteHeader } from './SiteHeader';
 import { MemoryGallery } from './MemoryGallery';
 import { BuiltIn } from './BuiltIn';
+import { siteLinks } from './siteLinks';
 
-const github = 'https://github.com/rollacode/codeterm';
+const github = siteLinks.repository;
 
 export function App() {
   const download = useDownload();
