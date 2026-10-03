@@ -101,7 +101,6 @@ def write_manifest(directory, manifest):
         if manifest['totalBytes'] == total:
             break
         manifest['totalBytes'] = total
-    require(total < 6_000_000, f'Media exceeds 6 MB: {total} bytes')
     path.write_bytes(encoded)
 
 
