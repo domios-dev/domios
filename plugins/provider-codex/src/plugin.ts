@@ -26,6 +26,7 @@ import { patchEdits } from "./patchEdits";
 import { completedActivity } from "./activity";
 import { agentMessageRow, reasoningResponseRow, subAgentRow } from "./agentActivity";
 import { codexFileDiffs } from "./fileDiffs";
+import { editFingerprint, pairFileChange, type PendingFileChange } from "./fileChangePairing";
 import { imageGenerationEndResult, webSearchEndResult } from "./richResults";
 import { actionTitle } from "./actionTitle";
 import {
@@ -482,7 +483,7 @@ const plugin: PluginModule = {
       }
       if (v.type === "event_msg" && v.payload?.type === "item_completed") {
         if (pairCommandExecution(v.payload.item, v.payload.turn_id, commandPairing)) continue;
-        pushOnce(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id));
+        pushOnce(pairFileChange(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id), v.payload.turn_id, commandPairing.fileChanges));
         continue;
       }
       if (v.type === "event_msg" && v.payload?.type === "sub_agent_activity") {
@@ -557,6 +558,7 @@ const plugin: PluginModule = {
       } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
         const callId = typeof p.call_id === "string" ? p.call_id : "";
         const pending = p.type === "custom_tool_call_output" ? commandPairing.pending.get(callId) : undefined;
+        commandPairing.fileChanges.delete(callId);
         if (pending) commandPairing.pending.delete(callId);
         out.push({
           role: "assistant",
@@ -602,6 +604,12 @@ const plugin: PluginModule = {
           ? execScriptCommands(input.raw)
           : [];
         out.push(message);
+        const patchTurn = callTurnId(p);
+        const fingerprint = typeof input.patch === "string" ? editFingerprint(patchEdits(input.patch)) : "";
+        if (callId && patchTurn && fingerprint) {
+          commandPairing.fileChanges.set(callId, { turnId: patchTurn, fingerprint });
+          trimPendingCalls(commandPairing);
+        }
         if (commands.length > 0) {
           const turnId = callTurnId(p);
           if (!turnId) continue;
@@ -617,7 +625,7 @@ const plugin: PluginModule = {
         }
       }
     }
-    if (commandPairing.sessionKey && commandPairing.pending.size === 0) {
+    if (commandPairing.sessionKey && commandPairing.pending.size === 0 && commandPairing.fileChanges.size === 0) {
       commandPairingSessions.delete(commandPairing.sessionKey);
     }
     stampRows(lines.length - 1);
@@ -801,6 +809,7 @@ interface PendingCommandPairing {
 
 interface CommandPairingState {
   pending: Map<string, PendingCommandPairing>;
+  fileChanges: Map<string, PendingFileChange>;
   sessionKey?: string;
   lastOffset?: number;
 }
@@ -813,14 +822,14 @@ function commandPairingState(context?: SessionDeltaContext): CommandPairingState
   const sessionKey = typeof context?.session_key === "string" ? context.session_key : "";
   const offset = context?.from_offset;
   if (!sessionKey || typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) {
-    return { pending: new Map() };
+    return { pending: new Map(), fileChanges: new Map() };
   }
   let state = commandPairingSessions.get(sessionKey);
   if (state && state.lastOffset !== undefined && offset <= state.lastOffset) {
     commandPairingSessions.delete(sessionKey);
     state = undefined;
   }
-  if (!state) state = { pending: new Map(), sessionKey };
+  if (!state) state = { pending: new Map(), fileChanges: new Map(), sessionKey };
   state.lastOffset = offset;
   commandPairingSessions.delete(sessionKey);
   commandPairingSessions.set(sessionKey, state);
@@ -833,6 +842,11 @@ function commandPairingState(context?: SessionDeltaContext): CommandPairingState
 }
 
 function trimPendingCalls(state: CommandPairingState): void {
+  while (state.fileChanges.size > MAX_PENDING_CALLS_PER_SESSION) {
+    const oldest = state.fileChanges.keys().next().value;
+    if (typeof oldest !== "string") break;
+    state.fileChanges.delete(oldest);
+  }
   while (state.pending.size > MAX_PENDING_CALLS_PER_SESSION) {
     const oldest = state.pending.keys().next().value;
     if (typeof oldest !== "string") break;
@@ -841,6 +855,9 @@ function trimPendingCalls(state: CommandPairingState): void {
 }
 
 function clearTurnPairings(state: CommandPairingState, turnId: string): void {
+  for (const [callId, call] of state.fileChanges) {
+    if (call.turnId === turnId) state.fileChanges.delete(callId);
+  }
   for (const [callId, call] of state.pending) {
     if (call.turnId === turnId) state.pending.delete(callId);
   }
