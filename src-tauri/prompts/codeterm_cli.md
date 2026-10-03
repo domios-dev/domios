@@ -38,7 +38,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 | Scheduled/future message to a tab | `send --delay/--at`, `delayed --help` | — |
 | Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent startup-ack`, `agent startup-hold`, `agent report`, `agent providers/models` | `codeterm docs ORCHESTRATION` |
 | Becoming an Orchestrator | You are not automatically an Orchestrator. Use the tab menu Make Orchestrator action or the `--role Orchestrator` flag. | as above |
-| Plans, specs, tasks, strides, canvas | `plan --help`, `spec --help`, `task --help` | as above |
+| Plans, specs, tasks, strides, canvas | `plan --help`, `spec --help`, `task --help`; targeted same-attempt recovery uses `plan rebind PLAN --task TASK --attempt ATTEMPT` | only the original Worker may target its own current authenticated session and acknowledged nonterminal attempt; mismatched identity or retained lineage is refused |
 | Waiting for CI, build, or external status | `sentinel create --help`, `sentinel list`, `sentinel show <id>`, `sentinel stop <id>`; use a sentinel instead of agent polling; only changed output is classified and only confident transitions route | `docs SENTINELS` |
 | Recurring/oneshot jobs | `cron create --help` (read it first — flags evolve) | `docs CONFIG` |
 | Telegram / bridges | `bridge send --to ID --service telegram "..."`; long answers: first send, then `--append` parts. A tab's send lands in its own topic; `bridge thread open` prints one relayable sentence; only the General Agent may add `--tab ID` for another tab | `docs TELEGRAM-SETUP` |

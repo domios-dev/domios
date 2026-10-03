@@ -2,6 +2,14 @@
 
 Contracts for plan-owned task structure, goals, lanes, and executors, as the CLI and socket surface enforce them.
 
+### Same-attempt Worker authority restoration
+
+`codeterm plan rebind <plan> --task <task> --attempt <attempt>` restores the current authenticated binding on the exact existing Worker attempt. The CLI reads that task once for its current `owner_epoch`; the daemon then requires the caller's own live local PTY session, issued and provider-reported binding, original provider/session/tab assignment, current epoch, a unique acknowledged `in_progress` or `in_review` attempt, and an ordered host-owned lineage suffix beginning with the old nonce entry actually bound to that same session. A missing, foreign, ambiguous or unqualified retained suffix refuses with `data.type = "attempt_binding_restore_refused"`; task-targeted requests never fall back to the planning-session rebind path.
+
+The successful response is `{ok, plan_id, task_id, attempt_id, status}`, where `status` is `restored` or `already_current`. It contains no nonce. One serialized PlanStore write changes the attempt's active nonce and appends a typed digest receipt. Assignment, ACK, report, review, status, lane, model and loaded-skill history remain unchanged; the receipt does not claim a new ACK, skill read or report. Existing skill-load and report guards keep comparing against the single active nonce. The retained suffix proves only its entries from the matched old nonce onward; restoration makes no claim about history before that entry. A daemon that does not return the typed response has not confirmed the targeted operation.
+
+After a committed restoration, rollback must preserve the current nonce and receipt. Do not downgrade to a daemon that drops unknown receipt fields when rewriting the plan.
+
 ### Durable task keys and references
 
 Every socket, REST, and CLI argument that names a task accepts its `task_xxxxxx` id, its handle, or its human key
@@ -237,4 +245,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->
