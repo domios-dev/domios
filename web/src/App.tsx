@@ -39,7 +39,11 @@ export function App() {
       <section className="hero section-wrap" aria-labelledby="hero-title">
         <a className="hero-badge" href="#explore"><BrandMark />THE DISTRIBUTED OS FOR AI AGENTS<span aria-hidden="true">↗</span></a>
         <h1 id="hero-title">Agents <span>live here.</span></h1>
-        <p className="hero-copy">Domios runs on every machine you own, joined in one trusted mesh. Agents on your laptop, desktop, and servers reach each other and work as one team.</p>
+        <ul className="hero-capabilities">
+          <li><span>One memory. Every agent.</span><small>Shared on this machine.</small></li>
+          <li>Scheduled work</li>
+          <li>Telegram updates &amp; replies</li>
+        </ul>
         <div className="hero-actions"><DownloadControl download={download} /><a className="button secondary" href={github}><Icon name="github" size={18} /><span>Find us on GitHub</span><Icon name="arrow" size={16} /></a></div>
         <p className="platforms">macOS <span>·</span> Windows <span>·</span> Linux <span className="platform-divider">/</span> Your machine. Your agents.</p>
         <AgentNetwork />
