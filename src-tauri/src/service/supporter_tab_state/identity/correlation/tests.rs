@@ -25,11 +25,93 @@ fn capture(
         Some(local),
         &local.launch_key,
         point,
+        Producer::OutputCandidate,
+        None,
         observation.occurrence,
         id,
         22,
         kind,
     )
+}
+
+#[test]
+fn supporter_first_opinion_passive_confirmation_parent_is_a_real_same_scope_capture() {
+    let local = local("nonce-a", Some("session-a"));
+    let first = capture(
+        &local,
+        ObservationTrigger::PromptCandidate,
+        41,
+        Some("onboarding"),
+    );
+    let observation =
+        ActionOwner::default().observe("fixture-tab", &local.launch_key, Some(11), 22);
+    let child = Correlation::capture(
+        Some(&local),
+        &local.launch_key,
+        ObservationTrigger::PromptCandidate,
+        Producer::PromptConfirmation,
+        Some(41),
+        observation.occurrence,
+        42,
+        22,
+        Some("onboarding"),
+    );
+    let mut entry = identity::journal(
+        "fixture-tab",
+        RecordIdentity::captured(42, &child),
+        DecisionSource::Adapter,
+        "login_or_auth_required",
+        Some(0.95),
+        "fixture-title",
+    );
+    assert_eq!(child.occurrence_id, first.occurrence_id);
+    assert_eq!(child.frame_hash, first.frame_hash);
+    assert_eq!(child.parent_observation_id, Some(41));
+    assert_eq!(child.observation_id, 42);
+    assert_eq!(entry["correlation"]["producer"], "prompt_confirmation");
+    assert_eq!(entry["correlation"]["parent_observation_id"], 41);
+    entry["correlation"]["parent_observation_id"] = json!(42);
+    assert!(project(&entry).is_none());
+}
+
+#[test]
+fn supporter_first_opinion_passive_rejects_missing_or_mispointed_parent() {
+    let local = local("nonce-a", Some("session-a"));
+    let owner = ActionOwner::default();
+    let observation = owner.observe("fixture-tab", &local.launch_key, Some(11), 22);
+    for (point, producer, parent) in [
+        (
+            ObservationTrigger::PromptCandidate,
+            Producer::PromptConfirmation,
+            None,
+        ),
+        (
+            ObservationTrigger::TabExit,
+            Producer::PromptEstablished,
+            Some(41),
+        ),
+    ] {
+        let correlation = Correlation::capture(
+            Some(&local),
+            &local.launch_key,
+            point,
+            producer,
+            parent,
+            observation.occurrence,
+            42,
+            22,
+            None,
+        );
+        let value = identity::journal(
+            "fixture-tab",
+            RecordIdentity::captured(42, &correlation),
+            DecisionSource::Adapter,
+            "other",
+            Some(0.95),
+            "fixture-title",
+        );
+        assert!(project(&value).is_none());
+    }
 }
 
 fn record(correlation: &Correlation) -> Value {
@@ -161,7 +243,7 @@ fn supporter_first_opinion_passive_wrong_point_id_or_untrusted_scope_is_rejected
     for (field, value) in [
         ("decision_point", json!("tab_exit")),
         ("observation_id", json!(42)),
-        ("version", json!(2)),
+        ("version", json!(1)),
         ("launch_id", json!("token=private-scope")),
         ("frame_hash", json!("invalid")),
         ("screen", json!("private-screen")),

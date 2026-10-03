@@ -15,9 +15,13 @@ impl ServiceContext {
 
     pub(crate) fn observe_output_scrape_candidate(&self, snapshot: TabStateSnapshot) {
         let fallback_snapshot = snapshot.clone();
-        self.observe_scrape_candidate(snapshot, move |service| {
-            service.resolve_scrape_candidate_heuristically(&fallback_snapshot);
-        });
+        self.observe_scrape_candidate_from(
+            snapshot,
+            move |service| service.resolve_scrape_candidate_heuristically(&fallback_snapshot),
+            crate::service::supporter_tab_state::ObservationTrigger::OutputCandidate,
+            None,
+            None,
+        );
     }
 
     fn resolve_scrape_candidate_heuristically(&self, snapshot: &TabStateSnapshot) {
@@ -118,6 +122,11 @@ impl ServiceContext {
         verdict: &CandidateVerdict,
         valid: &dyn Fn() -> bool,
     ) {
+        let parent_observation_id = verdict
+            .receipt
+            .as_ref()
+            .and_then(|receipt| receipt.metadata.envelope.as_ref())
+            .map(|envelope| envelope.observation_id);
         if !valid()
             || self
                 .prompt_detector
@@ -152,10 +161,10 @@ impl ServiceContext {
         if !valid() {
             return;
         }
-        if parsed
-            .as_ref()
-            .is_some_and(|_| self.try_model_safe_response(snapshot, verdict))
-        {
+        if parsed.as_ref().is_some_and(|_| {
+            self.try_model_safe_response(snapshot, verdict)
+                != crate::service::supporter_tab_state::SafeResponseProgress::NotHandled
+        }) {
             return;
         }
         let decision = self.prompt_detector.lock().evaluate_pty_output_parsed(
@@ -167,6 +176,11 @@ impl ServiceContext {
                 explicit: false,
             }),
         );
+        let establishes_prompt = matches!(
+            &decision,
+            crate::agent::prompt::PromptDecision::NewPrompt { .. }
+                | crate::agent::prompt::PromptDecision::PromptUpdated { .. }
+        );
         self.apply_prompt_decision_immediately(
             &decision,
             Some(&snapshot.screen_text),
@@ -174,6 +188,11 @@ impl ServiceContext {
             true,
             verdict.confidence >= 0.80,
         );
+        if establishes_prompt {
+            if let Some(parent_observation_id) = parent_observation_id {
+                self.observe_model_prompt_established(snapshot.clone(), parent_observation_id);
+            }
+        }
     }
 
     pub(super) fn classify_manual_update_prompt_off_runtime(
