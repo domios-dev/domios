@@ -452,3 +452,7 @@ The direct server now requires a live parent console and inherits it; startup re
 and confirms server membership with GetConsoleProcessList. Missing console or incomplete membership
 refuses before task tests. No new console, attach, desktop switch, global window hiding or PTY change is used.
 Pure controls prove flags/refusal only; actual compilation and absence of new windows require native proof.
+
+Windows-only Sentinel test compilation can fail on `System::IO::ReadFile`: windows-sys0.61 declares
+`ReadFile` in `Storage::FileSystem`, with the existing IO feature for OVERLAPPED. Correct the import;
+stop downstream test gates when compilation fails, and qualify the two focused selectors after the fix.
