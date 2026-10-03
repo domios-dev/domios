@@ -41,7 +41,7 @@ Competition has no `codeterm plan task` verb — it is driven by the `plan.task.
 <!-- cli:auto-start -->
 #### `codeterm`
 
-CodeTerm CLI — control your terminal multiplexer
+Domios CLI — control your terminal multiplexer
 
 - `--json` — Output raw JSON instead of human-readable text
 - `--mesh` — Execute command on a remote mesh peer instead of locally
@@ -143,7 +143,7 @@ Mark a tab as orchestrator (top-level, can spawn workers)
 Spawn a new agent; roleless unless --role is provided.
 
 - `<agent>` — Optional agent provider id. Without one, a uniquely advertised model id selects its provider; otherwise the configured default is used
-- `--args` — Extra provider args. Put this after all CodeTerm spawn options
+- `--args` — Extra provider args. Put this after all Domios spawn options
 - `--authorized-gate` — Gate token this Worker may claim as executed; repeatable. Carried into its brief. For a task-bound Worker declare gates on the dispatch instead (`plan task dispatch --authorized-gate`)
 - `--can-spawn` — Override whether an explicit Orchestrator may spawn children
 - `--charter` — Watcher charter text
@@ -277,7 +277,7 @@ Dump the CLI command tree as JSON (source of truth for docs/prompts/cards)
 
 #### `codeterm config`
 
-Read or write CodeTerm configuration
+Read or write Domios configuration
 
 #### `codeterm config get`
 
@@ -440,7 +440,7 @@ Send a delayed message immediately
 
 #### `codeterm docs`
 
-Read embedded CodeTerm documentation in full. Omit NAME to list documents
+Read embedded Domios documentation in full. Omit NAME to list documents
 
 - `<name>` — Document name. Omit to list every available name and purpose
 
@@ -512,7 +512,7 @@ Validate a generated essence map and its append-only decisions log
 
 #### `codeterm identify`
 
-Show CodeTerm version and system info
+Show Domios version and system info
 
 #### `codeterm inbox`
 
@@ -545,7 +545,7 @@ Provider hook integration: install it with recorded consent and trust, or read i
 
 #### `codeterm integration install`
 
-Install a provider's hook integration and trust CodeTerm's own hooks. Running it records consent the same way the Settings install does
+Install a provider's hook integration and trust Domios's own hooks. Running it records consent the same way the Settings install does
 
 - `--provider` — Provider id (e.g. claude, codex)
 
@@ -574,7 +574,7 @@ Start keeping the system awake
 - `--display` — Also prevent display sleep
 - `--duration-secs` — Duration in seconds (omit for indefinite)
 - `--gnome-policy` — On Linux/GNOME, explicitly apply current-user power policy overrides (disable inactive sleep, idle blanking, lid-close and power-button suspend)
-- `--system-block` — Print system-level sudo mask commands in the status response. CodeTerm never runs these commands silently
+- `--system-block` — Print system-level sudo mask commands in the status response. Domios never runs these commands silently
 
 #### `codeterm keepawake status`
 
@@ -3338,7 +3338,7 @@ Save a custom theme from a TOML file
 
 #### `codeterm update`
 
-Check for updates and manage CodeTerm version
+Check for updates and manage Domios version
 
 - `--after-update` — Message to inject into the General Agent tab after the new daemon boots. Useful for remote-triggered updates ("run the update and then verify health") — GA reads it as user input post-restart
 - `--manifest-url` — Override manifest URL when paired with `install --auto`. Backend must be built with `dev-updater-allowlocal` for non-https URLs
@@ -3357,7 +3357,7 @@ Install update (--auto for automatic download + install + restart)
 - `--auto` — Use Tauri built-in updater: download, install, and restart automatically
 - `--continue-prompt` — Optional prompt to send to the calling tab once the new daemon is up — lets a session continue work post-restart
 - `--continue-tab` — Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_TAB_ID`
-- `--from-file` — Install from a local NSIS installer (Windows) or app bundle/DMG (macOS), then relaunch CodeTerm. Bypasses the network
+- `--from-file` — Install from a local NSIS installer (Windows) or app bundle/DMG (macOS), then relaunch Domios. Bypasses the network
 - `--manifest-url` — Override manifest URL (dev/test escape hatch). Requires the backend to be built with the `dev-updater-allowlocal` feature for non-https schemes; release builds reject it
 - `--no-continue` — Disable the default continuation sent back to the calling tab
 
@@ -3420,7 +3420,7 @@ Create a new workspace. With --cwd, reuses an existing workspace at that cwd. Wi
 
 - `--cwd` — Working directory — agents spawned with --workspace inherit this as their CWD
 - `<name>` — Workspace name
-- `--provision` — Create a new empty directory under the CodeTerm data dir as the cwd; agents started exactly there get directory trust
+- `--provision` — Create a new empty directory under the Domios data dir as the cwd; agents started exactly there get directory trust
 
 #### `codeterm workspace current`
 

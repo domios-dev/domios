@@ -1,6 +1,6 @@
 {
   "name": "codeterm",
-  "about": "CodeTerm CLI — control your terminal multiplexer",
+  "about": "Domios CLI — control your terminal multiplexer",
   "aliases": [],
   "args": [
     {
@@ -485,7 +485,7 @@
               "value_name": "ARGS",
               "possible_values": [],
               "default": null,
-              "help": "Extra provider args. Put this after all CodeTerm spawn options",
+              "help": "Extra provider args. Put this after all Domios spawn options",
               "aliases": []
             },
             {
@@ -1231,7 +1231,7 @@
     },
     {
       "name": "config",
-      "about": "Read or write CodeTerm configuration",
+      "about": "Read or write Domios configuration",
       "aliases": [],
       "args": [],
       "subcommands": [
@@ -2055,7 +2055,7 @@
     },
     {
       "name": "docs",
-      "about": "Read embedded CodeTerm documentation in full. Omit NAME to list documents",
+      "about": "Read embedded Domios documentation in full. Omit NAME to list documents",
       "aliases": [],
       "args": [
         {
@@ -2375,7 +2375,7 @@
     },
     {
       "name": "identify",
-      "about": "Show CodeTerm version and system info",
+      "about": "Show Domios version and system info",
       "aliases": [],
       "args": [],
       "subcommands": []
@@ -2567,7 +2567,7 @@
       "subcommands": [
         {
           "name": "install",
-          "about": "Install a provider's hook integration and trust CodeTerm's own hooks. Running it records consent the same way the Settings install does",
+          "about": "Install a provider's hook integration and trust Domios's own hooks. Running it records consent the same way the Settings install does",
           "aliases": [],
           "args": [
             {
@@ -2689,7 +2689,7 @@
               "value_name": "SYSTEM_BLOCK",
               "possible_values": [],
               "default": null,
-              "help": "Print system-level sudo mask commands in the status response. CodeTerm never runs these commands silently",
+              "help": "Print system-level sudo mask commands in the status response. Domios never runs these commands silently",
               "aliases": []
             }
           ],
@@ -15504,7 +15504,7 @@
     },
     {
       "name": "update",
-      "about": "Check for updates and manage CodeTerm version",
+      "about": "Check for updates and manage Domios version",
       "aliases": [],
       "args": [
         {
@@ -15599,7 +15599,7 @@
               "value_name": "PATH",
               "possible_values": [],
               "default": null,
-              "help": "Install from a local NSIS installer (Windows) or app bundle/DMG (macOS), then relaunch CodeTerm. Bypasses the network",
+              "help": "Install from a local NSIS installer (Windows) or app bundle/DMG (macOS), then relaunch Domios. Bypasses the network",
               "aliases": []
             },
             {
@@ -15848,7 +15848,7 @@
               "value_name": "PROVISION",
               "possible_values": [],
               "default": null,
-              "help": "Create a new empty directory under the CodeTerm data dir as the cwd; agents started exactly there get directory trust",
+              "help": "Create a new empty directory under the Domios data dir as the cwd; agents started exactly there get directory trust",
               "aliases": []
             }
           ],
