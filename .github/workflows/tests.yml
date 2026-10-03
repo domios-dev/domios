@@ -18,7 +18,7 @@ on:
       evaluator_scope:
         description: Focused evaluator/task qualification or the existing full matrix
         type: choice
-        options: [full, jev-linux, jev-windows, jev-windows-inventory, rust-windows-task-local]
+        options: [full, jev-linux, jev-windows, jev-windows-inventory, rust-windows-task-local, windows-sccache-maintenance]
         default: full
         required: true
       expected_source_sha:
@@ -34,6 +34,17 @@ on:
         type: choice
         options: [none, cantor-red, cantor-green, auditor-red, auditor-green, both-red, both-green]
         default: none
+        required: true
+      cache_session_opt_in:
+        description: Opt into the pinned same-job cache session for the fixed task cases
+        type: boolean
+        default: false
+        required: true
+      maintenance_operation:
+        description: Pure contract controls or fixed additive pinned-cache maintenance
+        type: choice
+        options: [contract-only, provision-verify-cleanup]
+        default: provision-verify-cleanup
         required: true
   # Nightly full matrix on master while the farm is idle, so parallel-test races
   # and flakes surface days before a release instead of on release day.
@@ -52,7 +63,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope != 'full' && format('tests-{0}-{1}', inputs.evaluator_scope, github.ref) || format('tests-{0}', github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
+  group: ${{ github.event_name == 'workflow_dispatch' && (inputs.evaluator_scope == 'rust-windows-task-local' || inputs.evaluator_scope == 'windows-sccache-maintenance') && format('tests-rust-windows-task-local-{0}', github.ref) || github.event_name == 'workflow_dispatch' && inputs.evaluator_scope != 'full' && format('tests-{0}-{1}', inputs.evaluator_scope, github.ref) || format('tests-{0}', github.event.pull_request.number && format('pr-{0}', github.event.pull_request.number) || github.ref) }}
   cancel-in-progress: ${{ github.event_name != 'workflow_dispatch' || inputs.evaluator_scope == 'full' }}
 
 jobs:
@@ -1071,11 +1082,17 @@ jobs:
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
       TASK_BOUNDARY: ${{ inputs.rust_boundary }}
+      CACHE_SESSION_OPT_IN: ${{ inputs.cache_session_opt_in }}
       RUST_BACKTRACE: '1'
       RUST_TEST_NOCAPTURE: '1'
       CARGO_TERM_COLOR: never
       TEST_CAP_SECS: '600'
     steps:
+      - name: Set bounded task cache session deadline
+        shell: pwsh
+        run: |
+          $deadlineTicks = [Diagnostics.Stopwatch]::GetTimestamp() + [long](2940000 * [Diagnostics.Stopwatch]::Frequency / 1000)
+          "CACHE_SESSION_DEADLINE_TICKS=$deadlineTicks" | Out-File -LiteralPath $env:GITHUB_ENV -Encoding utf8 -Append
       - uses: actions/checkout@v5
         env:
           GIT_CONFIG_COUNT: '1'
@@ -1222,6 +1239,7 @@ jobs:
             Write-TaskLocalReceipt
           }
           $exitCode = 1
+          $cacheSession = $null
           try {
             $cases = @(Resolve-TaskLocalBoundary)
             $head = (& git rev-parse HEAD).Trim()
@@ -1245,7 +1263,7 @@ jobs:
               $env:PATH = $rustBin + ';' + $env:PATH
             }
             foreach ($tool in @('rustc', 'cargo', 'node')) { Get-Command $tool -CommandType Application -ErrorAction Stop | Out-Null }
-            Resolve-InstalledTaskSccache
+            if ($env:CACHE_SESSION_OPT_IN -ne 'true') { Resolve-InstalledTaskSccache }
             $bashPaths = @("$env:ProgramFiles\Git\bin\bash.exe", "$env:ProgramFiles\Git\usr\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", 'C:\msys64\usr\bin\bash.exe')
             if (-not @($bashPaths | Where-Object { Test-Path -LiteralPath $_ }).Count) { throw 'installed_bash_missing' }
             $pwsh = (Get-Process -Id $PID).Path
@@ -1262,6 +1280,11 @@ jobs:
             if ($cases.owner -contains 'cantor') { $paths += @('src-tauri/src/socket/server/plan_mode/attempt_binding/tests.rs', 'src-tauri/src/service/plan_authority/tests.rs') }
             if ($cases.owner -contains 'auditor') { $paths += @('src-tauri/src/service/supporter_tab_state/safe_response/qualified_tests.rs', 'src-tauri/src/service/directory_trust/tests.rs') }
             foreach ($path in $paths) { $receipt.inputs += @{ path = $path; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash } }
+            if ($env:CACHE_SESSION_OPT_IN -eq 'true') {
+              if ($env:CACHE_SESSION_DEADLINE_TICKS -notmatch '^\d+$') { throw 'cache_session_deadline_missing' }
+              . .\scripts\windows-sccache-session.ps1 -Library
+              $cacheSession = Start-WindowsSccacheSession -DeadlineTicks ([long]$env:CACHE_SESSION_DEADLINE_TICKS) -ArtifactFresh $true
+            }
             $receipt.phase = 'tests'
             foreach ($case in $cases) { Invoke-TaskLocalCase $case }
             $receipt.phase = 'source_readback'
@@ -1275,6 +1298,17 @@ jobs:
             $receipt.error = $_.Exception.Message
             Write-Host ('Task boundary refused: ' + $receipt.error)
           } finally {
+            if ($cacheSession) {
+              try {
+                $cleanup = Stop-WindowsSccacheSession $cacheSession $receipt.error $false
+                $receipt.cache_session = @{ outcome = $cacheSession.Receipt.outcome; termination = $cleanup.TerminationKind; terminate_job_result = $cleanup.TerminateResult; receipt = $cleanup.ReceiptPath; errors = $cleanup.Errors }
+                if (-not $cleanup.Success) { $receipt.outcome = 'unqualified'; $exitCode = 1 }
+              } catch {
+                $receipt.cache_session = @{ outcome = 'unqualified'; cleanup_error = $_.Exception.GetType().Name }
+                if (-not $receipt.error) { $receipt.error = 'cache_session_cleanup_unconfirmed' }
+                $receipt.outcome = 'unqualified'; $exitCode = 1
+              }
+            }
             $receipt.source_after = @(& git status --porcelain)
             $receipt.source_readback_exit = $LASTEXITCODE
             & git diff HEAD -- > (Join-Path $receiptDir 'source-after.diff')
@@ -1292,4 +1326,53 @@ jobs:
         with:
           name: rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: error
+
+  windows-sccache-maintenance:
+    name: Pinned Windows sccache maintenance
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'windows-sccache-maintenance' && (inputs.maintenance_operation == 'contract-only' || inputs.maintenance_operation == 'provision-verify-cleanup') }}
+    runs-on: [self-hosted, windows-build]
+    timeout-minutes: 6
+    env:
+      EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+      WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
+      EVENT_SOURCE_SHA: ${{ github.sha }}
+      MAINTENANCE_OPERATION: ${{ inputs.maintenance_operation }}
+    steps:
+      - uses: actions/checkout@v5
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: 'true'
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Compile source and run pure contract controls
+        if: ${{ inputs.maintenance_operation == 'contract-only' }}
+        shell: pwsh
+        run: |
+          $sha = $env:EXPECTED_SOURCE_SHA
+          $workflowSha = $env:WORKFLOW_SOURCE_SHA
+          $eventSha = $env:EVENT_SOURCE_SHA
+          $checkoutSha = (& git rev-parse HEAD).Trim()
+          if ($LASTEXITCODE -ne 0 -or $sha -cnotmatch '^[0-9a-f]{40}$' -or $workflowSha -cne $sha -or $eventSha -cne $sha -or $checkoutSha -cne $sha) { throw 'contract_source_sha_join_refused' }
+          $status = & git status --porcelain=v1 --untracked-files=all
+          if ($LASTEXITCODE -ne 0 -or $status) { throw 'contract_checkout_not_clean' }
+          $account = [Security.Principal.WindowsIdentity]::GetCurrent().Name.Split('\')[-1]
+          if ($env:RUNNER_OS -cne 'Windows' -or $env:RUNNER_NAME -cne 'ROG-windows-build' -or $env:RUNNER_ARCH -cne 'X64' -or $account -cne 'amigo') { throw 'contract_runner_identity_refused' }
+          Write-Host 'contract_only_selected=true'
+          & .\scripts\windows-sccache-session.ps1 -ContractOnly
+      - name: Provision, verify, and terminate only the captured Job
+        if: ${{ inputs.maintenance_operation == 'provision-verify-cleanup' }}
+        id: maintenance
+        shell: pwsh
+        run: |
+          & .\scripts\windows-sccache-session.ps1 -Operation $env:MAINTENANCE_OPERATION
+      - name: Retain fresh maintenance evidence
+        if: ${{ always() && steps.maintenance.outputs.fresh_receipt_directory == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-sccache-maintenance-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/windows-sccache-maintenance-${{ github.run_id }}-${{ github.run_attempt }}/
           if-no-files-found: error
