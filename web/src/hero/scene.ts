@@ -22,6 +22,11 @@ function opacity(element: Element, value: number) {
   if (element.getAttribute('opacity') !== next) element.setAttribute('opacity', next);
 }
 
+function resetSpring(state: Spring) {
+  state.value = 0;
+  state.velocity = 0;
+}
+
 function paintLiquid(liquid: Liquid, curve: Curve, transfer: Transfer, mobile: boolean) {
   const t = clamp(transfer.progress.value);
   const position = pointAt(curve, t);
@@ -61,6 +66,8 @@ export function createMeshScene(desk: HTMLDivElement) {
   }));
   let channels: Channel[] = [];
   let transfers: Transfer[] = [];
+  let activeBodyIndices: number[] = [];
+  const retiredRoutes = new Set<number>();
   let mobile = false;
   let time = 0;
   let sequence = 0;
@@ -73,20 +80,64 @@ export function createMeshScene(desk: HTMLDivElement) {
     body.energy.velocity += Math.abs(force) * .25;
   }
 
+  function clearTransferVisual(index: number) {
+    const liquid = liquidNodes[index];
+    const route = routeNodes[index];
+    opacity(liquid.group, 0);
+    liquid.group.removeAttribute('data-kind');
+    liquid.text.textContent = 'Task';
+    [liquid.drop, liquid.satellite, liquid.ripple, liquid.label].forEach((element) => element.removeAttribute('transform'));
+    liquid.neck.setAttribute('d', '');
+    [liquid.drop, liquid.neck, liquid.ripple, liquid.satellite, liquid.label].forEach((element) => opacity(element, 0));
+    opacity(currents[index], 0);
+    currents[index].setAttribute('stroke-dashoffset', '0');
+    threads[index].style.strokeWidth = '1';
+    route.style.removeProperty('color');
+  }
+
+  function retireRoute(index: number) {
+    const route = routeNodes[index];
+    route.style.display = 'none';
+    route.querySelectorAll('path').forEach((path) => path.setAttribute('d', ''));
+    route.querySelectorAll('circle').forEach((port) => port.removeAttribute('transform'));
+    currents[index].setAttribute('stroke-dasharray', '0 0');
+    clearTransferVisual(index);
+    retiredRoutes.add(index);
+  }
+
+  function clearBody(index: number) {
+    const body = bodies[index];
+    resetSpring(body.x);
+    resetSpring(body.y);
+    resetSpring(body.tilt);
+    resetSpring(body.energy);
+    body.node.style.transform = '';
+    body.node.style.setProperty('--agent-energy', '0');
+    body.sheen.style.opacity = '0';
+  }
+
   function resize() {
     mobile = window.matchMedia('(max-width: 650px)').matches;
-    channels = measureChannels(cards, mobile, window.matchMedia('(max-width: 900px)').matches);
-    if (channels.length !== transfers.length) {
+    const nextChannels = measureChannels(cards, mobile, window.matchMedia('(max-width: 900px)').matches);
+    const nextActiveBodies = [...new Set(nextChannels.flatMap(({ from, to }) => [from, to]))];
+    const nextActiveBodySet = new Set(nextActiveBodies);
+    activeBodyIndices.filter((index) => !nextActiveBodySet.has(index)).forEach(clearBody);
+    activeBodyIndices = nextActiveBodies;
+    const topologyChanged = nextChannels.length !== transfers.length;
+    channels = nextChannels;
+    if (topologyChanged) {
       time = 0;
       transfers = channels.map((_, index) => makeTransfer(index));
     }
     routeNodes.forEach((node, index) => {
       const channel = channels[index];
-      node.style.display = channel ? '' : 'none';
       if (!channel) {
-        opacity(liquidNodes[index].group, 0);
+        if (!retiredRoutes.has(index)) retireRoute(index);
         return;
       }
+      const wasRetired = retiredRoutes.delete(index);
+      node.style.display = '';
+      if (topologyChanged && !wasRetired) clearTransferVisual(index);
       node.querySelectorAll('path').forEach((path) => path.setAttribute('d', curvePath(channel.curve)));
       currents[index].setAttribute('stroke-dasharray', `28 ${channel.length + 28}`);
       const ports = node.querySelectorAll('circle');
@@ -95,7 +146,8 @@ export function createMeshScene(desk: HTMLDivElement) {
   }
 
   function paintBodies(dt: number) {
-    bodies.forEach((body) => {
+    activeBodyIndices.forEach((index) => {
+      const body = bodies[index];
       stepSpring(body.x, 0, 180, 13, dt);
       stepSpring(body.y, 0, 180, 13, dt);
       stepSpring(body.tilt, 0, 150, 12, dt);
@@ -158,7 +210,8 @@ export function createMeshScene(desk: HTMLDivElement) {
 
   function still() {
     liquidNodes.forEach((liquid) => opacity(liquid.group, 0));
-    bodies.forEach((body) => {
+    activeBodyIndices.forEach((index) => {
+      const body = bodies[index];
       body.node.style.transform = '';
       body.node.style.setProperty('--agent-energy', '0');
       body.sheen.style.opacity = '0';
