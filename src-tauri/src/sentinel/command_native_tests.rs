@@ -93,7 +93,10 @@ fn sentinel_command_native_owner_shutdown_wakes_active_wait() {
 fn cancellation_control(close_streams: bool, shutdown: bool) {
     let fixture = Fixture::new(close_streams);
     let owner = Arc::new(ProbeResourceOwner::new());
+    #[cfg(unix)]
     let signal = Cancellation::default();
+    #[cfg(windows)]
+    let signal = fixture.cancellation();
     let waits = signal.observe_waits();
     let parameters = Parameters {
         command: fixture.command(),
@@ -285,6 +288,142 @@ impl Fixture {
 }
 
 #[cfg(windows)]
+const WINDOWS_CHILD_SELECTOR: &str =
+    "sentinel::command_native_tests::windows_controlled_capture_child";
+
+#[cfg(windows)]
+#[test]
+#[ignore = "Launched only as the exact owned child by the Windows post-EOF control"]
+fn windows_controlled_capture_child() {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::Threading::SetEvent;
+
+    let mut ready = None;
+    let result = windows_capture_child(&mut ready);
+    let code = if let Err(error) = result {
+        let bounded = error.chars().take(1024).collect::<String>();
+        if std::fs::write("fixture-error.txt", bounded).is_ok() {
+            if let Some(ready) = &ready {
+                unsafe { SetEvent(ready.as_raw_handle()) };
+            }
+        }
+        14
+    } else {
+        0
+    };
+    drop(ready);
+    std::process::exit(code);
+}
+
+#[cfg(windows)]
+fn windows_capture_child(
+    ready: &mut Option<std::os::windows::io::OwnedHandle>,
+) -> Result<(), String> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::{
+        Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT},
+        System::Threading::{
+            SetEvent, WaitForSingleObject, EVENT_MODIFY_STATE, SYNCHRONIZATION_SYNCHRONIZE,
+        },
+    };
+
+    let args = std::env::args().collect::<Vec<_>>();
+    if args.len() != 9
+        || args[1..6]
+            != [
+                "--exact",
+                "--ignored",
+                "--nocapture",
+                WINDOWS_CHILD_SELECTOR,
+                "--skip",
+            ]
+        || args[7] != "--skip"
+    {
+        return Err(
+            "native child requires its exact selector and two owned event arguments".into(),
+        );
+    }
+    let id = args[6]
+        .strip_prefix("Local\\sentinel-ready-")
+        .and_then(|id| uuid::Uuid::parse_str(id).ok())
+        .ok_or("native child ready event identity is invalid")?;
+    if args[6] != format!("Local\\sentinel-ready-{id}")
+        || args[8] != format!("Local\\sentinel-release-{id}")
+    {
+        return Err("native child event identities do not match".into());
+    }
+    *ready = Some(open_child_event(&args[6], EVENT_MODIFY_STATE)?);
+    let release = open_child_event(&args[8], SYNCHRONIZATION_SYNCHRONIZE)?;
+    close_child_pipes()?;
+    if unsafe { SetEvent(ready.as_ref().unwrap().as_raw_handle()) } == 0 {
+        return Err(child_native_error("SetEvent ready"));
+    }
+    match unsafe {
+        WaitForSingleObject(
+            release.as_raw_handle(),
+            probe::PROBE_RUNTIME.as_millis() as u32,
+        )
+    } {
+        WAIT_OBJECT_0 => Ok(()),
+        WAIT_TIMEOUT => {
+            Err("native child release event did not signal before its failure deadline".into())
+        }
+        _ => Err(child_native_error("WaitForSingleObject release")),
+    }
+}
+
+#[cfg(windows)]
+fn open_child_event(name: &str, access: u32) -> Result<std::os::windows::io::OwnedHandle, String> {
+    use std::os::windows::io::FromRawHandle;
+    use windows_sys::Win32::System::Threading::OpenEventW;
+    let wide = name.encode_utf16().chain([0]).collect::<Vec<_>>();
+    let raw = unsafe { OpenEventW(access, 0, wide.as_ptr()) };
+    if raw.is_null() {
+        Err(child_native_error("OpenEventW"))
+    } else {
+        Ok(unsafe { std::os::windows::io::OwnedHandle::from_raw_handle(raw) })
+    }
+}
+
+#[cfg(windows)]
+fn close_child_pipes() -> Result<(), String> {
+    use windows_sys::Win32::{
+        Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE},
+        Storage::FileSystem::{GetFileType, FILE_TYPE_PIPE},
+    };
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetStdHandle(handle: u32) -> HANDLE;
+    }
+    let stdout = unsafe { GetStdHandle((-11i32) as u32) };
+    let stderr = unsafe { GetStdHandle((-12i32) as u32) };
+    if stdout.is_null()
+        || stderr.is_null()
+        || stdout == INVALID_HANDLE_VALUE
+        || stderr == INVALID_HANDLE_VALUE
+        || stdout == stderr
+        || unsafe { GetFileType(stdout) } != FILE_TYPE_PIPE
+        || unsafe { GetFileType(stderr) } != FILE_TYPE_PIPE
+    {
+        return Err("native child stdout/stderr must be distinct owned pipe handles".into());
+    }
+    if unsafe { CloseHandle(stdout) } == 0 {
+        return Err(child_native_error("CloseHandle stdout"));
+    }
+    if unsafe { CloseHandle(stderr) } == 0 {
+        return Err(child_native_error("CloseHandle stderr"));
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn child_native_error(operation: &str) -> String {
+    format!("{operation} win32_error={}", unsafe {
+        windows_sys::Win32::Foundation::GetLastError()
+    })
+}
+
+#[cfg(windows)]
 struct Fixture {
     dir: tempfile::TempDir,
     ready: std::os::windows::io::OwnedHandle,
@@ -323,12 +462,44 @@ impl Fixture {
     }
 
     fn command(&self) -> String {
-        let close = if self.close_streams {
-            r#"Add-Type -ErrorAction Stop -TypeDefinition 'using System; using System.ComponentModel; using System.Runtime.InteropServices; public static class CaptureFixture { [DllImport("kernel32.dll", SetLastError=true)] private static extern IntPtr GetStdHandle(int n); [DllImport("kernel32.dll", SetLastError=true)] private static extern uint GetFileType(IntPtr h); [DllImport("kernel32.dll", SetLastError=true)] private static extern bool CloseHandle(IntPtr h); public static void CloseStreams() { IntPtr output=GetStdHandle(-11), error=GetStdHandle(-12); if (GetFileType(output)!=3 || GetFileType(error)!=3 || output==error) throw new InvalidOperationException("fixture stdout/stderr must be distinct pipe handles"); if (!CloseHandle(output)) throw new Win32Exception(Marshal.GetLastWin32Error(), "fixture stdout close failed"); if (!CloseHandle(error)) throw new Win32Exception(Marshal.GetLastWin32Error(), "fixture stderr close failed"); } }'; [CaptureFixture]::CloseStreams();"#
-        } else {
-            "[Console]::Out.Write('out'); [Console]::Error.Write('err');"
-        };
+        if self.close_streams {
+            return format!(
+                "& {}",
+                self.native_argv()
+                    .iter()
+                    .map(|argument| { format!("'{}'", argument.replace('\'', "''")) })
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            );
+        }
+        let close = "[Console]::Out.Write('out'); [Console]::Error.Write('err');";
         format!("$ErrorActionPreference='Stop'; $ready=[Threading.EventWaitHandle]::OpenExisting('{}'); $release=[Threading.EventWaitHandle]::OpenExisting('{}'); try {{ {close} $ready.Set() | Out-Null; if (!$release.WaitOne(10000)) {{ exit 13 }}; exit 0 }} catch {{ $message=$_.Exception.Message; [IO.File]::WriteAllText('fixture-error.txt',$message.Substring(0,[Math]::Min(1024,$message.Length))); $ready.Set() | Out-Null; exit 14 }}", self.ready_name, self.release_name)
+    }
+
+    fn native_argv(&self) -> Vec<String> {
+        vec![
+            std::env::current_exe()
+                .unwrap()
+                .into_os_string()
+                .into_string()
+                .expect("native fixture executable path must be Unicode"),
+            "--exact".into(),
+            "--ignored".into(),
+            "--nocapture".into(),
+            WINDOWS_CHILD_SELECTOR.into(),
+            "--skip".into(),
+            self.ready_name.clone(),
+            "--skip".into(),
+            self.release_name.clone(),
+        ]
+    }
+
+    fn cancellation(&self) -> Cancellation {
+        if self.close_streams {
+            Cancellation::for_windows_fixture(self.native_argv())
+        } else {
+            Cancellation::default()
+        }
     }
 
     fn wait_ready(&self) {
@@ -336,6 +507,7 @@ impl Fixture {
         use windows_sys::Win32::{
             Foundation::WAIT_OBJECT_0, System::Threading::WaitForSingleObject,
         };
+        let failure = self.dir.path().join("fixture-error.txt");
         assert_eq!(
             unsafe {
                 WaitForSingleObject(
@@ -344,9 +516,9 @@ impl Fixture {
                 )
             },
             WAIT_OBJECT_0,
-            "child readiness was not observed"
+            "child readiness was not observed: {}",
+            std::fs::read_to_string(&failure).unwrap_or_else(|error| error.to_string())
         );
-        let failure = self.dir.path().join("fixture-error.txt");
         assert!(
             !failure.exists(),
             "fixture readiness failed: {}",
