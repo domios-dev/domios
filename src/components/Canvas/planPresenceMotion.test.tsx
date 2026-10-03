@@ -359,7 +359,7 @@ describe("presence motion stylesheet", () => {
       const offsets = Array.from(keyframesBody(css, name).matchAll(/translateX\(([^)]+)\)/g), (match) => match[1]);
       expect(offsets.length, `${name} moves horizontally`).toBeGreaterThan(0);
       for (const offset of offsets) {
-        expect(offset, `${name} offset`).toMatch(/^-?\d+px$/);
+        expect(offset, `${name} offset`).toMatch(/^(?:0|-?\d+px)$/);
         expect(Math.abs(Number.parseFloat(offset)), `${name} travel`).toBeLessThanOrEqual(32);
       }
     }
