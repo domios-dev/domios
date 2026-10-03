@@ -84,18 +84,18 @@ Use the CLI or documented REST routes; desktop-only controls are available throu
 
 ## Environment Variables
 
-Set automatically in every PTY spawned by CodeTerm:
+Set automatically in every PTY spawned by Domios:
 
 | Variable | Example | Description |
 |----------|---------|-------------|
-| `CODETERM` | `1` | Running inside CodeTerm |
+| `CODETERM` | `1` | Running inside Domios |
 | `CODETERM_VERSION` | `0.4.0` | App version |
 | `CODETERM_SOCKET_PATH` | `\\.\pipe\codeterm-1234` | Socket path |
 | `CODETERM_TAB_ID` | `a3f1b2c7` | Current tab ID (8-char hex) |
 | `CODETERM_WORKSPACE_ID` | `b4e2c8d1` | Current workspace ID (8-char hex) |
 | `CODETERM_ROLE` | `Manager` | Structural agent role: `Manager` or `Worker` (empty if no role). The finer kind (`orchestrator`, `planner`, `watcher`, …) lives in `role_profile`, not here; display surfaces render that kind's label. Set at PTY spawn. |
 | `CODETERM_PARENT_TAB_ID` | `b4e2c8d1` | Parent Tab ID in hierarchy (empty for a Team anchor or no role). Set at PTY spawn. |
-| `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by CodeTerm so CLI and hooks use the correct port (dev: 7686, prod: 7685). |
+| `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by Domios so CLI and hooks use the correct port (dev: 7686, prod: 7685). |
 | `CODETERM_API_URL` | `http://127.0.0.1:7685` | Optional API origin for local CLI fallback; fallback accepts only the exact IPv4 loopback host. |
 | `CODETERM_API_TOKEN` | `your-secret-token` | Bearer token for the API. Injected into every PTY when `[api].token` is set, so CLI subcommands and the auth-enforced hook callbacks (`/api/tabs/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring. |
 | `TERM` | `xterm-256color` | Terminal type |
@@ -112,7 +112,7 @@ When a readiness report is refused locally, `codeterm agent report` prints
 field are not emitted. A refused report remains absent from task history and
 does not change task status.
 
-CodeTerm automatically detects Claude Code and other agents:
+Domios automatically detects Claude Code and other agents:
 - **Permission requests** → in-app toast + Windows notification + webhook
 - **Task completion** → in-app toast + Windows notification + webhook
 - **Agent icon** on tab (orange ✻ for Claude Code)
@@ -178,7 +178,7 @@ Command-palette shortcuts and agent-control workflows: `codeterm docs AGENT-CONT
 
 ## System Tray
 
-CodeTerm hides to the system tray on window close instead of quitting. To fully quit, use the tray menu. This ensures cron jobs and background agents continue running when the window is closed.
+Domios hides to the system tray on window close instead of quitting. To fully quit, use the tray menu. This ensures cron jobs and background agents continue running when the window is closed.
 
 ## Dev/Prod Isolation
 
@@ -204,4 +204,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->

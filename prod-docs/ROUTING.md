@@ -69,4 +69,4 @@ If a remote request needs a truly dangerous local decision, ack the remote
 channel first ("blocked pending local confirmation") and ask locally only
 when the local user is actually at the keyboard.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

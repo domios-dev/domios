@@ -20,7 +20,7 @@ When the user hands you a fresh Telegram bot token to wire up:
    codeterm bridge restart
    ```
 
-4. **Smoke-check the token** without involving CodeTerm:
+4. **Smoke-check the token** without involving Domios:
    ```bash
    curl https://api.telegram.org/bot<TOKEN>/getMe
    ```
@@ -95,7 +95,7 @@ through as supplied by the shell.
 codeterm bridge send --to USER_ID --type photo --file /path/to/image.jpg
 ```
 
-CodeTerm has no screenshot CLI. If the user asks for a screen capture, ask them to paste an image or provide a file path.
+Domios has no screenshot CLI. If the user asks for a screen capture, ask them to paste an image or provide a file path.
 
 ## Per-tab topic threads
 
@@ -125,4 +125,4 @@ codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--clai
 
 Run on the **source** machine. `--mesh PEER` is rejected (exit 6) because each daemon resolves its own vault and secrets never cross the mesh.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

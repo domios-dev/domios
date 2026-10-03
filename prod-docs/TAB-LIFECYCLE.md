@@ -1,6 +1,6 @@
 # Tab lifecycle journal and unconditional restore
 
-CodeTerm keeps one append-only journal of every authoritative tab lifecycle transition. The journal is **telemetry**: a forensic record of what each launch committed and when. Normal session restore does not use it as authority.
+Domios keeps one append-only journal of every authoritative tab lifecycle transition. The journal is **telemetry**: a forensic record of what each launch committed and when. Normal session restore does not use it as authority.
 
 **Tab restore is unconditional.** Whatever tabs were open at shutdown come back. A claimed PTY session re-establishes its provider only from its own provider session record; without unique ownership the restored tab remains a shell. Journal state — missing, mismatched, truncated, or absent — does not change that decision.
 
@@ -174,7 +174,7 @@ provider-declared update command in a utility process with a 300-second failure
 deadline. Provider and target-version claims are durable and shared across
 instances: the command runs once per target version, with one run per provider
 at a time. Prompts use only the provider-declared safe option through the prompt
-response API; CodeTerm never chooses Update now inside an agent tab.
+response API; Domios never chooses Update now inside an agent tab.
 
 Working tabs keep running throughout the update. On success, idle tabs,
 including the General Agent, restart through `agent restart` with verified
@@ -189,4 +189,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 36 -->
+<!-- revision: 37 -->

@@ -63,7 +63,7 @@ competition is unchanged.
 <!-- revision: 17 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
-about lifecycle and evidence, not CodeTerm's own repository layout.
+about lifecycle and evidence, not Domios's own repository layout.
 
 1. Create one lane per task in a dedicated worktree from the current integration
    target. Use `lane/<task-shortid>-<slug>` unless the project has a stricter

@@ -1,4 +1,4 @@
-# CodeTerm Configuration
+# Domios Configuration
 
 Config file: `%APPDATA%/codeterm/config.toml` (Windows) or `~/.config/codeterm/config.toml` (Linux/macOS).
 
@@ -7,7 +7,7 @@ Auto-created on first run with defaults.
 ## Full Reference
 
 ```toml
-# CodeTerm Configuration
+# Domios Configuration
 
 [theme]
 name = "github-dark"
@@ -68,7 +68,7 @@ open_settings = "Ctrl+,"
 # poll_interval_ms: how often the agent polls for new commands.
 # idle_timeout_s: seconds of idle before treating agent as idle (used for output streaming).
 # resume_sessions: auto-resume agent sessions on restart. When the JSONL referenced
-#                  by the saved session id is missing on disk, CodeTerm clears the stale id and launches fresh
+#                  by the saved session id is missing on disk, Domios clears the stale id and launches fresh
 #                  instead of looping on "No conversation found".
 # full_access: one global permission choice for every agent provider.
 # Omit it until onboarding or the first agent launch asks the user.
@@ -129,7 +129,7 @@ enabled = true                   # Local orchestration-economics ledger; false o
 
 Toggle it live with `codeterm config set diagnostics.terminal_transport true|false`. The next output-stream session and PTY write use the new setting; an open stream keeps the setting it started with. For mesh traces, enable it on both the local relaying daemon and the peer. No restart is required.
 
-`kpi.enabled` owns the ledger behind Mission Control's Tokens and Turns cards. It records plan, task and tab ids, event kinds, byte counts, token counts and timestamps in `~/.codeterm/kpi_ledger.db` — never message text, and nothing leaves the machine. Opt out with `codeterm config set kpi.enabled false`; opt back in with `codeterm config set kpi.enabled true`. A config saved before KPI defaulted on still carries the old `enabled = false`; the first load after upgrading switches it on once and records `kpi.default_applied = true`, so an opt-out saved afterwards is kept. Either way the change takes effect on the next CodeTerm start, and while it is off the Board shows an explicit not-recording state naming this key rather than a zero.
+`kpi.enabled` owns the ledger behind Mission Control's Tokens and Turns cards. It records plan, task and tab ids, event kinds, byte counts, token counts and timestamps in `~/.codeterm/kpi_ledger.db` — never message text, and nothing leaves the machine. Opt out with `codeterm config set kpi.enabled false`; opt back in with `codeterm config set kpi.enabled true`. A config saved before KPI defaulted on still carries the old `enabled = false`; the first load after upgrading switches it on once and records `kpi.default_applied = true`, so an opt-out saved afterwards is kept. Either way the change takes effect on the next Domios start, and while it is off the Board shows an explicit not-recording state naming this key rather than a zero.
 
 ## Plugin settings
 
@@ -175,12 +175,12 @@ Values are JSON-compatible: `true`, `false`, `42`, `"string"`, `["array"]`. Chan
 
 If the config file is held after a failed load, writes fail and leave the live
 settings unchanged. Review and repair the salvaged file, remove its CodeTerm
-salvage marker, and restart CodeTerm; a known-good config backup can also be
+salvage marker, and restart Domios; a known-good config backup can also be
 restored before restarting.
 
 ## Value limits
 
-Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load. Config strings are limited to 65536 UTF-8 bytes, control characters are refused except line breaks and tabs, collections are limited to 4096 entries, and the full config is limited to 4 MiB. Invalid file values are rejected with a warning and CodeTerm uses the last valid config or defaults.
+Numeric and enum settings are checked on CLI, REST, Tauri, and config-file load. Config strings are limited to 65536 UTF-8 bytes, control characters are refused except line breaks and tabs, collections are limited to 4096 entries, and the full config is limited to 4 MiB. Invalid file values are rejected with a warning and Domios uses the last valid config or defaults.
 
 | Key | Allowed value |
 |---|---|
@@ -208,7 +208,7 @@ Other numeric limits and accepted enum values are reported by `codeterm config s
 
 ## When config.toml fails to load
 
-A `config.toml` that cannot be read or parsed is never treated as empty and never overwritten. The original is renamed to `config.toml.corrupt-<unix-ms>` (newest 5 kept), one ERROR line names the file and the error, and one action-needed notification names the kept copy. Every successful save also writes a rotating backup under `state-backups/config.toml/` (newest 10 kept); the newest backup that parses is restored, so the API token and `agent.full_access` survive. With no valid backup CodeTerm runs on in-memory defaults and refuses every save until the file is fixed or a valid one is put back (picked up without a restart). The API token is never regenerated after a parse error: it and `agent.full_access` are salvaged from the broken file's intact lines, otherwise token-authenticated calls are refused. A save that finds a hand-edited file that no longer parses preserves it the same way first.
+A `config.toml` that cannot be read or parsed is never treated as empty and never overwritten. The original is renamed to `config.toml.corrupt-<unix-ms>` (newest 5 kept), one ERROR line names the file and the error, and one action-needed notification names the kept copy. Every successful save also writes a rotating backup under `state-backups/config.toml/` (newest 10 kept); the newest backup that parses is restored, so the API token and `agent.full_access` survive. With no valid backup Domios runs on in-memory defaults and refuses every save until the file is fixed or a valid one is put back (picked up without a restart). The API token is never regenerated after a parse error: it and `agent.full_access` are salvaged from the broken file's intact lines, otherwise token-authenticated calls are refused. A save that finds a hand-edited file that no longer parses preserves it the same way first.
 
 ## General Agent
 
@@ -223,7 +223,7 @@ max_restart_attempts = 2        # Effective maximum is two per recovery episode
 restart_delay_s = 60            # Retained setting; event recovery does not wait
 ```
 
-When enabled, CodeTerm starts with a single "General" workspace instead of the default "Main" workspace. The General Agent tab is marked as protected (cannot be closed via UI).
+When enabled, Domios starts with a single "General" workspace instead of the default "Main" workspace. The General Agent tab is marked as protected (cannot be closed via UI).
 
 Settings UI: Settings > Agents > General Agent section (enable, auto-restart toggles).
 
@@ -237,4 +237,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
 
-<!-- revision: 86 -->
+<!-- revision: 87 -->

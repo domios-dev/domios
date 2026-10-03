@@ -2,14 +2,14 @@
 
 Use a fenced `html` block when an interactive visual explains something better
 than prose or Mermaid. Ordinary self-contained visuals should render directly;
-reading this document is only useful when the block needs CodeTerm-specific APIs.
+reading this document is only useful when the block needs Domios-specific APIs.
 
 ## Runtime
 
 - HTML, CSS, and JavaScript run in a sandboxed iframe.
 - Tailwind CSS v4 utilities, variants, transitions, and animations are bundled.
 - `ct.help()` returns the runtime's current capability summary.
-- `ct.theme()` returns the current CodeTerm background, foreground, and accent.
+- `ct.theme()` returns the current Domios background, foreground, and accent.
 - `ct.animate(target, keyframes, options)` wraps Web Animations with bounded
   duration, delay, and iteration counts.
 - Direct network and arbitrary filesystem access are blocked.
@@ -30,7 +30,7 @@ reply. The directive must occupy its own paragraph:
 
 `@ct-page` supports `.html` and `.htm`; `@ct-image` supports PNG, JPEG, GIF,
 WebP, BMP, and AVIF; `@ct-document` renders Markdown and safely displays UTF-8
-text, logs, JSON, YAML, TOML, and CSV. CodeTerm validates the absolute path,
+text, logs, JSON, YAML, TOML, and CSV. Domios validates the absolute path,
 extension, and size before exposing the bounded file to the renderer. SVG is
 excluded from image previews because it can contain active or external content.
 Windows paths may use either backslashes or forward slashes; both forms are
@@ -63,10 +63,10 @@ source instead of copying its contents into the reply:
 ```
 ````
 
-CodeTerm reads the file from the desktop host, removes scripts and other active
+Domios reads the file from the desktop host, removes scripts and other active
 or external content, then renders the result in the normal message sandbox. The
 toolbar shows `Local file`, the source path, and a Reload action. Returning focus
-to the CodeTerm window also reloads the file, so edits are picked up without a
+to the Domios window also reloads the file, so edits are picked up without a
 timer or a duplicated HTML payload.
 
 The directive must be the entire fence body. Paths must be absolute, point to a
@@ -138,4 +138,4 @@ The rendered document carries a visible `Local untrusted HTML` banner. Use
 ct.file.renderHtml({ target: '#canvas', maxBytes: 2 * 1024 * 1024 })
 ```
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

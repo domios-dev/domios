@@ -11,7 +11,7 @@ provider record, then corrects the provider label and clears its parser lock.
 and session match the live evidence. It reports the restored checkpoint and all
 newer records skipped with reasons. Parser-origin checkpoints are never sources.
 
-The caller is proven from the tab and binding headers injected into a CodeTerm
+The caller is proven from the tab and binding headers injected into a Domios
 PTY, plus the session header when the launch already knew it. Only the target
 tab's own agent or the live owner of its bound Plan task may repair it. Refusals
 use stable `tab_repair_*` error codes, including
@@ -31,4 +31,4 @@ sources. Missing session proof is refused with
 `tab_repair_verified_session_required`; a caller outside the self/plan-owner
 authority set is refused with `tab_repair_not_authorized`.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

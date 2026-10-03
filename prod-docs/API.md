@@ -1,5 +1,5 @@
-# CodeTerm API Reference
-CodeTerm exposes authenticated REST, local socket JSON-RPC, and the `codeterm` CLI.
+# Domios API Reference
+Domios exposes authenticated REST, local socket JSON-RPC, and the `codeterm` CLI.
 
 ### One behavior across transports
 
@@ -15,7 +15,7 @@ Human `codeterm workspace list` shows authoritative topology in stable creation 
 Base URL: `http://<host>:7685/api`. This reference covers agent- and operator-facing routes; web-mirror and debug internals are not listed.
 
 ### Authentication
-CodeTerm generates and persists a Bearer token on first load. Control endpoints require it even on loopback. The small public health/pairing allowlist is documented by the router and does not grant local control.
+Domios generates and persists a Bearer token on first load. Control endpoints require it even on loopback. The small public health/pairing allowlist is documented by the router and does not grant local control.
 
 Default configuration:
 ```toml
@@ -171,4 +171,4 @@ Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reach
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 
 Related docs: `API-PLAN`, `API-TABS` (including local `codeterm send` output), `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`.
-<!-- revision: 181 -->
+<!-- revision: 182 -->

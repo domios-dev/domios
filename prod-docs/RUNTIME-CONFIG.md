@@ -4,7 +4,7 @@ Configuration for autostart, themes, sessions, cron, UI gates, memory, and dev i
 
 ## OS Autostart
 
-CodeTerm can launch at login, starting minimized to the system tray.
+Domios can launch at login, starting minimized to the system tray.
 
 - **Windows:** HKCU registry key (`Software\Microsoft\Windows\CurrentVersion\Run`)
 - **macOS:** LaunchAgent plist (`~/Library/LaunchAgents/com.codeterm.app.plist`)
@@ -49,7 +49,7 @@ Contains workspace layout and tab arrangement metadata.
 
 ## CWD Tracking
 
-CodeTerm tracks the current working directory of each tab via invisible OSC 7 shell integration. No visible commands are injected into the terminal.
+Domios tracks the current working directory of each tab via invisible OSC 7 shell integration. No visible commands are injected into the terminal.
 
 Generated integration files need no manual edits.
 
@@ -58,7 +58,7 @@ Shell integration scripts are stored in the platform data directory:
 - **Linux:** `~/.local/share/codeterm/shell-integration/`
 - **Windows:** `%APPDATA%/codeterm/shell-integration/`
 
-CodeTerm creates these scripts at startup.
+Domios creates these scripts at startup.
 
 ## Cron Jobs
 
@@ -69,7 +69,7 @@ reported by one ERROR line and one action-needed notification, and recovered fro
 the newest valid backup in `state-backups/crons.json/` (written on every save).
 Without a backup the store runs on an empty in-memory list: built-in jobs such as
 `mem-dreaming-auto` run in memory only, and every save is refused until a fixed
-`crons.json` is restored and CodeTerm restarts.
+`crons.json` is restored and Domios restarts.
 
 ### `CronJob` schema
 
@@ -236,4 +236,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Both builds can run simultaneously.
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->
