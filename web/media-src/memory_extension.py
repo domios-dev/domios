@@ -91,12 +91,14 @@ def prepare(original_timing, original_audio, original_alignment, memory_audio,
     final = timing['cues'].pop()
     for key in ('start', 'end', 'visualStart', 'visualEnd'):
         final[key] += duration_added
+    final['visualStart'] = (INSERT_FRAME + INSERT_FRAMES) / 30
+    final['visualEnd'] = timing['duration']
     final['id'] = 14
     offset = timing['narration']['offset']
     timing['cues'].append(dict(id=13, text=extra_text,
                               start=cut + MEMORY_LEAD_SAMPLES / RATE + extra_alignment['character_start_times_seconds'][0] + offset,
                               end=cut + MEMORY_LEAD_SAMPLES / RATE + extra_alignment['character_end_times_seconds'][-1] + offset,
-                              visualStart=INSERT_FRAME / 30,
+                              visualStart=timing['cues'][-1]['visualEnd'],
                               visualEnd=(INSERT_FRAME + INSERT_FRAMES) / 30))
     timing['cues'].append(final)
     narration = timing['narration']
