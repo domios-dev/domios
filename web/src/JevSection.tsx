@@ -28,7 +28,7 @@ export function JevSection() {
         <path className="jev-route jev-route-memory" data-story-route="home-memory" markerStart="url(#jev-route-arrow)" markerEnd="url(#jev-route-arrow)" />
         <path className="jev-route jev-route-engine" data-story-route="home-engine" markerStart="url(#jev-route-arrow)" markerEnd="url(#jev-route-arrow)" />
         <path className="jev-route jev-route-telegram" data-story-route="home-telegram" markerStart="url(#jev-route-arrow)" markerEnd="url(#jev-route-arrow)" />
-        <ellipse className="jev-signal" data-story-signal cx="0" cy="0" rx="7" ry="4" />
+        <ellipse className="jev-signal" data-story-signal cx="0" cy="0" rx="7" ry="4" opacity="0" />
       </svg>
       <div className="jev-team jev-node" data-story-node="team">
         <strong>Team</strong>
@@ -37,6 +37,7 @@ export function JevSection() {
           <span>Planner</span>
           <span>Worker</span>
         </div>
+        <small>Requests ↔ responses</small>
       </div>
       <div className="jev-core-group">
         <div className="jev-home jev-node" data-story-node="home">
@@ -44,16 +45,25 @@ export function JevSection() {
           <strong>Domios</strong>
           <span className="jev-home-label">Built-in spine</span>
           <div className="jev-spine" aria-hidden="true"><i /><i /><i /><i /><i /></div>
+          <div className="jev-story-cue" aria-hidden="true">
+            <span>Illustrative exchange</span>
+            <strong data-story-cue>Recall request</strong>
+          </div>
+          <div className="jev-evidence" aria-hidden="true">
+            <i />
+            <span>Evidence → action</span>
+          </div>
         </div>
         <div className="jev-engine jev-node" data-story-node="engine">
           <strong>JEV</strong>
+          <span>State labels</span>
           <span>Pluggable</span>
         </div>
       </div>
       <div className="jev-memory jev-node" data-story-node="memory">
         <strong>Memory</strong>
         <span>This machine</span>
-        <small>Durable knowledge</small>
+        <small>Recall ↔ knowledge</small>
       </div>
       <div className="jev-telegram jev-node" data-story-node="telegram">
         <strong>Telegram</strong>

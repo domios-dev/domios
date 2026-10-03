@@ -10,11 +10,18 @@
 .jev-route-memory { stroke: color-mix(in srgb, var(--ct-green) 78%, var(--ct-border)); }
 .jev-route-engine { stroke: var(--ct-muted); stroke-dasharray: 4 4; }
 .jev-route-telegram { stroke: color-mix(in srgb, var(--ct-magenta) 78%, var(--ct-border)); }
-.jev-signal { fill: var(--ct-accent); stroke: var(--ct-bg); stroke-width: 2px; vector-effect: non-scaling-stroke; opacity: 0; }
+.jev-route[data-story-active="true"] { stroke-width: 2.5px; }
+.jev-signal { fill: var(--ct-accent); stroke: var(--ct-bg); stroke-width: 2px; vector-effect: non-scaling-stroke; }
 .jev-board[data-story-motion="static"] .jev-signal { display: none; }
 .jev-node { position: relative; z-index: 1; min-width: 0; box-sizing: border-box; border: 1px solid var(--ct-border); border-radius: 16px; background: var(--ct-bg); }
+.jev-node[data-story-flow] { border-width: 2px; }
+.jev-team[data-story-flow], .jev-home[data-story-flow] { border-color: var(--ct-accent); }
+.jev-memory[data-story-flow] { border-color: var(--ct-green); }
+.jev-engine[data-story-flow] { border-color: var(--ct-muted-fg); }
+.jev-telegram[data-story-flow] { border-color: var(--ct-magenta); }
 .jev-node > strong { color: var(--ct-heading); font-size: 15px; font-weight: 600; }
 .jev-team, .jev-memory, .jev-telegram { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 16px; }
+.jev-team > small { color: var(--ct-muted-fg); font-size: 10px; line-height: 1.4; }
 .jev-team { grid-column: 1; grid-row: 2; justify-self: stretch; }
 .jev-roles { display: grid; width: 100%; gap: 5px; }
 .jev-roles span { padding: 4px 7px; border: 1px solid var(--ct-border); border-radius: 7px; color: var(--ct-muted-fg); font-size: 11px; line-height: 1.3; }
@@ -27,6 +34,13 @@
 .jev-spine::before { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--ct-accent); content: ''; }
 .jev-spine i { z-index: 1; width: 17px; height: 3px; border-radius: 50%; background: var(--ct-accent); }
 .jev-spine i:nth-child(2), .jev-spine i:nth-child(4) { width: 25px; }
+.jev-story-cue { display: flex; flex-direction: column; gap: 3px; margin-top: 9px; line-height: 1.2; }
+.jev-story-cue > span { color: var(--ct-muted-fg); font-size: 10px; }
+.jev-story-cue > strong { color: var(--ct-heading); font-size: 11px; font-weight: 600; }
+.jev-evidence { display: inline-flex; align-items: center; gap: 5px; margin-top: 5px; color: var(--ct-heading); font-size: 10px; line-height: 1.2; }
+.jev-evidence i { width: 6px; height: 6px; border-radius: 50%; background: color-mix(in srgb, var(--ct-green) 58%, var(--ct-border)); }
+.jev-board[data-story-evidence="active"] .jev-evidence i,
+.jev-board[data-story-evidence="static"] .jev-evidence i { background: var(--ct-green); }
 .jev-engine { display: flex; flex: 0 0 112px; flex-direction: column; align-items: center; justify-content: center; min-height: 78px; gap: 5px; border-style: dashed; border-color: var(--ct-muted); text-align: center; }
 .jev-engine > strong { color: var(--ct-fg); font: 14px var(--ct-font-mono); }
 .jev-engine > span { color: var(--ct-muted-fg); font-size: 10px; line-height: 1.3; }
@@ -57,16 +71,21 @@
   .jev-heading p { font-size: 14px; }
   .jev-board { gap: 12px 10px; padding: 16px 12px; }
   .jev-team, .jev-memory, .jev-telegram { gap: 7px; padding: 12px 10px; }
+  .jev-team > small { font-size: 9px; }
   .jev-node > strong { font-size: 14px; }
   .jev-roles span { padding: 4px 6px; font-size: 10px; }
   .jev-memory > span, .jev-telegram > span { font-size: 11px; }
   .jev-memory small, .jev-telegram small { font-size: 10px; }
   .jev-core-group { min-height: 238px; gap: 8px; }
-  .jev-home { min-height: 238px; padding: 15px 8px; }
-  .jev-home .brand-mark { width: 46px; height: 46px; }
-  .jev-home > strong { font-size: 25px; }
-  .jev-home-label { font-size: 10px; }
-  .jev-spine { height: 38px; margin-top: 13px; }
+  .jev-home { min-height: 238px; padding: 10px 6px; }
+  .jev-home .brand-mark { width: 42px; height: 42px; }
+  .jev-home > strong { margin-top: 5px; font-size: 23px; }
+  .jev-home-label { margin-top: 5px; font-size: 9px; }
+  .jev-spine { height: 28px; margin-top: 9px; }
+  .jev-story-cue { gap: 2px; margin-top: 6px; }
+  .jev-story-cue > span, .jev-evidence { font-size: 9px; }
+  .jev-story-cue > strong { font-size: 10px; }
+  .jev-evidence { gap: 4px; margin-top: 4px; }
   .jev-engine { flex-basis: 76px; min-height: 68px; border-radius: 12px; }
   .jev-engine > strong { font-size: 12px; }
   .jev-engine > span { font-size: 10px; }
