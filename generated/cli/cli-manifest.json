@@ -12952,6 +12952,16 @@
               "aliases": []
             },
             {
+              "name": "handlers-file",
+              "positional": false,
+              "required": false,
+              "value_name": "HANDLERS_FILE",
+              "possible_values": [],
+              "default": null,
+              "help": "JSON bucket-to-array of declared {id,type,parameters} handlers",
+              "aliases": []
+            },
+            {
               "name": "match",
               "positional": false,
               "required": false,
@@ -12959,6 +12969,46 @@
               "possible_values": [],
               "default": null,
               "help": "Deterministic fallback when no Choice adapter is connected: bucket=regex",
+              "aliases": []
+            },
+            {
+              "name": "max-actions",
+              "positional": false,
+              "required": false,
+              "value_name": "MAX_ACTIONS",
+              "possible_values": [],
+              "default": null,
+              "help": "Finite action-attempt budget (maximum 1024)",
+              "aliases": []
+            },
+            {
+              "name": "max-transitions",
+              "positional": false,
+              "required": false,
+              "value_name": "MAX_TRANSITIONS",
+              "possible_values": [],
+              "default": null,
+              "help": "Finite accepted transition budget (maximum 256)",
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": false,
+              "required": false,
+              "value_name": "NAME",
+              "possible_values": [],
+              "default": null,
+              "help": "Display name of the Sentinel scenario or stage",
+              "aliases": []
+            },
+            {
+              "name": "paused",
+              "positional": false,
+              "required": false,
+              "value_name": "PAUSED",
+              "possible_values": [],
+              "default": null,
+              "help": "Create a dormant downstream stage; its lifetime starts now",
               "aliases": []
             },
             {
@@ -12988,7 +13038,7 @@
               "value_name": "ROUTES",
               "possible_values": [],
               "default": null,
-              "help": "Closed-set route: bucket=notify|send:<tab>|cron:<name>|stop",
+              "help": "Closed-set route: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop",
               "aliases": []
             },
             {

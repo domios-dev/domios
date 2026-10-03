@@ -2733,10 +2733,15 @@ Watch a bounded shell probe, classifying only changed output
 
 - `--buckets`
 - `--every` — Owner-requested cadence (minimum 10s)
+- `--handlers-file` — JSON bucket-to-array of declared {id,type,parameters} handlers
 - `--match` — Deterministic fallback when no Choice adapter is connected: bucket=regex
+- `--max-actions` — Finite action-attempt budget (maximum 1024)
+- `--max-transitions` — Finite accepted transition budget (maximum 256)
+- `--name` — Display name of the Sentinel scenario or stage
+- `--paused` — Create a dormant downstream stage; its lifetime starts now
 - `--probe`
 - `--question`
-- `--route` — Closed-set route: bucket=notify|send:<tab>|cron:<name>|stop
+- `--route` — Closed-set route: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop
 - `--timeout` — End the sentinel after this duration
 - `--until` — Stop after this bucket's first confident transition
 
