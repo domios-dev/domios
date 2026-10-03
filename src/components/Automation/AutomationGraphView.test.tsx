@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { AutomationGraphView } from "./AutomationGraphView";
-import { attachment, fixtureGraph, FixtureTransport, sentinelIdentity } from "./fixtures.testdata";
+import { attachment, fixtureGraph, fixtureNode, FixtureTransport, identity, sentinelIdentity } from "./fixtures.testdata";
 import { automationKey } from "./types";
 
 const window = new Window({ url: "http://localhost/" });
@@ -181,5 +181,35 @@ test("authoritative lifecycle values and unknown Worker stay explicit with Team 
   } finally { await view.close(); }
 });
 
-for (const [name, run] of tests) { await run(); console.log(`✓ ${name}`); }
-console.log(`${tests.length} AutomationGraphView cases passed`);
+test("unconnected Team automation and host monitor stay absent from graph and list", async () => {
+  const transport = new FixtureTransport();
+  const unconnected = [fixtureNode(identity("cron", "orphan-cron"), "Orphan schedule"), fixtureNode(identity("worker", "orphan-worker"), "Orphan worker"), fixtureNode(identity("sentinel", "host-monitor"), "Host monitor")];
+  transport.graph = { ...fixtureGraph(), nodes: [...fixtureGraph().nodes, ...unconnected] };
+  const view = await mount(transport);
+  try {
+    for (const node of unconnected) assert.ok(!view.host.textContent?.includes(node.name));
+    await click(button(view.host, "Show list"));
+    for (const node of unconnected) assert.ok(!view.host.textContent?.includes(node.name));
+    assert.equal(view.host.querySelectorAll('ul[aria-label="Automation participants"] > li').length, 4);
+    await click(button(view.host, "Watcher A"));
+    assert.ok(details(view.host).textContent?.includes("stored_agent_definition"));
+    assert.ok(details(view.host).textContent?.includes("owner-a"));
+  } finally { await view.close(); }
+});
+
+let finished = false;
+async function main() {
+  for (const [name, run] of tests) { await run(); console.log(`✓ ${name}`); }
+  console.log(`${tests.length} AutomationGraphView cases passed`);
+  finished = true;
+}
+process.once("beforeExit", () => {
+  if (finished) return;
+  console.error("AutomationGraphView exited before its expected state event");
+  process.exitCode = 1;
+});
+void main().catch((error: unknown) => {
+  finished = true;
+  console.error(error);
+  process.exitCode = 1;
+});
