@@ -456,6 +456,20 @@ mod tests {
     }
 
     #[test]
+    fn current_unmarked_generated_contract_preserves_notes_without_duplicate_primer() {
+        let dir = tempfile::tempdir().unwrap();
+        let contract = render_agent_md_at(dir.path(), "codex", "");
+        let prefix = "OPAQUE_USER_PREFIX\r\n";
+        let suffix = "\nOPAQUE_USER_SUFFIX  \r\n";
+        let rewritten = generated_contract_file(&format!("{prefix}{contract}{suffix}"), "CURRENT_CONTRACT");
+
+        assert_eq!(
+            rewritten,
+            format!("{prefix}{GENERATED_START}\nCURRENT_CONTRACT\n{GENERATED_END}{suffix}")
+        );
+    }
+
+    #[test]
     fn renamed_unmarked_generated_contract_preserves_notes_without_duplicate_body() {
         let dir = tempfile::tempdir().unwrap();
         let original = render_agent_md_at(dir.path(), "codex", "");
