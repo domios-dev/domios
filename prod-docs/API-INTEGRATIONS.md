@@ -100,9 +100,9 @@ text followed by labelled lines:
 | Situation | Lines after the receiver text |
 |-----------|-------------------------------|
 | No audio | `Transcript (sender): …` when the receiver returned a transcript |
-| Host transcript preferred | `Transcript (CodeTerm): …`, then `For comparison, sender transcript: …` |
-| Sender transcript preferred | `Transcript (sender): …`, then `For comparison, CodeTerm transcript: …` |
-| No Transcriber, transcription error, or audio not storable | `Transcript (sender): …` when present, then `CodeTerm transcription failed: <reason>` |
+| Host transcript preferred | `Transcript (Domios): …`, then `For comparison, sender transcript: …` |
+| Sender transcript preferred | `Transcript (sender): …`, then `For comparison, Domios transcript: …` |
+| No Transcriber, transcription error, or audio not storable | `Transcript (sender): …` when present, then `Domios transcription failed: <reason>` |
 
 Every audio case ends with `Audio file: <stored path>` once the file is stored.
 The preference is mechanical, never model-judged: a transcript is degraded when
@@ -204,4 +204,4 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage and updates: `codeterm docs API-STATE`.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->
