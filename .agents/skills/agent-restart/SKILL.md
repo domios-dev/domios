@@ -1,6 +1,6 @@
 ---
 name: agent-restart
-description: "Exercise graceful, forced, and recovery paths for a CodeTerm agent restart."
+description: "Exercise graceful, forced, and recovery paths for a Domios agent restart."
 ---
 
 # Agent-restart testing playbook
@@ -222,7 +222,7 @@ recorded launch cannot be used, the command fails instead of reporting success.
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [references/lifecycle.md](references/lifecycle.md) — restore, liveness and lifecycle-journal internals
 - [references/shell-integration.md](references/shell-integration.md) — per-shell cwd integration

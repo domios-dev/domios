@@ -11,7 +11,7 @@ How provider prompts reach tab status and how `tab respond` answers the active c
 5. `codeterm tab status` shows the question and one-based options. `codeterm tab status --json` includes the `pending_prompt` object.
 6. `codeterm tab respond <option> --tab <id>` rechecks that the prompt is still active on screen, asks the provider for response keys, and writes nothing if the prompt has gone away. This is the owner answer path for Claude and Codex folder-trust prompts, including Team pair tabs. Prompt detection does not create notifications; an agent that needs interrupting owner attention must explicitly run `codeterm notify send "<title>" --level action_needed`.
 
-Directory trust auto-response is separate from prompt display. It requires CodeTerm-owned directory provenance before answering. A trust dialog without that authority can still be surfaced through the dedicated prompt parser, so an Orchestrator can inspect the numbered choices and respond through the tab command.
+Directory trust auto-response is separate from prompt display. It requires Domios-owned directory provenance before answering. A trust dialog without that authority can still be surfaced through the dedicated prompt parser, so an Orchestrator can inspect the numbered choices and respond through the tab command.
 
 ## Classifier boundaries
 

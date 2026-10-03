@@ -1,6 +1,6 @@
 ---
 name: build-reference
-description: "Look up CodeTerm build environment, outputs, toolchain, and repository layout."
+description: "Look up Domios build environment, outputs, toolchain, and repository layout."
 ---
 
 # Build reference
@@ -162,7 +162,7 @@ If build fails with `link.exe` errors, ensure MSVC is properly configured. The p
 
 If a focused test fails while `link.exe` or `mt.exe` reads
 `windows-app-manifest.xml` from a deleted worktree, the shell inherited
-CodeTerm's private local-install `CARGO_TARGET_DIR`. Run the test through
+Domios's private local-install `CARGO_TARGET_DIR`. Run the test through
 `scripts/test-capped.sh`; it removes that private override and uses this
 checkout's warm manifest target, or isolated `target-check` while dev is
 running. Do not delete the shared build cache.

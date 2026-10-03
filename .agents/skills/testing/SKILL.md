@@ -1,13 +1,13 @@
 ---
 name: testing
-description: "Choose, author, and run CodeTerm unit, integration, REST, and cross-platform tests."
+description: "Choose, author, and run Domios unit, integration, REST, and cross-platform tests."
 ---
 
-## CodeTerm — Testing Guide
+## Domios — Testing Guide
 
 ## Test-layer taxonomy
 
-This section is the single source of truth for CodeTerm test layers. Other test
+This section is the single source of truth for Domios test layers. Other test
 docs may describe how to run a suite, but they should link here instead of
 redefining the layer model.
 
@@ -188,7 +188,7 @@ bash scripts/test-capped.test.sh [case]
 ```
 
 **Windows: ConPTY test isolation**
-A test process launched from a CodeTerm tab inherits `CODETERM_CONPTY_DIR` and would sideload the installed host into the user's install. `scripts/test-capped.sh` unsets it and exports `CODETERM_CONPTY_TEST_ISOLATION=1`; `pty-fork/src/win/psuedocon.rs` refuses the variable while that marker is set, and production never sets it. Verify: `./build.sh test-one pty-fork test_isolation_marker_refuses_ambient_production_dir`.
+A test process launched from a Domios tab inherits `CODETERM_CONPTY_DIR` and would sideload the installed host into the user's install. `scripts/test-capped.sh` unsets it and exports `CODETERM_CONPTY_TEST_ISOLATION=1`; `pty-fork/src/win/psuedocon.rs` refuses the variable while that marker is set, and production never sets it. Verify: `./build.sh test-one pty-fork test_isolation_marker_refuses_ambient_production_dir`.
 
 **Windows: cargo test target isolation**
 Running the Rust test wrapper against the app crate while a dev build occupies the same
@@ -327,7 +327,7 @@ OS targets in parallel from a macOS host:
 | `windows-cross` | Docker + cargo-xwin | `cargo check --target x86_64-pc-windows-msvc --lib --tests` (src-tauri + cli) | compile-level only |
 
 Windows containers cannot run on a macOS Docker host, so full Windows test
-**execution** is delegated to a real Windows machine on the CodeTerm mesh
+**execution** is delegated to a real Windows machine on the Domios mesh
 (cross-compiled binaries built locally via `cargo xwin test --no-run`, test job
 dispatched to the peer) — or to remote E2E (`CODETERM_API_URL=... pytest`). The
 local `windows-cross` lane still catches `#[cfg(windows)]` compile breakage in

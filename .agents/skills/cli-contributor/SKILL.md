@@ -1,6 +1,6 @@
 ---
 name: cli-contributor
-description: "Change CodeTerm CLI commands and audit generated contracts and consumers."
+description: "Change Domios CLI commands and audit generated contracts and consumers."
 ---
 
 # Changing the CLI
@@ -110,6 +110,6 @@ reintroduce a separate hand-rolled arg parser.
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [references/desktop-ipc.md](references/desktop-ipc.md) — desktop Tauri IPC commands

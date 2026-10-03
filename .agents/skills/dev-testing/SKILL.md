@@ -1,11 +1,11 @@
 ---
 name: dev-testing
-description: Test CodeTerm dev instance via API. Use when testing memory, GA interactions, skills, bootstrap, recall quality. Covers tab send, mem check, worker status, file verification.
+description: Test Domios dev instance via API. Use when testing memory, GA interactions, skills, bootstrap, recall quality. Covers tab send, mem check, worker status, file verification.
 ---
 
 # Dev Testing
 
-Test CodeTerm dev instance (port 7686) by interacting with agents via REST API and verifying mem state.
+Test Domios dev instance (port 7686) by interacting with agents via REST API and verifying mem state.
 
 ## ⚠ Hard rule: never `codeterm` CLI for dev work
 
@@ -13,7 +13,7 @@ The `codeterm` CLI **does not** read `CODETERM_API_URL` / `CODETERM_API_TOKEN`. 
 1. `CODETERM_SOCKET_PATH` env var — if it contains `codeterm-dev`, use dev (`~/.codeterm-dev/config.toml` → port 7686).
 2. Otherwise → **prod** (`~/.codeterm/config.toml` → port 7685).
 
-Plain `codeterm cron create / trigger / mem save` from a regular shell will hit your **prod CodeTerm** desktop daemon and spawn tabs inside the user's running app. **This is destructive — visible to the user, mutates their prod state, may burn API quota under their account.**
+Plain `codeterm cron create / trigger / mem save` from a regular shell will hit your **prod Domios** desktop daemon and spawn tabs inside the user's running app. **This is destructive — visible to the user, mutates their prod state, may burn API quota under their account.**
 
 **Always do dev testing via raw `curl` to `http://127.0.0.1:7686` with the dev token from `~/.codeterm-dev/config.toml`.** Use the `$API` / `$H` setup below — every command in this skill assumes them.
 
@@ -296,6 +296,6 @@ The skill lives at: `.agents/skills/dev-testing/SKILL.md`
 
 ## Internal references
 
-Moved out of the embedded `codeterm docs` pages because they describe CodeTerm's own source:
+Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
 
 - [references/memory-internals.md](references/memory-internals.md) — memory storage, ranking, wake-up selection, workers and dreaming internals
