@@ -20,6 +20,8 @@ ENDING_START_FRAME = round(37.0666666667 * FPS)
 ENDING_END_FRAME = 45 * FPS
 BRAND_DURATION = 1.6
 OPENING_FADE_START_FRAME = 40
+ENDING_MESH_PATH = Path(__file__).resolve().parent / 'assets/owner-mesh.png'
+ENDING_MESH_SHA256 = '204446b6fd91bfa1925f4c0f4df09a10b994c46393b82e0f3b6f1ae016d82871'
 
 
 def shot(name, at, duration, source, start, end, camera, target, title='', scene='footage'):
@@ -222,9 +224,9 @@ def text(image, value, xy, font, size=32, color=WHITE, anchor='mm'):
     ImageDraw.Draw(image).text(xy, value, font=face(font, size), fill=color, anchor=anchor)
 
 
-def window(frame, width, height, font):
+def window(frame, width, height, font, content_box=None):
     image = Image.new('RGB', (width, height), '#141b24')
-    content = frame.crop((5, 50, 2045, 1380))
+    content = frame.crop(content_box or (5, 50, 2045, 1380))
     content.thumbnail((width - 4, height - 35), Image.Resampling.LANCZOS)
     image.paste(content, ((width - content.width) // 2, 33))
     draw = ImageDraw.Draw(image)
@@ -344,9 +346,19 @@ def endcard(time, frame, font, duration=4):
     return image
 
 
+@lru_cache(maxsize=1)
+def ending_mesh():
+    require(hashlib.sha256(ENDING_MESH_PATH.read_bytes()).hexdigest() == ENDING_MESH_SHA256,
+            'Owner-provided ending screenshot changed')
+    with Image.open(ENDING_MESH_PATH) as source:
+        require(source.size == (3496, 2079), 'Unexpected ending screenshot dimensions')
+        return source.convert('RGB')
+
+
 def agent_ending(global_frame, frame, font, brand_rest):
     image = wallpaper().copy()
-    screen = window(frame, 790, 522, font)
+    screen = (window(ending_mesh(), 790, 522, font, (334, 50, 3496, 2079))
+              if global_frame >= 1140 else window(frame, 790, 522, font))
     image.paste(screen, (64, 112))
     mark = brand_rest.resize((64, 64), Image.Resampling.LANCZOS)
     image.paste(mark, (930, 210), mark)
