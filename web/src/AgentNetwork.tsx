@@ -1,6 +1,7 @@
 import { BrandMark, Icon } from './Icon';
 import type { IconName } from './Icon';
 import { useLiquidMesh } from './hero/useLiquidMesh';
+import { useMediaQuery } from './usePreferences';
 import './mesh.css';
 
 type Agent = { name: string; provider: string; icon: IconName };
@@ -23,7 +24,11 @@ function MachineHardware({ kind }: { kind: string }) {
 
 export function AgentNetwork() {
   const desk = useLiquidMesh();
-  return <figure className="agent-network" role="img" aria-label="Domios windows on four separate computers: your laptop, workstation, home server and cloud VM. Named Claude Code, Codex, OpenCode, Grok Build and local LM Studio agents exchange tasks and return reports.">
+  const mobile = useMediaQuery('(max-width: 650px)');
+  const description = mobile
+    ? 'Domios windows on three separate computers: your laptop, workstation and home server. Named Claude Code, Codex, OpenCode, Grok Build and local LM Studio agents exchange tasks and return reports.'
+    : 'Domios windows on four separate computers: your laptop, workstation, home server and cloud VM. Named Claude Code, Codex, OpenCode, Grok Build and local LM Studio agents exchange tasks and return reports.';
+  return <figure className="agent-network" role="img" aria-label={description}>
     <div className="mesh-register" aria-hidden="true"><span>YOUR MACHINES / ONE MESH</span><span><i />PAIRED & CONNECTED</span></div>
     <div className="mesh-desk" ref={desk} aria-hidden="true">
       <svg className="mesh-routes" fill="none">
