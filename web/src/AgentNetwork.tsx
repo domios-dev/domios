@@ -1,15 +1,16 @@
-import { BrandMark, Icon } from './Icon';
-import type { IconName } from './Icon';
+import { BrandMark } from './Icon';
+import { ProviderLogo } from './ProviderLogo';
+import type { ProviderLogoId } from './ProviderLogo';
 import { useLiquidMesh } from './hero/useLiquidMesh';
 import { useMediaQuery } from './usePreferences';
 import './mesh.css';
 
-type Agent = { name: string; provider: string; icon: IconName };
+type Agent = { name: string; provider: string; logo: ProviderLogoId };
 const machines: { id: string; number: string; name: string; kind: string; agents: Agent[]; task: string }[] = [
-  { id: 'laptop', number: '01', name: 'Laptop', kind: 'YOUR EVERYDAY DESK', agents: [{ name: 'Atlas', provider: 'Claude Code', icon: 'branch' }, { name: 'Sage', provider: 'Codex', icon: 'terminal' }], task: 'Shape the next task' },
-  { id: 'workstation', number: '02', name: 'Workstation', kind: 'GPU / LOCAL MODELS', agents: [{ name: 'Forge', provider: 'LM Studio', icon: 'layers' }, { name: 'Ada', provider: 'OpenCode', icon: 'grid' }], task: 'Build on another machine' },
-  { id: 'server', number: '03', name: 'Home server', kind: 'ALWAYS WITHIN REACH', agents: [{ name: 'Scout', provider: 'Grok Build', icon: 'mesh' }, { name: 'Remy', provider: 'Codex', icon: 'terminal' }], task: 'Send the result back' },
-  { id: 'cloud', number: '04', name: 'Cloud VM', kind: 'ANOTHER PLACE TO WORK', agents: [{ name: 'Vale', provider: 'Claude Code', icon: 'branch' }], task: 'Keep the work connected' },
+  { id: 'laptop', number: '01', name: 'Laptop', kind: 'YOUR EVERYDAY DESK', agents: [{ name: 'Atlas', provider: 'Claude Code', logo: 'claude' }, { name: 'Sage', provider: 'Codex', logo: 'codex' }], task: 'Shape the next task' },
+  { id: 'workstation', number: '02', name: 'Workstation', kind: 'GPU / LOCAL MODELS', agents: [{ name: 'Forge', provider: 'LM Studio', logo: 'lmstudio' }, { name: 'Ada', provider: 'OpenCode', logo: 'opencode' }], task: 'Build on another machine' },
+  { id: 'server', number: '03', name: 'Home server', kind: 'ALWAYS WITHIN REACH', agents: [{ name: 'Scout', provider: 'Grok Build', logo: 'grok' }, { name: 'Remy', provider: 'Codex', logo: 'codex' }], task: 'Send the result back' },
+  { id: 'cloud', number: '04', name: 'Cloud VM', kind: 'ANOTHER PLACE TO WORK', agents: [{ name: 'Vale', provider: 'Claude Code', logo: 'claude' }], task: 'Keep the work connected' },
 ];
 
 function MachineHardware({ kind }: { kind: string }) {
@@ -48,7 +49,7 @@ export function AgentNetwork() {
           <div className="machine-heading"><span className="machine-controls" aria-hidden="true"><i /><i /><i /></span><span className="machine-title"><BrandMark /><span>domios</span></span><span className="machine-number">{machine.number}</span></div>
           <div className="machine-name">{machine.name}</div>
           <div className="machine-kind">{machine.kind}</div>
-          <div className="machine-agents">{machine.agents.map((agent) => <span className="machine-agent" key={agent.name}><span className="agent-name"><i />{agent.name}</span><span className="agent-provider"><Icon name={agent.icon} size={12} />{agent.provider}</span></span>)}</div>
+          <div className="machine-agents">{machine.agents.map((agent) => <span className="machine-agent" key={agent.name}><span className="agent-name"><i />{agent.name}</span><span className="agent-provider"><span className="agent-logo agent-logo-light"><ProviderLogo mark={agent.logo} theme="light" /></span><span className="agent-logo agent-logo-dark"><ProviderLogo mark={agent.logo} theme="dark" /></span><span className="agent-provider-name">{agent.provider}</span></span></span>)}</div>
           <div className="machine-task">{machine.task}</div>
         </div>
       </div>)}
