@@ -97,5 +97,37 @@ test("stop rejects unavailable capabilities and stale reads without sending oper
   off();
 });
 
+test("only stored agent Sentinel roots and exact connected participants enter projection", () => {
+  const graph = fixtureGraph();
+  const unrelatedCron = fixtureNode(identity("cron", "unrelated-cron"), "Unrelated schedule");
+  const unrelatedWorker = fixtureNode(identity("worker", "unrelated-worker"), "Unrelated worker");
+  const internal = fixtureNode(identity("sentinel", "internal-monitor"), "Internal monitor");
+  const result = scopedAutomationGraph({ ...graph, nodes: [...graph.nodes, unrelatedCron, unrelatedWorker, internal], edges: [...graph.edges, { ...graph.edges[0], id: "internal-route", source: internal.identity, target: unrelatedWorker.identity }] }, attachment);
+  assert.deepEqual(result.nodes.map((node) => node.identity.id), ["sentinel-a", "cron-a", "worker-a", "missing-a"]);
+  assert.deepEqual(result.edges.map((edge) => edge.id), graph.edges.map((edge) => edge.id));
+});
+
+test("missing or mismatched stored creator provenance never implies agent authorship", () => {
+  const graph = fixtureGraph();
+  const root = graph.nodes[0];
+  for (const sentinel_definition of [null, { source: "stored_agent_definition" as const, definition_id: "other-definition", creator_tab_id: "owner-a" }, { source: "stored_agent_definition" as const, definition_id: "sentinel-a", creator_tab_id: "other-owner" }]) {
+    const result = scopedAutomationGraph({ ...graph, nodes: [{ ...root, sentinel_definition }, ...graph.nodes.slice(1)] }, attachment);
+    assert.deepEqual(result.nodes, []);
+    assert.deepEqual(result.edges, []);
+  }
+});
+
+test("referenced Sentinel without creator provenance remains unresolved exact target", () => {
+  const graph = fixtureGraph();
+  const target = fixtureNode(identity("sentinel", "unknown-author"), "Unproven author name");
+  const result = scopedAutomationGraph({ ...graph, nodes: [...graph.nodes, target], edges: [...graph.edges, { ...graph.edges[0], id: "unknown-route", target: target.identity }] }, attachment);
+  const unresolved = result.nodes.find((node) => node.identity.id === target.identity.id);
+  assert.ok(unresolved);
+  assert.deepEqual(unresolved.identity, target.identity);
+  assert.equal(unresolved.availability, "missing");
+  assert.equal(unresolved.name, target.identity.id);
+  assert.equal(unresolved.purpose, null);
+});
+
 for (const [name, run] of tests) { await run(); console.log(`✓ ${name}`); }
 console.log(`${tests.length} AutomationResource cases passed`);
