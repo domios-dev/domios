@@ -518,6 +518,9 @@ pub(super) fn dispatch(
 mod authority_tests;
 
 #[cfg(test)]
+mod cleaned_runtime_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::plan::OrchestratorRef;
