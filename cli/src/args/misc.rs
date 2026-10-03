@@ -39,7 +39,7 @@ pub enum WorkspaceAction {
         /// Working directory — agents spawned with --workspace inherit this as their CWD
         #[arg(long)]
         cwd: Option<String>,
-        /// Create a new empty directory under the CodeTerm data dir as the cwd; agents started exactly there get directory trust
+        /// Create a new empty directory under the Domios data dir as the cwd; agents started exactly there get directory trust
         #[arg(long, conflicts_with = "cwd")]
         provision: bool,
     },
@@ -513,7 +513,7 @@ pub enum KeepAwakeAction {
         #[arg(long)]
         gnome_policy: bool,
         /// Print system-level sudo mask commands in the status response.
-        /// CodeTerm never runs these commands silently.
+        /// Domios never runs these commands silently.
         #[arg(long)]
         system_block: bool,
     },

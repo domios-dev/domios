@@ -19,7 +19,7 @@ const SYSTEM_PRESETS: PreprocessorPreset[] = [
     id: "mem-recall",
     name: "Memory recall",
     kind: "mem-recall",
-    description: "Search CodeTerm memory and attach compact similar facts.",
+    description: "Search Domios memory and attach compact similar facts.",
     system: true,
     config: { k: 3, position: "prepend" },
   },
