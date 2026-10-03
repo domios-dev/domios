@@ -201,7 +201,6 @@ pub(super) fn dispatch(
                 "mem.wake_up",
                 "mem.learn",
                 "mem.learn_promote",
-                "mem.flush",
                 "mem.sync",
                 "mem.reembed",
                 "mem.extract_pending",

@@ -130,7 +130,7 @@ User-facing recovery is `codeterm tab rebind SESSION_ID --tab ID`: it binds the 
 
 #### Hook auth
 
-`/api/tabs/*/hook/*` and `/api/mem/flush` require the Bearer token; no loopback path is auth-exempt. Domios injects `CODETERM_API_TOKEN` (with `CODETERM_API_PORT` and `CODETERM_TAB_ID`) into every PTY, and installed Claude hook commands reference `${CODETERM_API_TOKEN}` directly. Custom hooks must set the same header.
+`/api/tabs/*/hook/*` require the Bearer token; no loopback path is auth-exempt. Domios injects `CODETERM_API_TOKEN` (with `CODETERM_API_PORT` and `CODETERM_TAB_ID`) into every PTY, and installed Claude hook commands reference `${CODETERM_API_TOKEN}` directly. Custom hooks must set the same header.
 
 #### File serving
 | Method | Path | Body | Description |
@@ -219,4 +219,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 50 -->
+<!-- revision: 51 -->

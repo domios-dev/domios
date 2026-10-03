@@ -136,7 +136,6 @@ dispatch. No grace mode: update CLIs on all mesh peers with the daemon
 | `mem.wake_up` | `{budget?, l0_only?, no_l0?, explain?, workspace?}` | L0+L1 wake-up context text. |
 | `mem.learn` | `{text, kind?, tags?}` | Capture a quick learning. |
 | `mem.learn_promote` | `{id}` | Promote a learning to a fact. |
-| `mem.flush` | `{tab, title?}` | Flush a tab's PTY scrollback into a `conversation` mem item. |
 | `mem.sync` | `{path?}` | Trigger file sync for source-tracked items (Librarian). |
 | `mem.reembed` | `{scope?}` | Re-embed mem items and/or graph entities. |
 | `mem.extract_pending` | `{limit?}` | Re-queue extraction workers for un-extracted items. |
@@ -235,4 +234,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 47 -->
+<!-- revision: 48 -->

@@ -315,16 +315,6 @@ pub enum MemAction {
     LearnList,
     /// Promote a learning to a fact (raises importance)
     LearnPromote { id: String },
-    /// Flush a tab's PTY scrollback as a kind=conversation mem_item
-    /// (called by PreCompact hook before context summarization).
-    Flush {
-        /// Tab id (default: $CODETERM_TAB_ID)
-        #[arg(long = "tab", value_name = "TAB")]
-        tab: Option<String>,
-        /// Optional title hint
-        #[arg(long)]
-        title: Option<String>,
-    },
     /// Trigger file sync for source-tracked items (Librarian)
     Sync {
         /// Sync one file by path

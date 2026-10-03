@@ -863,7 +863,6 @@ fn hook_event_roster_parses_and_resolves_declared_routes() {
                 "hookEventRoster": [
                     { "event": "Stop", "route": "stop" },
                     { "event": "SessionStart", "route": "session_start" },
-                    { "event": "PreCompact", "route": "mem_flush" },
                     { "event": "Notification", "route": "permission" },
                     { "event": "session.idle", "route": "session_state", "verdict": "idle" }
                 ]
@@ -883,11 +882,6 @@ fn hook_event_roster_parses_and_resolves_declared_routes() {
             HookEventBinding {
                 event: "SessionStart".into(),
                 route: HookIngestionRoute::SessionStart,
-                verdict: None,
-            },
-            HookEventBinding {
-                event: "PreCompact".into(),
-                route: HookIngestionRoute::MemFlush,
                 verdict: None,
             },
             HookEventBinding {
@@ -959,4 +953,9 @@ fn manifest_accepts_legacy_icon_fields_shipped_by_channel_plugins() {
         manifest.icon_svg.is_none(),
         "legacy inline SVG is never trusted as the icon"
     );
+}
+
+#[test]
+fn retired_memory_flush_hook_route_is_refused() {
+    assert!(crate::provider::HookIngestionRoute::parse("mem_flush").is_none());
 }

@@ -387,7 +387,7 @@ const plugin: PluginModule = {
 
   installIntegration(
     _apiPort: number,
-    options: { consent: boolean; precompact_memory_export?: boolean },
+    options: { consent: boolean },
   ): unknown {
     if (!options || options.consent !== true) {
       return { ok: false, error: "provider integration installation requires explicit local-user consent" };

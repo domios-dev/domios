@@ -95,24 +95,10 @@ pub(super) fn notifications_schema() -> Vec<SettingField> {
                 state_query: Some("check_provider_integration".into()),
                 args: Some(serde_json::json!({
                     "provider_id": "claude",
-                    "consent": true,
-                    "precompact_memory_export": false
+                    "consent": true
                 })),
                 confirm: Some("Review target ~/.claude/settings.json. CodeTerm will back it up, preserve foreign keys/hooks, and add Notification, Stop, and SessionStart callbacks. Continue?".into()),
                 style: ActionStyle::Primary,
-            },
-            SettingField::Action {
-                id: "install_hooks_with_memory_export".into(),
-                label: "Install with PreCompact memory export".into(),
-                command: "install_provider_integration".into(),
-                state_query: None,
-                args: Some(serde_json::json!({
-                    "provider_id": "claude",
-                    "consent": true,
-                    "precompact_memory_export": true
-                })),
-                confirm: Some("This separately opts in to exporting conversation context to CodeTerm memory before Claude compacts. The settings file will be backed up first. Continue?".into()),
-                style: ActionStyle::Secondary,
             },
             SettingField::Action {
                 id: "uninstall_hooks".into(),
@@ -443,11 +429,6 @@ mod tests {
                                 .and_then(|v| v.get("consent"))
                                 .and_then(|v| v.as_bool())
                                 == Some(true)
-                            && args
-                                .as_ref()
-                                .and_then(|v| v.get("precompact_memory_export"))
-                                .and_then(|v| v.as_bool())
-                                == Some(false)
                         {
                             saw_action = true;
                         }

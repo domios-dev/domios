@@ -6,8 +6,8 @@ mod hygiene;
 
 use crate::api::mem_routes::items::{
     bump_on_get, compose_appended_body, validate_update_body, wake_up_options_from_params,
-    AppendBody, FlushBody, LearnBody, PinnedListParams, ReembedParams, SaveBody, TailParams,
-    TaxonomyParams, UpdateBody, WakeUpParams,
+    AppendBody, LearnBody, PinnedListParams, ReembedParams, SaveBody, TailParams, TaxonomyParams,
+    UpdateBody, WakeUpParams,
 };
 use crate::api::mem_routes::search::{execute_search, SearchError, SearchParams};
 use crate::api::mem_routes::{sanitize_actor, validate_item_fields};
@@ -61,7 +61,6 @@ pub(super) fn dispatch(
         "mem.wake_up" => mem_wake_up(params, svc),
         "mem.learn" => mem_learn(params, svc),
         "mem.learn_promote" => mem_learn_promote(params, svc),
-        "mem.flush" => mem_flush(params, svc),
         "mem.sync" => mem_sync(params, svc),
         "mem.reembed" => mem_reembed(params, svc),
         "mem.extract_pending" => mem_extract_pending(params, svc),
@@ -392,26 +391,6 @@ fn mem_learn_promote(
     let id = get_string_param(&params, "id")?;
     with_changed_by("user", || svc.mem.promote_learning(&id)).map_err(invalid_params)?;
     Ok(serde_json::json!({ "promoted": id }))
-}
-
-fn mem_flush(
-    params: Option<serde_json::Value>,
-    svc: &ServiceState,
-) -> Result<serde_json::Value, JsonRpcError> {
-    let b: FlushBody = parse_params(params)?;
-    let pty_id = {
-        let mux = svc.mux.write();
-        mux.resolve_tab_id(&b.tab)
-            .ok_or_else(|| not_found(format!("Tab not found: {}", b.tab)))?
-    };
-    let pty_id_for_buffer = svc.resolve_pty_id(&pty_id).map_err(not_found)?;
-    let body = {
-        let buf = svc.output_buf.lock();
-        buf.get_full_text(&pty_id_for_buffer).unwrap_or_default()
-    };
-    let id = learnings::flush_tab(&svc.mem, &b.tab, b.title.as_deref().unwrap_or(""), body)
-        .map_err(invalid_params)?;
-    Ok(serde_json::json!({ "id": id }))
 }
 
 fn mem_sync(

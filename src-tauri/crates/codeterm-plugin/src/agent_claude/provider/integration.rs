@@ -101,21 +101,24 @@ fn owned_hooks_carry_marker(json: &Json) -> bool {
 }
 
 fn integration_owned(json: &Json) -> bool {
-    hook_event_roster().iter().any(|binding| {
-        json.pointer(&format!("/hooks/{}", binding.event))
-            .and_then(Json::as_array)
-            .is_some_and(|entries| {
-                entries.iter().any(|entry| {
-                    entry_carries_marker(entry) || entry_is_legacy_pane_codeterm_hook(entry)
+    json.pointer("/hooks/PreCompact")
+        .and_then(Json::as_array)
+        .is_some_and(|entries| entries.iter().any(entry_carries_marker))
+        || hook_event_roster().iter().any(|binding| {
+            json.pointer(&format!("/hooks/{}", binding.event))
+                .and_then(Json::as_array)
+                .is_some_and(|entries| {
+                    entries.iter().any(|entry| {
+                        entry_carries_marker(entry) || entry_is_legacy_pane_codeterm_hook(entry)
+                    })
                 })
-            })
-    })
+        })
 }
 
 fn owned_precompact_hook(json: &Json) -> bool {
     json.pointer("/hooks/PreCompact")
         .and_then(Json::as_array)
-        .is_some_and(|entries| entries.iter().any(entry_carries_marker))
+        .is_some_and(|entries| entries.iter().any(is_codeterm_hook))
 }
 
 /// Returns JSON shaped like the legacy `ClaudeHooksStatus` struct so the
@@ -130,7 +133,7 @@ pub fn check_integration() -> Json {
             "notification_hook": false,
             "permission_request_hook": false,
             "stop_hook": false,
-            "precompact_hook": false,
+
             "session_start_hook": false,
             "target": "~/.claude/settings.json",
             "backup_exists": false,
@@ -149,7 +152,7 @@ pub(crate) fn check_integration_at(path: &std::path::Path) -> Json {
             "notification_hook": false,
             "permission_request_hook": false,
             "stop_hook": false,
-            "precompact_hook": false,
+
             "session_start_hook": false,
             "target": path,
             "backup_exists": backup_path(path).exists(),
@@ -203,11 +206,11 @@ pub(crate) fn check_integration_at(path: &std::path::Path) -> Json {
         "settings_exists": true,
         "hooks_installed": hooks_installed,
         "integration_owned": integration_owned(&json),
-        "hook_contract_current": hooks_installed && owned_hooks_carry_marker(&json),
+        "hook_contract_current": hooks_installed && owned_hooks_carry_marker(&json) && !precompact_hook,
         "notification_hook": notification_hook,
         "permission_request_hook": permission_request_hook,
         "stop_hook": stop_hook,
-        "precompact_hook": precompact_hook,
+
         "session_start_hook": session_start_hook,
         "target": path,
         "backup_exists": backup_path(path).exists(),
@@ -234,11 +237,6 @@ pub fn hook_event_roster() -> Vec<HookEventBinding> {
         HookEventBinding {
             event: "Stop".into(),
             route: HookIngestionRoute::Stop,
-            verdict: None,
-        },
-        HookEventBinding {
-            event: "PreCompact".into(),
-            route: HookIngestionRoute::MemFlush,
             verdict: None,
         },
         HookEventBinding {
@@ -296,19 +294,6 @@ fn hook_entry(binding: &HookEventBinding) -> Option<Json> {
                 "_source": CODETERM_HOOK_MARKER
             }]
         }),
-        HookIngestionRoute::MemFlush => serde_json::json!({
-            "matcher": "",
-            "hooks": [{
-                "type": "command",
-                "command": hook_command(
-                    "/api/mem/flush",
-                    "{\"tab\":\"'\"$CODETERM_TAB_ID\"'\",\"title\":\"pre-compact\"}",
-                    "",
-                    false),
-                "timeout": 10000,
-                "_source": CODETERM_HOOK_MARKER
-            }]
-        }),
         HookIngestionRoute::SessionStart => serde_json::json!({
             "matcher": "",
             "hooks": [{
@@ -359,27 +344,20 @@ pub fn install_integration_at(
         .ok_or("hooks is not an object")?;
 
     let roster = hook_event_roster();
-    for binding in &roster {
-        if hooks
-            .get(binding.event.as_str())
-            .is_some_and(|value| !value.is_array())
-        {
-            return Err(format!("hooks.{} is not an array", binding.event));
+    for event in roster
+        .iter()
+        .map(|binding| binding.event.as_str())
+        .chain(std::iter::once("PreCompact"))
+    {
+        if hooks.get(event).is_some_and(|value| !value.is_array()) {
+            return Err(format!("hooks.{event} is not an array"));
         }
-        if let Some(arr) = hooks
-            .get_mut(binding.event.as_str())
-            .and_then(|v| v.as_array_mut())
-        {
+        if let Some(arr) = hooks.get_mut(event).and_then(|v| v.as_array_mut()) {
             arr.retain(|h| !is_codeterm_hook(h));
         }
     }
 
     for binding in &roster {
-        if matches!(binding.route, HookIngestionRoute::MemFlush)
-            && !options.precompact_memory_export
-        {
-            continue;
-        }
         let Some(entry) = hook_entry(binding) else {
             continue;
         };
@@ -435,19 +413,21 @@ pub fn uninstall_integration_at(path: &std::path::Path) -> Result<(), String> {
         .as_object_mut()
         .ok_or("hooks is not an object")?;
     let roster = hook_event_roster();
-    for binding in &roster {
-        if hooks
-            .get(binding.event.as_str())
-            .is_some_and(|value| !value.is_array())
-        {
-            return Err(format!("hooks.{} is not an array", binding.event));
+    for event in roster
+        .iter()
+        .map(|binding| binding.event.as_str())
+        .chain(std::iter::once("PreCompact"))
+    {
+        if hooks.get(event).is_some_and(|value| !value.is_array()) {
+            return Err(format!("hooks.{event} is not an array"));
         }
     }
-    for binding in &roster {
-        if let Some(arr) = hooks
-            .get_mut(binding.event.as_str())
-            .and_then(|value| value.as_array_mut())
-        {
+    for event in roster
+        .iter()
+        .map(|binding| binding.event.as_str())
+        .chain(std::iter::once("PreCompact"))
+    {
+        if let Some(arr) = hooks.get_mut(event).and_then(|value| value.as_array_mut()) {
             arr.retain(|hook| !is_codeterm_hook(hook));
         }
     }
@@ -543,10 +523,9 @@ pub fn install_rule() -> Result<(), String> {
 mod tests {
     use super::*;
 
-    fn integration_options(precompact_memory_export: bool) -> IntegrationInstallOptions {
+    fn integration_options() -> IntegrationInstallOptions {
         IntegrationInstallOptions {
             consent: true,
-            precompact_memory_export,
             repair: false,
         }
     }
@@ -647,9 +626,9 @@ mod tests {
     fn integration_is_instance_neutral_and_rejects_missing_runtime_identity() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         let first = std::fs::read_to_string(&path).unwrap();
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         let second = std::fs::read_to_string(&path).unwrap();
 
         assert_eq!(first, second);
@@ -680,7 +659,6 @@ mod tests {
                 ),
                 ("Notification".to_string(), HookIngestionRoute::Permission),
                 ("Stop".to_string(), HookIngestionRoute::Stop),
-                ("PreCompact".to_string(), HookIngestionRoute::MemFlush),
                 ("SessionStart".to_string(), HookIngestionRoute::SessionStart),
             ]
         );
@@ -692,7 +670,7 @@ mod tests {
 
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        install_integration_at(&path, &integration_options(true)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         let installed: Json =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let hooks = installed.get("hooks").and_then(|h| h.as_object()).unwrap();
@@ -707,7 +685,7 @@ mod tests {
         }
 
         let without_precompact = dir.path().join("settings-no-precompact.json");
-        install_integration_at(&without_precompact, &integration_options(false)).unwrap();
+        install_integration_at(&without_precompact, &integration_options()).unwrap();
         let installed: Json =
             serde_json::from_str(&std::fs::read_to_string(&without_precompact).unwrap()).unwrap();
         let written: BTreeSet<String> = installed
@@ -717,8 +695,7 @@ mod tests {
             .keys()
             .cloned()
             .collect();
-        let mut expected = declared;
-        expected.remove("PreCompact");
+        let expected = declared;
         assert_eq!(written, expected);
     }
 
@@ -730,14 +707,14 @@ mod tests {
         std::fs::write(&path, original).unwrap();
         let denied = IntegrationInstallOptions {
             consent: false,
-            precompact_memory_export: true,
+
             repair: false,
         };
         assert!(install_integration_at(&path, &denied).is_err());
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
         assert!(!backup_path(&path).exists());
 
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         assert_eq!(
             std::fs::read_to_string(backup_path(&path)).unwrap(),
             original
@@ -745,14 +722,14 @@ mod tests {
         let standard: Json =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert!(standard.pointer("/hooks/PreCompact").is_none());
-        install_integration_at(&path, &integration_options(true)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         assert_eq!(
             std::fs::read_to_string(backup_path(&path)).unwrap(),
             original
         );
         let installed: Json =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-        assert!(installed.pointer("/hooks/PreCompact").is_some());
+        assert!(installed.pointer("/hooks/PreCompact").is_none());
         restore_integration_at(&path).unwrap();
         assert_eq!(std::fs::read_to_string(&path).unwrap(), original);
     }
@@ -760,7 +737,7 @@ mod tests {
     fn permission_request_hook_forwards_the_payload_instead_of_an_empty_body() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         let installed: Json =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
 
@@ -792,7 +769,7 @@ mod tests {
     fn permission_request_and_notification_share_a_route_with_distinct_matchers() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         let installed: Json =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
 
@@ -812,7 +789,7 @@ mod tests {
     fn permission_request_uninstall_removes_the_declared_event() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         uninstall_integration_at(&path).unwrap();
         let cleaned: Json = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(
@@ -829,7 +806,7 @@ mod tests {
     fn permission_request_check_integration_requires_the_new_hook() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.json");
-        install_integration_at(&path, &integration_options(false)).unwrap();
+        install_integration_at(&path, &integration_options()).unwrap();
         let installed: Json =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         let entry = installed.pointer("/hooks/PermissionRequest/0").unwrap();

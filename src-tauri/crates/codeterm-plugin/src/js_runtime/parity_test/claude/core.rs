@@ -4,12 +4,9 @@
 use super::super::*;
 use super::*;
 
-fn integration_options(
-    precompact_memory_export: bool,
-) -> crate::provider::IntegrationInstallOptions {
+fn integration_options() -> crate::provider::IntegrationInstallOptions {
     crate::provider::IntegrationInstallOptions {
         consent: true,
-        precompact_memory_export,
         repair: false,
     }
 }
@@ -306,12 +303,12 @@ fn integration_install_creates_all_four_hooks_with_markers() {
 
     // Install.
     provider
-        .install_integration(7686, &integration_options(true))
+        .install_integration(7686, &integration_options())
         .expect("install ok");
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.path().join("settings.json")).unwrap())
             .unwrap();
-    for key in ["Notification", "Stop", "PreCompact", "SessionStart"] {
+    for key in ["Notification", "Stop", "SessionStart"] {
         let arr = json["hooks"][key].as_array().expect(key);
         assert!(
             arr.iter().any(|e| {
@@ -346,14 +343,13 @@ fn integration_install_creates_all_four_hooks_with_markers() {
     assert_eq!(post["hooks_installed"], true);
     assert_eq!(post["integration_owned"], true);
     assert_eq!(native["integration_owned"], post["integration_owned"]);
-    assert_eq!(native["precompact_hook"], post["precompact_hook"]);
     assert_eq!(
         native["hook_contract_current"],
         post["hook_contract_current"]
     );
     assert_eq!(post["notification_hook"], true);
     assert_eq!(post["stop_hook"], true);
-    assert_eq!(post["precompact_hook"], true);
+    assert!(post.get("precompact_hook").is_none());
     assert_eq!(post["session_start_hook"], true);
 }
 
@@ -369,7 +365,7 @@ fn integration_install_preserves_unrelated_settings_fields() {
     std::fs::write(&settings, original).unwrap();
     let provider = claude_in_temp(&dir.path().join("rule.md"), &settings);
     provider
-        .install_integration(7686, &integration_options(true))
+        .install_integration(7686, &integration_options())
         .unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
@@ -400,7 +396,7 @@ fn integration_rejects_malformed_non_object_and_empty_json_without_side_effects(
         std::fs::write(&native_settings, fixture).unwrap();
         let native_result = crate::agent_claude::provider::integration::install_integration_at(
             &native_settings,
-            &integration_options(false),
+            &integration_options(),
         );
         assert!(native_result.is_err(), "native accepted {name}");
         assert_eq!(std::fs::read_to_string(&native_settings).unwrap(), fixture);
@@ -413,7 +409,7 @@ fn integration_rejects_malformed_non_object_and_empty_json_without_side_effects(
         let js_settings = js_dir.path().join("settings.json");
         std::fs::write(&js_settings, fixture).unwrap();
         let js = claude_in_temp(&js_dir.path().join("rule.md"), &js_settings);
-        let js_result = js.install_integration(7686, &integration_options(false));
+        let js_result = js.install_integration(7686, &integration_options());
         assert!(js_result.is_err(), "JS accepted {name}");
         assert_eq!(std::fs::read_to_string(&js_settings).unwrap(), fixture);
         assert!(!js_dir.path().join("settings.json.codeterm-backup").exists());
@@ -463,13 +459,13 @@ fn integration_backup_and_restore_preserve_exact_bytes_in_native_and_js() {
         if use_js {
             let provider = claude_in_temp(&dir.path().join("rule.md"), &settings);
             provider
-                .install_integration(7686, &integration_options(false))
+                .install_integration(7686, &integration_options())
                 .unwrap();
             provider.restore_integration().unwrap();
         } else {
             crate::agent_claude::provider::integration::install_integration_at(
                 &settings,
-                &integration_options(false),
+                &integration_options(),
             )
             .unwrap();
             crate::agent_claude::provider::integration::restore_integration_at(&settings).unwrap();
@@ -502,7 +498,7 @@ fn hook_contract_repair_ownership_covers_all_historical_generations() {
         .unwrap();
     let provider = claude_in_temp(&dir.path().join("rule.md"), &settings);
     provider
-        .install_integration(7686, &integration_options(true))
+        .install_integration(7686, &integration_options())
         .unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&settings).unwrap()).unwrap();
@@ -541,7 +537,7 @@ fn integration_uninstall_removes_every_codeterm_hook() {
         &dir.path().join("settings.json"),
     );
     provider
-        .install_integration(7686, &integration_options(true))
+        .install_integration(7686, &integration_options())
         .unwrap();
     provider.uninstall_integration().unwrap();
     let json: serde_json::Value =
@@ -549,7 +545,6 @@ fn integration_uninstall_removes_every_codeterm_hook() {
             .unwrap();
     let n = json["hooks"]["Notification"].as_array().unwrap();
     let s = json["hooks"]["Stop"].as_array().unwrap();
-    let pc = json["hooks"]["PreCompact"].as_array().unwrap();
     let ss = json["hooks"]["SessionStart"].as_array().unwrap();
     assert!(n
         .iter()
@@ -557,9 +552,7 @@ fn integration_uninstall_removes_every_codeterm_hook() {
     assert!(s
         .iter()
         .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v3"));
-    assert!(pc
-        .iter()
-        .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v3"));
+    assert!(json["hooks"]["PreCompact"].is_null());
     assert!(ss
         .iter()
         .all(|e| e["hooks"][0]["_source"] != "codeterm-hook-v3"));
@@ -580,7 +573,7 @@ fn integration_ensure_on_startup_performs_no_write_before_consent() {
 }
 
 #[test]
-fn precompact_memory_export_is_separately_opt_in() {
+fn precompact_memory_export_is_not_installed() {
     if require_plugins().is_none() {
         return;
     }
@@ -588,7 +581,7 @@ fn precompact_memory_export_is_separately_opt_in() {
     let path = dir.path().join("settings.json");
     let provider = claude_in_temp(&dir.path().join("rule.md"), &path);
     provider
-        .install_integration(7686, &integration_options(false))
+        .install_integration(7686, &integration_options())
         .unwrap();
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -607,11 +600,11 @@ fn integration_install_is_identical_across_codeterm_instances() {
     let provider = claude_in_temp(&dir.path().join("rule.md"), &path);
 
     provider
-        .install_integration(7685, &integration_options(true))
+        .install_integration(7685, &integration_options())
         .unwrap();
     let prod = std::fs::read_to_string(&path).unwrap();
     provider
-        .install_integration(7686, &integration_options(true))
+        .install_integration(7686, &integration_options())
         .unwrap();
     let dev = std::fs::read_to_string(&path).unwrap();
 
@@ -832,4 +825,54 @@ fn session_jsonl_path_canonicalizes_symlinked_cwd() {
     );
 
     std::fs::remove_dir_all(&base).ok();
+}
+
+#[test]
+fn retired_precompact_export_cleanup_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let native_path = dir.path().join("native.json");
+    let js_path = dir.path().join("settings.json");
+    let foreign =
+        serde_json::json!({"hooks":[{"type":"command","command":"foreign-fixture-command"}]});
+    let owned = serde_json::json!({"hooks":[{"type":"command","command":"echo X-CodeTerm-Hook: codeterm-hook-v3"}]});
+    let input = serde_json::json!({"hooks":{"PreCompact":[owned,foreign.clone()]}});
+    for path in [&native_path, &js_path] {
+        std::fs::write(path, input.to_string()).unwrap();
+    }
+    let js = claude_in_temp(&dir.path().join("rule.md"), &js_path);
+    let native_status =
+        crate::agent_claude::provider::integration::check_integration_at(&native_path);
+    let js_status = js.check_integration();
+    assert_eq!(native_status["integration_owned"], true);
+    assert_eq!(
+        native_status["integration_owned"],
+        js_status["integration_owned"]
+    );
+    assert_eq!(native_status["hook_contract_current"], false);
+    assert_eq!(
+        native_status["hook_contract_current"],
+        js_status["hook_contract_current"]
+    );
+    crate::agent_claude::provider::integration::install_integration_at(
+        &native_path,
+        &integration_options(),
+    )
+    .unwrap();
+    js.install_integration(7686, &integration_options())
+        .unwrap();
+    let native: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(native_path).unwrap()).unwrap();
+    let installed: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(js_path).unwrap()).unwrap();
+    assert_eq!(native["hooks"]["PreCompact"], installed["hooks"]["PreCompact"]);
+    assert_eq!(
+        installed["hooks"]["PreCompact"],
+        serde_json::json!([foreign])
+    );
+    for event in ["PermissionRequest", "Notification", "Stop", "SessionStart"] {
+        assert_eq!(installed["hooks"][event].as_array().unwrap().len(), 1);
+    }
 }

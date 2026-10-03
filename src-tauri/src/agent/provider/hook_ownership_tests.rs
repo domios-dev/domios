@@ -13,13 +13,7 @@ use codeterm_plugin::agent_claude::provider::integration::install_integration_at
 use codeterm_plugin::provider::IntegrationInstallOptions;
 use serde_json::Value as Json;
 
-const CLAUDE_EVENTS: [&str; 5] = [
-    "Notification",
-    "PermissionRequest",
-    "Stop",
-    "PreCompact",
-    "SessionStart",
-];
+const CLAUDE_EVENTS: [&str; 4] = ["Notification", "PermissionRequest", "Stop", "SessionStart"];
 
 const CURRENT_PERMISSION: &str = r#"if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/permission" -H 'Content-Type: application/json' -H "Authorization: Bearer $CODETERM_API_TOKEN" -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @- || true; fi"#;
 const CURRENT_STOP: &str = r#"if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/stop" -H 'Content-Type: application/json' -H "Authorization: Bearer $CODETERM_API_TOKEN" -d '{}' || true; fi"#;
@@ -69,10 +63,9 @@ fn foreign_entry(event: &str) -> Json {
     }
 }
 
-fn options(precompact_memory_export: bool) -> IntegrationInstallOptions {
+fn options() -> IntegrationInstallOptions {
     IntegrationInstallOptions {
         consent: true,
-        precompact_memory_export,
         repair: true,
     }
 }
@@ -176,9 +169,9 @@ fn reconcile_current_hooks_twice_keeps_one_entry_per_event() {
     )
     .unwrap();
 
-    install_integration_at(&path, &options(true)).unwrap();
+    install_integration_at(&path, &options()).unwrap();
     let after_first = std::fs::read_to_string(&path).unwrap();
-    install_integration_at(&path, &options(true)).unwrap();
+    install_integration_at(&path, &options()).unwrap();
     let after_second = std::fs::read_to_string(&path).unwrap();
     assert_eq!(
         after_first, after_second,

@@ -97,7 +97,7 @@ Set automatically in every PTY spawned by Domios:
 | `CODETERM_PARENT_TAB_ID` | `b4e2c8d1` | Parent Tab ID in hierarchy (empty for a Team anchor or no role). Set at PTY spawn. |
 | `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by Domios so CLI and hooks use the correct port (dev: 7686, prod: 7685). |
 | `CODETERM_API_URL` | `http://127.0.0.1:7685` | Optional API origin for local CLI fallback; fallback accepts only the exact IPv4 loopback host. |
-| `CODETERM_API_TOKEN` | `your-secret-token` | Bearer token for the API. Injected into every PTY when `[api].token` is set, so CLI subcommands and the auth-enforced hook callbacks (`/api/tabs/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring. |
+| `CODETERM_API_TOKEN` | `your-secret-token` | Bearer token for the API. Injected into every PTY when `[api].token` is set, so CLI subcommands and the auth-enforced hook callbacks (`/api/tabs/*/hook/*`) can authenticate without per-call wiring. |
 | `TERM` | `xterm-256color` | Terminal type |
 | `COLORTERM` | `truecolor` | Color support |
 | `TERM_PROGRAM` | `CodeTerm` | Terminal name |
@@ -204,4 +204,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->

@@ -4,29 +4,12 @@ use crate::cmd::print::print_object;
 /// The one REST request each verb makes, shared by the local path and `--mesh`.
 pub fn api_request(action: &IntegrationAction) -> (String, String, Option<String>) {
     match action {
-        IntegrationAction::Install {
-            provider,
-            precompact_memory_export,
-            no_precompact_memory_export,
-        } => (
+        IntegrationAction::Install { provider } => (
             "POST".into(),
-            {
-                let mut path = format!(
-                    "/api/setup/hooks/install?provider={}",
-                    urlencoding::encode(provider)
-                );
-                let requested_precompact = if *precompact_memory_export {
-                    Some(true)
-                } else if *no_precompact_memory_export {
-                    Some(false)
-                } else {
-                    None
-                };
-                if let Some(value) = requested_precompact {
-                    path.push_str(&format!("&precompact_memory_export={value}"));
-                }
-                path
-            },
+            format!(
+                "/api/setup/hooks/install?provider={}",
+                urlencoding::encode(provider)
+            ),
             None,
         ),
         IntegrationAction::Status { provider } => (
@@ -99,6 +82,27 @@ mod tests {
     }
 
     #[test]
+    fn retired_raw_memory_export_commands_are_rejected() {
+        for flag in [
+            "--precompact-memory-export",
+            "--no-precompact-memory-export",
+        ] {
+            assert!(crate::Cli::try_parse_from([
+                "codeterm",
+                "integration",
+                "install",
+                "--provider",
+                "claude",
+                flag
+            ])
+            .is_err());
+        }
+        assert!(
+            crate::Cli::try_parse_from(["codeterm", "mem", "flush", "--tab", "fixture"]).is_err()
+        );
+    }
+
+    #[test]
     fn install_posts_the_consented_install_for_the_named_provider() {
         let request = api_request(&action(&[
             "codeterm",
@@ -118,20 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn install_carries_the_precompact_export_choice() {
-        let (_, path, _) = api_request(&action(&[
-            "codeterm",
-            "integration",
-            "install",
-            "--provider",
-            "claude",
-            "--precompact-memory-export",
-        ]));
-        assert!(path.ends_with("provider=claude&precompact_memory_export=true"));
-    }
-
-    #[test]
-    fn install_omits_precompact_when_not_specified() {
+    fn install_has_no_export_choice() {
         let (_, path, _) = api_request(&action(&[
             "codeterm",
             "integration",
@@ -140,33 +131,6 @@ mod tests {
             "claude",
         ]));
         assert_eq!(path, "/api/setup/hooks/install?provider=claude");
-    }
-
-    #[test]
-    fn install_can_explicitly_disable_precompact_export() {
-        let (_, path, _) = api_request(&action(&[
-            "codeterm",
-            "integration",
-            "install",
-            "--provider",
-            "claude",
-            "--no-precompact-memory-export",
-        ]));
-        assert!(path.ends_with("provider=claude&precompact_memory_export=false"));
-    }
-
-    #[test]
-    fn install_rejects_conflicting_precompact_flags() {
-        assert!(crate::Cli::try_parse_from([
-            "codeterm",
-            "integration",
-            "install",
-            "--provider",
-            "claude",
-            "--precompact-memory-export",
-            "--no-precompact-memory-export",
-        ])
-        .is_err());
     }
 
     #[test]

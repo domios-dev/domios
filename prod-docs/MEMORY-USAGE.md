@@ -12,7 +12,7 @@ Injected into every agent session:
 4. **NEVER GUESS IDS** — search first, then `get` a real id.
 5. **ON "remember"** — `codeterm mem save`; extraction workers handle graph automatically.
 6. **WHEN FACTS CHANGE** — save new fact; old stays in history.
-7. **SESSION END** — if the user enabled PreCompact export, the hook flushes the conversation.
+7. **SESSION END** — save useful facts and decisions explicitly; terminal buffers stay out of memory.
 
 ## CLI reference
 
@@ -100,4 +100,4 @@ The Memory tab reads this directly.
 
 Memory preserves the body you save; later edits retain history.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

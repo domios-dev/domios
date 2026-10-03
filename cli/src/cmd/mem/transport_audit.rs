@@ -37,7 +37,6 @@ pub(crate) fn classify(action: &MemAction) -> MemTransport {
         | MemAction::Learn { .. }
         | MemAction::LearnList
         | MemAction::LearnPromote { .. }
-        | MemAction::Flush { .. }
         | MemAction::Sync { .. }
         | MemAction::Reembed { .. } => Socket,
 

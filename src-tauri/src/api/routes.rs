@@ -882,7 +882,6 @@ pub fn create_router(state: AppState) -> Router {
         )
         .route("/api/mem/learn", post(mem_routes::mem_learn))
         .route("/api/mem/promote/{id}", post(mem_routes::mem_promote))
-        .route("/api/mem/flush", post(mem_routes::mem_flush))
         .route(
             "/api/mem/check-duplicate",
             post(mem_routes::mem_check_duplicate),

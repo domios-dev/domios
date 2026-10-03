@@ -194,7 +194,6 @@ pub enum HookIngestionRoute {
     Permission,
     Stop,
     SessionStart,
-    MemFlush,
     /// A provider reporting its own live turn state. Separate from `Stop`,
     /// which is a turn-completion notification with side effects.
     SessionState,
