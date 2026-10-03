@@ -3,12 +3,12 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { AutomationGraphView } from "./AutomationGraphView";
-import { attachment, fixtureGraph, fixtureNode, FixtureTransport, identity, multiScenarioGraph, sentinelIdentity } from "./fixtures.testdata";
+import { attachment, chainGraph, fixtureGraph, fixtureNode, FixtureTransport, identity, multiScenarioGraph, sentinelIdentity } from "./fixtures.testdata";
 import { automationKey, type AutomationGraph, type CommandResultMetadata } from "./types";
 import { COMMAND_FACT, commandResultLabel } from "./CommandResultDetails";
-import { layoutAutomationGraph } from "./layout";
+import { frameAutomation, layoutAutomationOrientations, NODE_WIDTH, preferredOrientation, READABLE_SCALE } from "./layout";
 import { scopedAutomationGraph } from "./model";
-import { computeFitTransform, formatLayerTransform } from "../Canvas/useCanvasViewport";
+import { formatLayerTransform } from "../Canvas/useCanvasViewport";
 
 const window = new Window({ url: "http://localhost/" });
 for (const key of ["window", "document", "HTMLElement", "Element", "Node", "Event", "MouseEvent", "KeyboardEvent", "navigator"]) {
@@ -30,10 +30,47 @@ function cameraLayer(host: HTMLElement) {
   assert.ok(layer, "graph camera layer rendered");
   return layer;
 }
-function fitted(graph: AutomationGraph, width: number, height: number) {
-  const fit = computeFitTransform(layoutAutomationGraph(scopedAutomationGraph(graph, attachment)).bounds, width, height, { maxScale: 1 });
+function fitted(graph: AutomationGraph, width: number, height: number, whole = false) {
+  const layouts = layoutAutomationOrientations(scopedAutomationGraph(graph, attachment));
+  const size = { width, height };
+  const fit = frameAutomation(layouts[preferredOrientation(layouts, size)], size, whole);
   assert.ok(fit);
   return formatLayerTransform(fit);
+}
+function camera(host: HTMLElement) {
+  const match = /translate\((-?[\d.e-]+)px, (-?[\d.e-]+)px\) scale\((-?[\d.e-]+)\)/.exec(cameraLayer(host).style.transform);
+  assert.ok(match, "camera transform painted");
+  return { x: Number(match[1]), y: Number(match[2]), scale: Number(match[3]) };
+}
+/** On-screen rectangles of the rendered participant cards, projected through the painted camera. */
+function projectedCards(host: HTMLElement, names: readonly string[]) {
+  const t = camera(host);
+  return names.map((name) => {
+    const card = host.querySelector<HTMLElement>(`[aria-label="Automation graph"] button[aria-label*=": ${name} · "]`);
+    assert.ok(card, `${name} card rendered`);
+    const [left, top, width, height] = [card.style.left, card.style.top, card.style.width, card.style.height].map((value) => Number.parseFloat(value));
+    return { x: left * t.scale + t.x, y: top * t.scale + t.y, width: width * t.scale, height: height * t.scale };
+  });
+}
+function readable(cards: ReturnType<typeof projectedCards>, width: number, height: number) {
+  for (const card of cards) {
+    assert.ok(card.x >= 0 && card.y >= 0 && card.x + card.width <= width && card.y + card.height <= height, "card fully inside the measured canvas");
+    assert.ok(card.width >= NODE_WIDTH * READABLE_SCALE, `projected card width ${card.width} is readable`);
+  }
+}
+const CHAIN = ["Chain root", "Chain stage", "Chain worker"] as const;
+function flows(cards: ReturnType<typeof projectedCards>, axis: "down" | "right") {
+  cards.slice(1).forEach((card, index) => {
+    const previous = cards[index];
+    assert.ok(axis === "down" ? card.y >= previous.y + previous.height : card.x >= previous.x + previous.width, `chain flows ${axis}`);
+  });
+}
+function technical(panel: HTMLElement) {
+  const toggle = panel.querySelector<HTMLButtonElement>("button[aria-expanded]");
+  assert.ok(toggle, "technical disclosure rendered");
+  const region = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
+  assert.ok(region && panel.contains(region), "disclosure controls its own region");
+  return { toggle, region };
 }
 const tests: Array<[string, () => Promise<void>]> = [];
 function test(name: string, run: () => Promise<void>) { tests.push([name, run]); }
@@ -88,7 +125,14 @@ test("hidden Worker and missing target remain selectable without changing tab vi
     await click(button(details(view.host), "Worker A"));
     assert.ok(details(view.host).textContent?.includes("Hidden"));
     assert.ok(details(view.host).textContent?.includes("idle"));
-    assert.ok(details(view.host).textContent?.includes(view.transport.graph.nodes[2].executor!.provider_id!));
+    const { toggle, region } = technical(details(view.host));
+    assert.equal(toggle.getAttribute("aria-expanded"), "false");
+    assert.equal(region.hidden, true, "technical identity starts collapsed");
+    await click(toggle);
+    assert.equal(toggle.getAttribute("aria-expanded"), "true");
+    assert.equal(region.hidden, false);
+    assert.equal(document.activeElement, toggle, "disclosure keeps keyboard focus");
+    assert.ok(region.textContent?.includes(view.transport.graph.nodes[2].executor!.provider_id!));
     assert.ok(details(view.host).textContent?.includes(view.transport.graph.nodes[2].executor!.model!));
     assert.ok(details(view.host).textContent?.includes("chat_backend"));
     await click(button(view.host, "missing-a"));
@@ -272,7 +316,7 @@ test("backend-refused command handler and incomplete snapshot remain explicit", 
 test("measured graph fits once, then keeps the user's camera and exact selection across refresh, resize and list toggle", async () => {
   const view = await mount();
   try {
-    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 800, 480), "initial fit uses the measured viewport");
+    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 800, 480), "initial frame uses the measured viewport");
     const zoomIn = view.host.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
     assert.ok(zoomIn);
     await click(zoomIn);
@@ -290,9 +334,9 @@ test("measured graph fits once, then keeps the user's camera and exact selection
     await click(button(view.host, "Show graph"));
     assert.equal(cameraLayer(view.host).style.transform, camera, "list toggle restores the same camera");
     await click(button(view.host, "Fit graph"));
-    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 640, 420));
+    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 640, 420, true));
     await resize(900, 500);
-    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 900, 500), "an untouched fitted camera follows the measured size");
+    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 900, 500, true), "an untouched fitted camera follows the measured size");
   } finally { await resize(800, 480); await view.close(); }
 });
 
@@ -369,6 +413,46 @@ test("authoritative event replaces the selected command result and execution wit
     assert.ok(!details(view.host).textContent?.includes("command-execution-a"), "the previous execution is not retained");
     assert.equal(view.transport.reads, 2);
   } finally { await view.close(); }
+});
+
+test("measured 500px canvas opens the chain top to bottom, desktop width runs left to right, and a moved camera keeps its geometry", async () => {
+  Object.assign(viewportSize, { width: 500, height: 576 });
+  const transport = new FixtureTransport();
+  transport.graph = chainGraph();
+  const view = await mount(transport);
+  try {
+    const narrow = projectedCards(view.host, CHAIN);
+    assert.ok(camera(view.host).scale >= READABLE_SCALE);
+    readable(narrow, 500, 576);
+    flows(narrow, "down");
+    const labels = Array.from(view.host.querySelectorAll('[data-edge-kind] text')).map((text) => Array.from(text.querySelectorAll("tspan")).map((line) => line.textContent));
+    assert.deepEqual(labels, transport.graph.edges.map((edge) => [edge.bucket, `${edge.handler_type} · ${edge.result!.status}`]), "branch labels stay whole");
+    await resize(1400, 576);
+    const wide = projectedCards(view.host, CHAIN);
+    readable(wide, 1400, 576);
+    flows(wide, "right");
+    await click(view.host.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')!);
+    const moved = cameraLayer(view.host).style.transform;
+    const boxes = CHAIN.map((name) => view.host.querySelector<HTMLElement>(`button[aria-label*=": ${name} · "]`)!.getAttribute("style"));
+    await resize(500, 576);
+    assert.equal(cameraLayer(view.host).style.transform, moved, "a narrower canvas never resets the moved camera");
+    assert.deepEqual(CHAIN.map((name) => view.host.querySelector<HTMLElement>(`button[aria-label*=": ${name} · "]`)!.getAttribute("style")), boxes, "geometry under a moved camera is not re-oriented");
+    await click(button(view.host, "Fit graph"));
+    assert.equal(cameraLayer(view.host).style.transform, fitted(transport.graph, 500, 576, true), "explicit Fit uses the current measured canvas");
+    flows(projectedCards(view.host, CHAIN), "down");
+  } finally { await resize(800, 480); await view.close(); }
+});
+
+test("an unmeasured canvas paints no guessed camera until its real size is observed", async () => {
+  Object.assign(viewportSize, { width: 0, height: 0 });
+  const view = await mount();
+  try {
+    assert.equal(cameraLayer(view.host).style.transform, "", "no default-size transform before measurement");
+    assert.equal(cameraLayer(view.host).style.visibility, "hidden");
+    await resize(500, 576);
+    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 500, 576));
+    assert.equal(cameraLayer(view.host).style.visibility, "");
+  } finally { await resize(800, 480); await view.close(); }
 });
 
 let finished = false;

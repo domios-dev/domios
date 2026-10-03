@@ -44,11 +44,11 @@ function singleCommand(metadata: CommandResultMetadata | undefined, status = "co
 const tests: Array<[string, () => Promise<void>]> = [];
 function test(name: string, run: () => Promise<void>) { tests.push([name, run]); }
 
-async function mount(node: AutomationNode) {
+async function mount(node: AutomationNode, onClose: () => void = () => undefined) {
   const host = document.createElement("div");
   document.body.append(host);
   const root: Root = createRoot(host);
-  const render = async (next: AutomationNode) => { await act(async () => { root.render(<AutomationDetails node={next} nodes={[next]} edges={[]} stale={false} stopping={false} stopFailed={false} onStop={() => undefined} onSelect={() => undefined} onClose={() => undefined} />); }); };
+  const render = async (next: AutomationNode) => { await act(async () => { root.render(<AutomationDetails node={next} nodes={[next]} edges={[]} stale={false} stopping={false} stopFailed={false} onStop={() => undefined} onSelect={() => undefined} onClose={onClose} />); }); };
   await render(node);
   return { host, render, close: async () => { await act(async () => root.unmount()); host.remove(); } };
 }
@@ -253,6 +253,40 @@ test("noncommand handlers keep their existing detail without command facts", asy
     assert.equal(panel(view.host).querySelectorAll("dl[aria-label]").length, 0);
     for (const handler of node.outcomes.flatMap((outcome) => outcome.handlers)) assert.ok(panel(view.host).textContent?.includes(`${handler.id} · ${handler.type} · ${handler.availability}`));
     for (const entry of node.last_result!.handlers) assert.ok(panel(view.host).textContent?.includes(entry.execution_id!));
+  } finally { await view.close(); }
+});
+
+test("purpose, state and the latest command outcome lead while executor identity sits in a keyboard disclosure", async () => {
+  const executor = { kind: "executor-kind-a", provider_id: "provider-a", adapter_id: null, model: null, capabilities: null };
+  const node: AutomationNode = { ...singleCommand(wire({ status: "nonzero", exit_code: 7, resources_confirmed: false }), "failed"), executor };
+  let closed = 0;
+  const view = await mount(node, () => { closed++; });
+  try {
+    const details = panel(view.host);
+    assert.equal(document.activeElement, details, "details take focus on open");
+    const purpose = Array.from(details.querySelectorAll("p")).find((entry) => entry.textContent === node.purpose);
+    const accepted = details.querySelector('ul[aria-label="Last accepted handler results"]');
+    const toggle = details.querySelector<HTMLButtonElement>("button[aria-expanded]");
+    assert.ok(purpose && accepted && toggle);
+    const region = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
+    assert.ok(region);
+    const before = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    assert.ok(before(purpose, accepted) && before(accepted, toggle), "purpose, then latest outcome, then technical disclosure");
+    const order = [...lastAccepted(view.host, "marker").facts.keys()];
+    for (const lead of [COMMAND_FACT.outcome, COMMAND_FACT.exit, COMMAND_FACT.resources]) {
+      for (const trail of [COMMAND_FACT.timeout, COMMAND_FACT.stdout, COMMAND_FACT.started]) assert.ok(order.indexOf(lead) < order.indexOf(trail), `${lead} precedes ${trail}`);
+    }
+    assert.equal(lastAccepted(view.host, "marker").facts.get(COMMAND_FACT.resources), COMMAND_VALUE.unconfirmed);
+    assert.ok(!region.contains(accepted) && accepted.closest("[hidden]") === null, "failure and resource uncertainty are never collapsed");
+    assert.equal(toggle.type, "button");
+    assert.equal(toggle.getAttribute("aria-expanded"), "false");
+    assert.equal(region.hidden, true);
+    for (const value of [executor.kind, executor.provider_id, node.identity.id, node.identity.owner_tab_id!]) assert.ok(region.textContent?.includes(value), "collapsed region keeps every authoritative field");
+    await act(async () => { toggle.focus(); toggle.click(); });
+    assert.equal(toggle.getAttribute("aria-expanded"), "true");
+    assert.equal(region.hidden, false);
+    await act(async () => { toggle.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
+    assert.equal(closed, 1, "Escape from inside the disclosure still closes details");
   } finally { await view.close(); }
 });
 
