@@ -168,7 +168,7 @@ impl ServiceContext {
 
     fn inject(&self, tab_id: &str, body: &str, marked: bool) {
         let envelope = if marked {
-            MessageEnvelope::reminder("CodeTerm Refresh", "")
+            MessageEnvelope::reminder("Domios Refresh", "")
         } else {
             MessageEnvelope::tab("", "")
         };

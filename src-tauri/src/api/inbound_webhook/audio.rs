@@ -6,11 +6,11 @@ use super::payload::AudioPart;
 use super::{sanitize_event_text, MAX_DELIVERY_TEXT_BYTES};
 use crate::transcribe::TranscribeRegistry;
 
-pub(crate) const HOST_PRIMARY_LABEL: &str = "Transcript (CodeTerm):";
+pub(crate) const HOST_PRIMARY_LABEL: &str = "Transcript (Domios):";
 pub(crate) const SENDER_PRIMARY_LABEL: &str = "Transcript (sender):";
-pub(crate) const HOST_COMPARISON_LABEL: &str = "For comparison, CodeTerm transcript:";
+pub(crate) const HOST_COMPARISON_LABEL: &str = "For comparison, Domios transcript:";
 pub(crate) const SENDER_COMPARISON_LABEL: &str = "For comparison, sender transcript:";
-pub(crate) const HOST_FAILURE_LABEL: &str = "CodeTerm transcription failed:";
+pub(crate) const HOST_FAILURE_LABEL: &str = "Domios transcription failed:";
 pub(crate) const AUDIO_FILE_LABEL: &str = "Audio file:";
 
 /// Lowercase tokens speech recognizers emit in place of words they could not decode.

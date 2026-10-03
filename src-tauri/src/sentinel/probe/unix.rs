@@ -536,7 +536,7 @@ impl UnixRun {
     }
 
     fn close_event_resources(&mut self) -> Result<(), String> {
-        let mut errors = Vec::new();
+        let mut errors: Vec<String> = Vec::new();
         self.close_stream(true);
         self.close_stream(false);
         if self.stdout.close_unknown || self.stderr.close_unknown {

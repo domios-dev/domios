@@ -52,7 +52,7 @@ fn cli_path() -> Result<std::path::PathBuf, String> {
             return Ok(candidate);
         }
     }
-    Err("codeterm CLI is not installed yet; restart CodeTerm and try again".into())
+    Err("codeterm CLI is not installed yet; restart Domios and try again".into())
 }
 
 #[cfg(target_os = "windows")]
@@ -258,7 +258,7 @@ mod platform {
         );
         let supervisor = quote(&super::cli_path()?.to_string_lossy());
         let body = format!(
-            "[Unit]\nDescription=CodeTerm crash supervisor\nAfter=graphical-session.target\n\n[Service]\nType=simple\nExecStart={supervisor} system supervise --binary {app}\nRestart=no\n\n[Install]\nWantedBy=default.target\n"
+            "[Unit]\nDescription=Domios crash supervisor\nAfter=graphical-session.target\n\n[Service]\nType=simple\nExecStart={supervisor} system supervise --binary {app}\nRestart=no\n\n[Install]\nWantedBy=default.target\n"
         );
         let path = unit_path();
         if let Some(parent) = path.parent() {

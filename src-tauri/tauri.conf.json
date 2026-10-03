@@ -12,7 +12,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "CodeTerm",
+        "title": "Domios",
         "width": 1200,
         "height": 800,
         "decorations": false,
