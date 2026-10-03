@@ -1,7 +1,7 @@
 use std::process::ExitStatus;
 
-use super::Output;
 use super::process::{ProbeFailure, ResourceKind};
+use super::Output;
 
 pub(super) const PREFIX_BYTES: usize = 32 * 1024;
 
@@ -20,6 +20,14 @@ impl CaptureData {
         let retained = bytes.len().min(remaining);
         self.prefix.extend_from_slice(&bytes[..retained]);
         self.truncated |= retained < bytes.len();
+    }
+
+    pub(super) fn metadata(&self) -> crate::sentinel::command::Capture {
+        crate::sentinel::command::Capture {
+            total_bytes: self.total_bytes,
+            retained_bytes: self.prefix.len() as u64,
+            truncated: self.truncated,
+        }
     }
 
     pub(super) fn mark_eof(&mut self) {
@@ -42,7 +50,14 @@ pub(super) fn assemble(status: ExitStatus, stdout: CaptureData, stderr: CaptureD
     bytes.extend_from_slice(&(stdout.prefix.len() as u64).to_le_bytes());
     bytes.extend_from_slice(&stdout.prefix);
     bytes.extend_from_slice(&stderr.prefix);
-    Output { bytes, text }
+    Output {
+        bytes,
+        text,
+        exit_code: status.code(),
+        success: status.success(),
+        stdout: stdout.metadata(),
+        stderr: stderr.metadata(),
+    }
 }
 
 pub(super) struct CompletionFacts {
@@ -119,7 +134,9 @@ impl OwnedHandle {
         if self.uncertain.is_some() {
             return Err("probe handle close completion is unconfirmed".into());
         }
-        let Some(handle) = self.raw else { return Ok(()) };
+        let Some(handle) = self.raw else {
+            return Ok(());
+        };
         if unsafe { CloseHandle(handle) } == 0 {
             self.raw = None;
             self.uncertain = Some(handle);
@@ -204,14 +221,21 @@ impl WindowsStream {
 
 #[cfg(windows)]
 pub(super) fn power_shell_command_line(command: &str) -> Vec<u16> {
-    ["powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command]
-        .iter()
-        .map(|argument| quote_windows_arg(argument))
-        .collect::<Vec<_>>()
-        .join(" ")
-        .encode_utf16()
-        .chain([0])
-        .collect()
+    [
+        "powershell.exe",
+        "-NoLogo",
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        command,
+    ]
+    .iter()
+    .map(|argument| quote_windows_arg(argument))
+    .collect::<Vec<_>>()
+    .join(" ")
+    .encode_utf16()
+    .chain([0])
+    .collect()
 }
 
 #[cfg(windows)]

@@ -42,22 +42,42 @@ pub struct Definition {
 #[serde(deny_unknown_fields)]
 pub struct Parameters {
     pub target: Option<String>,
+    pub command: Option<String>,
+    pub label: Option<String>,
+    pub timeout_ms: Option<u64>,
 }
 
 impl Definition {
     fn resolve(self) -> Result<Handler, String> {
-        let action = match (self.kind.as_str(), self.parameters.target) {
-            ("notify", None) => Route::Notify,
-            ("stop", None) => Route::Stop,
-            (kind @ ("sentinel" | "send" | "cron"), Some(target)) => {
-                Route::parse(&format!("{kind}:{target}"))?
+        let parameters = self.parameters;
+        let has_command = parameters.command.is_some()
+            || parameters.label.is_some()
+            || parameters.timeout_ms.is_some();
+        let action = if self.kind == "command" {
+            if parameters.target.is_some() {
+                return Err("command has no target parameter".into());
             }
-            ("command", _) => {
-                return Err(
-                    "command handlers require a separately reviewed execution contract".into(),
-                )
+            let command = super::command::Parameters {
+                command: parameters.command.ok_or("command text is required")?,
+                label: parameters.label.ok_or("command label is required")?,
+                timeout_ms: parameters
+                    .timeout_ms
+                    .ok_or("command timeout_ms is required")?,
+            };
+            command.validate()?;
+            Route::Command(command)
+        } else {
+            if has_command {
+                return Err("command parameters require type=command".into());
             }
-            _ => return Err("handler type or parameters are invalid".into()),
+            match (self.kind.as_str(), parameters.target) {
+                ("notify", None) => Route::Notify,
+                ("stop", None) => Route::Stop,
+                (kind @ ("sentinel" | "send" | "cron"), Some(target)) => {
+                    Route::parse(&format!("{kind}:{target}"))?
+                }
+                _ => return Err("handler type or parameters are invalid".into()),
+            }
         };
         Ok(Handler {
             id: self.id,
@@ -124,6 +144,10 @@ pub fn validate(
             );
         }
         for handler in handlers {
+            if let Route::Command(parameters) = &handler.action {
+                parameters.validate()?;
+            }
+
             if handler.id.is_empty()
                 || handler.id.len() > 64
                 || !handler
@@ -158,6 +182,7 @@ pub enum Status {
 pub struct Effect {
     pub status: Status,
     pub execution_id: Option<String>,
+    pub command_result: Option<super::command::ResultMetadata>,
 }
 
 impl From<Status> for Effect {
@@ -165,6 +190,7 @@ impl From<Status> for Effect {
         Self {
             status,
             execution_id: None,
+            command_result: None,
         }
     }
 }
@@ -177,6 +203,8 @@ pub struct ResultRecord {
     pub claim_id: Option<String>,
     pub execution_id: Option<String>,
     pub accepted_at: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command_result: Option<super::command::ResultMetadata>,
     pub reason: Option<String>,
 }
 
@@ -246,7 +274,7 @@ impl Store {
     }
 
     fn batch_live(&self, job: &Sentinel, transition_id: &str) -> bool {
-        if self.ensure_available().is_err() {
+        if self.admission_closed || self.ensure_available().is_err() {
             return false;
         }
         self.get(&job.id).is_some_and(|current| {
@@ -316,6 +344,7 @@ impl Store {
             claim_id: Some(uuid::Uuid::new_v4().to_string()),
             execution_id: None,
             accepted_at: Some(self.clock.now_ms()),
+            command_result: None,
             reason: None,
         };
         let previous = self.jobs.clone();
@@ -386,6 +415,7 @@ impl Store {
             Status::Unconfirmed => Some("effect_unconfirmed".into()),
             _ => None,
         };
+        record.command_result = effect.command_result;
         record.status = effect.status;
         if let Err(error) = self.save() {
             self.jobs = previous;
@@ -421,6 +451,7 @@ impl Store {
                     claim_id: None,
                     execution_id: None,
                     accepted_at: None,
+                    command_result: None,
                     reason: Some("batch_fenced".into()),
                 });
             }

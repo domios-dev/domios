@@ -110,8 +110,48 @@ IDs and ambiguous targets are refused. At most 16 handlers fit each bucket and
 64 fit one node. Composition definitions require `--timeout`. Finite budgets
 default to 64 accepted transitions and 256 action attempts; `--max-transitions`
 and `--max-actions` allow at most 256 and 1024. Exhaustion records a stop reason.
-No model output constructs a handler, target or command. Direct command handlers
-are explicitly unavailable in this unit pending the owned command runner.
+No model output constructs a handler, target or command. A fixed local command
+is available only through `--handlers-file`, with creator-authored parameters:
+
+```json
+{"passed":[{"id":"marker","type":"command","parameters":{"command":"printf marker > marker.txt","label":"Write marker","timeout_ms":1000}},{"id":"review","type":"sentinel","parameters":{"target":"sentinel_DOWNSTREAM_ID"}}],"failed":[{"id":"finish","type":"stop","parameters":{}}]}
+```
+
+Save the JSON as `handlers.json` in your disposable fixture directory, replace
+the downstream ID, and create from that directory:
+
+```bash
+codeterm sentinel create --name "Marker and review" --probe "printf passed" --question "passed or failed" --buckets passed,failed --match 'passed=(?m)^passed$' --match 'failed=(?m)^failed$' --handlers-file handlers.json --timeout 1h
+```
+
+Command text is immutable, nonempty, at most 8192 bytes and contains no NUL.
+Its display label is at most 256 bytes. `timeout_ms` is positive and no larger
+than the platform probe limit. Execution uses the shorter of that duration,
+the remaining node lifetime and the platform cap, reserving cleanup once.
+The authenticated creator cwd supplies the working directory; there is no
+handler cwd or environment option. The shell interprets ordinary syntax that
+the creator wrote. The host never substitutes observation/model output into
+commands. Process containment is not a filesystem sandbox: commands can access
+files available to the daemon account.
+
+Each command claim is persisted before launch and is never replayed, including
+an uncertain crash. Success requires actual zero exit and confirmed parent,
+boundary and capture settlement. Nonzero, API/spawn error, cancellation,
+deadline and unconfirmed resources remain distinguishable in `command_result`.
+Safe metadata includes nullable exit code, capture counts and truncation,
+start/finish Unix milliseconds and the enclosing actual execution ID. Graph
+results exclude command text, stdout/stderr, cwd and credentials. Captured
+command output is never automatically forwarded to a handler, model or tab.
+Stop, expiry, Team cleanup and graceful daemon shutdown request cancellation
+through the exact active command's native event and its owned cleanup. The
+shutdown subscription closes admission and wakes waits; it does not certify
+that the daemon waited for process settlement before exiting. Cancellation
+cannot undo external effects. On Unix, direct commands require macOS process
+kqueue events or Linux pidfd support; unsupported platforms/kernels refuse
+before command spawn. Ordinary observation probes retain their existing wait
+path.
+Confirmed command errors allow independent sibling handlers; unconfirmed
+resource cleanup stops the source and fences the remaining batch.
 Peer-qualified handlers and remote Sentinel execution are unavailable; a graph
 belongs to one actual connected instance. Mesh transport does not provide a
 remote execution claimant or replay contract.
@@ -153,4 +193,4 @@ Cancellation remains in memory; durability is unconfirmed until a valid store
 reload. Repair the filesystem before loading the store again. No stop success
 or claimed-handler replay is inferred from a failed write.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

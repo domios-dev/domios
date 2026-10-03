@@ -38,6 +38,7 @@ fn execute(
         &super::probe::Output {
             bytes: text.as_bytes().to_vec(),
             text: text.into(),
+            ..Default::default()
         },
         || {
             Classification::regex(Verdict {
@@ -141,6 +142,7 @@ fn sentinel_scheduler_graph_weak_other_and_unchanged_never_activate() {
             &super::probe::Output {
                 bytes: b"same".to_vec(),
                 text: "same".into(),
+                ..Default::default()
             },
             || panic!("unchanged cannot classify"),
             |_, _, _| panic!("unchanged cannot claim"),
@@ -265,6 +267,7 @@ fn sentinel_scheduler_graph_revision_change_during_classification_refuses_batch(
         &super::probe::Output {
             bytes: b"done".to_vec(),
             text: "done".into(),
+            ..Default::default()
         },
         || {
             store.lock().stop(&job.id, "external_stop").unwrap();
@@ -299,6 +302,7 @@ fn sentinel_scheduler_graph_stop_after_claim_leaves_unconfirmed_and_skips_tail()
         &super::probe::Output {
             bytes: b"done".to_vec(),
             text: "done".into(),
+            ..Default::default()
         },
         || {
             Classification::regex(Verdict {
@@ -429,6 +433,7 @@ fn sentinel_scheduler_graph_crash_after_claim_does_not_reclassify_or_replay_on_r
         &super::probe::Output {
             bytes: b"done".to_vec(),
             text: "done".into(),
+            ..Default::default()
         },
         || {
             Classification::regex(Verdict {
@@ -456,6 +461,7 @@ fn sentinel_scheduler_graph_crash_after_claim_does_not_reclassify_or_replay_on_r
         &super::probe::Output {
             bytes: b"done".to_vec(),
             text: "done".into(),
+            ..Default::default()
         },
         || panic!("persisted observation must not reclassify"),
         |_, _, _| panic!("persisted claim must not replay"),

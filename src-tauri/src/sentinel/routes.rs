@@ -21,6 +21,10 @@ pub fn creator_live(svc: &ServiceContext, job: &Sentinel) -> bool {
 pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Route, String> {
     match route {
         Route::Notify | Route::Stop => Ok(route.clone()),
+        Route::Command(parameters) => {
+            parameters.validate()?;
+            Ok(route.clone())
+        }
         Route::Send(target) => resolve_send(&svc.mux.read(), job, target),
         Route::Sentinel(target) => {
             let handle = svc
@@ -147,6 +151,7 @@ pub fn run(
                 .map(|run| Some(run.run_id))
         }
         Route::Stop => Ok(None),
+        Route::Command(_) => Err("command execution requires a durable scheduler claim".into()),
         Route::Sentinel(_) => Err("sentinel activation requires a durable scheduler claim".into()),
     }
 }
@@ -157,6 +162,7 @@ pub fn action_name(route: &Route) -> &'static str {
         Route::Send(_) => "send",
         Route::Cron(_) => "cron",
         Route::Stop => "stop",
+        Route::Command(_) => "command",
         Route::Sentinel(_) => "sentinel",
     }
 }
