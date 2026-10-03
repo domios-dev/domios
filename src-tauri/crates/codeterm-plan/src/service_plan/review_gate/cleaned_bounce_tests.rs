@@ -697,12 +697,7 @@ fn incomplete_terminal_history(case: &str) -> (tempfile::TempDir, PlanStore, Str
             terminal.report.as_ref().unwrap().status.as_deref(),
             Some("in_review")
         );
-        assert!(terminal
-            .report
-            .as_ref()
-            .unwrap()
-            .reporter_tab_id
-            .is_none());
+        assert!(terminal.report.as_ref().unwrap().reporter_tab_id.is_none());
         assert!(terminal.closed_at.is_some());
         assert!(terminal.retired_at.is_some());
 
