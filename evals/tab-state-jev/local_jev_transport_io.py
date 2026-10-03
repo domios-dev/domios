@@ -22,6 +22,7 @@ import time
 
 import jev_transport as t
 import request_contract as c
+from windows_junction_fixture import create_junction
 
 CASES = ("success", "response_oversize", "redirect_refused", "held_response_deadline",
          "cancel_after_headers", "partial_capture_failure")
@@ -540,18 +541,22 @@ def run_trust_case(case):
                 "null_dacl": "windows_dacl", "inherited_write": "windows_foreign_authority",
                 "reparse_refused": "windows_reparse_or_links"}[case]
 
-    def created(path, descriptor=None, *, target=None):
+    def created(path, descriptor=None, *, target=None, inherit=False):
         node = {"path": path, "reparse": target is not None, "creation_confirmed": False,
                 "entry": None, "identity_confirmed": False, "removed": False}
         paths.append(node)
         t.remaining(operation_end, time.monotonic)
-        if target is None:
+        if inherit:
+            os.mkdir(path)
+        elif target is None:
             guard.api.create_directory(path, descriptor)
         else:
             try:
-                os.symlink(target, path, target_is_directory=True)
+                report["fixture"]["reparse"] = create_junction(guard, path, target, descriptor)
             except OSError as error:
-                raise t.TransportFailure("windows_reparse_control_unavailable") from error
+                facts = {name: value for name in ("errno", "winerror")
+                         if type(value := getattr(error, name, None)) is int and -(2 ** 31) <= value < 2 ** 32}
+                raise t.TransportFailure("windows_reparse_control_unavailable", {"reparse_creation_os": facts}) from error
         node["creation_confirmed"] = True
         entry = guard.capture(path, directory=True)
         node["entry"] = entry
@@ -590,17 +595,20 @@ def run_trust_case(case):
                 descriptor = f"O:{user}D:NO_ACCESS_CONTROL"
             elif case == "inherited_write":
                 inheriting = root / "inheriting"
-                created(inheriting, secure + "(A;OICIIO;FW;;;WD)")
+                parent_control = created(inheriting, secure + "(A;OICIIO;FW;;;WD)")
+                report["fixture"]["inheritance_parent_security"] = parent_control["entry"]["facts"]["security"]["aces"]
                 child = inheriting / "control"
-                descriptor = secure.replace("D:P", "D:")
             if case == "reparse_refused":
                 target = root / "target"
                 created(target, secure)
-                control = created(child, target=target)
+                control = created(child, secure, target=target)
+                t.require(control["entry"]["facts"]["identity"].hex() == report["fixture"]["reparse"]["identity"],
+                          "windows_fixture_identity")
                 t.require(control["entry"]["facts"]["attributes"] & 0x400, "windows_reparse_control_unavailable")
             else:
-                control = created(child, descriptor)
+                control = created(child, descriptor, inherit=case == "inherited_write")
                 if case == "inherited_write":
+                    report["fixture"]["inheritance_child_security"] = control["entry"]["facts"]["security"]["aces"]
                     t.require(any(kind == 0 and flags & 0x10 and sid == "S-1-1-0" and mask & 2
                                   for kind, flags, mask, sid in control["entry"]["facts"]["security"]["aces"]),
                               "windows_inherited_control_unavailable")
