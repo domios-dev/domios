@@ -13,6 +13,7 @@ from media_contract import probe, require, run, write_captions, write_json, writ
 from timeline_audit import timeline_audit
 from narration_proof import sha256
 from trailer_scenes import (ENDING_END_FRAME, ENDING_START_FRAME, FPS, OPENING_FRAMES, SIZE,
+                            ENDING_MESH_PATH, ENDING_MESH_SHA256,
                             load_brand_frames, render_timeline_frame, source_frames, timed_shots)
 
 
@@ -51,6 +52,8 @@ def build(source_dir, output_dir, font, preview_dir, brand_directory, review_ran
     audit = timeline_audit('222f60c46', review_range, timing)
     audit['timingSha256'] = sha256(timing_path) if timing_path else None
     audit['framing'] = dict(brandSourceSha256=brand_frames['sourceSha256'],
+                            endingScreenshot=dict(path=str(ENDING_MESH_PATH), sha256=ENDING_MESH_SHA256,
+                                                  firstFrame=1140, crop=[334, 50, 3496, 2079]),
                             brandManifestSha256=sha256(brand_directory / 'brand-frames.json'),
                             changedFrameRanges=[[0, OPENING_FRAMES], [ENDING_START_FRAME, ENDING_END_FRAME]])
     start, end = review_range or (0, timing['duration'])
