@@ -429,6 +429,33 @@ fn chatbackend_inbound_stores_clean_body_model_gets_marker() {
 }
 
 #[test]
+fn chatbackend_system_envelope_carries_source_label_without_address() {
+    let body = "opaque body: $x\nsecond line";
+    let envelope = MessageEnvelope::from_codeterm();
+
+    let origin = Messenger::from(envelope.clone()).wrap(body);
+    assert_eq!(origin, format!("-=-codeterm:system-=-\n{body}"));
+    assert!(!origin.contains("tab="));
+    assert!(!origin.contains(Messenger::AGENT_REPLY_HINT_PREFIX));
+    assert!(!origin.contains(Messenger::SHELL_REPLY_HINT));
+
+    let (msg, marked) = build_chatbackend_inbound(&envelope, body, "system-inbound".into());
+    assert_eq!(msg.content, body);
+    assert_eq!(msg.inbound_kind.as_deref(), Some("system"));
+    assert_eq!(msg.from_label.as_deref(), Some(MessageEnvelope::CODETERM));
+    assert!(msg.from_tab.is_none());
+
+    let parsed = crate::message_markers::parse(&marked).expect("inbound marker parses");
+    assert_eq!(parsed.kind, "inbound");
+    assert_eq!(parsed.attr("kind"), Some("system"));
+    assert_eq!(parsed.attr("from_label"), Some(MessageEnvelope::CODETERM));
+    assert_eq!(parsed.attr("from_tab"), None);
+    assert_eq!(parsed.payload, body);
+    assert!(!marked.contains(Messenger::AGENT_REPLY_HINT_PREFIX));
+    assert!(!marked.contains(Messenger::SHELL_REPLY_HINT));
+}
+
+#[test]
 fn chatbackend_planner_payload_reaches_provider_input_as_data() {
     let payload = "- audit `model`\n- <nonexistent>\n$env:X='y'; $(false)";
     let envelope = MessageEnvelope::codeterm_reminder("planner-request");
