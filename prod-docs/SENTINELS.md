@@ -18,6 +18,13 @@ least `10s`. Durations accept `s`, `m`, `h`, `d`, and combinations such as
 the watch after that bucket's first routed transition. `--route bucket=stop`
 ends it without sending a message.
 
+For quiet PR waiting, declare only terminal outcomes; classify still-running
+CI as `other`, which takes no route. With an existing same-Team cron and agent:
+
+```bash
+codeterm sentinel create --probe "gh run view 456 --json status,conclusion" --question "passed for completed successful CI; failed for completed unsuccessful CI; other while running" --buckets passed,failed --route passed=cron:review_pr --route failed=send:repair_worker --timeout 1h
+```
+
 The creator's live tab supplies its cwd, workspace, and Team. Commands are
 executed as the daemon user in that cwd, with no interactive stdin. Each probe
 has a three-second runtime limit (ten seconds on Windows, where PowerShell starts slowly), or the remaining lifetime if shorter.
@@ -84,4 +91,4 @@ claims. A removed creator or changed Team stops the watch. The store admits
 at most 64 active and 256 total sentinels. Watches are local to the creator's
 machine; `--mesh` is refused.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
