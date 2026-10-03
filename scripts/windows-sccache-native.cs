@@ -479,6 +479,102 @@ public static class WindowsSccacheNative {
     }
     public static bool HandleAlive(IntPtr p) { uint code; Need(GetExitCodeProcess(p, out code), "GetExitCodeProcess"); return code == STILL_ACTIVE && !WaitSignaledOrTimeout(p, 0, "WaitForSingleObject(handle_liveness)"); }
     public static uint ExitCodeHandle(IntPtr p) { uint code; Need(GetExitCodeProcess(p, out code), "GetExitCodeProcess"); return code; }
+    public sealed class CandidateHandleLease { public uint Pid; public IntPtr Handle; public long Creation; public string Image; public string UserSid; public string Hash; public uint? ExitCode; }
+    public sealed class CandidateInventoryCapture { public int Total; public int Inspected; public bool Truncated; public bool Complete; public string Error; public object[] Proofs; }
+    static Dictionary<string, object> CandidateProof(uint pid, CandidateHandleLease lease) {
+        return new Dictionary<string, object> { { "Pid", pid }, { "Lease", lease }, { "HandleRetained", false }, { "PidFromHandle", 0U }, { "VerifiedPidFromHandle", 0U }, { "CreationFileTime", 0L }, { "VerifiedCreationFileTime", 0L }, { "PidObserved", false }, { "VerifiedPidObserved", false }, { "CreationObserved", false }, { "VerifiedCreationObserved", false }, { "ImageObserved", false }, { "AccountObserved", false }, { "JobMembershipObservedBefore", false }, { "JobMembershipObservedAfter", false }, { "AliveObservedBefore", false }, { "AliveObservedAfter", false }, { "ExitCodeObserved", false }, { "IsProcessInJobBefore", false }, { "IsProcessInJobAfter", false }, { "AliveBefore", false }, { "AliveAfter", false }, { "Image", null }, { "UserSid", null }, { "ImageMatches", false }, { "HashMatches", false }, { "AccountMatches", false }, { "ListenerMatches", false }, { "ListenerCount", 0 }, { "ListenerRows", new object[0] }, { "ListenerRowsTruncated", false }, { "Errors", new List<string>() } };
+    }
+    static void CandidateError(List<string> errors, string operation, Exception error) {
+        var win32 = error as Win32Exception;
+        errors.Add(operation + ":" + error.GetType().Name + ":" + (win32 == null ? "not_win32" : win32.NativeErrorCode.ToString()));
+    }
+    static bool CandidateWithinDeadline(long deadlineTicks, List<string> errors) {
+        if (Stopwatch.GetTimestamp() < deadlineTicks) return true;
+        if (!errors.Contains("candidate_identity_deadline_expired")) errors.Add("candidate_identity_deadline_expired");
+        return false;
+    }
+    static bool CandidateFactsObserved(IDictionary proof) {
+        return FactBool(proof, "HandleRetained") && FactBool(proof, "PidObserved") && FactBool(proof, "VerifiedPidObserved") && FactBool(proof, "CreationObserved") && FactBool(proof, "VerifiedCreationObserved") && FactBool(proof, "ImageObserved") && FactBool(proof, "AccountObserved") && FactBool(proof, "JobMembershipObservedBefore") && FactBool(proof, "JobMembershipObservedAfter") && FactBool(proof, "AliveObservedBefore") && FactBool(proof, "AliveObservedAfter") && (FactBool(proof, "AliveBefore") && FactBool(proof, "AliveAfter") || FactBool(proof, "ExitCodeObserved"));
+    }
+    static object CaptureCandidateProof(JobLease job, IList registry, uint pid, long deadlineTicks) {
+        var lease = new CandidateHandleLease { Pid = pid };
+        registry.Add(lease);
+        var proof = CandidateProof(pid, lease);
+        var errors = (List<string>)proof["Errors"];
+        if (!CandidateWithinDeadline(deadlineTicks, errors)) return proof;
+        try { lease.Handle = OpenProcessHandle(pid); proof["HandleRetained"] = lease.Handle != IntPtr.Zero; }
+        catch (Exception error) { CandidateError(errors, "OpenProcess", error); return proof; }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["PidFromHandle"] = HandleProcessId(lease.Handle); proof["PidObserved"] = true; } catch (Exception error) { CandidateError(errors, "GetProcessId", error); } }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["CreationFileTime"] = ProcessCreation(lease.Handle); proof["CreationObserved"] = true; lease.Creation = (long)proof["CreationFileTime"]; } catch (Exception error) { CandidateError(errors, "GetProcessTimes", error); } }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["Image"] = ProcessImage(lease.Handle); proof["ImageObserved"] = true; lease.Image = (string)proof["Image"]; } catch (Exception error) { CandidateError(errors, "QueryFullProcessImageNameW", error); } }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["UserSid"] = ProcessUserSid(lease.Handle); proof["AccountObserved"] = true; lease.UserSid = (string)proof["UserSid"]; } catch (Exception error) { CandidateError(errors, "ProcessUserSid", error); } }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["IsProcessInJobBefore"] = Contains(job, lease.Handle); proof["JobMembershipObservedBefore"] = true; } catch (Exception error) { CandidateError(errors, "IsProcessInJob(before)", error); } }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["AliveBefore"] = HandleAlive(lease.Handle); proof["AliveObservedBefore"] = true; } catch (Exception error) { CandidateError(errors, "ProcessLiveness(before)", error); } }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["VerifiedPidFromHandle"] = HandleProcessId(lease.Handle); proof["VerifiedPidObserved"] = true; } catch (Exception error) { CandidateError(errors, "GetProcessId(verify)", error); } }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["VerifiedCreationFileTime"] = ProcessCreation(lease.Handle); proof["VerifiedCreationObserved"] = true; } catch (Exception error) { CandidateError(errors, "GetProcessTimes(verify)", error); } }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["IsProcessInJobAfter"] = Contains(job, lease.Handle); proof["JobMembershipObservedAfter"] = true; } catch (Exception error) { CandidateError(errors, "IsProcessInJob(after)", error); } }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["AliveAfter"] = HandleAlive(lease.Handle); proof["AliveObservedAfter"] = true; } catch (Exception error) { CandidateError(errors, "ProcessLiveness(after)", error); } }
+        if ((FactBool(proof, "AliveObservedBefore") && !FactBool(proof, "AliveBefore")) || (FactBool(proof, "AliveObservedAfter") && !FactBool(proof, "AliveAfter"))) {
+            if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["ExitCode"] = ExitCodeHandle(lease.Handle); proof["ExitCodeObserved"] = true; lease.ExitCode = (uint)proof["ExitCode"]; } catch (Exception error) { CandidateError(errors, "GetExitCodeProcess", error); } }
+        }
+        return proof;
+    }
+    public static CandidateInventoryCapture CaptureCandidateInventory(JobLease job, IList registry, uint[] pids, long deadlineTicks) {
+        const int maximum = 32;
+        var values = new List<object>(); var total = pids == null ? 0 : pids.Length; var limit = Math.Min(total, maximum); bool complete = total <= maximum;
+        for (int i = 0; i < limit; i++) values.Add(CaptureCandidateProof(job, registry, pids[i], deadlineTicks));
+        foreach (object value in values) if (((List<string>)((IDictionary)value)["Errors"]).Count != 0 || !CandidateFactsObserved((IDictionary)value)) complete = false;
+        return new CandidateInventoryCapture { Total = total, Inspected = values.Count, Truncated = total > maximum, Complete = complete, Proofs = values.ToArray() };
+    }
+    public static void VerifyCandidateIdentity(JobLease job, IDictionary proof, long deadlineTicks) {
+        var errors = Fact(proof, "Errors") as List<string>; if (errors == null) throw new InvalidOperationException("candidate_proof_errors_missing");
+        var lease = Fact(proof, "Lease") as CandidateHandleLease; if (lease == null || lease.Handle == IntPtr.Zero) { errors.Add("candidate_verification_handle_missing"); return; }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["VerifiedPidFromHandle"] = HandleProcessId(lease.Handle); proof["VerifiedPidObserved"] = true; } catch (Exception error) { CandidateError(errors, "GetProcessId(verify_after_listener)", error); } }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["VerifiedCreationFileTime"] = ProcessCreation(lease.Handle); proof["VerifiedCreationObserved"] = true; } catch (Exception error) { CandidateError(errors, "GetProcessTimes(verify_after_listener)", error); } }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["IsProcessInJobAfter"] = Contains(job, lease.Handle); proof["JobMembershipObservedAfter"] = true; } catch (Exception error) { CandidateError(errors, "IsProcessInJob(after_listener)", error); } }
+        if (CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["AliveAfter"] = HandleAlive(lease.Handle); proof["AliveObservedAfter"] = true; } catch (Exception error) { CandidateError(errors, "ProcessLiveness(after_listener)", error); } }
+        if (FactBool(proof, "AliveObservedAfter") && !FactBool(proof, "AliveAfter") && CandidateWithinDeadline(deadlineTicks, errors)) { try { proof["ExitCode"] = ExitCodeHandle(lease.Handle); proof["ExitCodeObserved"] = true; lease.ExitCode = (uint)proof["ExitCode"]; } catch (Exception error) { CandidateError(errors, "GetExitCodeProcess(after_listener)", error); } }
+    }
+    static int CandidateErrorCount(object proof) { IEnumerable values = Fact(proof, "Errors") as IEnumerable; if (values == null) return 0; int count = 0; foreach (object ignored in values) count++; return count; }
+    public sealed class CandidateInventoryDecision { public bool Valid; public string[] Reasons; public uint[] CandidatePids; public uint[] CapturedPids; }
+    public static CandidateInventoryDecision ClassifyCandidateInventory(int total, bool truncated, bool complete, uint[] candidatePids, object[] proofs) {
+        var reasons = new List<string>(); var expected = candidatePids ?? new uint[0]; var values = proofs ?? new object[0]; var captured = new List<uint>();
+        if (total != expected.Length || total < 0) reasons.Add("candidate_inventory_total_mismatch");
+        if (truncated || total > 32) reasons.Add("candidate_inventory_truncated");
+        if (!complete) reasons.Add("candidate_inventory_incomplete");
+        if (values.Length != Math.Min(Math.Max(total, 0), 32)) reasons.Add("candidate_inventory_identity_count_mismatch");
+        for (int i = 0; i < values.Length; i++) {
+            object proof = values[i]; uint pid = FactUInt(proof, "Pid"); captured.Add(pid);
+            if (i >= expected.Length || pid == 0 || pid != expected[i]) reasons.Add("candidate_inventory_identity_order_or_pid_mismatch");
+            if (CandidateErrorCount(proof) != 0) reasons.Add("candidate_inventory_api_error");
+            if (!CandidateFactsObserved(proof)) reasons.Add("candidate_inventory_identity_incomplete");
+            if (FactUInt(proof, "PidFromHandle") != pid || FactUInt(proof, "VerifiedPidFromHandle") != pid || FactLong(proof, "CreationFileTime") <= 0 || FactLong(proof, "CreationFileTime") != FactLong(proof, "VerifiedCreationFileTime")) reasons.Add("candidate_inventory_handle_identity_mismatch");
+        }
+        if (expected.Length == 0) reasons.Add("job_server_candidate_missing");
+        else if (expected.Length != 1) reasons.Add("job_server_candidate_ambiguous");
+        else if (values.Length == 1) {
+            object proof = values[0];
+            if (!FactBool(proof, "IsProcessInJobBefore") || !FactBool(proof, "IsProcessInJobAfter")) reasons.Add("job_server_candidate_job_membership_unconfirmed");
+            if (!FactBool(proof, "AliveBefore") || !FactBool(proof, "AliveAfter")) reasons.Add("job_server_candidate_liveness_unconfirmed");
+        }
+        return new CandidateInventoryDecision { Valid = reasons.Count == 0, Reasons = UniqueReasons(reasons), CandidatePids = expected, CapturedPids = captured.ToArray() };
+    }
+    static Dictionary<string, object> CandidateControlFact(uint pid, bool apiError) {
+        return new Dictionary<string, object> { { "Pid", pid }, { "HandleRetained", true }, { "PidFromHandle", pid }, { "VerifiedPidFromHandle", pid }, { "CreationFileTime", (long)pid + 1000 }, { "VerifiedCreationFileTime", (long)pid + 1000 }, { "PidObserved", true }, { "VerifiedPidObserved", true }, { "CreationObserved", true }, { "VerifiedCreationObserved", true }, { "ImageObserved", true }, { "AccountObserved", true }, { "JobMembershipObservedBefore", true }, { "JobMembershipObservedAfter", true }, { "AliveObservedBefore", true }, { "AliveObservedAfter", true }, { "ExitCodeObserved", false }, { "IsProcessInJobBefore", true }, { "IsProcessInJobAfter", true }, { "AliveBefore", true }, { "AliveAfter", true }, { "Errors", apiError ? new string[] { "injected_api_error" } : new string[0] } };
+    }
+    public static object[] CandidateInventoryContractControls() {
+        var both = new object[] { CandidateControlFact(701, false), CandidateControlFact(702, false) };
+        var two = ClassifyCandidateInventory(2, false, true, new uint[] { 701, 702 }, both);
+        var errors = ClassifyCandidateInventory(1, false, false, new uint[] { 703 }, new object[] { CandidateControlFact(703, true) });
+        var ids = new List<uint>(); var proofs = new List<object>(); for (uint pid = 704; pid < 736; pid++) { ids.Add(pid); proofs.Add(CandidateControlFact(pid, false)); } ids.Add(736);
+        var truncated = ClassifyCandidateInventory(33, true, false, ids.ToArray(), proofs.ToArray());
+        return new object[] {
+            PureControl("two_candidate_identities_retained_but_refused", () => !two.Valid && ArrayEquals(two.CapturedPids, new uint[] { 701, 702 }) && Array.IndexOf(two.Reasons, "job_server_candidate_ambiguous") >= 0),
+            PureControl("candidate_collection_api_error_refused", () => !errors.Valid && Array.IndexOf(errors.Reasons, "candidate_inventory_api_error") >= 0),
+            PureControl("candidate_inventory_truncation_refused", () => !truncated.Valid && truncated.CapturedPids.Length == 32 && Array.IndexOf(truncated.Reasons, "candidate_inventory_truncated") >= 0)
+        };
+    }
+    static bool ArrayEquals(uint[] left, uint[] right) { if (left == null || right == null || left.Length != right.Length) return false; for (int i = 0; i < left.Length; i++) if (left[i] != right[i]) return false; return true; }
     public static bool WaitHandle(IntPtr p, int ms) { return WaitSignaledOrTimeout(p, ms, "WaitForSingleObject(handle)"); }
     public static bool WaitCapture(Capture c, int ms) { return c.WaitEof(ms); }
     public static object CaptureFacts(Capture c) { return new { Tail = c.Tail, TotalBytes = c.TotalBytes, Truncated = c.Truncated, Error = c.Error, Eof = c.Eof.WaitOne(0), ReaderComplete = c.ReaderComplete }; }

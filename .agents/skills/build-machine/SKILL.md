@@ -168,6 +168,14 @@ member, or out-of-range accounting refuses. See Microsoft's definitions for
 [`JOBOBJECT_BASIC_ACCOUNTING_INFORMATION`](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_accounting_information)
 and [`JOBOBJECT_BASIC_PROCESS_ID_LIST`](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_process_id_list).
 
+At the same single snapshot boundary, collect handle-backed diagnostic identities for every
+candidate PID, capped at 32. Record total, inspected count, truncation/completion, PID from the
+retained handle, creation time before and after, image, account SID, Job membership, liveness or
+exit observation, and bounded API errors before classifying. Register each candidate lease before
+opening its handle and keep every acquired handle through owned Job cleanup. Incomplete or
+truncated inventory refuses; diagnostics never choose a winner. Do not capture command lines,
+process environments, or output bodies for these candidates.
+
 Exactly one remaining live PID may be the server candidate. A retained process handle must prove
 its PID and creation identity, Job membership before and after inspection, liveness, exact image,
 hash and account, plus the loopback listener owner. Listener refusal evidence retains at most 32
@@ -200,13 +208,16 @@ if a termination request succeeded.
 The provisioning operation does not run a Rust case and does not leave a daemon for later jobs.
 Native success must be reviewed from one separately admitted run at the reviewed full SHA, with
 actual archive, PE, process/Job/listener, capture, exit, and handle evidence. Portable contract
-controls establish only pure source decisions. The three groups select 93 cases: 14 archive
-pin/shape cases, 31 input/ownership/deadline/reuse and actual C# decoder/lease cases, and 48
+controls establish only pure source decisions. The three groups select 96 cases: 14 archive
+pin/shape cases, 34 input/ownership/deadline/reuse and actual C# decoder/lease/candidate-inventory
+cases, and 48
 completion/output/freshness/statistics/rollback and Job membership cases. Membership controls
 exercise one candidate, retained exited launches plus one candidate, no candidate, ambiguous or
 unverified members, unsettled captures, accounting and PID-list API/incomplete failures, accounting
 length failure, and out-of-bound accounting through the production classifier. The independent literal fixture pins the
 16-counter zero output schema; fresh-zero statistics remains diagnostic and is not readiness proof.
+Candidate-inventory controls exercise two retained diagnostic identities with an ambiguity refusal,
+an API-error refusal, and a truncation refusal through the production inventory classifier.
 Reuse controls reject invalid receipts, invalid executable identity, or executable bytes that differ
 from the verified pinned archive. Capture receipts drop an incomplete leading line when the native
 32 KiB tail is truncated, while complete known token forms remain redacted; this is bounded known
