@@ -15,7 +15,7 @@ export function fixtureGraph(): AutomationGraph {
   return {
     workspace_id: attachment.workspace_id, team_id: attachment.team_id, revision: "revision-a",
     nodes: [
-      { ...fixtureNode(sentinelIdentity, "Watcher A"), state: "paused", cadence_ms: 15000, expires_at: 200000, outcomes: [{ bucket: "branch-a", handlers: [
+      { ...fixtureNode(sentinelIdentity, "Watcher A"), sentinel_definition: { source: "stored_agent_definition", definition_id: sentinelIdentity.id, creator_tab_id: sentinelIdentity.owner_tab_id! }, state: "paused", cadence_ms: 15000, expires_at: 200000, outcomes: [{ bucket: "branch-a", handlers: [
         { id: "handler-a", type: "cron", target: cronIdentity, availability: "available", last_result: { status: "success", execution_id: "handler-execution-a", accepted_at: 100000 } },
         { id: "handler-b", type: "sentinel", target: sentinelIdentity, availability: "unavailable", last_result: { status: "failed", execution_id: "handler-execution-b", accepted_at: 100000 } },
       ] }, { bucket: "branch-b", handlers: [{ id: "handler-c", type: "send", target: workerIdentity, availability: "available", last_result: null }] }], last_result: { bucket: "accepted-a", accepted_at: 100000, handlers: [{ handler_id: "handler-a", status: "success", execution_id: "handler-execution-a", accepted_at: 100000 }, { handler_id: "handler-b", status: "failed", execution_id: "handler-execution-b", accepted_at: 100000 }] }, stop: { allowed: true, reason: null } },
