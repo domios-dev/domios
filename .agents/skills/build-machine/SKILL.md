@@ -149,9 +149,26 @@ not install or replace the tool, and the default no-install path is unchanged.
 The helper creates a non-breakaway, kill-on-close Windows Job before its first owned executable.
 It starts the pinned client suspended, assigns it to that Job, then resumes it. The pinned client
 source starts the server with `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW` and does not request
-breakaway. The helper still verifies one Job process-membership snapshot after the real startup
-notification, retains and validates the server process handle, and checks the loopback listener
-PID at that readiness boundary. Only then does it run bounded `--show-stats` as diagnostic evidence.
+breakaway. After the start client exits and both captures complete, the helper queries
+`JobObjectBasicAccountingInformation` and `JobObjectBasicProcessIdList` once each. The accounting
+API's `ActiveProcesses` can include exited processes until their references are released; the
+process-list API separately returns assigned and listed PID counts, with a smaller returned list
+indicating incomplete buffer capacity. The helper records both API results, errors, counts,
+required/returned sizes, PIDs, and query timestamps before readiness classification. It requires a
+complete unique PID list (`assigned == listed == returned PID count`) and accepts accounting only
+in this range: `listed PID count <= ActiveProcesses <= listed PID count + verified owned exited
+launch handles absent from that list`. Each allowance requires a retained launch handle whose PID
+and creation time still match, confirmed process exit, and completed captures; all launch facts and
+excluded PIDs remain in the receipt. Any query error, incomplete or inconsistent snapshot, unknown
+member, or out-of-range accounting refuses. See Microsoft's definitions for
+[`JOBOBJECT_BASIC_ACCOUNTING_INFORMATION`](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_accounting_information)
+and [`JOBOBJECT_BASIC_PROCESS_ID_LIST`](https://learn.microsoft.com/en-us/windows/win32/api/winnt/ns-winnt-jobobject_basic_process_id_list).
+
+Exactly one remaining live PID may be the server candidate. A retained process handle must prove
+its PID and creation identity, Job membership before and after inspection, liveness, exact image,
+hash and account, plus the loopback listener owner. Listener refusal evidence retains at most 32
+rows plus the total and a truncation flag. Only after this proof does the helper run bounded
+`--show-stats` as diagnostic evidence.
 The captured output must be complete and untruncated, with each of the 16 pinned aggregate integer
 counters exactly once and zero: `Compile requests`, `Compile requests executed`, `Cache hits`,
 `Cache misses`, `Cache timeouts`, `Cache read errors`, `Forced recaches`, `Cache write errors`,
@@ -179,9 +196,12 @@ if a termination request succeeded.
 The provisioning operation does not run a Rust case and does not leave a daemon for later jobs.
 Native success must be reviewed from one separately admitted run at the reviewed full SHA, with
 actual archive, PE, process/Job/listener, capture, exit, and handle evidence. Portable contract
-controls establish only pure source decisions. The three groups select 81 cases: 13 archive
-pin/shape cases, 31 input/ownership/deadline/reuse and actual C# decoder/lease cases, and 37
-completion/output/freshness/statistics/rollback cases. The independent literal fixture pins the
+controls establish only pure source decisions. The three groups select 93 cases: 14 archive
+pin/shape cases, 31 input/ownership/deadline/reuse and actual C# decoder/lease cases, and 48
+completion/output/freshness/statistics/rollback and Job membership cases. Membership controls
+exercise one candidate, retained exited launches plus one candidate, no candidate, ambiguous or
+unverified members, unsettled captures, accounting and PID-list API/incomplete failures, accounting
+length failure, and out-of-bound accounting through the production classifier. The independent literal fixture pins the
 16-counter zero output schema; fresh-zero statistics remains diagnostic and is not readiness proof.
 Reuse controls reject invalid receipts, invalid executable identity, or executable bytes that differ
 from the verified pinned archive. Capture receipts drop an incomplete leading line when the native
