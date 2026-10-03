@@ -7,6 +7,30 @@ import { onRemoteTransportState } from "./remoteTabTransportState";
 describe("remote chat event subscription ownership", () => {
   afterEach(() => vi.unstubAllGlobals());
 
+  it("forwards peer state changes without local mux events", async () => {
+    const frames = [
+      { boot: "state-boot", seq: 1, event_type: "mux-state-changed", data: {} },
+      { boot: "state-boot", seq: 1, event_type: "mux-state-changed", data: {} },
+      { boot: "state-boot", seq: 2, event_type: "tab-status-changed", data: { tab_id: "other-tab" } },
+    ];
+    vi.stubGlobal("fetch", async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(new TextEncoder().encode(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(""))); },
+    })));
+    const received: unknown[] = [];
+    let resolve!: () => void;
+    const delivered = new Promise<void>((done) => { resolve = done; });
+    const stop = subscribeRemoteTabEvent("peer-state-changed:mesh:peer/tab", ({ payload }) => {
+      received.push(payload);
+      if (received.length === 2) resolve();
+    });
+    expect(stop).not.toBeNull();
+    await delivered;
+    expect(received.length).toBe(2);
+    resumeRemoteTabEvents();
+    expect(remoteTabEventSubscriptionSnapshot("peer-state-changed:mesh:peer/tab")?.generation).toBe(1);
+    stop!();
+  });
+
   it("resume does not supersede a first-frame-awaiting connection; unsubscribe owns it", async () => {
     // In-flight fetch, no frame delivered yet: resume must leave it alone rather
     // than restart it mid initial replay (the churn race that blanked panes).
