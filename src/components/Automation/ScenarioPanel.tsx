@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, Bot, Clock3, List, Network, Radar } from "lucide-react";
 import { AutomationCanvas } from "./AutomationCanvas";
-import { AutomationDetails, AutomationDetailsUnavailable } from "./AutomationDetails";
+import { AutomationDetails } from "./AutomationDetails";
+import { usePresence, type PresenceMotion } from "../Canvas/usePresence";
 import { automationState, scopedAutomationGraph } from "./model";
 import { sentinelJobType } from "./scenarios";
 import { AUTOMATION_ROW, AUTOMATION_TOOL, stateTone } from "./styles";
@@ -35,41 +36,52 @@ function ParticipantList({ graph, selected, onSelect }: { graph: AutomationGraph
   })}</ul></div>;
 }
 
-export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBack, headingLevel = 2, children }: {
+/** Shares the app's right side-panel motion so every detail drawer opens the same calm way. */
+const DRAWER_MOTION: PresenceMotion = { enter: "ct-plan-side-panel-in", exit: "ct-plan-side-panel-out" };
+
+/** `fill` stretches the scenario over a bounded parent's remaining height; embedded consumers keep content height. */
+export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBack, headingLevel = 2, fill = false, children }: {
   state: ScenarioState; scope: AutomationScope; scenario: AutomationScenario; camera: AutomationCamera;
-  backLabel: string; onBack: () => void; headingLevel?: 2 | 3; children?: ReactNode;
+  backLabel: string; onBack: () => void; headingLevel?: 2 | 3; fill?: boolean; children?: ReactNode;
 }) {
   const [list, setList] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const body = useRef<HTMLDivElement>(null);
+  const drawer = usePresence<string>(selected, DRAWER_MOTION);
   const { workspace_id, team_id } = scope;
   const graph = useMemo(() => state.graph ? scopedAutomationGraph({ ...state.graph, scenarios: [scenario] }, { workspace_id, team_id }) : null, [state.graph, scenario, workspace_id, team_id]);
-  const node = graph?.nodes.find((candidate) => automationKey(candidate.identity) === selected);
+  const shown = drawer.item;
+  const node = graph?.nodes.find((candidate) => automationKey(candidate.identity) === shown) ?? null;
   const select = (next: AutomationNode) => {
-    if (document.activeElement instanceof HTMLElement) opener.current = document.activeElement;
+    const active = document.activeElement;
+    // A participant opened from inside the drawer keeps the original opener so closing returns behind the drawer.
+    if (active instanceof HTMLElement && !drawer.ref.current?.contains(active)) opener.current = active;
     setSelected(automationKey(next.identity));
   };
   const closeDetails = () => {
     setSelected(null);
-    if (opener.current?.isConnected) opener.current.focus();
+    if (opener.current?.isConnected && !drawer.ref.current?.contains(opener.current)) opener.current.focus();
     else body.current?.querySelector<HTMLElement>('[role="region"], ul button')?.focus();
   };
   const Heading = headingLevel === 3 ? "h3" : "h2";
   const ToggleIcon = list ? Network : List;
-  return <div className="min-w-0">
+  return <div className={`flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : ""}`}>
     <div className="flex flex-wrap items-center gap-2 border-b border-[var(--ct-border)] px-4 py-3">
       <button type="button" className={AUTOMATION_TOOL} onClick={onBack}><ArrowLeft size={14} aria-hidden="true" />{backLabel}</button>
       <Heading className="min-w-0 flex-1 truncate text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]"><span>{scenario.name}</span><span className="font-normal text-[var(--ct-muted-fg)]"> · {sentinelJobType(graph?.nodes ?? [])}</span></Heading>
       <button type="button" className={AUTOMATION_TOOL} aria-pressed={list} onClick={() => setList(!list)}><ToggleIcon size={14} aria-hidden="true" />{list ? "Show graph" : "Show list"}</button>
     </div>
     {children}
-    {graph && <div ref={body}>
+    {graph && <div ref={body} className={`relative flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : drawer.state ? "min-h-[28rem]" : ""}`}>
       {graph.nodes.length === 0 && <p role="alert" className="px-4 py-3">The Sentinel root is unavailable.</p>}
-      {list ? <ParticipantList graph={graph} selected={selected} onSelect={select} /> : <AutomationCanvas graph={graph} selected={selected} camera={camera} onSelect={select} />}
-      {node
-        ? <AutomationDetails node={node} nodes={graph.nodes} edges={graph.edges} stale={state.failed} stopping={state.stopping === selected} stopFailed={state.stopFailed === selected} onStop={() => { void state.stop(node.identity); }} onSelect={select} onClose={closeDetails} />
-        : selected !== null && <AutomationDetailsUnavailable onClose={closeDetails} />}
+      {list
+        ? <div className={fill ? "min-h-0 flex-1 overflow-y-auto" : undefined}><ParticipantList graph={graph} selected={selected} onSelect={select} /></div>
+        : <AutomationCanvas graph={graph} selected={selected} camera={camera} fill={fill} onSelect={select} />}
+      {drawer.state && shown !== null && <div className="plan-side-panel-layer">
+        <AutomationDetails node={node} nodes={graph.nodes} edges={graph.edges} stale={state.failed} stopping={state.stopping === shown} stopFailed={state.stopFailed === shown}
+          onStop={() => { if (node) void state.stop(node.identity); }} onSelect={select} onClose={closeDetails} panelRef={drawer.ref} presence={drawer.state} />
+      </div>}
     </div>}
   </div>;
 }

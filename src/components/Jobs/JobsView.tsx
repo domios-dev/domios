@@ -80,7 +80,7 @@ function JobsSurface({ adapter, attachment, initialScenarioId, cronActionAdapter
     return <CronWorkspaceView cronId={id} actionAdapter={cronActionAdapter} backLabel="All jobs" onBack={() => { void crons.refresh(); back(`cron:${id}`); }} />;
   }
   if (scenario) {
-    return <ScenarioPanel state={automation} scope={attachment} scenario={scenario} camera={cameraFor(scenario.id)} backLabel="All jobs" headingLevel={3} onBack={() => back(`scenario:${scenario.id}`)}>
+    return <ScenarioPanel state={automation} scope={attachment} scenario={scenario} camera={cameraFor(scenario.id)} backLabel="All jobs" headingLevel={3} fill onBack={() => back(`scenario:${scenario.id}`)}>
       <AutomationNotices state={automation} noun="Sentinels" />
     </ScenarioPanel>;
   }

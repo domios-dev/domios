@@ -26,7 +26,7 @@ export function WorkspaceAutomationView({ workspaceId, teams, onClose, adapter, 
       </label>
       <button type="button" className={AUTOMATION_TOOL} aria-label="Close jobs" title="Close jobs" onClick={onClose}><X size={15} aria-hidden="true" /></button>
     </header>
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {teamAvailable
         ? <JobsView workspaceId={workspaceId} teamId={teamId} adapter={adapter} initialScenarioId={teamId === initialTeamId ? initialScenarioId : undefined} cronActionAdapter={cronActionAdapter} />
         : <p role="alert" className="p-4">The selected Team is unavailable.</p>}
