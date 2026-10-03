@@ -12,7 +12,7 @@ def digest(path):
         return hashlib.file_digest(stream, 'sha256').hexdigest()
 
 
-def verify(project):
+def verify(project, git_ref=None):
     inventory = json.loads((project / 'inventory.json').read_text(encoding='utf-8'))
     for item in inventory['files']:
         path = (project / item['path']).resolve()
@@ -20,6 +20,13 @@ def verify(project):
             raise ValueError('Archive path escapes the project')
         if path.stat().st_size != item['bytes'] or digest(path) != item['sha256']:
             raise ValueError(f"Archived input changed: {item['path']}")
+        if git_ref:
+            repo = Path(__file__).resolve().parents[2]
+            spec = f'{git_ref}:{path.relative_to(repo).as_posix()}'
+            blob = subprocess.run(['git', 'cat-file', 'blob', spec], cwd=repo,
+                                  check=True, stdout=subprocess.PIPE, stdin=subprocess.DEVNULL).stdout
+            if len(blob) != item['bytes'] or hashlib.sha256(blob).hexdigest() != item['sha256']:
+                raise ValueError(f"Git archive bytes differ: {item['path']}")
     return inventory
 
 
@@ -37,12 +44,13 @@ def main():
     parser = argparse.ArgumentParser(description='Rebuild the selected trailer from Git-owned inputs')
     parser.add_argument('--project', type=Path, default=Path(__file__).resolve().parent / 'projects/domios-memory-2026-10-03')
     parser.add_argument('--verify-only', action='store_true')
+    parser.add_argument('--git-ref')
     parser.add_argument('--output', type=Path)
     parser.add_argument('--render-picture', action='store_true')
     parser.add_argument('--font', type=Path)
     args = parser.parse_args()
     project = args.project.resolve()
-    inventory = verify(project)
+    inventory = verify(project, args.git_ref)
     print(f"Verified {len(inventory['files'])} archived files", flush=True)
     if args.verify_only:
         return
