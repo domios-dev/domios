@@ -18,7 +18,7 @@ on:
       evaluator_scope:
         description: Focused evaluator/task qualification or the existing full matrix
         type: choice
-        options: [full, jev-linux, jev-windows, jev-windows-inventory, rust-windows-task-local, windows-sccache-maintenance]
+        options: [full, jev-linux, jev-windows, jev-windows-inventory, rust-windows-task-local, sentinel-linux-task-local, windows-sccache-maintenance]
         default: full
         required: true
       expected_source_sha:
@@ -1413,6 +1413,411 @@ jobs:
         with:
           name: rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: error
+
+  sentinel-linux-task-local:
+    name: Sentinel probe fixed qualification (Linux)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'sentinel-linux-task-local' }}
+    runs-on: [self-hosted, linux-build]
+    env:
+      EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+      WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
+      EVENT_SOURCE_SHA: ${{ github.sha }}
+      TEST_CAP_SECS: '600'
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Create fresh qualification receipt directory
+        id: task_boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt_dir="${RUNNER_TEMP}/sentinel-linux-task-local-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if [[ -e "$receipt_dir" ]]; then
+            echo 'receipt_directory_already_exists' >&2
+            exit 1
+          fi
+          mkdir -- "$receipt_dir"
+          printf '%s\n' '{"schema":"sentinel-linux-fixed-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
+          printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Ensure Rust toolchain on PATH
+        shell: bash
+        run: |
+          if command -v rustc >/dev/null 2>&1; then rustc -vV; exit 0; fi
+          for dir in "$CARGO_HOME/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin; do
+            if [ -x "$dir/rustc" ]; then
+              echo "$dir" >> "$GITHUB_PATH"
+              "$dir/rustc" -vV
+              exit 0
+            fi
+          done
+          echo "rustc not found; restore Rust on the runner" >&2
+          exit 1
+      - name: Run fixed Sentinel cases and retain raw outcomes
+        shell: bash
+        run: |
+          set +e
+          set -u -o pipefail
+          receipt_dir="${RUNNER_TEMP}/sentinel-linux-task-local-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if [[ ! -d "$receipt_dir" || ! -f "$receipt_dir/receipt.json" ]]; then
+            echo 'fresh_receipt_directory_missing' >&2
+            exit 1
+          fi
+          portable_log="$receipt_dir/portable-controls.log"
+          native_log="$receipt_dir/linux-native.log"
+          : > "$portable_log"
+          : > "$native_log"
+          preflight_ready=true
+          source_before_clean=true
+          preflight_errors=()
+          refuse_preflight() {
+            preflight_ready=false
+            preflight_errors+=("$1")
+          }
+          checkout_sha="$(git rev-parse HEAD 2>/dev/null)"
+          checkout_status=$?
+          if (( checkout_status != 0 )); then refuse_preflight checkout_identity_unavailable; fi
+          if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then refuse_preflight expected_source_sha_invalid; fi
+          if [[ "$EXPECTED_SOURCE_SHA" != "$WORKFLOW_SOURCE_SHA" || "$EXPECTED_SOURCE_SHA" != "$EVENT_SOURCE_SHA" || "$EXPECTED_SOURCE_SHA" != "$checkout_sha" ]]; then
+            refuse_preflight source_identity_mismatch
+          fi
+          source_before="$(git status --porcelain --untracked-files=all 2>&1)"
+          source_before_status=$?
+          printf '%s\n' "$source_before" > "$receipt_dir/source-before.status"
+          if (( source_before_status != 0 )) || [[ -n "$source_before" ]]; then
+            source_before_clean=false
+            refuse_preflight dirty_checkout_before
+          fi
+          if [[ -e .env ]]; then refuse_preflight ambient_dotenv_refused; fi
+          if [[ -n "${CARGO_TARGET_DIR:-}" || -n "${CARGO_TEST_CMD:-}" || -n "${CARGO_TEST_BUILD_CMD:-}" ]]; then refuse_preflight ambient_test_override_refused; fi
+          while IFS= read -r name; do
+            case "$name" in
+              CODETERM_EMBED_CACHE_DIR) ;;
+              CODETERM_*)
+                if [[ -n "${!name}" ]]; then refuse_preflight ambient_codeterm_binding_refused; fi
+                ;;
+            esac
+          done < <(compgen -e | LC_ALL=C grep '^CODETERM_')
+          for tool in bash cargo node rustc sha256sum; do
+            if ! command -v "$tool" >/dev/null 2>&1; then refuse_preflight "${tool}_missing"; fi
+          done
+          rustc_identity=''
+          cargo_identity=''
+          node_identity=''
+          if command -v rustc >/dev/null 2>&1; then
+            rustc_identity="$(rustc -vV 2>&1)"
+            if (( $? != 0 )); then refuse_preflight rustc_identity_failed; fi
+          fi
+          if command -v cargo >/dev/null 2>&1; then
+            cargo_identity="$(cargo --version 2>&1)"
+            if (( $? != 0 )); then refuse_preflight cargo_identity_failed; fi
+          fi
+          if command -v node >/dev/null 2>&1; then
+            node_identity="$(node --version 2>&1)"
+            if (( $? != 0 )); then refuse_preflight node_identity_failed; fi
+          fi
+          input_paths=(
+            '.github/workflows/tests.yml'
+            'build.sh'
+            'scripts/test-capped.sh'
+            'src-tauri/Cargo.toml'
+            'src-tauri/src/sentinel/probe.rs'
+            'src-tauri/src/sentinel/probe/capture.rs'
+            'src-tauri/src/sentinel/probe/native_tests.rs'
+            'src-tauri/src/sentinel/probe/owner.rs'
+            'src-tauri/src/sentinel/probe/process.rs'
+            'src-tauri/src/sentinel/probe/tests.rs'
+            'src-tauri/src/sentinel/probe/unix.rs'
+            'src-tauri/src/sentinel/probe/windows.rs'
+            'src-tauri/src/sentinel/scheduler.rs'
+          )
+          : > "$receipt_dir/source-hashes.tsv"
+          for path in "${input_paths[@]}"; do
+            if [[ ! -f "$path" ]]; then
+              refuse_preflight source_input_missing
+              continue
+            fi
+            hash_line="$(sha256sum -- "$path" 2>&1)"
+            hash_status=$?
+            if (( hash_status != 0 )); then
+              refuse_preflight source_hash_failed
+              continue
+            fi
+            printf '%s\t%s\n' "${hash_line%% *}" "$path" >> "$receipt_dir/source-hashes.tsv"
+          done
+          portable_exit=''
+          native_exit=''
+          portable_wall=''
+          native_wall=''
+          stub_cleanup_status=0
+          if [[ "$preflight_ready" == true ]]; then
+            SECONDS=0
+            TEST_CAP_SECS=600 ./build.sh test-one app sentinel::probe::tests:: > "$portable_log" 2>&1
+            portable_exit=$?
+            portable_wall=$SECONDS
+            cat "$portable_log"
+            SECONDS=0
+            TEST_CAP_SECS=600 ./build.sh test-one app sentinel_probe_native_ > "$native_log" 2>&1
+            native_exit=$?
+            native_wall=$SECONDS
+            cat "$native_log"
+            stub_dirs=()
+            [[ -d src-tauri/bundled-cli ]] && stub_dirs+=(src-tauri/bundled-cli)
+            [[ -d src-tauri/bundled-embed ]] && stub_dirs+=(src-tauri/bundled-embed)
+            if (( ${#stub_dirs[@]} > 0 )); then
+              find "${stub_dirs[@]}" -maxdepth 1 -type f -size 0 -delete 2> "$receipt_dir/stub-cleanup.stderr"
+              stub_cleanup_status=$?
+            fi
+          fi
+          source_after="$(git status --porcelain --untracked-files=all 2>&1)"
+          source_after_status=$?
+          printf '%s\n' "$source_after" > "$receipt_dir/source-after.status"
+          git diff HEAD -- > "$receipt_dir/source-after.diff"
+          source_diff_status=$?
+          source_after_head="$(git rev-parse HEAD 2>/dev/null)"
+          source_after_head_status=$?
+          source_after_clean=true
+          if (( source_after_status != 0 || source_diff_status != 0 || source_after_head_status != 0 )) || [[ -n "$source_after" || "$source_after_head" != "$checkout_sha" ]]; then
+            source_after_clean=false
+          fi
+          export SENTINEL_EXPECTED_SOURCE_SHA="$EXPECTED_SOURCE_SHA"
+          export SENTINEL_WORKFLOW_SOURCE_SHA="$WORKFLOW_SOURCE_SHA"
+          export SENTINEL_EVENT_SOURCE_SHA="$EVENT_SOURCE_SHA"
+          export SENTINEL_CHECKOUT_SHA="$checkout_sha"
+          export SENTINEL_SOURCE_BEFORE_CLEAN="$source_before_clean"
+          export SENTINEL_PREFLIGHT_READY="$preflight_ready"
+          export SENTINEL_PREFLIGHT_ERRORS="$(IFS=,; printf '%s' "${preflight_errors[*]}")"
+          export SENTINEL_SOURCE_AFTER_CLEAN="$source_after_clean"
+          export SENTINEL_PORTABLE_EXIT="$portable_exit"
+          export SENTINEL_PORTABLE_WALL="$portable_wall"
+          export SENTINEL_NATIVE_EXIT="$native_exit"
+          export SENTINEL_NATIVE_WALL="$native_wall"
+          export SENTINEL_STUB_CLEANUP_STATUS="$stub_cleanup_status"
+          export SENTINEL_RUSTC_IDENTITY="$rustc_identity"
+          export SENTINEL_CARGO_IDENTITY="$cargo_identity"
+          export SENTINEL_NODE_IDENTITY="$node_identity"
+          export SENTINEL_RECEIPT_DIR="$receipt_dir"
+          node <<'NODE'
+          const crypto = require('node:crypto');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const readline = require('node:readline');
+
+          const portablePrefix = 'sentinel::probe::tests::';
+          const portableSuffixes = [
+            'sentinel_probe_owner_retirement_refuses_signal',
+            'sentinel_probe_windows_assigns_before_resume',
+            'sentinel_probe_capture_failure_cannot_return_output',
+            'sentinel_probe_original_deadline_is_not_renewed',
+            'sentinel_probe_owner_capacity_refuses_before_spawn',
+            'sentinel_probe_owner_close_refuses_and_requests_cleanup',
+            'sentinel_probe_owner_drop_closes_without_retained_arc_cycle',
+            'sentinel_probe_owner_signalled_event_releases_exact_slot',
+            'sentinel_probe_owner_unresolved_slot_does_not_starve_settled_slot',
+            'sentinel_probe_owner_callback_observes_state_without_owner_lock',
+            'sentinel_probe_windows_permanent_close_uncertainty_is_retained',
+          ];
+          const nativePrefix = 'sentinel::probe::native_tests::';
+          const nativeExpected = [
+            ['sentinel_probe_native_success_and_nonzero', 'ok', null],
+            ['sentinel_probe_native_output_is_bounded_and_drained', 'ok', null],
+            ['sentinel_probe_native_closed_stream_live_child_is_unconfirmed', 'ok', null],
+            ['sentinel_probe_native_inherited_stream_deadline', 'ok', null],
+            ['sentinel_probe_native_windows_preexecution_containment', 'ignored', 'Windows Job containment oracle; not executed on this platform'],
+            ['sentinel_probe_native_cancelled_capture_settles', 'ignored', 'Windows overlapped cancellation oracle; not executed on this platform'],
+          ];
+          const expectedHashPaths = [
+            '.github/workflows/tests.yml', 'build.sh', 'scripts/test-capped.sh', 'src-tauri/Cargo.toml',
+            'src-tauri/src/sentinel/probe.rs', 'src-tauri/src/sentinel/probe/capture.rs',
+            'src-tauri/src/sentinel/probe/native_tests.rs', 'src-tauri/src/sentinel/probe/owner.rs',
+            'src-tauri/src/sentinel/probe/process.rs', 'src-tauri/src/sentinel/probe/tests.rs',
+            'src-tauri/src/sentinel/probe/unix.rs', 'src-tauri/src/sentinel/probe/windows.rs',
+            'src-tauri/src/sentinel/scheduler.rs',
+          ];
+          const dir = process.env.SENTINEL_RECEIPT_DIR;
+          const summaryPattern = /^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out; finished in ([0-9.]+)s$/;
+          const resultPattern = /^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED|ignored)(?:, (.+))?$/;
+
+          async function digestFile(file) {
+            const digest = crypto.createHash('sha256');
+            for await (const chunk of fs.createReadStream(file)) digest.update(chunk);
+            return digest.digest('hex');
+          }
+
+          async function readCase(config) {
+            const fullNames = config.expected.map(([suffix]) => config.prefix + suffix);
+            const expected = config.expected.map(([suffix, status, ignoreReason = null]) => ({ full_name: config.prefix + suffix, suffix, status, ignore_reason: ignoreReason }));
+            const actual = [];
+            const summaries = [];
+            const errors = new Set();
+            let resultLineCount = 0;
+            let summaryCount = 0;
+            const recordError = error => { if (errors.size < 32) errors.add(error); else errors.add('parser_error_overflow'); };
+            const logPath = path.join(dir, config.log);
+            try {
+              const input = fs.createReadStream(logPath);
+              const lines = readline.createInterface({ input, crlfDelay: Infinity });
+              for await (const line of lines) {
+                if (/^test result(?:\s|:)/.test(line)) {
+                  summaryCount += 1;
+                  const match = summaryPattern.exec(line);
+                  if (!match) recordError('malformed_summary_line');
+                  else if (summaries.length < 2) summaries.push({
+                    status: match[1], passed: Number(match[2]), failed: Number(match[3]),
+                    ignored: Number(match[4]), measured: Number(match[5]),
+                    filtered_out: Number(match[6]), libtest_seconds: Number(match[7]),
+                  });
+                } else if (/^test(?:\s|$)/.test(line)) {
+                  resultLineCount += 1;
+                  const match = resultPattern.exec(line);
+                  if (!match) recordError('malformed_test_result_line');
+                  else if (actual.length < expected.length + 1) actual.push({ full_name: match[1], suffix: match[1].startsWith(config.prefix) ? match[1].slice(config.prefix.length) : null, status: match[2], ignore_reason: match[3] || null });
+                }
+              }
+            } catch (error) {
+              recordError('log_read_failed');
+            }
+            const expectedByName = new Map(expected.map(row => [row.full_name, row]));
+            const actualCounts = new Map();
+            for (const row of actual) actualCounts.set(row.full_name, (actualCounts.get(row.full_name) || 0) + 1);
+            if (resultLineCount !== expected.length) recordError('test_result_count_mismatch');
+            if (resultLineCount > actual.length) recordError('result_capture_overflow');
+            if (new Set(actual.map(row => row.full_name)).size !== actual.length) recordError('duplicate_test_name');
+            for (const row of actual) {
+              if (!expectedByName.has(row.full_name)) recordError('unknown_test_name');
+              else {
+                const expectedRow = expectedByName.get(row.full_name);
+                if (expectedRow.status !== row.status) recordError('test_status_mismatch');
+                if (row.ignore_reason !== null && row.ignore_reason !== expectedRow.ignore_reason) recordError('ignore_reason_mismatch');
+                if (row.status !== 'ignored' && row.ignore_reason !== null) recordError('unexpected_test_result_suffix');
+              }
+            }
+            for (const name of fullNames) if (actualCounts.get(name) !== 1) recordError('missing_or_duplicate_expected_test');
+            if (summaryCount !== 1) recordError('summary_count_mismatch');
+            const summary = summaryCount === 1 && summaries.length === 1 ? summaries[0] : null;
+            const rawExit = process.env[config.exitEnv] === '' ? null : Number(process.env[config.exitEnv]);
+            const wall = process.env[config.wallEnv] === '' ? null : Number(process.env[config.wallEnv]);
+            if (summary) {
+              if (summary.status !== 'ok' || summary.passed !== config.counts.passed || summary.failed !== 0 || summary.ignored !== config.counts.ignored || summary.measured !== 0 || !Number.isFinite(summary.libtest_seconds) || summary.libtest_seconds < 0 || summary.passed + summary.failed + summary.ignored !== expected.length) recordError('summary_counts_mismatch');
+            }
+            if (rawExit !== 0) recordError('raw_build_exit_not_zero');
+            if (!Number.isFinite(wall) || wall < 0) recordError('wall_time_invalid');
+            const logHash = await digestFile(logPath).catch(() => null);
+            return {
+              selector: config.selector,
+              command: config.command,
+              expected,
+              actual,
+              summary,
+              raw_exit: Number.isInteger(rawExit) ? rawExit : null,
+              wall_seconds: Number.isFinite(wall) ? wall : null,
+              log: config.log,
+              log_sha256: logHash,
+              outcome: errors.size === 0 ? 'passed' : 'unqualified',
+              errors: [...errors],
+            };
+          }
+
+          (async () => {
+            const portableExpected = portableSuffixes.map(suffix => [suffix, 'ok', null]);
+            const cases = [
+              await readCase({
+                selector: 'sentinel::probe::tests::', prefix: portablePrefix,
+                command: './build.sh test-one app sentinel::probe::tests::',
+                expected: portableExpected, counts: { passed: 11, ignored: 0 },
+                log: 'portable-controls.log', exitEnv: 'SENTINEL_PORTABLE_EXIT', wallEnv: 'SENTINEL_PORTABLE_WALL',
+              }),
+              await readCase({
+                selector: 'sentinel_probe_native_', prefix: nativePrefix,
+                command: './build.sh test-one app sentinel_probe_native_',
+                expected: nativeExpected, counts: { passed: 4, ignored: 2 },
+                log: 'linux-native.log', exitEnv: 'SENTINEL_NATIVE_EXIT', wallEnv: 'SENTINEL_NATIVE_WALL',
+              }),
+            ];
+            const hashRows = fs.readFileSync(path.join(dir, 'source-hashes.tsv'), 'utf8').split(/\r?\n/).filter(Boolean).map(line => {
+              const [sha256, ...parts] = line.split('\t');
+              return { path: parts.join('\t'), sha256 };
+            });
+            const errors = [];
+            if (process.env.SENTINEL_PREFLIGHT_READY !== 'true') errors.push(...(process.env.SENTINEL_PREFLIGHT_ERRORS || '').split(',').filter(Boolean));
+            if (process.env.SENTINEL_SOURCE_AFTER_CLEAN !== 'true') errors.push('source_not_clean_after');
+            if (process.env.SENTINEL_STUB_CLEANUP_STATUS !== '0') errors.push('stub_cleanup_failed');
+            if (hashRows.length !== expectedHashPaths.length || new Set(hashRows.map(row => row.path)).size !== expectedHashPaths.length || expectedHashPaths.some(sourcePath => !hashRows.some(row => row.path === sourcePath)) || hashRows.some(row => !/^[0-9a-f]{64}$/.test(row.sha256) || !row.path)) errors.push('source_hash_inventory_invalid');
+            for (const row of cases) errors.push(...row.errors.map(error => `${row.selector}:${error}`));
+            const receipt = {
+              schema: 'sentinel-linux-fixed-v1',
+              outcome: errors.length === 0 && cases.every(row => row.outcome === 'passed') ? 'passed' : 'unqualified',
+              errors: [...new Set(errors)],
+              run_id: process.env.GITHUB_RUN_ID,
+              run_attempt: process.env.GITHUB_RUN_ATTEMPT,
+              source: {
+                expected_sha: process.env.SENTINEL_EXPECTED_SOURCE_SHA || '',
+                workflow_sha: process.env.SENTINEL_WORKFLOW_SOURCE_SHA || '',
+                event_sha: process.env.SENTINEL_EVENT_SOURCE_SHA || '',
+                checkout_sha: process.env.SENTINEL_CHECKOUT_SHA || '',
+                clean_before: process.env.SENTINEL_SOURCE_BEFORE_CLEAN === 'true',
+                clean_after: process.env.SENTINEL_SOURCE_AFTER_CLEAN === 'true',
+                stub_cleanup_attempted: process.env.SENTINEL_PREFLIGHT_READY === 'true',
+                stub_cleanup_exit: Number(process.env.SENTINEL_STUB_CLEANUP_STATUS),
+                hashes: hashRows,
+              },
+              runner: {
+                name: process.env.RUNNER_NAME || '', os: process.env.RUNNER_OS || '', arch: process.env.RUNNER_ARCH || '',
+                rustc: process.env.SENTINEL_RUSTC_IDENTITY || '',
+                cargo: process.env.SENTINEL_CARGO_IDENTITY || '',
+                node: process.env.SENTINEL_NODE_IDENTITY || '',
+              },
+              cases,
+            };
+            let body = JSON.stringify(receipt, null, 2) + '\n';
+            const receiptOverflow = Buffer.byteLength(body, 'utf8') > 65536;
+            if (receiptOverflow) {
+              const fallback = {
+                schema: 'sentinel-linux-fixed-v1', outcome: 'unqualified', errors: ['receipt_overflow'],
+                source: { expected_sha: receipt.source.expected_sha, workflow_sha: receipt.source.workflow_sha, event_sha: receipt.source.event_sha, checkout_sha: receipt.source.checkout_sha },
+                cases: cases.map(row => ({ selector: row.selector, expected: row.expected, actual: row.actual, summary: row.summary, raw_exit: row.raw_exit, wall_seconds: row.wall_seconds, log: row.log, log_sha256: row.log_sha256, errors: row.errors })),
+              };
+              body = JSON.stringify(fallback, null, 2) + '\n';
+            }
+            fs.writeFileSync(path.join(dir, 'receipt.json'), body, { flag: 'w' });
+            if (receipt.outcome !== 'passed' || receiptOverflow) process.exitCode = 1;
+          })().catch(() => {
+            console.error('receipt_generation_failed');
+            const fallback = {
+              schema: 'sentinel-linux-fixed-v1', outcome: 'unqualified', errors: ['receipt_generation_failed'],
+              source: {
+                expected_sha: process.env.SENTINEL_EXPECTED_SOURCE_SHA || '',
+                workflow_sha: process.env.SENTINEL_WORKFLOW_SOURCE_SHA || '',
+                event_sha: process.env.SENTINEL_EVENT_SOURCE_SHA || '',
+                checkout_sha: process.env.SENTINEL_CHECKOUT_SHA || '',
+              },
+              cases: [
+                { selector: 'sentinel::probe::tests::', expected: portableSuffixes.map(suffix => ({ full_name: portablePrefix + suffix, suffix, status: 'ok' })), actual: [], raw_exit: process.env.SENTINEL_PORTABLE_EXIT === '' ? null : Number(process.env.SENTINEL_PORTABLE_EXIT), wall_seconds: process.env.SENTINEL_PORTABLE_WALL === '' ? null : Number(process.env.SENTINEL_PORTABLE_WALL), log: 'portable-controls.log' },
+                { selector: 'sentinel_probe_native_', expected: nativeExpected.map(([suffix, status, ignoreReason]) => ({ full_name: nativePrefix + suffix, suffix, status, ignore_reason: ignoreReason })), actual: [], raw_exit: process.env.SENTINEL_NATIVE_EXIT === '' ? null : Number(process.env.SENTINEL_NATIVE_EXIT), wall_seconds: process.env.SENTINEL_NATIVE_WALL === '' ? null : Number(process.env.SENTINEL_NATIVE_WALL), log: 'linux-native.log' },
+              ],
+            };
+            try { fs.writeFileSync(path.join(dir, 'receipt.json'), JSON.stringify(fallback, null, 2) + '\n', { flag: 'w' }); } catch (_) { console.error('fallback_receipt_write_failed'); }
+            process.exitCode = 1;
+          });
+          NODE
+          node_status=$?
+          exit "$node_status"
+      - name: Retain complete Linux qualification evidence
+        if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: sentinel-linux-task-local-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/sentinel-linux-task-local-${{ github.run_id }}-${{ github.run_attempt }}/
           if-no-files-found: error
 
   windows-sccache-maintenance:
