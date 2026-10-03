@@ -928,28 +928,14 @@ impl ServiceContext {
             &env_vars,
         );
 
-        // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
-        let pty_id = {
-            let mut pty = self.pty.lock();
-            match pty.spawn(None, resolved_cwd, 120, 40, env_vars) {
-                Ok((id, _)) => id,
-                Err(error) => {
-                    drop(pty);
-                    let _ = self.revoke_agent_pad(&tab_id);
-                    self.rollback_provisional_tab(&ws_id, &tab_id);
-                    return Err(error);
-                }
+        let pty_id = match self.link_hidden_agent_pty(&tab_id, resolved_cwd, env_vars) {
+            Ok(pty_id) => pty_id,
+            Err(error) => {
+                let _ = self.revoke_agent_pad(&tab_id);
+                self.rollback_provisional_tab(&ws_id, &tab_id);
+                return Err(error);
             }
         };
-
-        let orphan = self.mux.write().link_pty(&tab_id, pty_id.clone());
-        if let Some(orphan) = orphan {
-            self.kill_ptys(&[orphan]);
-        }
-        crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
-        self.agent_run_pty_map
-            .lock()
-            .insert(tab_id.clone(), pty_id.clone());
         let assignment = agent.task.as_ref().map(|task| {
             if let Some(ref preamble) = agent.task_preamble {
                 format!("{preamble}{task}")
@@ -1043,6 +1029,33 @@ impl ServiceContext {
             budget_notice,
         })
     }
+
+    fn link_hidden_agent_pty(
+        &self,
+        tab_id: &str,
+        cwd: Option<String>,
+        env_vars: HashMap<String, String>,
+    ) -> Result<String, String> {
+        // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
+        let pty_id = self.pty.lock().spawn(None, cwd, 120, 40, env_vars)?.0;
+        #[cfg(test)]
+        self.pty_ownership.observe(
+            tab_id,
+            crate::service::pty_ownership::OwnershipEvent::Linking {
+                candidate: pty_id.clone(),
+                launch_owned: true,
+            },
+        );
+        let orphan = self.mux.write().link_pty(tab_id, pty_id.clone());
+        if let Some(orphan) = orphan {
+            self.kill_ptys(&[orphan]);
+        }
+        crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
+        self.agent_run_pty_map
+            .lock()
+            .insert(tab_id.to_string(), pty_id.clone());
+        Ok(pty_id)
+    }
 }
 
 /// A visible launch carries a minted marker so a hook-less provider still binds
@@ -1097,3 +1110,7 @@ mod tests_chatbackend;
 #[cfg(test)]
 #[path = "spawn_launch_marker_tests.rs"]
 mod launch_marker_tests;
+
+#[cfg(test)]
+#[path = "spawn_tests/pty_ownership.rs"]
+mod pty_ownership_tests;
