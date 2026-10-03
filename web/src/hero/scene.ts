@@ -124,6 +124,7 @@ export function createMeshScene(desk: HTMLDivElement) {
     activeBodyIndices.filter((index) => !nextActiveBodySet.has(index)).forEach(clearBody);
     activeBodyIndices = nextActiveBodies;
     const topologyChanged = nextChannels.length !== transfers.length;
+    const replacingTopology = topologyChanged && transfers.length > 0;
     channels = nextChannels;
     if (topologyChanged) {
       time = 0;
@@ -137,7 +138,7 @@ export function createMeshScene(desk: HTMLDivElement) {
       }
       const wasRetired = retiredRoutes.delete(index);
       node.style.display = '';
-      if (topologyChanged && !wasRetired) clearTransferVisual(index);
+      if (replacingTopology && !wasRetired) clearTransferVisual(index);
       node.querySelectorAll('path').forEach((path) => path.setAttribute('d', curvePath(channel.curve)));
       currents[index].setAttribute('stroke-dasharray', `28 ${channel.length + 28}`);
       const ports = node.querySelectorAll('circle');
