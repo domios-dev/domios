@@ -1,6 +1,33 @@
 use super::*;
 use windows_sys::Win32::System::Threading::{ResumeThread, PROCESS_INFORMATION, STARTUPINFOW};
 
+pub(crate) fn verify_empty_completion_port_timeout() {
+    let owner = Arc::new(ProbeResourceOwner::new());
+    let deadlines = Deadlines::start(Duration::from_secs(10), Duration::from_secs(10)).unwrap();
+    let mut run = WindowsRun::new(deadlines, owner.reserve().unwrap(), &owner);
+    let port = unsafe { CreateIoCompletionPort(INVALID_HANDLE_VALUE, null_mut(), 0, 1) };
+    run.port = OwnedHandle::new(port).unwrap();
+    run.port_registered = run.register(ResourceKind::OverlappedIo);
+    assert!(run.port_registered);
+
+    assert!(!run.wait_event(Some(Duration::ZERO)).unwrap());
+    assert!(run.port.is_open());
+    assert!(run.port_registered);
+    assert!(!run.permanent_unconfirmed);
+    assert!(!run.unknown_completion);
+    assert!(run.failure.is_none());
+    assert_eq!(owner.snapshot().active, 1);
+
+    let failure = run.finish_failure().unwrap_err();
+    assert!(!failure.is_unconfirmed(), "{failure:?}");
+    assert!(failure.cleanup_errors.is_empty(), "{failure:?}");
+    assert_eq!(
+        owner.snapshot().free,
+        super::super::owner::MAX_RESOURCE_SLOTS
+    );
+    assert_eq!(owner.snapshot().unconfirmed, 0);
+}
+
 pub(crate) fn verify_early_exit_notification() {
     let owner = Arc::new(ProbeResourceOwner::new());
     let deadlines = Deadlines::start(Duration::from_secs(10), Duration::from_secs(10)).unwrap();

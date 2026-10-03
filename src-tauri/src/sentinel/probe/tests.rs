@@ -10,6 +10,12 @@ const OWNER_EVENT_DEADLINE: Duration = Duration::from_secs(3);
 
 #[cfg(windows)]
 #[test]
+fn sentinel_probe_capture_windows_iocp_timeout_preserves_completion_ownership() {
+    super::windows::ordering_tests::verify_empty_completion_port_timeout();
+}
+
+#[cfg(windows)]
+#[test]
 fn sentinel_probe_early_job_exit_waits_for_owned_process() {
     super::windows::ordering_tests::verify_early_exit_notification();
 }
