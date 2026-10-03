@@ -42,6 +42,7 @@ export class FixtureTransport implements AutomationGraphAdapter {
   graph = fixtureGraph();
   changed?: () => void;
   reads = 0;
+  readStarted = deferred<void>();
   stops: AutomationIdentity[] = [];
   attachments: AutomationAttachment[] = [];
   unsubscribeCount = 0;
@@ -50,6 +51,7 @@ export class FixtureTransport implements AutomationGraphAdapter {
   async read(scope: AutomationAttachment, signal: AbortSignal) {
     this.reads++;
     this.attachments.push(scope);
+    this.readStarted.resolve();
     return this.readOverride ? this.readOverride(scope, signal) : this.graph;
   }
   async subscribe(scope: AutomationAttachment, changed: () => void) {

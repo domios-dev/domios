@@ -197,5 +197,19 @@ test("unconnected Team automation and host monitor stay absent from graph and li
   } finally { await view.close(); }
 });
 
-for (const [name, run] of tests) { await run(); console.log(`✓ ${name}`); }
-console.log(`${tests.length} AutomationGraphView cases passed`);
+let finished = false;
+async function main() {
+  for (const [name, run] of tests) { await run(); console.log(`✓ ${name}`); }
+  console.log(`${tests.length} AutomationGraphView cases passed`);
+  finished = true;
+}
+process.once("beforeExit", () => {
+  if (finished) return;
+  console.error("AutomationGraphView exited before its expected state event");
+  process.exitCode = 1;
+});
+void main().catch((error: unknown) => {
+  finished = true;
+  console.error(error);
+  process.exitCode = 1;
+});
