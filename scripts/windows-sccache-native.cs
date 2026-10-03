@@ -493,7 +493,7 @@ public static class WindowsSccacheNative {
         if (!errors.Contains("candidate_identity_deadline_expired")) errors.Add("candidate_identity_deadline_expired");
         return false;
     }
-    static bool CandidateFactsObserved(IDictionary proof) {
+    static bool CandidateFactsObserved(object proof) {
         return FactBool(proof, "HandleRetained") && FactBool(proof, "PidObserved") && FactBool(proof, "VerifiedPidObserved") && FactBool(proof, "CreationObserved") && FactBool(proof, "VerifiedCreationObserved") && FactBool(proof, "ImageObserved") && FactBool(proof, "AccountObserved") && FactBool(proof, "JobMembershipObservedBefore") && FactBool(proof, "JobMembershipObservedAfter") && FactBool(proof, "AliveObservedBefore") && FactBool(proof, "AliveObservedAfter") && (FactBool(proof, "AliveBefore") && FactBool(proof, "AliveAfter") || FactBool(proof, "ExitCodeObserved"));
     }
     static object CaptureCandidateProof(JobLease job, IList registry, uint pid, long deadlineTicks) {

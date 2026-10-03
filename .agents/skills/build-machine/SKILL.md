@@ -218,6 +218,8 @@ length failure, and out-of-bound accounting through the production classifier. T
 16-counter zero output schema; fresh-zero statistics remains diagnostic and is not readiness proof.
 Candidate-inventory controls exercise two retained diagnostic identities with an ambiguity refusal,
 an API-error refusal, and a truncation refusal through the production inventory classifier.
+If candidate validation fails C# compilation on an object-to-IDictionary conversion, keep the
+read-only fact predicate on the shared object-based Fact boundary and rerun ContractOnly.
 Reuse controls reject invalid receipts, invalid executable identity, or executable bytes that differ
 from the verified pinned archive. Capture receipts drop an incomplete leading line when the native
 32 KiB tail is truncated, while complete known token forms remain redacted; this is bounded known
