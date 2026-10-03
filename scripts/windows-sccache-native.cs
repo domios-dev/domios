@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
 using System.Net;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
@@ -38,6 +39,11 @@ public static class WindowsSccacheNative {
     const uint OPEN_EXISTING = 3;
     const uint FILE_ATTRIBUTE_NORMAL = 0x80;
     const uint HANDLE_FLAG_INHERIT = 1;
+    const uint PIPE_ACCESS_DUPLEX = 3;
+    const uint FILE_FLAG_OVERLAPPED = 0x40000000;
+    const uint FILE_FLAG_FIRST_PIPE_INSTANCE = 0x00080000;
+    const uint PIPE_REJECT_REMOTE_CLIENTS = 8;
+    const uint STARTUP_FRAME_LIMIT = 4096;
     [StructLayout(LayoutKind.Sequential)] struct SECURITY_ATTRIBUTES { public int nLength; public IntPtr lpSecurityDescriptor; public int bInheritHandle; }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct STARTUPINFO { public int cb; public string lpReserved; public string lpDesktop; public string lpTitle; public uint dwX; public uint dwY; public uint dwXSize; public uint dwYSize; public uint dwXCountChars; public uint dwYCountChars; public uint dwFillAttribute; public uint dwFlags; public ushort wShowWindow; public ushort cbReserved2; public IntPtr lpReserved2; public IntPtr hStdInput; public IntPtr hStdOutput; public IntPtr hStdError; }
     [StructLayout(LayoutKind.Sequential)] struct STARTUPINFOEX { public STARTUPINFO StartupInfo; public IntPtr lpAttributeList; }
@@ -50,6 +56,11 @@ public static class WindowsSccacheNative {
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool CreatePipe(out IntPtr hReadPipe, out IntPtr hWritePipe, ref SECURITY_ATTRIBUTES attrs, uint size);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetHandleInformation(IntPtr handle, uint mask, uint flags);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)] static extern IntPtr CreateFileW(string name, uint access, uint share, ref SECURITY_ATTRIBUTES attrs, uint creation, uint flags, IntPtr template);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)] static extern IntPtr CreateNamedPipeW(string name, uint openMode, uint pipeMode, uint maxInstances, uint outBufferSize, uint inBufferSize, uint defaultTimeout, IntPtr attrs);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetNamedPipeClientProcessId(IntPtr pipe, out uint pid);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)] static extern IntPtr CreateEventW(IntPtr attrs, bool manualReset, bool initialState, string name);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern bool SetEvent(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern uint WaitForMultipleObjects(uint count, IntPtr[] handles, bool waitAll, uint milliseconds);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool InitializeProcThreadAttributeList(IntPtr list, int count, int flags, ref IntPtr size);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool UpdateProcThreadAttribute(IntPtr list, uint flags, IntPtr attribute, IntPtr value, IntPtr size, IntPtr previous, IntPtr returned);
     [DllImport("kernel32.dll", SetLastError = true)] static extern void DeleteProcThreadAttributeList(IntPtr list);
@@ -162,6 +173,7 @@ public static class WindowsSccacheNative {
         public Capture Stderr;
         public bool Registered;
         public bool Created;
+        public bool DirectServer;
         public bool Assigned;
         public bool ResumeAttempted;
         public bool Resumed;
@@ -239,6 +251,242 @@ public static class WindowsSccacheNative {
         public ProcessLease[] Snapshot() { return leases.ToArray(); }
         public bool Contains(ProcessLease lease) { return leases.Contains(lease); }
     }
+    public sealed class StartupFrameResult {
+        public bool Valid;
+        public string Status;
+        public string Address;
+        public string Error;
+        public uint PayloadBytes;
+    }
+    public sealed class StartupNoticeEvidence {
+        public string PipePath;
+        public bool Connected;
+        public bool ReaderComplete;
+        public string ReaderError;
+        public uint ClientPid;
+        public uint ServerPid;
+        public uint HandlePidBefore;
+        public uint HandlePidAfter;
+        public long CapturedCreationFileTime;
+        public long CreationFileTimeBefore;
+        public long CreationFileTimeAfter;
+        public bool HandleRetained;
+        public bool JobMembershipBefore;
+        public bool JobMembershipAfter;
+        public bool AliveBefore;
+        public bool AliveAfter;
+        public StartupFrameResult Frame;
+        public bool Valid;
+        public string[] Reasons;
+    }
+    public sealed class DirectServerDecision {
+        public bool Valid;
+        public string[] Reasons;
+    }
+    public sealed class StartupNotificationLease {
+        public string PipePath;
+        public IntPtr RawPipeHandle;
+        public SafePipeHandle SafePipeHandle;
+        public NamedPipeServerStream Pipe;
+        public IntPtr CompletionHandle;
+        public CancellationTokenSource Cancellation;
+        public Task Reader;
+        public Task ReaderCompletion;
+        public byte[] Frame;
+        public StartupFrameResult Decoded;
+        public string ReaderError;
+        public uint ClientPid;
+        public bool Connected;
+        public bool ReaderComplete;
+        public bool ReaderStarted;
+        public bool Closed;
+        public long StartedTicks;
+        public long CompletedTicks;
+    }
+    public static StartupNotificationLease CreateStartupNotificationLease() {
+        return new StartupNotificationLease { PipePath = @"\\.\pipe\sccache-startup-" + Guid.NewGuid().ToString("N") };
+    }
+    public static string OpenStartupNotificationPipe(StartupNotificationLease lease) {
+        if (lease == null || lease.Closed || lease.RawPipeHandle != IntPtr.Zero || lease.SafePipeHandle != null) throw new InvalidOperationException("startup_pipe_lease_invalid");
+        IntPtr handle = CreateNamedPipeW(lease.PipePath, PIPE_ACCESS_DUPLEX | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_REJECT_REMOTE_CLIENTS, 1, 8192, 8192, 0, IntPtr.Zero);
+        lease.RawPipeHandle = handle;
+        if (handle == new IntPtr(-1)) { lease.RawPipeHandle = IntPtr.Zero; throw Last("CreateNamedPipeW(startup)"); }
+        lease.CompletionHandle = CreateEventW(IntPtr.Zero, true, false, null);
+        if (lease.CompletionHandle == IntPtr.Zero) throw Last("CreateEventW(startup_completion)");
+        lease.SafePipeHandle = new SafePipeHandle(handle, true);
+        lease.RawPipeHandle = IntPtr.Zero;
+        lease.Pipe = new NamedPipeServerStream(PipeDirection.InOut, true, false, lease.SafePipeHandle);
+        return lease.PipePath;
+    }
+    public static IDictionary<string,string> StartupServerEnvironment(IDictionary<string,string> source, string pipePath) {
+        if (source == null || String.IsNullOrEmpty(pipePath)) throw new ArgumentException("startup_server_environment_invalid");
+        var result = new SortedDictionary<string,string>(source, StringComparer.OrdinalIgnoreCase);
+        result["SCCACHE_START_SERVER"] = "1";
+        result["SCCACHE_STARTUP_NOTIFY"] = pipePath;
+        return result;
+    }
+    public static void BeginStartupNotificationRead(StartupNotificationLease lease) {
+        if (lease == null || lease.Pipe == null || lease.CompletionHandle == IntPtr.Zero || lease.ReaderStarted || lease.Closed) throw new InvalidOperationException("startup_reader_registration_invalid");
+        lease.Cancellation = new CancellationTokenSource();
+        lease.StartedTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+        lease.ReaderStarted = true;
+        lease.Reader = ReadStartupNotificationAsync(lease);
+        lease.ReaderCompletion = lease.Reader.ContinueWith(task => {
+            lease.ReaderComplete = true;
+            lease.CompletedTicks = System.Diagnostics.Stopwatch.GetTimestamp();
+            if (!SetEvent(lease.CompletionHandle)) lease.ReaderError = "startup_reader_completion_signal_failed:" + Marshal.GetLastWin32Error();
+        }, CancellationToken.None, TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+    }
+    static async Task ReadExactlyAsync(Stream stream, byte[] buffer, CancellationToken cancellation) {
+        int offset = 0;
+        while (offset < buffer.Length) {
+            int read = await stream.ReadAsync(buffer, offset, buffer.Length - offset, cancellation).ConfigureAwait(false);
+            if (read == 0) throw new EndOfStreamException("startup_frame_truncated");
+            offset += read;
+        }
+    }
+    static async Task<byte[]> ReadStartupFrameAsync(Stream stream, CancellationToken cancellation) {
+        var header = new byte[4];
+        await ReadExactlyAsync(stream, header, cancellation).ConfigureAwait(false);
+        uint payloadBytes = ((uint)header[0] << 24) | ((uint)header[1] << 16) | ((uint)header[2] << 8) | header[3];
+        if (payloadBytes < 4 || payloadBytes > STARTUP_FRAME_LIMIT) throw new InvalidDataException("startup_frame_length_invalid");
+        var frame = new byte[checked(4 + (int)payloadBytes)];
+        Buffer.BlockCopy(header, 0, frame, 0, 4);
+        await ReadExactlyAsync(stream, frame, 4, (int)payloadBytes, cancellation).ConfigureAwait(false);
+        var extra = new byte[1];
+        if (await stream.ReadAsync(extra, 0, 1, cancellation).ConfigureAwait(false) != 0) throw new InvalidDataException("startup_frame_trailing_bytes");
+        return frame;
+    }
+    static async Task ReadExactlyAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken cancellation) {
+        int readOffset = 0;
+        while (readOffset < count) {
+            int read = await stream.ReadAsync(buffer, offset + readOffset, count - readOffset, cancellation).ConfigureAwait(false);
+            if (read == 0) throw new EndOfStreamException("startup_frame_truncated");
+            readOffset += read;
+        }
+    }
+    static async Task ReadStartupNotificationAsync(StartupNotificationLease lease) {
+        try {
+            await lease.Pipe.WaitForConnectionAsync(lease.Cancellation.Token).ConfigureAwait(false);
+            lease.Connected = true;
+            Need(GetNamedPipeClientProcessId(lease.Pipe.SafePipeHandle.DangerousGetHandle(), out lease.ClientPid), "GetNamedPipeClientProcessId(startup)");
+            lease.Frame = await ReadStartupFrameAsync(lease.Pipe, lease.Cancellation.Token).ConfigureAwait(false);
+            lease.Decoded = DecodeStartupFrame(lease.Frame);
+            if (!lease.Decoded.Valid) lease.ReaderError = lease.Decoded.Error;
+        } catch (OperationCanceledException) { lease.ReaderError = "startup_reader_cancelled"; }
+        catch (Exception error) {
+            var win32 = error as Win32Exception;
+            lease.ReaderError = win32 == null ? error.GetType().Name + ":" + error.Message : error.GetType().Name + ":" + win32.NativeErrorCode;
+        }
+    }
+    static ulong ReadUInt64LittleEndian(byte[] bytes, int offset) {
+        ulong value = 0;
+        for (int i = 0; i < 8; i++) value |= (ulong)bytes[offset + i] << (i * 8);
+        return value;
+    }
+    static string ReadBincodeString(byte[] payload, ref int offset) {
+        if (payload.Length - offset < 8) throw new InvalidDataException("startup_bincode_string_length_incomplete");
+        ulong length = ReadUInt64LittleEndian(payload, offset); offset += 8;
+        if (length > STARTUP_FRAME_LIMIT || length > (ulong)(payload.Length - offset)) throw new InvalidDataException("startup_bincode_string_length_invalid");
+        string value = new UTF8Encoding(false, true).GetString(payload, offset, (int)length);
+        offset += (int)length;
+        if (offset != payload.Length) throw new InvalidDataException("startup_bincode_trailing_bytes");
+        return value;
+    }
+    public static StartupFrameResult DecodeStartupFrame(byte[] frame) {
+        var result = new StartupFrameResult { PayloadBytes = (uint)Math.Max(0, (frame == null ? 0 : frame.Length) - 4) };
+        try {
+            if (frame == null || frame.Length < 4) throw new InvalidDataException("startup_frame_header_incomplete");
+            uint payloadBytes = ((uint)frame[0] << 24) | ((uint)frame[1] << 16) | ((uint)frame[2] << 8) | frame[3];
+            if (payloadBytes < 4 || payloadBytes > STARTUP_FRAME_LIMIT) throw new InvalidDataException("startup_frame_length_invalid");
+            if (frame.Length != 4 + payloadBytes) throw new InvalidDataException("startup_frame_size_mismatch");
+            var payload = new byte[(int)payloadBytes]; Buffer.BlockCopy(frame, 4, payload, 0, payload.Length);
+            uint variant = (uint)(payload[0] | (payload[1] << 8) | (payload[2] << 16) | (payload[3] << 24));
+            if (variant == 0) { int offset = 4; result.Address = ReadBincodeString(payload, ref offset); result.Status = "Ok"; }
+            else if (variant == 1 || variant == 2) {
+                if (payload.Length != 4) throw new InvalidDataException("startup_bincode_unit_variant_size_invalid");
+                result.Status = variant == 1 ? "AddrInUse" : "TimedOut";
+            } else if (variant == 3) {
+                int offset = 4; ReadBincodeString(payload, ref offset); result.Status = "Err";
+            } else { throw new InvalidDataException("startup_bincode_variant_unknown"); }
+            result.Valid = true;
+        } catch (Exception error) { result.Valid = false; result.Error = error.Message; }
+        return result;
+    }
+    public static DirectServerDecision ClassifyDirectStartupNotice(StartupNoticeEvidence evidence) {
+        var reasons = new List<string>();
+        if (evidence == null) reasons.Add("startup_notice_missing");
+        else {
+            if (!evidence.Connected) reasons.Add("startup_pipe_connection_unconfirmed");
+            if (!evidence.ReaderComplete) reasons.Add("startup_reader_completion_unconfirmed");
+            if (!String.IsNullOrEmpty(evidence.ReaderError)) reasons.Add("startup_reader_error");
+            if (evidence.Frame == null || !evidence.Frame.Valid) reasons.Add("startup_frame_invalid");
+            else {
+                if (evidence.Frame.Status != "Ok") reasons.Add("startup_reply_not_success:" + evidence.Frame.Status);
+                if (evidence.Frame.Address != "127.0.0.1:4226") reasons.Add("startup_reply_endpoint_mismatch");
+            }
+            if (!evidence.HandleRetained || evidence.ServerPid == 0 || evidence.ClientPid != evidence.ServerPid || evidence.HandlePidBefore != evidence.ServerPid || evidence.HandlePidAfter != evidence.ServerPid) reasons.Add("startup_sender_process_identity_mismatch");
+            if (evidence.CapturedCreationFileTime <= 0 || evidence.CreationFileTimeBefore != evidence.CapturedCreationFileTime || evidence.CreationFileTimeAfter != evidence.CapturedCreationFileTime) reasons.Add("startup_process_creation_identity_mismatch");
+            if (!evidence.JobMembershipBefore || !evidence.JobMembershipAfter) reasons.Add("startup_process_job_membership_unconfirmed");
+            if (!evidence.AliveBefore || !evidence.AliveAfter) reasons.Add("startup_process_liveness_unconfirmed");
+        }
+        return new DirectServerDecision { Valid = reasons.Count == 0, Reasons = UniqueReasons(reasons) };
+    }
+    public static DirectServerDecision ClassifyDirectServerReadiness(StartupNoticeEvidence evidence, uint[] candidatePids, bool membershipValid, bool inventoryComplete, bool candidateProofValid) {
+        var reasons = new List<string>();
+        DirectServerDecision startup = ClassifyDirectStartupNotice(evidence);
+        reasons.AddRange(startup.Reasons);
+        if (!membershipValid) reasons.Add("direct_server_job_membership_refused");
+        if (!inventoryComplete) reasons.Add("direct_server_candidate_inventory_incomplete");
+        if (candidatePids == null || candidatePids.Length != 1) reasons.Add("direct_server_candidate_count_not_one");
+        else if (evidence == null || candidatePids[0] != evidence.ServerPid) reasons.Add("direct_server_candidate_identity_mismatch");
+        if (!candidateProofValid) reasons.Add("direct_server_image_hash_account_or_listener_unproven");
+        return new DirectServerDecision { Valid = reasons.Count == 0, Reasons = UniqueReasons(reasons) };
+    }
+    public static StartupNoticeEvidence WaitForStartupNotification(StartupNotificationLease lease, ProcessLease server, JobLease job, int milliseconds) {
+        var evidence = new StartupNoticeEvidence { PipePath = lease == null ? null : lease.PipePath, Frame = lease == null ? null : lease.Decoded };
+        long until = Environment.TickCount64 + Math.Max(0, milliseconds);
+        try {
+            if (lease == null || server == null || job == null || server.Handle == IntPtr.Zero || lease.Reader == null || lease.CompletionHandle == IntPtr.Zero) throw new InvalidOperationException("startup_wait_resources_unregistered");
+            evidence.ServerPid = server.Pid; evidence.CapturedCreationFileTime = server.CreatedFileTime; evidence.HandleRetained = true;
+            evidence.HandlePidBefore = HandleProcessId(server.Handle); evidence.CreationFileTimeBefore = ProcessCreation(server.Handle); evidence.JobMembershipBefore = job.Contains(server.Handle); evidence.AliveBefore = server.Alive;
+            uint wait = WaitForMultipleObjects(2, new[] { server.Handle, lease.CompletionHandle }, false, (uint)Remaining(until));
+            if (wait == WAIT_OBJECT_0) throw new InvalidOperationException("direct_server_exited_before_startup_notification");
+            if (wait == WAIT_TIMEOUT) throw new TimeoutException("direct_server_startup_notification_deadline_expired");
+            if (wait == WAIT_FAILED) throw Last("WaitForMultipleObjects(startup)");
+            if (wait != WAIT_OBJECT_0 + 1) throw new InvalidOperationException("startup_notification_wait_result_invalid");
+            if (lease.ReaderCompletion == null || !lease.ReaderCompletion.Wait(Remaining(until))) throw new TimeoutException("startup_reader_completion_deadline_expired");
+            evidence.Connected = lease.Connected; evidence.ReaderComplete = lease.ReaderComplete; evidence.ReaderError = lease.ReaderError; evidence.ClientPid = lease.ClientPid; evidence.Frame = lease.Decoded;
+            evidence.HandlePidAfter = HandleProcessId(server.Handle); evidence.CreationFileTimeAfter = ProcessCreation(server.Handle); evidence.JobMembershipAfter = job.Contains(server.Handle); evidence.AliveAfter = server.Alive;
+        } catch (Exception error) {
+            var win32 = error as Win32Exception;
+            evidence.ReaderError = win32 == null ? error.GetType().Name + ":" + error.Message : error.GetType().Name + ":" + win32.NativeErrorCode;
+            if (lease != null) { evidence.Connected = lease.Connected; evidence.ReaderComplete = lease.ReaderComplete; evidence.ClientPid = lease.ClientPid; evidence.Frame = lease.Decoded; }
+        }
+        DirectServerDecision decision = ClassifyDirectStartupNotice(evidence);
+        evidence.Valid = decision.Valid; evidence.Reasons = decision.Reasons;
+        return evidence;
+    }
+    public static bool CancelStartupNotification(StartupNotificationLease lease) {
+        if (lease == null || lease.Closed) return true;
+        bool cancelled = true;
+        try { if (lease.Cancellation != null) lease.Cancellation.Cancel(); } catch { cancelled = false; }
+        try { if (lease.Pipe != null) lease.Pipe.Dispose(); else if (lease.SafePipeHandle != null) lease.SafePipeHandle.Dispose(); else if (!TryCloseHandle(ref lease.RawPipeHandle)) cancelled = false; } catch { cancelled = false; }
+        if (lease.SafePipeHandle != null && !lease.SafePipeHandle.IsClosed) cancelled = false;
+        return cancelled;
+    }
+    public static bool CloseStartupNotification(StartupNotificationLease lease, int milliseconds) {
+        if (lease == null || lease.Closed) return true;
+        long until = Environment.TickCount64 + Math.Max(0, milliseconds); bool stream = CancelStartupNotification(lease);
+        if (lease.RawPipeHandle != IntPtr.Zero && !TryCloseHandle(ref lease.RawPipeHandle)) stream = false;
+        if (lease.Reader != null && !lease.Reader.Wait(Remaining(until))) return false;
+        if (lease.ReaderCompletion != null && !lease.ReaderCompletion.Wait(Remaining(until))) return false;
+        bool completed = !lease.ReaderStarted || lease.ReaderComplete;
+        bool eventClosed = TryCloseHandle(ref lease.CompletionHandle);
+        try { if (lease.Cancellation != null) lease.Cancellation.Dispose(); } catch { completed = false; }
+        lease.Closed = stream && completed && eventClosed;
+        return lease.Closed;
+    }
     static bool TryCloseHandle(ref IntPtr handle) {
         if (handle == IntPtr.Zero) return true;
         if (!CloseHandle(handle)) return false;
@@ -246,6 +494,7 @@ public static class WindowsSccacheNative {
     }
     public static LaunchRegistry CreateLaunchRegistry() { return new LaunchRegistry(); }
     public static ProcessLease RegisterLaunch(LaunchRegistry registry) { if (registry == null) throw new ArgumentNullException("registry"); return registry.Register(); }
+    public static ProcessLease RegisterDirectServerLaunch(LaunchRegistry registry) { var lease = RegisterLaunch(registry); lease.DirectServer = true; return lease; }
     public static object[] SnapshotLaunches(LaunchRegistry registry) { return registry == null ? new object[0] : (object[])registry.Snapshot(); }
     public static bool TerminateUnassigned(ProcessLease lease) {
         if (!lease.Created || lease.Assigned || lease.Handle == IntPtr.Zero || lease.UnassignedTerminationAttempted) throw new InvalidOperationException("unassigned_child_termination_state_invalid");
@@ -574,6 +823,61 @@ public static class WindowsSccacheNative {
             PureControl("candidate_inventory_truncation_refused", () => !truncated.Valid && truncated.CapturedPids.Length == 32 && Array.IndexOf(truncated.Reasons, "candidate_inventory_truncated") >= 0)
         };
     }
+    static StartupNoticeEvidence StartupControlEvidence(byte[] frame) {
+        return new StartupNoticeEvidence { Connected = true, ReaderComplete = true, ClientPid = 701, ServerPid = 701, HandlePidBefore = 701, HandlePidAfter = 701, CapturedCreationFileTime = 1001, CreationFileTimeBefore = 1001, CreationFileTimeAfter = 1001, HandleRetained = true, JobMembershipBefore = true, JobMembershipAfter = true, AliveBefore = true, AliveAfter = true, Frame = DecodeStartupFrame(frame) };
+    }
+    public static object[] StartupNotificationContractControls() {
+        byte[] okay = new byte[] { 0,0,0,26, 0,0,0,0, 14,0,0,0,0,0,0,0, 49,50,55,46,48,46,48,46,49,58,52,50,50,54 };
+        byte[] otherEndpoint = new byte[] { 0,0,0,26, 0,0,0,0, 14,0,0,0,0,0,0,0, 49,50,55,46,48,46,48,46,49,58,52,50,50,55 };
+        byte[] addrInUse = new byte[] { 0,0,0,4, 1,0,0,0 };
+        byte[] timedOut = new byte[] { 0,0,0,4, 2,0,0,0 };
+        byte[] error = new byte[] { 0,0,0,12, 3,0,0,0, 0,0,0,0,0,0,0,0 };
+        byte[] unknown = new byte[] { 0,0,0,4, 4,0,0,0 };
+        byte[] partial = new byte[] { 0,0,0,4, 1,0,0 };
+        byte[] oversize = new byte[] { 0,0,16,1 };
+        var trailing = new byte[okay.Length + 1]; Buffer.BlockCopy(okay, 0, trailing, 0, okay.Length);
+        var results = new List<object>();
+        results.Add(PureControl("direct_server_startup_reply_and_identity_positive", () => {
+            var evidence = StartupControlEvidence(okay);
+            return ClassifyDirectServerReadiness(evidence, new uint[] { 701 }, true, true, true).Valid;
+        }));
+        results.Add(PureControl("direct_server_startup_wrong_endpoint_refused", () => !ClassifyDirectStartupNotice(StartupControlEvidence(otherEndpoint)).Valid));
+        results.Add(PureControl("direct_server_startup_addr_in_use_refused", () => !ClassifyDirectStartupNotice(StartupControlEvidence(addrInUse)).Valid));
+        results.Add(PureControl("direct_server_startup_timeout_refused", () => !ClassifyDirectStartupNotice(StartupControlEvidence(timedOut)).Valid));
+        results.Add(PureControl("direct_server_startup_error_status_refused", () => !ClassifyDirectStartupNotice(StartupControlEvidence(error)).Valid));
+        results.Add(PureControl("direct_server_startup_unknown_variant_refused", () => !ClassifyDirectStartupNotice(StartupControlEvidence(unknown)).Valid));
+        results.Add(PureControl("direct_server_startup_partial_frame_refused", () => !ClassifyDirectStartupNotice(StartupControlEvidence(partial)).Valid));
+        results.Add(PureControl("direct_server_startup_oversize_frame_refused", () => !ClassifyDirectStartupNotice(StartupControlEvidence(oversize)).Valid));
+        results.Add(PureControl("direct_server_startup_trailing_frame_bytes_refused", () => !DecodeStartupFrame(trailing).Valid));
+        results.Add(PureControl("direct_server_startup_reader_completion_unconfirmed", () => { var evidence = StartupControlEvidence(okay); evidence.ReaderComplete = false; return !ClassifyDirectStartupNotice(evidence).Valid; }));
+        results.Add(PureControl("direct_server_startup_foreign_sender_refused", () => { var evidence = StartupControlEvidence(okay); evidence.ClientPid = 702; return !ClassifyDirectStartupNotice(evidence).Valid; }));
+        results.Add(PureControl("direct_server_startup_creation_identity_refused", () => { var evidence = StartupControlEvidence(okay); evidence.CreationFileTimeAfter++; return !ClassifyDirectStartupNotice(evidence).Valid; }));
+        results.Add(PureControl("direct_server_startup_job_membership_refused", () => { var evidence = StartupControlEvidence(okay); evidence.JobMembershipAfter = false; return !ClassifyDirectStartupNotice(evidence).Valid; }));
+        results.Add(PureControl("direct_server_startup_early_exit_refused", () => { var evidence = StartupControlEvidence(okay); evidence.AliveAfter = false; return !ClassifyDirectStartupNotice(evidence).Valid; }));
+        results.Add(PureControl("direct_server_extra_conhost_candidate_refused", () => !ClassifyDirectServerReadiness(StartupControlEvidence(okay), new uint[] { 701, 702 }, false, true, false).Valid));
+        results.Add(PureControl("direct_server_listener_or_identity_proof_refused", () => !ClassifyDirectServerReadiness(StartupControlEvidence(okay), new uint[] { 701 }, true, true, false).Valid));
+        results.Add(PureControl("direct_server_job_snapshot_api_error_refused", () => !ClassifyDirectServerReadiness(StartupControlEvidence(okay), new uint[] { 701 }, false, true, true).Valid));
+        results.Add(PureControl("direct_server_candidate_inventory_incomplete_refused", () => !ClassifyDirectServerReadiness(StartupControlEvidence(okay), new uint[] { 701 }, true, false, true).Valid));
+        return results.ToArray();
+    }
+    static JobProcessSnapshot DirectMemberSnapshot(uint[] pids) {
+        uint count = (uint)pids.Length; ulong bytes = 8UL + (ulong)count * (ulong)IntPtr.Size;
+        return new JobProcessSnapshot { AccountingQuerySucceeded = true, AccountingComplete = true, AccountingError = 0, AccountingActiveProcesses = count, AccountingReturnLength = 48, AccountingRequiredBytes = 48, AccountingStartedTicks = 1, AccountingCompletedTicks = 2, ProcessListQuerySucceeded = true, ProcessListError = 0, AssignedCount = count, ListedCount = count, ProcessListReturnLength = (uint)bytes, BufferCapacity = 8192, BufferBytes = 65544, RequiredBytes = bytes, ProcessListStartedTicks = 3, ProcessListCompletedTicks = 4, ProcessIds = pids, Complete = true };
+    }
+    static Dictionary<string,object> DirectMemberFact(uint pid, bool alive, bool identityValid) {
+        return new Dictionary<string,object> { { "Created", true }, { "DirectServer", true }, { "Pid", pid }, { "HandlePid", pid }, { "CapturedCreationFileTime", (long)pid + 1000 }, { "CurrentCreationFileTime", (long)pid + 1000 }, { "Assigned", true }, { "HandleRetained", true }, { "IdentityValid", identityValid }, { "ProcessExitConfirmed", false }, { "CapturesComplete", false }, { "Alive", alive } };
+    }
+    public static object[] DirectServerMemberContractControls() {
+        var direct = DirectMemberFact(701, true, true);
+        var one = ClassifyJobMembers(DirectMemberSnapshot(new uint[] { 701 }), new object[] { direct });
+        var two = ClassifyJobMembers(DirectMemberSnapshot(new uint[] { 701, 702 }), new object[] { direct });
+        var unverified = ClassifyJobMembers(DirectMemberSnapshot(new uint[] { 701 }), new object[] { DirectMemberFact(701, false, false) });
+        return new object[] {
+            PureControl("direct_server_launch_lease_remains_live_candidate", () => one.Reasons.Length == 0 && ArrayEquals(one.CandidatePids, new uint[] { 701 }) && one.Members.Length == 1),
+            PureControl("direct_server_and_conhost_both_remain_candidates", () => ArrayEquals(two.CandidatePids, new uint[] { 701, 702 }) && Array.IndexOf(ClassifyCandidateInventory(2, false, true, two.CandidatePids, new object[] { CandidateControlFact(701, false), CandidateControlFact(702, false) }).Reasons, "job_server_candidate_ambiguous") >= 0),
+            PureControl("direct_server_unverified_lease_refused", () => unverified.Reasons.Length != 0 && unverified.CandidatePids.Length == 0)
+        };
+    }
     static bool ArrayEquals(uint[] left, uint[] right) { if (left == null || right == null || left.Length != right.Length) return false; for (int i = 0; i < left.Length; i++) if (left[i] != right[i]) return false; return true; }
     public static bool WaitHandle(IntPtr p, int ms) { return WaitSignaledOrTimeout(p, ms, "WaitForSingleObject(handle)"); }
     public static bool WaitCapture(Capture c, int ms) { return c.WaitEof(ms); }
@@ -715,7 +1019,7 @@ public static class WindowsSccacheNative {
         if (!listComplete || assigned != listed || listed != (uint)pids.Count || capacity < assigned || requiredBytes != expectedRequiredBytes || requiredBytes > bufferBytes || processLength < minimumReturnedBytes || processLength > bufferBytes) reasons.Add("job_process_list_incomplete");
         var seen = new HashSet<uint>();
         foreach (uint pid in pids) if (pid == 0 || !seen.Add(pid)) reasons.Add("job_process_list_duplicate_or_invalid_pid");
-        var createdLeases = new List<object>(); var validExitedPids = new HashSet<uint>();
+        var createdLeases = new List<object>(); var validExitedPids = new HashSet<uint>(); uint directServerPid = 0; int directServerCount = 0;
         foreach (object lease in leases ?? new object[0]) {
             if (!FactBool(lease, "Created")) continue;
             createdLeases.Add(lease);
@@ -724,16 +1028,24 @@ public static class WindowsSccacheNative {
             bool assignedLease = FactBool(lease, "Assigned"); bool handleRetained = FactBool(lease, "HandleRetained");
             bool identityValid = FactBool(lease, "IdentityValid") && pid != 0 && pid == handlePid && captured > 0 && captured == current;
             bool exited = FactBool(lease, "ProcessExitConfirmed"); bool captures = FactBool(lease, "CapturesComplete");
+            bool directServer = FactBool(lease, "DirectServer"); bool alive = FactBool(lease, "Alive");
             bool listedInSnapshot = seen.Contains(pid) || seen.Contains(handlePid);
-            bool validExit = ValidExitedLaunch(lease);
+            bool validExit = !directServer && ValidExitedLaunch(lease);
+            if (directServer) { directServerPid = pid; directServerCount++; }
             if (!assignedLease) reasons.Add("owned_launch_assignment_unconfirmed");
             if (!handleRetained || !identityValid) reasons.Add("owned_launch_identity_unconfirmed");
-            if (!exited) reasons.Add("owned_launch_exit_unconfirmed");
-            if (!captures) reasons.Add("owned_launch_capture_unconfirmed");
+            if (directServer) {
+                if (exited || !alive) reasons.Add("direct_server_live_lease_unconfirmed");
+            } else {
+                if (!exited) reasons.Add("owned_launch_exit_unconfirmed");
+                if (!captures) reasons.Add("owned_launch_capture_unconfirmed");
+            }
             if (validExit) validExitedPids.Add(pid);
-            ownedFacts.Add(new { Pid = pid, HandlePid = handlePid, CapturedCreationFileTime = captured, CurrentCreationFileTime = current, Assigned = assignedLease, HandleRetained = handleRetained, IdentityValid = identityValid, IdentityError = FactString(lease, "IdentityError"), ProcessExitConfirmed = exited, ExitCode = Fact(lease, "ExitCode"), CapturesComplete = captures, ListedInProcessIdList = listedInSnapshot, Classification = validExit ? (listedInSnapshot ? "owned_exited_listed" : "owned_exited_unlisted") : "owned_exit_unconfirmed" });
+            ownedFacts.Add(new { Pid = pid, HandlePid = handlePid, CapturedCreationFileTime = captured, CurrentCreationFileTime = current, Assigned = assignedLease, HandleRetained = handleRetained, IdentityValid = identityValid, IdentityError = FactString(lease, "IdentityError"), ProcessExitConfirmed = exited, ExitCode = Fact(lease, "ExitCode"), CapturesComplete = captures, ListedInProcessIdList = listedInSnapshot, DirectServer = directServer, Alive = alive, Classification = directServer && identityValid && assignedLease && alive && !exited ? "retained_direct_server_candidate" : validExit ? (listedInSnapshot ? "owned_exited_listed" : "owned_exited_unlisted") : "owned_exit_unconfirmed" });
             if (validExit) excludedExits.Add(new { Pid = pid, HandlePid = handlePid, CapturedCreationFileTime = captured, CurrentCreationFileTime = current, ExitCode = Fact(lease, "ExitCode"), CapturesComplete = captures, ListedInProcessIdList = listedInSnapshot });
         }
+        if (directServerCount > 1) reasons.Add("direct_server_launch_identity_ambiguous");
+        if (directServerCount == 1 && !seen.Contains(directServerPid)) reasons.Add("direct_server_missing_from_job_process_list");
         for (int i = 0; i < createdLeases.Count; i++) {
             uint pid = FactUInt(createdLeases[i], "Pid");
             for (int j = i + 1; j < createdLeases.Count; j++) if (pid != 0 && pid == FactUInt(createdLeases[j], "Pid")) reasons.Add("owned_launch_identity_ambiguous");
@@ -747,6 +1059,14 @@ public static class WindowsSccacheNative {
             long captured = FactLong(matched, "CapturedCreationFileTime"); long current = FactLong(matched, "CurrentCreationFileTime");
             bool identityMatches = FactBool(matched, "Assigned") && FactBool(matched, "HandleRetained") && FactBool(matched, "IdentityValid") && launchPid == memberPid && handlePid == memberPid && captured > 0 && captured == current;
             bool exited = FactBool(matched, "ProcessExitConfirmed"); bool captures = FactBool(matched, "CapturesComplete");
+            if (FactBool(matched, "DirectServer")) {
+                bool live = FactBool(matched, "Alive");
+                if (!identityMatches) reasons.Add("direct_server_member_identity_unconfirmed");
+                if (!live || exited) reasons.Add("direct_server_member_not_live");
+                if (identityMatches && live && !exited) candidates.Add(memberPid);
+                members.Add(new { Pid = memberPid, Classification = identityMatches && live && !exited ? "direct_server_candidate" : "direct_server_identity_unconfirmed", OwnedLaunchPid = launchPid, HandlePid = handlePid, CapturedCreationFileTime = captured, CurrentCreationFileTime = current, Alive = live, ProcessExitConfirmed = exited, CapturesComplete = captures, IdentityError = FactString(matched, "IdentityError") });
+                continue;
+            }
             if (!identityMatches) reasons.Add("owned_launch_member_identity_mismatch");
             if (!exited) reasons.Add("owned_launch_member_exit_unconfirmed");
             if (!captures) reasons.Add("owned_launch_member_capture_unconfirmed");
