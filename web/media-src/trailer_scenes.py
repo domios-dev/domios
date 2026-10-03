@@ -91,7 +91,12 @@ def timed_shots(timing):
 
 def cuts_for(edits):
     reasons = list(HARD_CUTS.values())
-    return {edit['at']: reason for edit, reason in zip([edit for edit in edits[1:] if edit['name'] != 'Across the board'], reasons)}
+    original = [edit for edit in edits[1:] if edit['name'] not in ('Across the board', 'Shared Memory')]
+    cuts = {edit['at']: reason for edit, reason in zip(original, reasons)}
+    for edit in edits:
+        if edit['name'] == 'Shared Memory':
+            cuts[edit['at']] = 'Fleet view to owner-recorded Memory explanation'
+    return cuts
 
 
 def source_time(edit, time):
