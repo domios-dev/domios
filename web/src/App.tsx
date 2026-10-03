@@ -41,8 +41,8 @@ export function App() {
         <h1 id="hero-title">Agents <span>live here.</span></h1>
         <ul className="hero-capabilities">
           <li><span>One memory. Every agent.</span><small>Shared on this machine.</small></li>
-          <li>Scheduled work</li>
-          <li>Your messenger <small>Telegram updates &amp; replies</small></li>
+          <li><span>Scheduled work</span><small>Tasks on your schedule.</small></li>
+          <li><span>Your messenger</span><small>Telegram updates &amp; replies</small></li>
         </ul>
         <div className="hero-actions"><DownloadControl download={download} /><a className="button secondary" href={github}><Icon name="github" size={18} /><span>Find us on GitHub</span><Icon name="arrow" size={16} /></a></div>
         <ProviderStrip />
