@@ -1,0 +1,32 @@
+{
+  "source": "Owner-supplied product screenshots",
+  "modifications": "Crop sidebar and OS chrome; resize and encode for the website. Product content unchanged.",
+  "images": [
+    {
+      "name": "memory",
+      "sourceSha256": "e40322241a30ed0dbe5b28ba4e6ee6087638c302ae939321673d0503842df36c",
+      "crop": [
+        329,
+        44,
+        2314,
+        1472
+      ],
+      "width": 1200,
+      "height": 863,
+      "sha256": "235465edf0f7ad3113c0f6f469568124c743a0438f040814ab7bc725d8182329"
+    },
+    {
+      "name": "dreams",
+      "sourceSha256": "430f4258695b18b1698c2e8eeb00de318ebf791d085f45c03077bc1900df5bb4",
+      "crop": [
+        329,
+        44,
+        2316,
+        1471
+      ],
+      "width": 1200,
+      "height": 862,
+      "sha256": "9f30b2481595d3c82e8a9aed6f6cf4e81dd2b9feeccb1962b8a9a5db96979ad9"
+    }
+  ]
+}
