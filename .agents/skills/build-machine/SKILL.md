@@ -91,6 +91,10 @@ the reusable Windows job in `.github/workflows/release-windows.yml`, called by t
 
 ### Pinned cache maintenance and same-job task sessions
 
+If the session function returns an array instead of its session record, check for
+unconsumed method results. Suppress the Boolean from candidate-list `Remove` with
+`[void]`; PowerShell otherwise includes it in the function output stream.
+
 `archive_refused:unexpected_archive_shape` with the pinned digest can mean the
 allowlist omitted the release README/LICENSE. The verified 0.18.0 ZIP contains
 the root directory, executable, README.md and LICENSE; only the executable is installed.

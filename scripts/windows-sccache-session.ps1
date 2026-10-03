@@ -901,7 +901,7 @@ function Start-WindowsSccacheSession {
             $proof.Errors = @($proofErrors)
             $candidateProofs = @($proof)
             $proofOwned = $proof.HandleRetained -and $proof.PidFromHandle -eq $serverPid -and $proof.VerifiedPidFromHandle -eq $serverPid -and $proof.CreationFileTime -gt 0 -and $proof.CreationFileTime -eq $proof.VerifiedCreationFileTime -and $proof.IsProcessInJobBefore -and $proof.IsProcessInJobAfter -and $proof.ImageMatches -and $proof.HashMatches -and $proof.AccountMatches -and $proof.AliveBefore -and $proof.AliveAfter -and $proof.ListenerMatches -and $proof.Errors.Count -eq 0
-            if ($proofOwned) { $session.Server = $candidate; $session.CandidateHandles.Remove($candidate) }
+            if ($proofOwned) { $session.Server = $candidate; [void]$session.CandidateHandles.Remove($candidate) }
         }
         $membership = Get-JobMembershipDecision @{ Snapshot = $jobSnapshot; Leases = $launchFacts; CandidateProofs = $candidateProofs }
         $session.Receipt.job_membership_candidate_proofs = $candidateProofs
