@@ -179,7 +179,7 @@ function WebAccessSection() {
     <div className="rounded border border-[var(--ct-border)] p-4 space-y-3">
       <div className="text-sm font-medium text-[var(--ct-fg)]">Web Access</div>
       <p className="text-xs text-[var(--ct-muted)]">
-        Open CodeTerm from a browser or phone. Paste the token below at the
+        Open Domios from a browser or phone. Paste the token below at the
         connection screen — it is this machine's API token, treat it like a
         password.
       </p>
@@ -295,7 +295,7 @@ function WebAccessSetup({
     return (
       <p data-testid="web-access-port-collision" className="text-xs text-[var(--ct-yellow)] leading-snug">
         Can't auto-enable: the public HTTPS port ({plan.httpsPort}) would collide
-        with a CodeTerm API port. Configure Tailscale Serve manually.
+        with a Domios API port. Configure Tailscale Serve manually.
       </p>
     );
   }
