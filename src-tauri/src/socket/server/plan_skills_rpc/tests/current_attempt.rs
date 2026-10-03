@@ -186,7 +186,9 @@ fn current_attempt_team_default_follows_changed_active_plan() {
     let team_id = {
         let mut mux = caller.svc.mux.write();
         mux.set_orchestrator_role(&tab_id).unwrap();
-        mux.resolve_or_mint_team_for_parent(&tab_id).unwrap().team_id
+        mux.resolve_or_mint_team_for_parent(&tab_id)
+            .unwrap()
+            .team_id
     };
     caller
         .svc
@@ -212,7 +214,7 @@ fn current_attempt_team_default_follows_changed_active_plan() {
             "Next active plan".into(),
             caller._project.path().display().to_string(),
             OrchestratorRef::from_tab(&tab_id),
-            team_id,
+            team_id.clone(),
             vec![],
             10,
         )
@@ -232,13 +234,67 @@ fn current_attempt_team_default_follows_changed_active_plan() {
     let shown = caller.show(params).unwrap();
     assert_eq!(shown["plan_id"], next.id);
     assert_eq!(shown["skill"]["title"], "next-plan-token");
+    let other = caller
+        .svc
+        .plan_store
+        .create_plan_for_team(
+            "Explicit other active plan".into(),
+            caller._project.path().display().to_string(),
+            OrchestratorRef::from_tab("other-owner"),
+            "explicit-other-team".into(),
+            vec![],
+            11,
+        )
+        .unwrap();
+    create_plan_skill(
+        &caller.svc.plan_store,
+        &other.id,
+        NewPlanSkill {
+            slug: CALLER_SKILL.into(),
+            title: Some("explicit-other-plan-token".into()),
+            area: None,
+            check: None,
+            rationale: None,
+        },
+    )
+    .unwrap();
+    let original = caller.svc.plan_store.get(&caller.plan_id).unwrap();
+    let active = caller.svc.plan_store.get(&next.id).unwrap();
+    let other_before = caller.svc.plan_store.get(&other.id).unwrap();
     let explicit = caller
         .show(json!({
-            "plan_id": caller.plan_id, "slug": CALLER_SKILL,
+            "plan_id": other.id, "slug": CALLER_SKILL,
             "caller_tab_id": tab_id, "session_binding_nonce": CALLER_NONCE,
         }))
         .unwrap();
-    assert_eq!(explicit["plan_id"], caller.plan_id);
+    assert_eq!(explicit["plan_id"], other.id);
+    assert_eq!(explicit["skill"]["title"], "explicit-other-plan-token");
+    assert_eq!(
+        caller.svc.plan_store.get(&caller.plan_id).unwrap(),
+        original
+    );
+    assert_eq!(caller.svc.plan_store.get(&next.id).unwrap(), active);
+    assert_eq!(caller.svc.plan_store.get(&other.id).unwrap(), other_before);
+    assert_eq!(
+        caller
+            .svc
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .team_id
+            .as_deref(),
+        Some(team_id.as_str())
+    );
+    assert_eq!(
+        caller
+            .svc
+            .plan_store
+            .active_plan_for_team(&team_id)
+            .unwrap()
+            .0,
+        next.id
+    );
 }
 
 #[test]
