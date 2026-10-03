@@ -1,5 +1,5 @@
 use std::sync::{Arc, Condvar, Mutex};
-use std::thread::{self, JoinHandle};
+use std::thread;
 
 #[cfg(windows)]
 use super::process::{ProbeFailure, ResourceKind};
@@ -24,7 +24,7 @@ struct Slot {
     resources: usize,
     retained: Option<Box<dyn RetainedResources>>,
     in_owner: bool,
-    settlement_attempted: bool,
+    terminal_unconfirmed: bool,
 }
 
 impl Default for Slot {
@@ -34,7 +34,7 @@ impl Default for Slot {
             resources: 0,
             retained: None,
             in_owner: false,
-            settlement_attempted: false,
+            terminal_unconfirmed: false,
         }
     }
 }
@@ -57,6 +57,7 @@ pub(super) trait RetainedResources: Send {
 }
 
 pub(super) struct Settlement {
+    pub primary: Option<String>,
     pub errors: Vec<String>,
     pub remains_unconfirmed: bool,
 }
@@ -75,30 +76,35 @@ impl RetainedResources for WindowsPending {
     }
 
     fn wait_for_settlement(&mut self) -> Settlement {
-        while !self.run.failure_resources_settled() && !self.run.unknown_completion {
+        while settlement_event_required(
+            self.run.failure_resources_settled(),
+            self.run.permanent_unconfirmed,
+            self.run.unknown_completion,
+        ) {
             if let Err(error) = self.run.wait_event(None) {
                 self.run.permanent_unconfirmed = true;
                 self.run.unknown_completion = true;
-                self.run.owner.record_failure(error);
+                self.run.record_retained_cleanup_error(error);
                 break;
             }
-            let mut ignored = ProbeFailure::new("probe_cleanup");
-            self.run.settle_cancelled_reads(&mut ignored);
+            let mut cleanup = ProbeFailure::new("probe_cleanup");
+            self.run.settle_cancelled_reads(&mut cleanup);
+            self.run.record_retained_cleanup_failure(cleanup);
             self.run.settle_idle_buffers();
             if let Err(error) = self.run.close_completed_runtime_handles() {
                 self.run.permanent_unconfirmed = true;
-                self.run.owner.record_failure(error);
+                self.run.record_retained_cleanup_error(error);
                 break;
             }
         }
-        let errors = self
+        let failure = self
             .run
             .failure
             .take()
-            .map(|failure| failure.cleanup_errors)
-            .unwrap_or_default();
+            .unwrap_or_else(|| ProbeFailure::new("probe_cleanup"));
         Settlement {
-            errors,
+            primary: Some(failure.primary.to_string()),
+            errors: failure.cleanup_errors,
             remains_unconfirmed: !self.run.failure_resources_settled()
                 || self.run.permanent_unconfirmed
                 || self.run.unknown_completion,
@@ -108,6 +114,30 @@ impl RetainedResources for WindowsPending {
 
 #[cfg(windows)]
 impl WindowsRun {
+    pub(super) fn close_reader(&mut self, stdout: bool) -> Result<(), String> {
+        if self.stream(stdout).pending_active || self.stream(stdout).connect_pending {
+            return Err("probe read endpoint cannot close while I/O is pending".into());
+        }
+        if let Err(error) = self.stream_mut(stdout).reader.close() {
+            return Err(mark_close_uncertain(
+                &mut self.permanent_unconfirmed,
+                error,
+            ));
+        }
+        let capture_registered =
+            std::mem::replace(&mut self.stream_mut(stdout).capture_registered, false);
+        self.settle_resource(ResourceKind::Capture, capture_registered);
+        let buffer_registered =
+            std::mem::replace(&mut self.stream_mut(stdout).buffer_registered, false);
+        self.settle_resource(ResourceKind::OverlappedIo, buffer_registered);
+        let connect_buffer_registered = std::mem::replace(
+            &mut self.stream_mut(stdout).connect_buffer_registered,
+            false,
+        );
+        self.settle_resource(ResourceKind::OverlappedIo, connect_buffer_registered);
+        Ok(())
+    }
+
     pub(super) fn settle_cancelled_reads(&mut self, failure: &mut ProbeFailure) {
         for stdout in [true, false] {
             if !self.stream(stdout).pending_active && !self.stream(stdout).connect_pending {
@@ -150,7 +180,12 @@ impl WindowsRun {
 
     pub(super) fn close_completed_runtime_handles(&mut self) -> Result<(), String> {
         if self.parent_exited && self.job_empty {
-            self.job.close()?;
+            if let Err(error) = self.job.close() {
+                return Err(mark_close_uncertain(
+                    &mut self.permanent_unconfirmed,
+                    error,
+                ));
+            }
             let registered = std::mem::replace(&mut self.job_registered, false);
             self.settle_resource(ResourceKind::Job, registered);
         }
@@ -162,7 +197,12 @@ impl WindowsRun {
             && !self.stdout.reader.is_open()
             && !self.stderr.reader.is_open()
         {
-            self.port.close()?;
+            if let Err(error) = self.port.close() {
+                return Err(mark_close_uncertain(
+                    &mut self.permanent_unconfirmed,
+                    error,
+                ));
+            }
             let registered = std::mem::replace(&mut self.port_registered, false);
             self.settle_resource(ResourceKind::OverlappedIo, registered);
         }
@@ -185,16 +225,36 @@ impl WindowsRun {
         if !self.runtime_success_ready() {
             return Err("probe success facts are incomplete".into());
         }
-        self.stdout.reader.close()?;
+        if let Err(error) = self.stdout.reader.close() {
+            return Err(mark_close_uncertain(
+                &mut self.permanent_unconfirmed,
+                error,
+            ));
+        }
         let stdout_registered = std::mem::replace(&mut self.stdout.capture_registered, false);
         self.settle_resource(ResourceKind::Capture, stdout_registered);
-        self.stderr.reader.close()?;
+        if let Err(error) = self.stderr.reader.close() {
+            return Err(mark_close_uncertain(
+                &mut self.permanent_unconfirmed,
+                error,
+            ));
+        }
         let stderr_registered = std::mem::replace(&mut self.stderr.capture_registered, false);
         self.settle_resource(ResourceKind::Capture, stderr_registered);
-        self.job.close()?;
+        if let Err(error) = self.job.close() {
+            return Err(mark_close_uncertain(
+                &mut self.permanent_unconfirmed,
+                error,
+            ));
+        }
         let job_registered = std::mem::replace(&mut self.job_registered, false);
         self.settle_resource(ResourceKind::Job, job_registered);
-        self.port.close()?;
+        if let Err(error) = self.port.close() {
+            return Err(mark_close_uncertain(
+                &mut self.permanent_unconfirmed,
+                error,
+            ));
+        }
         let port_registered = std::mem::replace(&mut self.port_registered, false);
         self.settle_resource(ResourceKind::OverlappedIo, port_registered);
         Ok(())
@@ -216,16 +276,68 @@ impl WindowsRun {
             && !self.job.is_open()
             && !self.port.is_open()
     }
+
+    pub(super) fn owner_is_closing(&self) -> bool {
+        self.owner
+            .upgrade()
+            .map_or(true, |owner| owner.is_closing())
+    }
+
+    pub(super) fn record_owner_failure(&self, diagnostic: impl AsRef<str>) {
+        if let Some(owner) = self.owner.upgrade() {
+            owner.record_failure(diagnostic);
+        }
+    }
+
+    pub(super) fn record_retained_cleanup_failure(&mut self, cleanup: ProbeFailure) {
+        if cleanup.cleanup_errors.is_empty() && cleanup.unconfirmed.is_empty() {
+            return;
+        }
+        let failure = self
+            .failure
+            .get_or_insert_with(|| ProbeFailure::new("probe_cleanup"));
+        failure.record_cleanup_errors(cleanup.cleanup_errors);
+        for resource in cleanup.unconfirmed {
+            failure.unconfirmed(resource);
+        }
+    }
+
+    pub(super) fn record_retained_cleanup_error(&mut self, error: impl AsRef<str>) {
+        self.failure
+            .get_or_insert_with(|| ProbeFailure::new("probe_cleanup"))
+            .cleanup_error(error);
+    }
+}
+
+pub(super) fn settlement_event_required(
+    resources_settled: bool,
+    permanent_unconfirmed: bool,
+    unknown_completion: bool,
+) -> bool {
+    !resources_settled && !permanent_unconfirmed && !unknown_completion
+}
+
+pub(super) fn mark_close_uncertain(permanent: &mut bool, error: String) -> String {
+    *permanent = true;
+    error
+}
+
+fn settlement_diagnostics(core: &Core, settlement: Settlement) {
+    if let Some(primary) = settlement.primary {
+        push_diagnostic(core, &primary);
+    }
+    for error in settlement.errors {
+        push_diagnostic(core, &error);
+    }
 }
 
 pub(in crate::sentinel) struct ProbeResourceOwner {
     core: Arc<Core>,
-    worker: Mutex<Option<JoinHandle<()>>>,
     unavailable: Option<String>,
 }
 
 pub(super) struct Reservation {
-    owner: Arc<ProbeResourceOwner>,
+    core: Arc<Core>,
     index: usize,
     resource_count: usize,
     finished: bool,
@@ -260,22 +372,28 @@ impl ProbeResourceOwner {
             }),
             changed: Condvar::new(),
         });
-        let worker_core = core.clone();
-        let worker = thread::Builder::new()
-            .name("sentinel-probe-owner".into())
-            .spawn(move || owner_loop(worker_core));
-        let (worker, unavailable) = match worker {
-            Ok(worker) => (Some(worker), None),
-            Err(error) => (None, Some(error.to_string())),
-        };
+        let mut unavailable = None;
+        for index in 0..MAX_RESOURCE_SLOTS {
+            let worker_core = core.clone();
+            match thread::Builder::new()
+                .name(format!("sentinel-probe-owner-{index}"))
+                .spawn(move || owner_loop(worker_core, index))
+            {
+                Ok(worker) => drop(worker),
+                Err(error) => {
+                    unavailable = Some(error.to_string());
+                    close_core(&core);
+                    break;
+                }
+            }
+        }
         Self {
             core,
-            worker: Mutex::new(worker),
             unavailable,
         }
     }
 
-    pub(super) fn reserve(self: &Arc<Self>) -> Result<Reservation, AdmissionError> {
+    pub(super) fn reserve(&self) -> Result<Reservation, AdmissionError> {
         if let Some(error) = &self.unavailable {
             return Err(AdmissionError::Unavailable(error.clone()));
         }
@@ -292,7 +410,7 @@ impl ProbeResourceOwner {
         };
         self.core.changed.notify_all();
         Ok(Reservation {
-            owner: self.clone(),
+            core: self.core.clone(),
             index,
             resource_count: 0,
             finished: false,
@@ -300,9 +418,7 @@ impl ProbeResourceOwner {
     }
 
     pub(super) fn close_admission(&self) {
-        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
-        state.closed = true;
-        self.core.changed.notify_all();
+        close_core(&self.core);
     }
 
     pub(super) fn is_closing(&self) -> bool {
@@ -339,26 +455,31 @@ impl ProbeResourceOwner {
     }
 
     #[cfg(test)]
-    pub(super) fn wait_for_unconfirmed(&self) {
+    pub(super) fn wait_for_unconfirmed_with_timeout(
+        &self,
+        timeout: std::time::Duration,
+    ) -> bool {
+        let deadline = std::time::Instant::now() + timeout;
         let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
-        while !state.slots.iter().any(|slot| slot.phase == Phase::Unconfirmed) {
-            state = self
+        loop {
+            if state.slots.iter().any(|slot| slot.phase == Phase::Unconfirmed) {
+                return true;
+            }
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() {
+                return false;
+            }
+            let (next, result) = self
                 .core
                 .changed
-                .wait(state)
+                .wait_timeout(state, remaining)
                 .unwrap_or_else(|error| error.into_inner());
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) fn wait_for_free_slots(&self, expected: usize) {
-        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
-        while state.slots.iter().filter(|slot| slot.phase == Phase::Free).count() < expected {
-            state = self
-                .core
-                .changed
-                .wait(state)
-                .unwrap_or_else(|error| error.into_inner());
+            state = next;
+            if result.timed_out()
+                && !state.slots.iter().any(|slot| slot.phase == Phase::Unconfirmed)
+            {
+                return false;
+            }
         }
     }
 
@@ -395,12 +516,7 @@ impl ProbeResourceOwner {
 
 impl Reservation {
     pub(super) fn register_resource(&mut self) -> Result<(), String> {
-        let mut state = self
-            .owner
-            .core
-            .state
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
         let slot = &mut state.slots[self.index];
         if !matches!(slot.phase, Phase::Reserved | Phase::Active) {
             return Err("probe resource registered outside an owned slot".into());
@@ -408,24 +524,19 @@ impl Reservation {
         slot.phase = Phase::Active;
         slot.resources = slot.resources.saturating_add(1);
         self.resource_count = self.resource_count.saturating_add(1);
-        self.owner.core.changed.notify_all();
+        self.core.changed.notify_all();
         Ok(())
     }
 
     pub(super) fn resource_settled(&mut self) -> Result<(), String> {
-        let mut state = self
-            .owner
-            .core
-            .state
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
         let slot = &mut state.slots[self.index];
         if self.resource_count == 0 || slot.resources == 0 {
             return Err("probe resource settlement was not registered".into());
         }
         slot.resources -= 1;
         self.resource_count -= 1;
-        self.owner.core.changed.notify_all();
+        self.core.changed.notify_all();
         Ok(())
     }
 
@@ -433,34 +544,24 @@ impl Reservation {
         if self.resource_count != 0 {
             return Err("probe slot released with unsettled resources".into());
         }
-        let mut state = self
-            .owner
-            .core
-            .state
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
         let slot = &mut state.slots[self.index];
         if slot.resources != 0 || !matches!(slot.phase, Phase::Reserved | Phase::Active) {
             return Err("probe slot ownership changed before release".into());
         }
         *slot = Slot::default();
         self.finished = true;
-        self.owner.core.changed.notify_all();
+        self.core.changed.notify_all();
         Ok(())
     }
 
     pub(super) fn retain(mut self, resources: Box<dyn RetainedResources>) {
-        let mut state = self
-            .owner
-            .core
-            .state
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
         let slot = &mut state.slots[self.index];
         slot.phase = Phase::Unconfirmed;
         slot.retained = Some(resources);
         self.finished = true;
-        self.owner.core.changed.notify_all();
+        self.core.changed.notify_all();
     }
 }
 
@@ -469,12 +570,7 @@ impl Drop for Reservation {
         if self.finished {
             return;
         }
-        let mut state = self
-            .owner
-            .core
-            .state
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
+        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
         let slot = &mut state.slots[self.index];
         if slot.phase == Phase::Reserved && slot.resources == 0 {
             *slot = Slot::default();
@@ -482,35 +578,42 @@ impl Drop for Reservation {
             slot.phase = Phase::Unconfirmed;
             push_diagnostic_locked(&mut state, "probe reservation dropped with owned resources");
         }
-        self.owner.core.changed.notify_all();
+        self.core.changed.notify_all();
     }
 }
 
 impl Drop for ProbeResourceOwner {
     fn drop(&mut self) {
         self.close_admission();
-        if let Ok(worker) = self.worker.get_mut() {
-            drop(worker.take());
-        }
     }
 }
 
-fn owner_loop(core: Arc<Core>) {
+fn owner_loop(core: Arc<Core>, index: usize) {
     loop {
-        let (index, mut resources) = {
+        let mut resources = {
             let mut state = core.state.lock().unwrap_or_else(|error| error.into_inner());
             loop {
-                if let Some(index) = state.slots.iter().position(|slot| {
-                    slot.retained.is_some() && !slot.settlement_attempted && !slot.in_owner
-                }) {
+                let resources = {
                     let slot = &mut state.slots[index];
-                    slot.in_owner = true;
-                    if let Some(resources) = slot.retained.take() {
-                        break (index, resources);
+                    if slot.retained.is_some() && !slot.in_owner && !slot.terminal_unconfirmed {
+                        slot.in_owner = true;
+                        slot.retained.take()
+                    } else {
+                        None
                     }
+                };
+                if let Some(resources) = resources {
+                    break resources;
                 }
-                if state.closed && state.slots.iter().all(|slot| slot.phase == Phase::Free) {
+                if state.closed && state.slots[index].phase == Phase::Free {
                     return;
+                }
+                if state.slots[index].terminal_unconfirmed {
+                    state = core
+                        .changed
+                        .wait(state)
+                        .unwrap_or_else(|error| error.into_inner());
+                    continue;
                 }
                 state = core
                     .changed
@@ -520,16 +623,19 @@ fn owner_loop(core: Arc<Core>) {
         };
         let cancel_errors = resources.request_cancel();
         let settlement = resources.wait_for_settlement();
-        for error in cancel_errors.into_iter().chain(settlement.errors) {
+        for error in cancel_errors {
             push_diagnostic(&core, &error);
         }
-        if settlement.remains_unconfirmed {
+        let remains_unconfirmed = settlement.remains_unconfirmed;
+        settlement_diagnostics(&core, settlement);
+        if remains_unconfirmed {
             let mut state = core.state.lock().unwrap_or_else(|error| error.into_inner());
             state.slots[index].retained = Some(resources);
             state.slots[index].in_owner = false;
-            state.slots[index].settlement_attempted = true;
+            state.slots[index].terminal_unconfirmed = true;
             state.slots[index].phase = Phase::Unconfirmed;
             core.changed.notify_all();
+            continue;
         } else {
             {
                 let mut state = core.state.lock().unwrap_or_else(|error| error.into_inner());
@@ -541,14 +647,17 @@ fn owner_loop(core: Arc<Core>) {
             state.slots[index] = Slot::default();
             core.changed.notify_all();
         }
-        let closed_and_empty = {
-            let state = core.state.lock().unwrap_or_else(|error| error.into_inner());
-            state.closed && state.slots.iter().all(|slot| slot.phase == Phase::Free)
-        };
-        if closed_and_empty {
+        let state = core.state.lock().unwrap_or_else(|error| error.into_inner());
+        if state.closed && state.slots[index].phase == Phase::Free {
             return;
         }
     }
+}
+
+fn close_core(core: &Core) {
+    let mut state = core.state.lock().unwrap_or_else(|error| error.into_inner());
+    state.closed = true;
+    core.changed.notify_all();
 }
 
 fn push_diagnostic(core: &Core, diagnostic: &str) {

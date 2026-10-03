@@ -40,7 +40,7 @@ pub(in crate::sentinel) enum ResourceState {
     Unconfirmed,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(in crate::sentinel) struct ProbeFailure {
     pub primary: &'static str,
     pub resources: ResourceState,

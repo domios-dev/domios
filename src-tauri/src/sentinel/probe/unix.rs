@@ -3,7 +3,7 @@ use std::os::fd::{IntoRawFd, RawFd};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use super::capture::{self, CaptureData};
@@ -32,7 +32,7 @@ pub(super) fn run(
     reservation: Reservation,
     owner: &Arc<ProbeResourceOwner>,
 ) -> Result<Output, ProbeFailure> {
-    let mut process = UnixRun::new(deadlines, reservation, owner.clone());
+    let mut process = UnixRun::new(deadlines, reservation, owner);
     if owner.is_closing() || process.deadlines.expired_operation() {
         process.failure = Some(ProbeFailure::new(if owner.is_closing() {
             "probe_owner_closing"
@@ -64,7 +64,7 @@ pub(super) fn run(
 
 struct UnixRun {
     deadlines: Deadlines,
-    owner: Arc<ProbeResourceOwner>,
+    owner: Weak<ProbeResourceOwner>,
     reservation: Option<Reservation>,
     child: Option<Child>,
     child_id: u32,
@@ -86,11 +86,11 @@ impl UnixRun {
     fn new(
         deadlines: Deadlines,
         reservation: Reservation,
-        owner: Arc<ProbeResourceOwner>,
+        owner: &Arc<ProbeResourceOwner>,
     ) -> Self {
         Self {
             deadlines,
-            owner,
+            owner: Arc::downgrade(owner),
             reservation: Some(reservation),
             child: None,
             child_id: 0,
@@ -146,14 +146,18 @@ impl UnixRun {
     }
 
     fn adopt_stream(&mut self, fd: RawFd, stdout: bool) {
-        let stream = if stdout {
-            &mut self.stdout
+        if stdout {
+            self.stdout.fd = Some(fd);
         } else {
-            &mut self.stderr
-        };
-        stream.fd = Some(fd);
-        stream.registered = self.register_resource(ResourceKind::Capture);
-        if !stream.registered {
+            self.stderr.fd = Some(fd);
+        }
+        let registered = self.register_resource(ResourceKind::Capture);
+        if stdout {
+            self.stdout.registered = registered;
+        } else {
+            self.stderr.registered = registered;
+        }
+        if !registered {
             self.set_failure("probe_capture_failed");
             self.permanent_unconfirmed = true;
             self.mark_unconfirmed(ResourceKind::Capture);
@@ -176,8 +180,8 @@ impl UnixRun {
 
     fn drive(mut self) -> Result<Output, ProbeFailure> {
         while self.has_open_streams() && self.failure.is_none() {
-            if self.owner.is_closing() || self.deadlines.expired_operation() {
-                self.set_failure(if self.owner.is_closing() {
+            if self.owner_is_closing() || self.deadlines.expired_operation() {
+                self.set_failure(if self.owner_is_closing() {
                     "probe_owner_closing"
                 } else {
                     "probe_timeout"
@@ -453,7 +457,7 @@ impl UnixRun {
                     break;
                 }
             }
-            if self.owner.is_closing() && self.ownership == LeaderOwnership::Retained(self.child_id) {
+            if self.owner_is_closing() && self.ownership == LeaderOwnership::Retained(self.child_id) {
                 self.request_cancel(failure);
             }
         }
@@ -590,7 +594,7 @@ impl UnixRun {
         if let Some(reservation) = self.reservation.take() {
             if let Err(error) = reservation.release() {
                 self.permanent_unconfirmed = true;
-                self.owner.record_failure(&error);
+                self.record_owner_failure(&error);
                 return Err(error);
             }
         }
@@ -605,7 +609,7 @@ impl UnixRun {
         {
             Some(Ok(())) => true,
             Some(Err(error)) => {
-                self.owner.record_failure(format!("{}: {error}", resource_name(kind)));
+                self.record_owner_failure(format!("{}: {error}", resource_name(kind)));
                 false
             }
             None => false,
@@ -619,7 +623,7 @@ impl UnixRun {
         if let Some(reservation) = self.reservation.as_mut() {
             if let Err(error) = reservation.resource_settled() {
                 self.permanent_unconfirmed = true;
-                self.owner.record_failure(format!("{}: {error}", resource_name(kind)));
+                self.record_owner_failure(format!("{}: {error}", resource_name(kind)));
             }
         }
     }
@@ -667,6 +671,18 @@ impl UnixRun {
             &mut self.stdout
         } else {
             &mut self.stderr
+        }
+    }
+
+    fn owner_is_closing(&self) -> bool {
+        self.owner
+            .upgrade()
+            .map_or(true, |owner| owner.is_closing())
+    }
+
+    fn record_owner_failure(&self, diagnostic: impl AsRef<str>) {
+        if let Some(owner) = self.owner.upgrade() {
+            owner.record_failure(diagnostic);
         }
     }
 }
@@ -744,13 +760,10 @@ impl RetainedResources for UnixPending {
             || self.run.group_unconfirmed
             || self.run.stdout.close_unknown
             || self.run.stderr.close_unknown;
+        let failure = self.run.failure.take();
         Settlement {
-            errors: self
-                .run
-                .failure
-                .take()
-                .map(|failure| failure.cleanup_errors)
-                .unwrap_or_default(),
+            primary: failure.as_ref().map(|failure| failure.primary.to_string()),
+            errors: failure.map(|failure| failure.cleanup_errors).unwrap_or_default(),
             remains_unconfirmed,
         }
     }

@@ -48,18 +48,29 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
     };
     svc.app_handle.manage(handle.clone());
+    let store = handle.store.clone();
+    let wake = handle.wake.clone();
+    let probe_owner = Arc::downgrade(&handle.probe_owner);
+    drop(handle);
     std::thread::spawn(move || {
-        let (generation, wake) = &*handle.wake;
+        let (generation, wake_condvar) = &*wake;
         loop {
             let observed = match generation.lock() {
                 Ok(guard) => *guard,
                 Err(_) => return,
             };
-            let due = handle.store.lock().due();
+            let due = store.lock().due();
             match due {
                 Ok(leases) => {
                     for lease in leases {
-                        let worker_handle = handle.clone();
+                        let Some(owner) = probe_owner.upgrade() else {
+                            return;
+                        };
+                        let worker_handle = Handle {
+                            store: store.clone(),
+                            wake: wake.clone(),
+                            probe_owner: owner,
+                        };
                         let svc = svc.clone();
                         std::thread::spawn(move || {
                             tick(&worker_handle, &svc, &lease);
@@ -70,7 +81,7 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
                 }
                 Err(error) => log::error!("[sentinel] schedule persistence failed: {error}"),
             }
-            let wait_ms = handle.store.lock().next_deadline().max(1);
+            let wait_ms = store.lock().next_deadline().max(1);
             let guard = match generation.lock() {
                 Ok(guard) => guard,
                 Err(_) => return,
@@ -78,7 +89,7 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
             if *guard != observed {
                 continue;
             }
-            let _ = wake.wait_timeout_while(guard, Duration::from_millis(wait_ms), |value| {
+            let _ = wake_condvar.wait_timeout_while(guard, Duration::from_millis(wait_ms), |value| {
                 *value == observed
             });
         }
