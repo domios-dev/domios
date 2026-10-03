@@ -43,9 +43,11 @@ not repeat it. No expectation asserts the announcement's prose.
 
 The bootstrap is delivered alongside the General Agent instructions. Evaluating
 only `bootstrap_instructions.md` against the existing machine-control cases
-would omit their instructions. `prepare-prompts.py` composes both arms from the
-same baseline GA/rule/memory fragments and changes only the three edited prompt
-sources. The `prompt_family` fixture field selects first-run cases for the composed
+would omit their instructions. `prepare-prompts.py` reads the old arm from the
+pinned revision and the new arm from current sources. It composes the GA primer,
+GA template, shared CLI with its memory section removed, pad contract, child
+recovery, framework rule and memory protocol through their production
+substitutions. The `prompt_family` field selects first-run cases for the composed
 bootstrap; existing mature-agent cases use the composition without bootstrap,
 so first-run instructions do not override their scenario. It also composes the
 spawned-agent primer with its pad and rendering fragments, matching its
@@ -112,4 +114,4 @@ its heading. Continue the conversation and confirm the note is not repeated.
 This checks the real first-run journey beyond the sandbox bench and DOM harness.
 Never reset the production profile or use Playwright for this check.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
