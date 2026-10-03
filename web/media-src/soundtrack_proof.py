@@ -65,9 +65,9 @@ def measure_balance(timing, stems, final_audio, mastering):
     float_tolerance = 1e-6 * max(1, gain)
     pcm_tolerance = 1 / 32768 + float_tolerance
     for key in ('unmasteredSum', 'voiceSharedGain', 'musicSharedGain'):
-        require_reconstruction_residual(residuals[key], float_tolerance, key)
+        require(residuals[key] <= float_tolerance, f'Stems do not share the same mix graph/shared gain: {key}')
     for key in ('finalSum', 'finalSharedGain'):
-        require_reconstruction_residual(residuals[key], pcm_tolerance, key)
+        require(residuals[key] <= pcm_tolerance, f'Final WAV differs from the measured mastered stem sum: {key}')
     phrases = []
     for cue in timing['cues']:
         words = [word for word in timing['narration']['words'] if word['cueId'] == cue['id']]
