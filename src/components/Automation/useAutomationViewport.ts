@@ -1,18 +1,21 @@
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useCanvasViewport, viewportShowsBounds, type ViewportBox, type ViewportTransform } from "../Canvas/useCanvasViewport";
-import { frameAutomation, preferredOrientation, type AutomationLayouts, type AutomationOrientation, type CanvasSize } from "./layout";
+import { layoutAutomationOrientations, planAutomationView, type AutomationOrientation, type CanvasSize } from "./layout";
+import type { AutomationGraph } from "./types";
 
 /** Camera owned by the scenario surface so a list toggle or data refresh never resets the user's view. */
 export interface AutomationCamera {
   transform: ViewportTransform | null;
   userMoved: boolean;
   orientation: AutomationOrientation | null;
+  wrap: number | null;
   overview: boolean;
+  focus: string | null;
   size: CanvasSize | null;
 }
 
 export function createAutomationCamera(): AutomationCamera {
-  return { transform: null, userMoved: false, orientation: null, overview: false, size: null };
+  return { transform: null, userMoved: false, orientation: null, wrap: null, overview: false, focus: null, size: null };
 }
 
 const PAN_STEP = 64;
@@ -22,16 +25,22 @@ function same(a: ViewportTransform, b: ViewportTransform): boolean {
   return a.x === b.x && a.y === b.y && a.scale === b.scale;
 }
 
-export function useAutomationViewport(layouts: AutomationLayouts, camera: AutomationCamera) {
+interface Arrangement { orientation: AutomationOrientation; wrap: number }
+
+/** `focus` is the selected participant that a readable Fit frames; without it Fit frames the root. */
+export function useAutomationViewport(graph: AutomationGraph, camera: AutomationCamera, focus: string | null) {
   const [size, setSize] = useState<CanvasSize | null>(null);
-  const [orientation, setOrientation] = useState<AutomationOrientation>(camera.orientation ?? "horizontal");
+  const [arrangement, setArrangement] = useState<Arrangement>({ orientation: camera.orientation ?? "horizontal", wrap: camera.wrap ?? Number.POSITIVE_INFINITY });
+  const layouts = useMemo(() => layoutAutomationOrientations(graph, arrangement.wrap), [graph, arrangement.wrap]);
+  const { orientation } = arrangement;
   const viewport = useCanvasViewport({ width: size?.width ?? 0, height: size?.height ?? 0, ignoreSelector: "button", wheelBehavior: "zoom" });
   const { containerRef, setTransform, transformRef } = viewport;
   const fitted = useRef<ViewportTransform | null>(null);
   const moved = useRef(camera.userMoved);
   const overview = useRef(camera.overview);
-  const current = useRef(orientation);
-  current.current = orientation;
+  const framedFocus = useRef(camera.focus);
+  const current = useRef(arrangement);
+  current.current = arrangement;
   const framedSize = useRef(camera.size);
   const touch = useRef<{ id: number; x: number; y: number; base: ViewportTransform } | null>(null);
   const userMoved = useCallback(() => moved.current || (fitted.current !== null && !same(transformRef.current, fitted.current)), [transformRef]);
@@ -44,8 +53,10 @@ export function useAutomationViewport(layouts: AutomationLayouts, camera: Automa
     return () => {
       camera.transform = transformRef.current;
       camera.userMoved = userMoved();
-      camera.orientation = current.current;
+      camera.orientation = current.current.orientation;
+      camera.wrap = current.current.wrap;
       camera.overview = overview.current;
+      camera.focus = framedFocus.current;
       camera.size = framedSize.current;
     };
   }, [camera, setTransform, transformRef, userMoved]);
@@ -64,19 +75,20 @@ export function useAutomationViewport(layouts: AutomationLayouts, camera: Automa
     return () => observer.disconnect();
   }, [containerRef]);
 
-  // Orientation follows the measured canvas only while the camera is untouched, so a moved view keeps its geometry.
-  const settle = useCallback((whole: boolean) => {
+  // Arrangement follows the measured canvas only while the camera is untouched, so a moved view keeps its geometry.
+  const settle = useCallback((whole: boolean, target: string | null) => {
     if (!size) return;
-    const next = preferredOrientation(layouts, size);
-    const transform = frameAutomation(layouts[next], size, whole);
-    if (!transform) return;
-    setOrientation(next);
-    setTransform(transform);
-    fitted.current = transform;
+    const plan = planAutomationView(graph, size, whole, target);
+    if (!plan.transform) return;
+    setArrangement((previous) => previous.orientation === plan.orientation && previous.wrap === plan.wrap ? previous : { orientation: plan.orientation, wrap: plan.wrap });
+    setTransform(plan.transform);
+    fitted.current = plan.transform;
     moved.current = false;
     overview.current = whole;
-  }, [layouts, size, setTransform]);
-  const fit = useCallback(() => settle(true), [settle]);
+    framedFocus.current = target;
+  }, [graph, size, setTransform]);
+  const fit = useCallback(() => settle(false, focus), [settle, focus]);
+  const showOverview = useCallback(() => settle(true, null), [settle]);
 
   // A moved camera keeps its scale and the world point at the viewport center when the canvas resizes.
   const follow = useRef(() => {});
@@ -84,10 +96,10 @@ export function useAutomationViewport(layouts: AutomationLayouts, camera: Automa
     if (!size) return;
     const previous = framedSize.current;
     framedSize.current = size;
-    if (!userMoved()) return settle(overview.current);
+    if (!userMoved()) return settle(overview.current, framedFocus.current);
     const t = transformRef.current;
     const next = previous ? { ...t, x: t.x + (size.width - previous.width) / 2, y: t.y + (size.height - previous.height) / 2 } : t;
-    if (!viewportShowsBounds(next, layouts[current.current].bounds, size)) return settle(overview.current);
+    if (!viewportShowsBounds(next, layouts[current.current.orientation].bounds, size)) return settle(overview.current, framedFocus.current);
     if (!same(next, t)) setTransform(next);
     moved.current = true;
   };
@@ -141,5 +153,5 @@ export function useAutomationViewport(layouts: AutomationLayouts, camera: Automa
     onPointerCancel: () => { touch.current = null; },
   };
 
-  return { ...viewport, layout: layouts[orientation], measured: size !== null, fit, zoom, reveal, onKeyDown, touchHandlers };
+  return { ...viewport, layout: layouts[orientation], measured: size !== null, fit, showOverview, zoom, reveal, onKeyDown, touchHandlers };
 }

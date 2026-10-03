@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import { boxesOverlap } from "../Canvas/layout";
 import type { Box } from "../Canvas/layout";
 import type { ViewportTransform } from "../Canvas/useCanvasViewport";
-import { frameAutomation, layoutAutomationGraph, layoutAutomationOrientations, NODE_WIDTH, preferredOrientation, READABLE_SCALE, type AutomationLayout, type CanvasSize } from "./layout";
+import { layoutAutomationGraph, layoutAutomationOrientations, NODE_WIDTH, planAutomationView, READABLE_SCALE, type AutomationLayout, type CanvasSize } from "./layout";
 import { scopedAutomationGraph } from "./model";
-import { attachment, chainGraph, decisionGraph, fixtureGraph, fixtureNode, identity, multiScenarioGraph } from "./fixtures.testdata";
+import { attachment, chainGraph, decisionGraph, fixtureGraph, fixtureNode, identity, modelGraph, multiScenarioGraph } from "./fixtures.testdata";
 import { MAX_ACTIONS_PER_PARTICIPANT, projectAutomationGraph } from "./projection";
 import { automationKey, type AutomationEdge, type AutomationGraph, type AutomationIdentity } from "./types";
 
@@ -75,8 +75,8 @@ function pathPoints(path: string) {
 }
 
 test("nodes, edge curves and labels never overlap and stay within the reported bounds in both orientations", () => {
-  for (const graph of [scoped(branchedGraph()), scoped(fixtureGraph()), scoped(multiScenarioGraph()), scoped(chainGraph()), scoped(decisionGraph())]) {
-    for (const layout of Object.values(layoutAutomationOrientations(graph))) {
+  for (const graph of [scoped(branchedGraph()), scoped(fixtureGraph()), scoped(multiScenarioGraph()), scoped(chainGraph()), scoped(decisionGraph()), scoped(modelGraph())]) {
+    for (const layout of [1, 2, Number.POSITIVE_INFINITY].flatMap((wrap) => Object.values(layoutAutomationOrientations(graph, wrap)))) {
       const inside = (x: number, y: number) => Number.isFinite(x) && Number.isFinite(y) && x >= 0 && y >= 0 && x <= layout.bounds.width && y <= layout.bounds.height;
       const boxes = [...layout.nodes.map((node) => node.box), ...layout.edges.map((entry) => entry.label)];
       boxes.forEach((box, index) => {
@@ -112,12 +112,10 @@ function within(box: Box, size: CanvasSize) {
   return box.x >= 0 && box.y >= 0 && box.x + box.width <= size.width && box.y + box.height <= size.height;
 }
 
-function opened(graph: ReturnType<typeof scoped>, size: CanvasSize, whole = false): { layout: AutomationLayout; camera: ViewportTransform } {
-  const layouts = layoutAutomationOrientations(graph);
-  const layout = layouts[preferredOrientation(layouts, size)];
-  const camera = frameAutomation(layout, size, whole);
-  assert.ok(camera, "a measured canvas yields a camera");
-  return { layout, camera };
+function opened(graph: ReturnType<typeof scoped>, size: CanvasSize, whole = false, focus: string | null = null): { layout: AutomationLayout; camera: ViewportTransform } {
+  const { layout, transform } = planAutomationView(graph, size, whole, focus);
+  assert.ok(transform, "a measured canvas yields a camera");
+  return { layout, camera: transform };
 }
 
 function chainBoxes(layout: AutomationLayout) {
@@ -245,6 +243,50 @@ test("action leaves sit after their source in both orientations", () => {
       assert.ok(layout.orientation === "horizontal" ? box.x >= source.x + source.width : box.y >= source.y + source.height, `${layout.orientation} leaf follows its source`);
     });
   }
+});
+
+test("the observed seven-card fanout opens whole and readable on the measured 500x782 narrow canvas", () => {
+  const graph = scoped(modelGraph());
+  const size = { width: 500, height: 782 };
+  const { layout, camera } = opened(graph, size);
+  assert.equal(layout.orientation, "vertical");
+  assert.equal(layout.items.length, 7, "both participants and all five declared actions are drawn");
+  assert.ok(camera.scale >= READABLE_SCALE, `scale ${camera.scale} stays readable`);
+  for (const [index, item] of layout.items.entries()) {
+    const card = project(layout.nodes[index].box, camera);
+    assert.ok(within(card, size), `${item.key} is fully visible on first open`);
+    assert.ok(card.width >= NODE_WIDTH * READABLE_SCALE, `${item.key} card width ${card.width} is readable`);
+  }
+  for (const entry of layout.edges) assert.ok(within(project(entry.label, camera), size), "every branch label is visible");
+});
+
+test("readable Fit frames the chosen participant and only the explicit overview drops below readable", () => {
+  const ids = Array.from({ length: 8 }, (_, index) => identity("sentinel", `focus-${index}`));
+  const graph = scoped({
+    ...fixtureGraph(),
+    scenarios: [{ id: "scenario-focus", name: "scenario-focus", root: ids[0] }],
+    nodes: ids.map((target) => ({ ...fixtureNode(target, `name-${target.id}`), sentinel_definition: definition(target) })),
+    edges: ids.slice(1).map((target, index) => route(`focus-${index}`, ids[index], target)),
+  });
+  const size = { width: 500, height: 480 };
+  const focus = automationKey(ids[5]);
+  const framed = opened(graph, size, false, focus);
+  assert.equal(framed.camera.scale, READABLE_SCALE);
+  assert.ok(within(project(boxOf(framed.layout, ids[5]), framed.camera), size), "the chosen participant is framed readable");
+  const missing = opened(graph, size, false, JSON.stringify(["gone"]));
+  assert.ok(within(project(boxOf(missing.layout, ids[0]), missing.camera), size), "an unknown focus falls back to the root");
+  const whole = opened(graph, size, true);
+  assert.ok(whole.camera.scale < READABLE_SCALE && within(project(whole.layout.bounds, whole.camera), size), "overview shows all of it");
+});
+
+test("a canvas too small for one readable card frames exactly that card instead of the microscopic whole", () => {
+  const graph = scoped(modelGraph());
+  const size = { width: 220, height: 150 };
+  const { layout, camera } = opened(graph, size);
+  const whole = opened(graph, size, true).camera;
+  const root = project(layout.root!, camera);
+  assert.ok(camera.scale < READABLE_SCALE && camera.scale > whole.scale, "the lower bound yields only to physical size");
+  assert.ok(within(root, size), "the root card still fits whole");
 });
 
 let failed = false;

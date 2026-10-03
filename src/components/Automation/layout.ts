@@ -8,7 +8,9 @@ export const NODE_HEIGHT = 104;
 /** Smallest camera scale at which the 11px card and edge text stays legible (about 9.4px on screen). */
 export const READABLE_SCALE = 0.85;
 export const FIT_PADDING = 28;
-const SPACING = { horizontal: { layer: 168, row: 44 }, vertical: { layer: 64, row: 32 } } as const;
+const SPACING = { horizontal: { layer: 168, row: 44 }, vertical: { layer: 64, row: 24 } } as const;
+/** Gap between wrapped sub-rows of one vertical layer; it holds an edge label with clearance. */
+const WRAP_GAP = 48;
 const PADDING = 16;
 const CURVE = 0.45;
 const PORT_SPREAD = 14;
@@ -118,9 +120,11 @@ function forwardEdges(keys: readonly string[], edges: readonly { from: number; t
   return { back, topological: order.reverse() };
 }
 
-/** Lays layers along the flow axis (x when horizontal, y when vertical); geometry is built in flow space and transposed once. */
-export function layoutAutomationGraph(graph: AutomationGraph, orientation: AutomationOrientation = "horizontal"): AutomationLayout {
+/** Lays layers along the flow axis (x when horizontal, y when vertical); geometry is built in flow space and transposed once.
+ *  A vertical layer wider than `wrap` cards continues on further sub-rows, leaves first, so it fits a narrow measured canvas. */
+export function layoutAutomationGraph(graph: AutomationGraph, orientation: AutomationOrientation = "horizontal", wrap = Number.POSITIVE_INFINITY): AutomationLayout {
   const vertical = orientation === "vertical";
+  const perRow = vertical ? Math.max(1, Math.floor(wrap)) : Number.POSITIVE_INFINITY;
   const gap = SPACING[orientation];
   const nodeMain = vertical ? NODE_HEIGHT : NODE_WIDTH;
   const nodeCross = vertical ? NODE_WIDTH : NODE_HEIGHT;
@@ -151,7 +155,10 @@ export function layoutAutomationGraph(graph: AutomationGraph, orientation: Autom
   const columns: number[][] = [];
   keys.forEach((_, position) => (columns[layer[position]] ??= []).push(position));
   const center = keys.map(() => 0);
-  for (const column of columns) {
+  const subRow = keys.map(() => 0);
+  const rowsIn = Array.from({ length: columns.length }, () => 1);
+  const hasChildren = keys.map((_, node) => routed.some((edge, edgeIndex) => edge.from === node && edge.to !== node && !back.has(edgeIndex)));
+  for (const [layerIndex, column] of columns.entries()) {
     if (!column) continue;
     const desired = new Map(column.map((node) => {
       const above = parents[node].filter((parent) => layer[parent] < layer[node]);
@@ -162,6 +169,18 @@ export function layoutAutomationGraph(graph: AutomationGraph, orientation: Autom
       ...placedAbove.sort((a, b) => desired.get(a)! - desired.get(b)! || a - b),
       ...column.filter((node) => Number.isNaN(desired.get(node))),
     ];
+    if (ordered.length > perRow) {
+      const anchor = placedAbove.length ? placedAbove.reduce((sum, node) => sum + desired.get(node)!, 0) / placedAbove.length : 0;
+      const sequence = [...ordered.filter((node) => !hasChildren[node]), ...ordered.filter((node) => hasChildren[node])];
+      rowsIn[layerIndex] = Math.ceil(sequence.length / perRow);
+      sequence.forEach((node, position) => {
+        const row = Math.floor(position / perRow);
+        const size = Math.min(perRow, sequence.length - row * perRow);
+        subRow[node] = row;
+        center[node] = anchor + (position - row * perRow - (size - 1) / 2) * (nodeCross + gap.row);
+      });
+      continue;
+    }
     let previous = Number.NEGATIVE_INFINITY;
     for (const node of ordered) {
       const wanted = desired.get(node);
@@ -175,8 +194,16 @@ export function layoutAutomationGraph(graph: AutomationGraph, orientation: Autom
     }
   }
   const top = Math.min(...center, 0) - nodeCross / 2;
+  const layerStart = [PADDING];
+  for (let layerIndex = 1; layerIndex < columns.length; layerIndex++) {
+    layerStart[layerIndex] = layerStart[layerIndex - 1] + rowsIn[layerIndex - 1] * (nodeMain + WRAP_GAP) - WRAP_GAP + gap.layer;
+  }
+  const gapBefore = keys.map((_, node) => subRow[node] > 0 ? WRAP_GAP : gap.layer);
+  const gapAfter = keys.map((_, node) => subRow[node] < rowsIn[layer[node]] - 1 ? WRAP_GAP : gap.layer);
+  const incoming = keys.map(() => 0);
+  routed.forEach((edge, edgeIndex) => { if (!back.has(edgeIndex) && edge.from !== edge.to) incoming[edge.to]++; });
   const boxes: Box[] = keys.map((_, position) => ({
-    x: PADDING + layer[position] * (nodeMain + gap.layer),
+    x: layerStart[layer[position]] + subRow[position] * (nodeMain + WRAP_GAP),
     y: PADDING + center[position] - nodeCross / 2 - top,
     width: nodeMain,
     height: nodeCross,
@@ -232,7 +259,8 @@ export function layoutAutomationGraph(graph: AutomationGraph, orientation: Autom
       const a = { x: source.x + source.width, y: source.y + source.height / 2 + (outPorts.get(edgeIndex) ?? 0) };
       const b = { x: target.x, y: target.y + target.height / 2 + (inPorts.get(edgeIndex) ?? 0) };
       segment = curve(a, b);
-      anchor = layer[to] - layer[from] > 1 ? pointAtX(segment, target.x - gap.layer / 2) : pointOn(segment, 0.5);
+      // Beside its target so sibling labels never crowd the source; a join instead labels each edge beside its source.
+      anchor = incoming[to] > 1 ? pointAtX(segment, source.x + source.width + gapAfter[from] / 2) : pointAtX(segment, target.x - gapBefore[to] / 2);
     }
     const box: Box = { x: anchor.x - labelMain / 2, y: anchor.y - labelCross / 2, width: labelMain, height: labelCross };
     for (let attempt = 0; attempt < placed.length + boxes.length + 1; attempt++) {
@@ -259,8 +287,14 @@ export function layoutAutomationGraph(graph: AutomationGraph, orientation: Autom
   };
 }
 
-export function layoutAutomationOrientations(graph: AutomationGraph): AutomationLayouts {
-  return { horizontal: layoutAutomationGraph(graph, "horizontal"), vertical: layoutAutomationGraph(graph, "vertical") };
+export function layoutAutomationOrientations(graph: AutomationGraph, wrap = Number.POSITIVE_INFINITY): AutomationLayouts {
+  return { horizontal: layoutAutomationGraph(graph, "horizontal"), vertical: layoutAutomationGraph(graph, "vertical", wrap) };
+}
+
+/** Cards per vertical sub-row that still read at READABLE_SCALE across the measured width. */
+export function wrapColumns(width: number): number {
+  const usable = (width - FIT_PADDING * 2) / READABLE_SCALE - PADDING * 2 + SPACING.vertical.row;
+  return Math.max(1, Math.floor(usable / (NODE_WIDTH + SPACING.vertical.row)));
 }
 
 export interface CanvasSize { width: number; height: number }
@@ -282,15 +316,35 @@ function frameAxis(start: number, extent: number, view: number, focus: number, f
   return Math.min(FIT_PADDING - start * scale, Math.max(view - FIT_PADDING - (start + extent) * scale, wanted));
 }
 
-/** Initial camera: the whole graph when it stays readable, else the root at a readable scale; `whole` forces the overview. */
-export function frameAutomation(layout: AutomationLayout, size: CanvasSize, whole: boolean): ViewportTransform | null {
+/** Readable camera: the whole graph when it stays readable, else the focus (or root) at a readable scale; `whole` forces the overview.
+ *  Only a canvas too small for one card at READABLE_SCALE frames below it, and then just enough to show that card. */
+export function frameAutomation(layout: AutomationLayout, size: CanvasSize, whole: boolean, focusKey: string | null = null): ViewportTransform | null {
   const fit = overview(layout, size);
-  if (!fit || whole || fit.scale >= READABLE_SCALE || !layout.root) return fit;
-  const { bounds, root } = layout;
+  const focus = (focusKey !== null ? layout.byId.get(focusKey)?.box : undefined) ?? layout.root;
+  if (!fit || whole || fit.scale >= READABLE_SCALE || !focus) return fit;
+  const scale = Math.min(READABLE_SCALE, (size.width - FIT_PADDING * 2) / focus.width, (size.height - FIT_PADDING * 2) / focus.height);
+  if (!(scale > fit.scale)) return fit;
+  const { bounds } = layout;
   const horizontal = layout.orientation === "horizontal";
+  const fromStart = focus === layout.root;
   return {
-    scale: READABLE_SCALE,
-    x: frameAxis(bounds.x, bounds.width, size.width, root.x, root.width, horizontal, READABLE_SCALE),
-    y: frameAxis(bounds.y, bounds.height, size.height, root.y, root.height, !horizontal, READABLE_SCALE),
+    scale,
+    x: frameAxis(bounds.x, bounds.width, size.width, focus.x, focus.width, horizontal && fromStart, scale),
+    y: frameAxis(bounds.y, bounds.height, size.height, focus.y, focus.height, !horizontal && fromStart, scale),
   };
+}
+
+export interface AutomationViewPlan {
+  wrap: number;
+  orientation: AutomationOrientation;
+  layout: AutomationLayout;
+  transform: ViewportTransform | null;
+}
+
+/** Arranges the graph for the measured canvas: wrap width, orientation and the camera, from one pure decision. */
+export function planAutomationView(graph: AutomationGraph, size: CanvasSize, whole: boolean, focusKey: string | null = null): AutomationViewPlan {
+  const wrap = wrapColumns(size.width);
+  const layouts = layoutAutomationOrientations(graph, wrap);
+  const orientation = preferredOrientation(layouts, size);
+  return { wrap, orientation, layout: layouts[orientation], transform: frameAutomation(layouts[orientation], size, whole, focusKey) };
 }
