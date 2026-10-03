@@ -34,16 +34,15 @@ export function App() {
     <SiteHeader download={download} github={github} theme={theme} toggleTheme={toggle} onBrandRest={entrance.onRest} />
     <main id="main">
       <section className="hero section-wrap" aria-labelledby="hero-title">
-        <a className="hero-badge" href="#explore"><BrandMark />THE DISTRIBUTED OS FOR AI AGENTS<span aria-hidden="true">↗</span></a>
         <h1 id="hero-title">Agents <span>live here.</span></h1>
+        <DownloadActions download={download} github={github} />
+        <AgentNetwork />
+        <ProviderStrip />
         <ul className="hero-capabilities">
           <li><span>One memory. Every agent.</span><small>Shared on this machine.</small></li>
           <li><span>Scheduled work</span><small>Tasks on your schedule.</small></li>
           <li><span>Your messenger</span><small>Telegram updates &amp; replies</small></li>
         </ul>
-        <DownloadActions download={download} github={github} />
-        <ProviderStrip />
-        <AgentNetwork />
       </section>
       <BuilderNotes staticMotion={reducedMotion} />
       <JevSection />
