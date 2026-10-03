@@ -1,7 +1,8 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { ChevronRight, X } from "lucide-react";
 import { focusLost } from "./focus";
-import { AUTOMATION_BUTTON, AUTOMATION_LABEL, AUTOMATION_TOOL, stateTone } from "./styles";
+import type { PresenceState } from "../Canvas/usePresence";
+import { AUTOMATION_BUTTON, AUTOMATION_LABEL, stateTone } from "./styles";
 import { automationState } from "./model";
 import { CommandResultFacts, isCommandResult, resultHandler, shownAsLastAccepted } from "./CommandResultDetails";
 import { automationKey, type AutomationEdge, type AutomationNode } from "./types";
@@ -33,32 +34,43 @@ function seconds(ms: number): string {
   return ms % 1000 === 0 ? `${ms / 1000}s` : `${(ms / 1000).toFixed(1)}s`;
 }
 
-function DetailsFrame({ label, title, onClose, children, focusWhenLost = false }: { label: string; title: ReactNode; onClose: () => void; children: ReactNode; focusWhenLost?: boolean }) {
-  const panel = useRef<HTMLElement>(null);
+interface FrameProps {
+  label: string; title: ReactNode; onClose: () => void; children: ReactNode; focusWhenLost?: boolean;
+  panelRef?: RefObject<HTMLElement | null>; presence?: PresenceState;
+}
+
+/** The app's right side-panel surface: a non-modal region over the graph with its own scroll, Escape and focus-on-open. */
+function DetailsFrame({ label, title, onClose, children, focusWhenLost = false, panelRef, presence }: FrameProps) {
+  const own = useRef<HTMLElement>(null);
+  const panel = panelRef ?? own;
   useLayoutEffect(() => {
     if (!focusWhenLost || focusLost()) panel.current?.focus();
-  }, [label, focusWhenLost]);
-  return <aside ref={panel} tabIndex={-1} role="region" aria-label={label} className="border-t border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-4 py-4 text-[length:var(--ct-font-size-sm)] text-[var(--ct-fg)] outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ct-accent)]" onKeyDown={(event) => {
+  }, [label, focusWhenLost, panel]);
+  return <aside ref={panel} tabIndex={-1} role="region" aria-label={label} data-state={presence} inert={presence === "closing" || undefined} className="plan-side-panel text-[length:var(--ct-font-size-sm)] text-[var(--ct-fg)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ct-accent)]" onKeyDown={(event) => {
     if (event.code !== "Escape") return;
     event.stopPropagation();
     onClose();
   }}>
-    <div className="mb-4 flex items-start justify-between gap-3">{title}<button type="button" className={AUTOMATION_TOOL} aria-label="Close details" title="Close details (Esc)" onClick={onClose}><X size={14} aria-hidden="true" /></button></div>
-    {children}
+    <header className="plan-side-panel__header items-start">
+      <div className="min-w-0 flex-1">{title}</div>
+      <button type="button" className="plan-side-panel__action" aria-label="Close details" title="Close details (Esc)" onClick={onClose}><X size={15} aria-hidden="true" /></button>
+    </header>
+    <div className="plan-side-panel__body px-4 py-4">{children}</div>
   </aside>;
 }
 
-export function AutomationDetailsUnavailable({ onClose }: { onClose: () => void }) {
-  return <DetailsFrame label="Details: unavailable participant" title={<h3 className="text-[length:var(--ct-font-size-md)] font-semibold">Participant unavailable</h3>} onClose={onClose} focusWhenLost>
-    <p role="status" className="text-[var(--ct-muted-fg)]">The selected participant is no longer part of this scenario's authoritative graph. Select another participant to continue.</p>
-  </DetailsFrame>;
-}
-
-export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFailed, onStop, onSelect, onClose }: {
-  node: AutomationNode; edges: readonly AutomationEdge[]; nodes: readonly AutomationNode[];
+/** A null node keeps the same drawer open and says the participant left the authoritative graph. */
+export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFailed, onStop, onSelect, onClose, panelRef, presence }: {
+  node: AutomationNode | null; edges: readonly AutomationEdge[]; nodes: readonly AutomationNode[];
   stale: boolean; stopping: boolean; stopFailed: boolean;
   onStop: () => void; onSelect: (node: AutomationNode) => void; onClose: () => void;
+  panelRef?: RefObject<HTMLElement | null>; presence?: PresenceState;
 }) {
+  if (!node) {
+    return <DetailsFrame label="Details: unavailable participant" title={<h3 className="text-[length:var(--ct-font-size-md)] font-semibold">Participant unavailable</h3>} onClose={onClose} panelRef={panelRef} presence={presence} focusWhenLost>
+      <p role="status" className="text-[var(--ct-muted-fg)]">The selected participant is no longer part of this scenario's authoritative graph. Select another participant to continue.</p>
+    </DetailsFrame>;
+  }
   const key = automationKey(node.identity);
   const links = edges.filter((edge) => automationKey(edge.source) === key || automationKey(edge.target) === key);
   const state = automationState(node);
@@ -67,7 +79,7 @@ export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFai
     <p className={AUTOMATION_LABEL}>{node.identity.kind}</p>
     <h3 className="truncate text-[length:var(--ct-font-size-lg)] font-semibold">{node.name}</h3>
   </div>;
-  return <DetailsFrame label={`Details: ${node.name}`} title={title} onClose={onClose}>
+  return <DetailsFrame label={`Details: ${node.name}`} title={title} onClose={onClose} panelRef={panelRef} presence={presence}>
     <div className="@container"><div className="grid gap-5 @3xl:grid-cols-2">
       <Group title="Overview">
         <p className="mb-3 whitespace-pre-wrap leading-relaxed">{node.purpose ?? "Unknown"}</p>

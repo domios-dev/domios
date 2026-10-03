@@ -1445,13 +1445,13 @@ button,
   overflow-x: hidden;
   overflow-y: auto;
 }
-/* Wide dock and narrow sheet share one motion: in from the right edge, back out the same way. */
+/* Wide dock and narrow sheet share one calm motion: a short non-overshooting ease-out from the right edge. */
 .plan-side-panel[data-state="entering"] {
-  animation: ct-plan-side-panel-in var(--ct-duration-smooth) var(--ct-ease-liquid-settle) both;
+  animation: ct-plan-side-panel-in var(--ct-duration-normal) var(--ct-ease-decel) both;
 }
 .plan-side-panel[data-state="closing"] {
   pointer-events: none;
-  animation: ct-plan-side-panel-out var(--ct-duration-normal) var(--ct-ease-in-out-quint) both;
+  animation: ct-plan-side-panel-out var(--ct-duration-fast) var(--ct-ease-decel) both;
 }
 .plan-side-panel__body[data-replaced] {
   animation: ct-presence-fade-in var(--ct-duration-normal) var(--ct-ease-liquid-settle) both;
@@ -1459,10 +1459,7 @@ button,
 @keyframes ct-plan-side-panel-in {
   from {
     opacity: 0;
-    transform: translateX(100%);
-  }
-  40% {
-    opacity: 1;
+    transform: translateX(24px);
   }
   to {
     opacity: 1;
@@ -1474,12 +1471,9 @@ button,
     opacity: 1;
     transform: translateX(0);
   }
-  60% {
-    opacity: 1;
-  }
   to {
     opacity: 0;
-    transform: translateX(100%);
+    transform: translateX(24px);
   }
 }
 @media (max-width: 640px) {
