@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent } from 'react';
+import type { CSSProperties, KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import { chapterAt, timestamp } from './media';
 import type { Trailer } from './media';
 import { useMediaLibrary, useVideo } from './useShowcase';
@@ -15,10 +15,16 @@ function VideoPlayer({ clip, player }: { clip: Trailer; player: ReturnType<typeo
   const [posterFailed, setPosterFailed] = useState(false);
   const chrome = usePlayerChrome(player.playing, player.failed);
   const narration = clip.captions.map((caption) => caption.text).join(' ');
+  const onSurfaceClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (player.playing || player.failed || !(event.target instanceof Element)) return;
+    if (event.target.closest('.video-rail, .video-error, .fullscreen-error, button, a, input, select, textarea, [role="button"]')) return;
+    player.togglePlayback();
+  };
   return <div className="video-player" ref={player.containerRef}>
     <div className="video-stage" ref={chrome.stageRef} data-chrome-visible={chrome.visible}
       onPointerEnter={chrome.onPointerEnter} onPointerMove={chrome.onPointerMove} onPointerLeave={chrome.onPointerLeave}
-      onPointerDown={chrome.onPointerDown} onFocusCapture={chrome.onFocusCapture} onBlurCapture={chrome.onBlurCapture}>
+      onPointerDown={chrome.onPointerDown} onFocusCapture={chrome.onFocusCapture} onBlurCapture={chrome.onBlurCapture}
+      onClick={onSurfaceClick}>
       <div className="video-placeholder"><Icon name="terminal" size={40} /><span>A place for your agents.</span><small>See Domios at work.</small></div>
       {!posterFailed && <img className="video-poster" src={clip.poster.src} alt="Three computers connected through Domios" loading="lazy" width="1280" height="720" onError={() => setPosterFailed(true)} />}
       {!player.failed && <video ref={player.videoRef} muted={!player.soundEnabled} loop={!player.soundEnabled} playsInline preload="none" aria-label="Domios: from your desktop to your whole team" aria-describedby={`trailer-description${clip.hasNarration ? ' trailer-narration' : ''}`}
