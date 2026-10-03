@@ -1,0 +1,1 @@
+export const AUTOMATION_BUTTON = "rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-3 py-2 text-left text-xs text-[var(--ct-fg)] hover:border-[var(--ct-accent)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]";
