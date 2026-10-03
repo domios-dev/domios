@@ -148,10 +148,11 @@ export function useDecisionToken(apiBase: string, apiHeaders: HeadersInit) {
           ? { ...parsed, error: { ...parsed.error, message: redactSupporterError(parsed.error.message, secret) } }
           : parsed;
         mutation = acceptedMutation;
-        if (acceptedMutation.error)
+        const acceptedError = acceptedMutation.error;
+        if (acceptedError)
           setErrors((old) => ({
             ...old,
-            [adapter]: acceptedMutation.error,
+            [adapter]: acceptedError,
           }));
       } else {
         unknownResponse = true;
