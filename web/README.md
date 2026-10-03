@@ -51,3 +51,5 @@ If TypeScript rejects an `Object.fromEntries` cast to the media library with TS2
 In Windows PowerShell, use `npm.cmd run preview -- --port 4173 --strictPort` when forwarding flags. The `npm.ps1` shim can consume those flags and pass the port as a positional directory, causing a misleading missing-`dist` error even after a successful build.
 
 If a DOM controller fails with TS18047 inside nested function declarations, an outer null check may not retain its narrowing in those functions. Bind fresh constants after checking the queried elements, so callbacks capture non-null types without assertions. Re-run the website build before browser verification.
+
+If download fixtures reuse an earlier successful release during a fresh failure case on macOS, resolve the temporary directory with `realpath` before clearing Node's module cache. `/var` and `/private/var` can name the same directory; a literal prefix comparison otherwise misses cached modules. Clear only that fixture directory's entries and rerun `node scripts/test-download.mjs`.
