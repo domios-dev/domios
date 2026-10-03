@@ -4,13 +4,36 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { AutomationGraphView } from "./AutomationGraphView";
 import { attachment, fixtureGraph, fixtureNode, FixtureTransport, identity, multiScenarioGraph, sentinelIdentity } from "./fixtures.testdata";
-import { automationKey } from "./types";
+import { automationKey, type AutomationGraph } from "./types";
+import { layoutAutomationGraph } from "./layout";
+import { scopedAutomationGraph } from "./model";
+import { computeFitTransform, formatLayerTransform } from "../Canvas/useCanvasViewport";
 
 const window = new Window({ url: "http://localhost/" });
 for (const key of ["window", "document", "HTMLElement", "Element", "Node", "Event", "MouseEvent", "KeyboardEvent", "navigator"]) {
   Object.defineProperty(globalThis, key, { configurable: true, value: (window as unknown as Record<string, unknown>)[key] });
 }
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+const viewportSize = { width: 800, height: 480 };
+const resized: Array<() => void> = [];
+Object.assign(globalThis, { ResizeObserver: class { constructor(private readonly changed: () => void) {} observe() { resized.push(this.changed); } disconnect() { resized.splice(resized.indexOf(this.changed), 1); } } });
+for (const axis of ["clientWidth", "clientHeight"] as const) {
+  Object.defineProperty(window.HTMLElement.prototype, axis, { configurable: true, get(this: HTMLElement) { return this.getAttribute("aria-label") === "Automation graph" ? viewportSize[axis === "clientWidth" ? "width" : "height"] : 0; } });
+}
+async function resize(width: number, height: number) {
+  Object.assign(viewportSize, { width, height });
+  await act(async () => { for (const changed of [...resized]) changed(); });
+}
+function cameraLayer(host: HTMLElement) {
+  const layer = host.querySelector<HTMLElement>('[aria-label="Automation graph"] > div');
+  assert.ok(layer, "graph camera layer rendered");
+  return layer;
+}
+function fitted(graph: AutomationGraph, width: number, height: number) {
+  const fit = computeFitTransform(layoutAutomationGraph(scopedAutomationGraph(graph, attachment)).bounds, width, height, { maxScale: 1 });
+  assert.ok(fit);
+  return formatLayerTransform(fit);
+}
 const tests: Array<[string, () => Promise<void>]> = [];
 function test(name: string, run: () => Promise<void>) { tests.push([name, run]); }
 async function mount(transport = new FixtureTransport()) {
@@ -243,6 +266,71 @@ test("backend-refused command handler and incomplete snapshot remain explicit", 
     assert.ok(details(view.host).textContent?.includes(refused.last_result.status));
     assert.equal(transport.stops.length, 0);
   } finally { await view.close(); }
+});
+
+test("measured graph fits once, then keeps the user's camera and exact selection across refresh, resize and list toggle", async () => {
+  const view = await mount();
+  try {
+    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 800, 480), "initial fit uses the measured viewport");
+    const zoomIn = view.host.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]');
+    assert.ok(zoomIn);
+    await click(zoomIn);
+    assert.notEqual(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 800, 480));
+    await click(button(view.host, "Watcher A"));
+    const camera = cameraLayer(view.host).style.transform;
+    view.transport.graph = { ...fixtureGraph(), revision: "revision-b", nodes: [...fixtureGraph().nodes].reverse().map((node) => ({ ...node, state: "active" })) };
+    await act(async () => { view.transport.changed!(); });
+    assert.equal(cameraLayer(view.host).style.transform, camera, "data-only refresh and node reorder keep the camera");
+    assert.equal(view.host.querySelector(`[aria-label^="sentinel: Watcher A"]`)?.getAttribute("aria-pressed"), "true", "selection follows the exact identity");
+    assert.ok(details(view.host).textContent?.includes("active"));
+    await resize(640, 420);
+    assert.equal(cameraLayer(view.host).style.transform, camera, "resize never overrides a moved camera");
+    await click(button(view.host, "Show list"));
+    await click(button(view.host, "Show graph"));
+    assert.equal(cameraLayer(view.host).style.transform, camera, "list toggle restores the same camera");
+    await click(button(view.host, "Fit graph"));
+    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 640, 420));
+    await resize(900, 500);
+    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 900, 500), "an untouched fitted camera follows the measured size");
+  } finally { await resize(800, 480); await view.close(); }
+});
+
+test("removed selected participant shows an honest unavailable detail and recovers focus", async () => {
+  const view = await mount();
+  try {
+    await click(button(view.host, "Show list"));
+    await click(button(view.host, "Worker A"));
+    assert.equal(document.activeElement, details(view.host));
+    const graph = fixtureGraph();
+    view.transport.graph = { ...graph, nodes: graph.nodes.filter((node) => node.identity.kind !== "worker"), edges: graph.edges.filter((edge) => edge.target.kind !== "worker") };
+    await act(async () => { view.transport.changed!(); });
+    const unavailable = view.host.querySelector<HTMLElement>('aside[aria-label="Details: unavailable participant"]');
+    assert.ok(unavailable, "removal is explicit instead of silently closing details");
+    assert.equal(document.activeElement, unavailable, "focus lands on the replacement detail rather than the document body");
+    assert.ok(!view.host.querySelector('ul[aria-label="Automation participants"]')?.textContent?.includes("Worker A"));
+    await act(async () => { unavailable.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
+    assert.equal(view.host.querySelector("aside"), null);
+    assert.ok(view.host.querySelector('ul[aria-label="Automation participants"]')?.contains(document.activeElement), "focus falls back to a live participant");
+  } finally { await view.close(); }
+});
+
+test("details Escape stays inside the graph and returning to Sentinels restores the opener entry", async () => {
+  const view = await mount();
+  let outer = 0;
+  const listener = (event: KeyboardEvent) => { if (event.code === "Escape") outer++; };
+  window.addEventListener("keydown", listener as never);
+  try {
+    const node = button(view.host, "Watcher A");
+    await click(node);
+    await act(async () => { details(view.host).dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
+    assert.equal(outer, 0, "Escape does not reach surrounding overlays");
+    assert.equal(document.activeElement, node);
+    await click(button(view.host, "All Sentinels"));
+    assert.equal((document.activeElement as HTMLElement | null)?.dataset.scenarioId, view.transport.graph.scenarios[0].id);
+  } finally {
+    window.removeEventListener("keydown", listener as never);
+    await view.close();
+  }
 });
 
 let finished = false;

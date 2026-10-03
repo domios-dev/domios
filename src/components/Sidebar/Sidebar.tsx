@@ -33,6 +33,7 @@ import { isWorkspaceTabActive } from "./sidebarSelection";
 import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import type { JobsTarget } from "../Jobs/JobsView";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
@@ -87,7 +88,7 @@ interface SidebarProps {
   uiFontScale?: number;
   workspaceCanvasActive?: boolean;
   onOpenWorkspaceMap?: (workspaceId: string) => void;
-  onOpenWorkspaceAutomation?: (workspaceId: string) => void;
+  onOpenWorkspaceAutomation?: (workspaceId: string, target?: JobsTarget) => void;
   teamActions?: Partial<SidebarTeamActions>;
 }
 
@@ -713,6 +714,7 @@ export function Sidebar({
                       onCloseTeam={teamActions?.onCloseTeam
                         ? (teamId) => requestTeamClose(generalWorkspace.id, teamId)
                         : undefined}
+                      onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(generalWorkspace.id, target) : undefined}
                     />}
                   </section>
                 );
@@ -878,6 +880,7 @@ export function Sidebar({
                           onCloseTeam={teamActions?.onCloseTeam
                             ? (teamId) => requestTeamClose(ws.id, teamId)
                             : undefined}
+                          onOpenSentinelJob={onOpenWorkspaceAutomation ? (target) => onOpenWorkspaceAutomation(ws.id, target) : undefined}
                         />
                       </div>
                     );
