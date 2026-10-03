@@ -484,6 +484,13 @@ mod tests {
         );
         let prepended_notes = "USER PREFIX\r\nkeep-leading-space:  yes\n";
         let appended_notes = "\n\nUSER SUFFIX  \r\nkeep-final-newline\n";
+        assert_eq!(
+            generated_contract_file(
+                &format!("{prepended_notes}{legacy_contract}{appended_notes}"),
+                "OPAQUE_CURRENT_CONTRACT",
+            ),
+            format!("{prepended_notes}{GENERATED_START}\nOPAQUE_CURRENT_CONTRACT\n{GENERATED_END}{appended_notes}"),
+        );
         std::fs::write(
             dir.join("AGENTS.md"),
             format!("{prepended_notes}{legacy_contract}{appended_notes}"),
@@ -554,6 +561,26 @@ mod tests {
                 format!("{GENERATED_START}\nOPAQUE_REPLACEMENT\n{GENERATED_END}\n\n{existing}")
             );
         }
+    }
+
+    #[test]
+    fn nonadjacent_primer_is_preserved_as_user_notes() {
+        let heading = crate::prompts::GENERAL_AGENT_TEMPLATE
+            .split("{version}")
+            .next()
+            .unwrap();
+        let notes = format!(
+            "{}\nOPAQUE_INTERVENING_NOTE\n",
+            crate::prompts::AGENT_CODETERM_PRIMER
+        );
+        let body = format!(
+            "{heading}0.0.0)\nOPAQUE_BODY\n{}",
+            crate::prompts::BRIDGE_MEM
+        );
+        assert_eq!(
+            generated_contract_file(&format!("{notes}{body}"), "OPAQUE_REPLACEMENT"),
+            format!("{notes}{GENERATED_START}\nOPAQUE_REPLACEMENT\n{GENERATED_END}")
+        );
     }
 
     #[test]
