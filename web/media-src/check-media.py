@@ -127,7 +127,7 @@ def published_assets(directory, timing, require_audio, timing_path, private_revi
     validate_captions(captions, timing)
     require(json.loads((directory / 'transcript.json').read_text(encoding='utf-8-sig')) == captions, 'Transcript differs from captions')
     sections = (directory / 'captions.vtt').read_text(encoding='utf-8-sig').strip().split('\n\n')
-    require(sections[0] == 'WEBVTT' and len(sections) == 14, 'Invalid VTT cue count')
+    require(sections[0] == 'WEBVTT' and len(sections) == len(captions) + 1, 'Invalid VTT cue count')
 
     def seconds(value):
         hours, minutes, seconds = map(float, value.split(':'))
