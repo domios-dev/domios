@@ -186,7 +186,7 @@ fn current_attempt_team_default_follows_changed_active_plan() {
     let team_id = {
         let mut mux = caller.svc.mux.write();
         mux.set_orchestrator_role(&tab_id).unwrap();
-        mux.get_tab(&tab_id).unwrap().team_id.clone().unwrap()
+        mux.resolve_or_mint_team_for_parent(&tab_id).unwrap().team_id
     };
     caller
         .svc
@@ -248,11 +248,9 @@ fn current_attempt_other_plan_read_does_not_rebind_or_record_a_load() {
     let team_id = {
         let mut mux = caller.svc.mux.write();
         mux.set_orchestrator_role(&caller.tab_id()).unwrap();
-        mux.get_tab(&caller.tab_id())
+        mux.resolve_or_mint_team_for_parent(&caller.tab_id())
             .unwrap()
             .team_id
-            .clone()
-            .unwrap()
     };
     caller
         .svc

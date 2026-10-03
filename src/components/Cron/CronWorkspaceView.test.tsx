@@ -8,6 +8,8 @@ import type { CronJob, CronRunInfo } from "../../lib/types";
 import type { MeshInventoryView } from "../MeshPanel/servicesView";
 import type { InventoryOperation, Service } from "../MeshPanel/types";
 import { capabilityFor, capabilityReason, type MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions";
+import { attachment, FixtureTransport } from "../Automation/fixtures.testdata";
+import type { AutomationGraphViewProps } from "../Automation/AutomationGraphView";
 import { CronWorkspaceView, selectCronService } from "./CronWorkspaceView";
 
 type TestFn = () => void | Promise<void>;
@@ -140,7 +142,7 @@ async function flushUntil(predicate: () => boolean, maxTicks = 50): Promise<void
   assert(predicate(), `condition observed within ${maxTicks} microtask ticks`);
 }
 
-async function render(cronId: string, actionAdapter: MeshResourceActionAdapter, calls: string[], lastRunStatus = "Success"): Promise<{ host: HTMLDivElement; root: Root }> {
+async function render(cronId: string, actionAdapter: MeshResourceActionAdapter, calls: string[], lastRunStatus = "Success", automation?: AutomationGraphViewProps): Promise<{ host: HTMLDivElement; root: Root }> {
   __setInvokeForTest(async <T,>(command: string): Promise<T> => {
     if (command === "cron_get") return cronJob() as T;
     if (command === "mesh_inventory_list") return inventory([projectedCronService(lastRunStatus)]) as T;
@@ -151,7 +153,7 @@ async function render(cronId: string, actionAdapter: MeshResourceActionAdapter, 
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => {
-    root.render(<CronWorkspaceView cronId={cronId} actionAdapter={actionAdapter} />);
+    root.render(<CronWorkspaceView cronId={cronId} actionAdapter={actionAdapter} automation={automation} />);
   });
   // Wait for the cron_get + mesh_inventory_list refresh, then the CronDrawerSection
   // mount it unlocks, to actually invoke the adapter — not a fixed tick count.
@@ -203,6 +205,25 @@ test("an owner prompt remains visible in history and exposes cancel while active
   assert(cancelButton, "the blocked active run exposes its cancel control");
 
   await act(async () => root.unmount());
+});
+
+test("injected automation entry opens authoritative graph and returns to ordinary cron controls", async () => {
+  const calls: string[] = [];
+  const transport = new FixtureTransport();
+  const { host, root } = await render(CRON_ID, adapter({}, calls), calls, "Success", { adapter: transport, attachment });
+  try {
+    const entry = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Automation graph");
+    assert(entry, "automation entry rendered for supplied transport");
+    await act(async () => entry.click());
+    assert(host.querySelector('[aria-label="Automations"]'), "automation surface opened");
+    assert(host.textContent?.includes(transport.graph.nodes[0].name), "authoritative fixture participant rendered");
+    const back = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Cron details");
+    assert(back, "cron details return rendered");
+    await act(async () => back.click());
+    assert(!host.querySelector('[aria-label="Automations"]'), "graph detached");
+    assert(host.textContent?.includes("Trigger now"), "ordinary cron controls restored");
+    assert(transport.unsubscribeCount === 1, "graph subscription released");
+  } finally { await act(async () => root.unmount()); }
 });
 
 async function main() {
