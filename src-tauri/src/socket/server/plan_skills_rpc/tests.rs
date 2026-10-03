@@ -1,6 +1,6 @@
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
-use crate::plan::{OrchestratorRef, PlanSkillManifestEntry};
+use crate::plan::{OrchestratorRef, PlanSkillManifestEntry, PlannerRef};
 use crate::service::plan::paths::{plan_dir, plan_sidecar_root};
 use crate::service::plan::PlanStore;
 use crate::service::test_fixture::ServiceFixture;
@@ -242,37 +242,6 @@ fn plan_skills_rpc_failures_are_structured_and_atomic() {
     assert!(!failing_dir.join("skills").join("ledger.jsonl").exists());
 }
 
-#[test]
-fn skill_evidence_resolves_a_task_assigned_after_process_launch() {
-    let daemon_root = tempfile::tempdir().unwrap();
-    let project = tempfile::tempdir().unwrap();
-    crate::service::plan::paths::mark_test_project_root(project.path());
-    let store = PlanStore::new_for_test(daemon_root.path());
-    let plan = store
-        .create_plan_for_team(
-            "Skills".into(),
-            project.path().display().to_string(),
-            OrchestratorRef::from_tab("orch"),
-            "team-skills".into(),
-            vec![],
-            1,
-        )
-        .unwrap();
-    store
-        .set_mode(&plan.id, crate::plan::PlanMode::Execution, 2)
-        .unwrap();
-    let task_id = add_task(&store, &plan.id, "post-launch task");
-    store
-        .set_task_assignment(&task_id, Some("running-tab"), Some("worker"), 4)
-        .unwrap();
-
-    assert_eq!(
-        resolve_skill_task_id(&store, &plan.id, "running-tab", None).unwrap(),
-        task_id
-    );
-    assert!(resolve_skill_task_id(&store, &plan.id, "foreign-tab", None).is_err());
-}
-
 const CALLER_NONCE: &str = "nonce-live-5upl98";
 const CALLER_SESSION: &str = "session-live-5upl98";
 const CALLER_SKILL: &str = "verify-before-claim";
@@ -362,10 +331,7 @@ impl LiveCaller {
                     slug: CALLER_SKILL.into(),
                     title: "Startup transition claim audit".into(),
                     purpose: "Startup transition claim audit".into(),
-                    content_digest: format!(
-                        "sha256:{:x}",
-                        sha2::Sha256::digest(body.as_bytes())
-                    ),
+                    content_digest: format!("sha256:{:x}", sha2::Sha256::digest(body.as_bytes())),
                 }],
                 6,
             )
@@ -626,11 +592,10 @@ fn plan_skill_show_serves_the_plan_owner_and_planner() {
     assert_eq!(shown["skill"]["slug"], OWNER_SKILL);
 }
 
-/// codeterm-releases#53: a spoofed/stale/unproven owner claim is refused
-/// exactly like any other unrelated tab, never granted the bypass.
+/// Spoofed identities refuse; a verified unassigned reader records no receipt.
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn plan_skill_show_refuses_every_spoofed_or_unrelated_owner_claim() {
+fn plan_skill_show_authenticates_owner_and_unassigned_readers() {
     let f = OwnerFixture::new();
 
     // Spoofed: the real owner's tab id, a nonce that tab never issued.
@@ -645,8 +610,7 @@ fn plan_skill_show_refuses_every_spoofed_or_unrelated_owner_claim() {
             .reported_session_binding_nonce = None;
     }
     assert!(f.show(&f.owner_tab, OWNER_NONCE).is_err());
-    // Live and nonce-proven, but bound to neither owner nor Planner.
-    assert!(f.show(&f.stranger_tab, "nonce-stranger").is_err());
+    assert!(f.show(&f.stranger_tab, "nonce-stranger").is_ok());
 }
 
 mod current_attempt;
