@@ -9,6 +9,8 @@ use crate::service::plan::mutations::agent_lifecycle::{
 };
 use crate::service::ServiceContext;
 
+mod worker_transfer;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AgentPlacement {
     Roleless,
@@ -281,6 +283,40 @@ impl ServiceContext {
     }
 }
 
+fn refuse_unverified_task_bound_worker_transfer(
+    mux: &MultiplexerState,
+    plan_store: &crate::service::plan::PlanStore,
+    request: &AgentTransitionRequest,
+) -> Result<(), String> {
+    let Some(source) = mux.get_tab(&request.tab_id) else {
+        return Ok(());
+    };
+    let AgentPlacement::Worker { parent_tab_id, .. } = &request.destination else {
+        return Ok(());
+    };
+    if source.role != Some(AgentRole::Worker)
+        || source.parent_tab_id.as_deref() == Some(parent_tab_id.as_str())
+    {
+        return Ok(());
+    }
+    let bound = plan_store.list_full().iter().any(|plan| {
+        plan.tasks.iter().any(|task| {
+            (!task.status.is_terminal()
+                && (task.assigned_tab_id.as_deref() == Some(request.tab_id.as_str())
+                    || task.lane.tab_id.as_deref() == Some(request.tab_id.as_str())))
+                || task.execution_attempts.iter().any(|attempt| {
+                    attempt.executor_tab_id == request.tab_id && attempt.closed_at.is_none()
+                })
+        })
+    });
+    if bound {
+        return Err(
+            "task-bound Worker transfer requires an authenticated source-manager transfer".into(),
+        );
+    }
+    Ok(())
+}
+
 fn role_team_bindings(
     mux: &MultiplexerState,
 ) -> std::collections::HashMap<
@@ -412,6 +448,7 @@ fn execute_transition_at(
     failure: TransitionFailurePoint,
     now_ms: u64,
 ) -> Result<Vec<String>, String> {
+    refuse_unverified_task_bound_worker_transfer(mux, plan_store, &request)?;
     let mut prepared = prepare_transition(mux, plan_store, &request)?;
     if failure == TransitionFailurePoint::SkipPlanRebind {
         for change in &mut prepared.plan_changes {

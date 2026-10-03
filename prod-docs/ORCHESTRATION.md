@@ -61,6 +61,22 @@ Team utility shells and cron jobs inherit that Team for cleanup. Use `--no-team`
 only when a resource must outlive it deliberately.
 Adopting a plan into a Team binds that Team's unique live Planner to the plan.
 
+For a task-bound Worker whose acknowledged attempt belongs to another Team's
+approved plan, the current source Orchestrator can run
+`codeterm agent link --parent-tab <destination> --tab <worker>` to transfer the
+Worker to that plan's current live Orchestrator. This is local to the same
+workspace and preserves the existing plan, task, attempt, lane, session, and
+nonce. The source Orchestrator must be the Worker's current parent; a destination
+cannot pull a Worker from another Team. If the plan owner, task binding, session,
+or isolated lane does not match, the command refuses without changing placement
+or task state. Use the existing task recovery or replacement route for stale or
+ambiguous work. `team adopt-agent` remains for unbound roleless tabs.
+
+The move updates current hierarchy and report placement. A running shell keeps
+its original `CODETERM_TAB_ID` and parent or Team environment values as launch
+provenance; do not use inherited environment strings as current membership
+proof. Resolve reports from the live hierarchy and plan ownership.
+
 Lane safety has two hard stops and otherwise only nudges; see the lanes playbook.
 
 ### Recovering a tab-gone task
@@ -172,4 +188,4 @@ contracts (API-PLAN).
 
 A connected Supporter gates the reminder ticks: healthy, unchanged work stays quiet, and every heartbeat that does arrive names a concrete next step. Undelivered reports, failed gates, owner messages, worker incidents and plan mode changes always wake you. Record a deliberate review hold with `plan review hold --note`; it is not re-flagged as drift until the task's state or verdict changes.
 
-<!-- revision: 100 -->
+<!-- revision: 101 -->
