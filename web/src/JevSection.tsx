@@ -7,8 +7,8 @@ export function JevSection() {
 
   return <section id="jev" className="jev-section section-wrap" aria-labelledby="jev-title">
     <div className="jev-heading">
-      <h2 id="jev-title">Keep your team connected</h2>
-      <p>Roles, this machine’s memory, connected Telegram.</p>
+      <h2 id="jev-title">A home for your whole team.</h2>
+      <p>Your team, memory and messages in one place.</p>
     </div>
     <figure
       className="jev-board jev-scene"
@@ -47,14 +47,14 @@ export function JevSection() {
       </div>
       <div className="jev-memory jev-node" data-story-node="memory">
         <strong>Memory</strong>
-        <span>This machine</span>
+        <span>Shared on this machine</span>
       </div>
       <div className="jev-telegram jev-node" data-story-node="telegram">
         <strong>Your messenger</strong>
-        <span>Telegram · connected</span>
-        <small>Notifications · replies</small>
+        <span>Telegram: updates and replies</span>
       </div>
     </figure>
-    <p className="jev-authority">The model names states. Domios authorizes actions from evidence.</p>
+    <p className="jev-roles-description">The Planner shapes tasks. Workers carry them out. The Orchestrator coordinates and reviews.</p>
+    <p className="jev-authority">Optional model help for recall and tab status. Domios checks the evidence.</p>
   </section>;
 }

@@ -1,5 +1,9 @@
-export type IconName = 'arrow' | 'download' | 'github' | 'sun' | 'moon' | 'terminal' | 'grid' | 'mesh' | 'layers' | 'branch' | 'memory' | 'play' | 'pause' | 'plus';
+export type IconName = 'arrow' | 'download' | 'github' | 'sun' | 'moon' | 'terminal' | 'grid' | 'mesh' | 'layers' | 'branch' | 'memory' | 'play' | 'pause' | 'plus' | 'clock' | 'browser' | 'microphone' | 'lock';
 const paths: Record<IconName, string> = {
+  clock: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM12 7v5l3 2',
+  browser: 'M3 4h18v16H3ZM3 9h18M6 6.5h.01m3 0h.01',
+  microphone: 'M9 5a3 3 0 0 1 6 0v7a3 3 0 0 1-6 0ZM6 11v1a6 6 0 0 0 12 0v-1M12 18v4m-4 0h8',
+  lock: 'M5 10h14v11H5ZM8 10V6a4 4 0 0 1 8 0v4m-4 5v2',
   plus: 'M12 5v14M5 12h14',
   arrow: 'M5 12h14m-6-6 6 6-6 6',
   download: 'M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4',
