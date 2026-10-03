@@ -69,14 +69,12 @@ function ProviderEntry({ provider, theme }: { provider: Provider; theme: Provide
 
 export function ProviderStrip() {
   const { viewport, reducedMotion, theme } = useProviderMarquee();
-  return <section className="provider-strip section-wrap" aria-labelledby="providers-title">
-    <h2 id="providers-title">BRING YOUR AGENTS</h2>
+  return <section className="provider-strip section-wrap" aria-label="Supported agents">
     <div className="provider-viewport" ref={viewport}>
       <div className="provider-track">
         <ul className="provider-list provider-cycle" role="list">{providers.map((provider) => <li className="provider-entry" key={provider.name}><ProviderEntry provider={provider} theme={theme} /></li>)}</ul>
         {!reducedMotion && <div className="provider-cycle provider-copy" aria-hidden="true" inert>{providers.map((provider) => <div className="provider-entry" key={provider.name}><ProviderEntry provider={provider} theme={theme} /></div>)}</div>}
       </div>
     </div>
-    <p>Add other agents with provider plugins—ask your agent to write one and share it.</p>
   </section>;
 }
