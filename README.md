@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="CodeTerm" width="128" />
+  <img src="assets/logo.png" alt="Domios" width="128" />
 </p>
 
-<h1 align="center">CodeTerm</h1>
+<h1 align="center">Domios</h1>
 
 <p align="center">
   <strong>AI-first terminal multiplexer</strong><br>
@@ -39,11 +39,11 @@
 
 ---
 
-## What is CodeTerm?
+## What is Domios?
 
-CodeTerm is a cross-platform terminal multiplexer designed from the ground up for AI-assisted development. It combines the power of a terminal multiplexer (like tmux) with first-class support for AI coding agents like Claude Code.
+Domios is a cross-platform terminal multiplexer designed from the ground up for AI-assisted development. It combines the power of a terminal multiplexer (like tmux) with first-class support for AI coding agents like Claude Code.
 
-**Key difference from other terminals:** CodeTerm exposes a full REST API, CLI, and Socket API — so AI agents can create workspaces, open tabs, run commands, read output, and manage the entire terminal programmatically. Your AI assistant becomes a first-class citizen in your terminal workflow.
+**Key difference from other terminals:** Domios exposes a full REST API, CLI, and Socket API — so AI agents can create workspaces, open tabs, run commands, read output, and manage the entire terminal programmatically. Your AI assistant becomes a first-class citizen in your terminal workflow.
 
 Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 
@@ -65,7 +65,7 @@ Built with **Tauri v2** (Rust) + **React** + **xterm.js**.
 - **REST API** — 30+ endpoints for complete terminal control (port 7685). An external AI (e.g. OpenClaw, custom agents) can create workspaces, spawn tabs, run commands, read output, and orchestrate Claude Code sessions — all remotely
 - **CLI tool** — `codeterm` command-line tool for scripting and automation
 - **Socket API** — JSON-RPC v2 over named pipes (Windows) / Unix sockets
-- **Agent prompt** — copy the integration prompt from Settings to give any LLM full control over CodeTerm
+- **Agent prompt** — copy the integration prompt from Settings to give any LLM full control over Domios
 - **Real-time streaming** — SSE endpoint for live terminal output
 
 ### Bridges & external services
@@ -209,7 +209,7 @@ All shortcuts use `Cmd` on macOS, `Ctrl` on Windows/Linux. Configurable in Setti
 
 ## API
 
-CodeTerm exposes three APIs for integration:
+Domios exposes three APIs for integration:
 
 ### REST API (port 7685)
 
@@ -259,11 +259,11 @@ codeterm notify send "Build complete" --level info
 
 ### Environment Variables
 
-CodeTerm sets these in every PTY session:
+Domios sets these in every PTY session:
 
 | Variable | Description |
 |----------|-------------|
-| `CODETERM` | Always `1` — detect if running inside CodeTerm |
+| `CODETERM` | Always `1` — detect if running inside Domios |
 | `CODETERM_TAB_ID` | UUID of the current tab |
 | `CODETERM_SOCKET_PATH` | Socket path for JSON-RPC API |
 | `CODETERM_API_PORT` / `CODETERM_API_TOKEN` | API port and bearer token, so CLI subcommands and Claude hooks (`/api/tabs/*/hook/*`, `/api/mem/flush`) can authenticate without per-call wiring |
@@ -304,7 +304,7 @@ See [Configuration Guide](prod-docs/CONFIG.md) for all options.
 
 ```
 ┌─────────────────────────────────────────────┐
-│                  CodeTerm                    │
+│                  Domios                    │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
 │  │ React UI │  │ xterm.js │  │  Browser   │  │
 │  │ Sidebar  │  │ Terminal │  │    Tabs    │  │

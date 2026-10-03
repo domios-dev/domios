@@ -1,10 +1,10 @@
 # Permissions: who authorizes what
 
-CodeTerm keeps execution access, role authority, plugin grants, folder trust and model classification distinct. This contract states their confirmed boundaries; the [orchestration contract](orchestration.md) owns task and Team authority, and the [core](core.md) names the services that enforce them.
+Domios keeps execution access, role authority, plugin grants, folder trust and model classification distinct. This contract states their confirmed boundaries; the [orchestration contract](orchestration.md) owns task and Team authority, and the [core](core.md) names the services that enforce them.
 
 ## Agent execution access
 
-The owner chooses agent execution access through the global `agent.full_access` setting. Spawn callers cannot override that choice. Until the owner has chosen, spawn is refused before a tab is created and directs the owner to choose access in CodeTerm.
+The owner chooses agent execution access through the global `agent.full_access` setting. Spawn callers cannot override that choice. Until the owner has chosen, spawn is refused before a tab is created and directs the owner to choose access in Domios.
 
 Without full access, a model whose provider declares no unattended permission mode receives launch-scoped grants for its role's CodeTerm commands. Launching an Orchestrator or Planner on such a model is refused before tab creation, with the model named; Team pairing checks both members first. Provider capabilities determine this behavior, not provider identity.
 
@@ -24,7 +24,7 @@ Hidden memory workers trust their daemon-owned folder. Crons trust the folder ch
 
 Plugins declare capabilities and permissions. The host registers only capabilities it supports, and declared permissions bound access to local files, subprocesses, network hosts and secrets. A plugin update cannot supply host behavior absent from the installed app. Plugin confinement and official-channel provenance remain under the [plugin-host contract](core.md#core:plugin-host).
 
-Plugin setup guidance is data. A helper asks the owner what to change and uses the existing permission-gated configuration path only after confirmation. Global provider integrations may be inspected without mutation; installing or repairing them requires explicit user consent. CodeTerm changes only entries it owns and provides a reversible restore path.
+Plugin setup guidance is data. A helper asks the owner what to change and uses the existing permission-gated configuration path only after confirmation. Global provider integrations may be inspected without mutation; installing or repairing them requires explicit user consent. Domios changes only entries it owns and provides a reversible restore path.
 
 ## Supporter classification
 

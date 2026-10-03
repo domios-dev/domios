@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="CodeTerm" width="128" />
+  <img src="assets/logo.png" alt="Domios" width="128" />
 </p>
 
-<h1 align="center">CodeTerm</h1>
+<h1 align="center">Domios</h1>
 > README.md 的翻译可能会落后。英文版本是规范版本。
 
 <p align="center">
@@ -31,7 +31,7 @@
 </p>
 
 <!-- SCREENSHOT PLACEHOLDER: Add screenshots here -->
-<!-- ![CodeTerm Screenshot](assets/screenshot.png) -->
+<!-- ![Domios Screenshot](assets/screenshot.png) -->
 <!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
      1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
      2. Per-OS install subsections instead of one combined "下载": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
@@ -39,11 +39,11 @@
 
 ---
 
-## 什么是 CodeTerm？
+## 什么是 Domios？
 
-CodeTerm 是一款从零开始为 AI 辅助开发而设计的跨平台终端复用器。它将终端复用器（如 tmux）的强大功能与对 Claude Code 等 AI 编程代理的一流支持相结合。
+Domios 是一款从零开始为 AI 辅助开发而设计的跨平台终端复用器。它将终端复用器（如 tmux）的强大功能与对 Claude Code 等 AI 编程代理的一流支持相结合。
 
-**与其他终端的关键区别：** CodeTerm 提供完整的 REST API、CLI 和 Socket API——AI 代理可以创建工作区、拆分窗格、运行命令、读取输出，并以编程方式管理整个终端。您的 AI 助手成为终端工作流程中的一等公民。
+**与其他终端的关键区别：** Domios 提供完整的 REST API、CLI 和 Socket API——AI 代理可以创建工作区、拆分窗格、运行命令、读取输出，并以编程方式管理整个终端。您的 AI 助手成为终端工作流程中的一等公民。
 
 基于 **Tauri v2**（Rust）+ **React** + **xterm.js** 构建。
 
@@ -164,7 +164,7 @@ cd cli && cargo build --release
 
 ## API
 
-CodeTerm 提供三种 API 用于集成：
+Domios 提供三种 API 用于集成：
 
 ### REST API（端口 7685）
 
@@ -217,11 +217,11 @@ codeterm browser open "http://localhost:3000"
 
 ### 环境变量
 
-CodeTerm 在每个 PTY 会话中设置以下变量：
+Domios 在每个 PTY 会话中设置以下变量：
 
 | 变量 | 描述 |
 |----------|-------------|
-| `CODETERM` | 始终为 `1` — 用于检测是否在 CodeTerm 内运行 |
+| `CODETERM` | 始终为 `1` — 用于检测是否在 Domios 内运行 |
 | `CODETERM_TAB_ID` | 当前窗格的 UUID |
 | `CODETERM_SOCKET_PATH` | JSON-RPC API 的套接字路径 |
 | `TERM_PROGRAM` | `CodeTerm` |
@@ -261,7 +261,7 @@ port = 7685
 
 ```
 ┌─────────────────────────────────────────────┐
-│                  CodeTerm                    │
+│                  Domios                    │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
 │  │ React UI │  │ xterm.js │  │  浏览器    │  │
 │  │  侧边栏  │  │   终端   │  │   窗格    │  │

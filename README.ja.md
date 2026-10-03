@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="CodeTerm" width="128" />
+  <img src="assets/logo.png" alt="Domios" width="128" />
 </p>
 
-<h1 align="center">CodeTerm</h1>
+<h1 align="center">Domios</h1>
 > README.md の翻訳は遅れることがあります。英語版が基準です。
 
 <p align="center">
@@ -31,7 +31,7 @@
 </p>
 
 <!-- SCREENSHOT PLACEHOLDER: Add screenshots here -->
-<!-- ![CodeTerm Screenshot](assets/screenshot.png) -->
+<!-- ![Domios Screenshot](assets/screenshot.png) -->
 <!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
      1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
      2. Per-OS install subsections instead of one combined "ダウンロード": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
@@ -39,11 +39,11 @@
 
 ---
 
-## CodeTermとは？
+## Domiosとは？
 
-CodeTermは、AI支援開発のためにゼロから設計されたクロスプラットフォームのターミナルマルチプレクサです。ターミナルマルチプレクサ（tmuxのような）の機能と、Claude CodeなどのAIコーディングエージェントのファーストクラスサポートを組み合わせています。
+Domiosは、AI支援開発のためにゼロから設計されたクロスプラットフォームのターミナルマルチプレクサです。ターミナルマルチプレクサ（tmuxのような）の機能と、Claude CodeなどのAIコーディングエージェントのファーストクラスサポートを組み合わせています。
 
-**他のターミナルとの主な違い：** CodeTermはフルREST API、CLI、Socket APIを公開しており、AIエージェントがワークスペースの作成、ペインの分割、コマンドの実行、出力の読み取り、ターミナル全体のプログラム的な管理を行えます。AIアシスタントがターミナルワークフローのファーストクラスシチズンになります。
+**他のターミナルとの主な違い：** DomiosはフルREST API、CLI、Socket APIを公開しており、AIエージェントがワークスペースの作成、ペインの分割、コマンドの実行、出力の読み取り、ターミナル全体のプログラム的な管理を行えます。AIアシスタントがターミナルワークフローのファーストクラスシチズンになります。
 
 **Tauri v2**（Rust）+ **React** + **xterm.js** で構築されています。
 
@@ -164,7 +164,7 @@ cd cli && cargo build --release
 
 ## API
 
-CodeTermは統合のために3つのAPIを公開しています：
+Domiosは統合のために3つのAPIを公開しています：
 
 ### REST API（ポート7685）
 
@@ -217,11 +217,11 @@ codeterm browser open "http://localhost:3000"
 
 ### 環境変数
 
-CodeTermはすべてのPTYセッションで以下の環境変数を設定します：
+DomiosはすべてのPTYセッションで以下の環境変数を設定します：
 
 | 変数 | 説明 |
 |----------|-------------|
-| `CODETERM` | 常に`1` — CodeTerm内で実行されているかを検出 |
+| `CODETERM` | 常に`1` — Domios内で実行されているかを検出 |
 | `CODETERM_TAB_ID` | 現在のペインのUUID |
 | `CODETERM_SOCKET_PATH` | JSON-RPC APIのソケットパス |
 | `TERM_PROGRAM` | `CodeTerm` |
@@ -261,7 +261,7 @@ port = 7685
 
 ```
 ┌─────────────────────────────────────────────┐
-│                  CodeTerm                    │
+│                  Domios                    │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
 │  │ React UI │  │ xterm.js │  │  Browser   │  │
 │  │ Sidebar  │  │ Terminal │  │    Tabs    │  │
