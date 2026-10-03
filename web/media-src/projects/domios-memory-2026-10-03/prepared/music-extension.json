@@ -1,0 +1,17 @@
+{
+  "previousArrangement": {
+    "path": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\continuous-film-1\\audio\\prepared-music.wav",
+    "sha256": "fc6a5a97f77f5e2e152b720dbefd77aa930cd0d4e195ed4e2ec683d5cbe9be57"
+  },
+  "donorStartSample": 336000,
+  "donorSamples": 481600,
+  "insertionSample": 1779200,
+  "addedSamples": 448000,
+  "joinSamples": 33600,
+  "curve": "complementary raised cosine",
+  "output": {
+    "path": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-extension-3\\prepared-music.wav",
+    "sha256": "612898c1f54071fcb5073a159b76024e0d400d2d7337298a22309d81680f38ac"
+  },
+  "outputSamples": 2608000
+}

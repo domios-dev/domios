@@ -1,0 +1,80 @@
+[
+  {
+    "id": 1,
+    "start": 0.65,
+    "end": 3.657,
+    "text": "Meet Domios. A home for your AI agents."
+  },
+  {
+    "id": 2,
+    "start": 3.9819999999999998,
+    "end": 6.885000000000001,
+    "text": "Open a tab, choose an agent, and get to work."
+  },
+  {
+    "id": 3,
+    "start": 7.488,
+    "end": 9.404,
+    "text": "Give your next task its own team."
+  },
+  {
+    "id": 4,
+    "start": 9.845,
+    "end": 13.409,
+    "text": "Then follow the work across the board, through to a result."
+  },
+  {
+    "id": 5,
+    "start": 13.851,
+    "end": 16.881,
+    "text": "Your own computers, connected in one trusted mesh."
+  },
+  {
+    "id": 6,
+    "start": 17.483999999999998,
+    "end": 19.493,
+    "text": "Reach a workspace on another machine."
+  },
+  {
+    "id": 7,
+    "start": 20.305999999999997,
+    "end": 22.593,
+    "text": "Ask an agent to check in with its peers."
+  },
+  {
+    "id": 8,
+    "start": 23.034,
+    "end": 24.775,
+    "text": "And bring their reports back here."
+  },
+  {
+    "id": 9,
+    "start": 25.471999999999998,
+    "end": 27.793999999999997,
+    "text": "Choose the intelligence that fits your work."
+  },
+  {
+    "id": 10,
+    "start": 28.305,
+    "end": 29.884,
+    "text": "Bring your tools along, too."
+  },
+  {
+    "id": 11,
+    "start": 30.697,
+    "end": 32.983,
+    "text": "Add more capabilities through plugins."
+  },
+  {
+    "id": 12,
+    "start": 33.68,
+    "end": 36.861,
+    "text": "See your fleet, including who is offline."
+  },
+  {
+    "id": 13,
+    "start": 37.302,
+    "end": 42.678,
+    "text": "Your next idea. A whole team behind it. Domios."
+  }
+]
