@@ -142,18 +142,10 @@ pub(crate) fn ack_skill_brief(
             .as_deref()
             .is_some_and(|nonce| !nonce.trim().is_empty());
     if acknowledgement.already_acknowledged && !attempt_bound {
-        return Err(JsonRpcError {
-            code: -32603,
-            message: "ACK is retained, but this attempt has no dispatch-proven session binding. Report the plan, task, and attempt to the Orchestrator for launch-proven binding repair; repeating ACK cannot establish that authority.".into(),
-            data: Some(json!({
-                "type": "plan_skill_attempt_binding_missing",
-                "plan_id": acknowledgement.plan_id,
-                "task_id": acknowledgement.task_id,
-                "attempt_id": acknowledgement.attempt.id,
-                "acknowledged_at": acknowledgement.attempt.acknowledged_at,
-                "recovery": "orchestrator_launch_proven_binding_repair",
-            })),
-        });
+        return Err(attempt_binding_refusal(
+            acknowledgement,
+            "no retained launch completion",
+        ));
     }
     let bound = attempt_bound && identity.get("session_binding_nonce").is_some();
     let manifest = if bound {
@@ -177,4 +169,22 @@ pub(crate) fn ack_skill_brief(
         "plan_skill_brief": crate::service::plan::task_brief::render_plan_skill_manifest(&acknowledgement.plan_id, &manifest),
         "plan_skill_manifest": manifest,
     }))
+}
+
+pub(crate) fn attempt_binding_refusal(
+    acknowledgement: &crate::service::plan::task_attempts::TaskAttemptAcknowledgement,
+    cause: &str,
+) -> JsonRpcError {
+    JsonRpcError {
+        code: -32603,
+        message: format!("ACK is retained, but this attempt has no dispatch-proven session binding: {cause}. Report the plan, task, and attempt to the Orchestrator for launch-proven binding repair."),
+        data: Some(json!({
+            "type": "plan_skill_attempt_binding_missing",
+            "plan_id": acknowledgement.plan_id,
+            "task_id": acknowledgement.task_id,
+            "attempt_id": acknowledgement.attempt.id,
+            "acknowledged_at": acknowledgement.attempt.acknowledged_at,
+            "recovery": "orchestrator_launch_proven_binding_repair",
+        })),
+    }
 }

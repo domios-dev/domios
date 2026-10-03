@@ -13,6 +13,10 @@ struct LateLaunch {
 
 impl LateLaunch {
     fn new() -> Self {
+        Self::start("active")
+    }
+
+    fn start(state: &str) -> Self {
         let caller = LiveCaller::new();
         let tab = caller.tab_id();
         let (parent, team) = {
@@ -107,16 +111,25 @@ impl LateLaunch {
             Some(&parent),
             Some(identity.clone())
         ));
-        caller
-            .svc
-            .activate_agent_startup_supervision(&tab, LAUNCH, CALLER_NONCE, Some(&identity))
-            .unwrap();
+        if state != "absent" {
+            caller
+                .svc
+                .activate_agent_startup_supervision(&tab, LAUNCH, CALLER_NONCE, Some(&identity))
+                .unwrap();
+        }
         let launch = Self {
             caller,
             tab,
             parent,
             attempt,
         };
+        if state == "finalized" {
+            launch
+                .caller
+                .svc
+                .hold_agent_startup(&launch.parent, &launch.tab, LAUNCH)
+                .unwrap();
+        }
         let early = launch.ack().unwrap();
         assert_eq!(early["state"], "awaiting_runtime_ready");
         assert_eq!(early["attempt_id"], launch.attempt);
@@ -228,21 +241,10 @@ fn retained_launch_refuses_missing_replaced_finalized_and_foreign_live_authority
         "creator",
         "team",
         "session_claim",
+        "attempt_claim",
+        "assignment",
     ] {
-        let launch = LateLaunch::new();
-        if variant == "absent" {
-            launch
-                .caller
-                .svc
-                .cancel_agent_startup_supervision(&launch.tab);
-        }
-        if variant == "finalized" {
-            launch
-                .caller
-                .svc
-                .hold_agent_startup(&launch.parent, &launch.tab, LAUNCH)
-                .unwrap();
-        }
+        let launch = LateLaunch::start(variant);
         launch.ready();
         {
             let mut mux = launch.caller.svc.mux.write();
@@ -256,16 +258,23 @@ fn retained_launch_refuses_missing_replaced_finalized_and_foreign_live_authority
                 "reported" => tab.reported_session_binding_nonce = None,
                 "creator" => tab.parent_tab_id = Some("foreign-creator".into()),
                 "team" => tab.team_id = Some("foreign-team".into()),
+                "assignment" => {
+                    tab.task_binding.as_mut().unwrap().attempt_id = Some("foreign-attempt".into())
+                }
                 _ => {}
             }
         }
         let before = launch.task();
-        let result = if variant == "session_claim" {
+        let result = if variant == "session_claim" || variant == "attempt_claim" {
+            let mut params = json!({ "tab_id": launch.tab, "session_binding_nonce": CALLER_NONCE });
+            params[if variant == "session_claim" {
+                "caller_session_id"
+            } else {
+                "attempt_id"
+            }] = json!("foreign-claim");
             crate::socket::server::dispatch_service_rpc(
                 "agent.ack",
-                Some(json!({
-                    "tab_id": launch.tab, "session_binding_nonce": CALLER_NONCE, "caller_session_id": "foreign-session",
-                })),
+                Some(params),
                 &launch.caller.svc,
             )
         } else {
@@ -285,6 +294,8 @@ fn retained_launch_refuses_partial_foreign_ambiguous_retired_epoch_and_manifest(
         "foreign",
         "ambiguous",
         "retired",
+        "closed",
+        "owner_session",
         "epoch",
         "manifest",
         "digest",
@@ -306,6 +317,10 @@ fn retained_launch_refuses_partial_foreign_ambiguous_retired_epoch_and_manifest(
                     task.execution_attempts.push(duplicate);
                 }
                 "retired" => attempt.retired_at = Some(12),
+                "closed" => attempt.closed_at = Some(12),
+                "owner_session" => {
+                    task.interruption.owner_session_id = Some("foreign-owner".into())
+                }
                 "epoch" => {
                     task.interruption.owner_epoch += 1;
                     attempt.interruption.owner_epoch = task.interruption.owner_epoch;
