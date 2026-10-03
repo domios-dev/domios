@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, finish, it, vi } from "../test/standaloneTest";
-import { webJson } from "./webApi";
+import { withFailureDeadline } from "../test/withFailureDeadline";
+import { webJson, invalidateWebRequestContext } from "./webApi";
 
 describe("web JSON prompt response transport", () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -48,6 +49,36 @@ describe("web JSON prompt response transport", () => {
     ));
 
     await expect(webJson("POST", "/api/tabs/tab/prompt/respond", { value: "1" })).rejects.toThrow("HTTP 409");
+  });
+});
+
+describe("web config response context", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("refuses a local response body completing after peer invalidation", async () => {
+    vi.stubGlobal("window", {
+      location: { protocol: "http:", host: "localhost" },
+      dispatchEvent: () => true,
+      CustomEvent: class {},
+    });
+    vi.stubGlobal("localStorage", { getItem: () => null });
+    let beginBody!: () => void;
+    const bodyStarted = new Promise<void>((resolve) => { beginBody = resolve; });
+    let finishBody!: (value: string) => void;
+    const body = new Promise<string>((resolve) => { finishBody = resolve; });
+    vi.stubGlobal("fetch", async () => {
+      const response = new Response();
+      response.text = () => { beginBody(); return body; };
+      return response;
+    });
+    const result = webJson("GET", "/api/config");
+    const refused = expect(result).rejects.toThrow("Peer context changed");
+    try {
+      await withFailureDeadline(bodyStarted, "local config response body");
+      invalidateWebRequestContext();
+      finishBody(JSON.stringify({ mesh: { instance_name: "opaque-a" } }));
+      await withFailureDeadline(refused, "stale body refusal");
+    } finally { finishBody("{}"); }
   });
 });
 

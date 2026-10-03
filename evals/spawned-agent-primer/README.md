@@ -41,7 +41,7 @@ Record the observed A/B result as a plan stride.
 
 ## Pass
 
-The report shows all nine cases passing for all three samples and the runner
+The report shows all ten cases passing for all three samples and the runner
 exits zero.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

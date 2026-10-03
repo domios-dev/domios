@@ -6,6 +6,10 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
+use super::cancellation::{
+    unix::{Events, ParentEvent},
+    Cancellation,
+};
 use super::capture::{self, CaptureData};
 use super::owner::{ProbeResourceOwner, Reservation, RetainedResources, Settlement};
 use super::process::{cancellation_target, Deadlines, LeaderOwnership, ProbeFailure, ResourceKind};
@@ -31,8 +35,40 @@ pub(super) fn run(
     deadlines: Deadlines,
     reservation: Reservation,
     owner: &Arc<ProbeResourceOwner>,
+    cancellation: &Cancellation,
+    cancellation_required: bool,
 ) -> Result<Output, ProbeFailure> {
     let mut process = UnixRun::new(deadlines, reservation, owner);
+    if cancellation_required {
+        match Events::new(cancellation) {
+            Ok(events) => {
+                process.events = Some(events);
+                process.events_registered = process.register_resource(ResourceKind::Capture);
+                if !process.events_registered {
+                    process.set_failure("probe_cancel_registration_failed");
+                    process.permanent_unconfirmed = true;
+                    return process.finish_failure();
+                }
+            }
+            Err(error) => {
+                process.set_failure(
+                    if error.starts_with("probe_cancel_parent_wait_unsupported_kernel") {
+                        "probe_cancel_parent_wait_unsupported_kernel"
+                    } else if error.starts_with("probe_cancel_parent_wait_unsupported_platform") {
+                        "probe_cancel_parent_wait_unsupported_platform"
+                    } else {
+                        "probe_cancel_registration_failed"
+                    },
+                );
+                process.add_cleanup_error(error);
+                return process.finish_failure();
+            }
+        }
+    }
+    if cancellation.load(std::sync::atomic::Ordering::SeqCst) {
+        process.set_failure("probe_cancelled");
+        return process.finish_failure();
+    }
     if owner.is_closing() || process.deadlines.expired_operation() {
         process.failure = Some(ProbeFailure::new(if owner.is_closing() {
             "probe_owner_closing"
@@ -49,6 +85,10 @@ pub(super) fn run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0);
+    if cancellation.load(std::sync::atomic::Ordering::SeqCst) {
+        process.set_failure("probe_cancelled");
+        return process.finish_failure();
+    }
     match child_command.spawn() {
         Ok(child) => process.adopt_child(child),
         Err(error) => {
@@ -58,6 +98,23 @@ pub(super) fn run(
         }
     }
     process.adopt_streams();
+    if let (Some(events), Some(child)) = (&mut process.events, &mut process.child) {
+        if let Err(error) = events.observe_parent(child) {
+            match child.try_wait() {
+                Ok(Some(status)) => process.parent_finished(status),
+                Ok(None) => {
+                    process.set_failure("probe_parent_event_registration_failed");
+                    process.add_cleanup_error(error);
+                }
+                Err(wait_error) => {
+                    process.ownership = LeaderOwnership::Lost;
+                    process.permanent_unconfirmed = true;
+                    process.set_failure("probe_wait_failed");
+                    process.add_cleanup_error(wait_error.to_string());
+                }
+            }
+        }
+    }
     process.set_nonblocking();
     process.drive()
 }
@@ -80,6 +137,8 @@ struct UnixRun {
     cancel_attempted: bool,
     failure: Option<ProbeFailure>,
     permanent_unconfirmed: bool,
+    events: Option<Events>,
+    events_registered: bool,
 }
 
 impl UnixRun {
@@ -106,6 +165,8 @@ impl UnixRun {
             cancel_attempted: false,
             failure: None,
             permanent_unconfirmed: false,
+            events: None,
+            events_registered: false,
         }
     }
 
@@ -171,7 +232,8 @@ impl UnixRun {
                 continue;
             };
             let flags = unsafe { libc::fcntl(fd, libc::F_GETFL) };
-            if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0 {
+            if flags < 0 || unsafe { libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK) } < 0
+            {
                 self.set_failure("probe_capture_failed");
                 self.close_stream(stdout);
             }
@@ -180,8 +242,13 @@ impl UnixRun {
 
     fn drive(mut self) -> Result<Output, ProbeFailure> {
         while self.has_open_streams() && self.failure.is_none() {
-            if self.owner_is_closing() || self.deadlines.expired_operation() {
-                self.set_failure(if self.owner_is_closing() {
+            if self.events.as_ref().is_some_and(Events::cancelled)
+                || self.owner_is_closing()
+                || self.deadlines.expired_operation()
+            {
+                self.set_failure(if self.events.as_ref().is_some_and(Events::cancelled) {
+                    "probe_cancelled"
+                } else if self.owner_is_closing() {
                     "probe_owner_closing"
                 } else {
                     "probe_timeout"
@@ -221,7 +288,7 @@ impl UnixRun {
             self.deadlines.record_lateness(&mut failure);
             self.finish_failure_with(failure)
         } else if self.status.is_some() && self.group_absent && self.all_streams_eof() {
-            let status = self.status.take().unwrap();
+            let status = self.status.unwrap();
             if Instant::now() >= self.deadlines.operation {
                 let mut failure = ProbeFailure::new("probe_timeout");
                 self.cleanup(&mut failure);
@@ -261,12 +328,12 @@ impl UnixRun {
                     let mut failure = ProbeFailure::new("probe_owner_release_failed");
                     failure.cleanup_error(error);
                     failure.unconfirmed(ResourceKind::Capture);
-                    return Err(failure);
+                    return Err(failure.with_output(&output));
                 }
                 if Instant::now() > self.deadlines.hard {
                     let mut failure = ProbeFailure::new("probe_cleanup_deadline");
                     self.deadlines.record_lateness(&mut failure);
-                    return Err(failure);
+                    return Err(failure.with_output(&output));
                 }
                 Ok(output)
             }
@@ -283,6 +350,15 @@ impl UnixRun {
     fn wait_streams(&mut self, timeout: Option<Duration>) -> Result<bool, io::Error> {
         let mut fds = [
             libc::pollfd {
+                fd: if self.cancel_attempted {
+                    -1
+                } else {
+                    self.events.as_ref().map_or(-1, Events::cancel_fd)
+                },
+                events: libc::POLLIN,
+                revents: 0,
+            },
+            libc::pollfd {
                 fd: self.stdout.fd.unwrap_or(-1),
                 events: libc::POLLIN | libc::POLLHUP | libc::POLLERR,
                 revents: 0,
@@ -293,6 +369,10 @@ impl UnixRun {
                 revents: 0,
             },
         ];
+        #[cfg(test)]
+        if let Some(events) = &self.events {
+            events.waiting(super::cancellation::WaitPhase::Capture);
+        }
         let result = unsafe {
             libc::poll(
                 fds.as_mut_ptr(),
@@ -311,8 +391,12 @@ impl UnixRun {
         if result == 0 {
             return Ok(false);
         }
-        let stdout_ready = fds[0].revents != 0;
-        let stderr_ready = fds[1].revents != 0;
+        if fds[0].revents != 0 {
+            self.set_failure("probe_cancelled");
+            return Ok(true);
+        }
+        let stdout_ready = fds[1].revents != 0;
+        let stderr_ready = fds[2].revents != 0;
         let mut changed = false;
         if stdout_ready {
             changed |= self.drain_stream(true)?;
@@ -343,7 +427,9 @@ impl UnixRun {
                 )
             };
             if read > 0 {
-                self.stream_mut(stdout).data.append(&buffer[..read as usize]);
+                self.stream_mut(stdout)
+                    .data
+                    .append(&buffer[..read as usize]);
                 drained += read as usize;
                 changed = true;
                 continue;
@@ -371,20 +457,24 @@ impl UnixRun {
     }
 
     fn wait_parent(&mut self, timeout: Duration) -> Result<bool, String> {
-        let Some(result) = self
-            .child
-            .as_mut()
-            .map(|child| child.wait_timeout(timeout))
-        else {
+        let Some(child) = self.child.as_mut() else {
             return Ok(self.status.is_some());
+        };
+        let result = if let Some(events) = &self.events {
+            match events.wait_parent(timeout, !self.cancel_attempted)? {
+                ParentEvent::Cancelled => {
+                    self.set_failure("probe_cancelled");
+                    return Ok(false);
+                }
+                ParentEvent::Deadline => return Ok(false),
+                ParentEvent::Complete => child.wait().map(Some),
+            }
+        } else {
+            child.wait_timeout(timeout)
         };
         match result {
             Ok(Some(status)) => {
-                self.status = Some(status);
-                self.ownership = LeaderOwnership::Retired(self.child_id);
-                self.child = None;
-                let registered = std::mem::replace(&mut self.child_registered, false);
-                self.settle_resource(ResourceKind::Child, registered);
+                self.parent_finished(status);
                 Ok(true)
             }
             Ok(None) => Ok(false),
@@ -394,6 +484,14 @@ impl UnixRun {
                 Err(error.to_string())
             }
         }
+    }
+
+    fn parent_finished(&mut self, status: ExitStatus) {
+        self.status = Some(status);
+        self.ownership = LeaderOwnership::Retired(self.child_id);
+        self.child = None;
+        let registered = std::mem::replace(&mut self.child_registered, false);
+        self.settle_resource(ResourceKind::Child, registered);
     }
 
     fn observe_final_group(&mut self) {
@@ -440,7 +538,10 @@ impl UnixRun {
     fn cleanup(&mut self, failure: &mut ProbeFailure) {
         if self.ownership == LeaderOwnership::Retained(self.child_id) {
             self.request_cancel(failure);
-        } else if matches!(self.ownership, LeaderOwnership::Retired(_) | LeaderOwnership::Lost) {
+        } else if matches!(
+            self.ownership,
+            LeaderOwnership::Retired(_) | LeaderOwnership::Lost
+        ) {
             if !self.group_absent {
                 self.group_unconfirmed = true;
                 self.mark_unconfirmed(ResourceKind::ProcessGroup);
@@ -457,7 +558,8 @@ impl UnixRun {
                     break;
                 }
             }
-            if self.owner_is_closing() && self.ownership == LeaderOwnership::Retained(self.child_id) {
+            if self.owner_is_closing() && self.ownership == LeaderOwnership::Retained(self.child_id)
+            {
                 self.request_cancel(failure);
             }
         }
@@ -539,6 +641,19 @@ impl UnixRun {
         let mut errors: Vec<String> = Vec::new();
         self.close_stream(true);
         self.close_stream(false);
+        if let Some(events) = &mut self.events {
+            match events.close() {
+                Ok(()) => {
+                    self.events = None;
+                    let registered = std::mem::replace(&mut self.events_registered, false);
+                    self.settle_resource(ResourceKind::Capture, registered);
+                }
+                Err(error) => {
+                    self.permanent_unconfirmed = true;
+                    errors.push(error);
+                }
+            }
+        }
         if self.stdout.close_unknown || self.stderr.close_unknown {
             errors.push("probe capture close completion unconfirmed".into());
         }
@@ -553,7 +668,10 @@ impl UnixRun {
     }
 
     fn finish_failure(mut self) -> Result<Output, ProbeFailure> {
-        let mut failure = self.failure.take().unwrap_or_else(|| ProbeFailure::new("probe_failed"));
+        let mut failure = self
+            .failure
+            .take()
+            .unwrap_or_else(|| ProbeFailure::new("probe_failed"));
         self.cleanup(&mut failure);
         self.deadlines.record_lateness(&mut failure);
         self.finish_failure_with(failure)
@@ -561,6 +679,18 @@ impl UnixRun {
 
     fn finish_failure_with(mut self, mut failure: ProbeFailure) -> Result<Output, ProbeFailure> {
         let deadlines = self.deadlines;
+        if let Some(error) = self.events.as_ref().and_then(Events::take_delivery_error) {
+            failure.primary = "probe_cancel_wake_failed";
+            failure.cleanup_error(error);
+        }
+        failure.exit_code = self.status.and_then(|status| status.code());
+        failure.stdout = (self.child_id != 0).then(|| self.stdout.data.metadata());
+        failure.stderr = (self.child_id != 0).then(|| self.stderr.data.metadata());
+        if !self.has_open_resources() {
+            if let Err(error) = self.close_event_resources() {
+                failure.cleanup_error(error);
+            }
+        }
         if self.has_open_resources() {
             failure.unconfirmed(if self.child.is_some() {
                 ResourceKind::Child
@@ -705,7 +835,9 @@ impl UnixPending {
         }
         while self.run.has_open_streams() {
             if let Err(error) = self.run.wait_streams(None) {
-                self.run.failure.get_or_insert_with(|| ProbeFailure::new("probe_capture_failed"));
+                self.run
+                    .failure
+                    .get_or_insert_with(|| ProbeFailure::new("probe_capture_failed"));
                 if let Some(failure) = self.run.failure.as_mut() {
                     failure.cleanup_error(error.to_string());
                 }
@@ -730,7 +862,9 @@ impl UnixPending {
                     self.run.ownership = LeaderOwnership::Lost;
                     self.run.permanent_unconfirmed = true;
                     self.run.group_unconfirmed = true;
-                    self.run.failure.get_or_insert_with(|| ProbeFailure::new("probe_wait_failed"));
+                    self.run
+                        .failure
+                        .get_or_insert_with(|| ProbeFailure::new("probe_wait_failed"));
                     if let Some(failure) = self.run.failure.as_mut() {
                         failure.cleanup_error(error.to_string());
                     }
@@ -744,6 +878,13 @@ impl UnixPending {
         }
         self.run.close_stream(true);
         self.run.close_stream(false);
+        if let Err(error) = self.run.close_event_resources() {
+            self.run.permanent_unconfirmed = true;
+            self.run
+                .failure
+                .get_or_insert_with(|| ProbeFailure::new("probe_close_failed"))
+                .cleanup_error(error);
+        }
     }
 }
 
@@ -763,7 +904,9 @@ impl RetainedResources for UnixPending {
         let failure = self.run.failure.take();
         Settlement {
             primary: failure.as_ref().map(|failure| failure.primary.to_string()),
-            errors: failure.map(|failure| failure.cleanup_errors).unwrap_or_default(),
+            errors: failure
+                .map(|failure| failure.cleanup_errors)
+                .unwrap_or_default(),
             remains_unconfirmed,
         }
     }

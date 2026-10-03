@@ -7,6 +7,7 @@ pub struct DirCompletion {
 }
 
 mod agent;
+mod automation_graph;
 pub(crate) mod bridge_threads;
 mod clipboard;
 mod completions;
@@ -33,6 +34,7 @@ mod usage;
 mod tests;
 
 pub use agent::*;
+pub use automation_graph::*;
 pub use clipboard::*;
 pub use completions::*;
 pub use cron::*;

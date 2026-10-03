@@ -186,13 +186,17 @@ refuses with the Plan identity and creates no tab, and an explicit parent wins.
 
 ### Task-bound plan skill reads
 
-A task-bound `plan skill show` is proven by the caller's live tab, not by an
-environment secret: the tab supplies its id and launch binding nonce, and the
-daemon derives the session id only when that nonce is both the tab's current
-nonce and the one its running session echoed back. A Worker therefore reads its
-mandatory skills as soon as it launches, before any session id exists, while
-stale, mismatched, partial, or foreign identities are refused. Reading a plan
-skill as evidence still requires a current task binding for that plan.
+An omitted `--plan` on `codeterm plan skill` uses the authenticated caller's Team active plan. Inherited launch plan, task, and attempt values do not override that live binding.
+An explicit `--plan` reads the named plan without rebinding the Team; a read of another plan records no current-task skill-load receipt.
+
+The caller supplies its tab and binding nonce. The daemon derives its session only when the issued and session-reported nonces match; a supplied session must match too.
+Same-plan task evidence requires exactly one current assignment and an exact announced content digest. Explicit task or attempt conflicts, ambiguous assignments, unannounced skills, and changed bytes refuse.
+
+Dispatch announces the manifest in its brief. For a supported existing-tab assignment, an authenticated `codeterm agent ack` returns the current manifest and its brief, recording that announcement on the current attempt before a load can be recorded.
+Repeating ACK retains an existing announcement and ACK; it never copies predecessor loads or replaces an announced digest. A startup ACK can still precede runtime binding; the first ACK returns only the manifest already announced by dispatch.
+Repeated ACK can complete both missing attempt binding fields only with retained launch authority for the exact creator, Team, task/attempt, owner epoch, PTY and nonce, plus the current session's matching issued and reported nonce. A verified session occupying the tab cannot mint that authority.
+The guarded write preserves ACK/timestamps, history, manifest, loads, status and lane. Exact already-bound equality is idempotent; partial, foreign, ambiguous, closed or retired ownership, absent/finalized launch proof and unannounced or changed manifests refuse without repair.
+A refusal returns `plan_skill_attempt_binding_missing`, the retained ACK timestamp, and the plan, task and attempt identifiers. Report those identifiers to the Orchestrator for launch-proven binding repair; this operation never rearms finalized launches or assigns a replacement attempt.
 
 ### A spawned Worker is not an accepted dispatch
 
@@ -227,4 +231,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 23 -->
+<!-- revision: 24 -->

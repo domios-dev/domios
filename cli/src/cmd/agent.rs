@@ -730,6 +730,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             if let Some(task_id) = task_id {
                 body["task_id"] = serde_json::json!(task_id);
             }
+            if let Ok(nonce) = std::env::var("CODETERM_SESSION_BINDING_NONCE") {
+                body["session_binding_nonce"] = serde_json::json!(nonce);
+            }
             let result = client.call("agent.ack", Some(body));
             match result {
                 Ok(value) if json => {
@@ -920,18 +923,25 @@ fn render_agent_ack(value: &serde_json::Value) -> Result<String, String> {
         .get("attempt_id")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| "daemon response omitted attempt identity".to_string())?;
-    if value
+    let prefix = if value
         .get("already_acknowledged")
         .and_then(serde_json::Value::as_bool)
         == Some(true)
     {
-        return Ok(format!(
-            "ALREADY ACKNOWLEDGED — task {task_id}, attempt {attempt_id}. Continue work."
-        ));
+        "ALREADY ACKNOWLEDGED"
+    } else {
+        "ACKNOWLEDGED"
+    };
+    let mut rendered = format!("{prefix} — task {task_id}, attempt {attempt_id}. Continue work.");
+    if let Some(brief) = value
+        .get("plan_skill_brief")
+        .and_then(serde_json::Value::as_str)
+        .filter(|brief| !brief.is_empty())
+    {
+        rendered.push('\n');
+        rendered.push_str(brief);
     }
-    Ok(format!(
-        "ACKNOWLEDGED — task {task_id}, attempt {attempt_id}. Continue work."
-    ))
+    Ok(rendered)
 }
 
 fn render_startup_hold(value: &serde_json::Value) -> String {
