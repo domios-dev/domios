@@ -1,6 +1,6 @@
 # Agent Hierarchy & Role Rules
 
-CodeTerm has exactly **2 roles** enforced by the backend. Read this before spawning anything — picking the wrong role returns an error from the backend.
+Domios has exactly **2 roles** enforced by the backend. Read this before spawning anything — picking the wrong role returns an error from the backend.
 
 ## The 2 roles
 
@@ -103,4 +103,4 @@ TASK: <concrete leaf task>
 When done, run: codeterm agent report "what you did, result, any followup"
 ```
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

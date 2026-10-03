@@ -1,11 +1,11 @@
 ---
 name: release-signing
-description: "Configure, rotate, and protect CodeTerm updater signing keys and CI secrets."
+description: "Configure, rotate, and protect Domios updater signing keys and CI secrets."
 ---
 
 # Auto-update signing
 
-CodeTerm uses `tauri-plugin-updater` with ed25519 signatures. Every release asset
+Domios uses `tauri-plugin-updater` with ed25519 signatures. Every release asset
 is signed with the project's private key; the public key is embedded in the
 binary via `tauri.conf.json` (`plugins.updater.pubkey`). Anyone can attempt to
 host a fake `latest.json`, but without the matching private key the client

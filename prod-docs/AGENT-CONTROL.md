@@ -36,7 +36,7 @@ curl -X POST http://localhost:7685/api/notifications \
 
 ## Agent Hierarchy
 
-CodeTerm has a 2-level role hierarchy: Orchestrator (depth 1) -> Worker (depth 2). Each agent gets its own tab; the hierarchy is a logical chain, not a nested layout. IDs are 8-char hex (e.g. `a3f1b2c7`).
+Domios has a 2-level role hierarchy: Orchestrator (depth 1) -> Worker (depth 2). Each agent gets its own tab; the hierarchy is a logical chain, not a nested layout. IDs are 8-char hex (e.g. `a3f1b2c7`).
 
 **Roles:**
 - **Orchestrator** (was Conductor) -- top-level, spawns Workers.
@@ -122,7 +122,7 @@ Available batch methods: `spawn`, `send`, `rename`, `close`, `role`, `notify`, `
 
 ## General Agent recovery
 
-A connected Supporter Agent helps CodeTerm notice when the General Agent is stuck. It works automatically, with no feature switches. Without a connected adapter, the existing dead-process recovery and normal tab behavior remain. Connect through Settings > Agents > Supporter Agent or `codeterm supporter use <adapter>`; required adapters first need a token through `token set --adapter <adapter>`. Saved connections keep their own models and tokens when switching. `codeterm supporter disconnect <adapter>` removes one; removing the active adapter stops the Supporter. Memory ranking, tab observations, the shared budget and sent text are explained in `codeterm docs MEMORY` and the Guide (`@ct-guide supporter-agent` on its own paragraph).
+A connected Supporter Agent helps Domios notice when the General Agent is stuck. It works automatically, with no feature switches. Without a connected adapter, the existing dead-process recovery and normal tab behavior remain. Connect through Settings > Agents > Supporter Agent or `codeterm supporter use <adapter>`; required adapters first need a token through `token set --adapter <adapter>`. Saved connections keep their own models and tokens when switching. `codeterm supporter disconnect <adapter>` removes one; removing the active adapter stops the Supporter. Memory ranking, tab observations, the shared budget and sent text are explained in `codeterm docs MEMORY` and the Guide (`@ct-guide supporter-agent` on its own paragraph).
 
 The General Agent watchdog reacts to PTY death, provider exit to a shell and launch settlement. It respects shutdown, launch grace and restart limits; screen text alone never authorizes restarting a live agent. Model-authorized recovery remains notify-only until a separate held-out accuracy check passes.
 
@@ -139,9 +139,9 @@ The General Agent watchdog reacts to PTY death, provider exit to a shell and lau
 
 Model-authorized automatic actions require two agreeing observations, each at least 0.90 confidence, plus the deterministic evidence above. Owner notifications require two agreeing observations at or above 0.80. Below 0.60 is ignored. The separate held-out check must achieve at least 0.95 precision on automatic-action labels before those actions are enabled; an unqualified row notifies instead.
 
-There are at most two automatic restarts per General Agent episode (the configured maximum is capped at two). After that, CodeTerm sends a failure notification and waits for owner action. Every automatic action is journaled and sends a brief activity notification. All Supporter model calls share the hourly budget; an exhausted budget produces no model observation or model-authorized action.
+There are at most two automatic restarts per General Agent episode (the configured maximum is capped at two). After that, Domios sends a failure notification and waits for owner action. Every automatic action is journaled and sends a brief activity notification. All Supporter model calls share the hourly budget; an exhausted budget produces no model observation or model-authorized action.
 
-Trust, permission and login notifications are suppressed for tabs the owner opened directly from the UI; the journal still records the condition. The General Agent, agent-spawned, Team, cron and hidden-worker tabs keep their notifications. After a CodeTerm restart, restored tabs with the same condition produce one grouped notification per condition at restore completion. A durable key for tab, condition and launch prevents reporting the same condition twice across restarts.
+Trust, permission and login notifications are suppressed for tabs the owner opened directly from the UI; the journal still records the condition. The General Agent, agent-spawned, Team, cron and hidden-worker tabs keep their notifications. After a Domios restart, restored tabs with the same condition produce one grouped notification per condition at restore completion. A durable key for tab, condition and launch prevents reporting the same condition twice across restarts.
 
 ## Command Palette
 
@@ -149,13 +149,13 @@ Trust, permission and login notifications are suppressed for tabs the owner open
 
 ## Session Persistence
 
-CodeTerm tracks and restores terminal state across sessions:
+Domios tracks and restores terminal state across sessions:
 
 - **CWD tracking**: Working directory is tracked via OSC 7 escape sequences and saved/restored per tab on restart.
-- **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`. Before injecting the resume flag, CodeTerm checks that the session still exists on disk — missing sessions (cleared cache, machine-synced config without sessions) launch fresh instead of looping on `No conversation found with session ID`.
-- **Pre-generated session ids**: For providers that accept an injected session id (Claude today), CodeTerm pre-generates a UUID and passes it via `--session-id` at launch. Each tab gets a unique id even when several tabs share the same cwd.
+- **Claude Code auto-resume**: Claude Code sessions are detected and automatically resumed with `--resume`. Before injecting the resume flag, Domios checks that the session still exists on disk — missing sessions (cleared cache, machine-synced config without sessions) launch fresh instead of looping on `No conversation found with session ID`.
+- **Pre-generated session ids**: For providers that accept an injected session id (Claude today), Domios pre-generates a UUID and passes it via `--session-id` at launch. Each tab gets a unique id even when several tabs share the same cwd.
 - **SessionStart hook**: Claude's `SessionStart` matcher POSTs back to `/api/tabs/{id}/hook/session_start`, so `/new` and `/clear` inside the TUI rotate the persisted `agent_session_id` immediately.
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

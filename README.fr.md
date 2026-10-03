@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/logo.png" alt="CodeTerm" width="128" />
+  <img src="assets/logo.png" alt="Domios" width="128" />
 </p>
 
-<h1 align="center">CodeTerm</h1>
+<h1 align="center">Domios</h1>
 > La traduction de README.md peut avoir du retard. La version anglaise est la référence.
 
 <p align="center">
@@ -31,7 +31,7 @@
 </p>
 
 <!-- SCREENSHOT PLACEHOLDER: Add screenshots here -->
-<!-- ![CodeTerm Screenshot](assets/screenshot.png) -->
+<!-- ![Domios Screenshot](assets/screenshot.png) -->
 <!-- TRANSLATION-TODO (2026-04-29 review): translation lags README.md — please mirror these sections from English:
      1. The two top-of-features GIF subsections (`### Agent Orchestration`, `### Cron Jobs`) shown right after the language nav.
      2. Per-OS install subsections instead of one combined "Téléchargement": `### macOS (Homebrew)`, `### Windows (Scoop)`, `### Windows (installer)`, `### Linux`.
@@ -39,11 +39,11 @@
 
 ---
 
-## Qu'est-ce que CodeTerm ?
+## Qu'est-ce que Domios ?
 
-CodeTerm est un multiplexeur de terminal multiplateforme conçu dès le départ pour le développement assisté par IA. Il combine la puissance d'un multiplexeur de terminal (comme tmux) avec une prise en charge native des agents de programmation IA tels que Claude Code.
+Domios est un multiplexeur de terminal multiplateforme conçu dès le départ pour le développement assisté par IA. Il combine la puissance d'un multiplexeur de terminal (comme tmux) avec une prise en charge native des agents de programmation IA tels que Claude Code.
 
-**Différence clé par rapport aux autres terminaux :** CodeTerm expose une API REST complète, un CLI et une API Socket — permettant aux agents IA de créer des espaces de travail, diviser des panneaux, exécuter des commandes, lire la sortie et gérer l'ensemble du terminal de manière programmatique. Votre assistant IA devient un citoyen de première classe dans votre workflow terminal.
+**Différence clé par rapport aux autres terminaux :** Domios expose une API REST complète, un CLI et une API Socket — permettant aux agents IA de créer des espaces de travail, diviser des panneaux, exécuter des commandes, lire la sortie et gérer l'ensemble du terminal de manière programmatique. Votre assistant IA devient un citoyen de première classe dans votre workflow terminal.
 
 Construit avec **Tauri v2** (Rust) + **React** + **xterm.js**.
 
@@ -164,7 +164,7 @@ cd cli && cargo build --release
 
 ## API
 
-CodeTerm expose trois API pour l'intégration :
+Domios expose trois API pour l'intégration :
 
 ### API REST (port 7685)
 
@@ -217,11 +217,11 @@ codeterm browser open "http://localhost:3000"
 
 ### Variables d'environnement
 
-CodeTerm définit ces variables dans chaque session PTY :
+Domios définit ces variables dans chaque session PTY :
 
 | Variable | Description |
 |----------|-------------|
-| `CODETERM` | Toujours `1` — détecte si l'on s'exécute dans CodeTerm |
+| `CODETERM` | Toujours `1` — détecte si l'on s'exécute dans Domios |
 | `CODETERM_TAB_ID` | UUID du panneau courant |
 | `CODETERM_SOCKET_PATH` | Chemin du socket pour l'API JSON-RPC |
 | `TERM_PROGRAM` | `CodeTerm` |
@@ -261,7 +261,7 @@ Consultez le [Guide de configuration](prod-docs/CONFIG.md) pour toutes les optio
 
 ```
 ┌─────────────────────────────────────────────┐
-│                  CodeTerm                    │
+│                  Domios                    │
 │  ┌──────────┐  ┌──────────┐  ┌───────────┐  │
 │  │ React UI │  │ xterm.js │  │  Browser   │  │
 │  │ Sidebar  │  │ Terminal │  │    Tabs    │  │

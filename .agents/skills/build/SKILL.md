@@ -1,9 +1,9 @@
 ---
 name: build
-description: "Choose and run CodeTerm build operations, including dev work, local installs, and troubleshooting."
+description: "Choose and run Domios build operations, including dev work, local installs, and troubleshooting."
 ---
 
-# CodeTerm — Build Guide
+# Domios — Build Guide
 
 ## Prerequisites
 
@@ -117,7 +117,7 @@ does not publish a release or alter GitHub assets.
    This route is Windows-only, requires the clean canonical checkout, reuses a
    persistent release target with sccache, rebuilds only changed Cargo units,
    recreates the NSIS bundle, verifies source provenance, and installs that
-   exact artifact. When invoked inside CodeTerm, it saves the session and sends
+   exact artifact. When invoked inside Domios, it saves the session and sends
    a continuation intent to the calling Tab after the new daemon is healthy.
    The default intent verifies the installed SHA and resumes the interrupted
    work. Override or disable it when needed:
@@ -159,11 +159,11 @@ does not publish a release or alter GitHub assets.
    `build` always creates a fresh nonincremental target under
    `%LOCALAPPDATA%\CodeTerm\build-gateway\targets\release\<job>\`. It remains
    intentionally slower and isolated. The updater helper stops only the
-   current-user installed CodeTerm, runs NSIS, and restarts it.
+   current-user installed Domios, runs NSIS, and restarts it.
 
 ### Repairing a corrupted user PATH (Windows)
 
-CodeTerm adds only its own `bin/` directory to `HKCU\Environment` `Path`, and
+Domios adds only its own `bin/` directory to `HKCU\Environment` `Path`, and
 now refuses any directory under the system temp directory. Machines that ran the
 Windows CLI-install tests before that refusal existed accumulated dead
 `<temp>\.tmp*\.codeterm\bin` entries, which count against the 32,767-character
@@ -229,8 +229,8 @@ Sign out and back in for a repaired PATH to reach new processes.
 | `release source is not clean` | A source or lockfile change has not been reviewed/committed | Inspect `git status --short`; commit the intentional change or stop. Never bypass provenance. |
 | `source SHA/status mismatch` after a bundle was created | A build step changed tracked source inputs, or rewrote an identical LF-only manifest and left Git's Windows stat cache reporting a false name-only change | Do not install when the patch is non-empty. Current provenance hashes the binary patch plus working-tree bytes, so a metadata-only rewrite is accepted; rerun `install-local` from a clean tree. |
 | Self-install logs `starting` and the window never returns | A helper inherited the calling PTY Job and died when `taskkill` closed that Job | Rebuild the current CLI; it creates the helper through the out-of-job Windows process broker. Re-run `install-local`, inspect `%LOCALAPPDATA%\codeterm\self-install.log`, and verify port 7685 health. |
-| CodeTerm restarts but the initiating tab does not resume | The continuation send failed or the Tab id changed before session persistence | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`; the retained `%TEMP%\codeterm-continuation-*.txt` contains the undelivered intent. |
-| Self-install succeeds but gateway history reports `owner_lost` | An older build script kept the gateway owned until after the installer restarted CodeTerm and killed the calling Tab | Update the build scripts and run `build.ps1 install-local`; the current operation releases the verified build before detached installer handoff. Prove installation separately with `self-install.log`, port 7685 health, and `codeterm identify`. |
+| Domios restarts but the initiating tab does not resume | The continuation send failed or the Tab id changed before session persistence | Inspect `%LOCALAPPDATA%\codeterm\self-install.log`; the retained `%TEMP%\codeterm-continuation-*.txt` contains the undelivered intent. |
+| Self-install succeeds but gateway history reports `owner_lost` | An older build script kept the gateway owned until after the installer restarted Domios and killed the calling Tab | Update the build scripts and run `build.ps1 install-local`; the current operation releases the verified build before detached installer handoff. Prove installation separately with `self-install.log`, port 7685 health, and `codeterm identify`. |
 | Repeated local install recompiles the full release graph | The clean-room `build` route was used instead of the persistent local cache | Use `build.ps1 install-local`; reserve `build` for public-release-equivalent verification. |
 | Local install cannot read Tauri permissions under a deleted release directory | A relocated Cargo target retained absolute build-script `root-output` paths. | `install-local` now detects mismatched output roots before Cargo, preserves that exact cache in a sibling `.relocated-*` directory, and regenerates its local target; it leaves current warm caches and the machine sccache intact. |
 | A focused Rust test spends most of its runtime linking app binaries | The test omitted `--lib`, so Cargo built unrelated binary test targets | Run the focused filter through `scripts/test-capped.sh ... --lib <filter>`. |
@@ -241,16 +241,16 @@ Sign out and back in for a repaired PATH to reach new processes.
 | `sccache: incremental compilation is prohibited` | `CARGO_INCREMENTAL=1` was combined with the shared sccache wrapper | Keep `CARGO_INCREMENTAL=0`; reuse the persistent completed target and sccache entries instead. |
 | Release-signing negative test passes despite a missing fixture key | The shell inherited `TAURI_SIGNING_PRIVATE_KEY` from the canonical `.env` | Run the repository check; its missing-key fixture explicitly removes the inherited key before asserting failure. |
 | Push unexpectedly starts compilation or formatting checks | A stale local hook predates the non-blocking push policy | Run any `build.ps1` command to restore `.githooks`, then retry; verification belongs to explicit gates and CI. |
-| `Build gateway job id already exists` immediately from a fresh command | The calling CodeTerm tab inherited a completed gateway job id from an earlier build | Update the build scripts; production gateway entry now always creates a fresh job id and ignores inherited internal ids. |
+| `Build gateway job id already exists` immediately from a fresh command | The calling Domios tab inherited a completed gateway job id from an earlier build | Update the build scripts; production gateway entry now always creates a fresh job id and ignores inherited internal ids. |
 | `pnpm build` fails only in focused TSX test files during `install-local` | A test mock violates the generic bridge signature or imports an unused JSX runtime symbol | Run `pnpm build`, fix the test type/import at the source, then retry `install-local` from the same clean canonical checkout. |
 | `pnpm build` reports stale role literals or duplicate fixture fields during `install-local` | A role-model refactor left TypeScript-only production or fixture surfaces outside the Rust gate | Run `pnpm build`, converge each surface on `Manager` plus `role_profile`, and retry `install-local` from a clean canonical checkout. |
 | `install-local` reports `tsc is not recognized` although `node_modules/.bin/tsc` exists | Git Bash supplied the MSVC environment to Tauri, but pnpm selected a nested Windows lifecycle shell that lost the local-bin lookup | Use the current build operation, which pins pnpm lifecycle scripts to Git Bash and supplies frontend provenance without a nested shell lookup, then retry `install-local`. |
 | Tauri `beforeBuildCommand` reports `pnpm is not recognized` during `install-local` | Tauri launched the configured hook through `cmd.exe` with Git Bash's POSIX-formatted `PATH`, so Windows could not resolve pnpm, Node, or Cargo | Use the current build operation, which prepares frontend, CLI, and embed inputs directly before invoking Tauri; retry `install-local` from canonical. |
 | Installed health on port 7685 reports a dev identifier or Vite/CDP ports | The detached installer helper inherited `CODETERM_*` and Cargo build variables from the calling tab | Use the current installer helper, which scrubs CodeTerm and build variables before launching the installed daemon; reinstall and verify `/api/health`. |
-| NSIS reports `Error opening file for writing` for `conpty\<arch>\OpenConsole.exe` | A bundled ConPTY host from the installed CodeTerm instance survived PTY teardown and still holds its executable | Current builds reap path-matched owned hosts before NSIS. On an older build, verify the process image is under `%LOCALAPPDATA%\CodeTerm\conpty\`, end only that `OpenConsole.exe`, then click **Retry**; never end `conhost.exe` or an `OpenConsole.exe` from another path. |
+| NSIS reports `Error opening file for writing` for `conpty\<arch>\OpenConsole.exe` | A bundled ConPTY host from the installed Domios instance survived PTY teardown and still holds its executable | Current builds reap path-matched owned hosts before NSIS. On an older build, verify the process image is under `%LOCALAPPDATA%\CodeTerm\conpty\`, end only that `OpenConsole.exe`, then click **Retry**; never end `conhost.exe` or an `OpenConsole.exe` from another path. |
 | Windows self-install relaunches but continuation reports an incompatible CLI, or x64 startup installs an ARM64 `~/.codeterm/bin/codeterm.exe` | Parallel Windows release targets shared the generic `bundled-cli/codeterm.exe` resource, allowing one architecture to enter the other installer | Rebuild with target-qualified CLI resources. Startup now rejects a PE whose machine type differs from the app, preserving the prior working shim instead of overwriting it. |
 | `test-cli-target-dir-paths.sh` reports an extra `MSVC env loaded` line or rejects a foreign cross-target before an otherwise valid path probe | Windows build initialization writes diagnostics and validates target toolchains before the probe | Use the current contract test, which selects a host-compatible fixture target and compares the final probe line while `pipefail` preserves failures. |
-| Installed CodeTerm exits during startup with a missing `tab_id`/`tabId` field or `delayed_send init` panic | A pane-era or malformed persisted record reached an all-or-nothing startup deserializer | Rebuild and install the current revision, then restart. Inspect `[plan.store]`, `[delayed_send]`, `[remote-workers]`, `[graph-workers]`, and `[session]` diagnostics for the isolated record; do not delete `plans.db` or an entire state JSON file. |
+| Installed Domios exits during startup with a missing `tab_id`/`tabId` field or `delayed_send init` panic | A pane-era or malformed persisted record reached an all-or-nothing startup deserializer | Rebuild and install the current revision, then restart. Inspect `[plan.store]`, `[delayed_send]`, `[remote-workers]`, `[graph-workers]`, and `[session]` diagnostics for the isolated record; do not delete `plans.db` or an entire state JSON file. |
 | `failed to run custom build command for openssl-sys`, with `sccache: Failed to send data to or receive data from server` in the same output | The machine-level `sccache` server is wedged, so every C/C++ compile it fronts fails; `openssl-src` is simply the first crate to need one | `sccache --stop-server && sccache --start-server`, then rebuild. A cache reported at its 10 GiB max is ordinary LRU eviction and is NOT this failure — the discriminator is whether `sccache --show-stats` answers at all. Never restart a responsive server mid-build; that discards a warm cache for nothing. |
 | Build reported as succeeding while the gateway job exited non-zero | A wrapper placed another command after the build in the same compound statement, so the shell's status came from that command instead | Read the `exit:` line of the gateway job log, or capture `${PIPESTATUS[0]}`. `build.sh` propagates the gateway status faithfully, so a wrapper is the only place this can be lost. Treat post-install `/api/health` as the only green light. |
 
@@ -263,7 +263,7 @@ automation that needs a detached health gate and does not prove a visible window
 ### Visible Windows dev session
 
 For interactive verification, do not use `dev --wait`. It is the detached
-readiness path for scripts and CI. Use one visible CodeTerm Tab as the sole
+readiness path for scripts and CI. Use one visible Domios Tab as the sole
 foreground owner:
 
 ```powershell
@@ -276,7 +276,7 @@ Keep that Tab open and require all of the following before reporting ready:
 - port 7686 is owned by the checkout's `target\debug\codeterm.exe`;
 - `/api/health` reports `status=ok`, the exact checkout `build_sha`, API 7686,
   Vite 1420, CDP 9223, and identifier `com.codeterm.dev`;
-- the CodeTerm process has a responsive, nonzero `MainWindowHandle`;
+- the Domios process has a responsive, nonzero `MainWindowHandle`;
 - exactly one Cargo process remains, the foreground `tauri dev` watcher owned
   by the visible Tab. Any second Cargo/build owner must be stopped and traced.
 

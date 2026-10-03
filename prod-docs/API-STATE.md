@@ -43,7 +43,7 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 #### Web Mirror
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/` | — | The CodeTerm web mirror: the same React bundle as the desktop app, served static at the daemon root (public route; every API call it makes stays token-gated). `?a11y=1` enables the screen-reader terminal DOM. |
+| GET | `/` | — | The Domios web mirror: the same React bundle as the desktop app, served static at the daemon root (public route; every API call it makes stays token-gated). `?a11y=1` enables the screen-reader terminal DOM. |
 | GET | `/api/mux/state` | — | Full multiplexer snapshot (workspaces/tabs + focus) **Bounded:** only a few snapshots build at once; over that, or while a lifecycle change is being written, the request is answered **503** immediately rather than queued. A `mux-state-changed` event drives the next read; callers must not poll. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
@@ -78,7 +78,7 @@ Per-provider usage snapshots come from each provider plugin's quota-free `fetchU
 
 Usage refresh is quota-free, rebuild is idempotent, projections are estimates, and unsupported providers have no automatic usage probe.
 
-CodeTerm keeps structured daemon logs. Settings → Logs is the canonical UI; the REST shape is identical.
+Domios keeps structured daemon logs. Settings → Logs is the canonical UI; the REST shape is identical.
 
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
@@ -190,7 +190,7 @@ the change instead — `codeterm notify send --offer <surface> --offer-accept <l
 | GET | `/api/update/check` | `?force=true` | Check for available updates on the active channel. Cached for 1 hour unless `force=true`. |
 | POST | `/api/update/install` | `?method=auto&manifest_url=...&after_update=...` | Install the pending update. Without `method=auto`, returns either an OS install command or opens the download URL in the browser. With `method=auto`, runs the full Tauri-plugin-updater flow (download, signature verify, install, restart). `after_update` (optional) stashes a message to `~/.codeterm/post-update-message.txt`; the new daemon delivers it to the General tab after restart. Update application is single flight process-wide: a request arriving while another is applying is refused with `{"status":"already_in_flight"}`, which is distinct from `no_update`. |
 | GET | `/api/update/channel` | — | Returns the active diagnostic channel, currently `{"channel":"stable"}` on normal installs. |
-| POST | `/api/update/channel` | `{channel}` | Disabled while CodeTerm ships only the default update channel; returns `409 update channel switching is disabled`. |
+| POST | `/api/update/channel` | `{channel}` | Disabled while Domios ships only the default update channel; returns `409 update channel switching is disabled`. |
 | GET | `/api/update/status` | — | Current updater state and last update result |
 
 **Channels.** Channel switching is intentionally disabled for now; use the default channel. Manifests are signed with ed25519 — a wrong-key signature aborts the install before any binary is touched.
@@ -212,4 +212,4 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->

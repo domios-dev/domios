@@ -1,6 +1,6 @@
 ---
 name: prompt-evaluator
-description: Evaluate, A/B compare, or check for regression in any CodeTerm prompt file (general_agent.md, worker_suffix.md, codeterm_rule.md, agent role definitions in codeterm mem, bridge rules, etc). Triggers when the user asks to "test the prompt", "run evals", "check for regression", "did my prompt change break anything", or "compare prompt before and after". Runs runner.py against the matching eval set under evals.
+description: Evaluate, A/B compare, or check for regression in any Domios prompt file (general_agent.md, worker_suffix.md, codeterm_rule.md, agent role definitions in codeterm mem, bridge rules, etc). Triggers when the user asks to "test the prompt", "run evals", "check for regression", "did my prompt change break anything", or "compare prompt before and after". Runs runner.py against the matching eval set under evals.
 ---
 
 # prompt-evaluator

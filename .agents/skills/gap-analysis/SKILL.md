@@ -4,7 +4,7 @@ area: planning
 tags: [planning, review, verify-before-claim, pre-execution]
 ---
 
-# Gap analysis — pre-execution audit of a CodeTerm plan
+# Gap analysis — pre-execution audit of a Domios plan
 
 Run this AFTER a plan's structure is cut (GOAL + Spec + Plan sections + Tasks
 with briefs) and BEFORE the Orchestrator dispatches any lane. It is the stage

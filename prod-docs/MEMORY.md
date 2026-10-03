@@ -1,7 +1,7 @@
-# CodeTerm Memory System
+# Domios Memory System
 
 Persistent memory for agents. Survives restarts, provider switches
-(Claude ↔ Codex), and CodeTerm upgrades. Agent-agnostic.
+(Claude ↔ Codex), and Domios upgrades. Agent-agnostic.
 
 ## TL;DR
 
@@ -87,7 +87,7 @@ The Supporter puts useful memories first, watches tabs on lifecycle events and h
 - **What is sent.** Memory queries and candidate titles/bodies, capped at `supporter.memory_rerank.max_body_chars` (default 2000), plus matching docs or session excerpts if configured. Tab observations send recent screen or chat text and runtime context. Jev receives this at TypeSafe; a local adapter sends it to its configured server. Tokens stay in protected local storage.
 - **Recovery.** At most two automatic General Agent restarts per recovery episode, then a failure notification and no further automatic recovery until the owner acts. A confirmed crash resumes a verified session only if the provider is absent from that tab's process tree. Startup failure and an error loop each allow one attempt within the overall limit. The automatic provider coordinator answers classified update prompts with the declared safe option; model recovery outside it also requires agreement. Sign-in, unavailable models and uncovered folder trust ask the owner; command/tool permissions follow the tab's own policy. Automatic model-authorized recovery remains notify-only until its separate accuracy qualification passes. Details: `codeterm docs AGENT-CONTROL`.
 - **Models.** [TypeSafe Jev](https://typesafe.ai) is built for calibrated decisions and remains the memory re-rank model. LM Studio models can observe tabs locally without a token, but generated-token probabilities and local latency are different from Jev's decision probabilities; the measured local model missed the memory deadline. Jev usage is charged to the TypeSafe account; local models use the local machine.
-- **Spend and balance.** TypeSafe has no balance API, so CodeTerm estimates spend from each response's `usage` and the adapter-declared price (Jev: $0.042 per 1M input tokens, output free; local adapters are free or unpriced). Settings > Agents shows today/month tokens and estimated USD, plus an optional owner-entered balance after a top-up and the estimated remaining. One `action_needed` alert fires when the estimate drops below $1.00 per balance entry; HTTP 402 or an out-of-credit error sends one `failure` alert and stops calls (baseline behaviour) until a new balance is entered, a call succeeds, or the at-most-hourly event-triggered probe recovers.
+- **Spend and balance.** TypeSafe has no balance API, so Domios estimates spend from each response's `usage` and the adapter-declared price (Jev: $0.042 per 1M input tokens, output free; local adapters are free or unpriced). Settings > Agents shows today/month tokens and estimated USD, plus an optional owner-entered balance after a top-up and the estimated remaining. One `action_needed` alert fires when the estimate drops below $1.00 per balance entry; HTTP 402 or an out-of-credit error sends one `failure` alert and stops calls (baseline behaviour) until a new balance is entered, a call succeeds, or the at-most-hourly event-triggered probe recovers.
 - **Activity.** Settings > Agents shows recent requests, last activity, verdicts and budget state. The bounded `<data dir>/supporter/journal.jsonl` records automatic actions, budget transitions, answer distributions, adapter-reported model identities and criteria hashes. Inputs are hashes, never raw screen text or tokens. No verdict for `other` triggers an action or hint.
 - **Diagnostic override.** `codeterm mem search --supporter off` skips re-rank for one search. Clearing a required token makes the active adapter unusable but keeps its saved connection; optional and token-free adapters remain connected without it.
 
@@ -154,7 +154,7 @@ A dreaming worker that hits its hard deadline is finalized by the host with fina
 
 ## Auto-flush from agent hooks
 
-The mem flush API (`POST /api/mem/flush`) is the entry point providers call from their lifecycle hooks. There is no auth-exempt loopback path — every hook carries `Authorization: Bearer $CODETERM_API_TOKEN` (CodeTerm injects the token into every PTY at spawn). Claude's standard integration installs three hook handlers. `PreCompact` memory export is a separate opt-in because it exports conversation content:
+The mem flush API (`POST /api/mem/flush`) is the entry point providers call from their lifecycle hooks. There is no auth-exempt loopback path — every hook carries `Authorization: Bearer $CODETERM_API_TOKEN` (Domios injects the token into every PTY at spawn). Claude's standard integration installs three hook handlers. `PreCompact` memory export is a separate opt-in because it exports conversation content:
 
 | Hook | Endpoint | Purpose |
 |---|---|---|
@@ -171,4 +171,4 @@ Hooks are installed through the provider integration action into `~/.claude/sett
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 38 -->
+<!-- revision: 39 -->

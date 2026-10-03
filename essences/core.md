@@ -1,6 +1,6 @@
-# CodeTerm core
+# Domios core
 
-What the running product is made of, stated as concepts that outlive any rewrite of the code. The [capability map](capabilities.md) groups what CodeTerm does by vector; this essence names the parts those capabilities run on, the clients that reach them, and the one route every message takes. Together they are the elements of the project map. The map is an indirect beacon, not a blueprint: real architecture is more complex and is never reshaped to match it.
+What the running product is made of, stated as concepts that outlive any rewrite of the code. The [capability map](capabilities.md) groups what Domios does by vector; this essence names the parts those capabilities run on, the clients that reach them, and the one route every message takes. Together they are the elements of the project map. The map is an indirect beacon, not a blueprint: real architecture is more complex and is never reshaped to match it.
 
 Every element carries an explicit stable id in its metadata: a core part heading ends with `{#core:<slug>}` and a client row's first cell is its id. The project's core root is the one part that declares `- Root: true`; every other part declares `- Part of: <id>`. The root is authored, so any project topology is representable, including a library or offline tool with no clients.
 
@@ -53,7 +53,7 @@ The external supervisor observes daemon epochs and owns crash-recovery launches;
 
 ### Host state {#core:host-state}
 
-What one CodeTerm instance remembers across restarts: configuration, the workspace and tab snapshot with its lifecycle journal, schedules, the secret store, the usage ledger and the kept notification records.
+What one Domios instance remembers across restarts: configuration, the workspace and tab snapshot with its lifecycle journal, schedules, the secret store, the usage ledger and the kept notification records.
 
 - Part of: core:service-layer.
 - Invariants: each instance keeps its own data directory, so development never reads or writes production's state; restoring this state after a restart is unconditional and the journal is telemetry, not authority; writes to held configuration fail without changing live settings until the file is repaired or restored; secrets arrive on stdin, stay on their machine and never appear in a configuration dump.
@@ -132,7 +132,7 @@ The system channel participates in the same list, diff and refresh inventory as 
 
 ### Supporter Agent {#core:supporter-agent}
 
-The judgment part of CodeTerm's spinal cord: small model decisions shared by memory, tab observation and the host's bounded reflexes. It has no Team role or task authority. The [Supporter Agent essence](supporter-agent.md) is the authoritative home for connection and fallback, model-first event classification and heuristic fallback, recovery, request accounting and optional caps, fan-out, spend, Sentinels, visibility, data handling and future onboarding and web-client use. The marketing website consumes these contracts to explain the product.
+The judgment part of Domios's spinal cord: small model decisions shared by memory, tab observation and the host's bounded reflexes. It has no Team role or task authority. The [Supporter Agent essence](supporter-agent.md) is the authoritative home for connection and fallback, model-first event classification and heuristic fallback, recovery, request accounting and optional caps, fan-out, spend, Sentinels, visibility, data handling and future onboarding and web-client use. The marketing website consumes these contracts to explain the product.
 
 - Part of: core:service-layer.
 - Invariants: the model names the state and deterministic evidence authorizes the action; the host contract stays independent of any adapter or provider.

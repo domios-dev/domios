@@ -1,6 +1,6 @@
 # pty-paste-trace
 
-Observation bench for one question: **does a CodeTerm-originated send of a long
+Observation bench for one question: **does a Domios-originated send of a long
 payload into a codex tab end up unsubmitted, and if so, at which hop is the
 carriage return lost?**
 

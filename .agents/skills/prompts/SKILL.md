@@ -1,11 +1,11 @@
 ---
 name: prompts
-description: "Change CodeTerm prompts, placeholders, skills, and on-demand documentation."
+description: "Change Domios prompts, placeholders, skills, and on-demand documentation."
 ---
 
 # Prompt architecture
 
-How CodeTerm composes the prompts that drive the General Agent, project workers, and headless mem workers. This document explains where each piece lives, what gets included where, and how to decide which file a new instruction belongs in.
+How Domios composes the prompts that drive the General Agent, project workers, and headless mem workers. This document explains where each piece lives, what gets included where, and how to decide which file a new instruction belongs in.
 
 ## Layout
 
@@ -37,7 +37,7 @@ skills/codeterm/
 docs/                            Embedded docs, read on demand via `codeterm docs <NAME>`
 ```
 
-The layout is an excerpt; the complete prompt inventory is the table in [inventory.md](inventory.md); progressive-disclosure tiers are in [tiers.md](tiers.md). Neither is embedded in the binary: they describe CodeTerm's own source, which a production agent cannot edit.
+The layout is an excerpt; the complete prompt inventory is the table in [inventory.md](inventory.md); progressive-disclosure tiers are in [tiers.md](tiers.md). Neither is embedded in the binary: they describe Domios's own source, which a production agent cannot edit.
 
 ## Compile and substitution flow
 
@@ -123,7 +123,7 @@ When you're about to add or move a piece of prompt content, ask:
    ```rust
    doc!("TOPIC", "What the playbook is for", "../../../prod-docs/TOPIC.md"),
    ```
-   Stable product behavior belongs in `essences/`; executable procedures belong in `.agents/skills/`. A doc about CodeTerm's own source (prompt files, loaders, detection internals) is never embedded: a production agent cannot edit the binary. The membership test rejects unregistered files in `prod-docs/`.
+   Stable product behavior belongs in `essences/`; executable procedures belong in `.agents/skills/`. A doc about Domios's own source (prompt files, loaders, detection internals) is never embedded: a production agent cannot edit the binary. The membership test rejects unregistered files in `prod-docs/`.
 3. Mention it in `general_agent.md` under the **Operational playbooks** section so the GA knows it exists. One line — name + when to use it.
 4. Bump `<!-- revision: N -->` at the end of the playbook on every meaningful edit.
 
@@ -158,7 +158,7 @@ Moved from the embedded `SKILLS` doc.
 
 ### Installation from a checkout
 
-CodeTerm installs the `codeterm` skill itself on every start — a manual copy is
+Domios installs the `codeterm` skill itself on every start — a manual copy is
 only for a checkout you are not running. See *Seeding, rendering and mirroring*
 below for what the app does.
 
