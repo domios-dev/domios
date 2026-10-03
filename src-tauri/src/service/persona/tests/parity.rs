@@ -85,7 +85,9 @@ fn legacy_worker_system_prompt(assignment: Option<&str>) -> String {
     let (identity, assignment) = assignment
         .map(crate::service::plan::worker_identity::split_worker_identity)
         .unwrap_or((None, ""));
-    let mut sections = vec![identity.unwrap_or("You are a CodeTerm Worker.").to_string()];
+    let mut sections = vec![identity
+        .unwrap_or(crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY)
+        .to_string()];
     sections.push(crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string());
     sections.push(crate::prompts::WORKER_CODETERM_CONTEXT.trim().to_string());
     sections.push(crate::prompts::AGENT_PAD_RULE.trim().to_string());
@@ -202,7 +204,7 @@ fn the_worker_identity_slot_keeps_its_exact_default_and_persona() {
             None,
             None
         ),
-        "You are a CodeTerm Worker."
+        crate::service::persona::occasion::DEFAULT_WORKER_IDENTITY
     );
     assert_eq!(
         guidance_for(

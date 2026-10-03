@@ -209,7 +209,7 @@ Only a confirmed-gone tab fails the dispatch.
 `plan.task.merge_remote_lane` requires the authenticated origin Orchestrator,
 an origin-accepted remote attempt, and a persisted Worker report. The origin
 requests a Git bundle from the recorded paired peer over signed mesh transport,
-fetches the recorded branch into a CodeTerm-owned ref, then runs a real
+fetches the recorded branch into a Domios-owned ref, then runs a real
 `git merge --no-ff`. It persists the lane tip and merge commit after
 `git merge-base --is-ancestor <lane-tip> <target>` succeeds. Repeating an
 already-recorded integration is idempotent.
@@ -227,4 +227,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 22 -->
+<!-- revision: 23 -->

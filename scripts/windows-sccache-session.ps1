@@ -63,7 +63,7 @@ function Get-ArchiveDecision($Facts, $Entries) {
         if ($segments | Where-Object { $_ -in @('', '.', '..') }) { $reasons.Add('unsafe_entry_segment') }
         if ($segments | Where-Object { $_.EndsWith('.') -or $_.EndsWith(' ') }) { $reasons.Add('unsafe_windows_segment') }
         if ($segments.Count -lt 1 -or $segments[0] -cne $script:Pin.Root -or ($segments.Count -eq 1 -and -not $entry.Directory)) { $reasons.Add('unexpected_archive_root') }
-        if ($normalized -cnotin @($script:Pin.Root, ($script:Pin.Root + '/' + $script:Pin.Executable))) { $reasons.Add('unexpected_archive_shape') }
+        if ($normalized -cnotin @($script:Pin.Root, ($script:Pin.Root + '/' + $script:Pin.Executable), ($script:Pin.Root + '/README.md'), ($script:Pin.Root + '/LICENSE'))) { $reasons.Add('unexpected_archive_shape') }
         if ($entry.Directory -and [long]$entry.Length -ne 0) { $reasons.Add('directory_entry_has_data') }
         if ($segments | Where-Object { $deviceBase = $_.TrimEnd([char[]]@('.', ' ')).Split('.')[0]; $deviceBase -match '^(?i:CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])$' }) { $reasons.Add('device_entry_name') }
         if ($entry.Reparse -or $entry.Symlink -or $entry.Device -or $entry.UnknownType) { $reasons.Add('non_regular_entry') }
@@ -226,8 +226,15 @@ function New-ContractZeroStatsOutput {
 
 function Invoke-ContractOnly {
     $goodEntry = @{ Name = 'sccache-v0.18.0-x86_64-pc-windows-msvc/sccache.exe'; Length = 9000000L; Directory = $false; Reparse = $false; Symlink = $false; Device = $false }
+    $publishedEntries = @(
+        @{ Name = 'sccache-v0.18.0-x86_64-pc-windows-msvc/'; Length = 0L; Directory = $true },
+        @{ Name = 'sccache-v0.18.0-x86_64-pc-windows-msvc/sccache.exe'; Length = 23757824L; Directory = $false },
+        @{ Name = 'sccache-v0.18.0-x86_64-pc-windows-msvc/README.md'; Length = 19610L; Directory = $false },
+        @{ Name = 'sccache-v0.18.0-x86_64-pc-windows-msvc/LICENSE'; Length = 11358L; Directory = $false }
+    )
     $baseArchive = @{ Size = $script:Pin.ArchiveSize; Sha256 = $script:Pin.ArchiveSha256 }
     $archiveCases = @(
+        @{ Name = 'digest_verified_published_archive_shape'; Facts = @{ Size = $baseArchive.Size; Sha256 = $baseArchive.Sha256; Entries = $publishedEntries }; Expected = $true },
         @{ Name = 'pin_and_shape_positive'; Facts = @{ Size = $baseArchive.Size; Sha256 = $baseArchive.Sha256; Entries = @($goodEntry) }; Expected = $true },
         @{ Name = 'wrong_size_refused'; Facts = @{ Size = 1L; Sha256 = $baseArchive.Sha256; Entries = @($goodEntry) }; Expected = $false },
         @{ Name = 'wrong_digest_refused'; Facts = @{ Size = $baseArchive.Size; Sha256 = ('0' * 64); Entries = @($goodEntry) }; Expected = $false },
@@ -773,7 +780,7 @@ function Start-WindowsSccacheSession {
         if ($pids.Count -ne 1) { throw 'job_server_membership_ambiguous' }
         $serverPid = [uint32]$pids[0]
         $serverHandle = [WindowsSccacheNative]::OpenProcessHandle($serverPid)
-        $session.Server = [pscustomobject]@{ Pid = $serverPid; Handle = $serverHandle; Creation = $null; Image = $null; UserSid = $null; Hash = $null }
+        $session.Server = [pscustomobject]@{ Pid = $serverPid; Handle = $serverHandle; Creation = $null; Image = $null; UserSid = $null; Hash = $null; ExitCode = $null }
         $session.Server.Creation = [WindowsSccacheNative]::ProcessCreation($serverHandle)
         $session.Server.Image = [WindowsSccacheNative]::ProcessImage($serverHandle)
         $session.Server.UserSid = [WindowsSccacheNative]::ProcessUserSid($serverHandle)

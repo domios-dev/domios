@@ -283,7 +283,7 @@ pub(crate) fn mesh_relay_invoke_answered(
         MeshSpawnFailure::new(
             target,
             format!("local socket unavailable: {error}"),
-            "start CodeTerm locally, then retry",
+            "start Domios locally, then retry",
         )
     })?;
     let relay_body = body

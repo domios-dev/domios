@@ -7,7 +7,7 @@ pub enum SystemAction {
     /// platform wrappers never restart the app independently.
     #[clap(name = "enable-autostart")]
     EnableAutostart {
-        /// Override the path to the CodeTerm executable. Defaults to the
+        /// Override the path to the Domios executable. Defaults to the
         /// installed app binary for the current platform.
         #[arg(long)]
         binary: Option<String>,
@@ -26,7 +26,7 @@ pub enum SystemAction {
     /// Run the crash-aware external supervisor loop. Intended for OS wrappers.
     #[clap(name = "supervise", hide = true)]
     Supervise {
-        /// Override the path to the CodeTerm executable. Defaults to the
+        /// Override the path to the Domios executable. Defaults to the
         /// installed app binary for the current platform.
         #[arg(long)]
         binary: Option<String>,

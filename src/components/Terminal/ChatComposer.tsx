@@ -817,7 +817,7 @@ function ChatComposerImpl({
                     unavailable
                       ? `${model.display_name} is not available yet`
                       : unknown
-                        ? `CodeTerm could not check whether ${model.display_name} is available`
+                        ? `Domios could not check whether ${model.display_name} is available`
                         : undefined
                   }
                   className="w-full grid grid-cols-[1rem_minmax(0,1fr)] gap-2 rounded px-2 py-1.5 text-left text-xs"

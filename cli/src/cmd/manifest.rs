@@ -191,6 +191,19 @@ fn render_signature(cmd: &ManifestCommand, full: &[String], out: &mut String) {
 const MD_START: &str = "<!-- cli:auto-start -->";
 const MD_END: &str = "<!-- cli:auto-end -->";
 const OUTPUT_DIR: &str = "generated/cli";
+const MD_PREAMBLE: &str = include_str!("manifest/preamble.md");
+
+fn render_document(current: &str, preamble: &str, body: &str) -> Result<String, &'static str> {
+    if current.matches(MD_START).count() != 1 || current.matches(MD_END).count() != 1 {
+        return Err("expected exactly one CLI marker pair");
+    }
+    let start = current.find(MD_START).unwrap();
+    let end = current.find(MD_END).unwrap();
+    if end < start + MD_START.len() {
+        return Err("CLI markers are reversed");
+    }
+    Ok(format!("{preamble}{MD_START}\n{body}\n{}", &current[end..]))
+}
 
 fn repo_path(rel: &str) -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -217,9 +230,8 @@ pub fn handle(write: bool, markdown: bool) {
 
     let cli_md = output_path("cli.md");
     let md = std::fs::read_to_string(&cli_md).expect("read generated/cli/cli.md");
-    let start = md.find(MD_START).expect("missing cli:auto-start marker") + MD_START.len();
-    let end = md.find(MD_END).expect("missing cli:auto-end marker");
-    let spliced = format!("{}\n{}\n{}", &md[..start], to_markdown(), &md[end..]);
+    let spliced = render_document(&md, MD_PREAMBLE, &to_markdown())
+        .expect("invalid generated CLI document markers");
     std::fs::write(&cli_md, spliced).expect("write generated/cli/cli.md");
     println!("wrote {}", cli_md.display());
 
@@ -257,15 +269,42 @@ mod tests {
     fn docs_cli_md_is_fresh() {
         let md =
             std::fs::read_to_string(output_path("cli.md")).expect("generated/cli/cli.md missing");
-        let start = md.find(MD_START).expect("missing cli:auto-start marker") + MD_START.len();
-        let end = md.find(MD_END).expect("missing cli:auto-end marker");
-        let block = &md[start..end];
-        let expected = format!("\n{}\n", to_markdown());
+        let expected = render_document(&md, MD_PREAMBLE, &to_markdown())
+            .expect("invalid generated CLI document markers");
         assert_eq!(
-            normalize_newlines(block),
+            normalize_newlines(&md),
             normalize_newlines(&expected),
-            "generated/cli/cli.md auto-block stale — run `codeterm cli-manifest --write`"
+            "generated/cli/cli.md stale — run `codeterm cli-manifest --write`"
         );
+    }
+
+    #[test]
+    fn document_renderer_replaces_prefix_and_preserves_suffix_idempotently() {
+        let suffix = format!("{MD_END}\r\nopaque-tail\n");
+        let current = format!("old-prefix{MD_START}old-body{suffix}");
+        let rendered = render_document(&current, "new-prefix\n", "new-body").unwrap();
+        assert_eq!(
+            rendered,
+            format!("new-prefix\n{MD_START}\nnew-body\n{suffix}")
+        );
+        assert_eq!(
+            render_document(&rendered, "new-prefix\n", "new-body").unwrap(),
+            rendered
+        );
+    }
+
+    #[test]
+    fn document_renderer_refuses_missing_duplicate_and_reversed_markers() {
+        for current in [
+            String::new(),
+            MD_START.to_string(),
+            MD_END.to_string(),
+            format!("{MD_END}{MD_START}"),
+            format!("{MD_START}{MD_START}{MD_END}"),
+            format!("{MD_START}{MD_END}{MD_END}"),
+        ] {
+            assert!(render_document(&current, "prefix", "body").is_err());
+        }
     }
 
     #[test]

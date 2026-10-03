@@ -1,4 +1,4 @@
-# CodeTerm CLI Reference
+# Domios CLI Reference
 
 
 Complete command reference. The section between the markers below is
@@ -20,7 +20,7 @@ as the source. When no identity resolves, it exits 1 with empty stdout.
 
 **Planning?** Read `codeterm docs ORCHESTRATION` first (GOAL ⟶ Spec ⊥ Plan ⟶ Tasks ⟶ Strides; author GOAL-first, Spec=WHAT, Plan=HOW built from the spec, M:N section links). Don't cram requirements into plan sections; the Spec holds WHAT.
 
-The Team verbs are `codeterm team list|show|rename|close|adopt-plan|adopt-agent|pair`. `codeterm team pair --orchestrator <provider[:model]> --planner <provider[:model]>` creates an Orchestrator + Planner Team in one action and leaves the Plan unbound until the first goal. A caller tab holding a Manager or Worker role (a Team leaf, the General Agent excepted) is refused unless it also passes `--acknowledge-leaf` — a declared, deliberate creation attributed to that calling tab, never to some other intermediary tab it might otherwise spawn to route around the refusal. `codeterm team close <team_id>` is the only user operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. The one automatic removal is CodeTerm's own startup lease: the Team a `team pair` minted for its two reserved launch attempts is reaped when that launch fails, and only while it is still forming, empty, and free of any member the pair did not reserve. Every other Team - normal, active, adopted, manually created, or nonempty - survives tab and workspace closure exactly as before. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
+The Team verbs are `codeterm team list|show|rename|close|adopt-plan|adopt-agent|pair`. `codeterm team pair --orchestrator <provider[:model]> --planner <provider[:model]>` creates an Orchestrator + Planner Team in one action and leaves the Plan unbound until the first goal. A caller tab holding a Manager or Worker role (a Team leaf, the General Agent excepted) is refused unless it also passes `--acknowledge-leaf` — a declared, deliberate creation attributed to that calling tab, never to some other intermediary tab it might otherwise spawn to route around the refusal. `codeterm team close <team_id>` is the only user operation that removes a Team; it cascade-closes the Team's members, archives/detaches its plans, records owner retirement, and clears owner/planner routing to the destroyed tabs. The one automatic removal is Domios's own startup lease: the Team a `team pair` minted for its two reserved launch attempts is reaped when that launch fails, and only while it is still forming, empty, and free of any member the pair did not reserve. Every other Team - normal, active, adopted, manually created, or nonempty - survives tab and workspace closure exactly as before. Agent callers may mutate only their own `team_id` when they are the Team's Orchestrator or planner Manager; rename and close retain their authenticated direct-user path. A newly minted Team is returned with `codeterm team rename <team_id> <name>` and `codeterm docs ORCHESTRATION` guidance.
 
 `codeterm team adopt-plan <team_id> <plan_id>` requires `CODETERM_TAB_ID` for the destination Team's Orchestrator or planner Manager. It activates an archived/teamless plan only when the Team has exactly one live Orchestrator and no other active plan. Adoption atomically binds the Team, replaces the old owner with that Orchestrator, records owner history, clears stale planner routing, and relinks live task hierarchy. `codeterm plan unarchive|resume` require an existing live Team binding; they never recreate a Team.
 
@@ -1296,7 +1296,7 @@ List all peers (paired + discovered)
 
 #### `codeterm mesh refresh`
 
-Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting CodeTerm
+Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting Domios
 
 #### `codeterm mesh reject`
 
@@ -3034,7 +3034,7 @@ Remove the OS-level autostart trigger created by `enable-autostart`. Idempotent 
 
 Install an OS login trigger for the external crash-aware supervisor. The supervisor alone applies clean-exit, backoff, and loop policy; platform wrappers never restart the app independently
 
-- `--binary` — Override the path to the CodeTerm executable. Defaults to the installed app binary for the current platform
+- `--binary` — Override the path to the Domios executable. Defaults to the installed app binary for the current platform
 - `--supervisor` — Override the path to the codeterm CLI supervisor. Defaults to the currently-running CLI executable
 
 #### `codeterm tab`

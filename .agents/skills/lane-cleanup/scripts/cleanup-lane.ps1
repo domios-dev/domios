@@ -33,7 +33,7 @@ if ($lane -eq $canonical -or -not $lane.StartsWith($root + '\', [StringCompariso
 
 if ($TabId) {
     codeterm tab close $TabId
-    Assert-Success "Close CodeTerm tab $TabId"
+    Assert-Success "Close Domios tab $TabId"
 }
 
 $gitMarker = Join-Path $lane '.git'

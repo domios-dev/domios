@@ -91,6 +91,16 @@ the reusable Windows job in `.github/workflows/release-windows.yml`, called by t
 
 ### Pinned cache maintenance and same-job task sessions
 
+`archive_refused:unexpected_archive_shape` with the pinned digest can mean the
+allowlist omitted the release README/LICENSE. The verified 0.18.0 ZIP contains
+the root directory, executable, README.md and LICENSE; only the executable is installed.
+
+
+If cleanup reports a property-assignment error for the captured server, verify its
+record declares `ExitCode` before launch. A PowerShell custom object cannot acquire
+an undeclared property through assignment; retain the handle and fail cleanup honestly.
+
+
 The focused Windows task workflow keeps its existing no-install path by default. Its existing
 `rust-windows-task-local` selector continues to inspect the runner's current `sccache` and
 requires the build wrapper's existing prestarted-server check. `cache_session_opt_in` defaults

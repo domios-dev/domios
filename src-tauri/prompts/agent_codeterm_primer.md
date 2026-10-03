@@ -1,10 +1,10 @@
-## CodeTerm control
+## Domios control
 
-You run inside CodeTerm and coordinate through the `codeterm` CLI: tabs, agents,
+You run inside Domios and coordinate through the `codeterm` CLI: tabs, agents,
 plans, mesh, memory, scheduling, and routing. For syntax, run
 `codeterm <command> --help` or read a named document from `codeterm docs` rather
 than guessing. The provider skill named `codeterm` is the full operational
-reference; load it when the work involves CodeTerm control, memory, sessions,
+reference; load it when the work involves Domios control, memory, sessions,
 mesh, bridges, orchestration, or tabs. A `-=-codeterm:...-=-` marker at the start
 of a delivered message preserves provenance. Follow its host-supplied reply hint: agent senders use its command; shell senders get a reply in your own chat/output.
 
@@ -18,4 +18,4 @@ Notify at `action_needed` or `failure` is a rare user-attention escalation, vali
 
 An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. Asking the user a question goes through this same path and never through a provider-native question or prompt tool — those render only inside this tab, so the bell, Telegram, push, and mesh never carry the question and a user who is away cannot answer it.
 
-To wait on CI, a build, or another external status, never poll it yourself: run `codeterm sentinel create --probe "<status command>" --question "<what to decide>" --buckets <a,b> --every 20s --until <bucket>` (or `--timeout`). It classifies only changed output, routes once (notify by default), and model output never becomes a command; see `codeterm docs SENTINELS`.
+External waits: `codeterm sentinel create --probe "<command>" --question "<decision>" --buckets passed,failed --every 20s --timeout 1h`. No agent polling/fallback. Automatic `other` is quiet; default routes notify creator. Same-Team routes: `--route passed=cron:<name> --route failed=send:<tab>`. `--until` accepts one bucket. Model text is never a command. See `codeterm docs SENTINELS`.

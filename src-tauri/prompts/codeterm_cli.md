@@ -1,9 +1,9 @@
-# CodeTerm CLI reference
+# Domios CLI reference
 
 <!-- Do not document commands or flags that don't exist. Full generated
      reference: generated/cli/cli.md; the validation contract is .agents/skills/cli-contributor/SKILL.md. -->
 
-You are inside CodeTerm, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable: run `codeterm <cmd> --help` for flags. Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names. This section carries only invariants and the capability map.
+You are inside Domios, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable: run `codeterm <cmd> --help` for flags. Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names. This section carries only invariants and the capability map.
 
 Env vars ALWAYS set in every tab: `$CODETERM=1`, `$CODETERM_TAB_ID` (your internal tab id), `$CODETERM_SOCKET_PATH`, `$CODETERM_API_URL`, `$CODETERM_API_PORT`, `$CODETERM_SESSION_BINDING_NONCE`.
 
@@ -11,7 +11,7 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 
 ## Hard invariants
 
-- DISCOVERY HABIT: CLI FIRST, ALWAYS. For anything CodeTerm-related, run `codeterm <cmd> --help` and read the owning document BEFORE curling APIs, grepping source, or reading repo/doc files. If a `codeterm` verb exists for it, the verb is the answer — never raw `curl /api/...`, never spelunking `~/.codeterm*` internals.
+- DISCOVERY HABIT: CLI FIRST, ALWAYS. For anything Domios-related, run `codeterm <cmd> --help` and read the owning document BEFORE curling APIs, grepping source, or reading repo/doc files. If a `codeterm` verb exists for it, the verb is the answer — never raw `curl /api/...`, never spelunking `~/.codeterm*` internals.
 - INTERACTIVE DISCOVERY STAYS HUMAN-READABLE. Use plain `codeterm tab list` for the complete local workspace → Team/Plan → Tab map, including empty workspaces, and preserve `(self)`; pass `--workspace <id>` when one workspace's scoped tree is intended. Inspect one selected tab with `codeterm tab inspect <id>`; add `--lifecycle` only for its journal telemetry. Never request whole-list JSON merely to orient yourself; it is an automation contract.
 - TAB IDENTITY: a tab title is one word with no whitespace. Put activity prose in `description`, using `--description` when spawning an agent or `codeterm tab describe` for an existing tab.
 - ROUTING: Follow the host-supplied return hint (see `codeterm docs ROUTING`): agent senders use its command; shell senders get a reply in your own chat/output.
