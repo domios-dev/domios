@@ -9,7 +9,6 @@
 .download-menu li a { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 11px 12px; border-radius: 8px; transition: background var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle); }
 .download-menu a:hover { background: color-mix(in srgb, var(--ct-accent) 12%, transparent); }
 .download-releases { display: block; margin-top: 4px; border-top: 1px solid var(--ct-border); padding: 12px; color: var(--ct-muted-fg); }
-.hero .platforms { margin-top: 43px; }
 @media (max-width: 600px) {
   .hero-actions .download-control > .button { padding: 12px 10px; gap: 6px; }
   .download-label small { font-size: 10px; }

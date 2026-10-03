@@ -1,5 +1,5 @@
-.agent-network { position: relative; max-width: 1000px; margin: 52px auto 20px; text-align: left; }
-.mesh-register { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-block: 15px; border-block: 1px solid transparent; color: var(--ct-muted-fg); font: 9px var(--ct-font-mono); letter-spacing: 1.4px; }
+.agent-network { position: relative; max-width: 1000px; margin: 20px auto; text-align: left; }
+.mesh-register { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-block: 8px; color: var(--ct-muted-fg); font: 9px var(--ct-font-mono); letter-spacing: 1.4px; }
 .mesh-register > span:last-child { display: flex; align-items: center; gap: 8px; color: var(--ct-accent); }
 .mesh-register i { width: 5px; height: 5px; border-radius: 50%; background: var(--ct-green); }
 .mesh-desk { position: relative; height: 590px; isolation: isolate; contain: layout style; }
@@ -96,7 +96,7 @@
   .liquid-label text { font-size: 10px; }
 }
 @media (max-width: 650px) {
-  .agent-network { margin-top: 35px; }
+  .agent-network { margin-top: 20px; }
   .mesh-register { font-size: 8px; letter-spacing: .3px; }
   .mesh-register > span:last-child { font-size: 7px; gap: 5px; }
   .mesh-desk { height: 760px; }
