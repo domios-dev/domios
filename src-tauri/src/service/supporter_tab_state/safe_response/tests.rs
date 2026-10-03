@@ -1,5 +1,6 @@
 use super::*;
 use codeterm_types::pty::PromptOption;
+use std::time::{Duration, Instant};
 
 fn target() -> Target {
     Target {
@@ -71,32 +72,33 @@ fn supporter_first_opinion_safe_response_never_authorizes_without_evidence() {
 #[test]
 fn supporter_first_opinion_safe_response_distinct_events_and_new_occurrence() {
     let mut book = Agreement::default();
+    let deadline = Instant::now() + Duration::from_secs(3);
     assert_eq!(
-        book.observe("launch-a", 1, 10, 100, "skip-token", 0.97),
+        book.observe("launch-a", "occ-1", 10, "step-1", 0.97, deadline),
         (1, 0.97)
     );
     assert_eq!(
-        book.observe("launch-a", 1, 10, 101, "skip-token", 0.99),
+        book.observe("launch-a", "occ-1", 10, "step-1", 0.99, deadline),
         (1, 0.97)
     );
     assert_eq!(
-        book.observe("launch-a", 1, 11, 100, "skip-token", 0.99),
+        book.observe("launch-a", "occ-1", 9, "step-1", 0.99, deadline),
         (1, 0.97)
     );
     assert_eq!(
-        book.observe("launch-a", 1, 12, 102, "skip-token", 0.93),
+        book.observe("launch-a", "occ-1", 12, "step-1", 0.93, deadline),
         (2, 0.93)
     );
     assert_eq!(
-        book.observe("launch-a", 2, 13, 103, "skip-token", 0.95),
+        book.observe("launch-a", "occ-2", 13, "step-1", 0.95, deadline),
         (1, 0.95)
     );
     assert_eq!(
-        book.observe("launch-b", 2, 14, 104, "skip-token", 0.96),
+        book.observe("launch-b", "occ-2", 14, "step-1", 0.96, deadline),
         (1, 0.96)
     );
     assert_eq!(
-        book.observe("launch-b", 2, 15, 105, "install", 0.99),
+        book.observe("launch-b", "occ-2", 15, "install", 0.99, deadline),
         (1, 0.99)
     );
 }
@@ -104,18 +106,68 @@ fn supporter_first_opinion_safe_response_distinct_events_and_new_occurrence() {
 #[test]
 fn supporter_first_opinion_safe_response_static_frame_distinct_events_confirm() {
     let mut book = Agreement::default();
+    let deadline = Instant::now() + Duration::from_secs(3);
     assert_eq!(
-        book.observe("launch", 7, 31, 900, "skip-token", 0.96),
+        book.observe("launch", "occurrence", 31, "skip-token", 0.96, deadline),
         (1, 0.96)
     );
     assert_eq!(
-        book.observe("launch", 7, 32, 900, "skip-token", 0.94),
+        book.observe("launch", "occurrence", 32, "skip-token", 0.94, deadline),
         (2, 0.94)
     );
     assert_eq!(
-        book.observe("launch", 7, 32, 900, "skip-token", 0.99),
+        book.observe("launch", "occurrence", 32, "skip-token", 0.99, deadline),
         (2, 0.94)
     );
+}
+
+#[test]
+fn supporter_first_opinion_safe_response_confirmation_expiry_and_step_change_reset() {
+    let mut book = Agreement::default();
+    assert_eq!(
+        book.observe(
+            "launch",
+            "occurrence",
+            51,
+            "step-a",
+            0.96,
+            Instant::now() - Duration::from_millis(1),
+        ),
+        (1, 0.96)
+    );
+    assert_eq!(
+        book.observe(
+            "launch",
+            "occurrence",
+            52,
+            "step-a",
+            0.94,
+            Instant::now() + Duration::from_secs(3),
+        ),
+        (1, 0.94)
+    );
+    assert_eq!(
+        book.observe(
+            "launch",
+            "occurrence",
+            53,
+            "step-b",
+            0.93,
+            Instant::now() + Duration::from_secs(3),
+        ),
+        (1, 0.93)
+    );
+}
+
+#[test]
+fn supporter_first_opinion_confirmation_seed_and_child_are_one_shot_per_step() {
+    let owner = coordinator::ActionOwner::default();
+    assert!(owner.claim_followup("tab", "step-a", false));
+    assert!(!owner.claim_followup("tab", "step-a", false));
+    assert!(owner.claim_followup("tab", "step-a", true));
+    assert!(!owner.claim_followup("tab", "step-a", true));
+    assert!(owner.claim_followup("tab", "step-b", false));
+    assert!(owner.claim_followup("tab", "step-b", true));
 }
 
 #[test]
@@ -277,14 +329,24 @@ fn supporter_first_opinion_safe_response_adapter_replacement_resets_agreement() 
     let first: Arc<dyn DecisionModel> = Arc::new(Model);
     let second: Arc<dyn DecisionModel> = Arc::new(Model);
     let mut book = Agreement::default();
+    let deadline = Instant::now() + Duration::from_secs(3);
     book.bind_adapter(&first);
-    assert_eq!(book.observe("launch", 1, 1, 1, "choice", 0.95), (1, 0.95));
-    book.bind_adapter(&first);
-    assert_eq!(book.observe("launch", 1, 2, 2, "choice", 0.95), (2, 0.95));
-    book.bind_adapter(&second);
-    assert_eq!(book.observe("launch", 1, 3, 3, "choice", 0.95), (1, 0.95));
     assert_eq!(
-        book.observe("launch", 1, 4, 4, "changed-policy:choice", 0.95),
+        book.observe("launch", "occ", 1, "step", 0.95, deadline),
+        (1, 0.95)
+    );
+    book.bind_adapter(&first);
+    assert_eq!(
+        book.observe("launch", "occ", 2, "step", 0.95, deadline),
+        (2, 0.95)
+    );
+    book.bind_adapter(&second);
+    assert_eq!(
+        book.observe("launch", "occ", 3, "step", 0.95, deadline),
+        (1, 0.95)
+    );
+    assert_eq!(
+        book.observe("launch", "occ", 4, "changed-policy:step", 0.95, deadline),
         (1, 0.95)
     );
 }

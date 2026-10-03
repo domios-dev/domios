@@ -26,13 +26,18 @@ Onboarding remains limited to delegated Workers and Planner Managers, including
 post-launch Planners; owner-facing onboarding stays with the owner.
 
 Automatic responses require >= 0.90 on every Q1/Q2/Q3/Q4 component, two distinct
-observation IDs and frames in the same occurrence, the same adapter instance,
-model and policy, a matching current pending prompt, structural modal evidence,
-and a qualification receipt for the new question/action schema. Repeated IDs,
-unchanged frames, disagreements, adapter replacement and policy changes cannot
-reuse agreement. The new receipt is shipped disabled; enabling automatic
-responses requires separately verified held-out and live evidence, including
-onboarding-label coverage. No receipt or metric is fabricated by this slice.
+completed observation IDs in the same occurrence and provider step, the same
+adapter instance, model and policy, a matching current pending prompt, structural
+modal evidence, and a qualification receipt for the new question/action schema.
+Two actual captures may contain the identical static frame. Replayed or
+out-of-order IDs, uncertainty, user response, adapter replacement, policy
+changes and stale generations cannot reuse agreement. A model-classified prompt
+is first published; its completed eligible observation requests one internal
+confirmation capture through the bounded scheduler. That confirmation is
+correlated to its parent and is not represented as new provider output. The new
+receipt is shipped disabled; enabling automatic responses requires separately
+verified held-out and live evidence, including onboarding-label coverage. No
+live qualification receipt or metric is fabricated by this slice.
 
 The action owner now permits one ticket per observation revision, while preserving
 the prompt occurrence. Previously its claimed bit survived all revisions in an
@@ -58,14 +63,18 @@ lock-held model call is introduced.
 ## Authored coverage; no executed result
 
 Tests were committed before implementation. `supporter_first_opinion` includes
-authorization failures, minimum-component confidence, duplicate observations,
-adapter replacement, occurrence reuse, option order/focus, historical-focus
-isolation, opaque option values, unsupported defaults, question-specific
-qualification, shared deterministic/model ledger ownership and canceled cleanup.
-ServiceFixture cases cover the persisted owner/Planner boundary, one Q3 batch,
-redaction and Q3 suppression, and post-verdict cancellation on user response,
-reused PTY/new nonce, disconnect and expiration. The Claude Rust parity cases and
-built-plugin TS cases cover the new safe-choice capability and reordered options.
+authorization failures, minimum-component confidence, duplicate and
+out-of-order observations, same-frame confirmation, expiry, adapter replacement,
+occurrence/step reuse, option order/focus, historical-focus isolation, opaque
+option values, unsupported defaults, fixture-only qualification, shared
+deterministic/model ledger ownership and canceled cleanup. The Windows-only
+`supporter_first_opinion_safe_response_qualified_static_onboarding_planner_completion`
+uses the real candidate/model/publication/capture path and unchanged bound
+responder; its child reports completion only after receiving the provider's
+focused safe-option steps. It checks repeated identical captured screens and
+correlated seed/confirmation/action records. Existing ServiceFixture cases retain
+the owner/Planner boundary, user response, reused PTY/new nonce, disconnect and
+expiration controls. These tests have not run in the source-only lane.
 
 These tests have not run in the source-only lane. Standalone rustfmt was used as
 the explicitly authorized source-editing operation. Compilation, runtime behavior,

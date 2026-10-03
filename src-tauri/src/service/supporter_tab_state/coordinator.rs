@@ -60,8 +60,16 @@ struct TabOccurrence {
 }
 
 #[derive(Default)]
+struct FollowUpSlot {
+    scope: String,
+    established: bool,
+    confirmation: bool,
+}
+
+#[derive(Default)]
 pub(crate) struct ActionOwner {
     tabs: Mutex<HashMap<String, TabOccurrence>>,
+    followups: Mutex<HashMap<String, FollowUpSlot>>,
 }
 
 pub(crate) fn global() -> &'static ActionOwner {
@@ -70,6 +78,27 @@ pub(crate) fn global() -> &'static ActionOwner {
 }
 
 impl ActionOwner {
+    pub(crate) fn claim_followup(&self, tab: &str, scope: &str, confirmation: bool) -> bool {
+        let mut followups = self.followups.lock();
+        let slot = followups.entry(tab.into()).or_default();
+        if slot.scope != scope {
+            *slot = FollowUpSlot {
+                scope: scope.into(),
+                ..Default::default()
+            };
+        }
+        let claimed = if confirmation {
+            &mut slot.confirmation
+        } else {
+            &mut slot.established
+        };
+        if *claimed {
+            return false;
+        }
+        *claimed = true;
+        true
+    }
+
     pub(crate) fn observe(
         &self,
         tab: &str,
