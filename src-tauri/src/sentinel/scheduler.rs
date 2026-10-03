@@ -169,16 +169,21 @@ pub fn record(
     }))
 }
 
-fn record_failure(handle: &Handle, svc: &ServiceState, lease: &Lease, reason: &str) {
+fn record_failure(
+    handle: &Handle,
+    svc: &ServiceState,
+    lease: &Lease,
+    failure: &probe::process::ProbeFailure,
+) {
     let mut job = lease.job.clone();
-    job.last_reason = Some(reason.into());
+    job.last_reason = Some(failure.reason());
     if handle.store.lock().finish(&job).unwrap_or(false) {
         let _ = journal(
             svc,
             &job,
             &machine::Outcome {
                 evidence: Evidence::new(Scope::from(&lease.job), None),
-                reason,
+                reason: failure.primary,
                 verdict: None,
                 route: None,
             },
@@ -282,7 +287,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
             if reason.is_unconfirmed() {
                 record_unconfirmed_failure(handle, svc, lease, &reason);
             } else {
-                record_failure(handle, svc, lease, &reason.reason());
+                record_failure(handle, svc, lease, &reason);
             }
         },
         std::convert::identity,

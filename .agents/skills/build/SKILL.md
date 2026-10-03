@@ -390,6 +390,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Sentinel `check-tests` reports E0282 and a static reason lifetime error | Cleanup strings had an ambiguous inferred vector type; a dynamic detail string was passed as a static outcome code. | Type the vector as `Vec<String>` and pass `ProbeFailure`, retaining detailed `last_reason` and its static primary outcome code; rerun `check-tests`. |
 | Restoration integration fails with E0432/E0603 | Cross-crate request/result reexports were removed and the socket imported a private service module. | Export the two store types from task_attempts and route socket imports through the existing service facade; rerun `check-tests` before focused gates. |
 | `check-tests` reports E0505 in same-attempt binding restoration | The transaction borrowed `request.plan_id` while its closure consumed the request receipt. | Clone the transaction lookup ID before the closure; rerun `check-tests` and the focused plan/app restoration selectors. |
 | CI spawn audit flags a command factory and its subprocess fixture; Linux Clippy also reports `err_expect` | Moving command construction separated it from the audited no-window helper; the fixture omitted that helper and assertions used `err().expect()` | Apply `no_window_std` when constructing each command, retain the spawn audit unchanged, and use `expect_err` for these assertions. Run the focused spawn audit and executor tests, then the failed Clippy gate before a fresh-head platform run. |
