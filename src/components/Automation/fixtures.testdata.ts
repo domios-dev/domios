@@ -14,6 +14,7 @@ export function fixtureNode(identity: AutomationIdentity, name: string): Automat
 export function fixtureGraph(): AutomationGraph {
   return {
     workspace_id: attachment.workspace_id, team_id: attachment.team_id, revision: "revision-a",
+    scenarios: [{ id: "scenario-a", name: "Sentinel scenario A", root: sentinelIdentity }],
     nodes: [
       { ...fixtureNode(sentinelIdentity, "Watcher A"), sentinel_definition: { source: "stored_agent_definition", definition_id: sentinelIdentity.id, creator_tab_id: sentinelIdentity.owner_tab_id! }, state: "paused", cadence_ms: 15000, expires_at: 200000, outcomes: [{ bucket: "branch-a", handlers: [
         { id: "handler-a", type: "cron", target: cronIdentity, availability: "available", last_result: { status: "success", execution_id: "handler-execution-a", accepted_at: 100000 } },
@@ -64,4 +65,23 @@ export class FixtureTransport implements AutomationGraphAdapter {
     this.stops.push(target);
     return this.stopResult.promise;
   }
+}
+
+export function multiScenarioGraph(): AutomationGraph {
+  const graph = fixtureGraph();
+  const stageIdentity = identity("sentinel", "stage-a");
+  const secondIdentity = identity("sentinel", "sentinel-b");
+  const definition = (target: AutomationIdentity) => ({ source: "stored_agent_definition" as const, definition_id: target.id, creator_tab_id: target.owner_tab_id! });
+  return {
+    ...graph,
+    scenarios: [...graph.scenarios, { id: "scenario-b", name: "Sentinel scenario B", root: secondIdentity }],
+    nodes: [...graph.nodes,
+      { ...fixtureNode(stageIdentity, "Internal stage A"), sentinel_definition: definition(stageIdentity) },
+      { ...fixtureNode(secondIdentity, "Watcher B"), sentinel_definition: definition(secondIdentity) },
+    ],
+    edges: [...graph.edges,
+      { ...graph.edges[0], id: "activation-stage-a", target: stageIdentity, handler_id: "handler-stage-a", handler_type: "sentinel", evidence: { kind: "configured", route_id: "route-stage-a" } },
+      { ...graph.edges[0], id: "second-shared-cron", source: secondIdentity, handler_id: "handler-shared", evidence: { kind: "configured", route_id: "route-shared" } },
+    ],
+  };
 }

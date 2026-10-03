@@ -13,6 +13,7 @@ import { anchorsTeam } from "../../lib/roleKind";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
+import { WorkspaceAutomationAction } from "../Automation/WorkspaceAutomationAction";
 import { WorkspaceItem } from "./WorkspaceItem";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RecentlyClosed } from "./RecentlyClosed";
@@ -86,6 +87,7 @@ interface SidebarProps {
   uiFontScale?: number;
   workspaceCanvasActive?: boolean;
   onOpenWorkspaceMap?: (workspaceId: string) => void;
+  onOpenWorkspaceAutomation?: (workspaceId: string) => void;
   teamActions?: Partial<SidebarTeamActions>;
 }
 
@@ -100,6 +102,7 @@ export function Sidebar({
   uiFontScale,
   workspaceCanvasActive = false,
   onOpenWorkspaceMap,
+  onOpenWorkspaceAutomation,
   teamActions,
 }: SidebarProps) {
   const {
@@ -674,6 +677,7 @@ export function Sidebar({
                       >
                         <span className="sidebar-structural-label">GENERAL</span>
                       </SidebarDisclosure>
+                      {onOpenWorkspaceAutomation && <WorkspaceAutomationAction workspaceId={generalWorkspace.id} workspaceName={generalWorkspace.name} onOpen={onOpenWorkspaceAutomation} touchMode={touchMode} />}
                     </div>
                     {generalExpanded && <SidebarWorkspaceTabs
                       workspace={generalWorkspace}
@@ -824,6 +828,7 @@ export function Sidebar({
                       onNewTerminal={() => createTab(ws.id)}
                       onNewSession={() => handleNewSession(ws.id, ws.cwd ?? null)}
                       onOpenMap={() => onOpenWorkspaceMap?.(ws.id)}
+                      onOpenAutomation={() => onOpenWorkspaceAutomation?.(ws.id)}
                       newSessionDisabled={firstRunActive}
                       onNewAgent={(agentId) => handleAgentSpawn(agentId, ws.id, ws.cwd ?? null)}
                       canClose={true}
