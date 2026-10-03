@@ -23,6 +23,7 @@ Run from `web/` with Python 3.12, Pillow, FFmpeg and FFprobe installed. The sour
 
 ```powershell
 python media-src/rebuild-archived-trailer.py --verify-only
+python media-src/rebuild-archived-trailer.py --verify-only --git-ref HEAD
 python media-src/rebuild-archived-trailer.py --output .local/rebuilt-memory-1
 ```
 
