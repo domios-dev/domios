@@ -456,3 +456,7 @@ Pure controls prove flags/refusal only; actual compilation and absence of new wi
 Windows-only Sentinel test compilation can fail on `System::IO::ReadFile`: windows-sys0.61 declares
 `ReadFile` in `Storage::FileSystem`, with the existing IO feature for OVERLAPPED. Correct the import;
 stop downstream test gates when compilation fails, and qualify the two focused selectors after the fix.
+
+ContractOnly can report `native_control_selection_count_mismatch` after adding native controls while
+leaving its independent expected inventory stale. Match the authored group inventory (21 startup controls)
+and rerun the exact-head pure gate; never remove the count guard or count its refusal as a behavior failure.
