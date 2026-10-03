@@ -269,19 +269,34 @@ mod tests {
     }
 
     #[test]
-    fn docs_help_teaches_discovery_and_complete_named_read() {
-        let help = crate::cmd::docs::render_help().to_lowercase();
-
-        assert!(help.contains("read embedded codeterm documentation"));
+    fn docs_help_lists_runnable_complete_document_reads() {
+        let help = crate::cmd::docs::render_help();
+        let discovery = Cli::command()
+            .try_get_matches_from(["codeterm", "docs"])
+            .expect("documentation discovery parses without a name");
+        assert!(discovery
+            .subcommand_matches("docs")
+            .unwrap()
+            .get_one::<String>("name")
+            .is_none());
         for document in crate::cmd::docs::DOCS {
-            assert!(help.contains(&document.name.to_lowercase()));
-            assert!(help.contains(&document.purpose.to_lowercase()));
+            assert!(help.contains(document.name));
+            assert!(help.contains(document.purpose));
+            let named = Cli::command()
+                .try_get_matches_from(["codeterm", "docs", document.name])
+                .expect("every listed document has a runnable named read");
+            let name = named
+                .subcommand_matches("docs")
+                .unwrap()
+                .get_one::<String>("name")
+                .unwrap();
+            assert_eq!(crate::cmd::docs::render_doc(name), Ok(document.body));
         }
-        assert!(!help.contains("--section"));
-        assert!(!help.contains("--full"));
-        assert!(!help.contains("--head"));
-        assert!(!help.contains("preview"));
-        assert!(!help.contains("slug"));
+        for unsupported in ["--section", "--full", "--head"] {
+            assert!(Cli::command()
+                .try_get_matches_from(["codeterm", "docs", unsupported])
+                .is_err());
+        }
     }
 
     #[test]
