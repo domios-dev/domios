@@ -1,4 +1,4 @@
-.agent-network { position: relative; max-width: 1000px; margin: 20px auto; text-align: left; }
+.agent-network { position: relative; max-width: 1000px; margin: 97px auto 20px; text-align: left; }
 .mesh-desk { position: relative; height: 590px; isolation: isolate; contain: layout style; }
 .mesh-desk::before { content: ''; position: absolute; inset: 4% 0; pointer-events: none; background: radial-gradient(ellipse at 48% 48%, color-mix(in srgb, var(--ct-accent) 5%, transparent), transparent 64%); }
 .mesh-routes, .mesh-liquid { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
@@ -84,6 +84,7 @@
 .liquid-label rect { fill: var(--ct-bg); stroke: currentColor; stroke-opacity: .22; }
 .liquid-label text { fill: currentColor; font: 10px var(--ct-font-mono); }
 @media (min-width: 651px) and (max-width: 900px) {
+  .agent-network { margin-top: 100px; }
   .machine-home { width: 32%; }
   .machine-laptop { left: 3%; }
   .machine-workstation { left: 55%; }
@@ -99,7 +100,7 @@
   .liquid-label text { font-size: 10px; }
 }
 @media (max-width: 650px) {
-  .agent-network { margin-top: 20px; }
+  .agent-network { margin-top: 90px; }
   .mesh-desk { height: 760px; }
   .machine-home { width: min(76%, 290px); left: calc((100% - min(76%, 290px)) / 2); right: auto; }
   .machine-body { padding-bottom: 12px; }
