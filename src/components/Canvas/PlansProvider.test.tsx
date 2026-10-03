@@ -3,7 +3,7 @@
 import { act, useEffect, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import type { ApiConfig } from "../../lib/types";
+import type { ApiConfig, Workspace } from "../../lib/types";
 import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
 import { PlanButton } from "./PlanButton";
 import {
@@ -326,6 +326,28 @@ test("two projects: workspace canvas consumer only loads matching project plans"
   });
   assert(seen.includes("plan-a"), "plan A loaded for project /repo/a");
   assert(!seen.includes("plan-b"), "plan B excluded for project /repo/a");
+  fullFixturePlans = [FIXTURE_PLAN];
+  await act(async () => root.unmount());
+});
+
+test("nested workspace retains its owner plan without importing another workspace plan", async () => {
+  fullFixturePlans = [
+    { ...FIXTURE_PLAN, id: "nested-plan", project_path: "D:\\repo", owner: { ...FIXTURE_PLAN.owner, tab_id: "nested-owner" } },
+    { ...FIXTURE_PLAN, id: "other-plan", project_path: "D:\\repo", owner: { ...FIXTURE_PLAN.owner, tab_id: "other-owner" } },
+  ];
+  const workspaces = [
+    { id: "nested", name: "Web", cwd: "D:/repo/web", tabs: ["nested-owner"] },
+    { id: "other", name: "Other", cwd: "D:/repo/other", tabs: ["other-owner"] },
+  ] as Workspace[];
+  let selected: string[] = [];
+  function CaptureNestedPlans() {
+    const { plans } = useCanvasPlans("workspace", "D:/repo/web", { workspaceId: "nested", workspaces });
+    selected = plans.map((plan) => plan.id);
+    return null;
+  }
+  const { root } = await renderTree(<PlansProvider api={API}><CaptureNestedPlans /></PlansProvider>);
+  assert(selected.includes("nested-plan"), "nested owner plan survives upstream project filter");
+  assert(!selected.includes("other-plan"), "other workspace plan remains excluded");
   fullFixturePlans = [FIXTURE_PLAN];
   await act(async () => root.unmount());
 });
