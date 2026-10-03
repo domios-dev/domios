@@ -1,5 +1,5 @@
 /* Usage tracker — bubble, popover, history modal.
-   Mock-aligned tokens (mock used --ct-bg-elev which doesn't exist in CodeTerm theme).
+   Mock-aligned tokens (mock used --ct-bg-elev which doesn't exist in Domios theme).
    We define the missing tokens locally on the .ct-usage scope so we don't pollute globals. */
 
 @import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap");

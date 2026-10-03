@@ -31,7 +31,7 @@ export function LiquidGlassLab() {
     <main className="lg-lab mx-auto flex max-w-[960px] flex-col gap-8 px-6 py-12">
       <header className="flex flex-col gap-2">
         <span className="text-[11px] uppercase tracking-[0.2em] text-[var(--ct-muted-fg)]">
-          CodeTerm · liquid glass × squash-jump
+          Domios · liquid glass × squash-jump
         </span>
         <h1 className="text-2xl font-semibold text-[var(--ct-fg)]">Living Controls</h1>
         <p className="max-w-[60ch] text-sm leading-relaxed text-[var(--ct-muted-fg)]">

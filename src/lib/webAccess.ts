@@ -1,6 +1,6 @@
 /**
  * Web Access URL selection — the single source of truth for "what URL does a
- * browser/phone use to reach this CodeTerm". Shared by Settings → Network and
+ * browser/phone use to reach this Domios". Shared by Settings → Network and
  * the Mesh "Web UI" QR modal so they can never disagree.
  *
  * Priority (best first):
@@ -82,7 +82,7 @@ function assertTokenSafeEntryUrl(value: string): void {
     || url.search
     || url.hash
   ) {
-    throw new Error("Refusing to attach a CodeTerm token to an untrusted Web UI origin");
+    throw new Error("Refusing to attach a Domios token to an untrusted Web UI origin");
   }
 }
 
@@ -206,14 +206,14 @@ export function startWebAccessSetupHelper(
   return spawnAiHelper({ title: "Set up Web Access", task: serveSetupTask(status, apiPort) }, api);
 }
 
-/** Sibling CodeTerm API port (prod 7685 ↔ dev 7686). Mirrors the backend. */
+/** Sibling Domios API port (prod 7685 ↔ dev 7686). Mirrors the backend. */
 function siblingCodetermPort(port: number): number | null {
   if (port === 7685) return 7686;
   if (port === 7686) return 7685;
   return null;
 }
 
-/** A public HTTPS port that collides with our own or the sibling CodeTerm's API
+/** A public HTTPS port that collides with our own or the sibling Domios's API
  * port would proxy into the wrong daemon — refuse it. Mirrors the backend. */
 function wouldClobberCodetermPort(apiPort: number, httpsPort: number): boolean {
   return httpsPort === apiPort || siblingCodetermPort(apiPort) === httpsPort;
