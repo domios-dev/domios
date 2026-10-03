@@ -11,6 +11,14 @@ npm run preview
 
 Build output is `dist/`. The Vercel project is `domios-web`, with `web` as its root directory and Vite as its framework preset. No app build, runtime service, or environment variables are required.
 
+## Publication
+
+The Vercel project is connected to `rollacode/codeterm` through its GitHub integration. The production branch is `master`, which is this repository's default branch. Merging website changes into `master` triggers a production build and publication to `domios.dev`; other branches produce previews. The project runs `npm ci` and `npm run build` from `web/`, with `dist/` as its output directory. No separate GitHub Actions deployment workflow is needed.
+
+The selected trailer's recordings, narration, music, stems and portable rebuild instructions are preserved in [media-src/projects/domios-memory-2026-10-03](media-src/projects/domios-memory-2026-10-03/README.md). These source files are outside `public/` and the built site.
+
+For a manual publication, redeploy the reviewed Git reference through the Vercel project with the production target. The former CLI upload from a flat `web/` directory predates the Git connection: do not reuse that upload layout with the project's `web` root setting. A CLI source upload must preserve the repository's `web/` directory, or use a correctly generated prebuilt deployment.
+
 ## Media
 
 The media lane owns `public/media/`. Merge its commit with ancestry preserved before deploying. The site reads `/media/manifest.json` and `/media/captions.json`. Manifest shape:
