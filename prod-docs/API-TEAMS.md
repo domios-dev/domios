@@ -14,7 +14,7 @@ Task execution attempts are append-only history on `Task.execution_attempts`. Th
 
 Task dispatch requires explicit `execution_intent` (`read_only` or `mutating`). Mutating dispatch requires known provider-allowance telemetry at or above `provider_reserve_pct` (default 5); a stale snapshot emits a warning but uses its last known reserve value instead of deadlocking dispatch. This preflight runs before lane provisioning or task mutation. An interrupted mutating attempt projects `handoff_required` with a digest-verified Git checkpoint until a fresh owner adopts the next owner epoch.
 
-`POST /api/plans/{id}/tasks/{tid}/adopt-checkpoint` adopts the sealed checkpoint for the nonce-authenticated Worker named by the CodeTerm identity headers. The equivalent CLI command is `codeterm plan task adopt-checkpoint <plan> <task>`. Successful adoption increments `owner_epoch`, creates a fresh `awaiting_worker_ack` attempt, and fences prior owner sessions.
+`POST /api/plans/{id}/tasks/{tid}/adopt-checkpoint` adopts the sealed checkpoint for the nonce-authenticated Worker named by the Domios identity headers. The equivalent CLI command is `codeterm plan task adopt-checkpoint <plan> <task>`. Successful adoption increments `owner_epoch`, creates a fresh `awaiting_worker_ack` attempt, and fences prior owner sessions.
 
 ## Team-bound plan creation
 
@@ -40,4 +40,4 @@ A Team holds **at most one live Orchestrator**, enforced as a headcount of live 
 
 Closes every Team member through the Team cascade path, removes the Team registry entry, archives and detaches every bound plan, retires each plan owner into owner history, clears its owner/planner routing authority, finalizes open attempts and lanes, deletes Team crons, and emits one committed `mux-state-changed`. This is the only user operation that removes a Team. Ordinary tab closes keep the Team record; the one automatic exception is a pair-minted startup lease, whose forming, empty, fully owned Team is reaped once its two reserved launch attempts are gone. A present `X-CodeTerm-Tab-Id` header must identify the Team's Orchestrator or planner-profile Manager. With no caller tab header, a confirmed human sends `{force: true, confirm: "<team_id>"}` after the close dialog; the service logs this as `human-attributed (headerless, confirmed)`. Missing or mismatched confirmation is refused as Unattributed and logged. Unauthorized callers return `403`, and an unknown or already closed Team returns structured `404`. A busy Team (task `in_progress` or Worker working) returns `409` unless `force_busy: true`; plans with unfinished tasks stay active and flagged, never archived: see ORCHESTRATION-OPERATIONS.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
