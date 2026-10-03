@@ -1,0 +1,1187 @@
+use std::ffi::c_void;
+use std::os::windows::ffi::OsStrExt;
+use std::os::windows::process::ExitStatusExt;
+use std::path::Path;
+use std::ptr::{null, null_mut};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use windows_sys::Win32::Foundation::{
+    GetLastError, SetHandleInformation, ERROR_BROKEN_PIPE, ERROR_IO_PENDING,
+    ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED, ERROR_PIPE_CONNECTED, HANDLE, HANDLE_FLAG_INHERIT,
+    INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT,
+};
+use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+use windows_sys::Win32::Storage::FileSystem::{
+    CreateFileW, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED,
+    OPEN_EXISTING, PIPE_ACCESS_INBOUND,
+};
+use windows_sys::Win32::System::IO::{
+    CancelIoEx, CreateIoCompletionPort, GetQueuedCompletionStatus, ReadFile, OVERLAPPED,
+};
+use windows_sys::Win32::System::JobObjects::{
+    AssignProcessToJobObject, CreateJobObjectW, QueryInformationJobObject, SetInformationJobObject,
+    TerminateJobObject, JOBOBJECT_ASSOCIATE_COMPLETION_PORT,
+    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JobObjectAssociateCompletionPortInformation,
+    JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
+};
+use windows_sys::Win32::System::Pipes::{
+    ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
+    PIPE_TYPE_BYTE, PIPE_WAIT,
+};
+use windows_sys::Win32::System::Threading::{
+    CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
+    InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
+    WaitForSingleObject, CREATE_NO_WINDOW, CREATE_SUSPENDED, EXTENDED_STARTUPINFO_PRESENT,
+    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, STARTF_USESTDHANDLES, STARTUPINFOEXW,
+};
+
+use super::capture::{self, CaptureData, OwnedHandle, WindowsStream as Stream};
+use super::capture::{last_error, resource_name, timeout_ms};
+use super::owner::{ProbeResourceOwner, Reservation, WindowsPending};
+use super::process::{Deadlines, ProbeFailure, ResourceKind, WindowsLaunchState};
+use super::Output;
+
+const READ_BYTES: usize = 4096;
+const JOB_KEY: usize = 3;
+const STDOUT_KEY: usize = 1;
+const STDERR_KEY: usize = 2;
+const JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO: u32 = 4;
+const JOB_OBJECT_MSG_EXIT_PROCESS: u32 = 7;
+
+static PIPE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
+pub(super) fn run(
+    command: &str,
+    cwd: &Path,
+    deadlines: Deadlines,
+    reservation: Reservation,
+    owner: &Arc<ProbeResourceOwner>,
+) -> Result<Output, ProbeFailure> {
+    run_with_assignment(
+        command,
+        cwd,
+        deadlines,
+        reservation,
+        owner,
+        |job, process| {
+            if unsafe { AssignProcessToJobObject(job, process) } == 0 {
+                Err(last_error())
+            } else {
+                Ok(())
+            }
+        },
+    )
+}
+
+pub(super) fn run_with_assignment(
+    command: &str,
+    cwd: &Path,
+    deadlines: Deadlines,
+    reservation: Reservation,
+    owner: &Arc<ProbeResourceOwner>,
+    assign: impl FnOnce(HANDLE, HANDLE) -> Result<(), String>,
+) -> Result<Output, ProbeFailure> {
+    let mut run = WindowsRun::new(deadlines, reservation, owner.clone());
+    run.stdout.buffer_registered = run.register(ResourceKind::OverlappedIo);
+    run.stderr.buffer_registered = run.register(ResourceKind::OverlappedIo);
+    run.stdout.connect_buffer_registered = run.register(ResourceKind::OverlappedIo);
+    run.stderr.connect_buffer_registered = run.register(ResourceKind::OverlappedIo);
+    if run.permanent_unconfirmed {
+        run.fail("probe_resource_registration_failed");
+        return run.finish_failure();
+    }
+    if run.deadlines.expired_operation() || owner.is_closing() {
+        run.fail(if owner.is_closing() {
+            "probe_owner_closing"
+        } else {
+            "probe_deadline_before_spawn"
+        });
+        return run.finish_failure();
+    }
+    if let Err(error) = run.prepare_containment() {
+        run.fail("probe_containment_prepare_failed");
+        run.add_error(error);
+        return run.finish_failure();
+    }
+    run.launch_state.job_ready();
+    if let Err(error) = run.prepare_capture() {
+        run.fail("probe_capture_prepare_failed");
+        run.add_error(error);
+        return run.finish_failure();
+    }
+    run.launch_state.capture_ready();
+    if run.deadlines.expired_operation() || owner.is_closing() {
+        run.fail(if owner.is_closing() {
+            "probe_owner_closing"
+        } else {
+            "probe_deadline_before_spawn"
+        });
+        return run.finish_failure();
+    }
+    while !run.stream(true).connected || !run.stream(false).connected {
+        if run.owner.is_closing() || run.deadlines.expired_operation() {
+            run.fail(if run.owner.is_closing() { "probe_owner_closing" } else { "probe_timeout" });
+            return run.finish_failure();
+        }
+        match run.wait_event(Some(run.deadlines.remaining_operation())) {
+            Ok(true) => {}
+            Ok(false) => run.fail("probe_timeout"),
+            Err(error) => {
+                run.fail("probe_capture_connect_failed");
+                run.add_error(error);
+            }
+        }
+        if run.failure.is_some() {
+            return run.finish_failure();
+        }
+    }
+    if let Err(error) = run.start_read(true).and_then(|_| run.start_read(false)) {
+        run.fail("probe_capture_start_failed");
+        run.add_error(error);
+        return run.finish_failure();
+    }
+    if let Err(error) = run.spawn_contained(command, cwd, assign) {
+        run.fail("probe_containment_failed");
+        run.add_error(error);
+        return run.finish_failure();
+    }
+    run.drive()
+}
+
+pub(super) struct WindowsRun {
+    deadlines: Deadlines,
+    pub(super) owner: Arc<ProbeResourceOwner>,
+    reservation: Option<Reservation>,
+    pub(super) job: OwnedHandle,
+    pub(super) port: OwnedHandle,
+    pub(super) process: OwnedHandle,
+    pub(super) primary_thread: OwnedHandle,
+    pub(super) stdin: OwnedHandle,
+    pub(super) stdout: Stream,
+    pub(super) stderr: Stream,
+    child_id: u32,
+    pub(super) assigned: bool,
+    pub(super) parent_exited: bool,
+    exit_code: Option<u32>,
+    pub(super) job_empty: bool,
+    pub(super) cancel_attempted: bool,
+    pub(super) unknown_completion: bool,
+    pub(super) permanent_unconfirmed: bool,
+    pub(super) failure: Option<ProbeFailure>,
+    pub(super) job_registered: bool,
+    pub(super) port_registered: bool,
+    process_registered: bool,
+    thread_registered: bool,
+    stdin_registered: bool,
+    launch_state: WindowsLaunchState,
+}
+
+// SAFETY: OS handles transfer across threads and pending OVERLAPPED storage remains boxed.
+unsafe impl Send for WindowsRun {}
+
+impl WindowsRun {
+    fn new(
+        deadlines: Deadlines,
+        reservation: Reservation,
+        owner: Arc<ProbeResourceOwner>,
+    ) -> Self {
+        Self {
+            deadlines,
+            owner,
+            reservation: Some(reservation),
+            job: OwnedHandle::empty(),
+            port: OwnedHandle::empty(),
+            process: OwnedHandle::empty(),
+            primary_thread: OwnedHandle::empty(),
+            stdin: OwnedHandle::empty(),
+            stdout: Stream::new(),
+            stderr: Stream::new(),
+            child_id: 0,
+            assigned: false,
+            parent_exited: false,
+            exit_code: None,
+            job_empty: true,
+            cancel_attempted: false,
+            unknown_completion: false,
+            permanent_unconfirmed: false,
+            failure: None,
+            job_registered: false,
+            port_registered: false,
+            process_registered: false,
+            thread_registered: false,
+            stdin_registered: false,
+            launch_state: WindowsLaunchState::default(),
+        }
+    }
+
+    fn prepare_containment(&mut self) -> Result<(), String> {
+        let job = unsafe { CreateJobObjectW(null(), null()) };
+        self.job = OwnedHandle::new(job).ok_or_else(last_error)?;
+        self.job_registered = self.register(ResourceKind::Job);
+        if !self.job_registered {
+            return Err("probe Job ownership registration failed".into());
+        }
+        let port = unsafe {
+            CreateIoCompletionPort(INVALID_HANDLE_VALUE, null_mut(), 0, 1)
+        };
+        self.port = OwnedHandle::new(port).ok_or_else(last_error)?;
+        self.port_registered = self.register(ResourceKind::OverlappedIo);
+        if !self.port_registered {
+            return Err("probe completion-port registration failed".into());
+        }
+        let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        if unsafe {
+            SetInformationJobObject(
+                self.job.raw().unwrap(),
+                JobObjectExtendedLimitInformation,
+                (&limits as *const JOBOBJECT_EXTENDED_LIMIT_INFORMATION).cast(),
+                std::mem::size_of_val(&limits) as u32,
+            )
+        } == 0
+        {
+            return Err(last_error());
+        }
+        let association = JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
+            CompletionKey: JOB_KEY as *mut c_void,
+            CompletionPort: self.port.raw().unwrap(),
+        };
+        if unsafe {
+            SetInformationJobObject(
+                self.job.raw().unwrap(),
+                JobObjectAssociateCompletionPortInformation,
+                (&association as *const JOBOBJECT_ASSOCIATE_COMPLETION_PORT).cast(),
+                std::mem::size_of_val(&association) as u32,
+            )
+        } == 0
+        {
+            return Err(last_error());
+        }
+        Ok(())
+    }
+
+    fn prepare_capture(&mut self) -> Result<(), String> {
+        let nul = "NUL".encode_utf16().chain([0]).collect::<Vec<_>>();
+        let mut inherit = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+            lpSecurityDescriptor: null_mut(),
+            bInheritHandle: 1,
+        };
+        let stdin = unsafe {
+            CreateFileW(
+                nul.as_ptr(),
+                windows_sys::Win32::Foundation::GENERIC_READ,
+                0,
+                &inherit,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                null_mut(),
+            )
+        };
+        self.stdin = OwnedHandle::new(stdin).ok_or_else(last_error)?;
+        self.stdin_registered = self.register(ResourceKind::Capture);
+        if !self.stdin_registered {
+            return Err("probe stdin ownership registration failed".into());
+        }
+        for stdout in [true, false] {
+            self.prepare_stream(stdout, &mut inherit)?;
+        }
+        Ok(())
+    }
+
+    fn prepare_stream(
+        &mut self,
+        stdout: bool,
+        inherit: &mut SECURITY_ATTRIBUTES,
+    ) -> Result<(), String> {
+        let sequence = PIPE_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let pipe_name = format!(
+            "\\\\.\\pipe\\codeterm-sentinel-{}-{sequence}",
+            std::process::id()
+        );
+        let wide = pipe_name.encode_utf16().chain([0]).collect::<Vec<_>>();
+        let reader = unsafe {
+            CreateNamedPipeW(
+                wide.as_ptr(),
+                PIPE_ACCESS_INBOUND | FILE_FLAG_OVERLAPPED | FILE_FLAG_FIRST_PIPE_INSTANCE,
+                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
+                1,
+                65_536,
+                65_536,
+                0,
+                null(),
+            )
+        };
+        self.stream_mut(stdout).reader = OwnedHandle::new(reader).ok_or_else(last_error)?;
+        let registered = self.register(ResourceKind::Capture);
+        self.stream_mut(stdout).capture_registered = registered;
+        if !registered {
+            return Err("probe pipe ownership registration failed".into());
+        }
+        let key = if stdout { STDOUT_KEY } else { STDERR_KEY };
+        let reader = self.stream(stdout).reader.raw().unwrap();
+        let associated = unsafe {
+            CreateIoCompletionPort(
+                reader,
+                self.port.raw().unwrap(),
+                key,
+                0,
+            )
+        };
+        if associated.is_null() {
+            return Err(last_error());
+        }
+        let connect_registered = self.register(ResourceKind::OverlappedIo);
+        self.stream_mut(stdout).connect_registered = connect_registered;
+        if !connect_registered {
+            return Err("probe pipe connection registration failed".into());
+        }
+        let connected = unsafe {
+            ConnectNamedPipe(
+                reader,
+                &mut *self.stream_mut(stdout).connect_overlapped,
+            )
+        };
+        if connected != 0 {
+            self.stream_mut(stdout).connect_pending = true;
+        } else {
+            let error = unsafe { GetLastError() };
+            if error == ERROR_IO_PENDING {
+                self.stream_mut(stdout).connect_pending = true;
+            } else if error == ERROR_PIPE_CONNECTED {
+                self.stream_mut(stdout).connected = true;
+                let registered = std::mem::replace(
+                    &mut self.stream_mut(stdout).connect_registered,
+                    false,
+                );
+                self.settle_resource(ResourceKind::OverlappedIo, registered);
+                let buffer_registered = std::mem::replace(
+                    &mut self.stream_mut(stdout).connect_buffer_registered,
+                    false,
+                );
+                self.settle_resource(ResourceKind::OverlappedIo, buffer_registered);
+            } else {
+                let registered = std::mem::replace(
+                    &mut self.stream_mut(stdout).connect_registered,
+                    false,
+                );
+                self.settle_resource(ResourceKind::OverlappedIo, registered);
+                let buffer_registered = std::mem::replace(
+                    &mut self.stream_mut(stdout).connect_buffer_registered,
+                    false,
+                );
+                self.settle_resource(ResourceKind::OverlappedIo, buffer_registered);
+                return Err(std::io::Error::from_raw_os_error(error as i32).to_string());
+            }
+        }
+        let writer = unsafe {
+            CreateFileW(
+                wide.as_ptr(),
+                windows_sys::Win32::Foundation::GENERIC_WRITE,
+                0,
+                inherit,
+                OPEN_EXISTING,
+                FILE_ATTRIBUTE_NORMAL,
+                null_mut(),
+            )
+        };
+        self.stream_mut(stdout).child_writer = OwnedHandle::new(writer).ok_or_else(last_error)?;
+        let registered = self.register(ResourceKind::Capture);
+        self.stream_mut(stdout).writer_registered = registered;
+        if !registered {
+            return Err("probe pipe writer ownership registration failed".into());
+        }
+        let writer = self.stream(stdout).child_writer.raw().unwrap();
+        if unsafe {
+            SetHandleInformation(
+                writer,
+                HANDLE_FLAG_INHERIT,
+                HANDLE_FLAG_INHERIT,
+            )
+        } == 0
+        {
+            return Err(last_error());
+        }
+        Ok(())
+    }
+
+    fn spawn_contained(
+        &mut self,
+        command: &str,
+        cwd: &Path,
+        assign: impl FnOnce(HANDLE, HANDLE) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let mut handles = [
+            self.stdin.raw().ok_or_else(|| "probe stdin handle missing".to_string())?,
+            self.stdout.child_writer.raw().ok_or_else(|| "probe stdout writer missing".to_string())?,
+            self.stderr.child_writer.raw().ok_or_else(|| "probe stderr writer missing".to_string())?,
+        ];
+        let mut size = 0usize;
+        unsafe {
+            InitializeProcThreadAttributeList(null_mut(), 1, 0, &mut size);
+        }
+        if size == 0 {
+            return Err(last_error());
+        }
+        let words = (size + std::mem::size_of::<usize>() - 1) / std::mem::size_of::<usize>();
+        let mut storage = vec![0usize; words];
+        let attributes = storage.as_mut_ptr().cast();
+        if unsafe { InitializeProcThreadAttributeList(attributes, 1, 0, &mut size) } == 0 {
+            return Err(last_error());
+        }
+        let mut startup = STARTUPINFOEXW::default();
+        startup.StartupInfo.cb = std::mem::size_of::<STARTUPINFOEXW>() as u32;
+        startup.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+        startup.StartupInfo.hStdInput = handles[0];
+        startup.StartupInfo.hStdOutput = handles[1];
+        startup.StartupInfo.hStdError = handles[2];
+        startup.lpAttributeList = attributes;
+        let update_ok = unsafe {
+            UpdateProcThreadAttribute(
+                attributes,
+                0,
+                PROC_THREAD_ATTRIBUTE_HANDLE_LIST as usize,
+                handles.as_mut_ptr().cast(),
+                std::mem::size_of_val(&handles),
+                null_mut(),
+                null(),
+            )
+        } != 0;
+        if !update_ok {
+            unsafe { DeleteProcThreadAttributeList(attributes) };
+            return Err(last_error());
+        }
+        let mut command_line = capture::power_shell_command_line(command);
+        let mut current_directory = cwd.as_os_str().encode_wide().chain([0]).collect::<Vec<_>>();
+        let mut information = windows_sys::Win32::System::Threading::PROCESS_INFORMATION::default();
+        let created = unsafe {
+            CreateProcessW(
+                null(),
+                command_line.as_mut_ptr(),
+                null(),
+                null(),
+                1,
+                CREATE_SUSPENDED | CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
+                null(),
+                current_directory.as_mut_ptr(),
+                (&startup.StartupInfo as *const _),
+                &mut information,
+            )
+        } != 0;
+        unsafe { DeleteProcThreadAttributeList(attributes) };
+        if !created {
+            return Err(last_error());
+        }
+        self.process = OwnedHandle::new(information.hProcess).ok_or_else(last_error)?;
+        self.process_registered = self.register(ResourceKind::Child);
+        self.primary_thread = OwnedHandle::new(information.hThread).ok_or_else(last_error)?;
+        self.thread_registered = self.register(ResourceKind::Child);
+        self.child_id = information.dwProcessId;
+        if !self.process_registered || !self.thread_registered {
+            return Err("probe process ownership registration failed".into());
+        }
+        self.launch_state
+            .process_captured()
+            .map_err(str::to_string)?;
+        if self.child_id <= 1 || self.child_id > i32::MAX as u32 {
+            return Err("captured probe process id is outside the valid range".into());
+        }
+        if self.deadlines.expired_operation() || self.owner.is_closing() {
+            return Err("probe deadline or owner closure preceded Job assignment".into());
+        }
+        assign(self.job.raw().unwrap(), self.process.raw().unwrap())?;
+        self.assigned = true;
+        self.launch_state.assigned().map_err(str::to_string)?;
+        self.job_empty = false;
+        self.close_child_writers()?;
+        if self.deadlines.expired_operation() || self.owner.is_closing() {
+            return Err("probe deadline or owner closure preceded process resume".into());
+        }
+        self.launch_state.resume().map_err(str::to_string)?;
+        #[link(name = "ntdll")]
+        unsafe extern "system" {
+            fn NtResumeProcess(process: HANDLE) -> i32;
+        }
+        let resume_status = unsafe { NtResumeProcess(self.process.raw().unwrap()) };
+        if resume_status < 0 {
+            return Err(format!("probe process resume failed: NTSTATUS {resume_status:#x}"));
+        }
+        self.close_thread_handle()?;
+        self.close_stdin_handle()?;
+        Ok(())
+    }
+
+    fn close_child_writers(&mut self) -> Result<(), String> {
+        self.close_writer(true)?;
+        self.close_writer(false)?;
+        Ok(())
+    }
+
+    fn close_writer(&mut self, stdout: bool) -> Result<(), String> {
+        self.stream_mut(stdout).child_writer.close()?;
+        let registered = std::mem::replace(&mut self.stream_mut(stdout).writer_registered, false);
+        self.settle_resource(ResourceKind::Capture, registered);
+        Ok(())
+    }
+
+    fn close_thread_handle(&mut self) -> Result<(), String> {
+        self.primary_thread.close()?;
+        let registered = std::mem::replace(&mut self.thread_registered, false);
+        self.settle_resource(ResourceKind::Child, registered);
+        Ok(())
+    }
+
+    fn close_stdin_handle(&mut self) -> Result<(), String> {
+        self.stdin.close()?;
+        let registered = std::mem::replace(&mut self.stdin_registered, false);
+        self.settle_resource(ResourceKind::Capture, registered);
+        Ok(())
+    }
+
+    fn start_read(&mut self, stdout: bool) -> Result<(), String> {
+        if self.deadlines.expired_operation() && self.failure.is_none() {
+            self.fail("probe_timeout");
+            return Err("probe operation deadline elapsed before capture read".into());
+        }
+        let active = self.stream(stdout).pending_active;
+        if active {
+            return Err("probe capture read already pending".into());
+        }
+        if !self.stream(stdout).io_registered {
+            if !self.register(ResourceKind::OverlappedIo) {
+                return Err("probe capture completion registration failed".into());
+            }
+            self.stream_mut(stdout).io_registered = true;
+        }
+        let pipe = self
+            .stream(stdout)
+            .reader
+            .raw()
+            .ok_or_else(|| "probe pipe handle missing".to_string())?;
+        let result = {
+            let stream = self.stream_mut(stdout);
+            stream.pending.overlapped = OVERLAPPED::default();
+            unsafe {
+                ReadFile(
+                    pipe,
+                    stream.pending.buffer.as_mut_ptr(),
+                    READ_BYTES as u32,
+                    null_mut(),
+                    &mut stream.pending.overlapped,
+                )
+            }
+        };
+        if result == 0 {
+            let error = unsafe { GetLastError() };
+            if error == ERROR_IO_PENDING {
+                self.stream_mut(stdout).pending_active = true;
+                Ok(())
+            } else if error == ERROR_BROKEN_PIPE {
+                let registered = {
+                    let stream = self.stream_mut(stdout);
+                    stream.eof = true;
+                    stream.data.mark_eof();
+                    stream.pending_active = false;
+                    std::mem::replace(&mut stream.io_registered, false)
+                };
+                self.settle_resource(ResourceKind::OverlappedIo, registered);
+                self.close_reader(stdout)
+            } else {
+                let registered = {
+                    let stream = self.stream_mut(stdout);
+                    stream.read_failed = true;
+                    stream.pending_active = false;
+                    std::mem::replace(&mut stream.io_registered, false)
+                };
+                self.settle_resource(ResourceKind::OverlappedIo, registered);
+                Err(std::io::Error::from_raw_os_error(error as i32).to_string())
+            }
+        } else {
+            self.stream_mut(stdout).pending_active = true;
+            Ok(())
+        }
+    }
+
+    fn drive(mut self) -> Result<Output, ProbeFailure> {
+        while self.failure.is_none() && !self.runtime_success_ready() {
+            if self.owner.is_closing() || self.deadlines.expired_operation() {
+                self.fail(if self.owner.is_closing() {
+                    "probe_owner_closing"
+                } else {
+                    "probe_timeout"
+                });
+                break;
+            }
+            match self.wait_event(Some(self.deadlines.remaining_operation())) {
+                Ok(true) => {}
+                Ok(false) => {
+                    self.fail("probe_timeout");
+                }
+                Err(error) => {
+                    self.fail("probe_capture_or_completion_failed");
+                    self.add_error(error);
+                }
+            }
+        }
+        if self.failure.is_none() && self.deadlines.expired_operation() {
+            self.fail("probe_timeout");
+        }
+        if let Some(mut failure) = self.failure.take() {
+            self.cleanup_to_hard_end(&mut failure);
+            self.deadlines.record_lateness(&mut failure);
+            self.finish_failure_with(failure)
+        } else if self.runtime_success_ready() {
+            let status = std::process::ExitStatus::from_raw(self.exit_code.unwrap_or(1));
+            if let Err(error) = self.close_completed_handles() {
+                self.fail("probe_close_failed");
+                self.add_error(error);
+                let failure = self.failure.take().unwrap();
+                self.finish_failure_with(failure)
+            } else if self.deadlines.expired_operation() {
+                let mut failure = ProbeFailure::new("probe_timeout");
+                self.deadlines.record_lateness(&mut failure);
+                self.finish_failure_with(failure)
+            } else if Instant::now() > self.deadlines.hard {
+                let mut failure = ProbeFailure::new("probe_cleanup_deadline");
+                self.deadlines.record_lateness(&mut failure);
+                self.finish_failure_with(failure)
+            } else {
+                let output = match capture::assemble_confirmed(
+                    status,
+                    std::mem::take(&mut self.stdout.data),
+                    std::mem::take(&mut self.stderr.data),
+                    capture::CompletionFacts {
+                        parent_complete: true,
+                        boundary_complete: true,
+                        stdout_eof: true,
+                        stderr_eof: true,
+                        error: None,
+                    },
+                ) {
+                    Ok(output) => output,
+                    Err(failure) => return self.finish_failure_with(failure),
+                };
+                if let Err(error) = self.release_reservation() {
+                    let mut failure = ProbeFailure::new("probe_owner_release_failed");
+                    failure.cleanup_error(error);
+                    failure.unconfirmed(ResourceKind::OverlappedIo);
+                    return Err(failure);
+                }
+                if Instant::now() > self.deadlines.hard {
+                    let mut failure = ProbeFailure::new("probe_cleanup_deadline");
+                    self.deadlines.record_lateness(&mut failure);
+                    return Err(failure);
+                }
+                Ok(output)
+            }
+        } else {
+            let mut failure = ProbeFailure::new("probe_completion_unconfirmed");
+            self.mark_runtime_unconfirmed(&mut failure);
+            self.cleanup_to_hard_end(&mut failure);
+            self.deadlines.record_lateness(&mut failure);
+            self.finish_failure_with(failure)
+        }
+    }
+
+    pub(super) fn wait_event(&mut self, timeout: Option<Duration>) -> Result<bool, String> {
+        let Some(port) = self.port.raw() else {
+            return Err("probe completion port is not owned".into());
+        };
+        let mut bytes = 0u32;
+        let mut key = 0usize;
+        let mut overlapped = null_mut();
+        let millis = timeout.map(timeout_ms).unwrap_or(u32::MAX);
+        let succeeded = unsafe {
+            GetQueuedCompletionStatus(port, &mut bytes, &mut key, &mut overlapped, millis)
+        } != 0;
+        let event_error = if succeeded {
+            None
+        } else {
+            Some(unsafe { GetLastError() })
+        };
+        if overlapped.is_null() {
+            if event_error == Some(windows_sys::Win32::Foundation::ERROR_TIMEOUT) {
+                return Ok(false);
+            }
+            self.permanent_unconfirmed = true;
+            return Err(event_error
+                .map(|error| std::io::Error::from_raw_os_error(error as i32).to_string())
+                .unwrap_or_else(|| "probe completion packet lacked an owned event".into()));
+        }
+        if key == JOB_KEY {
+            let message = overlapped as usize as u32;
+            if let Err(error) = self.observe_job_event(message, bytes) {
+                self.permanent_unconfirmed = true;
+                return Err(error);
+            }
+        } else if key == STDOUT_KEY || key == STDERR_KEY {
+            if let Err(error) =
+                self.observe_read_event(key == STDOUT_KEY, overlapped, bytes, event_error)
+            {
+                if self.unknown_completion {
+                    self.permanent_unconfirmed = true;
+                }
+                return Err(error);
+            }
+            if let Err(error) = self.close_completed_runtime_handles() {
+                self.permanent_unconfirmed = true;
+                return Err(error);
+            }
+        } else {
+            self.unknown_completion = true;
+            self.permanent_unconfirmed = true;
+            return Err("probe completion packet had an unknown owner key".into());
+        }
+        Ok(true)
+    }
+
+    fn observe_job_event(&mut self, message: u32, process_id: u32) -> Result<(), String> {
+        if !matches!(message, 1..=12) {
+            return Err("probe Job packet did not contain a known notification".into());
+        }
+        let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
+        if unsafe {
+            QueryInformationJobObject(
+                self.job.raw().ok_or_else(|| "probe Job handle missing".to_string())?,
+                JobObjectBasicAccountingInformation,
+                (&mut accounting as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
+                std::mem::size_of_val(&accounting) as u32,
+                null_mut(),
+            )
+        } == 0
+        {
+            return Err(last_error());
+        }
+        if accounting.ActiveProcesses == 0 || message == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO {
+            self.job_empty = true;
+        }
+        if message == JOB_OBJECT_MSG_EXIT_PROCESS && process_id == self.child_id {
+            self.observe_parent_exit()?;
+        } else if self.process.is_open() {
+            self.observe_parent_exit_if_signaled()?;
+        }
+        self.close_completed_runtime_handles()?;
+        Ok(())
+    }
+
+    fn observe_parent_exit_if_signaled(&mut self) -> Result<(), String> {
+        let Some(process) = self.process.raw() else {
+            return Ok(());
+        };
+        match unsafe { WaitForSingleObject(process, 0) } {
+            WAIT_OBJECT_0 => self.observe_parent_exit(),
+            WAIT_TIMEOUT => Ok(()),
+            _ => Err(last_error()),
+        }
+    }
+
+    fn observe_parent_exit(&mut self) -> Result<(), String> {
+        let Some(process) = self.process.raw() else {
+            return Ok(());
+        };
+        if unsafe { WaitForSingleObject(process, 0) } != WAIT_OBJECT_0 {
+            return Err("Job exit packet preceded captured process signaling".into());
+        }
+        let mut exit_code = 0u32;
+        if unsafe { GetExitCodeProcess(process, &mut exit_code) } == 0 {
+            return Err(last_error());
+        }
+        self.exit_code = Some(exit_code);
+        self.parent_exited = true;
+        self.process.close()?;
+        let registered = std::mem::replace(&mut self.process_registered, false);
+        self.settle_resource(ResourceKind::Child, registered);
+        if self.primary_thread.is_open() {
+            self.close_thread_handle()?;
+        }
+        self.close_completed_runtime_handles()
+    }
+
+    fn observe_read_event(
+        &mut self,
+        stdout: bool,
+        overlapped: *mut OVERLAPPED,
+        bytes: u32,
+        error: Option<u32>,
+    ) -> Result<(), String> {
+        let connect = &mut *self.stream_mut(stdout).connect_overlapped as *mut OVERLAPPED;
+        if overlapped == connect {
+            if !self.stream(stdout).connect_pending {
+                self.unknown_completion = true;
+                return Err("probe pipe connection completion was not pending".into());
+            }
+            let registered = {
+                let stream = self.stream_mut(stdout);
+                stream.connect_pending = false;
+                if error.is_none() {
+                    stream.connected = true;
+                } else {
+                    stream.read_failed = true;
+                }
+                std::mem::replace(&mut stream.connect_registered, false)
+            };
+            self.settle_resource(ResourceKind::OverlappedIo, registered);
+            let buffer_registered = std::mem::replace(
+                &mut self.stream_mut(stdout).connect_buffer_registered,
+                false,
+            );
+            self.settle_resource(ResourceKind::OverlappedIo, buffer_registered);
+            if let Some(error) = error {
+                return Err(std::io::Error::from_raw_os_error(error as i32).to_string());
+            }
+            return Ok(());
+        }
+        let expected = &mut self.stream_mut(stdout).pending.overlapped as *mut OVERLAPPED;
+        if overlapped != expected || !self.stream(stdout).pending_active {
+            self.unknown_completion = true;
+            self.permanent_unconfirmed = true;
+            return Err("probe completion did not match an active owned read".into());
+        }
+        let registered = {
+            let stream = self.stream_mut(stdout);
+            stream.pending_active = false;
+            std::mem::replace(&mut stream.io_registered, false)
+        };
+        self.settle_resource(ResourceKind::OverlappedIo, registered);
+        if error == Some(ERROR_BROKEN_PIPE) {
+            self.stream_mut(stdout).eof = true;
+            self.stream_mut(stdout).data.mark_eof();
+            return self.close_reader(stdout);
+        }
+        if let Some(error) = error {
+            self.stream_mut(stdout).read_failed = true;
+            if error != ERROR_OPERATION_ABORTED {
+                self.fail("probe_capture_read_failed");
+                self.add_error(std::io::Error::from_raw_os_error(error as i32).to_string());
+            }
+            if self.failure.is_some() {
+                self.close_reader(stdout)?;
+            }
+            return Ok(());
+        }
+        if bytes == 0 {
+            self.stream_mut(stdout).read_failed = true;
+            self.fail("probe_capture_empty_completion");
+            self.close_reader(stdout)?;
+            return Ok(());
+        }
+        if bytes as usize > READ_BYTES {
+            self.unknown_completion = true;
+            self.permanent_unconfirmed = true;
+            return Err("probe read completion exceeded its owned buffer".into());
+        }
+        let stream = self.stream_mut(stdout);
+        stream.data.append(&stream.pending.buffer[..bytes as usize]);
+        let _ = stream;
+        if self.failure.is_none() && !self.deadlines.expired_operation() {
+            self.start_read(stdout)?;
+        } else {
+            self.fail("probe_timeout");
+            self.close_reader(stdout)?;
+        }
+        Ok(())
+    }
+
+    pub(super) fn close_reader(&mut self, stdout: bool) -> Result<(), String> {
+        if self.stream(stdout).pending_active || self.stream(stdout).connect_pending {
+            return Err("probe read endpoint cannot close while I/O is pending".into());
+        }
+        self.stream_mut(stdout).reader.close()?;
+        let capture_registered =
+            std::mem::replace(&mut self.stream_mut(stdout).capture_registered, false);
+        self.settle_resource(ResourceKind::Capture, capture_registered);
+        let buffer_registered =
+            std::mem::replace(&mut self.stream_mut(stdout).buffer_registered, false);
+        self.settle_resource(ResourceKind::OverlappedIo, buffer_registered);
+        let connect_buffer_registered = std::mem::replace(
+            &mut self.stream_mut(stdout).connect_buffer_registered,
+            false,
+        );
+        self.settle_resource(ResourceKind::OverlappedIo, connect_buffer_registered);
+        Ok(())
+    }
+
+    fn cleanup_to_hard_end(&mut self, failure: &mut ProbeFailure) {
+        self.request_cancel(failure);
+        if !self.assigned && self.process.is_open() {
+            self.wait_captured_process(failure);
+        }
+        for stdout in [true, false] {
+            if self.stream(stdout).child_writer.is_open() {
+                if let Err(error) = self.close_writer(stdout) {
+                    failure.cleanup_error(error);
+                    self.permanent_unconfirmed = true;
+                }
+            }
+        }
+        if self.stdin.is_open() {
+            if let Err(error) = self.close_stdin_handle() {
+                failure.cleanup_error(error);
+                self.permanent_unconfirmed = true;
+            }
+        }
+        while Instant::now() < self.deadlines.hard && !self.failure_resources_settled() {
+            match self.wait_event(Some(self.deadlines.remaining_hard())) {
+                Ok(true) => {}
+                Ok(false) => break,
+                Err(error) => {
+                    failure.cleanup_error(error);
+                    if self.permanent_unconfirmed || self.unknown_completion {
+                        failure.unconfirmed(ResourceKind::OverlappedIo);
+                        break;
+                    }
+                }
+            }
+            self.settle_cancelled_reads(failure);
+            self.settle_idle_buffers();
+            if !self.assigned && !self.process.is_open() {
+                if self.primary_thread.is_open() {
+                    if let Err(error) = self.close_thread_handle() {
+                        failure.cleanup_error(error);
+                        self.permanent_unconfirmed = true;
+                    }
+                }
+                if let Err(error) = self.close_unassigned_resources() {
+                    failure.cleanup_error(error);
+                    self.permanent_unconfirmed = true;
+                }
+            }
+        }
+        self.settle_cancelled_reads(failure);
+        self.settle_idle_buffers();
+        if self.assigned && self.job_empty && self.parent_exited {
+            if let Err(error) = self.close_completed_runtime_handles() {
+                failure.cleanup_error(error);
+                self.permanent_unconfirmed = true;
+            }
+        } else if !self.assigned {
+            if self.primary_thread.is_open() && self.parent_exited {
+                if let Err(error) = self.close_thread_handle() {
+                    failure.cleanup_error(error);
+                    self.permanent_unconfirmed = true;
+                }
+            }
+            if !self.process.is_open() {
+                self.job_empty = true;
+                if let Err(error) = self.close_unassigned_resources() {
+                    failure.cleanup_error(error);
+                    self.permanent_unconfirmed = true;
+                }
+            }
+        }
+        if !self.failure_resources_settled() || self.permanent_unconfirmed {
+            self.mark_runtime_unconfirmed(failure);
+        }
+    }
+
+    pub(super) fn request_cancel(&mut self, failure: &mut ProbeFailure) {
+        if self.cancel_attempted {
+            return;
+        }
+        self.cancel_attempted = true;
+        if !self.parent_exited {
+            let result = if self.assigned {
+                unsafe { TerminateJobObject(self.job.raw().unwrap_or(null_mut()), 1) }
+            } else if let Some(process) = self.process.raw() {
+                unsafe { TerminateProcess(process, 1) }
+            } else {
+                1
+            };
+            if result == 0 {
+                failure.cleanup_error(last_error());
+            }
+        }
+        for stdout in [true, false] {
+            let stream = self.stream_mut(stdout);
+            if stream.connect_pending {
+                let result = unsafe {
+                    CancelIoEx(
+                        stream.reader.raw().unwrap_or(null_mut()),
+                        &*stream.connect_overlapped,
+                    )
+                };
+                if result == 0 {
+                    let error = unsafe { GetLastError() };
+                    if error != ERROR_NOT_FOUND {
+                        failure.cleanup_error(std::io::Error::from_raw_os_error(error as i32).to_string());
+                    }
+                }
+            }
+            if stream.pending_active {
+                let result = unsafe {
+                    CancelIoEx(
+                        stream.reader.raw().unwrap_or(null_mut()),
+                        &stream.pending.overlapped,
+                    )
+                };
+                if result == 0 {
+                    let error = unsafe { GetLastError() };
+                    if error != ERROR_NOT_FOUND {
+                        failure.cleanup_error(std::io::Error::from_raw_os_error(error as i32).to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    fn wait_captured_process(&mut self, failure: &mut ProbeFailure) {
+        let Some(process) = self.process.raw() else {
+            return;
+        };
+        if unsafe { WaitForSingleObject(process, 0) } == WAIT_OBJECT_0 {
+            if let Err(error) = self.observe_parent_exit() {
+                failure.cleanup_error(error);
+                self.permanent_unconfirmed = true;
+            }
+            return;
+        }
+        let remaining = self.deadlines.remaining_hard();
+        if unsafe { WaitForSingleObject(process, timeout_ms(remaining)) } == WAIT_OBJECT_0 {
+            if let Err(error) = self.observe_parent_exit() {
+                failure.cleanup_error(error);
+                self.permanent_unconfirmed = true;
+            }
+        } else {
+            failure.unconfirmed(ResourceKind::Child);
+        }
+    }
+
+    fn close_unassigned_resources(&mut self) -> Result<(), String> {
+        for stdout in [true, false] {
+            if self.stream(stdout).connect_pending || self.stream(stdout).pending_active {
+                return Ok(());
+            }
+            if self.stream(stdout).reader.is_open() {
+                self.close_reader(stdout)?;
+            }
+        }
+        self.close_child_writers()?;
+        self.close_stdin_handle()?;
+        self.job.close()?;
+        let registered = std::mem::replace(&mut self.job_registered, false);
+        self.settle_resource(ResourceKind::Job, registered);
+        self.port.close()?;
+        let registered = std::mem::replace(&mut self.port_registered, false);
+        self.settle_resource(ResourceKind::OverlappedIo, registered);
+        Ok(())
+    }
+
+    fn mark_runtime_unconfirmed(&self, failure: &mut ProbeFailure) {
+        if self.process.is_open() {
+            failure.unconfirmed(ResourceKind::Child);
+        }
+        if self.job.is_open() || (self.assigned && !self.job_empty) {
+            failure.unconfirmed(ResourceKind::Job);
+        }
+        if self.port.is_open()
+            || self.stdout.pending_active
+            || self.stderr.pending_active
+            || self.stdout.connect_pending
+            || self.stderr.connect_pending
+        {
+            failure.unconfirmed(ResourceKind::OverlappedIo);
+        }
+        if self.stdout.reader.is_open()
+            || self.stderr.reader.is_open()
+            || self.stdout.child_writer.is_open()
+            || self.stderr.child_writer.is_open()
+        {
+            failure.unconfirmed(ResourceKind::Capture);
+        }
+        if self.permanent_unconfirmed || self.unknown_completion {
+            failure.unconfirmed(ResourceKind::OverlappedIo);
+        }
+    }
+
+    fn finish_failure(mut self) -> Result<Output, ProbeFailure> {
+        let mut failure = self.failure.take().unwrap_or_else(|| ProbeFailure::new("probe_failed"));
+        self.cleanup_to_hard_end(&mut failure);
+        self.deadlines.record_lateness(&mut failure);
+        self.finish_failure_with(failure)
+    }
+
+    fn finish_failure_with(mut self, mut failure: ProbeFailure) -> Result<Output, ProbeFailure> {
+        let deadlines = self.deadlines;
+        if let Some(cleanup_failure) = self.failure.take() {
+            failure.record_cleanup_errors(cleanup_failure.cleanup_errors);
+            for resource in cleanup_failure.unconfirmed {
+                failure.unconfirmed(resource);
+            }
+        }
+        if self.failure_resources_settled() && !self.permanent_unconfirmed {
+            if let Err(error) = self.release_reservation() {
+                failure.cleanup_error(error);
+                failure.unconfirmed(ResourceKind::OverlappedIo);
+            }
+        } else {
+            self.mark_runtime_unconfirmed(&mut failure);
+            if let Some(reservation) = self.reservation.take() {
+                reservation.retain(Box::new(WindowsPending { run: self }));
+            }
+        }
+        deadlines.record_lateness(&mut failure);
+        Err(failure)
+    }
+
+    fn register(&mut self, kind: ResourceKind) -> bool {
+        match self
+            .reservation
+            .as_mut()
+            .map(Reservation::register_resource)
+        {
+            Some(Ok(())) => true,
+            Some(Err(error)) => {
+                self.owner.record_failure(format!("{}: {error}", resource_name(kind)));
+                self.permanent_unconfirmed = true;
+                false
+            }
+            None => false,
+        }
+    }
+
+    pub(super) fn settle_resource(&mut self, kind: ResourceKind, registered: bool) {
+        if !registered {
+            return;
+        }
+        if let Some(reservation) = self.reservation.as_mut() {
+            if let Err(error) = reservation.resource_settled() {
+                self.owner.record_failure(format!("{}: {error}", resource_name(kind)));
+                self.permanent_unconfirmed = true;
+            }
+        }
+    }
+
+    fn fail(&mut self, primary: &'static str) {
+        if self.failure.is_none() {
+            self.failure = Some(ProbeFailure::new(primary));
+        }
+    }
+
+    fn add_error(&mut self, error: impl AsRef<str>) {
+        if let Some(failure) = self.failure.as_mut() {
+            failure.cleanup_error(error);
+        }
+    }
+
+    pub(super) fn stream(&self, stdout: bool) -> &Stream {
+        if stdout { &self.stdout } else { &self.stderr }
+    }
+
+    pub(super) fn stream_mut(&mut self, stdout: bool) -> &mut Stream {
+        if stdout { &mut self.stdout } else { &mut self.stderr }
+    }
+
+    fn release_reservation(&mut self) -> Result<(), String> {
+        if let Some(reservation) = self.reservation.take() {
+            if let Err(error) = reservation.release() {
+                self.permanent_unconfirmed = true;
+                self.owner.record_failure(&error);
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+}

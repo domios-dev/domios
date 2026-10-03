@@ -19,6 +19,7 @@ use crate::service::{supporter, ServiceState};
 pub struct Handle {
     pub store: Arc<Mutex<Store>>,
     wake: Arc<(std::sync::Mutex<u64>, std::sync::Condvar)>,
+    probe_owner: Arc<probe::owner::ProbeResourceOwner>,
 }
 
 impl Handle {
@@ -44,6 +45,7 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
             clock,
         ))),
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
+        probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
     };
     svc.app_handle.manage(handle.clone());
     std::thread::spawn(move || {
@@ -156,7 +158,7 @@ pub fn record(
     }))
 }
 
-fn record_failure(handle: &Handle, svc: &ServiceState, lease: &Lease, reason: &'static str) {
+fn record_failure(handle: &Handle, svc: &ServiceState, lease: &Lease, reason: &str) {
     let mut job = lease.job.clone();
     job.last_reason = Some(reason.into());
     if handle.store.lock().finish(&job).unwrap_or(false) {
@@ -171,6 +173,74 @@ fn record_failure(handle: &Handle, svc: &ServiceState, lease: &Lease, reason: &'
             },
             Stage::Skip,
         );
+    }
+}
+
+fn record_unconfirmed_failure(
+    handle: &Handle,
+    svc: &ServiceState,
+    lease: &Lease,
+    failure: &probe::process::ProbeFailure,
+) {
+    let result = record_unconfirmed_failure_with(&handle.store, &lease.job, failure, |job, out, stage| {
+        journal(svc, job, out, stage)
+    });
+    if let Some(error) = result.persistence_error {
+        log::error!("[sentinel] probe stop persistence failed: {error}; resource failure: {}", failure.reason());
+    }
+    if let Some(error) = result.journal_error {
+        log::error!(
+            "[sentinel] unconfirmed probe skip journal failed: {error}; resource failure: {}",
+            failure.reason()
+        );
+    }
+}
+
+pub(super) struct UnconfirmedRecordResult {
+    pub persistence_error: Option<String>,
+    pub journal_error: Option<String>,
+}
+
+pub(super) fn record_unconfirmed_failure_with(
+    store: &Arc<Mutex<Store>>,
+    job: &Sentinel,
+    failure: &probe::process::ProbeFailure,
+    mut write_journal: impl FnMut(&Sentinel, &machine::Outcome, Stage) -> std::io::Result<()>,
+) -> UnconfirmedRecordResult {
+    let reason = failure.reason();
+    let (stopped, persistence_error) = {
+        let mut store = store.lock();
+        match store.stop(&job.id, &reason) {
+            Ok(stopped) => (Some(stopped), None),
+            Err(error) => (store.get(&job.id).cloned(), Some(error)),
+        }
+    };
+    let journal_error = stopped.and_then(|stopped| {
+        let outcome = machine::Outcome {
+            evidence: Evidence::new(Scope::from(job), None),
+            reason: failure.primary,
+            verdict: None,
+            route: None,
+        };
+        write_journal(&stopped, &outcome, Stage::Skip).err().map(|error| error.to_string())
+    });
+    UnconfirmedRecordResult {
+        persistence_error,
+        journal_error,
+    }
+}
+
+pub(super) fn resolve_probe_result<T>(
+    result: Result<T, probe::process::ProbeFailure>,
+    on_failure: impl FnOnce(probe::process::ProbeFailure),
+    on_success: impl FnOnce(T) -> T,
+) -> Option<T> {
+    match result {
+        Ok(output) => Some(on_success(output)),
+        Err(failure) => {
+            on_failure(failure);
+            None
+        }
     }
 }
 
@@ -190,13 +260,23 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
             .map(|at| Duration::from_millis(at.saturating_sub(now)))
             .unwrap_or(probe::PROBE_RUNTIME)
     };
-    let output = match probe::run(&lease.job.probe, Path::new(&lease.job.cwd), remaining) {
-        Ok(output) => output,
-        Err(reason) => {
-            record_failure(handle, svc, lease, reason);
-            return;
-        }
-    };
+    let output = resolve_probe_result(
+        probe::run(
+            &lease.job.probe,
+            Path::new(&lease.job.cwd),
+            remaining,
+            &handle.probe_owner,
+        ),
+        |reason| {
+            if reason.is_unconfirmed() {
+                record_unconfirmed_failure(handle, svc, lease, &reason);
+            } else {
+                record_failure(handle, svc, lease, &reason.reason());
+            }
+        },
+        std::convert::identity,
+    );
+    let Some(output) = output else { return };
     if lease.cancelled.load(Ordering::SeqCst) {
         return;
     }
