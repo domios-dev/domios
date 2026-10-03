@@ -33,6 +33,7 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
   const soundChoice = useRef(false);
   const playAttempt = useRef(0);
   const inViewNow = useRef(false);
+  const observedInView = useRef(false);
   const policy = useRef({ loaded, pausedByUser, reducedMotion, requestedByUser });
   policy.current = { loaded, pausedByUser, reducedMotion, requestedByUser };
   const mute = () => {
@@ -43,6 +44,19 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
   };
   const canPlay = () => inViewNow.current && !document.hidden && !policy.current.pausedByUser
     && (!policy.current.reducedMotion || policy.current.requestedByUser);
+  const syncViewportVisibility = (observed = observedInView.current) => {
+    const container = containerRef.current;
+    const stage = container?.querySelector('.video-stage');
+    const shown = observed || Boolean(stage && document.fullscreenElement === stage);
+    inViewNow.current = shown;
+    setInView(shown);
+    if (shown && !reducedMotion) setLoaded(true);
+    if (!shown) {
+      ++playAttempt.current;
+      videoRef.current?.pause();
+      mute();
+    }
+  };
   const attemptPlay = () => {
     const video = videoRef.current;
     if (!video || !canPlay()) return;
@@ -64,17 +78,16 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
     if (!container) return;
     const observer = new IntersectionObserver(([entry]) => {
       const shown = entry.isIntersecting && entry.intersectionRatio >= .2;
-      inViewNow.current = shown;
-      setInView(shown);
-      if (shown && !reducedMotion) setLoaded(true);
-      if (!shown) {
-        ++playAttempt.current;
-        videoRef.current?.pause();
-        mute();
-      }
+      observedInView.current = shown;
+      syncViewportVisibility(shown);
     }, { threshold: .2 });
+    const onFullscreenChange = () => syncViewportVisibility();
     observer.observe(container);
-    return () => observer.disconnect();
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+    };
   }, [reducedMotion]);
   useEffect(() => {
     const update = () => {
