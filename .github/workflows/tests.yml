@@ -16,9 +16,9 @@ on:
   workflow_dispatch:
     inputs:
       evaluator_scope:
-        description: Focused evaluator qualification or the existing full matrix
+        description: Focused evaluator/task qualification or the existing full matrix
         type: choice
-        options: [full, jev-linux, jev-windows, jev-windows-inventory]
+        options: [full, jev-linux, jev-windows, jev-windows-inventory, rust-windows-task-local]
         default: full
         required: true
       expected_source_sha:
@@ -29,6 +29,12 @@ on:
         description: Reviewed installed absolute interpreter path; no installation fallback
         type: string
         default: ''
+      rust_boundary:
+        description: Fixed Windows task boundary; ignored by other scopes
+        type: choice
+        options: [none, cantor-red, cantor-green, auditor-red, auditor-green, both-red, both-green]
+        default: none
+        required: true
   # Nightly full matrix on master while the farm is idle, so parallel-test races
   # and flakes surface days before a release instead of on release day.
   schedule:
@@ -1054,3 +1060,191 @@ jobs:
           $jevQaTimer.Stop()
           Write-Host "case=partial_capture_failure exit=$jevQaExit wrapper_seconds=$($jevQaTimer.Elapsed.TotalSeconds) source=$env:JEV_EXPECTED_SHA"
           exit $jevQaExit
+
+  rust-windows-task-local:
+    name: Rust Windows task boundary
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'rust-windows-task-local' }}
+    runs-on: [self-hosted, windows-build]
+    timeout-minutes: 50
+    env:
+      EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+      WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
+      EVENT_SOURCE_SHA: ${{ github.sha }}
+      TASK_BOUNDARY: ${{ inputs.rust_boundary }}
+      RUST_BACKTRACE: '1'
+      RUST_TEST_NOCAPTURE: '1'
+      CARGO_TERM_COLOR: never
+      TEST_CAP_SECS: '600'
+    steps:
+      - uses: actions/checkout@v5
+        env:
+          GIT_CONFIG_COUNT: '1'
+          GIT_CONFIG_KEY_0: core.longpaths
+          GIT_CONFIG_VALUE_0: 'true'
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Run fixed task boundary and retain raw outcomes
+        id: task_boundary
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSNativeCommandUseErrorActionPreference = $false
+          $receiptDir = Join-Path $env:RUNNER_TEMP ('rust-windows-task-local-' + $env:GITHUB_RUN_ID + '-' + $env:GITHUB_RUN_ATTEMPT)
+          if (Test-Path -LiteralPath $receiptDir) { throw 'receipt_directory_already_exists' }
+          New-Item -ItemType Directory -Path $receiptDir | Out-Null
+          'fresh_receipt_directory=true' | Out-File -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          $receipt = [ordered]@{
+            boundary = $env:TASK_BOUNDARY; expected_sha = $env:EXPECTED_SOURCE_SHA
+            workflow_sha = $env:WORKFLOW_SOURCE_SHA; event_sha = $env:EVENT_SOURCE_SHA
+            checkout_sha = $null; runner = $env:RUNNER_NAME; os = $env:RUNNER_OS
+            arch = $env:RUNNER_ARCH; powershell = $PSVersionTable.PSVersion.ToString()
+            run_id = $env:GITHUB_RUN_ID; run_attempt = $env:GITHUB_RUN_ATTEMPT
+            phase = 'preflight'; outcome = 'unqualified'; error = $null
+            cases = @(); inputs = @(); conpty_identity = 'unproven; inspect complete native logs'
+          }
+          function Write-TaskLocalReceipt {
+            $receipt | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $receiptDir 'receipt.json') -Encoding utf8
+          }
+          function Resolve-TaskLocalBoundary {
+            if ($env:TASK_BOUNDARY -notmatch '^(cantor|auditor|both)-(red|green)$') { throw 'invalid_task_boundary' }
+            $pair = $Matches[1]
+            $mode = $Matches[2]
+            $cases = @()
+            if ($pair -in @('cantor', 'both')) {
+              $cases += @{ selector = 'rebind_establishes_a_first_binding_from_the_tabs_own_nonce'; mode = 'green'; owner = 'cantor' }
+              $cases += @{ selector = 'attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real_skill_read'; mode = $mode; owner = 'cantor' }
+            }
+            if ($pair -in @('auditor', 'both')) {
+              $cases += @{ selector = 'post_launch_idle_planner_answers_onboarding_and_owner_prompt_is_not_auto_answered'; mode = 'green'; owner = 'auditor' }
+              $cases += @{ selector = 'supporter_first_opinion_safe_response_qualified_static_onboarding_planner_completion'; mode = $mode; owner = 'auditor' }
+            }
+            return $cases
+          }
+          function Read-TaskLocalLibtestReceipt($row, $text) {
+            $summaries = [regex]::Matches($text, '(?m)^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out; finished in ([0-9.]+)s\r?$')
+            $results = [regex]::Matches($text, '(?m)^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED|ignored)\r?$')
+            $row.passed = 0; $row.failed = 0; $row.ignored = 0; $row.filtered_out = 0
+            $row.libtest_seconds = 0.0
+            foreach ($summary in $summaries) {
+              $row.passed += [int]$summary.Groups[2].Value
+              $row.failed += [int]$summary.Groups[3].Value
+              $row.ignored += [int]$summary.Groups[4].Value
+              $row.filtered_out += [int]$summary.Groups[6].Value
+              $row.libtest_seconds += [double]::Parse($summary.Groups[7].Value, [Globalization.CultureInfo]::InvariantCulture)
+              if ([int]$summary.Groups[5].Value -ne 0) { throw 'unexpected_measured_cases' }
+            }
+            $row.selected = $row.passed + $row.failed + $row.ignored
+            $row.function_results = @($results | ForEach-Object { $_.Value })
+            if ($summaries.Count -ne 1 -or $results.Count -ne 1 -or $row.selected -ne 1 -or $row.ignored -ne 0) { throw 'unqualified_test_selection' }
+            if ($results[0].Groups[1].Value -notmatch ('::' + [regex]::Escape($row.selector) + '$')) { throw 'unexpected_selected_function' }
+            if ($row.mode -eq 'green') {
+              if ($row.exit_code -ne 0 -or $row.passed -ne 1 -or $results[0].Groups[2].Value -ne 'ok') { throw 'unexpected_green_failure' }
+              $row.outcome = 'passed'
+            } else {
+              if ($row.exit_code -ne 101 -or $row.failed -ne 1 -or $results[0].Groups[2].Value -ne 'FAILED') { throw 'unexpected_red_outcome' }
+              $predicate = if ($row.owner -eq 'cantor') { 'plan skill caller does not identify exactly one current attempt' } else { 'PTY output event did not arrive before the failure deadline' }
+              if (-not $text.Contains($predicate)) { throw 'unexpected_red_predicate' }
+              $row.predicate = $predicate
+              $row.outcome = 'red_candidate'
+              $row.causal_judgment = 'pending complete log and exact source review; timeout alone is insufficient'
+            }
+          }
+          function Invoke-TaskLocalCase($case) {
+            $logPath = Join-Path $receiptDir ($case.selector + '.log')
+            $row = [ordered]@{
+              selector = $case.selector; owner = $case.owner; mode = $case.mode
+              command = @($pwsh, '-NoProfile', '-File', '.\build.ps1', 'test-one', 'app', $case.selector)
+              phase = 'running'; outcome = 'unqualified'; exit_code = $null
+              wall_seconds = $null; log = $logPath
+            }
+            $receipt.cases += $row
+            Write-TaskLocalReceipt
+            $watch = [Diagnostics.Stopwatch]::StartNew()
+            try {
+              & $pwsh -NoProfile -File .\build.ps1 test-one app $case.selector > $logPath 2>&1
+              $row.exit_code = $LASTEXITCODE
+            } finally {
+              $watch.Stop()
+              $row.wall_seconds = $watch.Elapsed.TotalSeconds
+              $row.phase = 'returned'
+              Write-TaskLocalReceipt
+            }
+            $text = [IO.File]::ReadAllText($logPath)
+            $row.log_sha256 = (Get-FileHash -LiteralPath $logPath -Algorithm SHA256).Hash
+            Write-Host $text
+            Read-TaskLocalLibtestReceipt $row $text
+            Write-TaskLocalReceipt
+          }
+          $exitCode = 1
+          try {
+            $cases = @(Resolve-TaskLocalBoundary)
+            $head = (& git rev-parse HEAD).Trim()
+            if ($LASTEXITCODE -ne 0) { throw 'checkout_identity_unavailable' }
+            $receipt.checkout_sha = $head
+            if ($env:EXPECTED_SOURCE_SHA -cnotmatch '^[0-9a-f]{40}$' -or $head -cne $env:EXPECTED_SOURCE_SHA -or $head -cne $env:WORKFLOW_SOURCE_SHA -or $head -cne $env:EVENT_SOURCE_SHA) { throw 'source_identity_mismatch' }
+            $status = @(& git status --porcelain)
+            if ($LASTEXITCODE -ne 0 -or $status.Count -ne 0) { throw 'dirty_checkout' }
+            if (Test-Path -LiteralPath '.env') { throw 'ambient_dotenv_refused' }
+            $liveBindings = @(Get-ChildItem Env: | Where-Object { $_.Name -match '^CODETERM_' -and $_.Name -ne 'CODETERM_EMBED_CACHE_DIR' -and $_.Value })
+            if ($liveBindings.Count -ne 0 -or $env:CARGO_TARGET_DIR -or $env:CARGO_TEST_CMD -or $env:CARGO_TEST_BUILD_CMD) { throw 'ambient_test_or_instance_override_refused' }
+            $psDir = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0'
+            if (-not (Test-Path -LiteralPath (Join-Path $psDir 'powershell.exe'))) { throw 'windows_powershell_missing' }
+            $env:PATH = $psDir + ';' + $env:PATH
+            if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
+              $rustBins = @()
+              if ($env:CARGO_HOME) { $rustBins += Join-Path $env:CARGO_HOME 'bin' }
+              if ($env:USERPROFILE) { $rustBins += Join-Path $env:USERPROFILE '.cargo\bin' }
+              $rustBin = $rustBins | Where-Object { Test-Path -LiteralPath (Join-Path $_ 'rustup.exe') } | Select-Object -First 1
+              if (-not $rustBin) { throw 'installed_rust_path_missing' }
+              $env:PATH = $rustBin + ';' + $env:PATH
+            }
+            foreach ($tool in @('rustc', 'cargo', 'node', 'sccache')) { Get-Command $tool -ErrorAction Stop | Out-Null }
+            $bashPaths = @("$env:ProgramFiles\Git\bin\bash.exe", "$env:ProgramFiles\Git\usr\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", 'C:\msys64\usr\bin\bash.exe')
+            if (-not @($bashPaths | Where-Object { Test-Path -LiteralPath $_ }).Count) { throw 'installed_bash_missing' }
+            $pwsh = (Get-Process -Id $PID).Path
+            if (-not $pwsh -or -not (Test-Path -LiteralPath $pwsh)) { throw 'current_powershell_path_missing' }
+            $receipt.powershell_path = $pwsh
+            $receipt.powershell_sha256 = (Get-FileHash -LiteralPath $pwsh -Algorithm SHA256).Hash
+            $receipt.rustc = @(& rustc -vV)
+            if ($LASTEXITCODE -ne 0) { throw 'rustc_identity_failed' }
+            $receipt.cargo = @(& cargo --version)
+            if ($LASTEXITCODE -ne 0) { throw 'cargo_identity_failed' }
+            $receipt.node = @(& node --version)
+            if ($LASTEXITCODE -ne 0) { throw 'node_identity_failed' }
+            $paths = @('.github/workflows/tests.yml', 'build.ps1', 'build.sh', 'scripts/test-capped.sh')
+            if ($cases.owner -contains 'cantor') { $paths += @('src-tauri/src/socket/server/plan_mode/attempt_binding/tests.rs', 'src-tauri/src/service/plan_authority/tests.rs') }
+            if ($cases.owner -contains 'auditor') { $paths += @('src-tauri/src/service/supporter_tab_state/safe_response/qualified_tests.rs', 'src-tauri/src/service/directory_trust/tests.rs') }
+            foreach ($path in $paths) { $receipt.inputs += @{ path = $path; sha256 = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash } }
+            $receipt.phase = 'tests'
+            foreach ($case in $cases) { Invoke-TaskLocalCase $case }
+            $receipt.phase = 'source_readback'
+            & git diff --exit-code HEAD -- > (Join-Path $receiptDir 'source-after.diff')
+            if ($LASTEXITCODE -ne 0) { throw 'tracked_source_changed' }
+            if ((& git rev-parse HEAD).Trim() -cne $head -or $LASTEXITCODE -ne 0) { throw 'checkout_changed' }
+            $receipt.outcome = if ($env:TASK_BOUNDARY.EndsWith('-red')) { 'red_candidates_require_review' } else { 'passed' }
+            $receipt.phase = 'complete'
+            if ($receipt.outcome -eq 'passed') { $exitCode = 0 }
+          } catch {
+            $receipt.error = $_.Exception.Message
+            Write-Host ('Task boundary refused: ' + $receipt.error)
+          } finally {
+            $receipt.source_after = @(& git status --porcelain)
+            $receipt.source_readback_exit = $LASTEXITCODE
+            & git diff HEAD -- > (Join-Path $receiptDir 'source-after.diff')
+            if ($LASTEXITCODE -ne 0 -or $receipt.source_readback_exit -ne 0 -or $receipt.source_after.Count -ne 0) {
+              $receipt.outcome = 'unqualified'
+              $receipt.source_error = 'source_readback_failed_or_checkout_changed'
+              $exitCode = 1
+            }
+            Write-TaskLocalReceipt
+          }
+          exit $exitCode
+      - name: Retain complete task boundary evidence
+        if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: error
