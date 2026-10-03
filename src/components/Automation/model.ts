@@ -19,7 +19,9 @@ export function scopedAutomationGraph(graph: AutomationGraph, scope: AutomationS
     entries.push(edge);
     outgoing.set(key, entries);
   }
-  const nodes = scoped.filter(agentSentinel);
+  const scenarios = graph.scenarios.filter((scenario) => sameScope(scenario.root, scope));
+  const roots = scenarios.map((scenario) => byId.get(automationKey(scenario.root))).filter((node): node is AutomationNode => node !== undefined && agentSentinel(node));
+  const nodes = Array.from(new Map(roots.map((node) => [automationKey(node.identity), node])).values());
   const reached = new Set(nodes.map((node) => automationKey(node.identity)));
   const edges: typeof eligibleEdges = [];
   for (let index = 0; index < nodes.length; index++) {
@@ -36,7 +38,7 @@ export function scopedAutomationGraph(graph: AutomationGraph, scope: AutomationS
       });
     }
   }
-  return { ...graph, nodes, edges };
+  return { ...graph, scenarios, nodes, edges };
 }
 
 export function automationState(node: AutomationNode): string {

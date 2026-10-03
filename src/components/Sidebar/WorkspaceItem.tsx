@@ -7,6 +7,7 @@ import { useConfig } from "../../hooks/useConfig";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { FolderIcon, ShieldCheckIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
+import { WorkspaceAutomationAction } from "../Automation/WorkspaceAutomationAction";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import type { TabStatus, Workspace } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
@@ -22,6 +23,7 @@ interface WorkspaceItemProps {
   onNewTerminal: () => void;
   onNewSession: () => void;
   onOpenMap?: () => void;
+  onOpenAutomation?: () => void;
   newSessionDisabled?: boolean;
   onNewAgent: (agentId: string) => void;
   canClose: boolean;
@@ -43,6 +45,7 @@ function WorkspaceItemInner({
   onNewTerminal,
   onNewSession,
   onOpenMap,
+  onOpenAutomation,
   newSessionDisabled = false,
   onNewAgent,
   canClose: _canClose,
@@ -238,6 +241,7 @@ function WorkspaceItemInner({
       </div>
       {/* 3-dot menu — visible on hover */}
       <div className="flex shrink-0 items-center gap-0.5">
+        {onOpenAutomation && <WorkspaceAutomationAction workspaceId={workspace.id} workspaceName={workspace.name} touchMode={touchMode} onOpen={onOpenAutomation} />}
         {onOpenMap && (
           <button
             type="button"
@@ -284,6 +288,7 @@ function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps)
     prev.showDisclosure === next.showDisclosure &&
     prev.detailHeader === next.detailHeader &&
     prev.onOpenMap === next.onOpenMap &&
+    prev.onOpenAutomation === next.onOpenAutomation &&
     prev.touchMode === next.touchMode &&
     prev.uiFontScale === next.uiFontScale &&
     prev.workspace.id === next.workspace.id &&
