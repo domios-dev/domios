@@ -1,6 +1,6 @@
 ---
 name: gates
-description: Run CodeTerm's verification gates without burning a session on them. Focused checks run here; the full suite, the broad gate and a release run in a sub-agent that reports a summary. Read before `build.ps1 test`, `release-preflight`, or any release.
+description: Run Domios's verification gates without burning a session on them. Focused checks run here; the full suite, the broad gate and a release run in a sub-agent that reports a summary. Read before `build.ps1 test`, `release-preflight`, or any release.
 ---
 
 # Gates
@@ -112,4 +112,4 @@ size check after any fmt.
 fixes where the gate sits in it: after the version bump, on the exact SHA you
 are about to tag, once.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

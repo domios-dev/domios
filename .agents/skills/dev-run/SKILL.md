@@ -1,11 +1,11 @@
 ---
 name: dev-run
-description: Start, restart, kill, and verify the CodeTerm dev instance from inside this repo. Use whenever the user says "start dev", "restart dev", "dev up", "kill dev", "rebuild dev", asks to open/reload the app after code changes, reports the dev window is broken/not launching, or you need to verify that the running binary matches the source after an edit to src-tauri/ or src/. Covers build.sh commands, port 7686 health checks, log locations, clean-config resets, and platform-specific quirks.
+description: Start, restart, kill, and verify the Domios dev instance from inside this repo. Use whenever the user says "start dev", "restart dev", "dev up", "kill dev", "rebuild dev", asks to open/reload the app after code changes, reports the dev window is broken/not launching, or you need to verify that the running binary matches the source after an edit to src-tauri/ or src/. Covers build.sh commands, port 7686 health checks, log locations, clean-config resets, and platform-specific quirks.
 ---
 
-# Dev Run — CodeTerm dev instance
+# Dev Run — Domios dev instance
 
-Run, restart, and diagnose the CodeTerm dev instance inside this repo. Dev is isolated from production: different config dir, different port, different data.
+Run, restart, and diagnose the Domios dev instance inside this repo. Dev is isolated from production: different config dir, different port, different data.
 
 **Never touch prod.** Prod listens on 7685, dev on 7686. If you ever kill a process, verify by port first.
 
@@ -47,7 +47,7 @@ For dev readiness reports routed to the calling agent tab, see [`utility-shell-r
 
 `build.sh kill` guarantees the old dev is dead before `build.sh dev` starts the new one — so any `/api/health` response after restart is from the fresh build.
 
-When running from inside a production CodeTerm tab, the shell may inherit
+When running from inside a production Domios tab, the shell may inherit
 `CODETERM_API_PORT=7685`. `build.sh dev`, `build.sh kill`, and e2e commands
 guard against that and switch the canonical dev instance back to 7686; do not
 override that guard unless you are intentionally running a named non-prod
@@ -241,8 +241,8 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 - "start dev", "restart dev", "dev up", "kill dev", "rebuild"
 - "the app isn't loading", "dev window broke", "can't connect to 7686"
-- anything that implies running or diagnosing the local CodeTerm dev instance
+- anything that implies running or diagnosing the local Domios dev instance
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
