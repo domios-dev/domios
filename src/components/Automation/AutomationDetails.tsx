@@ -17,6 +17,11 @@ export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFai
     <dl className="my-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 break-words">
       <dt>Purpose / question / task</dt><dd>{node.purpose ?? "Unknown"}</dd>
       <dt>Status</dt><dd>{automationState(node)}{stale ? " · Stale" : ""}{node.hidden === null ? " · Visibility unknown" : node.hidden ? " · Hidden" : ""}</dd>
+      <dt>Executor kind</dt><dd>{node.executor?.kind ?? "Unknown"}</dd>
+      <dt>Provider</dt><dd>{node.executor?.provider_id ?? "Unknown"}</dd>
+      <dt>Decision adapter</dt><dd>{node.executor?.adapter_id ?? "Unknown"}</dd>
+      <dt>Model</dt><dd>{node.executor?.model ?? "Unknown"}</dd>
+      <dt>Capabilities</dt><dd>{node.executor?.capabilities?.join(" · ") ?? "Unknown"}</dd>
       <dt>ID</dt><dd>{node.identity.id}</dd>
       <dt>Owner</dt><dd>{node.identity.owner_tab_id ?? "Unknown"}</dd>
       <dt>Workspace</dt><dd>{node.identity.workspace_id}</dd>

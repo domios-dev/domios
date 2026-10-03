@@ -28,7 +28,16 @@ export interface AutomationOutcome {
   handlers: readonly AutomationHandler[];
 }
 
+export interface AutomationExecutor {
+  kind: string | null;
+  provider_id: string | null;
+  adapter_id: string | null;
+  model: string | null;
+  capabilities: readonly string[] | null;
+}
+
 export interface AutomationNode {
+  executor?: AutomationExecutor | null;
   identity: AutomationIdentity;
   name: string;
   purpose: string | null;
