@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { boxesOverlap } from "../Canvas/layout";
-import { layoutAutomationGraph } from "./layout";
+import type { Box } from "../Canvas/layout";
+import type { ViewportTransform } from "../Canvas/useCanvasViewport";
+import { frameAutomation, layoutAutomationGraph, layoutAutomationOrientations, NODE_WIDTH, preferredOrientation, READABLE_SCALE, type AutomationLayout, type CanvasSize } from "./layout";
 import { scopedAutomationGraph } from "./model";
-import { attachment, fixtureGraph, fixtureNode, identity, multiScenarioGraph } from "./fixtures.testdata";
+import { attachment, chainGraph, fixtureGraph, fixtureNode, identity, multiScenarioGraph } from "./fixtures.testdata";
 import { automationKey, type AutomationEdge, type AutomationGraph, type AutomationIdentity } from "./types";
 
 const tests: Array<[string, () => void]> = [];
@@ -49,15 +51,40 @@ test("edges flow left to right from the scenario root and a shared join sits aft
   assert.deepEqual(layout.edges.filter((entry) => entry.back).map((entry) => entry.edge.id).sort(), ["f", "g"], "cycle-closing and self edges are routed as back edges");
 });
 
-test("nodes and edge labels never overlap and stay within the reported bounds", () => {
-  for (const graph of [scoped(branchedGraph()), scoped(fixtureGraph()), scoped(multiScenarioGraph())]) {
-    const layout = layoutAutomationGraph(graph);
-    const boxes = [...layout.nodes.map((node) => node.box), ...layout.edges.map((entry) => entry.label)];
-    boxes.forEach((box, index) => {
-      assert.ok(box.x >= 0 && box.y >= 0 && box.x + box.width <= layout.bounds.width && box.y + box.height <= layout.bounds.height, "box inside bounds");
-      for (const other of boxes.slice(index + 1)) assert.ok(!boxesOverlap(box, other), "no node or label overlap");
-    });
-    assert.equal(layout.edges.length, graph.edges.length, "every scoped edge keeps its own route and label");
+test("vertical flow runs top to bottom with the same branch, join and cycle semantics", () => {
+  const horizontal = layoutAutomationGraph(scoped(branchedGraph()));
+  const layout = layoutAutomationGraph(scoped(branchedGraph()), "vertical");
+  const [root, left, right, join] = ["root", "left", "right", "join"].map((id) => boxOf(layout, identity("sentinel", id)));
+  assert.ok(left.y > root.y + root.height && right.y > root.y + root.height, "branches sit below the root");
+  assert.equal(left.y, right.y, "sibling branches share one layer");
+  assert.ok(left.x + left.width <= right.x || right.x + right.width <= left.x, "sibling branches are spread side by side");
+  assert.ok(join.y > left.y + left.height, "shared join is placed after every incoming branch");
+  for (const entry of layout.edges.filter((candidate) => !candidate.back)) {
+    const from = layout.byId.get(entry.from)!.box;
+    assert.ok(layout.byId.get(entry.to)!.box.y >= from.y + from.height, `forward edge ${entry.edge.id} points down`);
+  }
+  assert.deepEqual(layout.edges.map((entry) => [entry.edge.id, entry.back]), horizontal.edges.map((entry) => [entry.edge.id, entry.back]), "back-edge classification is orientation independent");
+  assert.deepEqual([...layout.byId.keys()], [...horizontal.byId.keys()], "exact identities are preserved");
+});
+
+function pathPoints(path: string) {
+  const numbers = (path.match(/-?\d+(?:\.\d+)?(?:e-?\d+)?/g) ?? []).map(Number);
+  assert.ok(numbers.length >= 8 && numbers.length % 2 === 0, "path is a finite cubic");
+  return Array.from({ length: numbers.length / 2 }, (_, index) => ({ x: numbers[index * 2], y: numbers[index * 2 + 1] }));
+}
+
+test("nodes, edge curves and labels never overlap and stay within the reported bounds in both orientations", () => {
+  for (const graph of [scoped(branchedGraph()), scoped(fixtureGraph()), scoped(multiScenarioGraph()), scoped(chainGraph())]) {
+    for (const layout of Object.values(layoutAutomationOrientations(graph))) {
+      const inside = (x: number, y: number) => Number.isFinite(x) && Number.isFinite(y) && x >= 0 && y >= 0 && x <= layout.bounds.width && y <= layout.bounds.height;
+      const boxes = [...layout.nodes.map((node) => node.box), ...layout.edges.map((entry) => entry.label)];
+      boxes.forEach((box, index) => {
+        assert.ok(inside(box.x, box.y) && inside(box.x + box.width, box.y + box.height), `${layout.orientation} box inside bounds`);
+        for (const other of boxes.slice(index + 1)) assert.ok(!boxesOverlap(box, other), `${layout.orientation} no node or label overlap`);
+      });
+      for (const entry of layout.edges) for (const point of pathPoints(entry.path)) assert.ok(inside(point.x, point.y), `${layout.orientation} ${entry.edge.id} curve hull inside bounds`);
+      assert.equal(layout.edges.length, graph.edges.length, "every scoped edge keeps its own route and label");
+    }
   }
 });
 
@@ -73,6 +100,73 @@ test("a single Sentinel occupies a compact canvas instead of a fixed three-colum
   const layout = layoutAutomationGraph(graph);
   assert.equal(layout.nodes.length, 1);
   assert.ok(layout.bounds.width < 2 * layout.nodes[0].box.width, "bounds hug the lone node");
+});
+
+function project(box: Box, camera: ViewportTransform): Box {
+  return { x: box.x * camera.scale + camera.x, y: box.y * camera.scale + camera.y, width: box.width * camera.scale, height: box.height * camera.scale };
+}
+
+function within(box: Box, size: CanvasSize) {
+  return box.x >= 0 && box.y >= 0 && box.x + box.width <= size.width && box.y + box.height <= size.height;
+}
+
+function opened(graph: ReturnType<typeof scoped>, size: CanvasSize, whole = false): { layout: AutomationLayout; camera: ViewportTransform } {
+  const layouts = layoutAutomationOrientations(graph);
+  const layout = layouts[preferredOrientation(layouts, size)];
+  const camera = frameAutomation(layout, size, whole);
+  assert.ok(camera, "a measured canvas yields a camera");
+  return { layout, camera };
+}
+
+function chainBoxes(layout: AutomationLayout) {
+  return ["chain-root", "chain-stage", "chain-worker"].map((id, index) => boxOf(layout, identity(index === 2 ? "worker" : "sentinel", id)));
+}
+
+test("a 500px measured canvas opens the three-node chain top to bottom with readable cards and full labels", () => {
+  const graph = scoped(chainGraph());
+  for (const size of [{ width: 500, height: 480 }, { width: 500, height: 576 }]) {
+    const { layout, camera } = opened(graph, size);
+    assert.ok(camera.scale >= READABLE_SCALE, `scale ${camera.scale} is readable at ${size.height}px`);
+    const cards = chainBoxes(layout).map((box) => project(box, camera));
+    for (const card of cards) {
+      assert.ok(within(card, size), "every card is fully visible on first open");
+      assert.ok(card.width >= NODE_WIDTH * READABLE_SCALE, `card width ${card.width} meets the readable threshold`);
+    }
+    cards.slice(1).forEach((card, index) => assert.ok(card.y >= cards[index].y + cards[index].height, "chain flows downward"));
+    for (const entry of layout.edges) {
+      assert.ok(within(project(entry.label, camera), size), "edge label is visible");
+      assert.deepEqual(entry.label.lines, [entry.edge.bucket, `${entry.edge.handler_type} · ${entry.edge.result!.status}`], "label carries the supplied branch and outcome unclipped");
+    }
+  }
+});
+
+test("desktop canvases keep the chain left to right at a readable scale", () => {
+  const graph = scoped(chainGraph());
+  for (const size of [{ width: 980, height: 512 }, { width: 1400, height: 576 }]) {
+    const { layout, camera } = opened(graph, size);
+    assert.ok(camera.scale >= READABLE_SCALE);
+    const cards = chainBoxes(layout).map((box) => project(box, camera));
+    for (const card of cards) assert.ok(within(card, size));
+    cards.slice(1).forEach((card, index) => assert.ok(card.x >= cards[index].x + cards[index].width, "chain flows rightward"));
+  }
+});
+
+test("a long chain opens on a readable root and the explicit overview still fits everything", () => {
+  const ids = Array.from({ length: 8 }, (_, index) => identity("sentinel", `long-${index}`));
+  const graph = scoped({
+    ...fixtureGraph(),
+    scenarios: [{ id: "scenario-long", name: "scenario-long", root: ids[0] }],
+    nodes: ids.map((target) => ({ ...fixtureNode(target, `name-${target.id}`), sentinel_definition: definition(target) })),
+    edges: ids.slice(1).map((target, index) => route(`long-${index}`, ids[index], target)),
+  });
+  const size = { width: 500, height: 480 };
+  const framed = opened(graph, size);
+  const whole = opened(graph, size, true);
+  assert.ok(whole.camera.scale < READABLE_SCALE, "the overview alone would be too small to read");
+  assert.equal(framed.camera.scale, READABLE_SCALE);
+  const root = project(boxOf(framed.layout, ids[0]), framed.camera);
+  assert.ok(within(root, size) && root.width >= NODE_WIDTH * READABLE_SCALE, "root is framed fully at a readable size");
+  assert.ok(within(project(whole.layout.bounds, whole.camera), size), "explicit overview contains every node, edge and label");
 });
 
 let failed = false;

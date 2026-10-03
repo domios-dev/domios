@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { ChevronRight, X } from "lucide-react";
 import { focusLost } from "./focus";
 import { AUTOMATION_BUTTON, AUTOMATION_LABEL, AUTOMATION_TOOL, stateTone } from "./styles";
 import { automationState } from "./model";
@@ -11,11 +11,22 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function Facts({ children }: { children: ReactNode }) {
-  return <dl className="grid grid-cols-[minmax(6.5rem,auto)_1fr] gap-x-4 gap-y-1.5 break-words [&>dt]:text-[var(--ct-muted)] [&>dd]:min-w-0 [&>dd]:text-[var(--ct-fg)]">{children}</dl>;
+  return <dl className="grid grid-cols-[minmax(6.5rem,auto)_1fr] gap-x-4 gap-y-1.5 break-words [&>dt]:text-[var(--ct-muted-fg)] [&>dd]:min-w-0 [&>dd]:text-[var(--ct-fg)]">{children}</dl>;
 }
 
 function Status({ value }: { value: string }) {
   return <span className="inline-flex items-center gap-1.5 rounded-full border border-[var(--ct-border)] px-2 py-0.5 text-xs text-[var(--ct-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(value)}`} aria-hidden="true" />{value}</span>;
+}
+
+function Disclosure({ title, children }: { title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const region = useId();
+  return <section className="min-w-0">
+    <button type="button" className={`${AUTOMATION_LABEL} -mx-1 inline-flex items-center gap-1 rounded px-1 py-0.5 hover:text-[var(--ct-fg)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]`} aria-expanded={open} aria-controls={region} onClick={() => setOpen(!open)}>
+      <ChevronRight size={12} className={`transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`} aria-hidden="true" />{title}
+    </button>
+    <div id={region} hidden={!open} className="mt-2">{children}</div>
+  </section>;
 }
 
 function seconds(ms: number): string {
@@ -67,27 +78,14 @@ export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFai
           <dt>Expiry</dt><dd>{node.expires_at === null ? "Not recorded" : new Date(node.expires_at).toLocaleString()}</dd>
         </Facts>
       </Group>
-      <Group title="Executor and identity">
-        <Facts>
-          <dt>Executor kind</dt><dd>{node.executor?.kind ?? "Unknown"}</dd>
-          <dt>Provider</dt><dd className="font-mono text-xs">{node.executor?.provider_id ?? "Unknown"}</dd>
-          <dt>Decision adapter</dt><dd className="font-mono text-xs">{node.executor?.adapter_id ?? "Unknown"}</dd>
-          <dt>Model</dt><dd className="font-mono text-xs">{node.executor?.model ?? "Unknown"}</dd>
-          <dt>Capabilities</dt><dd>{node.executor?.capabilities?.join(" · ") ?? "Unknown"}</dd>
-          <dt>ID</dt><dd className="font-mono text-xs">{node.identity.id}</dd>
-          {node.identity.kind === "sentinel" && <><dt>Creator provenance</dt><dd>{node.sentinel_definition ? `${node.sentinel_definition.source} · ${node.sentinel_definition.creator_tab_id}` : "Unknown"}</dd></>}
-          <dt>Owner</dt><dd className="font-mono text-xs">{node.identity.owner_tab_id ?? "Unknown"}</dd>
-          <dt>Workspace</dt><dd className="font-mono text-xs">{node.identity.workspace_id}</dd>
-          <dt>Team</dt><dd>{node.identity.team_id ?? "No Team"}</dd>
-        </Facts>
-      </Group>
       <Group title="Last accepted result">
         {last ? <>
           <p className="mb-2">{last.bucket} · {new Date(last.accepted_at).toLocaleString()}</p>
           <ul aria-label="Last accepted handler results" className="space-y-1.5">{last.handlers.map((result) => {
             const handler = resultHandler(node, last.bucket, result.handler_id);
-            return <li key={result.handler_id} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-[var(--ct-border)] px-2.5 py-1.5">
-              <span className="font-medium">{result.handler_id}</span><span aria-hidden="true"> · </span><Status value={result.status ?? "Unknown"} /><span aria-hidden="true"> · </span><span className="font-mono text-xs text-[var(--ct-muted-fg)]">{result.execution_id ?? "No execution recorded"}</span>
+            return <li key={result.handler_id} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-[var(--ct-border)] px-2.5 py-2">
+              <span className="font-medium">{result.handler_id}</span><span aria-hidden="true"> · </span><Status value={result.status ?? "Unknown"} />
+              <span className="basis-full break-all font-mono text-[0.6875rem] text-[var(--ct-muted-fg)]">{result.execution_id ?? "No execution recorded"}</span>
               {isCommandResult(handler, result) && <CommandResultFacts handlerId={result.handler_id} handler={handler} result={result} />}
             </li>;
           })}</ul>
@@ -114,6 +112,20 @@ export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFai
           </li>;
         })}</ul> : <p className="text-[var(--ct-muted-fg)]">None recorded</p>}
       </Group></div>
+      <div className="@3xl:col-span-2"><Disclosure title="Executor and identity">
+        <Facts>
+          <dt>Executor kind</dt><dd>{node.executor?.kind ?? "Unknown"}</dd>
+          <dt>Provider</dt><dd className="font-mono text-xs">{node.executor?.provider_id ?? "Unknown"}</dd>
+          <dt>Decision adapter</dt><dd className="font-mono text-xs">{node.executor?.adapter_id ?? "Unknown"}</dd>
+          <dt>Model</dt><dd className="font-mono text-xs">{node.executor?.model ?? "Unknown"}</dd>
+          <dt>Capabilities</dt><dd>{node.executor?.capabilities?.join(" · ") ?? "Unknown"}</dd>
+          <dt>ID</dt><dd className="font-mono text-xs">{node.identity.id}</dd>
+          {node.identity.kind === "sentinel" && <><dt>Creator provenance</dt><dd>{node.sentinel_definition ? `${node.sentinel_definition.source} · ${node.sentinel_definition.creator_tab_id}` : "Unknown"}</dd></>}
+          <dt>Owner</dt><dd className="font-mono text-xs">{node.identity.owner_tab_id ?? "Unknown"}</dd>
+          <dt>Workspace</dt><dd className="font-mono text-xs">{node.identity.workspace_id}</dd>
+          <dt>Team</dt><dd>{node.identity.team_id ?? "No Team"}</dd>
+        </Facts>
+      </Disclosure></div>
     </div></div>
     {node.identity.kind === "sentinel" && <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-[var(--ct-border)] pt-4">
       <button type="button" className={`${AUTOMATION_BUTTON} disabled:opacity-50`} disabled={!node.stop.allowed || stale || stopping} onClick={onStop}>{stopping ? "Stopping…" : "Stop Sentinel"}</button>

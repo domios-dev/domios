@@ -1,20 +1,25 @@
-import { bezierPath } from "../Canvas/edges";
 import { boxesOverlap, type Box, type LaidOutNode, type Point } from "../Canvas/layout";
+import { computeFitTransform, type ViewportTransform } from "../Canvas/useCanvasViewport";
 import { automationKey, type AutomationEdge, type AutomationGraph } from "./types";
 
 export const NODE_WIDTH = 232;
 export const NODE_HEIGHT = 104;
-const LAYER_GAP = 208;
-const ROW_GAP = 44;
-const PADDING = 40;
+/** Smallest camera scale at which the 11px card and edge text stays legible (about 9.4px on screen). */
+export const READABLE_SCALE = 0.85;
+export const FIT_PADDING = 28;
+const SPACING = { horizontal: { layer: 168, row: 44 }, vertical: { layer: 64, row: 32 } } as const;
+const PADDING = 16;
 const CURVE = 0.45;
 const PORT_SPREAD = 14;
-const LABEL_HEIGHT = 20;
+export const LABEL_LINE_HEIGHT = 13;
+const LABEL_PAD_Y = 4;
 const LABEL_CHAR_WIDTH = 6.4;
-const LABEL_MAX_CHARS = 26;
+const LABEL_LINE_CHARS = 22;
 const BACK_DROP = 56;
 const BACK_LANE = 22;
 const SELF_LOOP = 56;
+
+export type AutomationOrientation = "horizontal" | "vertical";
 
 export interface AutomationEdgeRoute {
   edge: AutomationEdge;
@@ -22,28 +27,40 @@ export interface AutomationEdgeRoute {
   to: string;
   path: string;
   back: boolean;
-  label: Box & { text: string; title: string };
+  label: Box & { lines: readonly string[]; title: string };
 }
 
 export interface AutomationLayout {
+  orientation: AutomationOrientation;
   nodes: LaidOutNode[];
   byId: Map<string, LaidOutNode>;
   edges: AutomationEdgeRoute[];
   bounds: Box;
+  root: Box | null;
+}
+
+export type AutomationLayouts = Record<AutomationOrientation, AutomationLayout>;
+
+interface Segment { a: Point; c1: Point; c2: Point; b: Point }
+
+function clip(text: string): string {
+  return text.length > LABEL_LINE_CHARS ? `${text.slice(0, LABEL_LINE_CHARS - 1)}…` : text;
 }
 
 function edgeLabel(edge: AutomationEdge) {
   const title = [edge.bucket, edge.handler_type, edge.handler_id, edge.result?.status, edge.evidence.kind].filter(Boolean).join(" · ");
-  const full = [edge.bucket, edge.handler_type, edge.result?.status].filter(Boolean).join(" · ");
-  const text = full.length > LABEL_MAX_CHARS ? `${full.slice(0, LABEL_MAX_CHARS - 1)}…` : full;
-  return { text, title, width: Math.ceil(text.length * LABEL_CHAR_WIDTH) + 14 };
+  const lines = [edge.bucket, [edge.handler_type, edge.result?.status].filter(Boolean).join(" · ")].filter(Boolean).map(clip);
+  const width = Math.ceil(Math.max(...lines.map((line) => line.length), 1) * LABEL_CHAR_WIDTH) + 14;
+  return { lines, title, width, height: lines.length * LABEL_LINE_HEIGHT + LABEL_PAD_Y * 2 };
 }
 
-function bezierPoint(a: Point, b: Point, t: number): Point {
+function curve(a: Point, b: Point): Segment {
   const dx = b.x - a.x;
   const h = Math.max(Math.abs(dx) * CURVE, 24);
-  const c1 = { x: a.x + (dx >= 0 ? h : -h), y: a.y };
-  const c2 = { x: b.x + (dx >= 0 ? -h : h), y: b.y };
+  return { a, c1: { x: a.x + (dx >= 0 ? h : -h), y: a.y }, c2: { x: b.x + (dx >= 0 ? -h : h), y: b.y }, b };
+}
+
+function pointOn({ a, c1, c2, b }: Segment, t: number): Point {
   const u = 1 - t;
   return {
     x: u * u * u * a.x + 3 * u * u * t * c1.x + 3 * u * t * t * c2.x + t * t * t * b.x,
@@ -51,17 +68,17 @@ function bezierPoint(a: Point, b: Point, t: number): Point {
   };
 }
 
-function pointAtX(a: Point, b: Point, x: number): Point {
-  let best = bezierPoint(a, b, 0.5);
+function pointAtX(segment: Segment, x: number): Point {
+  let best = pointOn(segment, 0.5);
   for (let step = 0; step <= 32; step++) {
-    const candidate = bezierPoint(a, b, step / 32);
+    const candidate = pointOn(segment, step / 32);
     if (Math.abs(candidate.x - x) < Math.abs(best.x - x)) best = candidate;
   }
   return best;
 }
 
-function portOffsets(count: number): number[] {
-  const spread = count > 1 ? Math.min(PORT_SPREAD, (NODE_HEIGHT - 36) / (count - 1)) : 0;
+function portOffsets(count: number, side: number): number[] {
+  const spread = count > 1 ? Math.min(PORT_SPREAD, (side - 36) / (count - 1)) : 0;
   return Array.from({ length: count }, (_, index) => (index - (count - 1) / 2) * spread);
 }
 
@@ -98,7 +115,12 @@ function forwardEdges(keys: readonly string[], edges: readonly { from: number; t
   return { back, topological: order.reverse() };
 }
 
-export function layoutAutomationGraph(graph: AutomationGraph): AutomationLayout {
+/** Lays layers along the flow axis (x when horizontal, y when vertical); geometry is built in flow space and transposed once. */
+export function layoutAutomationGraph(graph: AutomationGraph, orientation: AutomationOrientation = "horizontal"): AutomationLayout {
+  const vertical = orientation === "vertical";
+  const gap = SPACING[orientation];
+  const nodeMain = vertical ? NODE_HEIGHT : NODE_WIDTH;
+  const nodeCross = vertical ? NODE_WIDTH : NODE_HEIGHT;
   const keys = graph.nodes.map((node) => automationKey(node.identity));
   const index = new Map(keys.map((key, position) => [key, position]));
   const routed = graph.edges.flatMap((edge) => {
@@ -124,12 +146,12 @@ export function layoutAutomationGraph(graph: AutomationGraph): AutomationLayout 
 
   const columns: number[][] = [];
   keys.forEach((_, position) => (columns[layer[position]] ??= []).push(position));
-  const centerY = keys.map(() => 0);
+  const center = keys.map(() => 0);
   for (const column of columns) {
     if (!column) continue;
     const desired = new Map(column.map((node) => {
       const above = parents[node].filter((parent) => layer[parent] < layer[node]);
-      return [node, above.length ? above.reduce((sum, parent) => sum + centerY[parent], 0) / above.length : Number.NaN];
+      return [node, above.length ? above.reduce((sum, parent) => sum + center[parent], 0) / above.length : Number.NaN];
     }));
     const placedAbove = column.filter((node) => !Number.isNaN(desired.get(node)));
     const ordered = [
@@ -139,23 +161,22 @@ export function layoutAutomationGraph(graph: AutomationGraph): AutomationLayout 
     let previous = Number.NEGATIVE_INFINITY;
     for (const node of ordered) {
       const wanted = desired.get(node);
-      const y = Math.max(Number.isNaN(wanted!) ? previous + NODE_HEIGHT + ROW_GAP : wanted!, previous + NODE_HEIGHT + ROW_GAP);
-      centerY[node] = Number.isFinite(y) ? y : 0;
-      previous = centerY[node];
+      const position = Math.max(Number.isNaN(wanted!) ? previous + nodeCross + gap.row : wanted!, previous + nodeCross + gap.row);
+      center[node] = Number.isFinite(position) ? position : 0;
+      previous = center[node];
     }
     if (placedAbove.length) {
-      const drift = placedAbove.reduce((sum, node) => sum + desired.get(node)! - centerY[node], 0) / placedAbove.length;
-      for (const node of ordered) centerY[node] += drift;
+      const drift = placedAbove.reduce((sum, node) => sum + desired.get(node)! - center[node], 0) / placedAbove.length;
+      for (const node of ordered) center[node] += drift;
     }
   }
-  const top = Math.min(...centerY, 0) - NODE_HEIGHT / 2;
+  const top = Math.min(...center, 0) - nodeCross / 2;
   const boxes: Box[] = keys.map((_, position) => ({
-    x: PADDING + layer[position] * (NODE_WIDTH + LAYER_GAP),
-    y: PADDING + centerY[position] - NODE_HEIGHT / 2 - top,
-    width: NODE_WIDTH,
-    height: NODE_HEIGHT,
+    x: PADDING + layer[position] * (nodeMain + gap.layer),
+    y: PADDING + center[position] - nodeCross / 2 - top,
+    width: nodeMain,
+    height: nodeCross,
   }));
-  const nodes: LaidOutNode[] = graph.nodes.map((node, position) => ({ id: keys[position], kind: node.identity.kind, planId: "", iteration: null, manual: false, box: boxes[position] }));
 
   const outPorts = new Map<number, number>();
   const inPorts = new Map<number, number>();
@@ -163,56 +184,108 @@ export function layoutAutomationGraph(graph: AutomationGraph): AutomationLayout 
     keys.forEach((_, node) => {
       const attached = routed.map((edge, edgeIndex) => ({ edge, edgeIndex })).filter(({ edge, edgeIndex }) => edge[side] === node && !back.has(edgeIndex));
       attached.sort((a, b) => boxes[side === "from" ? a.edge.to : a.edge.from].y - boxes[side === "from" ? b.edge.to : b.edge.from].y || a.edgeIndex - b.edgeIndex);
-      portOffsets(attached.length).forEach((offset, position) => ports.set(attached[position].edgeIndex, offset));
+      portOffsets(attached.length, nodeCross).forEach((offset, position) => ports.set(attached[position].edgeIndex, offset));
     });
   };
   assignPorts("from", outPorts);
   assignPorts("to", inPorts);
 
+  const toBox = (box: Box): Box => vertical ? { x: box.y, y: box.x, width: box.height, height: box.width } : box;
+  const toPoint = (point: Point): Point => vertical ? { x: point.y, y: point.x } : point;
+  const pathOf = (segment: Segment) => {
+    const [a, c1, c2, b] = [segment.a, segment.c1, segment.c2, segment.b].map(toPoint);
+    return `M ${a.x} ${a.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${b.x} ${b.y}`;
+  };
+
   const placed: Box[] = [];
   let backLane = 0;
+  let right = Math.max(...boxes.map((box) => box.x + box.width), PADDING);
   let bottom = Math.max(...boxes.map((box) => box.y + box.height), PADDING);
   const edges: AutomationEdgeRoute[] = routed.map(({ edge, from, to }, edgeIndex) => {
     const source = boxes[from];
     const target = boxes[to];
     const label = edgeLabel(edge);
-    let path: string;
+    const labelMain = vertical ? label.height : label.width;
+    const labelCross = vertical ? label.width : label.height;
+    let segment: Segment;
     let anchor: Point;
     const isBack = back.has(edgeIndex) || from === to;
     if (from === to) {
       const a = { x: source.x + source.width, y: source.y + source.height / 2 - 18 };
       const b = { x: a.x, y: a.y + 36 };
-      path = `M ${a.x} ${a.y} C ${a.x + SELF_LOOP} ${a.y - 24}, ${b.x + SELF_LOOP} ${b.y + 24}, ${b.x} ${b.y}`;
-      anchor = { x: a.x + SELF_LOOP + 4 + label.width / 2, y: (a.y + b.y) / 2 };
+      segment = { a, c1: { x: a.x + SELF_LOOP, y: a.y - 24 }, c2: { x: b.x + SELF_LOOP, y: b.y + 24 }, b };
+      anchor = { x: a.x + SELF_LOOP + 4 + labelMain / 2, y: (a.y + b.y) / 2 };
+      right = Math.max(right, a.x + SELF_LOOP);
     } else if (isBack) {
       const drop = BACK_DROP + backLane++ * BACK_LANE;
       const a = { x: source.x + source.width / 2, y: source.y + source.height };
       const b = { x: target.x + target.width / 2, y: target.y + target.height };
       const floor = Math.max(a.y, b.y) + drop;
-      path = `M ${a.x} ${a.y} C ${a.x} ${floor}, ${b.x} ${floor}, ${b.x} ${b.y}`;
+      segment = { a, c1: { x: a.x, y: floor }, c2: { x: b.x, y: floor }, b };
       anchor = { x: (a.x + b.x) / 2, y: floor - drop * 0.25 };
+      bottom = Math.max(bottom, floor);
     } else {
       const a = { x: source.x + source.width, y: source.y + source.height / 2 + (outPorts.get(edgeIndex) ?? 0) };
       const b = { x: target.x, y: target.y + target.height / 2 + (inPorts.get(edgeIndex) ?? 0) };
-      path = bezierPath(a, b, CURVE);
-      anchor = layer[to] - layer[from] > 1 ? pointAtX(a, b, target.x - LAYER_GAP / 2) : bezierPoint(a, b, 0.5);
+      segment = curve(a, b);
+      anchor = layer[to] - layer[from] > 1 ? pointAtX(segment, target.x - gap.layer / 2) : pointOn(segment, 0.5);
     }
-    const box: Box = { x: anchor.x - label.width / 2, y: anchor.y - LABEL_HEIGHT / 2, width: label.width, height: LABEL_HEIGHT };
+    const box: Box = { x: anchor.x - labelMain / 2, y: anchor.y - labelCross / 2, width: labelMain, height: labelCross };
     for (let attempt = 0; attempt < placed.length + boxes.length + 1; attempt++) {
       const blocker = [...placed, ...boxes].find((other) => boxesOverlap(box, other, 2));
       if (!blocker) break;
       box.y = blocker.y + blocker.height + 4;
     }
     placed.push(box);
-    bottom = Math.max(bottom, box.y + box.height, isBack ? anchor.y + LABEL_HEIGHT : 0);
-    return { edge, from: keys[from], to: keys[to], path, back: isBack, label: { ...box, text: label.text, title: label.title } };
+    right = Math.max(right, box.x + box.width);
+    bottom = Math.max(bottom, box.y + box.height);
+    return { edge, from: keys[from], to: keys[to], path: pathOf(segment), back: isBack, label: { ...toBox(box), lines: label.lines, title: label.title } };
   });
 
-  const right = Math.max(...boxes.map((box) => box.x + box.width), ...placed.map((box) => box.x + box.width), PADDING);
+  const nodes: LaidOutNode[] = graph.nodes.map((node, position) => ({ id: keys[position], kind: node.identity.kind, planId: "", iteration: null, manual: false, box: toBox(boxes[position]) }));
+  const rootIndex = scenarioRoots[0] ?? (keys.length ? 0 : undefined);
   return {
+    orientation,
     nodes,
     byId: new Map(nodes.map((node) => [node.id, node])),
     edges,
-    bounds: { x: 0, y: 0, width: right + PADDING, height: bottom + PADDING },
+    bounds: toBox({ x: 0, y: 0, width: right + PADDING, height: bottom + PADDING }),
+    root: rootIndex === undefined ? null : nodes[rootIndex].box,
+  };
+}
+
+export function layoutAutomationOrientations(graph: AutomationGraph): AutomationLayouts {
+  return { horizontal: layoutAutomationGraph(graph, "horizontal"), vertical: layoutAutomationGraph(graph, "vertical") };
+}
+
+export interface CanvasSize { width: number; height: number }
+
+function overview(layout: AutomationLayout, size: CanvasSize): ViewportTransform | null {
+  return computeFitTransform(layout.bounds, size.width, size.height, { maxScale: 1, fitPadding: FIT_PADDING });
+}
+
+/** Keeps left-to-right flow while it reads at full size, otherwise the orientation the measured canvas shows larger. */
+export function preferredOrientation(layouts: AutomationLayouts, size: CanvasSize): AutomationOrientation {
+  const horizontal = overview(layouts.horizontal, size)?.scale ?? 0;
+  const vertical = overview(layouts.vertical, size)?.scale ?? 0;
+  return horizontal >= READABLE_SCALE || horizontal >= vertical ? "horizontal" : "vertical";
+}
+
+function frameAxis(start: number, extent: number, view: number, focus: number, focusExtent: number, flow: boolean, scale: number): number {
+  if (extent * scale <= view - FIT_PADDING * 2) return (view - extent * scale) / 2 - start * scale;
+  const wanted = flow ? FIT_PADDING - focus * scale : view / 2 - (focus + focusExtent / 2) * scale;
+  return Math.min(FIT_PADDING - start * scale, Math.max(view - FIT_PADDING - (start + extent) * scale, wanted));
+}
+
+/** Initial camera: the whole graph when it stays readable, else the root at a readable scale; `whole` forces the overview. */
+export function frameAutomation(layout: AutomationLayout, size: CanvasSize, whole: boolean): ViewportTransform | null {
+  const fit = overview(layout, size);
+  if (!fit || whole || fit.scale >= READABLE_SCALE || !layout.root) return fit;
+  const { bounds, root } = layout;
+  const horizontal = layout.orientation === "horizontal";
+  return {
+    scale: READABLE_SCALE,
+    x: frameAxis(bounds.x, bounds.width, size.width, root.x, root.width, horizontal, READABLE_SCALE),
+    y: frameAxis(bounds.y, bounds.height, size.height, root.y, root.height, !horizontal, READABLE_SCALE),
   };
 }
