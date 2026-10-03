@@ -39,6 +39,19 @@ pub enum MemAction {
     },
     /// Delete an item by id
     Delete { id: String },
+    /// Preview or purge retained raw PreCompact payloads for one already-deleted record
+    PurgePrecompact {
+        id: String,
+        /// Apply the previewed purge; default is read-only inventory
+        #[arg(long, requires = "verified_deleted")]
+        apply: bool,
+        /// Attest prior verification of this deleted record's original flush source, summary and tags
+        #[arg(long)]
+        verified_deleted: bool,
+        /// Rebuild SQLite free pages and truncate the current WAL after purge
+        #[arg(long, requires = "apply")]
+        vacuum: bool,
+    },
     /// Archive an item without deleting it; undo with `mem restore`.
     Archive {
         id: String,

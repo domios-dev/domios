@@ -170,4 +170,12 @@ Hooks are installed through the provider integration action into `~/.claude/sett
 
 Skills and background services: `codeterm docs MEMORY-SERVICES`. Agent behavior and command reference: `codeterm docs MEMORY-USAGE`.
 
-<!-- revision: 40 -->
+## Retired raw-export cleanup
+
+After updating the owning peer's daemon and CLI, preview an already verified and deleted record locally with `codeterm mem purge-precompact <id>`. Apply with `--apply --verified-deleted`; `--vacuum` compacts FTS/SQLite and requests current-WAL truncation.
+
+The prior deletion receipt must establish conversation kind, `flush:<tab> pre-compact` title, matching tab/pane source, PTY scrollback summary and flush/conversation tags. History does not retain source/summary/tags: `--verified-deleted` attests that prior receipt, not newly reconstructed provenance. The command refuses live, renamed, promoted, merged, unknown or oversized records. It purges only their history, exact vectors/FTS rows and attributable unshared body blobs. Shared blobs and graph knowledge remain. A payload-free receipt supports retry after file failure; partial cleanup is an RPC error with its report.
+
+Check row/byte counts and compaction outcomes. Blob unlink, VACUUM and WAL checkpoint reclaim storage, without secure erasure. Backups, snapshots, old WAL copies, filesystem free space and provider transcripts remain untouched. No global orphan sweep runs.
+
+<!-- revision: 41 -->

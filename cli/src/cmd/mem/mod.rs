@@ -17,6 +17,10 @@ use crate::cmd::supporter_render;
 use crate::{MemAction, MemSkillAction};
 
 pub fn handle_mem(client: &mut SocketClient, json_mode: bool, action: MemAction) {
+    if matches!(&action, MemAction::PurgePrecompact { .. }) {
+        crate::cmd::print::handle_cli_result(json_mode, socket::purge_precompact(client, &action));
+        return;
+    }
     let human_search = !json_mode && matches!(&action, MemAction::Search { .. });
     if let Some(result) = socket::try_dispatch(client, &action) {
         if human_search {

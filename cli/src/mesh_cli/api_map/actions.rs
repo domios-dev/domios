@@ -574,6 +574,7 @@ pub(super) fn mem_to_api(action: &MemAction) -> (String, String, Option<String>)
             format!("/api/mem/items/{}", enc(id)),
             Some(json!({"pinned": false}).to_string()),
         ),
+        MemAction::PurgePrecompact { .. } => unsupported("mem purge-precompact is local-socket-only; run it on the owning peer"),
         MemAction::Pinned { limit } => {
             let path = match limit {
                 Some(n) => format!("/api/mem/pinned?limit={}", n),

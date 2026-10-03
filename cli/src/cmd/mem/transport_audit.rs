@@ -20,6 +20,7 @@ pub(crate) fn classify(action: &MemAction) -> MemTransport {
         MemAction::Search { .. }
         | MemAction::Get { .. }
         | MemAction::Delete { .. }
+        | MemAction::PurgePrecompact { .. }
         | MemAction::Archive { .. }
         | MemAction::Forget { .. }
         | MemAction::Update { .. }

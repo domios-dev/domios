@@ -21,6 +21,7 @@ pub mod ids;
 pub mod layers;
 pub mod learnings;
 pub mod ports;
+pub mod precompact_purge;
 pub mod prompt_text;
 pub mod rerank;
 pub mod search;
