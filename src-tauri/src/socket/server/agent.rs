@@ -283,7 +283,7 @@ pub(super) fn dispatch(
             let task_id = acknowledged.task_id.clone();
             svc.acknowledge_worker_ack(&plan_id, &task_id, &tab_id, &acknowledged.attempt);
             if acknowledged.already_acknowledged {
-                return Ok(task_ack_success_response(
+                let response = task_ack_success_response(
                     &plan_id,
                     &task_id,
                     &tab_id,
@@ -291,7 +291,8 @@ pub(super) fn dispatch(
                     acknowledged.attempt.acknowledged_at,
                     acknowledged.attempt.session_id.is_some(),
                     true,
-                ));
+                );
+                return task_ack_with_skill_brief(response, params, svc, &acknowledged);
             }
             svc.gateway.require_worker_report(&tab_id);
             super::plan::emit_plan_changed(_app, &plan_id);
@@ -327,7 +328,7 @@ pub(super) fn dispatch(
                     payload,
                 );
             }
-            Ok(task_ack_success_response(
+            let response = task_ack_success_response(
                 &plan_id,
                 &task_id,
                 &tab_id,
@@ -335,7 +336,8 @@ pub(super) fn dispatch(
                 acknowledged.attempt.acknowledged_at,
                 runtime_ready,
                 false,
-            ))
+            );
+            task_ack_with_skill_brief(response, params, svc, &acknowledged)
         }
 
         "agent.startup_ack" => {
@@ -495,6 +497,26 @@ fn task_ack_success_response(
         "attempt_id": attempt_id,
         "acknowledged_at": acknowledged_at,
     })
+}
+
+fn task_ack_with_skill_brief(
+    mut response: Value,
+    params: &Option<Value>,
+    svc: &ServiceState,
+    acknowledged: &crate::service::plan::task_attempts::TaskAttemptAcknowledgement,
+) -> Result<Value, JsonRpcError> {
+    let mux = svc.mux.read();
+    let brief = super::plan_skills_rpc::ack_skill_brief(
+        &svc.plan_store,
+        &mux,
+        params,
+        acknowledged,
+        epoch_ms(),
+    )?;
+    if let (Some(response), Some(brief)) = (response.as_object_mut(), brief.as_object()) {
+        response.extend(brief.clone());
+    }
+    Ok(response)
 }
 
 fn startup_ack_success_response(
