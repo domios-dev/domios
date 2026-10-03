@@ -29,9 +29,11 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState(false);
   const [time, setTime] = useState(0);
-  const [soundLevel, setSoundLevel] = useState<0 | .1 | 1>(0);
+  const [soundLevel, setSoundLevel] = useState(0);
+  const [loopEnabled, setLoopEnabled] = useState(true);
   const soundEnabled = soundLevel > 0;
-  const soundChoice = useRef<0 | .1 | 1>(0);
+  const soundChoice = useRef(0);
+  const explicitSound = useRef(false);
   const mutedByUser = useRef(false);
   const ambientAttempted = useRef(false);
   const playAttempt = useRef(0);
@@ -39,11 +41,13 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
   const observedInView = useRef(false);
   const policy = useRef({ loaded, pausedByUser, reducedMotion, requestedByUser });
   policy.current = { loaded, pausedByUser, reducedMotion, requestedByUser };
-  const applySound = (level: 0 | .1 | 1) => {
+  const applySound = (level: number, explicit = false) => {
     soundChoice.current = level;
+    explicitSound.current = level > 0 && explicit;
     setSoundLevel(level);
+    setLoopEnabled(!explicitSound.current);
     const video = videoRef.current;
-    if (video) { video.volume = level || .1; video.muted = level === 0; video.loop = level !== 1; }
+    if (video) { video.volume = level || .1; video.muted = level === 0; video.loop = !explicitSound.current; }
   };
   const mute = () => applySound(0);
   const canPlay = () => inViewNow.current && !document.hidden && !policy.current.pausedByUser
@@ -70,9 +74,9 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
       applySound(.1);
     }
     const attempt = ++playAttempt.current;
-    const ambient = soundChoice.current === .1;
+    const ambient = soundChoice.current === .1 && !explicitSound.current;
     video.muted = soundChoice.current === 0;
-    video.loop = soundChoice.current !== 1;
+    video.loop = !explicitSound.current;
     const rejected = () => {
       if (playAttempt.current !== attempt) return;
       setPlaying(false);
@@ -195,14 +199,21 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
     }
   };
   return {
-    containerRef, videoRef, loaded, playing, failed, time, soundEnabled, soundAtFullVolume: soundLevel === 1, seek, togglePlayback, onLoadedMetadata, onLoadedData,
+    containerRef, videoRef, loaded, playing, failed, time, soundEnabled, soundAtFullVolume: soundLevel === 1,
+    volume: soundLevel, loopEnabled, seek, togglePlayback, onLoadedMetadata, onLoadedData,
+    setVolume: (percentage: number) => {
+      const level = Math.max(0, Math.min(1, percentage / 100));
+      mutedByUser.current = level === 0;
+      ambientAttempted.current = true;
+      applySound(level, true);
+    },
     toggleSound: () => {
       if (!clip.hasNarration) return;
       if (soundChoice.current === 1) { mutedByUser.current = true; mute(); }
       else {
         mutedByUser.current = false;
         ambientAttempted.current = true;
-        applySound(1);
+        applySound(1, true);
         play();
       }
     },
