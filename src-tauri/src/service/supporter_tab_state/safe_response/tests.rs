@@ -102,6 +102,23 @@ fn supporter_first_opinion_safe_response_distinct_events_and_new_occurrence() {
 }
 
 #[test]
+fn supporter_first_opinion_safe_response_static_frame_distinct_events_confirm() {
+    let mut book = Agreement::default();
+    assert_eq!(
+        book.observe("launch", 7, 31, 900, "skip-token", 0.96),
+        (1, 0.96)
+    );
+    assert_eq!(
+        book.observe("launch", 7, 32, 900, "skip-token", 0.94),
+        (2, 0.94)
+    );
+    assert_eq!(
+        book.observe("launch", 7, 32, 900, "skip-token", 0.99),
+        (2, 0.94)
+    );
+}
+
+#[test]
 fn supporter_first_opinion_safe_response_provider_option_order_and_focus() {
     use codeterm_plugin::provider::AgentProvider;
     let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
