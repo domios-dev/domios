@@ -18,6 +18,6 @@ Start a dev daemon rebuilt from the current branch, then run:
 ./evals/plan-lifecycle/run.sh
 ```
 
-The script sources `evals/_lib/lib.sh` and uses the `dc` wrapper for every CodeTerm CLI call, so it is locked to dev on port 7686 and cannot fall back to prod.
+The script sources `evals/_lib/lib.sh` and uses the `dc` wrapper for every Domios CLI call, so it is locked to dev on port 7686 and cannot fall back to prod.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
