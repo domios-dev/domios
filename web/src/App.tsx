@@ -12,6 +12,7 @@ import { useDownload } from './download/useDownload';
 import { DownloadFeedback } from './download/DownloadFeedback';
 import { useBrandEntrance } from './brand/useBrandEntrance';
 import { SiteHeader } from './SiteHeader';
+import { MemoryGallery } from './MemoryGallery';
 
 const github = 'https://github.com/rollacode/codeterm-releases';
 const pillars: { icon: IconName; title: string; text: string; detail: string }[] = [
@@ -46,6 +47,7 @@ export function App() {
       </section>
       <BuilderNotes staticMotion={reducedMotion} />
       <JevSection />
+      <MemoryGallery />
       <Showcase reducedMotion={reducedMotion} />
       <section id="foundation" className="foundation section-wrap" aria-labelledby="foundation-title"><div className="section-heading"><div><p className="eyebrow">THE ENVIRONMENT MATTERS</p><h2 id="foundation-title">Let your agents get to work.</h2></div><p>The infrastructure around the intelligence.<br className="desktop-break" /> Built to keep everything connected.</p></div>
         <div className="pillar-grid">{pillars.map((pillar, index) => <article className="pillar" key={pillar.title}><div className="pillar-top"><Icon name={pillar.icon} size={25} /><span>0{index + 1}</span></div><h3>{pillar.title}</h3><p>{pillar.text}</p><span className="pillar-detail">{pillar.detail}</span></article>)}</div>
