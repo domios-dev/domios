@@ -56,7 +56,7 @@ fn acquire_machine_update_lock(dir: &Path) -> Result<MachineUpdateLock, String> 
     let locked = lock_windows_file(&file, true);
     if !locked {
         return Err(
-            "another CodeTerm instance is already updating a provider on this machine".into(),
+            "another Domios instance is already updating a provider on this machine".into(),
         );
     }
     file.set_len(0).map_err(|error| error.to_string())?;
