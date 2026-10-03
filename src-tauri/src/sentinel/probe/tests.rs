@@ -487,3 +487,47 @@ fn test_status() -> std::process::ExitStatus {
         std::process::ExitStatus::from_raw(0)
     }
 }
+
+#[test]
+fn sentinel_probe_capture_typed_status_comes_from_exit_status_preserving_hash_input() {
+    for code in [0, 7] {
+        let output = super::fixture_output(code, b"exit=0\nopaque", b"err");
+        assert_eq!(output.exit_code, Some(code));
+        assert_eq!(output.success, code == 0);
+        let mut bytes = code.to_le_bytes().to_vec();
+        bytes.extend_from_slice(&(13u64).to_le_bytes());
+        bytes.extend_from_slice(b"exit=0\nopaque");
+        bytes.extend_from_slice(b"err");
+        assert_eq!(output.bytes, bytes);
+        assert_eq!(output.stdout.total_bytes, 13);
+        assert_eq!(output.stdout.retained_bytes, 13);
+        assert!(!output.stdout.truncated);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::ExitStatusExt;
+        let output = super::capture::assemble(
+            std::process::ExitStatus::from_raw(libc::SIGTERM),
+            completed_data(b"out"),
+            completed_data(b"err"),
+        );
+        assert_eq!(output.exit_code, None);
+        assert!(!output.success);
+        assert_eq!(output.text, "exit=signal\nstdout:\nout\nstderr:\nerr");
+        assert_eq!(&output.bytes[..4], &(-1i32).to_le_bytes());
+    }
+}
+
+#[test]
+fn sentinel_probe_owner_shutdown_delivers_only_registered_slot_cancellation() {
+    let owner = Arc::new(ProbeResourceOwner::new());
+    let signal = super::cancellation::Cancellation::default();
+    let unrelated = super::cancellation::Cancellation::default();
+    let mut reservation = owner.reserve().unwrap();
+    reservation.register_cancellation(signal.clone()).unwrap();
+    owner.close_admission();
+    assert!(signal.load(Ordering::SeqCst));
+    assert!(!unrelated.load(Ordering::SeqCst));
+    reservation.release().unwrap();
+    assert_eq!(owner.snapshot().free, super::owner::MAX_RESOURCE_SLOTS);
+}

@@ -1,5 +1,6 @@
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
+use std::io::Read;
 
 use crate::args::sentinel::SentinelAction;
 use crate::client::SocketClient;
@@ -130,11 +131,17 @@ struct HandlerDefinition {
     parameters: HandlerParameters,
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Default, serde::Deserialize, serde::Serialize)]
 #[serde(deny_unknown_fields)]
 struct HandlerParameters {
     #[serde(skip_serializing_if = "Option::is_none")]
     target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    timeout_ms: Option<u64>,
 }
 
 fn declared_outputs(
@@ -145,10 +152,15 @@ fn declared_outputs(
         return Err("--route and --handlers-file cannot be combined".into());
     }
     if let Some(path) = path {
-        if std::fs::metadata(path).map_err(|e| e.to_string())?.len() > 65_536 {
+        let mut raw = String::new();
+        std::fs::File::open(path)
+            .map_err(|error| error.to_string())?
+            .take(65_537)
+            .read_to_string(&mut raw)
+            .map_err(|error| error.to_string())?;
+        if raw.len() > 65_536 {
             return Err("handlers file exceeds 64 KiB".into());
         }
-        let raw = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
         let definitions: BTreeMap<String, Vec<HandlerDefinition>> =
             serde_json::from_str(&raw).map_err(|e| format!("invalid handlers file: {e}"))?;
         let mut ids = std::collections::BTreeSet::new();
@@ -160,16 +172,52 @@ fn declared_outputs(
                 if !ids.insert(&handler.id) {
                     return Err("duplicate handler ID".into());
                 }
-                match (handler.kind.as_str(), handler.parameters.target.as_deref()) {
-                    ("notify" | "stop", None) => {}
-                    ("sentinel" | "send" | "cron", Some(target)) if !target.trim().is_empty() => {}
-                    ("command", _) => {
-                        return Err(
-                            "command handlers require a separately reviewed execution contract"
-                                .into(),
-                        )
+                let parameters = &handler.parameters;
+                if handler.kind == "command" {
+                    let command = parameters
+                        .command
+                        .as_deref()
+                        .ok_or("command text is required")?;
+                    let label = parameters
+                        .label
+                        .as_deref()
+                        .ok_or("command label is required")?;
+                    let timeout = parameters
+                        .timeout_ms
+                        .ok_or("command timeout_ms is required")?;
+                    if parameters.target.is_some()
+                        || command.trim().is_empty()
+                        || command.len() > 8192
+                        || command.contains('\0')
+                    {
+                        return Err("command requires local fixed text of at most 8192 bytes without NUL and no target".into());
                     }
-                    _ => return Err("unknown handler type or invalid parameters".into()),
+                    if label.trim().is_empty()
+                        || label.len() > 256
+                        || label.chars().any(char::is_control)
+                    {
+                        return Err("command label must be bounded display text".into());
+                    }
+                    #[cfg(windows)]
+                    let runtime_ms = 10_000;
+                    #[cfg(not(windows))]
+                    let runtime_ms = 3_000;
+                    if timeout == 0 || timeout > runtime_ms {
+                        return Err("command timeout_ms exceeds the platform runtime".into());
+                    }
+                } else {
+                    if parameters.command.is_some()
+                        || parameters.label.is_some()
+                        || parameters.timeout_ms.is_some()
+                    {
+                        return Err("command parameters require type=command".into());
+                    }
+                    match (handler.kind.as_str(), parameters.target.as_deref()) {
+                        ("notify" | "stop", None) => {}
+                        ("sentinel" | "send" | "cron", Some(target))
+                            if !target.trim().is_empty() => {}
+                        _ => return Err("unknown handler type or invalid parameters".into()),
+                    }
                 }
             }
         }
@@ -197,7 +245,10 @@ fn declared_outputs(
             .push(HandlerDefinition {
                 id: format!("handler_{}", index + 1),
                 kind: kind.into(),
-                parameters: HandlerParameters { target },
+                parameters: HandlerParameters {
+                    target,
+                    ..Default::default()
+                },
             });
     }
     if repeated {
@@ -301,5 +352,48 @@ mod tests {
             json!({"id":"handler_2","type":"sentinel","parameters":{"target":"sentinel_child"}})
         );
         assert_eq!(create["timeout"], "1h");
+    }
+}
+
+#[cfg(test)]
+mod command_tests {
+    use super::*;
+    use clap::Parser;
+
+    #[test]
+    fn sentinel_command_handlers_file_reaches_authenticated_create_request_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("handlers.json");
+        let command = "printf '$model ${output} `raw`'";
+        let definitions = json!({"done":[{"id":"fixed", "type":"command", "parameters":{"command":command, "label":"Fixed text", "timeout_ms":1000}}]});
+        std::fs::write(&path, serde_json::to_vec(&definitions).unwrap()).unwrap();
+        let cli = crate::args::cli::Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "create",
+            "--probe",
+            "status",
+            "--question",
+            "state?",
+            "--buckets",
+            "done",
+            "--match",
+            "done=done",
+            "--timeout",
+            "1h",
+            "--handlers-file",
+            path.to_str().unwrap(),
+        ])
+        .unwrap();
+        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+            panic!("wrong command");
+        };
+        let (method, params) =
+            request(action, Some("creator".into()), Some("nonce".into())).unwrap();
+        assert_eq!(method, "sentinel.create");
+        assert_eq!(params["caller_tab_id"], "creator");
+        assert_eq!(params["session_binding_nonce"], "nonce");
+        assert_eq!(params["create"]["handlers"], definitions);
+        assert_eq!(params["create"]["routes"], json!({}));
     }
 }
