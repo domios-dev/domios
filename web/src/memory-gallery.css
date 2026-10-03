@@ -1,0 +1,11 @@
+.memory-gallery { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; padding-top: 48px; }
+.memory-feature { min-width: 0; margin: 0; overflow: hidden; border: 1px solid var(--ct-border); border-radius: 18px 22px 18px 22px; background: var(--ct-surface); }
+.memory-feature-image { aspect-ratio: 16 / 10; overflow: hidden; background: var(--ct-bg); }
+.memory-feature-image img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top; }
+.memory-feature figcaption { padding: 20px 22px 24px; }
+.memory-feature h3 { margin: 0 0 8px; color: var(--ct-heading); font-size: 20px; font-weight: 500; letter-spacing: -.4px; }
+.memory-feature p { margin: 0; color: var(--ct-muted-fg); font-size: 13px; line-height: 1.65; }
+@media (max-width: 650px) {
+  .memory-gallery { grid-template-columns: minmax(0, 1fr); gap: 16px; padding-top: 32px; }
+  .memory-feature figcaption { padding: 18px; }
+}
