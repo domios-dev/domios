@@ -262,6 +262,12 @@ automation that needs a detached health gate and does not prove a visible window
 
 ### Visible Windows dev session
 
+### Focused Windows test prerequisite troubleshooting
+
+| Symptom | Cause | Recovery |
+|---|---|---|
+| `test-one app` stops before compilation with `prepare-embed-stub.js: spawnSync rustc ENOENT` | The utility process cannot resolve Rust, and its user Cargo bin has no compiler proxy, although the pinned toolchain is installed. | Prepend the existing `~/.rustup/toolchains/1.95.0-x86_64-pc-windows-msvc/bin` only to that Team utility process PATH; verify `Get-Command rustc,cargo` resolves there and `rustc --version` reports the repository pin. Preserve the failed zero-selected receipt, then run the same focused wrapper from clean canonical with a fresh idle gateway check. Do not install tools or change persistent PATH, runner environment, caches, or production. |
+
 For interactive verification, do not use `dev --wait`. It is the detached
 readiness path for scripts and CI. Use one visible Domios Tab as the sole
 foreground owner:
@@ -477,4 +483,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
