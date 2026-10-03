@@ -197,7 +197,12 @@ fn retained_launch_early_ack_completes_only_same_attempt_then_exact_load() {
     launch.ready();
     let response = launch.ack().unwrap();
     assert_eq!(response["attempt_id"], launch.attempt);
-    assert_eq!(response["state"], "in_progress");
+    assert_eq!(response["state"], "already_acknowledged");
+    assert_eq!(response["accepted"], true);
+    assert_eq!(response["already_acknowledged"], true);
+    assert_eq!(response["plan_id"], launch.caller.plan_id);
+    assert_eq!(response["task_id"], launch.caller.task_id);
+    assert_eq!(response["tab_id"], launch.tab);
     assert_eq!(
         response["acknowledged_at"],
         json!(before.execution_attempts[1].acknowledged_at)
@@ -207,7 +212,7 @@ fn retained_launch_early_ack_completes_only_same_attempt_then_exact_load() {
     expected.execution_attempts[1].session_binding_nonce = Some(CALLER_NONCE.into());
     expected.interruption.owner_session_id = Some(CALLER_SESSION.into());
     assert_eq!(launch.task(), expected);
-    assert_eq!(launch.ack().unwrap()["attempt_id"], launch.attempt);
+    assert_eq!(launch.ack().unwrap(), response);
     assert_eq!(launch.task(), expected);
     let mut read = launch.caller.production_params();
     read["attempt_id"] = json!(launch.attempt);
