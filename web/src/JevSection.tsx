@@ -7,8 +7,8 @@ export function JevSection() {
 
   return <section id="jev" className="jev-section section-wrap" aria-labelledby="jev-title">
     <div className="jev-heading">
-      <h2 id="jev-title">Keep your team connected.</h2>
-      <p>Shared knowledge, clear roles, and a way to reach you.</p>
+      <h2 id="jev-title">Keep your team connected</h2>
+      <p>Roles, this machine’s memory, connected Telegram.</p>
     </div>
     <figure
       className="jev-board jev-scene"
@@ -16,7 +16,7 @@ export function JevSection() {
       data-story-motion="paused"
       data-story-phase="static"
       role="img"
-      aria-label="Orchestrator, Planner and Worker roles ask Domios to recall this machine’s durable memory. When a task needs input, JEV labels the state; Domios authorizes a notification from evidence through connected Telegram, and replies return through Domios to the Team. JEV is pluggable, and suitable local models can connect through LM Studio."
+      aria-label="The Team’s Orchestrator, Planner and Worker roles ask Domios to recall this machine’s memory. JEV is pluggable and names states; Domios authorizes actions from evidence. A connected Telegram notification and reply return through Domios to the Team."
     >
       <svg className="jev-routes" aria-hidden="true" preserveAspectRatio="none">
         <defs>
@@ -32,42 +32,26 @@ export function JevSection() {
       </svg>
       <div className="jev-team jev-node" data-story-node="team">
         <strong>Team</strong>
-        <div className="jev-roles">
-          <span>Orchestrator</span>
-          <span>Planner</span>
-          <span>Worker</span>
-        </div>
-        <small>Requests ↔ responses</small>
+        <span className="jev-roles">Orchestrator · Planner · Worker</span>
       </div>
       <div className="jev-core-group">
         <div className="jev-home jev-node" data-story-node="home">
           <BrandMark motion="static" />
           <strong>Domios</strong>
-          <span className="jev-home-label">Built-in spine</span>
-          <div className="jev-spine" aria-hidden="true"><i /><i /><i /><i /><i /></div>
-          <div className="jev-story-cue" aria-hidden="true">
-            <span>Illustrative exchange</span>
-            <strong data-story-cue>Recall request</strong>
-          </div>
-          <div className="jev-evidence" aria-hidden="true">
-            <i />
-            <span>Evidence → action</span>
-          </div>
+          <span className="jev-story-cue" data-story-cue aria-hidden="true">Recall request</span>
         </div>
         <div className="jev-engine jev-node" data-story-node="engine">
           <strong>JEV</strong>
-          <span>State labels</span>
-          <span>Pluggable</span>
+          <span>Pluggable · state labels</span>
         </div>
       </div>
       <div className="jev-memory jev-node" data-story-node="memory">
         <strong>Memory</strong>
         <span>This machine</span>
-        <small>Recall ↔ knowledge</small>
       </div>
       <div className="jev-telegram jev-node" data-story-node="telegram">
-        <strong>Telegram</strong>
-        <span>Connected bridge</span>
+        <strong>Your messenger</strong>
+        <span>Telegram · connected</span>
         <small>Notifications · replies</small>
       </div>
     </figure>
