@@ -15,9 +15,14 @@ fn entry(
 
 #[test]
 fn attempt_binding_restore_current_tab_role_requires_a_worker_leaf_kind() {
-    let (mut mux, tab_id) = MultiplexerState::new();
+    let (mut mux, parent_tab_id) = MultiplexerState::new();
+    let workspace_id = mux.list_workspaces()[0].id.clone();
+    let tab_id = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(&tab_id, AgentRole::Worker, Some(&parent_tab_id))
+        .unwrap();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
-    tab.role = Some(AgentRole::Worker);
+    assert_eq!(tab.role, Some(AgentRole::Worker));
+    assert_eq!(tab.role_profile, None);
     assert!(is_current_worker_role(tab));
 
     tab.role_profile = Some("worker".into());
