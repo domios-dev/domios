@@ -1,6 +1,6 @@
 # Tab-state Jev evaluator source preparation
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
 
 This evaluator loads the immutable shipped `criteria.json` directly. It measures
 classification math over supplied human-labelled records and performs a bounded
@@ -144,6 +144,16 @@ No host ownership, ACL, interpreter installation or persistent PATH repair is
 needed. Source and injected regression coverage do not qualify native Windows
 execution: use the focused `WindowsTrustTests` selector and the existing six
 trust/six TLS oracles after reviewed real merge, stopping at the first failure.
+
+Focused proof at canonical `8ddda3f17c8cc8bc79b3d84968c50bafbf7ccada`
+passed all26 `WindowsTrustTests` methods. Native preflight then refused
+`windows_foreign_authority` at the existing user Temp directory: its explicit
+inheritable Modify ACE admitted a SID outside the current-token/SYSTEM/Admin
+principals. The root-owner correction remains distinct from this valid ACL
+refusal. No native trust/TLS control executed; captured handles/token closed,
+with no helper/listener. Preserve the negative guard and failed receipt; a
+verified safe existing temporary-parent prerequisite is required before a
+changed-prerequisite proof, without widening trust or modifying host ACLs.
 
 Parent and worker independently open source/interpreter/runtime roots and private
 cwd objects with READ_CONTROL, deny write/delete sharing, inspect volume/file IDs,
