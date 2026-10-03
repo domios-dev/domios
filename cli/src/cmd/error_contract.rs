@@ -67,7 +67,7 @@ impl ErrorCode {
             Self::RateLimited => "wait for the retry window named in the message, then retry",
             Self::Refused => "the daemon refused this request; the message names what it needs",
             Self::Unavailable => {
-                "check that CodeTerm is running (`codeterm identify` shows the target)"
+                "check that Domios is running (`codeterm identify` shows the target)"
             }
             Self::Internal => "check the daemon log for the failure",
         }

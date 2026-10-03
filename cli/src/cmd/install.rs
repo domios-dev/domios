@@ -306,7 +306,7 @@ pub fn run_install_from_file(
         }
         _ => {}
     }
-    eprintln!("[install --from-file] Detaching. CodeTerm goes down in ~2s.");
+    eprintln!("[install --from-file] Detaching. Domios goes down in ~2s.");
 
     // Detach into its own process group so it survives this CLI + the daemon.
     let spawn = std::process::Command::new("bash")
