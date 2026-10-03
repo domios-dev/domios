@@ -394,23 +394,44 @@ fn plan_skill_show_refusal_exits_nonzero() {
 #[test]
 fn plan_skill_default_uses_live_caller_despite_stale_launch_plan() {
     let _guard = crate::test_env_lock().lock().unwrap();
-    let keys = ["CODETERM_TAB_ID", "CODETERM_PLAN_ID", "CODETERM_SESSION_BINDING_NONCE",
-        "CODETERM_TASK_ID", "CODETERM_ATTEMPT_ID", "CODETERM_SESSION_ID"];
+    let keys = [
+        "CODETERM_TAB_ID",
+        "CODETERM_PLAN_ID",
+        "CODETERM_SESSION_BINDING_NONCE",
+        "CODETERM_TASK_ID",
+        "CODETERM_ATTEMPT_ID",
+        "CODETERM_SESSION_ID",
+    ];
     let previous = keys.map(|key| (key, std::env::var(key).ok()));
-    for key in keys { std::env::remove_var(key); }
+    for key in keys {
+        std::env::remove_var(key);
+    }
     for (key, value) in [
         ("CODETERM_TAB_ID", "live-tab"),
         ("CODETERM_SESSION_BINDING_NONCE", "live-nonce"),
         ("CODETERM_PLAN_ID", "previous-plan"),
         ("CODETERM_TASK_ID", "previous-task"),
         ("CODETERM_ATTEMPT_ID", "previous-attempt"),
-    ] { std::env::set_var(key, value); }
+    ] {
+        std::env::set_var(key, value);
+    }
     let mut client = FakeRpc::default();
     handle(&mut client, true, PlanSkillAction::List { plan: None }).unwrap();
-    handle(&mut client, true, PlanSkillAction::Show { slug: "deploy".into(), plan: None }).unwrap();
+    handle(
+        &mut client,
+        true,
+        PlanSkillAction::Show {
+            slug: "deploy".into(),
+            plan: None,
+        },
+    )
+    .unwrap();
     let calls = client.calls.clone();
     for (key, value) in previous {
-        match value { Some(value) => std::env::set_var(key, value), None => std::env::remove_var(key) }
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
     }
     assert_eq!(calls.len(), 2);
     for (_, params) in calls {
