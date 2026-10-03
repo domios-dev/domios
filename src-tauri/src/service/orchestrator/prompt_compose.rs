@@ -156,10 +156,35 @@ pub(crate) fn spawn_launch_task(
     params: &SpawnAgentParams,
     system_prompt_capable: bool,
 ) -> Option<String> {
-    role_launch_task(
+    let prompt = role_launch_task(
         params.task.as_deref(),
         params.role.as_deref(),
         params.role_profile.as_deref(),
         system_prompt_capable,
-    )
+    );
+    let target = (
+        params.report_target_mesh_peer.as_deref().map(str::trim),
+        params.report_target_tab_id.as_deref().map(str::trim),
+    );
+    let (Some(peer), Some(tab)) = target else {
+        return prompt;
+    };
+    if peer.is_empty() || tab.is_empty() {
+        return prompt;
+    }
+    let peer = params
+        .ownership
+        .as_ref()
+        .filter(|owner| owner.peer_name == peer || owner.peer_id == peer)
+        .map(|owner| owner.peer_id.trim())
+        .filter(|id| !id.is_empty())
+        .unwrap_or(peer);
+    let route = serde_json::json!({"mesh_peer": peer, "tab_id": tab});
+    let context = format!(
+        "## Host return route\n\n{route}\n\nSend reports to this exact remote tab using `codeterm send` with `--mesh` and `--tab` from this record, `--require-agent` and `--from-pad`. This daemon-supplied route overrides peer names in the assignment; do not guess or rediscover it."
+    );
+    Some(match prompt {
+        Some(prompt) => format!("{prompt}\n\n{context}"),
+        None => context,
+    })
 }
