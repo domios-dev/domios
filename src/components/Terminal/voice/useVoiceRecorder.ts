@@ -270,7 +270,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       onError(
         IS_WEB
           ? "Voice needs HTTPS on phones. Open Mesh -> Web UI and scan/copy the https://*.ts.net link; http://100.x cannot use the mic."
-          : "Microphone capture is unavailable in this CodeTerm window. Restart the app after updating microphone permissions.",
+          : "Microphone capture is unavailable in this Domios window. Restart the app after updating microphone permissions.",
       );
       return false;
     }
@@ -279,7 +279,7 @@ export function useVoiceRecorder(onError: (msg: string) => void) {
       try {
         const permission = await navigator.permissions.query({ name: "microphone" as PermissionName });
         if (permission.state === "denied") {
-          onError("Microphone permission is blocked for CodeTerm.");
+          onError("Microphone permission is blocked for Domios.");
           return false;
         }
       } catch {

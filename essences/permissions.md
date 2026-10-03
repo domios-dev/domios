@@ -6,7 +6,7 @@ Domios keeps execution access, role authority, plugin grants, folder trust and m
 
 The owner chooses agent execution access through the global `agent.full_access` setting. Spawn callers cannot override that choice. Until the owner has chosen, spawn is refused before a tab is created and directs the owner to choose access in Domios.
 
-Without full access, a model whose provider declares no unattended permission mode receives launch-scoped grants for its role's CodeTerm commands. Launching an Orchestrator or Planner on such a model is refused before tab creation, with the model named; Team pairing checks both members first. Provider capabilities determine this behavior, not provider identity.
+Without full access, a model whose provider declares no unattended permission mode receives launch-scoped grants for its role's Domios commands. Launching an Orchestrator or Planner on such a model is refused before tab creation, with the model named; Team pairing checks both members first. Provider capabilities determine this behavior, not provider identity.
 
 Command and tool permission prompts follow the tab's own permission policy. A model observation never approves them. Notification audience controls who is alerted, not execution access.
 

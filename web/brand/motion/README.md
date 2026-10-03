@@ -33,7 +33,7 @@ node brand/motion/export-motion.mjs <pad-output-directory>
 python brand/motion/encode-motion.py <pad-output-directory>
 ```
 
-`DOMIOS_EDGE_PATH` can override the browser executable. The default is the installed Windows Edge location. The exporter launches its own hidden headless browser and closes that browser after capture. It never attaches to a running browser or CodeTerm instance.
+`DOMIOS_EDGE_PATH` can override the browser executable. The default is the installed Windows Edge location. The exporter launches its own hidden headless browser and closes that browser after capture. It never attaches to a running browser or Domios instance.
 
 The browser evaluates the same `at()` motion function used by the interactive prototype at exact frame times. It renders eight frames per atlas and captures them without elapsed-time waits. Media preference inspection waits for the actual `MediaQueryList` change event. The encoder crops those actual browser frames into 640 × 480 / 30 fps H.264 MP4s and 480 × 360 / 20 fps looping GIFs. Every preview must stay below 3,000,000 bytes; the encoder refuses an oversized result and checks video dimensions, duration and decode validity.
 

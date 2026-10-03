@@ -1,7 +1,7 @@
 /**
  * Web-mirror runtime: local daemon host/token + mesh relay targeting.
  *
- * In WEB mode (no Tauri) the React app talks to the CodeTerm daemon that
+ * In WEB mode (no Tauri) the React app talks to the Domios daemon that
  * served the browser UI over plain HTTP, authenticated by that daemon's own token.
  * The browser ALWAYS points at this local daemon. To view a paired mesh
  * peer the picker sets a "relay target" (a peer instance_id); requests are

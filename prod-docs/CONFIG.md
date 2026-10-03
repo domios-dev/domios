@@ -141,7 +141,7 @@ Named development instances may explicitly set `api.mesh_tailnet_host` to a loca
 
 Agent access is one global choice. `agent.full_access = true` applies the provider's permission-bypass capability whenever any agent starts or restarts, including General Agent; `false` keeps provider permission prompts everywhere. The first-run picker asks once with Full access selected by default; there are no per-provider, per-resume, audience, or Remember-choice policies. On first load, an enabled remembered bypass from the former global or per-provider settings is converted to `agent.full_access = true` before any agent tab starts; the removed keys are then deleted from the saved config.
 
-With `false`, a role, task, or cron launch still runs its own CodeTerm commands (`agent startup-ack`, `agent ack`, `agent report`, `pad path`, and `cron complete` for a cron run) without an owner prompt: a provider that declares launch permissions grants exactly those commands through launch arguments when the model has no unattended mode, never through global provider settings. An Orchestrator or Planner on such a model is refused before any tab exists, naming the model and the models that have the mode. An Orchestrator launch always loses the provider's native subagent tools.
+With `false`, a role, task, or cron launch still runs its own Domios commands (`agent startup-ack`, `agent ack`, `agent report`, `pad path`, and `cron complete` for a cron run) without an owner prompt: a provider that declares launch permissions grants exactly those commands through launch arguments when the model has no unattended mode, never through global provider settings. An Orchestrator or Planner on such a model is refused before any tab exists, naming the model and the models that have the mode. An Orchestrator launch always loses the provider's native subagent tools.
 
 ## Config API
 
@@ -237,4 +237,4 @@ Worker lanes are source-only. Provisioning creates an isolated git worktree and 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
 
-<!-- revision: 87 -->
+<!-- revision: 88 -->
