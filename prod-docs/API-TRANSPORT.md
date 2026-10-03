@@ -122,11 +122,12 @@ dispatch. No grace mode: update CLIs on all mesh peers with the daemon
 | `tab.send_text` | `{tab_id, text}` | Send text; returns sent only after confirmed delivery, pending when accepted in background or written without submit confirmation, and a structured pre-write refusal with `bytes_written:false` |
 | `tab.get_output` | `{tab_id, max_bytes?}` | Read terminal output |
 | `tab.rename` | `{tab_id, title}` | Rename tab (pinned) |
-| `mem.stats` | — | Memory item, vector, entity, and relation counts over the socket. |
-| `mem.search` | `{q, kind?, area?, scope?, project?, limit?, rerank?}` | Search memory and the optional project plan index over the socket. |
+| `mem.stats` | — | Item, vector, entity and relation counts. |
+| `mem.search` | `{q, kind?, area?, scope?, project?, limit?, rerank?}` | Search memory and optional project plan index. |
 | `mem.get` | `{id}` | Fetch one mem item by id. |
 | `mem.save` | `{kind, title, body, scope?, summary?, area?, tags?, importance?, source_path?, replace?, skip_extract?, pinned?}` | Create a mem item; may spawn an extraction worker. |
 | `mem.delete` | `{id}` | Delete a mem item by id. |
+| `mem.purge_precompact` | `{id, apply?, verified_deleted?, vacuum?}` | Local purge, preview by default; partial errors retain the report. |
 | `mem.forget` | `{area}` | Batch-delete every item in an area. |
 | `mem.update` | `{id, title?, summary?, area?, tags?, body?, importance?, pinned?, changed_by?}` | Partial update; also used for pin/unpin (`pinned: true/false`). |
 | `mem.pinned` | `{limit?}` | List pinned items |
@@ -234,4 +235,4 @@ launch without a registered session remains the distinct
 `plan_binding_session_unregistered` error on both transports. Pending status
 never authorizes the mutation.
 
-<!-- revision: 48 -->
+<!-- revision: 49 -->

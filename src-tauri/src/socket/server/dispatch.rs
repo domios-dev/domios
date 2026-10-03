@@ -192,6 +192,7 @@ pub(super) fn dispatch(
                 "mem.get",
                 "mem.save",
                 "mem.delete",
+                "mem.purge_precompact",
                 "mem.forget",
                 "mem.update",
                 "mem.pinned",

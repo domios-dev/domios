@@ -82,6 +82,19 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
         -- Phase C: per-item audit trail. Every mutation (create/update/promote/
         -- invalidate/merge/delete) appends one row here. `changed_by` is the
         -- actor label set via `with_changed_by` (defaults to "user" if unset).
+        CREATE TABLE IF NOT EXISTS mem_precompact_purges (
+            item_id TEXT PRIMARY KEY,
+            history_rows INTEGER NOT NULL,
+            history_body_bytes INTEGER NOT NULL,
+            purged_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS mem_precompact_purge_blobs (
+            item_id TEXT NOT NULL,
+            path TEXT NOT NULL,
+            body_bytes INTEGER NOT NULL,
+            PRIMARY KEY (item_id, path)
+        );
+
         CREATE TABLE IF NOT EXISTS mem_item_history (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             item_id         TEXT NOT NULL,

@@ -962,6 +962,15 @@ List all currently pinned items, ordered by importance/evidence/recency
 
 - `--limit` — Max results (default 100, max 500)
 
+#### `codeterm mem purge-precompact`
+
+Preview or purge retained raw PreCompact payloads for one already-deleted record
+
+- `--apply` — Apply the previewed purge; default is read-only inventory
+- `<id>`
+- `--vacuum` — Rebuild SQLite free pages and truncate the current WAL after purge
+- `--verified-deleted` — Attest prior verification of this deleted record's original flush source, summary and tags
+
 #### `codeterm mem reembed`
 
 Re-embed mem_items and/or graph entities into mem_vectors. Use this after swapping the embedder model, or to backfill existing entities that pre-date the auto-embed-on-create wiring. Daemon-routed (the daemon owns the embedder process). Idempotent

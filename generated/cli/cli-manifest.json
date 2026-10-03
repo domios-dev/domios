@@ -4397,6 +4397,54 @@
           "subcommands": []
         },
         {
+          "name": "purge-precompact",
+          "about": "Preview or purge retained raw PreCompact payloads for one already-deleted record",
+          "aliases": [],
+          "args": [
+            {
+              "name": "apply",
+              "positional": false,
+              "required": false,
+              "value_name": "APPLY",
+              "possible_values": [],
+              "default": null,
+              "help": "Apply the previewed purge; default is read-only inventory",
+              "aliases": []
+            },
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "vacuum",
+              "positional": false,
+              "required": false,
+              "value_name": "VACUUM",
+              "possible_values": [],
+              "default": null,
+              "help": "Rebuild SQLite free pages and truncate the current WAL after purge",
+              "aliases": []
+            },
+            {
+              "name": "verified-deleted",
+              "positional": false,
+              "required": false,
+              "value_name": "VERIFIED_DELETED",
+              "possible_values": [],
+              "default": null,
+              "help": "Attest prior verification of this deleted record's original flush source, summary and tags",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "reembed",
           "about": "Re-embed mem_items and/or graph entities into mem_vectors. Use this after swapping the embedder model, or to backfill existing entities that pre-date the auto-embed-on-create wiring. Daemon-routed (the daemon owns the embedder process). Idempotent",
           "aliases": [],

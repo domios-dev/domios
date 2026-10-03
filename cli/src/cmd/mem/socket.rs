@@ -18,6 +18,15 @@ pub(super) fn try_dispatch(
     Some(client.call(method, params))
 }
 
+pub(super) fn purge_precompact(
+    client: &mut impl crate::client::RpcClient,
+    action: &MemAction,
+) -> Result<serde_json::Value, crate::cmd::print::CliError> {
+    let (method, params) = socket_request(action)
+        .ok_or_else(|| crate::cmd::print::CliError::new("missing purge request"))?;
+    client.call_detailed(method, params).map_err(Into::into)
+}
+
 pub(super) fn socket_request(
     action: &MemAction,
 ) -> Option<(&'static str, Option<serde_json::Value>)> {
@@ -58,6 +67,17 @@ pub(super) fn socket_request(
             Some(("mem.search", Some(params)))
         }
         MemAction::Get { id } => Some(("mem.get", Some(serde_json::json!({ "id": id })))),
+        MemAction::PurgePrecompact {
+            id,
+            apply,
+            verified_deleted,
+            vacuum,
+        } => Some((
+            "mem.purge_precompact",
+            Some(
+                serde_json::json!({"id":id,"apply":apply,"verified_deleted":verified_deleted,"vacuum":vacuum}),
+            ),
+        )),
         MemAction::Delete { id } => Some(("mem.delete", Some(serde_json::json!({ "id": id })))),
         MemAction::Archive {
             id,
@@ -316,7 +336,7 @@ fn resolve_or_exit(value: Option<String>, file: Option<String>) -> Option<String
 
 #[cfg(test)]
 mod tests {
-    use super::socket_request;
+    use super::{purge_precompact, socket_request};
     use crate::{Cli, Commands, MemAction};
     use clap::Parser;
 
@@ -345,6 +365,84 @@ mod tests {
                 _ => panic!("unexpected mem action"),
             }
         }
+    }
+
+    #[test]
+    fn purge_precompact_partial_report_survives_cli_transport() {
+        struct Partial;
+        impl crate::client::RpcClient for Partial {
+            fn call_detailed(
+                &mut self,
+                method: &str,
+                _: Option<serde_json::Value>,
+            ) -> Result<serde_json::Value, crate::client::SocketCallError> {
+                assert_eq!(method, "mem.purge_precompact");
+                Err(crate::client::SocketCallError::Rpc(
+                    crate::client::RpcError {
+                        code: -32000,
+                        message: "partial cleanup".into(),
+                        data: Some(
+                            serde_json::json!({"logical_purge_complete":true,"blob_cleanup_complete":false,"errors":["fixture"]}),
+                        ),
+                    },
+                ))
+            }
+        }
+        let error = purge_precompact(
+            &mut Partial,
+            &MemAction::PurgePrecompact {
+                id: "conversation_flush_0123abcd_pre_compact".into(),
+                apply: true,
+                verified_deleted: true,
+                vacuum: false,
+            },
+        )
+        .unwrap_err();
+        assert_eq!(error.code, Some(-32000));
+        let data = error.data.unwrap();
+        assert_eq!(data["logical_purge_complete"], true);
+        assert_eq!(data["blob_cleanup_complete"], false);
+        assert_eq!(data["errors"], serde_json::json!(["fixture"]));
+    }
+
+    #[test]
+    fn purge_precompact_requires_receipt_and_preserves_all_options() {
+        use clap::Parser;
+        assert!(crate::Cli::try_parse_from([
+            "codeterm",
+            "mem",
+            "purge-precompact",
+            "conversation_flush_0123abcd_pre_compact",
+            "--apply"
+        ])
+        .is_err());
+        assert!(crate::Cli::try_parse_from([
+            "codeterm",
+            "mem",
+            "purge-precompact",
+            "conversation_flush_0123abcd_pre_compact",
+            "--vacuum"
+        ])
+        .is_err());
+        let cli = crate::Cli::try_parse_from([
+            "codeterm",
+            "mem",
+            "purge-precompact",
+            "conversation_flush_0123abcd_pre_compact",
+            "--apply",
+            "--verified-deleted",
+            "--vacuum",
+        ])
+        .unwrap();
+        let crate::Commands::Mem { action } = cli.command else {
+            panic!("mem action");
+        };
+        let (method, params) = socket_request(&action).unwrap();
+        assert_eq!(method, "mem.purge_precompact");
+        assert_eq!(
+            params.unwrap(),
+            serde_json::json!({"id":"conversation_flush_0123abcd_pre_compact","apply":true,"verified_deleted":true,"vacuum":true})
+        );
     }
 
     #[test]
