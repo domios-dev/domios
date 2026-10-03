@@ -7,6 +7,7 @@ import type { MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions
 import { CRON_ID_PREFIX, type Service } from "../MeshPanel/types";
 import type { MeshInventoryView } from "../MeshPanel/servicesView";
 import { cronSelectionStore } from "./cronSelectionStore";
+import { HostAutomationGraph } from "../Automation/HostAutomationGraph";
 import { AutomationGraphView, type AutomationGraphViewProps } from "../Automation/AutomationGraphView";
 
 interface Props {
@@ -74,12 +75,12 @@ export function CronWorkspaceView({ cronId, actionAdapter, automation }: Props) 
           <h2 className="truncate text-sm font-semibold text-[var(--ct-fg)]">{job.name}</h2>
           <p className="truncate text-[10px] text-[var(--ct-muted)]">{target}</p>
         </div>
-        {automation && <button type="button" aria-pressed={showAutomation} onClick={() => setShowAutomation(!showAutomation)} className="text-xs text-[var(--ct-accent)] focus-visible:outline-2">{showAutomation ? "Cron details" : "Automation graph"}</button>}
+        <button type="button" aria-pressed={showAutomation} onClick={() => setShowAutomation(!showAutomation)} className="text-xs text-[var(--ct-accent)] focus-visible:outline-2">{showAutomation ? "Cron details" : "Automation graph"}</button>
         <button type="button" onClick={() => cronSelectionStore.close()} aria-label="Close cron details" className="p-1 text-[var(--ct-muted)] hover:text-[var(--ct-fg)]">
           <X size={16} />
         </button>
       </header>
-      {showAutomation && automation ? <AutomationGraphView {...automation} /> : <div className="mx-auto w-full max-w-3xl p-5">
+      {showAutomation ? (automation ? <AutomationGraphView {...automation} /> : job.team_id === undefined ? <p role="alert">Automation Team scope is unavailable.</p> : <HostAutomationGraph workspace_id={job.workspace_id} team_id={job.team_id} />) : <div className="mx-auto w-full max-w-3xl p-5">
         <CronDrawerSection service={service} machineName="This machine" onUpdate={() => void refresh()} actionAdapter={actionAdapter} />
       </div>}
     </section>

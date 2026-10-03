@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { AutomationResource, type AutomationSnapshot } from "./resource";
 import { scopedAutomationGraph } from "./model";
 import { automationKey, type AutomationGraph } from "./types";
-import { attachment, cronIdentity, deferred, fixtureGraph, fixtureNode, FixtureTransport, identity, sentinelIdentity, workerIdentity } from "./fixtures.testdata";
+import { attachment, cronIdentity, deferred, fixtureGraph, fixtureNode, FixtureTransport, identity, multiScenarioGraph, sentinelIdentity, workerIdentity } from "./fixtures.testdata";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
 function test(name: string, run: () => void | Promise<void>) { tests.push([name, run]); }
@@ -135,6 +135,24 @@ test("referenced Sentinel without creator provenance remains unresolved exact ta
   assert.equal(unresolved.availability, "missing");
   assert.equal(unresolved.name, target.identity.id);
   assert.equal(unresolved.purpose, null);
+});
+
+test("scenario roots preserve exact internal reachability and shared execution records", () => {
+  const graph = multiScenarioGraph();
+  const union = scopedAutomationGraph(graph, attachment);
+  assert.equal(union.scenarios.length, 2);
+  assert.equal(union.nodes.filter((node) => node.identity.id === "cron-a").length, 1);
+  assert.equal(union.edges.filter((edge) => edge.id === "edge-c").length, 1);
+  const first = scopedAutomationGraph({ ...graph, scenarios: [graph.scenarios[0]] }, attachment);
+  assert.ok(first.nodes.some((node) => node.identity.id === "stage-a"));
+  assert.ok(!first.nodes.some((node) => node.identity.id === "sentinel-b"));
+  const second = scopedAutomationGraph({ ...graph, scenarios: [graph.scenarios[1]] }, attachment);
+  assert.deepEqual(second.nodes.map((node) => node.identity.id), ["sentinel-b", "cron-a", "worker-a"]);
+  assert.deepEqual(second.edges.find((edge) => edge.id === "edge-c"), graph.edges.find((edge) => edge.id === "edge-c"));
+  const cycle = { ...graph.edges[0], id: "cycle-back", source: graph.nodes.find((node) => node.identity.id === "stage-a")!.identity, target: graph.scenarios[0].root };
+  const cyclic = scopedAutomationGraph({ ...graph, scenarios: [graph.scenarios[0]], edges: [...graph.edges, cycle] }, attachment);
+  assert.equal(cyclic.nodes.length, first.nodes.length);
+  assert.equal(cyclic.edges.length, first.edges.length + 1);
 });
 
 let finished = false;
