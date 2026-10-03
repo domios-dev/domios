@@ -209,6 +209,7 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
     assert_eq!(rebound["attempt_id"], attempt_id);
     assert!(rebound.get("session_binding_nonce").is_none());
     let after_restore = store.show_task(&task_id).unwrap().task;
+    assert_eq!(after_restore.execution_attempts[0].binding_restorations.len(), 1);
     {
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(&tab_id).unwrap();
