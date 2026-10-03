@@ -122,11 +122,7 @@ impl ServiceContext {
         verdict: &CandidateVerdict,
         valid: &dyn Fn() -> bool,
     ) {
-        let parent_observation_id = verdict
-            .receipt
-            .as_ref()
-            .and_then(|receipt| receipt.metadata.envelope.as_ref())
-            .map(|envelope| envelope.observation_id);
+        let parent_observation_id = verdict.observation_id();
         if !valid()
             || self
                 .prompt_detector

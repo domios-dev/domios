@@ -15,6 +15,13 @@ impl CandidateVerdict {
     pub(crate) fn live_prompt(&self) -> bool {
         self.visible && self.area == "active_modal"
     }
+
+    pub(crate) fn observation_id(&self) -> Option<u64> {
+        self.receipt
+            .as_ref()
+            .and_then(|receipt| receipt.metadata.envelope.as_ref())
+            .map(|envelope| envelope.observation_id)
+    }
 }
 
 pub(crate) fn select(
@@ -353,6 +360,7 @@ impl ServiceContext {
         let config = self.supporter_decision_config();
         let tab = snapshot.tab_id.clone();
         let screen = snapshot.screen_text.clone();
+        let expected_local = local.clone();
         candidates::spawn_with_origin(
             self,
             &config,
@@ -360,7 +368,7 @@ impl ServiceContext {
             Some(&screen),
             trigger,
             parent_observation_id,
-            Some(&local),
+            Some(&expected_local),
             move |verdict, source, valid| {
                 let correlation = verdict
                     .as_ref()
