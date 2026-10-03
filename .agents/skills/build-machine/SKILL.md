@@ -98,9 +98,30 @@ to `false`; only an explicit reviewed dispatch wraps those same fixed task cases
 cache session. That session requires the additive receipt at
 `%USERPROFILE%\tools\sccache\0.18.0-x64` and ends in the same job that ran the cases.
 
-The separate manual `windows-sccache-maintenance` scope supports only
-`provision-verify-cleanup`, on `ROG-windows-build` / `X64` as account `amigo`. Dispatch it only
-after source review and approval of the exact full source SHA. It installs the official Mozilla
+The manual `windows-sccache-maintenance` scope supports `contract-only` and
+`provision-verify-cleanup`; provisioning remains the default. Both use
+`ROG-windows-build` / `X64` as account `amigo`. Dispatch either only after source review of the
+exact full source SHA. The `contract-only` branch checks the event, workflow, input and checkout
+SHA join, a clean checkout, and the runner/account identity before loading the helper. It compiles
+the extracted native C# declarations, then calls only shared pure decisions, the production TCP
+table decoder on supplied rows, and synthetic lease/capture state controls. It does not download,
+install, query listeners, launch children, create a Job, change cache/tool environment, or write a
+fresh artifact receipt. Its one JSON log record has `groups[]` with selected/passed/failed case
+records plus root selected/passed/failed/outcome fields; any failed or unselected control exits
+nonzero. It never reports a native result. Exact deferred invocations after canonical merge and
+Fermi review are:
+
+```powershell
+pwsh -NoLogo -NoProfile -NonInteractive -File scripts/windows-sccache-session.ps1 -ContractOnly
+```
+
+```sh
+gh workflow run tests.yml --ref <full-reviewed-sha> -f evaluator_scope=windows-sccache-maintenance -f expected_source_sha=<full-reviewed-sha> -f maintenance_operation=contract-only
+```
+
+The second command is Fermi-owned and is not run in a source lane. Only after its real Windows
+source compile and pure controls pass may Fermi separately admit one native maintenance run.
+Provisioning installs the official Mozilla
 `sccache` `0.18.0` x64 MSVC release asset from
 `https://github.com/mozilla/sccache/releases/download/v0.18.0/sccache-v0.18.0-x86_64-pc-windows-msvc.zip`
 with the published size `9,694,400` bytes and SHA-256
@@ -145,15 +166,19 @@ flush and may lose in-flight disposable cache writes. The persistent cache under
 uploaded only when the helper created it. Unconfirmed cleanup remains a failed qualification, even
 if a termination request succeeded.
 
-The maintenance operation does not run a Rust case and does not leave a daemon for later jobs.
+The provisioning operation does not run a Rust case and does not leave a daemon for later jobs.
 Native success must be reviewed from one separately admitted run at the reviewed full SHA, with
 actual archive, PE, process/Job/listener, capture, exit, and handle evidence. Portable contract
-controls establish only the pure source decisions. The three groups select 51 subcases: 13 archive
-pin/shape cases, 16 runner/input/deadline/pinned-reuse cases, and 22 completion/capture/statistics
-cases. The fresh-zero statistics positive and nonzero, missing, malformed, duplicated, incomplete,
-and truncated counter refusals all exercise the same parser used on captured `--show-stats` output.
-Reuse controls also prove that a matching mutable receipt cannot excuse executable bytes that differ
-from the verified pinned archive. After canonical merge and review, request:
+controls establish only pure source decisions. The three groups select 81 cases: 13 archive
+pin/shape cases, 31 input/ownership/deadline/reuse and actual C# decoder/lease cases, and 37
+completion/output/freshness/statistics/rollback cases. The independent literal fixture pins the
+16-counter zero output schema; fresh-zero statistics remains diagnostic and is not readiness proof.
+Reuse controls reject invalid receipts, invalid executable identity, or executable bytes that differ
+from the verified pinned archive. Capture receipts drop an incomplete leading line when the native
+32 KiB tail is truncated, while complete known token forms remain redacted; this is bounded known
+pattern handling and does not claim arbitrary-secret detection. Rollback controls exercise the same
+production decision as cleanup and require confirmed process, capture, Job and handle settlement with
+no cleanup errors. After canonical merge and review, request:
 
 ```sh
 actionlint .github/workflows/tests.yml
