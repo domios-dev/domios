@@ -11,6 +11,21 @@ def at_revision(root: Path, revision: str, path: str) -> str:
     ).stdout
 
 
+def general_agent(source) -> str:
+    template = source('general_agent.md')
+    cli = source('codeterm_cli.md')
+    before, marker, after = cli.partition('## Memory (mem)')
+    if marker and '## Platform notes' in after:
+        cli = before + '## Platform notes' + after.partition('## Platform notes')[2]
+    template = template.replace('{codeterm_cli}', cli + '\n' + source('agent_pad_rule.md'))
+    if '{interactive_child_pty_operation}' in template:
+        template = template.replace('{interactive_child_pty_operation}', source('interactive_child_pty.md'))
+    return '\n\n---\n\n'.join([
+        source('agent_codeterm_primer.md'), template,
+        source('codeterm_rule.md'), source('bridge_mem.md'),
+    ])
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('--baseline-ref', required=True)
@@ -19,30 +34,23 @@ def main() -> None:
     root = Path(__file__).resolve().parents[2]
     args.output_dir.mkdir(parents=True, exist_ok=True)
     families = {
-        'general-agent': [
-            'general_agent.md', 'codeterm_rule.md', 'bridge_mem.md',
-        ],
-        'bootstrap': [
-            'general_agent.md', 'codeterm_rule.md', 'bridge_mem.md',
-            'bootstrap_instructions.md',
-        ],
+        'general-agent': [],
+        'bootstrap': ['bootstrap_instructions.md'],
         'spawned-agent': [
             'agent_codeterm_primer.md', 'agent_pad_rule.md',
             'rich_rendering_guidance.md',
         ],
     }
-    changed = {
-        'bootstrap_instructions.md', 'codeterm_rule.md',
-        'agent_codeterm_primer.md', 'rich_rendering_guidance.md',
-    }
     for family, names in families.items():
-        old, new = [], []
-        for name in names:
-            path = f'src-tauri/prompts/{name}'
-            baseline = at_revision(root, args.baseline_ref, path).strip()
-            old.append(baseline)
-            new.append((root / path).read_text(encoding='utf-8').strip() if name in changed else baseline)
-        for arm, fragments in [('old', old), ('new', new)]:
+        for arm in ['old', 'new']:
+            def source(name: str) -> str:
+                path = f'src-tauri/prompts/{name}'
+                if arm == 'old':
+                    return at_revision(root, args.baseline_ref, path).strip()
+                return (root / path).read_text(encoding='utf-8').strip()
+
+            fragments = [] if family == 'spawned-agent' else [general_agent(source)]
+            fragments.extend(source(name) for name in names)
             destination = args.output_dir / f'{family}-{arm}.md'
             destination.write_text('\n\n'.join(fragments) + '\n', encoding='utf-8')
             print(destination)
