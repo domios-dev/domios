@@ -14,7 +14,6 @@
 .jev-signal { fill: var(--ct-accent); stroke: var(--ct-bg); stroke-width: 2px; vector-effect: non-scaling-stroke; }
 .jev-board[data-story-motion="static"] .jev-signal { display: none; }
 .jev-node { position: relative; z-index: 1; min-width: 0; box-sizing: border-box; border: 1px solid var(--ct-border); border-radius: 16px; background: var(--ct-bg); }
-.jev-node[data-story-flow] { border-width: 2px; }
 .jev-team[data-story-flow], .jev-home[data-story-flow] { border-color: var(--ct-accent); }
 .jev-memory[data-story-flow] { border-color: var(--ct-green); }
 .jev-engine[data-story-flow] { border-color: var(--ct-muted-fg); }
