@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { AutomationGraphView } from "./AutomationGraphView";
-import { attachment, chainGraph, fixtureGraph, fixtureNode, FixtureTransport, identity, multiScenarioGraph, sentinelIdentity } from "./fixtures.testdata";
+import { attachment, chainGraph, decisionGraph, fixtureGraph, fixtureNode, FixtureTransport, identity, multiScenarioGraph, sentinelIdentity } from "./fixtures.testdata";
 import { automationKey, type AutomationGraph, type CommandResultMetadata } from "./types";
 import { COMMAND_FACT, commandResultLabel } from "./CommandResultDetails";
 import { frameAutomation, layoutAutomationOrientations, NODE_WIDTH, preferredOrientation, READABLE_SCALE } from "./layout";
@@ -51,6 +51,14 @@ function projectedCards(host: HTMLElement, names: readonly string[]) {
     const [left, top, width, height] = [card.style.left, card.style.top, card.style.width, card.style.height].map((value) => Number.parseFloat(value));
     return { x: left * t.scale + t.x, y: top * t.scale + t.y, width: width * t.scale, height: height * t.scale };
   });
+}
+/** The world point under the canvas center plus scale: what a moved camera keeps when the canvas resizes. */
+function centered(host: HTMLElement, width: number, height: number) {
+  const t = camera(host);
+  return { x: (width / 2 - t.x) / t.scale, y: (height / 2 - t.y) / t.scale, scale: t.scale };
+}
+function sameCenter(a: ReturnType<typeof centered>, b: ReturnType<typeof centered>, message: string) {
+  for (const axis of ["x", "y", "scale"] as const) assert.ok(Math.abs(a[axis] - b[axis]) < 1e-6, `${message}: ${axis} ${a[axis]} vs ${b[axis]}`);
 }
 function readable(cards: ReturnType<typeof projectedCards>, width: number, height: number) {
   for (const card of cards) {
@@ -321,18 +329,29 @@ test("measured graph fits once, then keeps the user's camera and exact selection
     assert.ok(zoomIn);
     await click(zoomIn);
     assert.notEqual(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 800, 480));
+    const beforeDrawer = cameraLayer(view.host).style.transform;
+    const region = view.host.querySelector('[aria-label="Automation graph"]');
     await click(button(view.host, "Watcher A"));
     const camera = cameraLayer(view.host).style.transform;
+    assert.equal(camera, beforeDrawer, "opening the drawer leaves the camera untouched");
+    assert.equal(view.host.querySelector('[aria-label="Automation graph"]'), region, "the graph stays mounted behind the drawer");
     view.transport.graph = { ...fixtureGraph(), revision: "revision-b", nodes: [...fixtureGraph().nodes].reverse().map((node) => ({ ...node, state: "active" })) };
     await act(async () => { view.transport.changed!(); });
     assert.equal(cameraLayer(view.host).style.transform, camera, "data-only refresh and node reorder keep the camera");
     assert.equal(view.host.querySelector(`[aria-label^="sentinel: Watcher A"]`)?.getAttribute("aria-pressed"), "true", "selection follows the exact identity");
     assert.ok(details(view.host).textContent?.includes("active"));
+    const center = centered(view.host, 800, 480);
     await resize(640, 420);
-    assert.equal(cameraLayer(view.host).style.transform, camera, "resize never overrides a moved camera");
+    sameCenter(centered(view.host, 640, 420), center, "resize keeps a moved camera's scale and center");
+    const resized = cameraLayer(view.host).style.transform;
     await click(button(view.host, "Show list"));
     await click(button(view.host, "Show graph"));
-    assert.equal(cameraLayer(view.host).style.transform, camera, "list toggle restores the same camera");
+    assert.equal(cameraLayer(view.host).style.transform, resized, "list toggle restores the same camera");
+    await click(button(view.host, "Show list"));
+    await resize(720, 460);
+    await click(button(view.host, "Show graph"));
+    sameCenter(centered(view.host, 720, 460), center, "a restored camera adapts to the size it reopens at");
+    await resize(640, 420);
     await click(button(view.host, "Fit graph"));
     assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 640, 420, true));
     await resize(900, 500);
@@ -432,10 +451,10 @@ test("measured 500px canvas opens the chain top to bottom, desktop width runs le
     readable(wide, 1400, 576);
     flows(wide, "right");
     await click(view.host.querySelector<HTMLButtonElement>('button[aria-label="Zoom in"]')!);
-    const moved = cameraLayer(view.host).style.transform;
+    const moved = centered(view.host, 1400, 576);
     const boxes = CHAIN.map((name) => view.host.querySelector<HTMLElement>(`button[aria-label*=": ${name} · "]`)!.getAttribute("style"));
     await resize(500, 576);
-    assert.equal(cameraLayer(view.host).style.transform, moved, "a narrower canvas never resets the moved camera");
+    sameCenter(centered(view.host, 500, 576), moved, "a narrower canvas never resets the moved camera");
     assert.deepEqual(CHAIN.map((name) => view.host.querySelector<HTMLElement>(`button[aria-label*=": ${name} · "]`)!.getAttribute("style")), boxes, "geometry under a moved camera is not re-oriented");
     await click(button(view.host, "Fit graph"));
     assert.equal(cameraLayer(view.host).style.transform, fitted(transport.graph, 500, 576, true), "explicit Fit uses the current measured canvas");
@@ -453,6 +472,54 @@ test("an unmeasured canvas paints no guessed camera until its real size is obser
     assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 500, 576));
     assert.equal(cameraLayer(view.host).style.visibility, "");
   } finally { await resize(800, 480); await view.close(); }
+});
+
+test("node details open as one right overlay drawer that switches in place and returns focus behind it", async () => {
+  const view = await mount();
+  try {
+    const region = view.host.querySelector('[aria-label="Automation graph"]')!;
+    const opener = button(view.host, "Watcher A");
+    await click(opener);
+    const drawer = details(view.host);
+    assert.ok(drawer.parentElement?.classList.contains("plan-side-panel-layer"), "details render inside the shared right overlay layer");
+    assert.ok(!region.contains(drawer) && drawer.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_PRECEDING, "graph stays in place before the overlay");
+    assert.equal(drawer.getAttribute("aria-label"), "Details: Watcher A");
+    assert.equal(drawer.getAttribute("aria-modal"), null, "the drawer is not modal; the graph behind stays usable");
+    assert.equal(document.activeElement, drawer);
+    await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="cron: Schedule A"]')!);
+    assert.equal(details(view.host), drawer, "selecting another graph node updates the same drawer");
+    assert.equal(drawer.getAttribute("aria-label"), "Details: Schedule A");
+    await click(button(drawer, "Worker A"));
+    assert.equal(details(view.host), drawer, "a linked participant opens in the same drawer");
+    assert.equal(drawer.getAttribute("aria-label"), "Details: Worker A");
+    await act(async () => { drawer.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
+    assert.equal(view.host.querySelector("aside"), null);
+    assert.ok(region.contains(document.activeElement), "focus returns to the graph opener rather than a link inside the closed drawer");
+  } finally { await view.close(); }
+});
+
+test("declared decision outcomes fan out to action leaves with taken and untaken paths and open their source", async () => {
+  const transport = new FixtureTransport();
+  transport.graph = decisionGraph();
+  const root = transport.graph.nodes[0];
+  const view = await mount(transport);
+  try {
+    const leaves = Array.from(view.host.querySelectorAll<HTMLButtonElement>("[data-action-key]"));
+    const declared = transport.graph.nodes.flatMap((node) => node.outcomes.flatMap((outcome) => outcome.handlers.length ? outcome.handlers.filter((handler) => !handler.target) : [null]));
+    assert.equal(leaves.length, declared.length, "every target-less handler and empty outcome has its own leaf");
+    for (const handler of declared.filter((entry) => entry !== null)) {
+      const leaf = leaves.find((entry) => entry.textContent?.includes(handler.label ?? handler.id));
+      assert.ok(leaf, `${handler.id} leaf shows its safe label`);
+    }
+    assert.equal(view.host.querySelectorAll('[data-declared-edge="taken"]').length, 1, "only the accepted command path is solid");
+    assert.equal(view.host.querySelectorAll('[data-declared-edge="untaken"]').length, declared.length - 1);
+    assert.equal(view.host.querySelectorAll("[data-edge-kind]").length, transport.graph.edges.length, "real route evidence is unchanged");
+    assert.equal(view.host.querySelectorAll('[aria-label="Automation graph"] button[aria-pressed]').length, transport.graph.nodes.length, "no participant is invented");
+    const notify = leaves.find((entry) => entry.textContent?.includes("notify-d"))!;
+    await click(notify);
+    assert.equal(details(view.host).getAttribute("aria-label"), `Details: ${root.name}`, "an action leaf opens its exact source participant");
+    assert.ok(details(view.host).textContent?.includes("notify-d"));
+  } finally { await view.close(); }
 });
 
 let finished = false;

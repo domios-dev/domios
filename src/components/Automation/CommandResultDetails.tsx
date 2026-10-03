@@ -13,6 +13,12 @@ export const COMMAND_VALUE = {
 
 const OUTCOMES: readonly string[] = ["success", "nonzero", "error", "cancelled", "deadline", "unconfirmed"] satisfies readonly CommandResultMetadata["status"][];
 
+/** The typed command outcome when the metadata carries a recognised one; never inferred from the outer status. */
+export function commandOutcome(result: AutomationHandlerResult | null | undefined): string | null {
+  const status = result?.command_result?.status;
+  return typeof status === "string" && OUTCOMES.includes(status) ? status : null;
+}
+
 export function commandResultLabel(handlerId: string): string {
   return `${handlerId} command result`;
 }

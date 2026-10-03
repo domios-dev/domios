@@ -1,6 +1,7 @@
 import { boxesOverlap, type Box, type LaidOutNode, type Point } from "../Canvas/layout";
 import { computeFitTransform, type ViewportTransform } from "../Canvas/useCanvasViewport";
-import { automationKey, type AutomationEdge, type AutomationGraph } from "./types";
+import { projectAutomationGraph, type PresentationEdge, type PresentationNode } from "./projection";
+import { automationKey, type AutomationGraph } from "./types";
 
 export const NODE_WIDTH = 232;
 export const NODE_HEIGHT = 104;
@@ -22,7 +23,7 @@ const SELF_LOOP = 56;
 export type AutomationOrientation = "horizontal" | "vertical";
 
 export interface AutomationEdgeRoute {
-  edge: AutomationEdge;
+  edge: PresentationEdge;
   from: string;
   to: string;
   path: string;
@@ -32,6 +33,8 @@ export interface AutomationEdgeRoute {
 
 export interface AutomationLayout {
   orientation: AutomationOrientation;
+  /** Participants and declared action leaves, index-aligned with `nodes`. */
+  items: PresentationNode[];
   nodes: LaidOutNode[];
   byId: Map<string, LaidOutNode>;
   edges: AutomationEdgeRoute[];
@@ -47,9 +50,9 @@ function clip(text: string): string {
   return text.length > LABEL_LINE_CHARS ? `${text.slice(0, LABEL_LINE_CHARS - 1)}…` : text;
 }
 
-function edgeLabel(edge: AutomationEdge) {
-  const title = [edge.bucket, edge.handler_type, edge.handler_id, edge.result?.status, edge.evidence.kind].filter(Boolean).join(" · ");
-  const lines = [edge.bucket, [edge.handler_type, edge.result?.status].filter(Boolean).join(" · ")].filter(Boolean).map(clip);
+function edgeLabel(edge: PresentationEdge, toAction: boolean) {
+  const title = [edge.bucket, edge.handler_type, edge.handler_id, edge.status, edge.evidence].filter(Boolean).join(" · ");
+  const lines = [edge.bucket, toAction ? "" : [edge.handler_type, edge.status].filter(Boolean).join(" · ")].filter(Boolean).map(clip);
   const width = Math.ceil(Math.max(...lines.map((line) => line.length), 1) * LABEL_CHAR_WIDTH) + 14;
   return { lines, title, width, height: lines.length * LABEL_LINE_HEIGHT + LABEL_PAD_Y * 2 };
 }
@@ -121,11 +124,12 @@ export function layoutAutomationGraph(graph: AutomationGraph, orientation: Autom
   const gap = SPACING[orientation];
   const nodeMain = vertical ? NODE_HEIGHT : NODE_WIDTH;
   const nodeCross = vertical ? NODE_WIDTH : NODE_HEIGHT;
-  const keys = graph.nodes.map((node) => automationKey(node.identity));
+  const view = projectAutomationGraph(graph);
+  const keys = view.nodes.map((node) => node.key);
   const index = new Map(keys.map((key, position) => [key, position]));
-  const routed = graph.edges.flatMap((edge) => {
-    const from = index.get(automationKey(edge.source));
-    const to = index.get(automationKey(edge.target));
+  const routed = view.edges.flatMap((edge) => {
+    const from = index.get(edge.from);
+    const to = index.get(edge.to);
     return from === undefined || to === undefined ? [] : [{ edge, from, to }];
   });
   const indegree = keys.map(() => 0);
@@ -204,7 +208,7 @@ export function layoutAutomationGraph(graph: AutomationGraph, orientation: Autom
   const edges: AutomationEdgeRoute[] = routed.map(({ edge, from, to }, edgeIndex) => {
     const source = boxes[from];
     const target = boxes[to];
-    const label = edgeLabel(edge);
+    const label = edgeLabel(edge, view.nodes[to].action !== undefined);
     const labelMain = vertical ? label.height : label.width;
     const labelCross = vertical ? label.width : label.height;
     let segment: Segment;
@@ -242,10 +246,11 @@ export function layoutAutomationGraph(graph: AutomationGraph, orientation: Autom
     return { edge, from: keys[from], to: keys[to], path: pathOf(segment), back: isBack, label: { ...toBox(box), lines: label.lines, title: label.title } };
   });
 
-  const nodes: LaidOutNode[] = graph.nodes.map((node, position) => ({ id: keys[position], kind: node.identity.kind, planId: "", iteration: null, manual: false, box: toBox(boxes[position]) }));
+  const nodes: LaidOutNode[] = view.nodes.map((node, position) => ({ id: keys[position], kind: node.participant?.identity.kind ?? "action", planId: "", iteration: null, manual: false, box: toBox(boxes[position]) }));
   const rootIndex = scenarioRoots[0] ?? (keys.length ? 0 : undefined);
   return {
     orientation,
+    items: view.nodes,
     nodes,
     byId: new Map(nodes.map((node) => [node.id, node])),
     edges,
