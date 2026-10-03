@@ -247,7 +247,7 @@ pub(super) fn dispatch(
                 .as_ref()
                 .and_then(|value| value.get("task_id"))
                 .and_then(Value::as_str);
-            let acknowledged = match svc.plan_store.acknowledge_live_task_attempt_for_tab(
+            let mut acknowledged = match svc.plan_store.acknowledge_live_task_attempt_for_tab(
                 &tab_id,
                 plan_id,
                 task_id,
@@ -279,6 +279,41 @@ pub(super) fn dispatch(
                     });
                 }
             };
+            if acknowledged.already_acknowledged
+                && (acknowledged.attempt.session_id.is_none()
+                    || acknowledged.attempt.session_binding_nonce.is_none())
+            {
+                let completion = (|| {
+                    let nonce = get_string_param(params, "session_binding_nonce")
+                        .map_err(|error| error.message)?;
+                    let body = params.as_ref().ok_or("caller params are missing")?;
+                    let session = body
+                        .get("caller_session_id")
+                        .map(|value| {
+                            value
+                                .as_str()
+                                .filter(|value| !value.trim().is_empty())
+                                .ok_or("caller session claim is invalid")
+                        })
+                        .transpose()?;
+                    if body.get("attempt_id").is_some_and(|value| {
+                        value.as_str() != Some(acknowledged.attempt.id.as_str())
+                    }) {
+                        return Err(
+                            "explicit attempt claim conflicts with current assignment".into()
+                        );
+                    }
+                    svc.complete_acknowledged_dispatch_binding(
+                        &acknowledged,
+                        &nonce,
+                        session,
+                        epoch_ms(),
+                    )
+                })();
+                acknowledged.attempt = completion.map_err(|cause| {
+                    super::plan_skills_rpc::attempt_binding_refusal(&acknowledged, &cause)
+                })?;
+            }
             let plan_id = acknowledged.plan_id.clone();
             let task_id = acknowledged.task_id.clone();
             svc.acknowledge_worker_ack(&plan_id, &task_id, &tab_id, &acknowledged.attempt);
