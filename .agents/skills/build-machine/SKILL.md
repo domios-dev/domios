@@ -89,6 +89,108 @@ the reusable Windows job in `.github/workflows/release-windows.yml`, called by t
 `.github/workflows/release.yml` run for `release-X.Y.Z`. Runner toolchain and provisioning:
 `.codeterm/build-machine/README.md`.
 
+### Pinned cache maintenance and same-job task sessions
+
+The focused Windows task workflow keeps its existing no-install path by default. Its existing
+`rust-windows-task-local` selector continues to inspect the runner's current `sccache` and
+requires the build wrapper's existing prestarted-server check. `cache_session_opt_in` defaults
+to `false`; only an explicit reviewed dispatch wraps those same fixed task cases in an owned
+cache session. That session requires the additive receipt at
+`%USERPROFILE%\tools\sccache\0.18.0-x64` and ends in the same job that ran the cases.
+
+The manual `windows-sccache-maintenance` scope supports `contract-only` and
+`provision-verify-cleanup`; provisioning remains the default. Both use
+`ROG-windows-build` / `X64` as account `amigo`. Dispatch either only after source review of the
+exact full source SHA. The `contract-only` branch checks the event, workflow, input and checkout
+SHA join, a clean checkout, and the runner/account identity before loading the helper. It compiles
+the extracted native C# declarations, then calls only shared pure decisions, the production TCP
+table decoder on supplied rows, and synthetic lease/capture state controls. It does not download,
+install, query listeners, launch children, create a Job, change cache/tool environment, or write a
+fresh artifact receipt. Its one JSON log record has `groups[]` with selected/passed/failed case
+records plus root selected/passed/failed/outcome fields; any failed or unselected control exits
+nonzero. It never reports a native result. Exact deferred invocations after canonical merge and
+Fermi review are:
+
+```powershell
+pwsh -NoLogo -NoProfile -NonInteractive -File scripts/windows-sccache-session.ps1 -ContractOnly
+```
+
+```sh
+gh workflow run tests.yml --ref <full-reviewed-sha> -f evaluator_scope=windows-sccache-maintenance -f expected_source_sha=<full-reviewed-sha> -f maintenance_operation=contract-only
+```
+
+The second command is Fermi-owned and is not run in a source lane. Only after its real Windows
+source compile and pure controls pass may Fermi separately admit one native maintenance run.
+Provisioning installs the official Mozilla
+`sccache` `0.18.0` x64 MSVC release asset from
+`https://github.com/mozilla/sccache/releases/download/v0.18.0/sccache-v0.18.0-x86_64-pc-windows-msvc.zip`
+with the published size `9,694,400` bytes and SHA-256
+`8965c74d5e8a225244f741e18ad2f3f504f48228dc1bac948fc22761a348363d`. The release tag resolves
+to source commit `01c35e69b97f516c2ebfbdb418b5cd6277bde280`; its tag is unsigned, and the digest
+does not independently attest that the binary was built from that source. The operation checks
+the downloaded bytes, ZIP entry descriptors, x64 PE identity, measured executable hash, exact
+version output, runner/account/SHA joins, and a receipt before using or retaining the versioned
+tool. It never overwrites Cargo's `sccache.exe`, another version, runner service state, or global
+PATH. Reusing an existing receipt also fetches the same fixed archive, validates the pinned ZIP
+and entry shape, then compares the installed executable byte-for-byte with the executable stream
+from that verified archive before launch. This is verification only; the opt-in task session does
+not install or replace the tool, and the default no-install path is unchanged.
+
+The helper creates a non-breakaway, kill-on-close Windows Job before its first owned executable.
+It starts the pinned client suspended, assigns it to that Job, then resumes it. The pinned client
+source starts the server with `CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW` and does not request
+breakaway. The helper still verifies one Job process-membership snapshot after the real startup
+notification, retains and validates the server process handle, and checks the loopback listener
+PID at that readiness boundary. Only then does it run bounded `--show-stats` as diagnostic evidence.
+The captured output must be complete and untruncated, with each of the 16 pinned aggregate integer
+counters exactly once and zero: `Compile requests`, `Compile requests executed`, `Cache hits`,
+`Cache misses`, `Cache timeouts`, `Cache read errors`, `Forced recaches`, `Cache write errors`,
+`Cache errors`, `Compilations`, `Compilation failures`, `Non-cacheable compilations`,
+`Non-cacheable calls`, `Non-compilation calls`, `Unsupported compiler calls`, and
+`Failed distributed compilations`. Parsed output counters are retained in the receipt; nonzero,
+absent, malformed, duplicated, or incomplete data refuses the session. Pinned `commands.rs` may print
+default counters when the stats connection fails, so these values remain diagnostic and do not prove
+connection to the server. Readiness still requires the separate startup/process/Job/account/listener
+proof before and after stats.
+An occupied endpoint is a refusal; later endpoint reuse never changes shutdown authority.
+
+Cleanup deliberately calls `TerminateJobObject` only through the retained Job handle. It records
+whether the server exited naturally or the helper terminated the owned Job, then requires the
+captured process exit, Job active-zero completion event and zero accounting, complete output
+captures, and closed handles inside the original 30-second cleanup reserve of the 300-second
+maintenance bound. The retained server handle requests `PROCESS_QUERY_LIMITED_INFORMATION` and
+`SYNCHRONIZE`; waits classify signal, bounded timeout, and `WAIT_FAILED` with its Win32 error
+separately. No `--stop-server` protocol request is sent. Job termination is not a graceful cache
+flush and may lose in-flight disposable cache writes. The persistent cache under
+`%LOCALAPPDATA%\Mozilla\sccache` is never removed. A fresh run/attempt receipt directory is
+uploaded only when the helper created it. Unconfirmed cleanup remains a failed qualification, even
+if a termination request succeeded.
+
+The provisioning operation does not run a Rust case and does not leave a daemon for later jobs.
+Native success must be reviewed from one separately admitted run at the reviewed full SHA, with
+actual archive, PE, process/Job/listener, capture, exit, and handle evidence. Portable contract
+controls establish only pure source decisions. The three groups select 81 cases: 13 archive
+pin/shape cases, 31 input/ownership/deadline/reuse and actual C# decoder/lease cases, and 37
+completion/output/freshness/statistics/rollback cases. The independent literal fixture pins the
+16-counter zero output schema; fresh-zero statistics remains diagnostic and is not readiness proof.
+Reuse controls reject invalid receipts, invalid executable identity, or executable bytes that differ
+from the verified pinned archive. Capture receipts drop an incomplete leading line when the native
+32 KiB tail is truncated, while complete known token forms remain redacted; this is bounded known
+pattern handling and does not claim arbitrary-secret detection. Rollback controls exercise the same
+production decision as cleanup and require confirmed process, capture, Job and handle settlement with
+no cleanup errors. After canonical merge and review, request:
+
+```sh
+actionlint .github/workflows/tests.yml
+scripts/test-capped.sh --exec pwsh -NoLogo -NoProfile -NonInteractive -File scripts/windows-sccache-session.ps1 -ContractOnly
+```
+
+PowerShell 7 must already be available on the canonical host; do not install it to run the pure
+controls. If the additive install needs removal before any task tests are admitted, the exact
+receipt-owned executable and receipt may be removed only after the owned Job, process handles,
+captures, and files are confirmed settled. Keep the cache directory and unrelated tools. For a
+successful install, removal is a separate reviewed uninstall action, not part of maintenance.
+
 ---
 
 ## Engine 3 — Linux via Docker (arm64 native; x86_64 on ROG/WSL2)
@@ -242,7 +344,7 @@ Runner-local environment:
 | `pwsh: command not found` in `Ensure Rust toolchain` and cleanup. | Clean runner PATH had no PowerShell 7. | Install official PowerShell zip and prepend its directory in `actions-runner/.env`. | If PowerShell download is blocked, install PowerShell 7 manually and add its directory to `.env`. |
 | `rustup.exe not found`; no `cargo` or `rustc`. | Clean runner account had no Rust toolchain. | Install rustup stable MSVC, preinstall pinned `1.95.0`, clippy/rustfmt, and Windows MSVC targets; prepend `%USERPROFILE%\.cargo\bin`. | If network blocks rustup, mirror the official rustup installer and toolchain artifacts internally. |
 | ARM64 matrix job loses `rustup.exe` after x64 passes. | `Swatinem/rust-cache` post-job cleanup can remove `%USERPROFILE%\.cargo\bin` between sequential matrix jobs. | Bootstrap copies Rust proxies to `%USERPROFILE%\tools\rustup-proxies` and prepends that path before Cargo in the runner `.env`. | Restore proxies with `rustup-init` only if both the Cargo and durable proxy directories are absent. |
-| Focused Windows task gate stops before tests because `sccache` is not on PATH. | Rust proxy resolution does not establish the separate Cargo-bin cache-tool location. | The focused workflow preserves an existing PATH application or resolves one file only from current `CARGO_HOME/bin` and `USERPROFILE/.cargo/bin`, recording its hash and unchanged other-tool paths. The test wrapper still requires the existing prestarted cache server. | Missing or ambiguous files, unreadable metadata, or an unavailable cache server require authenticated runner-operator evidence; do not install, start a server, broaden discovery, or count preflight as a test. |
+| Focused Windows task gate stops before tests because `sccache` is not on PATH. | Rust proxy resolution does not establish the separate Cargo-bin cache-tool location. | Default dispatch remains no-install: it preserves an existing PATH application or resolves one file only from current `CARGO_HOME/bin` and `USERPROFILE/.cargo/bin`, records its hash and unchanged other-tool paths, and requires the existing prestarted cache server. A separately reviewed opt-in uses the pinned receipt and owns the cache server through the same fixed task loop. | Missing or ambiguous files, an invalid receipt, changed tool resolution, or a foreign endpoint are refusals. Additive installation is admitted only through the exact manual maintenance operation; do not start an ad hoc server, broaden discovery, or count preflight as a test. |
 | `node` missing in `Prepare compile stubs`. | Clean runner PATH had no Node.js. | Install official Node LTS zip, prepend it in `.env`, install `pnpm`, and add shims so PowerShell does not pick blocked `.ps1` launchers. | If Node download is blocked, install supported Node LTS manually and add it to `.env`. |
 | `link.exe` missing in Rust lib tests. | Visual Studio Build Tools and/or Windows SDK were absent. | Bootstrap detects `vswhere`, `vcvarsall.bat`, and Windows SDK inventory; with `-InstallVisualStudioBuildTools` in an elevated shell it installs Build Tools C++ workload, ARM64 tools, and Windows SDK, then writes MSVC `PATH`, `INCLUDE`, and `LIB` into runner `.env`. | If elevation/UAC is unavailable, install Visual Studio Build Tools manually with C++ tools and Windows SDK, then re-run bootstrap. |
 
