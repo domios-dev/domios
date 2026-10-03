@@ -158,7 +158,22 @@ async function fixture(local = false) {
   const host = win.document.createElement("div");
   win.document.body.appendChild(host);
   const root = createRoot(host);
-  await act(async () => root.render(<App />));
+  async function done() {
+      await act(async () => root.unmount());
+      events.__resetWebEventsForTest();
+      for (const stream of allStreams) stream.controller.close();
+      holdLocalBody = false; bodyRelease?.();
+      for (const request of allRequests) request.release();
+      api.invalidateWebRequestContext();
+      globalThis.fetch = originalFetch;
+      host.remove();
+      for (const [key, descriptor] of descriptors) {
+        if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
+      }
+      if (actDescriptor) Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", actDescriptor); else Reflect.deleteProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT");
+      await win.happyDOM.close();
+  }
+  try { await act(async () => root.render(<App />)); } catch (error) { await done(); throw error; }
   function button(selector: string) {
     const element = win.document.querySelector<HTMLButtonElement>(selector);
     assert(element, `missing ${selector}`);
@@ -191,13 +206,13 @@ async function fixture(local = false) {
   }
   async function deliver(stream: Stream, payload: AppConfig) {
     const done = deferred<void>();
-    const unlisten = bridge.listen("test-barrier", () => done.resolve());
-    await unlisten;
-    await act(async () => {
-      stream.controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ event_type: "config-changed", data: payload })}\n\ndata: ${JSON.stringify({ event_type: "test-barrier", data: null })}\n\n`));
-      await withFailureDeadline(done.promise, "config event delivered");
-    });
-    (await unlisten)();
+    const unlisten = await bridge.listen("test-barrier", () => done.resolve());
+    try {
+      await act(async () => {
+        stream.controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ event_type: "config-changed", data: payload })}\n\ndata: ${JSON.stringify({ event_type: "test-barrier", data: null })}\n\n`));
+        await withFailureDeadline(done.promise, "config event delivered");
+      });
+    } finally { unlisten(); }
   }
   async function rows() {
     await click('[data-testid="peer-picker-button"]');
@@ -220,26 +235,14 @@ async function fixture(local = false) {
       const option = [...win.document.querySelectorAll<HTMLButtonElement>("button")].find((entry) => entry.textContent?.startsWith("Offline"));
       assert(option); await act(async () => option.click());
     },
-    async done() {
-      await act(async () => root.unmount());
-      events.__resetWebEventsForTest();
-      for (const stream of allStreams) stream.controller.close();
-      holdLocalBody = false; bodyRelease?.();
-      for (const request of allRequests) request.release();
-      api.invalidateWebRequestContext();
-      globalThis.fetch = originalFetch;
-      host.remove();
-      for (const [key, descriptor] of descriptors) {
-        if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
-      }
-      if (actDescriptor) Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", actDescriptor); else Reflect.deleteProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT");
-      await win.happyDOM.close();
-    },
+    done,
   };
 }
 
+let selectedCases = 0;
 async function run(name: string, test: (f: Awaited<ReturnType<typeof fixture>>) => Promise<void>, local = false) {
   if (process.env.CONFIG_PEER_CASE && !name.includes(process.env.CONFIG_PEER_CASE)) return;
+  selectedCases += 1;
   const f = await fixture(local);
   try { await test(f); console.log(`PASS ${name}`); } finally { await f.done(); }
 }
@@ -346,6 +349,8 @@ async function main() {
     assert.equal(f.allRequests.filter((request) => request.method === "PATCH" && request.destination === B).length, 0);
     assert.deepEqual(f.stores.get(A), { ...f.initialA, mesh: { ...f.initialA.mesh, enabled: false } });
   }, true);
+  assert(selectedCases > 0, "CONFIG_PEER_CASE must select a real test");
+  console.log(`PASS config peer persistence: ${selectedCases} cases`);
 }
 
 void main().catch((error) => { console.error(error); process.exitCode = 1; });
