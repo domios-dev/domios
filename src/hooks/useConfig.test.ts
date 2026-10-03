@@ -50,7 +50,7 @@ async function nativeConfigSaves() {
   const original = new Map<string, PropertyDescriptor | undefined>();
   for (const key of ["window", "document", "navigator", "HTMLElement", "Node"]) {
     original.set(key, Object.getOwnPropertyDescriptor(globalThis, key));
-    Object.defineProperty(globalThis, key, { value: win[key as keyof Window], configurable: true });
+    Object.defineProperty(globalThis, key, { value: win[key as keyof typeof win], configurable: true });
   }
   original.set("IS_REACT_ACT_ENVIRONMENT", Object.getOwnPropertyDescriptor(globalThis, "IS_REACT_ACT_ENVIRONMENT"));
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { value: true, configurable: true });
