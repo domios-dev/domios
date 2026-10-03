@@ -36,7 +36,14 @@ export interface AutomationExecutor {
   capabilities: readonly string[] | null;
 }
 
+export interface AgentSentinelDefinition {
+  source: "stored_agent_definition";
+  definition_id: string;
+  creator_tab_id: string;
+}
+
 export interface AutomationNode {
+  sentinel_definition?: AgentSentinelDefinition | null;
   executor?: AutomationExecutor | null;
   identity: AutomationIdentity;
   name: string;

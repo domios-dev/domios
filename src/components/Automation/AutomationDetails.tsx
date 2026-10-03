@@ -23,6 +23,7 @@ export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFai
       <dt>Model</dt><dd>{node.executor?.model ?? "Unknown"}</dd>
       <dt>Capabilities</dt><dd>{node.executor?.capabilities?.join(" · ") ?? "Unknown"}</dd>
       <dt>ID</dt><dd>{node.identity.id}</dd>
+      {node.identity.kind === "sentinel" && <><dt>Creator provenance</dt><dd>{node.sentinel_definition ? `${node.sentinel_definition.source} · ${node.sentinel_definition.creator_tab_id}` : "Unknown"}</dd></>}
       <dt>Owner</dt><dd>{node.identity.owner_tab_id ?? "Unknown"}</dd>
       <dt>Workspace</dt><dd>{node.identity.workspace_id}</dd>
       <dt>Team</dt><dd>{node.identity.team_id ?? "No Team"}</dd>
