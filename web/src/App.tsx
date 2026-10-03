@@ -11,6 +11,7 @@ import { DownloadActions } from './download/DownloadActions';
 import { useDownload } from './download/useDownload';
 import { DownloadFeedback } from './download/DownloadFeedback';
 import { useBrandEntrance } from './brand/useBrandEntrance';
+import { SiteHeader } from './SiteHeader';
 
 const github = 'https://github.com/rollacode/codeterm-releases';
 const pillars: { icon: IconName; title: string; text: string; detail: string }[] = [
@@ -29,11 +30,7 @@ export function App() {
   const entrance = useBrandEntrance(reducedMotion);
   return <div className="site" data-motion={reducedMotion ? 'paused' : 'playing'} data-entrance={entrance.state}>
     <a className="skip-link" href="#main">Skip to content</a>
-    <header className="site-header section-wrap">
-      <a className="brand" href="#" aria-label="Domios home"><BrandMark motion="load" onRest={entrance.onRest} />domios</a>
-      <nav aria-label="Main navigation"><a href="#explore">Explore</a><a href="#foundation">Why Domios</a><a href={github} className="nav-github">GitHub <span aria-hidden="true">↗</span></a></nav>
-      <div className="header-actions"><button className="theme-control" role="switch" aria-checked={theme === 'dark'} aria-label="Dark theme" onClick={toggle}><Icon name="sun" size={15} /><span className="liquid-toggle"><span className="toggle-knob" /></span><Icon name="moon" size={15} /></button><a className="button button-small" href={download.href} data-download-trigger="header" onClick={event => download.onClick(event)} aria-label={download.label}>Download<Icon name="download" size={15} /></a></div>
-    </header>
+    <SiteHeader download={download} github={github} theme={theme} toggleTheme={toggle} onBrandRest={entrance.onRest} />
     <main id="main">
       <section className="hero section-wrap" aria-labelledby="hero-title">
         <a className="hero-badge" href="#explore"><BrandMark />THE DISTRIBUTED OS FOR AI AGENTS<span aria-hidden="true">↗</span></a>
