@@ -159,6 +159,43 @@ class WindowsApiFixture:
 
 
 class WindowsTrustTests(unittest.TestCase):
+    def runtime_with_digest(self, stack, digest):
+        guard, _ = self.guard(stack)
+        stack.enter_context(patch.object(worker_module.sys, "base_prefix", r"C:\fixture"))
+        stack.enter_context(patch.object(worker_module.sys, "prefix", r"C:\fixture"))
+        stack.enter_context(patch.object(worker_module.sys, "platform", "win32"))
+        stack.enter_context(patch.object(worker_module.sys, "version_info", (3, 14, 6)))
+        stack.enter_context(patch.object(worker_module.sys, "implementation", SimpleNamespace(name="cpython")))
+        stack.enter_context(patch.object(worker_module.sysconfig, "get_platform", return_value="win-amd64"))
+        stack.enter_context(patch.object(worker_module.sysconfig, "get_config_var", return_value=0))
+        stack.enter_context(patch.object(PureWindowsPath, "exists", return_value=False, create=True))
+        stack.enter_context(patch.object(PureWindowsPath, "absolute", lambda path: path, create=True))
+        guard.directory = Mock()
+        guard.file = Mock(return_value=(None, digest, None))
+        return guard
+
+    def test_windows_distribution_source_digest_is_admitted_exactly(self):
+        with ExitStack() as stack:
+            guard = self.runtime_with_digest(
+                stack, "a7b6bdf4657b018e4e76f22ebbb975a5fa6f0501088177fe950df1e20c18b209")
+            guard.runtime(r"C:\fixture\python.exe")
+            self.assertEqual(guard.file.call_args.args[0], PureWindowsPath(r"C:\fixture\Lib\subprocess.py"))
+            guard.close()
+
+    def test_other_source_digests_and_open_errors_refuse_runtime_admission(self):
+        for digest in ("6628ffdd65c093a6c08cae01ffe82877d3ced515aac9e7be0cff16512c30a7d9", "0" * 64):
+            with self.subTest(digest=digest), ExitStack() as stack:
+                guard = self.runtime_with_digest(stack, digest)
+                with self.assertRaisesRegex(WorkerError, "windows_runtime_source"):
+                    guard.runtime(r"C:\fixture\python.exe")
+                guard.close()
+        with ExitStack() as stack:
+            guard = self.runtime_with_digest(stack, None)
+            guard.file.side_effect = WorkerError("windows_file_identity")
+            with self.assertRaisesRegex(WorkerError, "windows_file_identity"):
+                guard.runtime(r"C:\fixture\python.exe")
+            guard.close()
+
     def security(self, **updates):
         return {"owner": "S-1-5-21-42", "dacl_present": True, "protected": True,
                 "aces": [(0, 0, 0x1f01ff, "S-1-5-21-42")], "bytes": b"supplied descriptor", **updates}
