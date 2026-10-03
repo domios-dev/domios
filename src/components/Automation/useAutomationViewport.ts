@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { useCanvasViewport, type ViewportBox, type ViewportTransform } from "../Canvas/useCanvasViewport";
+import { useCanvasViewport, viewportShowsBounds, type ViewportBox, type ViewportTransform } from "../Canvas/useCanvasViewport";
 import { frameAutomation, preferredOrientation, type AutomationLayouts, type AutomationOrientation, type CanvasSize } from "./layout";
 
 /** Camera owned by the scenario surface so a list toggle or data refresh never resets the user's view. */
@@ -8,10 +8,11 @@ export interface AutomationCamera {
   userMoved: boolean;
   orientation: AutomationOrientation | null;
   overview: boolean;
+  size: CanvasSize | null;
 }
 
 export function createAutomationCamera(): AutomationCamera {
-  return { transform: null, userMoved: false, orientation: null, overview: false };
+  return { transform: null, userMoved: false, orientation: null, overview: false, size: null };
 }
 
 const PAN_STEP = 64;
@@ -31,6 +32,7 @@ export function useAutomationViewport(layouts: AutomationLayouts, camera: Automa
   const overview = useRef(camera.overview);
   const current = useRef(orientation);
   current.current = orientation;
+  const framedSize = useRef(camera.size);
   const touch = useRef<{ id: number; x: number; y: number; base: ViewportTransform } | null>(null);
   const userMoved = useCallback(() => moved.current || (fitted.current !== null && !same(transformRef.current, fitted.current)), [transformRef]);
 
@@ -44,6 +46,7 @@ export function useAutomationViewport(layouts: AutomationLayouts, camera: Automa
       camera.userMoved = userMoved();
       camera.orientation = current.current;
       camera.overview = overview.current;
+      camera.size = framedSize.current;
     };
   }, [camera, setTransform, transformRef, userMoved]);
 
@@ -75,10 +78,21 @@ export function useAutomationViewport(layouts: AutomationLayouts, camera: Automa
   }, [layouts, size, setTransform]);
   const fit = useCallback(() => settle(true), [settle]);
 
-  const autoFit = useRef(settle);
-  autoFit.current = (whole: boolean) => { if (!userMoved()) settle(whole); };
+  // A moved camera keeps its scale and the world point at the viewport center when the canvas resizes.
+  const follow = useRef(() => {});
+  follow.current = () => {
+    if (!size) return;
+    const previous = framedSize.current;
+    framedSize.current = size;
+    if (!userMoved()) return settle(overview.current);
+    const t = transformRef.current;
+    const next = previous ? { ...t, x: t.x + (size.width - previous.width) / 2, y: t.y + (size.height - previous.height) / 2 } : t;
+    if (!viewportShowsBounds(next, layouts[current.current].bounds, size)) return settle(overview.current);
+    if (!same(next, t)) setTransform(next);
+    moved.current = true;
+  };
   const { horizontal, vertical } = layouts;
-  useLayoutEffect(() => autoFit.current(overview.current), [size?.width, size?.height, horizontal.bounds.width, horizontal.bounds.height, vertical.bounds.width, vertical.bounds.height]);
+  useLayoutEffect(() => follow.current(), [size?.width, size?.height, horizontal.bounds.width, horizontal.bounds.height, vertical.bounds.width, vertical.bounds.height]);
 
   const panBy = useCallback((dx: number, dy: number) => {
     const transform = transformRef.current;

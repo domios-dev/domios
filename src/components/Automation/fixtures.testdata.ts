@@ -106,3 +106,38 @@ export function chainGraph(): AutomationGraph {
     ],
   };
 }
+
+/** Decision Sentinel whose declared outcomes fan out to a real stage plus target-less command, notify and stop actions. */
+export function decisionGraph(): AutomationGraph {
+  const [root, stage] = ["decision-root", "decision-stage"].map((id) => identity("sentinel", id));
+  const worker = identity("worker", "decision-worker");
+  const definition = (target: AutomationIdentity) => ({ source: "stored_agent_definition" as const, definition_id: target.id, creator_tab_id: target.owner_tab_id! });
+  const accepted = { status: "completed", execution_id: "decision-exec-marker", accepted_at: 100000, command_result: { status: "success" as const, exit_code: 0, resources_confirmed: true, stdout: null, stderr: null, started_at: 100001, finished_at: 100002 } };
+  const activation = { status: "completed", execution_id: "decision-exec-stage", accepted_at: 100000 };
+  return {
+    workspace_id: attachment.workspace_id, team_id: attachment.team_id, revision: "decision-a",
+    scenarios: [{ id: "scenario-decision", name: "Decision scenario", root }],
+    nodes: [
+      { ...fixtureNode(root, "Decision root"), sentinel_definition: definition(root), outcomes: [
+        { bucket: "passed-d", handlers: [
+          { id: "marker-d", type: "command", label: "Marker label d", timeout_ms: 1000, target: null, availability: "available", last_result: accepted },
+          { id: "activate-d", type: "sentinel", target: stage, availability: "available", last_result: activation },
+        ] },
+        { bucket: "failed-d", handlers: [
+          { id: "notify-d", type: "notify", target: null, availability: "available", last_result: null },
+          { id: "stop-d", type: "stop", target: null, availability: "available", last_result: null },
+        ] },
+        { bucket: "skipped-d", handlers: [] },
+      ], last_result: { bucket: "passed-d", accepted_at: 100000, handlers: [{ ...accepted, handler_id: "marker-d" }, { ...activation, handler_id: "activate-d" }] } },
+      { ...fixtureNode(stage, "Decision stage"), sentinel_definition: definition(stage), outcomes: [
+        { bucket: "passed-e", handlers: [{ id: "send-e", type: "send", target: worker, availability: "available", last_result: null }] },
+        { bucket: "failed-e", handlers: [{ id: "cleanup-e", type: "command", label: "Cleanup label e", target: null, availability: "available", last_result: null }] },
+      ] },
+      fixtureNode(worker, "Decision worker"),
+    ],
+    edges: [
+      { id: "decision-edge-a", source: root, target: stage, bucket: "passed-d", handler_id: "activate-d", handler_type: "sentinel", result: activation, evidence: { kind: "configured", route_id: "decision-route-a" } },
+      { id: "decision-edge-b", source: stage, target: worker, bucket: "passed-e", handler_id: "send-e", handler_type: "send", result: null, evidence: { kind: "configured", route_id: "decision-route-b" } },
+    ],
+  };
+}
