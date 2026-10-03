@@ -52,7 +52,7 @@ fn cli_path() -> Result<std::path::PathBuf, String> {
             return Ok(candidate);
         }
     }
-    Err("codeterm CLI is not installed yet; restart CodeTerm and try again".into())
+    Err("codeterm CLI is not installed yet; restart Domios and try again".into())
 }
 
 #[cfg(target_os = "windows")]
