@@ -70,7 +70,15 @@ export interface AutomationEdge {
   evidence: { kind: "configured"; route_id: string } | { kind: "observed"; execution_id: string };
 }
 
+export interface AutomationScenario {
+  id: string;
+  name: string;
+  root: AutomationIdentity;
+}
+
 export interface AutomationGraph extends AutomationScope {
+  truncated?: boolean;
+  scenarios: readonly AutomationScenario[];
   revision: string;
   nodes: readonly AutomationNode[];
   edges: readonly AutomationEdge[];

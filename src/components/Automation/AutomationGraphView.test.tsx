@@ -3,7 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { AutomationGraphView } from "./AutomationGraphView";
-import { attachment, fixtureGraph, fixtureNode, FixtureTransport, identity, sentinelIdentity } from "./fixtures.testdata";
+import { attachment, fixtureGraph, fixtureNode, FixtureTransport, identity, multiScenarioGraph, sentinelIdentity } from "./fixtures.testdata";
 import { automationKey } from "./types";
 
 const window = new Window({ url: "http://localhost/" });
@@ -18,6 +18,9 @@ async function mount(transport = new FixtureTransport()) {
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => { root.render(<AutomationGraphView adapter={transport} attachment={attachment} />); });
+  const scenario = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((entry) => entry.textContent?.includes(transport.graph.scenarios[0].name));
+  assert.ok(scenario);
+  await act(async () => scenario.click());
   return { host, root, transport, close: async () => { await act(async () => root.unmount()); host.remove(); } };
 }
 function button(host: HTMLElement, text: string) {
@@ -194,6 +197,51 @@ test("unconnected Team automation and host monitor stay absent from graph and li
     await click(button(view.host, "Watcher A"));
     assert.ok(details(view.host).textContent?.includes("stored_agent_definition"));
     assert.ok(details(view.host).textContent?.includes("owner-a"));
+  } finally { await view.close(); }
+});
+
+test("one named Sentinel entry opens its internal stages while shared execution keeps exact evidence", async () => {
+  const transport = new FixtureTransport();
+  transport.graph = multiScenarioGraph();
+  const view = await mount(transport);
+  try {
+    assert.ok(view.host.textContent?.includes("Internal stage A"));
+    assert.equal(view.host.querySelector("h2")?.textContent, `${transport.graph.scenarios[0].name} · Sentinel graph`);
+    assert.ok(!view.host.textContent?.includes("Watcher B"));
+    assert.equal(view.host.querySelectorAll('[data-edge-kind="observed"]').length, 1);
+    await click(button(view.host, "All Sentinels"));
+    assert.equal(view.host.querySelectorAll('ul[aria-label="Sentinel scenarios"] > li').length, 2);
+    assert.ok(!view.host.textContent?.includes("Internal stage A"), "internal stage is not a separate scenario entry");
+    await click(button(view.host, "Sentinel scenario B"));
+    assert.equal(view.host.querySelector("h2")?.textContent, `${transport.graph.scenarios[1].name} · Sentinel`);
+    assert.ok(view.host.textContent?.includes("Watcher B"));
+    assert.ok(!view.host.textContent?.includes("Watcher A"));
+    assert.ok(!view.host.textContent?.includes("Internal stage A"));
+    assert.equal(view.host.querySelectorAll('[data-edge-kind="observed"]').length, 1);
+    await click(button(view.host, "Schedule A"));
+    assert.ok(details(view.host).textContent?.includes("execution-a"));
+    assert.ok(!details(view.host).textContent?.includes("route-a"));
+    transport.graph = { ...transport.graph, scenarios: [transport.graph.scenarios[0]] };
+    await act(async () => { transport.changed!(); });
+    assert.ok(view.host.querySelector('[role="alert"]')?.textContent?.includes("selected Sentinel is unavailable"));
+    assert.equal(view.host.querySelector("aside"), null);
+    assert.equal(view.host.querySelectorAll('[data-edge-kind]').length, 0);
+  } finally { await view.close(); }
+});
+
+test("backend-refused command handler and incomplete snapshot remain explicit", async () => {
+  const transport = new FixtureTransport();
+  const refused = { id: "bounded-command-fixture", type: "command", target: null, availability: "unavailable" as const, last_result: { status: "unsupported-command", execution_id: null, accepted_at: null } };
+  const graph = fixtureGraph();
+  transport.graph = { ...graph, truncated: true, nodes: [{ ...graph.nodes[0], outcomes: [{ bucket: "command-outcome", handlers: [refused] }] }, ...graph.nodes.slice(1)] };
+  const view = await mount(transport);
+  try {
+    assert.ok(view.host.querySelector('[role="alert"]')?.textContent?.includes("snapshot is incomplete"));
+    await click(button(view.host, "Watcher A"));
+    assert.ok(details(view.host).textContent?.includes(refused.id));
+    assert.ok(details(view.host).textContent?.includes(refused.availability));
+    assert.ok(details(view.host).textContent?.includes(refused.last_result.status));
+    assert.equal(transport.stops.length, 0);
   } finally { await view.close(); }
 });
 
