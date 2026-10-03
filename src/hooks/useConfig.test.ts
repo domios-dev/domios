@@ -57,6 +57,7 @@ async function nativeConfigSaves() {
   let finishRead!: (config: ReturnType<typeof defaultConfig>) => void;
   const read = new Promise<ReturnType<typeof defaultConfig>>((resolve) => { finishRead = resolve; });
   let stored = structuredClone(authenticated);
+  const persisted = () => stored;
   let writes = 0;
   let emit: ((event: { payload: ReturnType<typeof defaultConfig> }) => void) | undefined;
   __setInvokeForTest(async <T>(command: string, args?: Record<string, unknown>) => {
@@ -66,9 +67,9 @@ async function nativeConfigSaves() {
     writes += 1;
     return undefined as T;
   });
-  __setListenForTest(async (event, handler) => {
+  __setListenForTest(async <T>(event: string, handler: (event: { payload: T }) => void) => {
     assert(event === "config-changed", "only the config listener is registered");
-    emit = handler;
+    emit = (value) => handler({ payload: value.payload as T });
     return () => { emit = undefined; };
   });
   let current!: ReturnType<typeof useConfig>;
@@ -92,10 +93,10 @@ async function nativeConfigSaves() {
     await act(async () => emit!({ payload: redacted }));
     assert(current.config.api.token === "runtime-secret", "real native hook preserves a same-peer redacted token");
     await act(async () => current.updateConfig({ ...current.config, font: { ...current.config.font, size: 18 } }));
-    assert(stored.api.token === "runtime-secret" && stored.font.size === 18, "native save persists the current peer config and token");
+    assert(persisted().api.token === "runtime-secret" && persisted().font.size === 18, "native save persists the current peer config and token");
     await act(async () => emit!({ payload: rotated }));
     await act(async () => current.updateConfig({ ...current.config, font: { ...current.config.font, size: 20 } }));
-    assert(stored.api.token === "rotated-secret" && stored.font.size === 20, "native token rotation survives a valid subsequent save");
+    assert(persisted().api.token === "rotated-secret" && persisted().font.size === 20, "native token rotation survives a valid subsequent save");
     console.log("PASS native config readiness, redacted-token preservation and rotation through the real hook");
   } finally {
     await act(async () => root.unmount());
