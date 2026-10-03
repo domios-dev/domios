@@ -5,7 +5,22 @@ use std::sync::Arc;
 #[derive(Clone, Default)]
 pub struct PtyOwnership {
     launch_claims: Arc<Mutex<HashMap<String, String>>>,
+    #[cfg(test)]
+    observer: Arc<Mutex<Option<OwnershipObserver>>>,
 }
+
+#[cfg(test)]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) enum OwnershipEvent {
+    AwaitingActivation,
+    Linking {
+        candidate: String,
+        launch_owned: bool,
+    },
+}
+
+#[cfg(test)]
+pub(crate) type OwnershipObserver = Arc<dyn Fn(&str, OwnershipEvent) + Send + Sync>;
 
 pub struct TabPtyClaim {
     tab_id: String,
@@ -36,11 +51,30 @@ impl PtyOwnership {
         TabPtyClaim {
             tab_id: tab_id.to_string(),
             ownership: self.clone(),
-            _activation: crate::service::pty_activation::acquire(tab_id),
+            _activation: self.activate(tab_id),
         }
     }
 
+    #[cfg(not(test))]
+    fn activate(&self, tab_id: &str) -> crate::service::pty_activation::TabActivationPermit {
+        crate::service::pty_activation::acquire(tab_id)
+    }
+
+    #[cfg(test)]
+    fn activate(&self, tab_id: &str) -> crate::service::pty_activation::TabActivationPermit {
+        crate::service::pty_activation::acquire_with_wait_hook(tab_id, || {
+            self.observe(tab_id, OwnershipEvent::AwaitingActivation)
+        })
+    }
+
     pub async fn acquire_async(&self, tab_id: String) -> Result<TabPtyClaim, String> {
+        #[cfg(test)]
+        if self.observer.lock().is_some() {
+            let ownership = self.clone();
+            return tokio::task::spawn_blocking(move || ownership.acquire(&tab_id))
+                .await
+                .map_err(|error| format!("Tab activation waiter failed: {error}"));
+        }
         let activation = crate::service::pty_activation::acquire_async(tab_id.clone()).await?;
         Ok(TabPtyClaim {
             tab_id,
@@ -72,6 +106,24 @@ impl PtyOwnership {
             .lock()
             .retain(|_, claimed| !pty_ids.contains(claimed));
     }
+
+    #[cfg(test)]
+    pub(crate) fn set_test_observer(&self, observer: OwnershipObserver) {
+        *self.observer.lock() = Some(observer);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn observe(&self, tab_id: &str, event: OwnershipEvent) {
+        let observer = self.observer.lock().clone();
+        if let Some(observer) = observer {
+            observer(tab_id, event);
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn launch_claim(&self, tab_id: &str) -> Option<String> {
+        self.launch_claims.lock().get(tab_id).cloned()
+    }
 }
 
 impl TabPtyClaim {
@@ -84,6 +136,14 @@ impl TabPtyClaim {
         mut kill: impl FnMut(&str),
         mut ready: impl FnMut(&str),
     ) -> PtySelection {
+        #[cfg(test)]
+        self.ownership.observe(
+            &self.tab_id,
+            OwnershipEvent::Linking {
+                candidate: candidate_pty_id.clone(),
+                launch_owned,
+            },
+        );
         let existing_claim = {
             let claims = self.ownership.launch_claims.lock();
             claims.get(&self.tab_id).cloned()
