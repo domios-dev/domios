@@ -340,7 +340,7 @@ function Invoke-ContractOnly {
     $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::TcpDecoderContractControls()) 6
     $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::LaunchLeaseContractControls()) 7
     $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::CandidateInventoryContractControls()) 3
-    $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::StartupNotificationContractControls()) 18
+    $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::StartupNotificationContractControls()) 21
     $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::DirectServerMemberContractControls()) 3
     $inputCases += Get-ArchiveStreamContractCases
     $group2 = Invoke-ContractGroup 'inputs_ownership_deadline_and_pinned_reuse' $inputCases {
