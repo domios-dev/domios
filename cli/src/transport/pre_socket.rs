@@ -159,7 +159,7 @@ fn handle_config(json_output: bool, action: &ConfigAction) {
                         .unwrap_or("?");
                     eprintln!(
                         "warning: NOT applied to the running listener — it is still bound to {live}, \
-                         config stores {configured}. Restart CodeTerm to apply, and verify with \
+                         config stores {configured}. Restart Domios to apply, and verify with \
                          `lsof -nP -iTCP:<port> -sTCP:LISTEN`."
                     );
                 }
