@@ -27,7 +27,7 @@ function VideoPlayer({ clip, player }: { clip: Trailer; player: ReturnType<typeo
       onClick={onSurfaceClick}>
       <div className="video-placeholder"><Icon name="terminal" size={40} /><span>A place for your agents.</span><small>See Domios at work.</small></div>
       {!posterFailed && <img className="video-poster" src={clip.poster.src} alt="Three computers connected through Domios" loading="lazy" width="1280" height="720" onError={() => setPosterFailed(true)} />}
-      {!player.failed && <video ref={player.videoRef} muted={!player.soundEnabled} loop={!player.soundAtFullVolume} playsInline preload="none" aria-label="Domios: from your desktop to your whole team" aria-describedby={`trailer-description${clip.hasNarration ? ' trailer-narration' : ''}`}
+      {!player.failed && <video ref={player.videoRef} muted={!player.soundEnabled} loop={player.loopEnabled} playsInline preload="none" aria-label="Domios: from your desktop to your whole team" aria-describedby={`trailer-description${clip.hasNarration ? ' trailer-narration' : ''}`}
         onLoadedMetadata={player.onLoadedMetadata} onLoadedData={player.onLoadedData} onPlay={player.onPlay} onPause={player.onPause} onEnded={player.onEnded} onError={player.onError} onTimeUpdate={player.onTimeUpdate} onSeeked={player.onTimeUpdate}>
         {player.loaded && <><source src={clip.mp4.src} type="video/mp4" /><source src={clip.webm.src} type="video/webm" />{clip.subtitles && <track kind="captions" src={clip.subtitles.src} srcLang="en" label="English" onLoad={(event) => { event.currentTarget.track.mode = 'hidden'; }} />}</>}
       </video>}
@@ -38,9 +38,9 @@ function VideoPlayer({ clip, player }: { clip: Trailer; player: ReturnType<typeo
           {!player.failed && <button type="button" className="play-control" onClick={player.togglePlayback} aria-label={player.playing ? 'Pause Domios trailer' : 'Play Domios trailer'}>
             <Icon name={player.playing ? 'pause' : 'play'} size={17} />
           </button>}
-          {!player.failed && clip.hasNarration && <button type="button" className="sound-control" onClick={player.toggleSound} aria-pressed={player.soundEnabled} aria-label={player.soundAtFullVolume ? 'Turn sound off' : player.soundEnabled ? 'Increase volume to 100%' : 'Turn sound on'}>
+          {!player.failed && clip.hasNarration && <div className="sound-widget"><button type="button" className="sound-control" onClick={player.toggleSound} aria-pressed={player.soundEnabled} aria-label={player.soundAtFullVolume ? 'Turn sound off' : player.soundEnabled ? 'Increase volume to 100%' : 'Turn sound on'}>
             <svg aria-hidden="true" focusable="false" viewBox="0 0 20 20" width="18" height="18"><path d="M3 8v4h3l4 3V5L6 8H3" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />{player.soundEnabled ? <path d="M13 7a4 4 0 0 1 0 6m2-8a7 7 0 0 1 0 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /> : <path d="m13 8 4 4m0-4-4 4" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />}</svg>
-          </button>}
+          </button><input className="sound-slider" type="range" min="0" max="100" step="1" value={Math.round(player.volume * 100)} onChange={event => player.setVolume(Number(event.currentTarget.value))} aria-label="Volume" aria-valuetext={`${Math.round(player.volume * 100)}%`} /></div>}
           {chrome.fullscreenSupported && <button type="button" className="fullscreen-control" onClick={chrome.toggleFullscreen} aria-label={chrome.fullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
             <svg aria-hidden="true" focusable="false" viewBox="0 0 20 20" width="17" height="17"><path d={chrome.fullscreen ? 'M7 3v4H3m14 0h-4V3m0 14v-4h4M3 13h4v4' : 'M3 7V3h4m6 0h4v4m0 6v4h-4M7 17H3v-4'} fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>}

@@ -27,6 +27,9 @@
 .play-control, .sound-control, .fullscreen-control { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 44px; width: 44px; height: 44px; min-width: 44px; min-height: 44px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--ct-heading); cursor: pointer; }
 .sound-control[aria-pressed="true"] { color: var(--ct-accent); }
 .video-stage[data-chrome-visible="false"] .video-rail { opacity: 0; pointer-events: none; }
+.sound-widget { display: flex; align-items: center; }
+.sound-slider { flex: 0 0 auto; width: 0; min-width: 0; height: 44px; margin: 0; padding: 0; opacity: 0; pointer-events: none; accent-color: var(--ct-accent); transition: width 140ms ease, opacity 140ms ease, margin 140ms ease; }
+.sound-widget:hover .sound-slider, .sound-widget:focus-within .sound-slider { width: 64px; margin-inline: 6px; opacity: 1; pointer-events: auto; }
 .video-stage:focus-within .video-rail { opacity: 1; pointer-events: auto; }
 .video-stage:fullscreen .video-rail { right: clamp(12px, 2vw, 28px); bottom: clamp(12px, 2vw, 28px); left: auto; width: auto; justify-content: flex-end; }
 .caption-region { position: absolute; z-index: 2; inset: auto 12px 68px; display: flex; align-items: center; justify-content: center; gap: 7px; pointer-events: none; }
