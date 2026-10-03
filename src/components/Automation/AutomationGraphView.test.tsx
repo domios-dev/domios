@@ -61,6 +61,9 @@ test("hidden Worker and missing target remain selectable without changing tab vi
     await click(button(details(view.host), "Worker A"));
     assert.ok(details(view.host).textContent?.includes("Hidden"));
     assert.ok(details(view.host).textContent?.includes("idle"));
+    assert.ok(details(view.host).textContent?.includes(view.transport.graph.nodes[2].executor!.provider_id!));
+    assert.ok(details(view.host).textContent?.includes(view.transport.graph.nodes[2].executor!.model!));
+    assert.ok(details(view.host).textContent?.includes("chat_backend"));
     await click(button(view.host, "missing-a"));
     assert.ok(details(view.host).textContent?.includes("missing"));
     assert.ok(details(view.host).textContent?.includes("Unknown"));

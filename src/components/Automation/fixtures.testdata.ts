@@ -20,7 +20,7 @@ export function fixtureGraph(): AutomationGraph {
         { id: "handler-b", type: "sentinel", target: sentinelIdentity, availability: "unavailable", last_result: { status: "failed", execution_id: "handler-execution-b", accepted_at: 100000 } },
       ] }, { bucket: "branch-b", handlers: [{ id: "handler-c", type: "send", target: workerIdentity, availability: "available", last_result: null }] }], last_result: { bucket: "accepted-a", accepted_at: 100000, handlers: [{ handler_id: "handler-a", status: "success", execution_id: "handler-execution-a", accepted_at: 100000 }, { handler_id: "handler-b", status: "failed", execution_id: "handler-execution-b", accepted_at: 100000 }] }, stop: { allowed: true, reason: null } },
       { ...fixtureNode(cronIdentity, "Schedule A"), schedule: "*/7 * * * *", state: "enabled" },
-      { ...fixtureNode(workerIdentity, "Worker A"), hidden: true, state: "idle" },
+      { ...fixtureNode(workerIdentity, "Worker A"), hidden: true, state: "idle", executor: { kind: "agent", provider_id: "provider-fixture-a", adapter_id: null, model: "model-fixture-a", capabilities: ["chat_backend"] } },
     ],
     edges: [
       { id: "edge-a", source: sentinelIdentity, target: cronIdentity, bucket: "branch-a", handler_id: "handler-a", handler_type: "cron", result: null, evidence: { kind: "configured", route_id: "route-a" } },
