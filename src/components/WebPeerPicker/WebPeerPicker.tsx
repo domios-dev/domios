@@ -46,7 +46,7 @@ interface MeshPeers {
  */
 export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
   const [peers, setPeers] = useState<PairedPeer[]>([]);
-  const [localName, setLocalName] = useState("CodeTerm");
+  const [localName, setLocalName] = useState("Domios");
   const [open, setOpen] = useState(false);
   const [displayTarget, setDisplayTarget] = useState(relayTarget);
   const [switchingTo, setSwitchingTo] = useState<string | null>(null);

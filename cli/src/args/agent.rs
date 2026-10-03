@@ -273,7 +273,7 @@ pub enum AgentAction {
         /// caller. Content remains byte-exact. Mutually exclusive with --task.
         #[arg(long, value_name = "PATH")]
         task_file: Option<String>,
-        /// Extra provider args. Put this after all CodeTerm spawn options.
+        /// Extra provider args. Put this after all Domios spawn options.
         #[arg(long, num_args = 1.., allow_hyphen_values = true)]
         args: Option<Vec<String>>,
         /// Target workspace ID. Defaults to the parent tab's workspace, then your
