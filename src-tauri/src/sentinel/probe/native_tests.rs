@@ -13,7 +13,7 @@ fn sentinel_probe_native_success_and_nonzero() {
         let command = finite_command(status);
         let (output, receipt) = super::run_with_receipt(&command, dir.path(), PROBE_RUNTIME, &owner)
             .unwrap_or_else(|(failure, receipt)| {
-                panic!("exit {status}: {failure}; deadline receipt={receipt:?}")
+                panic!("exit {status}: {failure:?}; deadline receipt={receipt:?}")
             });
         assert_deadline_receipt(receipt, PROBE_RUNTIME);
         assert_eq!(i32::from_le_bytes(output.bytes[..4].try_into().unwrap()), status);
@@ -32,7 +32,7 @@ fn sentinel_probe_native_output_is_bounded_and_drained() {
     let (output, receipt) =
         super::run_with_receipt(&large_command(), dir.path(), PROBE_RUNTIME, &owner)
             .unwrap_or_else(|(failure, receipt)| {
-                panic!("bounded capture: {failure}; deadline receipt={receipt:?}")
+                panic!("bounded capture: {failure:?}; deadline receipt={receipt:?}")
             });
     assert_deadline_receipt(receipt, PROBE_RUNTIME);
     assert_eq!(output.bytes.len(), MAX_OUTPUT_BYTES + 12);
