@@ -1,6 +1,6 @@
 # Tab-state Jev evaluator source preparation
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
 
 This evaluator loads the immutable shipped `criteria.json` directly. It measures
 classification math over supplied human-labelled records and performs a bounded
@@ -125,11 +125,25 @@ oracles. Other interpreters/platforms fail preflight without network admission.
 
 Windows source admission is restricted to standard native CPython3.14.6 x64,
 local fixed NTFS volumes, understood ordinary allow/deny DACL entries, and the
-current process-token SID plus SYSTEM and Builtin Administrators. This trusts the
+current process-token SID plus SYSTEM and Builtin Administrators. The exact
+TrustedInstaller owner SID is additionally admitted only on a captured,
+identity-confirmed canonical volume-root directory used as an ancestor, never
+on a leaf, nonroot or private object. This owner exception adds no trusted ACE
+principal: root replacement, WRITE_DAC/WRITE_OWNER and every independent DACL
+refusal still apply, including to service ACEs. This trusts the
 same user and these administration principals; it does not protect against their
 concurrent modification or attest every runtime dependency. Other runtime versions,
 venvs, debug/free-threaded builds, embedded layouts, reparse points, hard-linked
 files, remote volumes, unknown ACEs and unreadable/null DACLs refuse.
+
+Windows preflight run37136934427 refused `windows_owner` on the legitimate
+TrustedInstaller-owned `C:/` root before native controls ran. The correction
+checks captured directory/final-path identity before the narrow root-owner
+admission; existing ancestry revalidation and negative ACL controls remain.
+No host ownership, ACL, interpreter installation or persistent PATH repair is
+needed. Source and injected regression coverage do not qualify native Windows
+execution: use the focused `WindowsTrustTests` selector and the existing six
+trust/six TLS oracles after reviewed real merge, stopping at the first failure.
 
 Parent and worker independently open source/interpreter/runtime roots and private
 cwd objects with READ_CONTROL, deny write/delete sharing, inspect volume/file IDs,

@@ -159,6 +159,85 @@ class WindowsApiFixture:
 
 
 class WindowsTrustTests(unittest.TestCase):
+    def test_servicing_root_is_admitted_through_captured_file_and_directory_ancestors(self):
+        for directory in (False, True):
+            with self.subTest(directory=directory), ExitStack() as stack:
+                guard, api = self.guard(stack)
+                def servicing_root(facts):
+                    if facts["final"] == "C:\\":
+                        facts["security"]["owner"] = worker_module.WINDOWS_SERVICING_OWNER
+                        facts["security"]["aces"] += [(0, 0, 4, "S-1-5-11"), (0, 8, 0x1f01ff, "S-1-5-11")]
+                api.override = servicing_root
+                if directory:
+                    guard.directory(r"C:\fixture")
+                else:
+                    guard.file(r"C:\fixture\contract.py")
+                self.assertEqual(guard.objects[0]["path"], PureWindowsPath("C:\\"))
+                self.assertEqual(guard.objects[0]["facts"]["security"]["owner"], worker_module.WINDOWS_SERVICING_OWNER)
+                self.assertEqual(worker_module.WINDOWS_ADMINS, frozenset(("S-1-5-18", "S-1-5-32-544")))
+                guard.revalidate()
+                guard.close()
+                self.assertTrue(guard.closed)
+                self.assertEqual(len(api.closed), len(api.handles))
+                self.assertEqual(len(set(api.closed)), len(api.closed))
+
+    def test_servicing_owner_refuses_nonroot_leaf_private_and_other_service_contexts(self):
+        cases = ((r"C:\fixture", True, True, False, worker_module.WINDOWS_SERVICING_OWNER),
+                 (r"C:\fixture\leaf.py", False, False, False, worker_module.WINDOWS_SERVICING_OWNER),
+                 ("C:\\", True, False, False, worker_module.WINDOWS_SERVICING_OWNER),
+                 ("C:\\", True, True, True, worker_module.WINDOWS_SERVICING_OWNER),
+                 ("C:\\", True, True, False, "S-1-5-80-123"))
+        for path, directory, ancestor, private, sid in cases:
+            with self.subTest(path=path, ancestor=ancestor, private=private, sid=sid), ExitStack() as stack:
+                guard, api = self.guard(stack)
+                api.override = lambda facts: facts["security"].update(owner=sid)
+                with self.assertRaisesRegex(WorkerError, "windows_owner"):
+                    guard.opened(path, directory=directory, ancestor=ancestor, private=private)
+                guard.close()
+                self.assertEqual(api.closed, [1])
+        for ancestor, private in ((False, False), (True, True)):
+            with self.subTest(ancestor=ancestor, private=private), self.assertRaisesRegex(WorkerError, "windows_owner"):
+                worker_module.windows_acl_policy(self.security(owner=worker_module.WINDOWS_SERVICING_OWNER),
+                                                 "S-1-5-21-42", volume_root=True, ancestor=ancestor, private=private)
+
+    def test_root_identity_is_confirmed_before_servicing_owner_policy(self):
+        for updates in ({"final": r"C:\replacement"}, {"directory": False}):
+            with self.subTest(updates=updates), ExitStack() as stack:
+                guard, api = self.guard(stack)
+                def mismatched(facts):
+                    facts.update(updates)
+                    facts["security"]["owner"] = worker_module.WINDOWS_SERVICING_OWNER
+                api.override = mismatched
+                policy = stack.enter_context(patch.object(worker_module, "windows_acl_policy", wraps=worker_module.windows_acl_policy))
+                with self.assertRaisesRegex(WorkerError, "windows_path_identity"):
+                    guard.opened("C:\\", directory=True, ancestor=True)
+                policy.assert_not_called()
+                guard.close()
+                self.assertEqual(api.closed, [1])
+
+    def test_servicing_root_owner_does_not_exempt_dacl_or_service_ace_checks(self):
+        cases = [({"dacl_present": False}, "windows_dacl"), ({"aces": None}, "windows_dacl"),
+                 ({"aces": [(5, 0, 1, "S-1-1-0")]}, "windows_ace_unsupported"),
+                 ({"aces": [(0, 0x20, 1, "S-1-1-0")]}, "windows_ace_unsupported")]
+        for sid in ("S-1-1-0", worker_module.WINDOWS_SERVICING_OWNER):
+            for mask in (0x40, 0x10000, 0x40000, 0x80000, 0x10000000, 0x40000000):
+                cases.append(({"aces": [(0, 0, mask, sid)]}, "windows_foreign_authority"))
+        for updates, code in cases:
+            with self.subTest(updates=updates), ExitStack() as stack:
+                guard, api = self.guard(stack)
+                api.override = lambda facts: facts["security"].update(owner=worker_module.WINDOWS_SERVICING_OWNER, **updates)
+                with self.assertRaisesRegex(WorkerError, code):
+                    guard.opened("C:\\", directory=True, ancestor=True)
+                guard.close()
+                self.assertEqual(api.closed, [1])
+        with ExitStack() as stack:
+            guard, api = self.guard(stack)
+            api.inspect = Mock(side_effect=WorkerError("windows_security_read"))
+            with self.assertRaisesRegex(WorkerError, "windows_security_read"):
+                guard.opened("C:\\", directory=True, ancestor=True)
+            guard.close()
+            self.assertEqual(api.closed, [1])
+
     def runtime_with_digest(self, stack, digest):
         guard, _ = self.guard(stack)
         stack.enter_context(patch.object(worker_module.sys, "base_prefix", r"C:\fixture"))
