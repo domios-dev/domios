@@ -42,7 +42,7 @@ use super::usage::UsageAction;
 #[command(
     name = "codeterm",
     version,
-    about = "CodeTerm CLI — control your terminal multiplexer",
+    about = "Domios CLI — control your terminal multiplexer",
     after_help = "Plugin management is available via `codeterm plugin --help`."
 )]
 pub struct Cli {
@@ -64,7 +64,7 @@ pub struct Cli {
     reason = "Clap command enums keep parsed options inline."
 )]
 pub enum Commands {
-    /// Show CodeTerm version and system info
+    /// Show Domios version and system info
     Identify,
 
     /// List CLI commands and clearly marked RPC-only/internal methods
@@ -283,7 +283,7 @@ pub enum Commands {
         action: ServiceAction,
     },
 
-    /// Check for updates and manage CodeTerm version
+    /// Check for updates and manage Domios version
     Update {
         #[command(subcommand)]
         action: Option<UpdateAction>,
@@ -298,7 +298,7 @@ pub enum Commands {
         after_update: Option<String>,
     },
 
-    /// Read or write CodeTerm configuration
+    /// Read or write Domios configuration
     Config {
         #[command(subcommand)]
         action: ConfigAction,
@@ -392,7 +392,7 @@ pub enum Commands {
         action: SystemAction,
     },
 
-    /// Read embedded CodeTerm documentation in full. Omit NAME to list documents.
+    /// Read embedded Domios documentation in full. Omit NAME to list documents.
     Docs {
         /// Document name. Omit to list every available name and purpose.
         name: Option<String>,
