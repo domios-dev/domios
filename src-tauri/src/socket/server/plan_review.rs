@@ -331,6 +331,7 @@ pub(super) fn dispatch(
         }
         "plan.review.bounce" => {
             let (plan_id, task_id) = super::plan_refs::resolve_task(store, params)?;
+            let from = authorized_orchestrator_actor(svc, &plan_id, p)?;
             if note(p).trim().is_empty() {
                 return Err(plan_rpc_err(PlanError::QaNoteRequired));
             }
@@ -349,7 +350,6 @@ pub(super) fn dispatch(
                     ));
                 }
             }
-            let from = actor(p);
             let (mut result, recorded) = store
                 .bounce_review_with_recorded_status(
                     &plan_id,

@@ -135,31 +135,36 @@ launch without a registered session remains the distinct
 
 ### Bouncing a cleaned terminal review generation
 
-The existing authenticated review-bounce transition can recover a cleaned
-terminal generation when its original closed-attempt selector finds zero
-candidates. A unique original match keeps its existing behavior, and multiple
-original matches remain an ambiguity refusal.
+The existing authenticated review-bounce transition can recover a cleaned terminal
+generation when its original closed-attempt selector finds zero candidates. A unique
+original match keeps its existing behavior, and multiple original matches remain an
+ambiguity refusal.
 
-The recovery requires an `in_review` task with no assigned executor, peer, or
-remaining lane tab, workspace, worktree, or branch, and `cleanup_status: done`.
-Every attempt must be closed and noncompetitive. Persisted attempt order must
-agree with strictly increasing, present assignment times; duplicate identities,
-overlapping generations, and contradictory times refuse selection. Only the
-last appended generation is considered, and it must have a nonblank executor
-session and binding nonce, an ACK, a persisted own-session `in_review` report,
-and ordered assignment, ACK, report, closure, and retirement facts. Continuation
-round metadata must describe the current review round, and replay labels or
-continuation-state conflicts refuse the fallback. An incomplete terminal
-generation blocks the transition even when an earlier generation has a valid
-report.
+The recovery requires an `in_review` task with no assigned executor, peer, or remaining
+lane tab, workspace, worktree, or branch, and `cleanup_status: done`. Every attempt
+must be closed and noncompetitive. Persisted attempt order must agree with strictly
+increasing, present assignment times; duplicate identities, overlapping generations,
+and contradictory times refuse selection. Only the last appended generation is
+considered, and it must have a nonblank executor session and binding nonce, an ACK, a
+persisted own-session `in_review` report, and ordered assignment, ACK, report, closure,
+and retirement facts. Continuation round metadata must describe the current review
+round, and replay labels or continuation-state conflicts refuse the fallback. An
+incomplete terminal generation blocks the transition even when an earlier generation
+has a valid report.
 
-A successful bounce records one review evidence item and milestone, advances
-the review round and credit through the existing transaction, marks the
-selected predecessor `executor_gone`, and returns the task to pending with no
-continuation. The transaction preserves historical reports, launch metadata,
-and closure and retirement times. The retired executor receives no delivery;
-fresh placement follows ordinary dispatch. Refusals leave task, review credit,
-and milestones unchanged. This contract adds no command or wire fields.
+A successful bounce records one review evidence item and milestone, advances the review
+round and credit through the existing transaction, marks the selected predecessor
+`executor_gone`, and returns the task to pending with no continuation. The transaction
+preserves historical reports, launch metadata, and closure and retirement times. The
+retired executor receives no delivery; fresh placement follows ordinary dispatch.
+Refusals leave task, review credit, and milestones unchanged. This contract adds no
+command or wire fields.
+
+This verb requires the live owning Orchestrator's top-level `caller_tab_id` and
+`session_binding_nonce`; `session_id` is optional under existing current-tab
+resolution. `from` remains attribution only and never supplies authority. The v3 gate
+refuses v2 clients before dispatch with `-32002`, `data.type = "version_skew"`, and
+the recovery command.
 
 ### Review credit repair and evidence reporters
 
@@ -231,4 +236,4 @@ parent done or cancelled is refused until all children are done or cancelled.
 Worker briefs carry the parent task id; a Worker may propose children in its
 report but cannot dispatch or spawn them.
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->
