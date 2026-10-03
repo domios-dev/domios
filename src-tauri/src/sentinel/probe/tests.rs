@@ -353,7 +353,7 @@ fn sentinel_probe_windows_permanent_close_uncertainty_is_retained() {
         primary,
         opaque_error,
     }));
-    assert!(owner.wait_for_unconfirmed_with_timeout(OWNER_EVENT_DEADLINE));
+    assert!(owner.wait_for_terminal_unconfirmed_with_timeout(OWNER_EVENT_DEADLINE));
     let snapshot = owner.snapshot();
     assert_eq!(event_waits.load(Ordering::SeqCst), 0);
     assert_eq!(snapshot.free, super::owner::MAX_RESOURCE_SLOTS - 1);

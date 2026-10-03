@@ -161,7 +161,7 @@ impl RestApiControl {
             .as_ref()
             .ok_or_else(|| "REST API listener is not configured".to_string())?
             .send(command)
-            .map_err(|_| "REST API listener controller stopped; restart CodeTerm".to_string())
+            .map_err(|_| "REST API listener controller stopped; restart Domios".to_string())
     }
 
     fn install(&self, sender: mpsc::UnboundedSender<RestApiCommand>) {

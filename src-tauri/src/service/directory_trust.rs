@@ -94,9 +94,9 @@ pub(crate) enum DirectoryTrustRefusal {
 impl DirectoryTrustRefusal {
     pub(crate) fn reason(self) -> &'static str {
         match self {
-            Self::NoProvenance => "cwd was not created by CodeTerm for this tab",
+            Self::NoProvenance => "cwd was not created by Domios for this tab",
             Self::NoCwd => "tab has no cwd",
-            Self::CwdDiffersFromProvenance => "cwd differs from the directory CodeTerm created",
+            Self::CwdDiffersFromProvenance => "cwd differs from the directory Domios created",
         }
     }
 }

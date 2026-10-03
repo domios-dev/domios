@@ -33,7 +33,7 @@ pub(crate) fn sanitize_plugin_settings(config: &mut AppConfig) {
 
 /// Generate the default config TOML with helpful comments.
 fn default_config_toml() -> String {
-    r##"# CodeTerm Configuration
+    r##"# Domios Configuration
 # Location: ~/.codeterm/config.toml
 
 [theme]
@@ -116,7 +116,7 @@ enabled = false
 # figures. It stores plan/task/tab ids, counts and timestamps in
 # ~/.codeterm/kpi_ledger.db - never message text, and nothing leaves the machine.
 # Set false to opt out; the Board then shows an explicit not-recording state
-# instead of a figure. Takes effect on the next CodeTerm start.
+# instead of a figure. Takes effect on the next Domios start.
 enabled = true
 "##
     .to_string()
@@ -784,7 +784,7 @@ fn save_config_at(path: &std::path::Path, config: &AppConfig) -> Result<(), Stri
             concat!(
                 "Config is held: {}. Review or repair the salvaged config, remove its ",
                 "CodeTerm salvage marker, or restore a known-good config backup. Restart ",
-                "CodeTerm to reload it and release the hold."
+                "Domios to reload it and release the hold."
             ),
             hold.refusal()
         ),

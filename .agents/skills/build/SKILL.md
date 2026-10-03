@@ -390,6 +390,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| Sentinel `check-tests` reports E0282 and a static reason lifetime error | Cleanup strings had an ambiguous inferred vector type; a dynamic detail string was passed as a static outcome code. | Type the vector as `Vec<String>` and pass `ProbeFailure`, retaining detailed `last_reason` and its static primary outcome code; rerun `check-tests`. |
 | Restoration integration fails with E0432/E0603 | Cross-crate request/result reexports were removed and the socket imported a private service module. | Export the two store types from task_attempts and route socket imports through the existing service facade; rerun `check-tests` before focused gates. |
 | `check-tests` reports E0505 in same-attempt binding restoration | The transaction borrowed `request.plan_id` while its closure consumed the request receipt. | Clone the transaction lookup ID before the closure; rerun `check-tests` and the focused plan/app restoration selectors. |
 | CI spawn audit flags a command factory and its subprocess fixture; Linux Clippy also reports `err_expect` | Moving command construction separated it from the audited no-window helper; the fixture omitted that helper and assertions used `err().expect()` | Apply `no_window_std` when constructing each command, retain the spawn audit unchanged, and use `expect_err` for these assertions. Run the focused spawn audit and executor tests, then the failed Clippy gate before a fresh-head platform run. |
@@ -452,6 +453,8 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | Linux clippy rejects a test-only parameter | Only `cfg(test)` uses it. | Keep injection at the test call site, outside production signatures. |
 | Standalone crate tests fail after local `verify` passed | The old gate ran only the app package. | Use current `verify`; it runs every workspace library package to completion. |
 | CLI docs report `BUILD exceeds 24 KiB` or `ORCHESTRATION exceeds 240 lines` | Troubleshooting or the compact operating contract outgrew its reading boundary. | Compress repetition or move detail to the named reference playbook; rerun `build.ps1 test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary`. |
+| Prompt tests fail a composed contract or launch byte ceiling | Shared fragments and the embedded manual accumulated beyond the whole launch budget. | Compact repetition without weakening authority or raising limits; rerun `test-one app prompts::tests` and the matching composed prompt comparison. |
+| Source-size gate counts downloaded SDK declarations in `target-check/` | The traversal included ignored generated benchmark artifacts. | Prune that root output tree only when Git confirms ignored/untracked ownership; all authored source stays guarded. Use a scalar prune path: Bash3.2 with `set -u` rejects empty array expansion inside the traversal. Preserve fixture bytes; rerun the guard controls and size gate. |
 | Windows plan-index reports `queue did not drain` | An inner deadline raced background work. | Wait on the queue condition and rely on the test process exit. |
 | Linux semantic search gets `Permission denied` or `Exec format error` for `codeterm-embed` | Clippy replaced the built runtime sidecar's mode or bytes. | Preserve the verified ELF before clippy, then restore its bytes and executable mode before tests. |
 | A release-time test fails in `#[cfg(test)]` code while `check` was green | `check` compiles the production profile only, so test-only code is never type-checked | Run `./build.ps1 check-tests`, which compiles `--all-targets` for both workspaces without the build gateway. A stale generated map or a document over its reading boundary is a different cause: use the matching row above. |
@@ -474,4 +477,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
