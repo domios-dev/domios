@@ -71,7 +71,7 @@ async function fixture(local = false) {
   if (!local) api.setRelayTarget(A, "eight");
   const stores = new Map<string, AppConfig>();
   for (const [id, name, token] of [[A, "eight", "opaque-token-a"], [B, "rollacodebot", "opaque-token-b"]]) {
-    const config = defaultConfig();
+    const config = JSON.parse(JSON.stringify(defaultConfig())) as AppConfig;
     config.mesh.instance_name = name;
     config.mesh.enabled = true;
     config.api.token = token;
