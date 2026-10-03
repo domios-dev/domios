@@ -101,6 +101,15 @@ pub(in crate::sentinel) enum WaitPhase {
     #[cfg(windows)]
     ParentAfterEof,
     #[cfg(windows)]
+    WindowsIo {
+        operation: &'static str,
+        stdout: Option<bool>,
+        bytes: Option<u32>,
+        error: Option<u32>,
+        pending: Option<bool>,
+        eof: Option<bool>,
+    },
+    #[cfg(windows)]
     WindowsCapture {
         stdout_eof: bool,
         stderr_eof: bool,

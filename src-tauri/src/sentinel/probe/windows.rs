@@ -211,6 +211,10 @@ pub(super) struct WindowsRun {
     launch_state: WindowsLaunchState,
     pub(super) events: Option<Events>,
     pub(super) events_registered: bool,
+    #[cfg(test)]
+    native_trace_remaining: u8,
+    #[cfg(test)]
+    native_error_reported: bool,
 }
 
 // SAFETY: OS handles transfer across threads and pending OVERLAPPED storage remains boxed.
@@ -251,6 +255,10 @@ impl WindowsRun {
             launch_state: WindowsLaunchState::default(),
             events: None,
             events_registered: false,
+            #[cfg(test)]
+            native_trace_remaining: 32,
+            #[cfg(test)]
+            native_error_reported: false,
         }
     }
 
@@ -614,8 +622,10 @@ impl WindowsRun {
                 )
             }
         };
-        if result == 0 {
-            let error = unsafe { GetLastError() };
+        let error = (result == 0).then(|| unsafe { GetLastError() });
+        #[cfg(test)]
+        self.trace_native("ReadFile", Some(stdout), None, error);
+        if let Some(error) = error {
             if error == ERROR_IO_PENDING {
                 self.stream_mut(stdout).pending_active = true;
                 Ok(())
@@ -637,7 +647,7 @@ impl WindowsRun {
                     std::mem::replace(&mut stream.io_registered, false)
                 };
                 self.settle_resource(ResourceKind::OverlappedIo, registered);
-                Err(std::io::Error::from_raw_os_error(error as i32).to_string())
+                Err(completion::native_error("ReadFile", Some(stdout), error))
             }
         } else {
             self.stream_mut(stdout).pending_active = true;
@@ -774,6 +784,17 @@ impl WindowsRun {
         error: Option<u32>,
     ) -> Result<(), String> {
         let connect = &mut *self.stream_mut(stdout).connect_overlapped as *mut OVERLAPPED;
+        #[cfg(test)]
+        self.trace_native(
+            if overlapped == connect {
+                "ConnectNamedPipe completion"
+            } else {
+                "ReadFile completion"
+            },
+            Some(stdout),
+            Some(bytes),
+            error,
+        );
         if overlapped == connect {
             if !self.stream(stdout).connect_pending {
                 self.unknown_completion = true;
@@ -796,7 +817,11 @@ impl WindowsRun {
             );
             self.settle_resource(ResourceKind::OverlappedIo, buffer_registered);
             if let Some(error) = error {
-                return Err(std::io::Error::from_raw_os_error(error as i32).to_string());
+                return Err(completion::native_error(
+                    "ConnectNamedPipe completion",
+                    Some(stdout),
+                    error,
+                ));
             }
             return Ok(());
         }
@@ -821,7 +846,11 @@ impl WindowsRun {
             self.stream_mut(stdout).read_failed = true;
             if error != ERROR_OPERATION_ABORTED {
                 self.fail("probe_capture_read_failed");
-                self.add_error(std::io::Error::from_raw_os_error(error as i32).to_string());
+                self.add_error(completion::native_error(
+                    "ReadFile completion",
+                    Some(stdout),
+                    error,
+                ));
             }
             if self.failure.is_some() {
                 self.close_reader(stdout)?;

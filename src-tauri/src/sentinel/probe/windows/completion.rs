@@ -1,6 +1,42 @@
 use super::*;
 
+pub(super) fn native_error(operation: &str, stdout: Option<bool>, error: u32) -> String {
+    let stream = match stdout {
+        Some(true) => "stdout",
+        Some(false) => "stderr",
+        None => "completion-port",
+    };
+    format!("{operation} {stream} win32_error={error}")
+}
+
 impl WindowsRun {
+    #[cfg(test)]
+    pub(super) fn trace_native(
+        &mut self,
+        operation: &'static str,
+        stdout: Option<bool>,
+        bytes: Option<u32>,
+        error: Option<u32>,
+    ) {
+        let unexpected_error =
+            error.is_some_and(|error| !matches!(error, ERROR_IO_PENDING | ERROR_BROKEN_PIPE));
+        if self.native_trace_remaining == 0 && (!unexpected_error || self.native_error_reported) {
+            return;
+        }
+        self.native_error_reported |= unexpected_error;
+        self.native_trace_remaining = self.native_trace_remaining.saturating_sub(1);
+        if let Some(events) = &self.events {
+            events.waiting(super::super::cancellation::WaitPhase::WindowsIo {
+                operation,
+                stdout,
+                bytes,
+                error,
+                pending: stdout.map(|stdout| self.stream(stdout).pending_active),
+                eof: stdout.map(|stdout| self.stream(stdout).eof),
+            });
+        }
+    }
+
     pub(super) fn wait_parent_exit(&mut self, timeout: Option<Duration>) -> Result<bool, String> {
         let process = self
             .process
@@ -159,12 +195,14 @@ impl WindowsRun {
             Some(unsafe { GetLastError() })
         };
         if !succeeded && overlapped.is_null() {
-            if event_error == Some(windows_sys::Win32::Foundation::ERROR_TIMEOUT) {
+            #[cfg(test)]
+            self.trace_native("GetQueuedCompletionStatus", None, None, event_error);
+            if event_error == Some(WAIT_TIMEOUT) {
                 return Ok(false);
             }
             self.permanent_unconfirmed = true;
             return Err(event_error
-                .map(|error| std::io::Error::from_raw_os_error(error as i32).to_string())
+                .map(|error| native_error("GetQueuedCompletionStatus", None, error))
                 .unwrap_or_else(|| "probe completion packet lacked an owned event".into()));
         }
         if key == CANCEL_KEY && succeeded && overlapped.is_null() {
