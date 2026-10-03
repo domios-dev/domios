@@ -120,7 +120,14 @@ fn sentinel_budget_exhausted_no_route_journaled() {
 #[test]
 fn sentinel_until_is_one_shot() {
     let mut machine = Machine::default();
-    let routes = BTreeMap::from([("passed".into(), Route::Send("tab".into()))]);
+    let routes = BTreeMap::from([(
+        "passed".into(),
+        vec![super::handlers::Handler {
+            id: "send".into(),
+            action: Route::Send("tab".into()),
+            target: None,
+        }],
+    )]);
     let out = evaluate(
         &mut machine,
         b"1",
@@ -200,6 +207,7 @@ fn sentinel_routes_are_closed_set() {
 
 fn create_params() -> super::store::Create {
     super::store::Create {
+        name: None,
         probe: "check-ci".into(),
         question: "CI result?".into(),
         buckets: buckets(),
@@ -208,6 +216,10 @@ fn create_params() -> super::store::Create {
         matches: BTreeMap::new(),
         until: None,
         timeout: None,
+        paused: false,
+        handlers: None,
+        max_transitions: None,
+        max_actions: None,
     }
 }
 
@@ -522,5 +534,5 @@ fn sentinel_create_patterns_and_routes_are_validated_before_admission() {
             false,
         )
         .unwrap();
-    assert_eq!(job.routes["passed"], Route::Stop);
+    assert_eq!(job.routes["passed"][0].action, Route::Stop);
 }

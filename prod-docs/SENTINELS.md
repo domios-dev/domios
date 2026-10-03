@@ -59,11 +59,13 @@ accepted bucket is a new transition.
 
 ## Closed-set routes
 
-Repeat `--route bucket=action` to assign routes. Unassigned buckets use `notify`.
+Repeat `--route bucket=action` to declare ordered handlers, including several for
+one bucket. Each receives a stable persisted ID. Unassigned buckets use `notify`.
 
 | Action | Result |
 |---|---|
 | `notify` | Sends the result to the creator agent; a shell creator gets a notification record |
+| `sentinel:<exact-id>` | Activates an existing dormant stage owned by the same creator, Team and workspace |
 | `send:<tab>` | Sends a result-file pointer through the existing tab message API |
 | `cron:<name>` | Triggers the uniquely named existing cron |
 | `stop` | Stops the sentinel |
@@ -72,8 +74,55 @@ A send target must be an agent in the creator's Team and workspace, so probe
 text cannot become shell input. Result bodies live in the recipient's AgentPad.
 Cron targets must belong to the same Team and workspace. Targets resolve at
 creation and are checked again at routing. No route executes a command chosen
-by the model. Transition claims are persisted before routing; a failed route is
-journaled and is not retried for the same accepted bucket.
+by the model. Each accepted transition and handler attempt has a durable identity. A claim is
+saved before its action; claimed handlers are never replayed after restart.
+Independent successes, failures, skips and unconfirmed outcomes stay visible.
+Completion confirms the selected operation, not recipient work or cron success.
+A failed handler does not erase earlier results or prevent later handlers; stop
+cancels the remaining handlers. A missing result after a crash is unconfirmed.
+
+## Compose a named Sentinel graph
+
+Create downstream stages first with `--paused`, then create the named entry
+whose outputs activate their exact IDs. Paused stages do not probe or spend
+Choice requests. Their timeout starts at creation and continues while dormant.
+
+```bash
+codeterm sentinel create --name "Review stage" --paused --probe "check-review" --question "done when review completes" --buckets done --match 'done=(?m)^done$' --until done --timeout 1h --json
+codeterm sentinel create --name "CI and review" --probe "check-ci" --question "passed or failed CI" --buckets passed,failed --match 'passed=(?m)^success$' --match 'failed=(?m)^failure$' --route passed=sentinel:sentinel_DOWNSTREAM_ID --route passed=notify --route failed=stop --timeout 1h
+```
+
+Replace `sentinel_DOWNSTREAM_ID` with the exact ID from the first response.
+The entry and its reachable stages appear as one named scenario. Shared targets
+retain their identity and results. Activating an already active stage is a noop:
+it does not reset its accepted result, schedule, expiry or running work. Missing,
+foreign, self, stopped and expired targets are refused. There is no rearm or
+update API, recursive scheduler execution, or cyclic-episode guarantee.
+
+Use `--handlers-file PATH` for explicit IDs and JSON bucket-to-array definitions:
+
+```json
+{"passed":[{"id":"review","type":"sentinel","parameters":{"target":"sentinel_DOWNSTREAM_ID"}},{"id":"notice","type":"notify","parameters":{}}],"failed":[{"id":"finish","type":"stop","parameters":{}}]}
+```
+
+The file form cannot be mixed with `--route`. Unknown fields or types, duplicate
+IDs and ambiguous targets are refused. At most 16 handlers fit each bucket and
+64 fit one node. Composition definitions require `--timeout`. Finite budgets
+default to 64 accepted transitions and 256 action attempts; `--max-transitions`
+and `--max-actions` allow at most 256 and 1024. Exhaustion records a stop reason.
+No model output constructs a handler, target or command. Direct command handlers
+are explicitly unavailable in this unit pending the owned command runner.
+Peer-qualified handlers and remote Sentinel execution are unavailable; a graph
+belongs to one actual connected instance. Mesh transport does not provide a
+remote execution claimant or replay contract.
+
+Team Mission Control and the workspace automation entry list named Sentinels;
+opening an entry shows its internal graph. Nodes expose safe declared purpose,
+exact scope, state, expiry, independent handler results and connected targets.
+Cron-to-Worker edges require actual retained run and tab IDs. A missing live tab
+stays missing; probe text, task bodies, credentials and session secrets are
+excluded. The view may explicitly report truncation at its bounded read limit.
+Graph Stop uses authenticated host control and validates the exact node scope.
 
 ## Inspect and stop
 
@@ -88,7 +137,20 @@ Team and workspace. `show` includes the probe, accepted bucket, hash, next run,
 expiry, and last decision reason. Stopped watches remain inspectable.
 Closing a Team stops and removes all its sentinels, including in-flight route
 claims. A removed creator or changed Team stops the watch. The store admits
-at most 64 active and 256 total sentinels. Watches are local to the creator's
+at most 64 active and 256 total sentinels; dormant stages count toward the total. Watches are local to the creator's
 machine; `--mesh` is refused.
 
-<!-- revision: 3 -->
+Stored single-route definitions from older builds and unreadable/corrupt files
+leave the Sentinel subsystem unavailable. Original file bytes stay in place;
+reads and mutations return an actionable load/format error, never an empty
+healthy graph. Other subsystems can start. An operator must preserve/export
+those definitions and choose to recreate them through current authoring;
+there is no automatic migration, reset or discard. Use fresh isolated dev data
+for demonstrations and keep production definitions untouched.
+
+A failed persistence write returns an error and holds Sentinel unavailable.
+Cancellation remains in memory; durability is unconfirmed until a valid store
+reload. Repair the filesystem before loading the store again. No stop success
+or claimed-handler replay is inferred from a failed write.
+
+<!-- revision: 4 -->
