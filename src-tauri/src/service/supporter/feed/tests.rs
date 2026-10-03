@@ -171,11 +171,13 @@ fn supporter_feed_passive_correlation_scrubs_and_rejects_wrong_point_or_identity
     let value = json!({
         "time":1, "kind":"tab_state", "action":"classification", "label":"provider_update_prompt",
         "reason":"model_answer", "confidence":0.95, "decided_by":"adapter", "observation_id":42,
+        "phase":"classification_completed",
         "decision_point":"prompt_candidate", "observation_status":"completed",
         "model_verdict":{"status":"observed", "label":"provider_update_prompt", "confidence":0.95},
         "alternate_verdict":{"status":"skipped"},
         "correlation":{
-            "version":1, "decision_point":"prompt_candidate", "observation_id":42,
+            "version":2, "decision_point":"prompt_candidate", "producer":"output_candidate",
+            "parent_observation_id":null, "observation_id":42,
             "launch_id":"a".repeat(64), "session_id":null, "occurrence_id":"b".repeat(64),
             "occurrence":3, "frame_hash":"0000000000000007",
             "candidate_evidence":{"status":"unavailable"},
@@ -185,6 +187,7 @@ fn supporter_feed_passive_correlation_scrubs_and_rejects_wrong_point_or_identity
     assert_eq!(feed["correlation"], value["correlation"]);
     assert_eq!(feed["decision_point"], "prompt_candidate");
     assert_eq!(feed["observation_status"], "completed");
+    assert_eq!(feed["phase"], "classification_completed");
     assert_eq!(feed["alternate_verdict"], json!({"status":"skipped"}));
     for (field, supplied) in [
         ("decision_point", json!("tab_exit")),
@@ -204,6 +207,30 @@ fn supporter_feed_passive_correlation_scrubs_and_rejects_wrong_point_or_identity
     let feed = entry(&changed).unwrap();
     assert!(!feed.to_string().contains("private-model"));
     assert!(!feed.to_string().contains("private-alternate"));
+}
+
+#[test]
+fn supporter_feed_action_phase_keeps_correlated_observation() {
+    let mut value = json!({
+        "time":1, "kind":"tab_state", "action":"recovery", "label":"login_or_auth_required",
+        "reason":"provider_safe_step_authorized", "confidence":0.95, "decided_by":"adapter",
+        "observation_id":42, "decision_point":"prompt_candidate", "observation_status":"completed",
+        "phase":"action_authorized", "asked":[{"name":"safe_choice", "question":"q", "answer":"a"}],
+        "correlation": {
+            "version":2, "decision_point":"prompt_candidate", "producer":"prompt_confirmation",
+            "parent_observation_id":41, "observation_id":42, "launch_id":"a".repeat(64),
+            "session_id":null, "occurrence_id":"b".repeat(64), "occurrence":3,
+            "frame_hash":"0000000000000007", "candidate_evidence":{"status":"unavailable"}
+        }
+    });
+    let feed = entry(&value).unwrap();
+    assert_eq!(feed["phase"], "action_authorized");
+    assert_eq!(feed["correlation"]["parent_observation_id"], 41);
+    value["correlation"]["parent_observation_id"] = json!(42);
+    let invalid = entry(&value).unwrap();
+    assert_eq!(invalid["observation_status"], "unavailable");
+    assert!(invalid.get("correlation").is_none());
+    assert!(invalid.get("phase").is_none());
 }
 
 #[test]

@@ -4,17 +4,20 @@ Scope: the existing connected tab-state observer and scrape-candidate producer.
 This schema supplies diagnostics to Probe; it supplies no action authority.
 Qualification remains disabled. No disconnected producer is added.
 
-## Journal and feed schema, version 1
+## Journal and feed schema, version 2
 
 The existing `observation_id` and `decided_by` remain at the top level.
-A captured record adds `decision_point`, `observation_status`, `correlation`,
-`model_verdict` and `alternate_verdict`. An uncaptured record omits `correlation`
-and `decision_point` and reports `observation_status: unavailable`.
+A captured record adds `decision_point`, `observation_status`, `phase`,
+`correlation`, `model_verdict` and `alternate_verdict`. An uncaptured record
+omits `correlation` and `decision_point` and reports `observation_status:
+unavailable`.
 
 | Field in `correlation` | Meaning |
 | --- | --- |
-| `version` | `1` |
+| `version` | `2` |
 | `decision_point` | The original captured trigger, never a later inferred label |
+| `producer` | `lifecycle_event`, `output_candidate`, `parked_edge`, `prompt_established` or `prompt_confirmation` |
+| `parent_observation_id` | Actual causal parent capture id for `prompt_established` and `prompt_confirmation`; otherwise null |
 | `observation_id` | The original capture id, equal to the journal id |
 | `launch_id` | SHA-256 of the captured local launch key, which includes the PTY and launch nonce; captured metadata generation is used when local identity is unavailable |
 | `session_id` | SHA-256 of the captured claimed session, or null if unavailable |
@@ -32,6 +35,12 @@ the original receipt. A failure before a successful capture cannot invent one.
 response, including `other` and low-confidence fallback. `rejected` means work
 was discarded or failed. A valid Q2 label returned before rejection can still
 appear in `model_verdict`; it does not make the observation completed.
+
+`phase` separates `classification_completed`, `classification_rejected`,
+`action_authorized` and `action_stale`. Classification and action records for a
+single captured decision retain the same correlation and observation id. An
+action-authorized record proves only that the existing responder's immediate
+revalidation passed; it does not prove PTY delivery or provider completion.
 
 `model_verdict` contains only a genuinely returned, criteria-allowed Q2 label
 and its finite confidence in [0, 1], with `status: observed`; otherwise its
@@ -52,31 +61,32 @@ feed fallback flag independently of the narrative reason.
 ## Probe evidence limits
 
 The capture id is the duplicate barrier for replay of that receipt. It is not
-proof that two callbacks came from different producer events. This tranche does
-not introduce a source-event sequence or a confirmation event. Two captures may
-have distinct ids and the same occurrence and frame; no action predicate changes.
-Probe must bind a receipt to its case's expected point, launch/session and
-occurrence rather than infer a successful action from a classification record.
+proof that two callbacks came from different producer events. `prompt_established`
+is issued once after a model-classified prompt is published; its first completed
+eligible vote requests one actual `prompt_confirmation` capture. Both have
+distinct capture ids and can have the same occurrence and frame. Confirmation
+does not count as new provider output. Probe must bind each receipt to its
+point, parent, launch/session and occurrence rather than infer a successful
+action from a classification record.
 
-The generic scrape/trust predicate result and output-versus-parked origin are
-not carried by existing metadata. They remain unavailable here. Safe-target
+The generic scrape/trust predicate result is not carried by existing metadata.
+It remains unavailable here. Safe-target
 candidate evidence describes an existing parser result, not an alternate
 full-tab classification. Fallback callbacks execute after this record and do
 not return a verdict to it, so a paired fallback classification is unavailable.
 
-The held safe-response action serializer supplies only a numeric id today; its
-existing records honestly report unavailable capture provenance. Supporter
-ActionRecord and recovery rows lacking an envelope do not gain an invented
-receipt. The permitted tranche changes no admission, scheduling, provider
-response, delivery ledger or PTY-child harness seam. Those action joins and the
-static-modal two-event contract remain outstanding in the bounded owner review.
+The safe-response action serializer now retains the exact captured envelope and
+labels its phase without claiming that the provider consumed a key. Supporter
+ActionRecord and recovery rows without an envelope still do not gain an invented
+receipt. No disconnected capture or extra heuristic is added.
 
-Pure coverage includes same-occurrence/static-frame captures, receipt replay,
+Pure coverage includes same-occurrence/static-frame captures, causal-parent
+validation, receipt replay,
 reused-PTY nonce and claimed-session scoping, wrong point/id/schema rejection,
 secret-free serialization, feed correlation and unavailable alternate data.
 In-memory observer/candidate tests exercise the actual journal/feed seams,
 retain returned model data through fallback and rejection, and require no
-extra screen reads or disconnected journals. They do not qualify real modal
-progress. The proposed end-to-end seam remains cfg(test)-only
-`safe_response/qualified_tests.rs`, with an actual PTY child and final dialog
-state; it is not authored or executed while owner approval is pending.
+extra screen reads or disconnected journals. The cfg(test)-only
+`safe_response/qualified_tests.rs` uses an actual PTY child and checks the final
+dialog state. Its fixture qualification is not a live model measurement, and
+the test has not executed in the source-only lane.

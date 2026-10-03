@@ -118,6 +118,9 @@ impl<H: ShadowHost> Pending<H> {
 
     fn record(&mut self, source: identity::DecisionSource, verdict: Option<&CandidateVerdict>) {
         if let Some(envelope) = self.metadata.envelope.as_ref() {
+            if source != identity::DecisionSource::Adapter || verdict.is_none() {
+                safe_response::cancel_for_correlation(&self.tab, &envelope.correlation);
+            }
             observer::record(
                 &self.host,
                 &self.tab,
@@ -144,6 +147,7 @@ impl<H: ShadowHost> Drop for Pending<H> {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn spawn<H: ShadowHost>(
     host: &H,
     config: &SupporterConfig,
@@ -153,16 +157,42 @@ pub(crate) fn spawn<H: ShadowHost>(
         + Send
         + 'static,
 ) -> Option<scheduler::ObservationHandle> {
+    spawn_with_origin(
+        host,
+        config,
+        tab,
+        expected_screen,
+        ObservationTrigger::OutputCandidate,
+        None,
+        None,
+        decided,
+    )
+}
+
+pub(crate) fn spawn_with_origin<H: ShadowHost>(
+    host: &H,
+    config: &SupporterConfig,
+    tab: &str,
+    expected_screen: Option<&str>,
+    trigger: ObservationTrigger,
+    parent_observation_id: Option<u64>,
+    expected_local: Option<&identity::LocalIdentity>,
+    decided: impl FnOnce(Option<CandidateVerdict>, identity::DecisionSource, &dyn Fn() -> bool)
+        + Send
+        + 'static,
+) -> Option<scheduler::ObservationHandle> {
     let adapter_id = config.active_id()?.to_owned();
     if !observer::connected(host, config, &adapter_id) {
         return None;
     }
     let adapter = supporter::configured_model(config, &host.supporter_models())?;
-    let (mut request, mut metadata) = prepare_observation(
+    let (mut request, mut metadata) = observer::prepare_observation_with_parent_and_identity(
         host,
         tab,
-        ObservationTrigger::PromptCandidate,
+        trigger,
         "scrape_candidate",
+        parent_observation_id,
+        expected_local,
     )
     .ok()?;
     let envelope = metadata.envelope.as_mut()?;
@@ -195,7 +225,11 @@ pub(crate) fn spawn<H: ShadowHost>(
     let criteria_version = supporter::criteria_hash(&serde_json::to_vec(&request.questions).ok()?);
     let config = config.clone();
     pending.source = identity::DecisionSource::Budget;
-    scheduler::global().submit(tab.into(), false, request.questions.len(), move || {
+    let critical = matches!(
+        trigger,
+        ObservationTrigger::PromptEstablished | ObservationTrigger::PromptConfirmation
+    );
+    scheduler::global().submit(tab.into(), critical, request.questions.len(), move || {
         pending.source = identity::DecisionSource::Error;
         if !pending.current(&adapter_id, &adapter) {
             return None;
@@ -273,48 +307,125 @@ impl ServiceContext {
         snapshot: crate::agent::tab_state::TabStateSnapshot,
         fallback: impl FnOnce(&ServiceContext) + Send + 'static,
     ) {
+        let _ = self.observe_scrape_candidate_from(
+            snapshot,
+            fallback,
+            ObservationTrigger::ParkedEdge,
+            None,
+            None,
+        );
+    }
+
+    pub(crate) fn observe_scrape_candidate_from(
+        &self,
+        snapshot: crate::agent::tab_state::TabStateSnapshot,
+        fallback: impl FnOnce(&ServiceContext) + Send + 'static,
+        trigger: ObservationTrigger,
+        parent_observation_id: Option<u64>,
+        expected_local: Option<&identity::LocalIdentity>,
+    ) -> bool {
         if self
             .prompt_detector
             .lock()
             .active_prompt_explicit(&snapshot.tab_id)
             == Some(true)
         {
-            return;
+            return false;
         }
         let local = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(&snapshot.tab_id) else {
-                return;
+                return false;
             };
             if tab.agent_type.as_deref() != Some(snapshot.agent_type.as_str())
                 || tab.agent_session_id != snapshot.session_id
                 || tab.cwd != snapshot.cwd
             {
-                return;
+                return false;
             }
-            identity::LocalIdentity::of_tab(tab)
+            let local = identity::LocalIdentity::of_tab(tab);
+            if expected_local.is_some_and(|expected| &local != expected) {
+                return false;
+            }
+            local
         };
         let host = self.clone();
         let config = self.supporter_decision_config();
         let tab = snapshot.tab_id.clone();
         let screen = snapshot.screen_text.clone();
-        let _ = spawn(
+        candidates::spawn_with_origin(
             self,
             &config,
             &tab,
             Some(&screen),
+            trigger,
+            parent_observation_id,
+            Some(&local),
             move |verdict, source, valid| {
+                let correlation = verdict
+                    .as_ref()
+                    .and_then(|verdict| verdict.receipt.as_ref())
+                    .and_then(|receipt| receipt.metadata.envelope.as_ref())
+                    .map(|envelope| envelope.correlation.clone());
                 if !host.observation_identity_is_current(&snapshot.tab_id, &local) {
+                    if let Some(correlation) = correlation.as_ref() {
+                        safe_response::cancel_for_correlation(&snapshot.tab_id, correlation);
+                    }
                     return;
                 }
-                if let Some(verdict) =
-                    verdict.filter(|_| source == identity::DecisionSource::Adapter)
-                {
-                    host.publish_model_scrape_candidate(&snapshot, &verdict, valid);
+                if source == identity::DecisionSource::Adapter {
+                    if let Some(verdict) = verdict {
+                        if trigger.is_internal_candidate() {
+                            if valid() {
+                                host.try_model_safe_response_from_receipt(
+                                    &snapshot.tab_id,
+                                    &verdict,
+                                );
+                            } else {
+                                safe_response::cancel_for_verdict(&snapshot.tab_id, &verdict);
+                            }
+                        } else {
+                            host.publish_model_scrape_candidate(&snapshot, &verdict, valid);
+                        }
+                    }
                 } else {
-                    fallback(&host);
+                    if trigger.is_internal_candidate() {
+                        if let Some(correlation) = correlation.as_ref() {
+                            safe_response::cancel_for_correlation(&snapshot.tab_id, correlation);
+                        }
+                    } else {
+                        fallback(&host);
+                    }
                 }
             },
-        );
+        )
+        .is_some()
+    }
+
+    pub(crate) fn observe_model_prompt_established(
+        &self,
+        snapshot: crate::agent::tab_state::TabStateSnapshot,
+        parent_observation_id: u64,
+    ) -> bool {
+        let config = self.supporter_decision_config();
+        let Some(adapter) = config.active_id() else {
+            return false;
+        };
+        if !observer::connected(self, &config, adapter) {
+            return false;
+        }
+        let Some(scope) = self.followup_scope(&snapshot.tab_id, &snapshot.screen_text) else {
+            return false;
+        };
+        if !coordinator::global().claim_followup(&snapshot.tab_id, &scope, false) {
+            return false;
+        }
+        self.observe_scrape_candidate_from(
+            snapshot,
+            |_| {},
+            ObservationTrigger::PromptEstablished,
+            Some(parent_observation_id),
+            None,
+        )
     }
 }

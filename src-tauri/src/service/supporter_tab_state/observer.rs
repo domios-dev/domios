@@ -6,6 +6,7 @@ pub(crate) struct EnvelopeContext {
     pub(crate) local: Option<identity::LocalIdentity>,
     pub(crate) correlation: identity::correlation::Correlation,
     pub(crate) frame_hash: u64,
+    pub(super) captured_screen: String,
     pub(super) raw_tail_hash: u64,
     pub(super) observation: coordinator::ObservationIdentity,
     pub(super) ledgers: coordinator::LedgerSnapshot,
@@ -632,6 +633,24 @@ pub(crate) fn prepare_observation<H: ShadowHost>(
     trigger: ObservationTrigger,
     structural_verdict: &str,
 ) -> Result<(DecisionQuestionsRequest, TabStateMetadata), String> {
+    prepare_observation_with_parent_and_identity(
+        host,
+        tab_id,
+        trigger,
+        structural_verdict,
+        None,
+        None,
+    )
+}
+
+pub(crate) fn prepare_observation_with_parent_and_identity<H: ShadowHost>(
+    host: &H,
+    tab_id: &str,
+    trigger: ObservationTrigger,
+    structural_verdict: &str,
+    parent_observation_id: Option<u64>,
+    expected_local: Option<&identity::LocalIdentity>,
+) -> Result<(DecisionQuestionsRequest, TabStateMetadata), String> {
     let mut capture = QueuedObservation {
         host: host.clone(),
         tab: tab_id.into(),
@@ -643,6 +662,9 @@ pub(crate) fn prepare_observation<H: ShadowHost>(
     };
     let captured_at = Instant::now();
     let local = host.local_identity(tab_id);
+    if expected_local.is_some_and(|expected| local.as_ref() != Some(expected)) {
+        return Err("stale expected capture identity".into());
+    }
     let screen = {
         let transport = host.transport(tab_id)?;
         transport.read_screen(false)?
@@ -669,6 +691,8 @@ pub(crate) fn prepare_observation<H: ShadowHost>(
         local.as_ref(),
         &metadata.session_key,
         trigger,
+        trigger.producer(),
+        parent_observation_id,
         observation.occurrence,
         capture.observation_id,
         frame_hash,
@@ -678,6 +702,7 @@ pub(crate) fn prepare_observation<H: ShadowHost>(
         local,
         correlation,
         frame_hash,
+        captured_screen: text.to_string(),
         raw_tail_hash: super::frame_hash(&screen_tail(text)),
         observation,
         ledgers,

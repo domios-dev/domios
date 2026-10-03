@@ -10,6 +10,8 @@ use serde_json::{json, Value};
 pub(crate) struct Correlation {
     version: u8,
     decision_point: String,
+    producer: Producer,
+    parent_observation_id: Option<u64>,
     observation_id: u64,
     launch_id: String,
     session_id: Option<String>,
@@ -17,6 +19,16 @@ pub(crate) struct Correlation {
     occurrence: u64,
     frame_hash: String,
     candidate_evidence: CandidateEvidence,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum Producer {
+    LifecycleEvent,
+    OutputCandidate,
+    ParkedEdge,
+    PromptEstablished,
+    PromptConfirmation,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,10 +55,34 @@ enum CandidateKind {
 }
 
 impl Correlation {
+    pub(crate) fn decision_point(&self) -> &str {
+        &self.decision_point
+    }
+
+    pub(crate) fn launch_id(&self) -> &str {
+        &self.launch_id
+    }
+
+    pub(crate) fn occurrence_id(&self) -> &str {
+        &self.occurrence_id
+    }
+
+    pub(crate) fn is_safe_response_producer(&self) -> bool {
+        matches!(
+            self.producer,
+            Producer::OutputCandidate
+                | Producer::ParkedEdge
+                | Producer::PromptEstablished
+                | Producer::PromptConfirmation
+        )
+    }
+
     pub(crate) fn capture(
         local: Option<&LocalIdentity>,
         generation: &str,
         point: ObservationTrigger,
+        producer: Producer,
+        parent_observation_id: Option<u64>,
         occurrence: u64,
         observation_id: u64,
         frame_hash: u64,
@@ -71,8 +107,10 @@ impl Correlation {
             _ => None,
         };
         Self {
-            version: 1,
+            version: 2,
             decision_point: point.label().into(),
+            producer,
+            parent_observation_id,
             observation_id,
             launch_id,
             session_id,
@@ -155,6 +193,11 @@ impl<'a> RecordIdentity<'a> {
             "completed"
         } else {
             "rejected"
+        });
+        event["phase"] = json!(if completed {
+            "classification_completed"
+        } else {
+            "classification_rejected"
         });
         if let Some(correlation) = captured {
             event["decision_point"] = json!(correlation.decision_point);
@@ -242,12 +285,25 @@ pub(crate) fn project(value: &Value) -> Option<Value> {
         ObservationTrigger::BusyNoOutput,
         ObservationTrigger::TabExit,
     ];
-    if correlation.version != 1
+    if correlation.version != 2
         || Some(correlation.observation_id) != value["observation_id"].as_u64()
         || Some(correlation.decision_point.as_str()) != value["decision_point"].as_str()
         || !points
             .iter()
             .any(|point| point.label() == correlation.decision_point)
+        || match correlation.producer {
+            Producer::PromptEstablished | Producer::PromptConfirmation => {
+                correlation.decision_point != "prompt_candidate"
+                    || correlation
+                        .parent_observation_id
+                        .is_none_or(|parent| parent == 0 || parent == correlation.observation_id)
+            }
+            Producer::OutputCandidate | Producer::ParkedEdge => {
+                correlation.decision_point != "prompt_candidate"
+                    || correlation.parent_observation_id.is_some()
+            }
+            Producer::LifecycleEvent => correlation.parent_observation_id.is_some(),
+        }
         || !hash(&correlation.launch_id, 64)
         || !hash(&correlation.occurrence_id, 64)
         || correlation
@@ -276,6 +332,19 @@ pub(crate) fn project_diagnostics(value: &Value, entry: &mut Value) {
         } else {
             status
         });
+    }
+    if correlation.is_some() {
+        if let Some(phase) = value["phase"].as_str().filter(|phase| {
+            [
+                "classification_completed",
+                "classification_rejected",
+                "action_authorized",
+                "action_stale",
+            ]
+            .contains(phase)
+        }) {
+            entry["phase"] = json!(phase);
+        }
     }
     if let Some(verdict) = value.get("model_verdict") {
         let verdict = serde_json::from_value::<ModelVerdict>(verdict.clone())
