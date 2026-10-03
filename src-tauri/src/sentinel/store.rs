@@ -83,7 +83,14 @@ pub struct Owner {
 
 pub struct Lease {
     pub job: Sentinel,
-    pub cancelled: Arc<super::probe::cancellation::Cancellation>,
+    pub(super) cancelled: Arc<super::probe::cancellation::Cancellation>,
+}
+
+#[cfg(test)]
+impl Lease {
+    pub(crate) fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::SeqCst)
+    }
 }
 
 pub struct Store {
