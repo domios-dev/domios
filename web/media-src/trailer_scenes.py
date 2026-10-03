@@ -373,7 +373,7 @@ def agent_ending(global_frame, frame, font, brand_rest, memory_frame=None):
     else:
         heading = 'Your next idea.\nA whole team\nbehind you.'
     draw = ImageDraw.Draw(image)
-    draw.multiline_text((930, 292), heading, font=face(font, 34 if global_frame >= 1230 else 32),
+    draw.multiline_text((930, 292), heading, font=face(font, 34 if global_frame >= MEMORY_END_FRAME else 32),
                         fill=WHITE, spacing=4, align='left')
     if memory_frame is not None:
         draw.text((930, 448), 'Shared on this machine.', font=face(font, 14), fill=WHITE)
