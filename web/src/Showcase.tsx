@@ -5,7 +5,7 @@ import type { Trailer } from './media';
 import { useMediaLibrary, useVideo } from './useShowcase';
 import { usePlayerChrome } from './usePlayerChrome';
 import { Icon } from './Icon';
-import { CaptionChips } from './CaptionChips';
+import { WordCaptions } from './WordCaptions';
 import { useMediaQuery } from './usePreferences';
 import './showcase.css';
 
@@ -31,7 +31,7 @@ function VideoPlayer({ clip, player }: { clip: Trailer; player: ReturnType<typeo
         onLoadedMetadata={player.onLoadedMetadata} onLoadedData={player.onLoadedData} onPlay={player.onPlay} onPause={player.onPause} onEnded={player.onEnded} onError={player.onError} onTimeUpdate={player.onTimeUpdate} onSeeked={player.onTimeUpdate}>
         {player.loaded && <><source src={clip.mp4.src} type="video/mp4" /><source src={clip.webm.src} type="video/webm" />{clip.subtitles && <track kind="captions" src={clip.subtitles.src} srcLang="en" label="English" onLoad={(event) => { event.currentTarget.track.mode = 'hidden'; }} />}</>}
       </video>}
-      <CaptionChips caption={player.loaded && !player.failed ? player.caption : undefined} />
+      <WordCaptions caption={player.loaded && !player.failed ? player.caption : undefined} time={player.time} />
       <div className="video-rail">
         <span className="video-time">{timestamp(player.time)} / {timestamp(clip.duration)}</span>
         <div className="video-controls" role="group" aria-label="Trailer controls">

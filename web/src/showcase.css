@@ -30,9 +30,9 @@
 .sound-widget:hover .sound-slider, .sound-widget:focus-within .sound-slider { width: 64px; margin-inline: 6px; opacity: 1; pointer-events: auto; }
 .video-stage:focus-within .video-rail { opacity: 1; pointer-events: auto; }
 .video-stage:fullscreen .video-rail { right: clamp(12px, 2vw, 28px); bottom: clamp(12px, 2vw, 28px); left: auto; width: auto; justify-content: flex-end; }
-.caption-region { position: absolute; z-index: 2; inset: auto 12px 68px; display: flex; align-items: center; justify-content: center; gap: 7px; pointer-events: none; }
-.caption-anchor { flex: 0 0 7px; width: 7px; height: 7px; border-radius: 2px; background: var(--ct-accent); }
-.caption-chip { width: fit-content; max-width: min(860px, calc(100% - 14px)); padding: 8px 14px; border: 1px solid var(--ct-border); border-radius: 8px; background: var(--ct-surface); color: var(--ct-heading); text-align: center; font-size: clamp(11px, 1.4vw, 16px); line-height: 1.4; white-space: normal; overflow-wrap: anywhere; }
+.caption-region { position: absolute; z-index: 2; inset: auto 16px 68px; display: flex; justify-content: center; pointer-events: none; }
+.caption-text { max-width: min(700px, 100%); margin: 0; color: #fff; text-align: center; font-size: clamp(14px, 1.7vw, 22px); font-weight: 600; line-height: 1.35; text-shadow: 0 1px 3px #000, 0 0 7px #000, 0 0 16px #000; overflow-wrap: anywhere; }
+.caption-word[data-visible="false"] { visibility: hidden; }
 .video-stage:fullscreen .caption-region { right: 5vw; bottom: 80px; left: 5vw; }
 .video-error, .fullscreen-error { position: absolute; z-index: 4; top: 12px; left: 12px; max-width: calc(100% - 24px); padding: 6px 9px; border: 1px solid var(--ct-border); border-radius: 7px; background: var(--ct-surface); color: var(--ct-magenta); font-size: 11px; line-height: 1.4; }
 .fullscreen-error { top: 50px; }
@@ -58,11 +58,11 @@
   .video-rail::before { inset-block: 0; }
   .video-time { padding-inline: 6px; font-size: 10px; }
   .video-controls { gap: 5px; }
-  .caption-region { inset: 8px 34% auto 8px; justify-content: flex-start; }
-  .caption-chip { padding: 7px 10px; border-radius: 6px; font-size: clamp(11px, 3.25vw, 13px); }
+  .caption-region { inset: auto 34% 52px 10px; }
+  .caption-text { font-size: clamp(13px, 3.6vw, 17px); }
   .video-error, .fullscreen-error { top: 8px; left: 8px; max-width: calc(100% - 16px); font-size: 10px; }
   .fullscreen-error { top: 43px; }
-  .video-stage:fullscreen .caption-region { inset: 8px 34% auto 8px; justify-content: flex-start; }
+  .video-stage:fullscreen .caption-region { inset: auto 5vw 80px; }
   .video-stage:fullscreen .video-rail { right: clamp(12px, 2vw, 28px); bottom: clamp(12px, 2vw, 28px); left: auto; }
 }
 @media (prefers-reduced-motion: reduce) {

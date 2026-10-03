@@ -8,9 +8,9 @@ export function useMediaLibrary() {
     const controller = new AbortController();
     const read = (path: string) => fetch(path, { signal: controller.signal })
       .then((response) => response.ok ? response.json() as Promise<unknown> : null).catch(() => null);
-    void Promise.all([read('/media/manifest.json'), read('/media/captions.json')])
-      .then(([manifest, captions]) => {
-        if (!controller.signal.aborted) setLibrary(parseMedia(manifest, captions));
+    void Promise.all([read('/media/manifest.json'), read('/media/captions.json'), read('/captions/words.json')])
+      .then(([manifest, captions, words]) => {
+        if (!controller.signal.aborted) setLibrary(parseMedia(manifest, captions, words));
       });
     return () => controller.abort();
   }, []);
