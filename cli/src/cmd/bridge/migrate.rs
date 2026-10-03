@@ -247,7 +247,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
             "service": args.service,
             "chat_id": args.announce_chat_id,
             "text": format!(
-                "[CodeTerm] Telegram bridge migrated to {} from {}",
+                "[Domios] Telegram bridge migrated to {} from {}",
                 args.to, source_name
             ),
         });
