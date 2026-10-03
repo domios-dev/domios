@@ -902,6 +902,30 @@ class WindowsAcquisitionRegressionTests(unittest.TestCase):
 
 
 class WindowsAcquisitionRepairTests(unittest.TestCase):
+    def test_inherited_control_uses_default_creation_and_requires_observed_inheritance(self):
+        for inherited in (True, False):
+            with self.subTest(inherited=inherited), ExitStack() as stack:
+                api, guards = self.fixture(stack)
+                mkdir = stack.enter_context(patch.object(local_module.os, "mkdir"))
+                def inherited_security(facts):
+                    if facts["final"].endswith("\\inheriting\\control") and inherited:
+                        facts["security"]["aces"].append((0, 0x10, 2, "S-1-1-0"))
+                api.override = inherited_security
+                report = local_module.run_trust_case("inherited_write")
+                mkdir.assert_called_once()
+                self.assertTrue(str(mkdir.call_args.args[0]).endswith("\\inheriting\\control"))
+                self.assertFalse(any(path.endswith("\\control") for path, _ in api.created))
+                self.assertIn("inheritance_parent_security", report["fixture"])
+                self.assertIn("inheritance_child_security", report["fixture"])
+                if inherited:
+                    self.assertEqual(report["oracle"], "satisfied")
+                    self.assertEqual(report["fixture"]["observed_predicate"], "windows_foreign_authority")
+                else:
+                    self.assertEqual(report["error"], "windows_inherited_control_unavailable")
+                    self.assertEqual(report["native_control"], "NOT RUN")
+                self.assertTrue(all(guard.closed for guard in guards))
+                self.assertEqual(report["cleanup_errors"], [])
+
     def fixture(self, stack):
         api, guards = WindowsApiFixture(), []
         original = worker_module.WindowsTrust
