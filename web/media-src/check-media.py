@@ -56,7 +56,7 @@ def frame_hashes(path):
     return [line.rsplit(',', 1)[-1].strip() for line in output.decode().splitlines() if line and not line.startswith('#')]
 
 
-def audio_packet_oracle(candidate, mixed_audio):
+def audio_packet_oracle(candidate, mixed_audio, continuous_music=False):
     actual = run(['ffmpeg', '-v', 'error', '-i', candidate, '-map', '0:a:0', '-c:a', 'copy',
                   '-f', 'streamhash', '-hash', 'sha256', '-'], capture=True).decode().strip()
     codec, bitrate = ('aac', '64k') if candidate.suffix == '.mp4' else ('libopus', '48k')
@@ -64,6 +64,8 @@ def audio_packet_oracle(candidate, mixed_audio):
                  '-b:a', bitrate, '-ar', '48000', '-ac', '1']
     if candidate.suffix == '.mp4':
         reference += ['-aac_coder', 'fast']
+    elif continuous_music:
+        reference += ['-frame_duration', '10']
     expected = run(reference + ['-f', 'streamhash', '-hash', 'sha256', '-'], capture=True).decode().strip()
     require(actual == expected, 'Encoded soundtrack differs from the aligned/mixed proof WAV')
     return actual
@@ -264,7 +266,9 @@ if __name__ == '__main__':
             if args.require_audio:
                 require(args.reference_video_dir, 'Narrated output needs reviewed silent reference')
                 require(frame_hashes(candidate) == frame_hashes(args.reference_video_dir / candidate.name), 'Picture changed during narration mux')
-                report['formats'][kind]['audioPacketHash'] = audio_packet_oracle(candidate, Path(report['narration']['finalAudioPath']))
+                report['formats'][kind]['audioPacketHash'] = audio_packet_oracle(
+                    candidate, Path(report['narration']['finalAudioPath']),
+                    continuous_music=report['narration']['continuousMusic'] is not None)
     if args.audit:
         write_json(args.audit, report)
     print('PRIVATE nonpublishable media oracles passed; publication rights unresolved' if args.private_review else
