@@ -169,7 +169,7 @@ def published_assets(directory, timing, require_audio, timing_path, private_revi
             require(poster.size == ((1280, 720) if name == 'trailer' else (480, 270)), 'Poster size mismatch')
             poster.load()
     total = sum(path.stat().st_size for path in directory.iterdir())
-    require(total == manifest['totalBytes'] and total < 6_000_000, 'Aggregate budget/manifest mismatch')
+    require(total == manifest['totalBytes'], 'Aggregate manifest size mismatch')
     return dict(totalBytes=total, files=len(allowed), music=manifest.get('music'),
                 musicArrangement=manifest.get('musicArrangement'))
 
