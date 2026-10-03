@@ -268,13 +268,15 @@ def https_exchange(raw, token, end, *, policy=None, clock=time.monotonic):
 
 WINDOWS_SUBPROCESS_SHA256 = "a7b6bdf4657b018e4e76f22ebbb975a5fa6f0501088177fe950df1e20c18b209"
 WINDOWS_ADMINS = frozenset(("S-1-5-18", "S-1-5-32-544"))
+WINDOWS_SERVICING_OWNER = "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464"
 WINDOWS_MUTATION = 0x500D0156
 WINDOWS_REPLACEMENT = 0x500D0140
 
 
-def windows_acl_policy(security, user, *, private=False, ancestor=False):
+def windows_acl_policy(security, user, *, private=False, ancestor=False, volume_root=False):
     trusted = WINDOWS_ADMINS | {user}
-    require(security["owner"] in trusted, "windows_owner")
+    servicing_root = volume_root and ancestor and not private and security["owner"] == WINDOWS_SERVICING_OWNER
+    require(security["owner"] in trusted or servicing_root, "windows_owner")
     require(security["dacl_present"] and security["aces"] is not None, "windows_dacl")
     require(not private or security["owner"] == user and security["protected"], "windows_private_dacl")
     for kind, flags, mask, sid in security["aces"]:
@@ -584,9 +586,10 @@ class WindowsTrust:
         entry = self.capture(path, directory=directory)
         facts = self.api.inspect(entry["handle"])
         entry["facts"] = facts
-        windows_acl_policy(facts["security"], self.user, private=private, ancestor=ancestor)
         require(facts["directory"] == directory and os.path.normcase(facts["final"]) == os.path.normcase(str(entry["path"])),
                 "windows_path_identity")
+        volume_root = directory and entry["path"].parent == entry["path"]
+        windows_acl_policy(facts["security"], self.user, private=private, ancestor=ancestor, volume_root=volume_root)
         self.check_time()
         return entry
 
