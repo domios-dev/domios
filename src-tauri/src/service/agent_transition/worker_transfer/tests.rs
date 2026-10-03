@@ -153,6 +153,7 @@ impl TransferFixture {
 fn arm(mux: &mut MultiplexerState, tab_id: &str, suffix: &str) {
     let tab = mux.get_tab_mut(tab_id).unwrap();
     tab.agent_type = Some("codex".into());
+    tab.chat_view = true;
     tab.agent_session_id = Some(format!("session-{suffix}"));
     tab.session_binding_nonce = Some(format!("nonce-{suffix}"));
     tab.reported_session_binding_nonce = Some(format!("nonce-{suffix}"));
