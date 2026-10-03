@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::service::worker_identity::{
+use crate::service::{
     restore_attempt_binding_for_caller, AttemptBindingRestoreResult,
     AttemptBindingRestoreTarget,
 };

@@ -245,7 +245,8 @@ pub(crate) use team::{AddTeamMemberParams, AddTeamMemberResult};
 pub(crate) use team::{TeamCartographerAttachLocks, TeamOrchestratorAttachLocks};
 pub(crate) use worker_identity::{
     persist_attempt_executor_identity, persist_attempt_executor_identity_for_mux,
-    respawn_title_provenance,
+    respawn_title_provenance, restore_attempt_binding_for_caller, AttemptBindingRestoreResult,
+    AttemptBindingRestoreTarget,
 };
 pub(crate) use worker_persona::WorkerPersonaReservations;
 
