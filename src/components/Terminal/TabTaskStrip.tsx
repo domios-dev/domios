@@ -10,7 +10,7 @@ import type { Tab } from "../../lib/types";
 import { ComposerPlanActivityStrip } from "./ComposerPlanActivityStrip";
 
 // compact human-title strip — orchestrating vs working — with no raw ids in UI.
-export function TabTaskStrip({ tabId }: { tabId: string }) {
+export function TabTaskStrip({ tabId, presentation = "block" }: { tabId: string; presentation?: "block" | "inline" }) {
   const tabs = useMuxSelector((s) => s.tabs, tabsRecordEqual);
   const { index } = usePlanIndexOptional();
   const entries = useMemo(
@@ -18,15 +18,17 @@ export function TabTaskStrip({ tabId }: { tabId: string }) {
     [index, tabId, tabs],
   );
   if (entries.length === 0) return null;
-  return <ResolvedTabTaskStrip tabId={tabId} tabs={tabs} />;
+  return <ResolvedTabTaskStrip tabId={tabId} tabs={tabs} presentation={presentation} />;
 }
 
 function ResolvedTabTaskStrip({
   tabId,
   tabs,
+  presentation,
 }: {
   tabId: string;
   tabs: Record<string, Tab>;
+  presentation: "block" | "inline";
 }) {
   const full = useFullPlans();
   const openPlanTarget = usePlanTargetNavigation();
@@ -50,7 +52,7 @@ function ResolvedTabTaskStrip({
   };
 
   return (
-    <div className="ct-composer-activity-row mb-2 w-full min-w-0 max-w-full">
+    <div className={presentation === "inline" ? "inline-flex min-w-0 max-w-full" : "ct-composer-activity-row mb-2 w-full min-w-0 max-w-full"}>
       <ComposerPlanActivityStrip
         activity={activity}
         onOpen={onOpen}
