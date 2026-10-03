@@ -154,6 +154,47 @@ function Get-InstallRollbackDecision($Facts) {
     return [pscustomobject]@{ Remove = ($reasons.Count -eq 0); Reasons = @($reasons | Select-Object -Unique) }
 }
 
+function Get-JobMembershipDecision($Facts) {
+    $evidence = [WindowsSccacheNative]::ClassifyJobMembers($Facts.Snapshot, [object[]]$Facts.Leases)
+    $reasons = [System.Collections.Generic.List[string]]::new()
+    $reasons.AddRange([string[]]$evidence.Reasons)
+    if ($evidence.CandidatePids.Count -eq 0) { $reasons.Add('job_server_candidate_missing') }
+    elseif ($evidence.CandidatePids.Count -ne 1) { $reasons.Add('job_server_candidate_ambiguous') }
+    else {
+        $proofs = @($Facts.CandidateProofs | Where-Object { $_.Pid -eq $evidence.CandidatePids[0] })
+        if ($proofs.Count -ne 1) { $reasons.Add('job_server_candidate_proof_missing_or_ambiguous') }
+        else {
+            $proof = $proofs[0]
+            if (@($proof.Errors).Count -ne 0) { $reasons.Add('job_server_candidate_api_error') }
+            if (-not $proof.HandleRetained -or $proof.PidFromHandle -ne $proof.Pid -or $proof.VerifiedPidFromHandle -ne $proof.Pid -or $proof.CreationFileTime -le 0 -or $proof.CreationFileTime -ne $proof.VerifiedCreationFileTime) { $reasons.Add('job_server_candidate_handle_identity_invalid') }
+            if (-not $proof.IsProcessInJobBefore -or -not $proof.IsProcessInJobAfter) { $reasons.Add('job_server_candidate_job_membership_unconfirmed') }
+            if (-not $proof.ImageMatches -or -not $proof.HashMatches -or -not $proof.AccountMatches) { $reasons.Add('job_server_candidate_image_hash_or_account_refused') }
+            if (-not $proof.AliveBefore -or -not $proof.AliveAfter) { $reasons.Add('job_server_candidate_liveness_unconfirmed') }
+            if (-not $proof.ListenerMatches) { $reasons.Add('job_server_candidate_listener_refused') }
+        }
+    }
+    return [pscustomobject]@{ Valid = ($reasons.Count -eq 0); Reasons = @($reasons | Select-Object -Unique); Members = $evidence.Members; CandidatePids = $evidence.CandidatePids; OwnedLaunchFacts = $evidence.OwnedLaunchFacts; ExcludedOwnedExits = @($evidence.ExcludedOwnedExits | ForEach-Object { $_.Pid }); EligibleOwnedExits = $evidence.EligibleOwnedExits; UnlistedOwnedExits = $evidence.UnlistedOwnedExits; AccountingMinimum = $evidence.AccountingMinimum; AccountingMaximum = $evidence.AccountingMaximum }
+}
+
+function Get-OwnedLaunchIdentityFacts($Leases) {
+    $facts = [System.Collections.Generic.List[object]]::new()
+    foreach ($lease in $Leases) {
+        if (-not $lease.Created) { continue }
+        $handlePid = [uint32]0; $currentCreation = [long]0; $handleRetained = ($lease.Handle -ne [IntPtr]::Zero); $identityError = $null
+        try {
+            if (-not $handleRetained) { throw 'owned_process_handle_missing' }
+            $handlePid = [WindowsSccacheNative]::HandleProcessId($lease.Handle)
+            $currentCreation = [WindowsSccacheNative]::ProcessCreation($lease.Handle)
+        } catch {
+            $win32 = if ($_.Exception -is [System.ComponentModel.Win32Exception]) { $_.Exception.NativeErrorCode } else { 'not_win32' }
+            $identityError = $_.Exception.GetType().Name + ':' + $win32
+        }
+        $identityValid = $handleRetained -and $lease.Pid -eq $handlePid -and $lease.CreatedFileTime -gt 0 -and $lease.CreatedFileTime -eq $currentCreation -and -not $identityError
+        $facts.Add(@{ Created = $true; Pid = [uint32]$lease.Pid; HandlePid = $handlePid; CapturedCreationFileTime = [long]$lease.CreatedFileTime; CurrentCreationFileTime = $currentCreation; Assigned = [bool]$lease.Assigned; HandleRetained = [bool]$handleRetained; IdentityValid = [bool]$identityValid; IdentityError = $identityError; ProcessExitConfirmed = [bool]$lease.ProcessExitConfirmed; ExitCode = $(if ($lease.ProcessExitConfirmed) { $lease.ExitCode } else { $null }); CapturesComplete = [bool]$lease.CapturesComplete })
+    }
+    return @($facts)
+}
+
 function Format-CaptureReceipt($Tail, [long]$TotalBytes, [bool]$WasTruncated) {
     $bytes = [byte[]]$Tail
     if ($bytes.Length -gt $script:Pin.TailBytes) { $bytes = $bytes[($bytes.Length - $script:Pin.TailBytes)..($bytes.Length - 1)]; $WasTruncated = $true }
@@ -208,6 +249,7 @@ function Invoke-ContractGroup($Name, $Cases, [scriptblock]$Decision) {
         $actual = & $Decision $case.Facts
         $ok = ([bool]$actual.Valid -eq [bool]$case.Expected)
         if ($case.ContainsKey('ExpectedPrimary')) { $ok = $ok -and ([string]$actual.PrimaryFailure -ceq [string]$case.ExpectedPrimary) }
+        if ($case.ContainsKey('ExpectedExcludedExitPids')) { $ok = $ok -and ((@($actual.ExcludedOwnedExits | Sort-Object) -join ',') -ceq (@($case.ExpectedExcludedExitPids | Sort-Object) -join ',')) }
         if ($ok) { $passed++ } else { $failed++ }
         $results.Add([ordered]@{ selector = $case.Name; passed = $ok; reasons = @($actual.Reasons) })
     }
@@ -222,6 +264,17 @@ function Convert-NativeContractCases($Controls, [int]$ExpectedCount) {
 
 function New-ContractZeroStatsOutput {
     return $script:PinnedStatsOutputFixture.TrimEnd()
+}
+function New-ContractJobSnapshot([uint32[]]$Pids, [uint32]$Active, [uint32]$Assigned, [uint32]$Listed, [bool]$Complete = $true, [bool]$AccountingQuerySucceeded = $true, [bool]$ProcessListQuerySucceeded = $true, [bool]$AccountingComplete = $true) {
+    return @{ AccountingQuerySucceeded = $AccountingQuerySucceeded; AccountingComplete = $AccountingComplete; AccountingError = $(if ($AccountingQuerySucceeded) { 0 } else { 5 }); AccountingActiveProcesses = $Active; AccountingReturnLength = 48; AccountingRequiredBytes = 48; AccountingStartedTicks = 1L; AccountingCompletedTicks = 2L; ProcessListQuerySucceeded = $ProcessListQuerySucceeded; ProcessListError = $(if ($ProcessListQuerySucceeded) { 0 } else { 5 }); AssignedCount = $Assigned; ListedCount = $Listed; ProcessListReturnLength = [uint32](8 + 8 * $Listed); BufferCapacity = 8192; BufferBytes = 65544; RequiredBytes = [uint64](8 + 8 * $Assigned); ProcessListStartedTicks = 3L; ProcessListCompletedTicks = 4L; ProcessIds = $Pids; Complete = $Complete }
+}
+function New-ContractOwnedExit([uint32]$ProcessIdValue, [bool]$CapturesComplete = $true) {
+    $creation = [long](100000 + $ProcessIdValue)
+    return @{ Created = $true; Pid = $ProcessIdValue; HandlePid = $ProcessIdValue; CapturedCreationFileTime = $creation; CurrentCreationFileTime = $creation; Assigned = $true; HandleRetained = $true; IdentityValid = $true; IdentityError = $null; ProcessExitConfirmed = $true; ExitCode = 0; CapturesComplete = $CapturesComplete }
+}
+function New-ContractCandidateProof([uint32]$ProcessIdValue) {
+    $creation = [long](200000 + $ProcessIdValue)
+    return @{ Pid = $ProcessIdValue; HandleRetained = $true; PidFromHandle = $ProcessIdValue; VerifiedPidFromHandle = $ProcessIdValue; CreationFileTime = $creation; VerifiedCreationFileTime = $creation; IsProcessInJobBefore = $true; IsProcessInJobAfter = $true; ImageMatches = $true; HashMatches = $true; AccountMatches = $true; AliveBefore = $true; AliveAfter = $true; ListenerMatches = $true; Errors = @() }
 }
 
 function Invoke-ContractOnly {
@@ -306,6 +359,21 @@ function Invoke-ContractOnly {
         @{ Name = 'endpoint_reuse_terminates_only_captured_job'; Facts = @{ CapturedJobHandle = $true; EndpointReused = $true }; Expected = $true },
         @{ Name = 'missing_job_handle_refused'; Facts = @{ CapturedJobHandle = $false; EndpointReused = $true }; Expected = $false }
     )
+    $ownedExitA = New-ContractOwnedExit 201
+    $ownedExitB = New-ContractOwnedExit 202
+    $completionCases += @(
+        @{ Name = 'job_membership_one_live_candidate_positive'; Facts = @{ Kind = 'job_membership'; Snapshot = (New-ContractJobSnapshot ([uint32[]]@(301)) 1 1 1); Leases = @(); CandidateProofs = @(New-ContractCandidateProof 301) }; Expected = $true },
+        @{ Name = 'job_membership_retained_exits_plus_candidate_positive'; Facts = @{ Kind = 'job_membership'; Snapshot = (New-ContractJobSnapshot ([uint32[]]@(301)) 3 1 1); Leases = @($ownedExitA, $ownedExitB); CandidateProofs = @(New-ContractCandidateProof 301) }; Expected = $true; ExpectedExcludedExitPids = @(201,202) },
+        @{ Name = 'job_membership_all_exited_no_server_refused'; Facts = @{ Kind = 'job_membership'; Snapshot = (New-ContractJobSnapshot ([uint32[]]@(201)) 1 1 1); Leases = @($ownedExitA); CandidateProofs = @() }; Expected = $false },
+        @{ Name = 'job_membership_two_live_candidates_refused'; Facts = @{ Kind = 'job_membership'; Snapshot = (New-ContractJobSnapshot ([uint32[]]@(301,302)) 2 2 2); Leases = @(); CandidateProofs = @((New-ContractCandidateProof 301), (New-ContractCandidateProof 302)) }; Expected = $false },
+        @{ Name = 'job_membership_nonmatching_retained_identity_refused'; Facts = @{ Kind = 'job_membership'; Snapshot = (New-ContractJobSnapshot ([uint32[]]@(201)) 1 1 1); Leases = @((Copy-FactsWithOverrides $ownedExitA @{ HandlePid = 299; IdentityValid = $false })); CandidateProofs = @() }; Expected = $false },
+        @{ Name = 'job_membership_unsettled_exited_capture_refused'; Facts = @{ Kind = 'job_membership'; Snapshot = (New-ContractJobSnapshot ([uint32[]]@(201,301)) 2 2 2); Leases = @((New-ContractOwnedExit 201 $false)); CandidateProofs = @(New-ContractCandidateProof 301) }; Expected = $false },
+        @{ Name = 'job_membership_accounting_api_error_refused'; Facts = @{ Kind = 'job_membership'; Snapshot = (New-ContractJobSnapshot ([uint32[]]@(301)) 1 1 1 $true $false); Leases = @(); CandidateProofs = @(New-ContractCandidateProof 301) }; Expected = $false },
+        @{ Name = 'job_membership_accounting_return_length_incomplete_refused'; Facts = @{ Kind = 'job_membership'; Snapshot = (Copy-FactsWithOverrides (New-ContractJobSnapshot ([uint32[]]@(301)) 1 1 1) @{ AccountingComplete = $false; AccountingReturnLength = 40 }); Leases = @(); CandidateProofs = @(New-ContractCandidateProof 301) }; Expected = $false },
+        @{ Name = 'job_membership_process_list_api_error_refused'; Facts = @{ Kind = 'job_membership'; Snapshot = (New-ContractJobSnapshot ([uint32[]]@(301)) 1 1 1 $true $true $false); Leases = @(); CandidateProofs = @(New-ContractCandidateProof 301) }; Expected = $false },
+        @{ Name = 'job_membership_incomplete_pid_list_refused'; Facts = @{ Kind = 'job_membership'; Snapshot = (New-ContractJobSnapshot ([uint32[]]@(301)) 2 2 1 $false); Leases = @(); CandidateProofs = @(New-ContractCandidateProof 301) }; Expected = $false },
+        @{ Name = 'job_membership_accounting_outside_retained_exit_bound_refused'; Facts = @{ Kind = 'job_membership'; Snapshot = (New-ContractJobSnapshot ([uint32[]]@(301)) 4 1 1); Leases = @($ownedExitA, $ownedExitB); CandidateProofs = @(New-ContractCandidateProof 301) }; Expected = $false }
+    )
     $schemaFixture = $script:PinnedStatsOutputFixture.TrimEnd()
     $completionCases += @(
         @{ Name = 'pinned_sixteen_counter_schema_positive'; Facts = @{ Kind = 'stats_schema'; Names = $script:RequiredStatsCounters; Fixture = $schemaFixture }; Expected = $true },
@@ -347,6 +415,10 @@ function Invoke-ContractOnly {
         if ($facts.Kind -eq 'rollback') {
             $rollback = Get-InstallRollbackDecision $facts.Rollback
             return [pscustomobject]@{ Valid = $rollback.Remove; Reasons = $rollback.Reasons }
+        }
+        if ($facts.Kind -eq 'job_membership') {
+            $membership = Get-JobMembershipDecision $facts
+            return [pscustomobject]@{ Valid = $membership.Valid; Reasons = $membership.Reasons; ExcludedOwnedExits = $membership.ExcludedOwnedExits }
         }
         if ($facts.ContainsKey('CapturedJobHandle')) {
             $plan = Get-TerminationPlan $facts
@@ -709,7 +781,7 @@ function Start-WindowsSccacheSession {
     $profile = Join-Path $env:RUNNER_TEMP ('rust-windows-task-local-' + $env:GITHUB_RUN_ID + '-' + $env:GITHUB_RUN_ATTEMPT)
     if ($Maintenance) { $profile = Join-Path $env:RUNNER_TEMP ('windows-sccache-maintenance-' + $env:GITHUB_RUN_ID + '-' + $env:GITHUB_RUN_ATTEMPT) }
     if ($OperationStartedTicks -le 0) { $OperationStartedTicks = [Diagnostics.Stopwatch]::GetTimestamp() }
-    $session = [ordered]@{ WorkDeadlineTicks = $workDeadline; CleanupDeadlineTicks = $DeadlineTicks; StartedTicks = $OperationStartedTicks; Processes = [System.Collections.Generic.List[object]]::new(); LaunchRegistry = $null; ProcessTiming = @{}; PrimaryFailure = $null; CleanupError = $null; CleanupAttempted = $false; CleanupResult = $null; InstallCreated = $false; TerminateResult = $null; TerminationKind = 'unconfirmed'; Server = $null; ConfigPath = $null; CachePath = $null; OperationDirectory = (Join-Path $profile 'cache-session'); ReceiptPath = (Join-Path $profile 'cache-session-receipt.json'); ArtifactFresh = $ArtifactFresh; Receipt = [ordered]@{ version = $script:Pin.Version; source_commit = $script:Pin.SourceCommit; endpoint = $script:Pin.Endpoint; startup = 'unproven'; stats = 'not_run'; termination = 'unconfirmed'; environment_keys = @(); environment_paths = @{}; commands = @() } }
+    $session = [ordered]@{ WorkDeadlineTicks = $workDeadline; CleanupDeadlineTicks = $DeadlineTicks; StartedTicks = $OperationStartedTicks; Processes = [System.Collections.Generic.List[object]]::new(); CandidateHandles = [System.Collections.Generic.List[object]]::new(); LaunchRegistry = $null; ProcessTiming = @{}; PrimaryFailure = $null; CleanupError = $null; CleanupAttempted = $false; CleanupResult = $null; InstallCreated = $false; TerminateResult = $null; TerminationKind = 'unconfirmed'; Server = $null; ConfigPath = $null; CachePath = $null; OperationDirectory = (Join-Path $profile 'cache-session'); ReceiptPath = (Join-Path $profile 'cache-session-receipt.json'); ArtifactFresh = $ArtifactFresh; Receipt = [ordered]@{ version = $script:Pin.Version; source_commit = $script:Pin.SourceCommit; endpoint = $script:Pin.Endpoint; startup = 'unproven'; stats = 'not_run'; termination = 'unconfirmed'; environment_keys = @(); environment_paths = @{}; commands = @() } }
     $session.Receipt.operation_budget_ms = [long](($DeadlineTicks - $session.StartedTicks) * 1000 / [Diagnostics.Stopwatch]::Frequency)
     $session.Receipt.cleanup_reserve_ms = $script:Pin.CleanupReserveMs
     $script:Session = $session
@@ -774,23 +846,72 @@ function Start-WindowsSccacheSession {
         $startupText = $start.Stdout.Text
         if ($start.ExitCode -ne 0 -or $startupText -notmatch '(?m)^sccache: Listening on address 127\.0\.0\.1:4226\r?$') { throw 'startup_notification_missing' }
         $session.Receipt.startup_elapsed_ms = [long](([Diagnostics.Stopwatch]::GetTimestamp() - $session.StartedTicks) * 1000 / [Diagnostics.Stopwatch]::Frequency)
-        $jobSnapshot = [WindowsSccacheNative]::Snapshot($session.Job)
-        if ($jobSnapshot.ActiveCount -ne 1) { throw 'job_active_count_not_one_server' }
-        $pids = @($jobSnapshot.Members)
-        if ($pids.Count -ne 1) { throw 'job_server_membership_ambiguous' }
-        $serverPid = [uint32]$pids[0]
-        $serverHandle = [WindowsSccacheNative]::OpenProcessHandle($serverPid)
-        $session.Server = [pscustomobject]@{ Pid = $serverPid; Handle = $serverHandle; Creation = $null; Image = $null; UserSid = $null; Hash = $null; ExitCode = $null }
-        $session.Server.Creation = [WindowsSccacheNative]::ProcessCreation($serverHandle)
-        $session.Server.Image = [WindowsSccacheNative]::ProcessImage($serverHandle)
-        $session.Server.UserSid = [WindowsSccacheNative]::ProcessUserSid($serverHandle)
-        $session.Server.Hash = (Get-FileHash -LiteralPath $paths.Executable -Algorithm SHA256).Hash.ToLowerInvariant()
-        if (-not [WindowsSccacheNative]::Contains($session.Job, $serverHandle) -or $session.Server.Image -ine $paths.Executable -or $session.Server.UserSid -cne $session.UserSid -or $session.Server.Hash -cne $session.ToolResolution.sccache_sha256 -or -not [WindowsSccacheNative]::HandleAlive($serverHandle)) { throw 'captured_server_identity_refused' }
-        $owners = Get-ListenerFacts $serverPid
-        if (-not $owners.Owned) { throw 'owned_listener_proof_failed' }
-        if (-not [WindowsSccacheNative]::Contains($session.Job, $serverHandle) -or -not [WindowsSccacheNative]::HandleAlive($serverHandle)) { throw 'captured_server_changed_at_readiness_event' }
+        $snapshotStartedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
+        $nativeSnapshot = $null; $snapshotException = $null
+        try { $nativeSnapshot = [WindowsSccacheNative]::Snapshot($session.Job) } catch { $snapshotException = $_.Exception.GetType().Name + ':' + $(if ($_.Exception -is [System.ComponentModel.Win32Exception]) { $_.Exception.NativeErrorCode } else { 'not_win32' }) }
+        $snapshotCompletedTicks = [Diagnostics.Stopwatch]::GetTimestamp()
+        if ($nativeSnapshot) {
+            $jobSnapshot = @{ AccountingQuerySucceeded = [bool]$nativeSnapshot.AccountingQuerySucceeded; AccountingComplete = [bool]$nativeSnapshot.AccountingComplete; AccountingError = [int]$nativeSnapshot.AccountingError; AccountingActiveProcesses = [uint32]$nativeSnapshot.AccountingActiveProcesses; AccountingReturnLength = [uint32]$nativeSnapshot.AccountingReturnLength; AccountingRequiredBytes = [uint32]$nativeSnapshot.AccountingRequiredBytes; AccountingStartedTicks = [long]$nativeSnapshot.AccountingStartedTicks; AccountingCompletedTicks = [long]$nativeSnapshot.AccountingCompletedTicks; ProcessListQuerySucceeded = [bool]$nativeSnapshot.ProcessListQuerySucceeded; ProcessListError = [int]$nativeSnapshot.ProcessListError; AssignedCount = [uint32]$nativeSnapshot.AssignedCount; ListedCount = [uint32]$nativeSnapshot.ListedCount; ProcessListReturnLength = [uint32]$nativeSnapshot.ProcessListReturnLength; BufferCapacity = [uint32]$nativeSnapshot.BufferCapacity; BufferBytes = [uint32]$nativeSnapshot.BufferBytes; RequiredBytes = [uint64]$nativeSnapshot.RequiredBytes; ProcessListStartedTicks = [long]$nativeSnapshot.ProcessListStartedTicks; ProcessListCompletedTicks = [long]$nativeSnapshot.ProcessListCompletedTicks; ProcessIds = @($nativeSnapshot.ProcessIds); Complete = [bool]$nativeSnapshot.Complete; StartedTicks = $snapshotStartedTicks; CompletedTicks = $snapshotCompletedTicks; Exception = $snapshotException }
+        } else { $jobSnapshot = @{ AccountingQuerySucceeded = $false; AccountingComplete = $false; AccountingError = -1; AccountingActiveProcesses = 0; AccountingReturnLength = 0; AccountingRequiredBytes = 48; AccountingStartedTicks = 0; AccountingCompletedTicks = 0; ProcessListQuerySucceeded = $false; ProcessListError = -1; AssignedCount = 0; ListedCount = 0; ProcessListReturnLength = 0; BufferCapacity = 8192; BufferBytes = 65544; RequiredBytes = 0; ProcessListStartedTicks = 0; ProcessListCompletedTicks = 0; ProcessIds = @(); Complete = $false; StartedTicks = $snapshotStartedTicks; CompletedTicks = $snapshotCompletedTicks; Exception = $snapshotException } }
+        $session.Receipt.job_membership_snapshot = $jobSnapshot
+        Write-SessionReceipt $session
+        $launches = @([WindowsSccacheNative]::SnapshotLaunches($session.LaunchRegistry))
+        $launchFacts = Get-OwnedLaunchIdentityFacts $launches
+        $memberEvidence = [WindowsSccacheNative]::ClassifyJobMembers($jobSnapshot, [object[]]$launchFacts)
+        $session.Receipt.job_membership_launches = $launchFacts
+        $session.Receipt.job_membership_classification = @{ Reasons = @($memberEvidence.Reasons); Members = @($memberEvidence.Members); CandidatePids = @($memberEvidence.CandidatePids); OwnedLaunchFacts = @($memberEvidence.OwnedLaunchFacts); ExcludedOwnedExits = @($memberEvidence.ExcludedOwnedExits); EligibleOwnedExits = $memberEvidence.EligibleOwnedExits; UnlistedOwnedExits = $memberEvidence.UnlistedOwnedExits; AccountingMinimum = $memberEvidence.AccountingMinimum; AccountingMaximum = $memberEvidence.AccountingMaximum }
+        Write-SessionReceipt $session
+        $candidateProofs = @()
+        $owners = $null
+        if ($memberEvidence.Reasons.Count -eq 0 -and $memberEvidence.CandidatePids.Count -eq 1) {
+            $serverPid = [uint32]$memberEvidence.CandidatePids[0]
+            $proofErrors = [System.Collections.Generic.List[string]]::new()
+            $serverHandle = [IntPtr]::Zero
+            $candidate = $null
+            $proof = @{ Pid = $serverPid; HandleRetained = $false; PidFromHandle = 0; VerifiedPidFromHandle = 0; CreationFileTime = 0L; VerifiedCreationFileTime = 0L; IsProcessInJobBefore = $false; IsProcessInJobAfter = $false; ImageMatches = $false; HashMatches = $false; AccountMatches = $false; AliveBefore = $false; AliveAfter = $false; ListenerMatches = $false; ListenerCount = 0; ListenerRows = @(); ListenerRowsTruncated = $false; Errors = @() }
+            try {
+                $serverHandle = [WindowsSccacheNative]::OpenProcessHandle($serverPid)
+                $candidate = [pscustomobject]@{ Pid = $serverPid; Handle = $serverHandle; Creation = $null; Image = $null; UserSid = $null; Hash = $null; ExitCode = $null }
+                $session.CandidateHandles.Add($candidate)
+                $proof.HandleRetained = $true
+                $proof.PidFromHandle = [WindowsSccacheNative]::HandleProcessId($serverHandle)
+                $proof.CreationFileTime = [WindowsSccacheNative]::ProcessCreation($serverHandle)
+                $candidate.Creation = $proof.CreationFileTime
+                $candidate.Image = [WindowsSccacheNative]::ProcessImage($serverHandle)
+                $candidate.UserSid = [WindowsSccacheNative]::ProcessUserSid($serverHandle)
+                $candidate.Hash = (Get-FileHash -LiteralPath $paths.Executable -Algorithm SHA256).Hash.ToLowerInvariant()
+                $proof.IsProcessInJobBefore = [WindowsSccacheNative]::Contains($session.Job, $serverHandle)
+                $proof.ImageMatches = $candidate.Image -ieq $paths.Executable
+                $proof.HashMatches = $candidate.Hash -ceq $session.ToolResolution.sccache_sha256
+                $proof.AccountMatches = $candidate.UserSid -ceq $session.UserSid
+                $proof.AliveBefore = [WindowsSccacheNative]::HandleAlive($serverHandle)
+                $owners = Get-ListenerFacts $serverPid
+                $proof.ListenerMatches = [bool]$owners.Owned
+                $proof.ListenerCount = $owners.Count
+                $proof.ListenerRows = @($owners.Rows | Select-Object -First 32 | ForEach-Object { @{ Family = $_.Family; Address = $_.Address; Port = $_.Port; Pid = $_.Pid } })
+                $proof.ListenerRowsTruncated = $owners.Count -gt $proof.ListenerRows.Count
+                $proof.VerifiedPidFromHandle = [WindowsSccacheNative]::HandleProcessId($serverHandle)
+                $proof.VerifiedCreationFileTime = [WindowsSccacheNative]::ProcessCreation($serverHandle)
+                $proof.IsProcessInJobAfter = [WindowsSccacheNative]::Contains($session.Job, $serverHandle)
+                $proof.AliveAfter = [WindowsSccacheNative]::HandleAlive($serverHandle)
+            } catch {
+                $win32 = if ($_.Exception -is [System.ComponentModel.Win32Exception]) { $_.Exception.NativeErrorCode } else { 'not_win32' }
+                $proofErrors.Add($_.Exception.GetType().Name + ':' + $win32)
+            }
+            $proof.Errors = @($proofErrors)
+            $candidateProofs = @($proof)
+            $proofOwned = $proof.HandleRetained -and $proof.PidFromHandle -eq $serverPid -and $proof.VerifiedPidFromHandle -eq $serverPid -and $proof.CreationFileTime -gt 0 -and $proof.CreationFileTime -eq $proof.VerifiedCreationFileTime -and $proof.IsProcessInJobBefore -and $proof.IsProcessInJobAfter -and $proof.ImageMatches -and $proof.HashMatches -and $proof.AccountMatches -and $proof.AliveBefore -and $proof.AliveAfter -and $proof.ListenerMatches -and $proof.Errors.Count -eq 0
+            if ($proofOwned) { $session.Server = $candidate; $session.CandidateHandles.Remove($candidate) }
+        }
+        $membership = Get-JobMembershipDecision @{ Snapshot = $jobSnapshot; Leases = $launchFacts; CandidateProofs = $candidateProofs }
+        $session.Receipt.job_membership_candidate_proofs = $candidateProofs
+        $session.Receipt.job_membership_decision = $membership
+        Write-SessionReceipt $session
+        if (-not $membership.Valid) { throw ('job_membership_refused:' + ($membership.Reasons -join ',')) }
+        $serverPid = [uint32]$session.Server.Pid
+        $serverHandle = $session.Server.Handle
         $session.Receipt.startup = 'notification_process_job_account_image_hash_listener_proven'
-        $session.Receipt.server = @{ pid = $serverPid; creation_filetime = $session.Server.Creation; image = $session.Server.Image; sha256 = $session.Server.Hash; user_sid = $session.Server.UserSid; listener = $owners.Rows }
+        $session.Receipt.server = @{ pid = $serverPid; creation_filetime = $session.Server.Creation; image = $session.Server.Image; sha256 = $session.Server.Hash; user_sid = $session.Server.UserSid; listener = $candidateProofs[0].ListenerRows }
         $stats = Launch-OwnedProcess $session $paths.Executable (Get-ProcessCommandLine $paths.Executable @('--show-stats')) $paths.Destination $childEnv
         $session.StatsProcess = $stats
         Wait-OwnedProcess $session $stats $workDeadline
@@ -964,6 +1085,13 @@ function Stop-WindowsSccacheSession($Session, [string]$PrimaryFailure = $null, [
         } catch { $handlesClosed = $false; $cleanErrors.Add('server_handle_close_failed') }
     } elseif ($Session.Server -and $Session.Server.Handle -ne [IntPtr]::Zero) {
         $handlesClosed = $false; $cleanErrors.Add('server_handle_retained_unsettled')
+    }
+    foreach ($candidate in $Session.CandidateHandles) {
+        if ($candidate.Handle -eq [IntPtr]::Zero) { continue }
+        if ($resourcesSettled) {
+            try { if ([WindowsSccacheNative]::CloseHandlePublic($candidate.Handle)) { $candidate.Handle = [IntPtr]::Zero } else { $handlesClosed = $false; $cleanErrors.Add('unverified_job_member_handle_close_failed') } }
+            catch { $handlesClosed = $false; $cleanErrors.Add('unverified_job_member_handle_close_error:' + $_.Exception.GetType().Name) }
+        } else { $handlesClosed = $false; $cleanErrors.Add('unverified_job_member_handle_retained_unsettled') }
     }
     foreach ($lease in $leases) {
         try {
