@@ -1,5 +1,7 @@
 # Tab-state Jev evaluator source preparation
 
+<!-- revision: 1 -->
+
 This evaluator loads the immutable shipped `criteria.json` directly. It measures
 classification math over supplied human-labelled records and performs a bounded
 credential-bearing HTTPS request through its own interpreter helper. Source
@@ -143,10 +145,16 @@ failures stay unconfirmed. Unknown directory creation is retained as unknown.
 Windows uses only CPython's originally captured `_handle`, an exact blocking
 handle wait, unsigned GetExitCodeProcess result, one TerminateProcess request and
 one handle Close. Pinned subprocess source SHA256 is
-`6628ffdd65c093a6c08cae01ffe82877d3ced515aac9e7be0cff16512c30a7d9`.
+`a7b6bdf4657b018e4e76f22ebbb975a5fa6f0501088177fe950df1e20c18b209`.
+This pins the reported official Windows installation's 92,989 CRLF bytes.
+The immutable Git source at `c63aec69bd59c55314c06c23f4c22c03de76fe45`
+contains 90,732 LF bytes with SHA256
+`6628ffdd65c093a6c08cae01ffe82877d3ced515aac9e7be0cff16512c30a7d9`;
+replacing its 2,257 LF bytes with CRLF produces the exact pinned Windows hash.
+The representation is established; the release packaging conversion stage is not.
 A different installed source byte hash refuses; no newline normalization or
 runtime installation is attempted. The assumed handle layout comes from
-[CPython3.14.6 subprocess](https://github.com/python/cpython/blob/v3.14.6/Lib/subprocess.py).
+[CPython3.14.6 subprocess](https://github.com/python/cpython/blob/c63aec69bd59c55314c06c23f4c22c03de76fe45/Lib/subprocess.py).
 Opened-object security and creation follow
 [GetSecurityInfo](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-getsecurityinfo)
 and [file security](https://learn.microsoft.com/en-us/windows/win32/fileio/file-security-and-access-rights).
