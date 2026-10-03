@@ -7,6 +7,8 @@ use crate::service::ServiceState;
 
 use super::{get_string_param, JsonRpcError};
 
+mod attempt_binding;
+
 pub(super) fn handles(method: &str) -> bool {
     matches!(
         method,
