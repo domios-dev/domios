@@ -1,3 +1,4 @@
+.hero > .provider-strip.section-wrap { max-width: 100%; padding-inline: 0; }
 .provider-strip { border-block: 1px solid var(--ct-border); padding-block: 30px; min-width: 0; }
 .provider-strip h2 { font: 9px var(--ct-font-mono); letter-spacing: 1.4px; color: var(--ct-muted-fg); }
 .provider-strip > p { color: var(--ct-muted-fg); font-size: 12px; line-height: 1.7; }
@@ -8,6 +9,7 @@
 .provider-entry { position: relative; display: flex; flex: 0 0 max-content; width: max-content; min-inline-size: 137px; align-items: center; gap: 12px; padding: 20px 16px; white-space: nowrap; font-size: 13px; color: var(--ct-fg); border: 1px solid var(--ct-border); border-radius: 20px 24px 20px 24px; background: color-mix(in srgb, var(--ct-accent) 4%, var(--ct-surface)); box-shadow: inset 0 1px 0 color-mix(in srgb, var(--ct-accent) 12%, transparent); }
 .provider-entry > * { flex: 0 0 auto; }
 .provider-logo { display: block; width: auto; height: 24px; object-fit: contain; }
+.provider-logo[data-provider-logo="codex"] { width: 24px; height: 24px; background: #000; }
 .provider-neutral-plus { width: 24px; color: var(--ct-muted-fg); font-size: 22px; font-weight: 300; line-height: 1; text-align: center; }
 .provider-name-visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .provider-entry:last-child { border-style: dashed; background: var(--ct-bg); }

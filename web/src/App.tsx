@@ -42,13 +42,13 @@ export function App() {
         <ul className="hero-capabilities">
           <li><span>One memory. Every agent.</span><small>Shared on this machine.</small></li>
           <li>Scheduled work</li>
-          <li>Telegram updates &amp; replies</li>
+          <li>Your messenger <small>Telegram updates &amp; replies</small></li>
         </ul>
         <div className="hero-actions"><DownloadControl download={download} /><a className="button secondary" href={github}><Icon name="github" size={18} /><span>Find us on GitHub</span><Icon name="arrow" size={16} /></a></div>
         <p className="platforms">macOS <span>·</span> Windows <span>·</span> Linux <span className="platform-divider">/</span> Your machine. Your agents.</p>
+        <ProviderStrip />
         <AgentNetwork />
       </section>
-      <ProviderStrip />
       <BuilderNotes staticMotion={reducedMotion} />
       <JevSection />
       <Showcase reducedMotion={reducedMotion} />
