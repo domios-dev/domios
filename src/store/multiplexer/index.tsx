@@ -52,7 +52,7 @@ import {
 } from "../../lib/remoteTabPortal";
 import { onRemoteTransportState } from "../../lib/remoteTabTransportState";
 import { resumeRemoteOutputStreams } from "../../lib/outputStream";
-import { resumeRemoteTabEvents } from "../../lib/remoteTabEvents";
+import { resumeRemoteTabEvents, subscribeRemoteTabEvent } from "../../lib/remoteTabEvents";
 
 export { useMultiplexer } from "./context";
 export { useMuxState, useMuxSelector } from "./selectorStore";
@@ -291,6 +291,17 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       muxUnlisten?.();
     };
   }, [requestRemoteRefresh]);
+
+  const remotePeerSubscriptions = JSON.stringify(Object.values(state.tabs)
+    .filter((tab) => tab.remote_peer_id)
+    .sort((a, b) => a.id.localeCompare(b.id))
+    .filter((tab, index, tabs) => tabs.findIndex((item) => item.remote_peer_id === tab.remote_peer_id) === index)
+    .map((tab) => tab.id));
+  useEffect(() => {
+    const stops = (JSON.parse(remotePeerSubscriptions) as string[]).map((id) =>
+      subscribeRemoteTabEvent(`peer-state-changed:${id}`, () => { void requestRemoteRefresh(); }));
+    return () => { for (const stop of stops) stop?.(); };
+  }, [remotePeerSubscriptions, requestRemoteRefresh]);
 
   const attachRemoteTab = useCallback((workspaceId: string, peer: RemotePeerTabs, tab: Tab) => {
     const projected = projectAttachedRemoteTab(tab, peer, workspaceId);
