@@ -158,13 +158,19 @@ function Get-JobMembershipDecision($Facts) {
     $evidence = [WindowsSccacheNative]::ClassifyJobMembers($Facts.Snapshot, [object[]]$Facts.Leases)
     $reasons = [System.Collections.Generic.List[string]]::new()
     $reasons.AddRange([string[]]$evidence.Reasons)
+    $proofs = @($Facts.CandidateProofs)
+    $total = if ($Facts.ContainsKey('CandidateInventoryTotal')) { [int]$Facts.CandidateInventoryTotal } else { $evidence.CandidatePids.Count }
+    $truncated = if ($Facts.ContainsKey('CandidateInventoryTruncated')) { [bool]$Facts.CandidateInventoryTruncated } else { $false }
+    $complete = if ($Facts.ContainsKey('CandidateInventoryComplete')) { [bool]$Facts.CandidateInventoryComplete } else { $proofs.Count -eq [Math]::Min($total, 32) }
+    $inventory = [WindowsSccacheNative]::ClassifyCandidateInventory($total, $truncated, $complete, [uint32[]]$evidence.CandidatePids, [object[]]$proofs)
+    $reasons.AddRange([string[]]$inventory.Reasons)
     if ($evidence.CandidatePids.Count -eq 0) { $reasons.Add('job_server_candidate_missing') }
     elseif ($evidence.CandidatePids.Count -ne 1) { $reasons.Add('job_server_candidate_ambiguous') }
     else {
-        $proofs = @($Facts.CandidateProofs | Where-Object { $_.Pid -eq $evidence.CandidatePids[0] })
-        if ($proofs.Count -ne 1) { $reasons.Add('job_server_candidate_proof_missing_or_ambiguous') }
+        $candidateProof = @($proofs | Where-Object { $_.Pid -eq $evidence.CandidatePids[0] })
+        if ($candidateProof.Count -ne 1) { $reasons.Add('job_server_candidate_proof_missing_or_ambiguous') }
         else {
-            $proof = $proofs[0]
+            $proof = $candidateProof[0]
             if (@($proof.Errors).Count -ne 0) { $reasons.Add('job_server_candidate_api_error') }
             if (-not $proof.HandleRetained -or $proof.PidFromHandle -ne $proof.Pid -or $proof.VerifiedPidFromHandle -ne $proof.Pid -or $proof.CreationFileTime -le 0 -or $proof.CreationFileTime -ne $proof.VerifiedCreationFileTime) { $reasons.Add('job_server_candidate_handle_identity_invalid') }
             if (-not $proof.IsProcessInJobBefore -or -not $proof.IsProcessInJobAfter) { $reasons.Add('job_server_candidate_job_membership_unconfirmed') }
@@ -173,7 +179,14 @@ function Get-JobMembershipDecision($Facts) {
             if (-not $proof.ListenerMatches) { $reasons.Add('job_server_candidate_listener_refused') }
         }
     }
-    return [pscustomobject]@{ Valid = ($reasons.Count -eq 0); Reasons = @($reasons | Select-Object -Unique); Members = $evidence.Members; CandidatePids = $evidence.CandidatePids; OwnedLaunchFacts = $evidence.OwnedLaunchFacts; ExcludedOwnedExits = @($evidence.ExcludedOwnedExits | ForEach-Object { $_.Pid }); EligibleOwnedExits = $evidence.EligibleOwnedExits; UnlistedOwnedExits = $evidence.UnlistedOwnedExits; AccountingMinimum = $evidence.AccountingMinimum; AccountingMaximum = $evidence.AccountingMaximum }
+    return [pscustomobject]@{ Valid = ($reasons.Count -eq 0); Reasons = @($reasons | Select-Object -Unique); Members = $evidence.Members; CandidatePids = $evidence.CandidatePids; CandidateInventoryTotal = $total; CandidateInventoryTruncated = $truncated; CandidateInventoryComplete = $complete; CapturedCandidatePids = $inventory.CapturedPids; OwnedLaunchFacts = $evidence.OwnedLaunchFacts; ExcludedOwnedExits = @($evidence.ExcludedOwnedExits | ForEach-Object { $_.Pid }); EligibleOwnedExits = $evidence.EligibleOwnedExits; UnlistedOwnedExits = $evidence.UnlistedOwnedExits; AccountingMinimum = $evidence.AccountingMinimum; AccountingMaximum = $evidence.AccountingMaximum }
+}
+
+function Set-CandidateInventoryReceipt($Session, $Inventory, $Proofs, $ReportedPids) {
+    $safeProofs = [System.Collections.Generic.List[object]]::new(); $capturedPids = [System.Collections.Generic.List[uint32]]::new()
+    foreach ($proof in $Proofs) { $safe = @{}; foreach ($key in $proof.Keys) { if ($key -cne 'Lease') { $safe[$key] = $proof[$key] } }; $safeProofs.Add($safe); $capturedPids.Add([uint32]$proof.Pid) }
+    $Session.Receipt.job_membership_candidate_inventory = @{ total = $Inventory.Total; inspected = $Inventory.Inspected; maximum = 32; truncated = $Inventory.Truncated; complete = $Inventory.Complete; collected_pids = $capturedPids.ToArray(); reported_pids = @($ReportedPids); error = $Inventory.Error }
+    $Session.Receipt.job_membership_candidate_proofs = $safeProofs.ToArray()
 }
 
 function Get-OwnedLaunchIdentityFacts($Leases) {
@@ -274,7 +287,7 @@ function New-ContractOwnedExit([uint32]$ProcessIdValue, [bool]$CapturesComplete 
 }
 function New-ContractCandidateProof([uint32]$ProcessIdValue) {
     $creation = [long](200000 + $ProcessIdValue)
-    return @{ Pid = $ProcessIdValue; HandleRetained = $true; PidFromHandle = $ProcessIdValue; VerifiedPidFromHandle = $ProcessIdValue; CreationFileTime = $creation; VerifiedCreationFileTime = $creation; IsProcessInJobBefore = $true; IsProcessInJobAfter = $true; ImageMatches = $true; HashMatches = $true; AccountMatches = $true; AliveBefore = $true; AliveAfter = $true; ListenerMatches = $true; Errors = @() }
+    return @{ Pid = $ProcessIdValue; HandleRetained = $true; PidFromHandle = $ProcessIdValue; VerifiedPidFromHandle = $ProcessIdValue; CreationFileTime = $creation; VerifiedCreationFileTime = $creation; PidObserved = $true; VerifiedPidObserved = $true; CreationObserved = $true; VerifiedCreationObserved = $true; ImageObserved = $true; AccountObserved = $true; JobMembershipObservedBefore = $true; JobMembershipObservedAfter = $true; AliveObservedBefore = $true; AliveObservedAfter = $true; ExitCodeObserved = $false; IsProcessInJobBefore = $true; IsProcessInJobAfter = $true; ImageMatches = $true; HashMatches = $true; AccountMatches = $true; AliveBefore = $true; AliveAfter = $true; ListenerMatches = $true; Errors = @() }
 }
 
 function Invoke-ContractOnly {
@@ -328,6 +341,7 @@ function Invoke-ContractOnly {
     )
     $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::TcpDecoderContractControls()) 6
     $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::LaunchLeaseContractControls()) 7
+    $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::CandidateInventoryContractControls()) 3
     $group2 = Invoke-ContractGroup 'inputs_ownership_deadline_and_pinned_reuse' $inputCases {
         param($facts)
         if ($facts.ContainsKey('NativePassed')) { [pscustomobject]@{ Valid = $facts.NativePassed; Reasons = $(if ($facts.NativeError) { @($facts.NativeError) } else { @() }) } }
@@ -861,50 +875,33 @@ function Start-WindowsSccacheSession {
         $session.Receipt.job_membership_launches = $launchFacts
         $session.Receipt.job_membership_classification = @{ Reasons = @($memberEvidence.Reasons); Members = @($memberEvidence.Members); CandidatePids = @($memberEvidence.CandidatePids); OwnedLaunchFacts = @($memberEvidence.OwnedLaunchFacts); ExcludedOwnedExits = @($memberEvidence.ExcludedOwnedExits); EligibleOwnedExits = $memberEvidence.EligibleOwnedExits; UnlistedOwnedExits = $memberEvidence.UnlistedOwnedExits; AccountingMinimum = $memberEvidence.AccountingMinimum; AccountingMaximum = $memberEvidence.AccountingMaximum }
         Write-SessionReceipt $session
-        $candidateProofs = @()
-        $owners = $null
-        if ($memberEvidence.Reasons.Count -eq 0 -and $memberEvidence.CandidatePids.Count -eq 1) {
-            $serverPid = [uint32]$memberEvidence.CandidatePids[0]
-            $proofErrors = [System.Collections.Generic.List[string]]::new()
-            $serverHandle = [IntPtr]::Zero
-            $candidate = $null
-            $proof = @{ Pid = $serverPid; HandleRetained = $false; PidFromHandle = 0; VerifiedPidFromHandle = 0; CreationFileTime = 0L; VerifiedCreationFileTime = 0L; IsProcessInJobBefore = $false; IsProcessInJobAfter = $false; ImageMatches = $false; HashMatches = $false; AccountMatches = $false; AliveBefore = $false; AliveAfter = $false; ListenerMatches = $false; ListenerCount = 0; ListenerRows = @(); ListenerRowsTruncated = $false; Errors = @() }
+        $candidateProofs = @(); $candidateInventory = [pscustomobject]@{ Total = $memberEvidence.CandidatePids.Count; Inspected = 0; Truncated = ($memberEvidence.CandidatePids.Count -gt 32); Complete = $false; Error = $null; Proofs = @() }
+        if ($memberEvidence.CandidatePids.Count -gt 0) {
+            try { $candidateInventory = [WindowsSccacheNative]::CaptureCandidateInventory($session.Job, $session.CandidateHandles, [uint32[]]$memberEvidence.CandidatePids, $workDeadline); $candidateProofs = @($candidateInventory.Proofs) }
+            catch { $candidateInventory.Complete = $false; $candidateInventory.Error = $_.Exception.GetType().Name }
+        } else { $candidateInventory.Truncated = $false; $candidateInventory.Complete = $true }
+        Set-CandidateInventoryReceipt $session $candidateInventory $candidateProofs $memberEvidence.CandidatePids
+        Write-SessionReceipt $session
+        if ($candidateProofs.Count -eq 1 -and $candidateProofs[0].HandleRetained) {
+            $proof = $candidateProofs[0]; $candidate = $proof.Lease; $serverPid = [uint32]$proof.Pid
             try {
-                $serverHandle = [WindowsSccacheNative]::OpenProcessHandle($serverPid)
-                $candidate = [pscustomobject]@{ Pid = $serverPid; Handle = $serverHandle; Creation = $null; Image = $null; UserSid = $null; Hash = $null; ExitCode = $null }
-                $session.CandidateHandles.Add($candidate)
-                $proof.HandleRetained = $true
-                $proof.PidFromHandle = [WindowsSccacheNative]::HandleProcessId($serverHandle)
-                $proof.CreationFileTime = [WindowsSccacheNative]::ProcessCreation($serverHandle)
-                $candidate.Creation = $proof.CreationFileTime
-                $candidate.Image = [WindowsSccacheNative]::ProcessImage($serverHandle)
-                $candidate.UserSid = [WindowsSccacheNative]::ProcessUserSid($serverHandle)
+                if ((Get-RemainingMs $workDeadline) -le 0) { throw 'candidate_identity_deadline_expired' }
                 $candidate.Hash = (Get-FileHash -LiteralPath $paths.Executable -Algorithm SHA256).Hash.ToLowerInvariant()
-                $proof.IsProcessInJobBefore = [WindowsSccacheNative]::Contains($session.Job, $serverHandle)
-                $proof.ImageMatches = $candidate.Image -ieq $paths.Executable
-                $proof.HashMatches = $candidate.Hash -ceq $session.ToolResolution.sccache_sha256
-                $proof.AccountMatches = $candidate.UserSid -ceq $session.UserSid
-                $proof.AliveBefore = [WindowsSccacheNative]::HandleAlive($serverHandle)
-                $owners = Get-ListenerFacts $serverPid
-                $proof.ListenerMatches = [bool]$owners.Owned
-                $proof.ListenerCount = $owners.Count
-                $proof.ListenerRows = @($owners.Rows | Select-Object -First 32 | ForEach-Object { @{ Family = $_.Family; Address = $_.Address; Port = $_.Port; Pid = $_.Pid } })
-                $proof.ListenerRowsTruncated = $owners.Count -gt $proof.ListenerRows.Count
-                $proof.VerifiedPidFromHandle = [WindowsSccacheNative]::HandleProcessId($serverHandle)
-                $proof.VerifiedCreationFileTime = [WindowsSccacheNative]::ProcessCreation($serverHandle)
-                $proof.IsProcessInJobAfter = [WindowsSccacheNative]::Contains($session.Job, $serverHandle)
-                $proof.AliveAfter = [WindowsSccacheNative]::HandleAlive($serverHandle)
+                $proof.ImageMatches = $candidate.Image -ieq $paths.Executable; $proof.HashMatches = $candidate.Hash -ceq $session.ToolResolution.sccache_sha256; $proof.AccountMatches = $candidate.UserSid -ceq $session.UserSid
+                if ((Get-RemainingMs $workDeadline) -le 0) { throw 'candidate_identity_deadline_expired' }
+                $owners = Get-ListenerFacts $serverPid; $proof.ListenerMatches = [bool]$owners.Owned; $proof.ListenerCount = $owners.Count
+                $proof.ListenerRows = @($owners.Rows | Select-Object -First 32 | ForEach-Object { @{ Family = $_.Family; Address = $_.Address; Port = $_.Port; Pid = $_.Pid } }); $proof.ListenerRowsTruncated = $owners.Count -gt $proof.ListenerRows.Count
+                [WindowsSccacheNative]::VerifyCandidateIdentity($session.Job, $proof, $workDeadline)
             } catch {
                 $win32 = if ($_.Exception -is [System.ComponentModel.Win32Exception]) { $_.Exception.NativeErrorCode } else { 'not_win32' }
-                $proofErrors.Add($_.Exception.GetType().Name + ':' + $win32)
+                $proof.Errors = @($proof.Errors) + @($_.Exception.GetType().Name + ':' + $win32)
             }
-            $proof.Errors = @($proofErrors)
-            $candidateProofs = @($proof)
-            $proofOwned = $proof.HandleRetained -and $proof.PidFromHandle -eq $serverPid -and $proof.VerifiedPidFromHandle -eq $serverPid -and $proof.CreationFileTime -gt 0 -and $proof.CreationFileTime -eq $proof.VerifiedCreationFileTime -and $proof.IsProcessInJobBefore -and $proof.IsProcessInJobAfter -and $proof.ImageMatches -and $proof.HashMatches -and $proof.AccountMatches -and $proof.AliveBefore -and $proof.AliveAfter -and $proof.ListenerMatches -and $proof.Errors.Count -eq 0
+            if (@($proof.Errors).Count -gt 0) { $candidateInventory.Complete = $false }
+            $proofOwned = $proof.HandleRetained -and $proof.PidFromHandle -eq $serverPid -and $proof.VerifiedPidFromHandle -eq $serverPid -and $proof.CreationFileTime -gt 0 -and $proof.CreationFileTime -eq $proof.VerifiedCreationFileTime -and $proof.IsProcessInJobBefore -and $proof.IsProcessInJobAfter -and $proof.ImageMatches -and $proof.HashMatches -and $proof.AccountMatches -and $proof.AliveBefore -and $proof.AliveAfter -and $proof.ListenerMatches -and @($proof.Errors).Count -eq 0
             if ($proofOwned) { $session.Server = $candidate; [void]$session.CandidateHandles.Remove($candidate) }
         }
-        $membership = Get-JobMembershipDecision @{ Snapshot = $jobSnapshot; Leases = $launchFacts; CandidateProofs = $candidateProofs }
-        $session.Receipt.job_membership_candidate_proofs = $candidateProofs
+        $membership = Get-JobMembershipDecision @{ Snapshot = $jobSnapshot; Leases = $launchFacts; CandidateProofs = $candidateProofs; CandidateInventoryTotal = $candidateInventory.Total; CandidateInventoryTruncated = $candidateInventory.Truncated; CandidateInventoryComplete = $candidateInventory.Complete }
+        Set-CandidateInventoryReceipt $session $candidateInventory $candidateProofs $memberEvidence.CandidatePids
         $session.Receipt.job_membership_decision = $membership
         Write-SessionReceipt $session
         if (-not $membership.Valid) { throw ('job_membership_refused:' + ($membership.Reasons -join ',')) }
