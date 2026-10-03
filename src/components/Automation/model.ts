@@ -1,4 +1,3 @@
-import type { LaidOutNode } from "../Canvas/layout";
 import { automationKey, sameScope, type AutomationGraph, type AutomationNode, type AutomationScope } from "./types";
 
 function agentSentinel(node: AutomationNode): boolean {
@@ -43,20 +42,4 @@ export function scopedAutomationGraph(graph: AutomationGraph, scope: AutomationS
 
 export function automationState(node: AutomationNode): string {
   return node.availability === "available" ? node.state ?? "Unknown" : node.availability;
-}
-
-export function layoutAutomationGraph(graph: AutomationGraph) {
-  const columns = ["sentinel", "cron", "worker"];
-  const rows = [0, 0, 0];
-  const nodes: LaidOutNode[] = graph.nodes.map((node) => {
-    const column = columns.indexOf(node.identity.kind);
-    return {
-      id: automationKey(node.identity), kind: node.identity.kind, planId: "", iteration: null, manual: false,
-      box: { x: 32 + column * 420, y: 56 + rows[column]++ * 160, width: 260, height: 104 },
-    };
-  });
-  return {
-    nodes, byId: new Map(nodes.map((node) => [node.id, node])),
-    bounds: { x: 0, y: 0, width: 1160, height: Math.max(260, ...rows.map((row) => 80 + row * 160)) },
-  };
 }

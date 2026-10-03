@@ -781,7 +781,7 @@ export function TeamUnit({
           {cronCount > 0 && (
             <div
               role="group"
-              aria-label={`${displayTitle} scheduled jobs`}
+              aria-label={`${displayTitle} jobs`}
               data-testid="crons-section"
               className="sidebar-team-section"
             >
@@ -791,8 +791,8 @@ export function TeamUnit({
                 className="sidebar-team-workers-toggle"
                 onClick={toggleCronsExpanded}
               >{cronsExpanded
-                ? "SCHEDULED JOBS"
-                : `${cronCount} scheduled ${cronCount === 1 ? "job" : "jobs"}`}</SidebarDisclosure>
+                ? "JOBS"
+                : `${cronCount} ${cronCount === 1 ? "job" : "jobs"}`}</SidebarDisclosure>
               {cronsExpanded && (
                 <div className="sidebar-team-member-list">{crons}</div>
               )}
