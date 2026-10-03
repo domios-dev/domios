@@ -628,7 +628,8 @@ mod tests {
                 let mut mux = fixture.runtime.service.mux.write();
                 let tab = mux.get_tab_mut(&worker).unwrap();
                 tab.agent_type = Some("supplied-agent".into());
-                tab.pty_id = Some("fixture-graph-pty".into());
+                mux.link_pty(&worker, "fixture-graph-pty".into());
+                assert_eq!(mux.tab_id_for_pty("fixture-graph-pty"), Some(worker.clone()));
             }
             fixture
                 .runtime
