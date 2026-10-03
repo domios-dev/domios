@@ -1036,25 +1036,17 @@ impl ServiceContext {
         cwd: Option<String>,
         env_vars: HashMap<String, String>,
     ) -> Result<String, String> {
+        let pty_claim = self.pty_ownership.acquire(tab_id);
         // Hidden agents now launch as ordinary interactive claude (no -p/stream-json), so use the same 120x40 PTY a visible agent gets.
-        let pty_id = self.pty.lock().spawn(None, cwd, 120, 40, env_vars)?.0;
-        #[cfg(test)]
-        self.pty_ownership.observe(
-            tab_id,
-            crate::service::pty_ownership::OwnershipEvent::Linking {
-                candidate: pty_id.clone(),
-                launch_owned: true,
-            },
-        );
-        let orphan = self.mux.write().link_pty(tab_id, pty_id.clone());
-        if let Some(orphan) = orphan {
-            self.kill_ptys(&[orphan]);
+        let candidate = self.pty.lock().spawn(None, cwd, 120, 40, env_vars)?.0;
+        let selection = self.link_pty_with_claim(&pty_claim, tab_id, candidate, true);
+        if !selection.linked {
+            return Err(format!("Tab {tab_id} closed before PTY link"));
         }
-        crate::service::orchestrator::tab_relink_signal::notify_tab_relinked();
         self.agent_run_pty_map
             .lock()
-            .insert(tab_id.to_string(), pty_id.clone());
-        Ok(pty_id)
+            .insert(tab_id.to_string(), selection.pty_id.clone());
+        Ok(selection.pty_id)
     }
 }
 
