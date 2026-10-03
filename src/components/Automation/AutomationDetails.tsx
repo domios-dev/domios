@@ -3,6 +3,7 @@ import { X } from "lucide-react";
 import { focusLost } from "./focus";
 import { AUTOMATION_BUTTON, AUTOMATION_LABEL, AUTOMATION_TOOL, stateTone } from "./styles";
 import { automationState } from "./model";
+import { CommandResultFacts, isCommandResult, resultHandler, shownAsLastAccepted } from "./CommandResultDetails";
 import { automationKey, type AutomationEdge, type AutomationNode } from "./types";
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
@@ -50,6 +51,7 @@ export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFai
   const key = automationKey(node.identity);
   const links = edges.filter((edge) => automationKey(edge.source) === key || automationKey(edge.target) === key);
   const state = automationState(node);
+  const last = node.last_result;
   const title = <div className="min-w-0">
     <p className={AUTOMATION_LABEL}>{node.identity.kind}</p>
     <h3 className="truncate text-[length:var(--ct-font-size-lg)] font-semibold">{node.name}</h3>
@@ -80,11 +82,15 @@ export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFai
         </Facts>
       </Group>
       <Group title="Last accepted result">
-        {node.last_result ? <>
-          <p className="mb-2">{node.last_result.bucket} · {new Date(node.last_result.accepted_at).toLocaleString()}</p>
-          <ul aria-label="Last accepted handler results" className="space-y-1.5">{node.last_result.handlers.map((result) => <li key={result.handler_id} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-[var(--ct-border)] px-2.5 py-1.5">
-            <span className="font-medium">{result.handler_id}</span><span aria-hidden="true"> · </span><Status value={result.status ?? "Unknown"} /><span aria-hidden="true"> · </span><span className="font-mono text-xs text-[var(--ct-muted-fg)]">{result.execution_id ?? "No execution recorded"}</span>
-          </li>)}</ul>
+        {last ? <>
+          <p className="mb-2">{last.bucket} · {new Date(last.accepted_at).toLocaleString()}</p>
+          <ul aria-label="Last accepted handler results" className="space-y-1.5">{last.handlers.map((result) => {
+            const handler = resultHandler(node, last.bucket, result.handler_id);
+            return <li key={result.handler_id} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-md border border-[var(--ct-border)] px-2.5 py-1.5">
+              <span className="font-medium">{result.handler_id}</span><span aria-hidden="true"> · </span><Status value={result.status ?? "Unknown"} /><span aria-hidden="true"> · </span><span className="font-mono text-xs text-[var(--ct-muted-fg)]">{result.execution_id ?? "No execution recorded"}</span>
+              {isCommandResult(handler, result) && <CommandResultFacts handlerId={result.handler_id} handler={handler} result={result} />}
+            </li>;
+          })}</ul>
         </> : <p className="text-[var(--ct-muted-fg)]">None recorded</p>}
       </Group>
       <Group title="Possible outcomes">
@@ -92,6 +98,7 @@ export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFai
           <p className="font-medium">{outcome.bucket}</p>
           <ul className="mt-1 space-y-1 border-l border-[var(--ct-border)] pl-3">{outcome.handlers.map((handler) => <li key={handler.id} className="text-[var(--ct-muted-fg)]">
             <span className="text-[var(--ct-fg)]">{handler.id} · {handler.type} · {handler.availability}</span> · {handler.target?.id ?? "No target"} · {handler.last_result?.status ?? "No result recorded"}{handler.last_result?.execution_id && <span className="font-mono text-xs"> · {handler.last_result.execution_id}</span>}
+            {isCommandResult(handler, handler.last_result) && <CommandResultFacts handlerId={handler.id} handler={handler} result={!handler.last_result || shownAsLastAccepted(node, outcome.bucket, handler) ? undefined : handler.last_result} />}
           </li>)}</ul>
         </li>)}</ul> : <p className="text-[var(--ct-muted-fg)]">None recorded</p>}
       </Group>

@@ -91,13 +91,13 @@ impl WindowsRun {
         self.events.as_ref().is_some_and(Events::cancelled)
     }
 
-    pub(super) fn detach_cancel_port(&self) {
+    pub(in crate::sentinel::probe) fn detach_cancel_port(&self) {
         if let Some(events) = &self.events {
             events.detach_port();
         }
     }
 
-    pub(super) fn close_cancellation(&mut self) -> Result<(), String> {
+    pub(in crate::sentinel::probe) fn close_cancellation(&mut self) -> Result<(), String> {
         if let Some(error) = self.events.as_ref().and_then(Events::take_delivery_error) {
             self.fail("probe_cancel_wake_failed");
             self.add_error(error);
@@ -113,7 +113,7 @@ impl WindowsRun {
 }
 
 impl WindowsRun {
-    pub(super) fn wait_event(&mut self, timeout: Option<Duration>) -> Result<bool, String> {
+    pub(in crate::sentinel::probe) fn wait_event(&mut self, timeout: Option<Duration>) -> Result<bool, String> {
         if self.parent_exit_pending
             || (self.stdout.eof && self.stderr.eof && self.process.is_open())
         {

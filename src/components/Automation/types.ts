@@ -9,15 +9,37 @@ export interface AutomationIdentity extends AutomationScope {
   owner_tab_id: string | null;
 }
 
+export type CommandResultStatus = "success" | "nonzero" | "error" | "cancelled" | "deadline" | "unconfirmed";
+
+export interface CommandCapture {
+  total_bytes: number;
+  retained_bytes: number;
+  truncated: boolean;
+}
+
+// The wire also carries primary/cleanup diagnostics; they are unscrubbed, so the UI type omits them.
+export interface CommandResultMetadata {
+  status: CommandResultStatus;
+  exit_code: number | null;
+  resources_confirmed: boolean;
+  stdout: CommandCapture | null;
+  stderr: CommandCapture | null;
+  started_at: number;
+  finished_at: number;
+}
+
 export interface AutomationHandlerResult {
   status: string | null;
   execution_id: string | null;
   accepted_at: number | null;
+  command_result?: CommandResultMetadata | null;
 }
 
 export interface AutomationHandler {
   id: string;
   type: string;
+  label?: string;
+  timeout_ms?: number;
   target: AutomationIdentity | null;
   availability: "available" | "missing" | "unavailable";
   last_result: AutomationHandlerResult | null;
