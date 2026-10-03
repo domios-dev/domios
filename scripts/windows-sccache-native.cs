@@ -16,7 +16,6 @@ public static class WindowsSccacheNative {
     const uint CREATE_SUSPENDED = 0x00000004;
     const uint CREATE_NEW_PROCESS_GROUP = 0x00000200;
     const uint CREATE_NO_WINDOW = 0x08000000;
-    const uint DETACHED_PROCESS = 0x00000008;
     const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
     const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
     const uint STARTF_USESTDHANDLES = 0x00000100;
@@ -67,6 +66,8 @@ public static class WindowsSccacheNative {
     [DllImport("kernel32.dll", SetLastError = true)] static extern void DeleteProcThreadAttributeList(IntPtr list);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)] static extern bool CreateProcessW(string app, StringBuilder command, IntPtr procAttrs, IntPtr threadAttrs, bool inherit, uint flags, StringBuilder environment, string cwd, ref STARTUPINFOEX startup, out PROCESS_INFORMATION info);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)] static extern bool CreateDirectoryW(string path, IntPtr securityAttributes);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern uint GetConsoleCP();
+    [DllImport("kernel32.dll", SetLastError = true)] static extern uint GetConsoleProcessList([Out] uint[] processes, uint capacity);
     [DllImport("kernel32.dll", SetLastError = true)] static extern uint ResumeThread(IntPtr thread);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool TerminateProcess(IntPtr process, uint exitCode);
     [DllImport("kernel32.dll", SetLastError = true)] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
@@ -175,6 +176,7 @@ public static class WindowsSccacheNative {
         public bool Registered;
         public bool Created;
         public bool DirectServer;
+        public uint ParentConsoleCodePage;
         public bool Assigned;
         public bool ResumeAttempted;
         public bool Resumed;
@@ -667,6 +669,19 @@ public static class WindowsSccacheNative {
         if (handle == IntPtr.Zero) return;
         Need(CloseHandle(handle), op); handle = IntPtr.Zero;
     }
+    public static uint LaunchConsoleMode(bool directServer, uint parentConsoleCodePage) {
+        if (!directServer) return CREATE_NO_WINDOW;
+        if (parentConsoleCodePage == 0) throw new InvalidOperationException("direct_server_parent_console_missing");
+        return 0;
+    }
+    public static bool ConsoleContainsProcess(uint pid) {
+        var pids = new uint[4096];
+        uint count = GetConsoleProcessList(pids, (uint)pids.Length);
+        if (count == 0) throw Last("GetConsoleProcessList");
+        if (count > pids.Length) throw new InvalidOperationException("parent_console_process_list_incomplete");
+        for (uint i = 0; i < count; i++) if (pids[i] == pid) return true;
+        return false;
+    }
     public static void Launch(IntPtr job, string app, string commandLine, string cwd, IDictionary<string,string> env, ProcessLease lease) {
         if (lease == null || !lease.Registered || lease.Created) throw new InvalidOperationException("launch_lease_not_registered_before_start");
         SECURITY_ATTRIBUTES sa = new SECURITY_ATTRIBUTES { nLength = Marshal.SizeOf(typeof(SECURITY_ATTRIBUTES)), bInheritHandle = 1 };
@@ -692,7 +707,8 @@ public static class WindowsSccacheNative {
             var si = new STARTUPINFOEX(); si.lpAttributeList = list; si.StartupInfo.cb = Marshal.SizeOf(typeof(STARTUPINFOEX)); si.StartupInfo.dwFlags = STARTF_USESTDHANDLES; si.StartupInfo.hStdInput = lease.NullInputHandle; si.StartupInfo.hStdOutput = lease.StdoutWriteHandle; si.StartupInfo.hStdError = lease.StderrWriteHandle;
             var envText = new StringBuilder(); foreach (var pair in env) envText.Append(pair.Key).Append('=').Append(pair.Value).Append('\0'); envText.Append('\0');
             var mutableCommand = new StringBuilder(commandLine);
-            uint consoleMode = lease.DirectServer ? DETACHED_PROCESS : CREATE_NO_WINDOW;
+            lease.ParentConsoleCodePage = lease.DirectServer ? GetConsoleCP() : 0;
+            uint consoleMode = LaunchConsoleMode(lease.DirectServer, lease.ParentConsoleCodePage);
             Need(CreateProcessW(app, mutableCommand, IntPtr.Zero, IntPtr.Zero, true, CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | consoleMode | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT, envText, cwd, ref si, out pi), "CreateProcessW");
             lease.RecordProcessCreated(pi.hProcess, pi.hThread, pi.dwProcessId);
             lease.RecordCreationFileTime(ProcessCreation(lease.Handle));
@@ -843,6 +859,9 @@ public static class WindowsSccacheNative {
             var evidence = StartupControlEvidence(okay);
             return ClassifyDirectServerReadiness(evidence, new uint[] { 701 }, true, true, true).Valid;
         }));
+        results.Add(PureControl("direct_server_inherits_existing_console", () => LaunchConsoleMode(true, 65001) == 0));
+        results.Add(PureControl("finite_helper_keeps_no_window_mode", () => LaunchConsoleMode(false, 0) == CREATE_NO_WINDOW));
+        results.Add(PureControl("direct_server_without_parent_console_refused", () => { try { LaunchConsoleMode(true, 0); return false; } catch (InvalidOperationException e) { return e.Message == "direct_server_parent_console_missing"; } }));
         results.Add(PureControl("direct_server_startup_wrong_endpoint_refused", () => !ClassifyDirectStartupNotice(StartupControlEvidence(otherEndpoint)).Valid));
         results.Add(PureControl("direct_server_startup_addr_in_use_refused", () => !ClassifyDirectStartupNotice(StartupControlEvidence(addrInUse)).Valid));
         results.Add(PureControl("direct_server_startup_timeout_refused", () => !ClassifyDirectStartupNotice(StartupControlEvidence(timedOut)).Valid));
