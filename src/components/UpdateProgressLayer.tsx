@@ -5,11 +5,11 @@ import { BusySpinner } from "./shared/BusyState";
 const STATUS_COPY: Record<UpdateStatus, { title: string; body: string }> = {
   idle: { title: "Update", body: "Ready" },
   checking: { title: "Preparing update", body: "Checking the latest release." },
-  "up-to-date": { title: "CodeTerm is up to date", body: "No update is needed." },
+  "up-to-date": { title: "Domios is up to date", body: "No update is needed." },
   available: { title: "Update available", body: "A new version is ready." },
-  downloading: { title: "Downloading update", body: "Fetching the new CodeTerm build." },
-  applying: { title: "Finishing update", body: "Please wait while CodeTerm prepares to restart." },
-  restarting: { title: "Restarting CodeTerm", body: "The update is ready. Restart is in progress." },
+  downloading: { title: "Downloading update", body: "Fetching the new Domios build." },
+  applying: { title: "Finishing update", body: "Please wait while Domios prepares to restart." },
+  restarting: { title: "Restarting Domios", body: "The update is ready. Restart is in progress." },
   error: { title: "Update failed", body: "The update could not be completed." },
 };
 

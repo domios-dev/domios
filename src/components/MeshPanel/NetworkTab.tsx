@@ -46,7 +46,7 @@ export function NetworkTab({ data, triggerRefresh }: Props) {
             icon={<Radio size={16} />}
             title="Broadcast presence"
             headerRight={<BroadcastToggle />}
-            description="Make this machine visible to other CodeTerm instances on your local network for 5 minutes. Other machines can then send a pair request. Turn this on briefly when adding a new device."
+            description="Make this machine visible to other Domios instances on your local network for 5 minutes. Other machines can then send a pair request. Turn this on briefly when adding a new device."
           />
 
           <SettingsCard

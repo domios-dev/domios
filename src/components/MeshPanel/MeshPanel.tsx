@@ -297,7 +297,7 @@ function WebUiModal({
               {showInfo && (
                 <p className={`${UI_TEXT.metaMuted} leading-snug`}>
                   Tailscale is a private mesh VPN that links your own devices. "Serve" publishes
-                  this CodeTerm over HTTPS at a stable <span className="font-mono">*.ts.net</span>{" "}
+                  this Domios over HTTPS at a stable <span className="font-mono">*.ts.net</span>{" "}
                   address, so your phone gets a secure, mic-capable link with no port juggling. Free
                   for personal use — <span className="font-mono">tailscale.com</span>.
                 </p>
