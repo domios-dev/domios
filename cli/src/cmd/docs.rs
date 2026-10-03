@@ -161,7 +161,7 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
     ),
     doc!(
         "SKILLS",
-        "CodeTerm skills and agent integration",
+        "Domios skills and agent integration",
         "../../../prod-docs/SKILLS.md"
     ),
     doc!(
@@ -278,7 +278,7 @@ pub(crate) fn render_list() -> String {
 
 pub(crate) fn render_help() -> String {
     format!(
-        "Read embedded CodeTerm documentation.\n\nUsage: codeterm docs [NAME]\n\n{}",
+        "Read embedded Domios documentation.\n\nUsage: codeterm docs [NAME]\n\n{}",
         render_list()
     )
 }

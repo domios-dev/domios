@@ -19,7 +19,7 @@ pub enum UpdateAction {
         #[arg(long)]
         manifest_url: Option<String>,
         /// Install from a local NSIS installer (Windows) or app bundle/DMG
-        /// (macOS), then relaunch CodeTerm. Bypasses the network.
+        /// (macOS), then relaunch Domios. Bypasses the network.
         #[arg(long, value_name = "PATH")]
         from_file: Option<String>,
         /// Optional prompt to send to the calling tab once the new daemon

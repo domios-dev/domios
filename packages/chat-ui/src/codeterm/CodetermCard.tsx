@@ -45,7 +45,7 @@ export function CodetermCard({ inv, result, expanded, onToggle, resolveTabName, 
               ⬡
             </span>
             <span className="font-medium" style={{ color: "var(--ct-accent, #6ea8fe)" }}>
-              CodeTerm
+              Domios
             </span>
             <span className="flex-shrink-0">{card.icon}</span>
             <span className="truncate">{card.title}</span>

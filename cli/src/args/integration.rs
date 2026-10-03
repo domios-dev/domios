@@ -2,7 +2,7 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum IntegrationAction {
-    /// Install a provider's hook integration and trust CodeTerm's own hooks.
+    /// Install a provider's hook integration and trust Domios's own hooks.
     /// Running it records consent the same way the Settings install does.
     Install {
         /// Provider id (e.g. claude, codex)

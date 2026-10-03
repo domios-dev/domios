@@ -444,8 +444,8 @@ pub async fn web_manifest(
         "/".to_string()
     };
     let manifest = serde_json::json!({
-        "name": "CodeTerm",
-        "short_name": "CodeTerm",
+        "name": "Domios",
+        "short_name": "Domios",
         "id": "/",
         "start_url": start_url,
         "scope": "/",
