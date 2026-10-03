@@ -127,18 +127,27 @@ fn cancellation_control(close_streams: bool, shutdown: bool) {
     };
     let deadline = Instant::now() + probe::PROBE_RUNTIME;
     let mut last_native_state = None;
+    #[cfg(windows)]
+    let mut native_diagnostics = WindowsDiagnostics::default();
     loop {
         let phase = match waits.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
             Ok(phase) => phase,
             Err(error) => {
                 signal.cancel();
                 let completed = rx.try_recv().ok().and_then(|effect| effect.command_result);
-                panic!("native wait did not enroll before failure deadline: {error:?}; last_native_state={last_native_state:?}; completed_result={completed:?}");
+                #[cfg(windows)]
+                let diagnostic = format!("{native_diagnostics:?}");
+                #[cfg(unix)]
+                let diagnostic = "";
+                panic!("native wait did not enroll before failure deadline: {error:?}; last_native_state={last_native_state:?}; first_transitions={diagnostic}; completed_result={completed:?}");
             }
         };
         #[cfg(windows)]
-        if matches!(phase, WaitPhase::WindowsCapture { .. }) {
-            last_native_state = Some(phase);
+        {
+            native_diagnostics.observe(phase);
+            if matches!(phase, WaitPhase::WindowsCapture { .. }) {
+                last_native_state = Some(phase);
+            }
         }
         #[cfg(unix)]
         {
@@ -166,6 +175,43 @@ fn cancellation_control(close_streams: bool, shutdown: bool) {
     assert!(started.elapsed() < probe::PROBE_RUNTIME * 2);
     assert_eq!(owner.snapshot().free, MAX_RESOURCE_SLOTS);
     assert_eq!(owner.snapshot().unconfirmed, 0);
+}
+
+#[cfg(windows)]
+#[derive(Default, Debug)]
+struct WindowsDiagnostics {
+    last_running_state: Option<WaitPhase>,
+    first_native_error: Option<WaitPhase>,
+    transitions: Vec<WaitPhase>,
+}
+
+#[cfg(windows)]
+impl WindowsDiagnostics {
+    fn observe(&mut self, phase: WaitPhase) {
+        match phase {
+            WaitPhase::WindowsCapture {
+                cancel_attempted: false,
+                ..
+            } => self.last_running_state = Some(phase),
+            WaitPhase::WindowsIo { error, .. } => {
+                if self.first_native_error.is_none()
+                    && error.is_some_and(|error| {
+                        !matches!(
+                            error,
+                            windows_sys::Win32::Foundation::ERROR_IO_PENDING
+                                | windows_sys::Win32::Foundation::ERROR_BROKEN_PIPE
+                        )
+                    })
+                {
+                    self.first_native_error = Some(phase);
+                }
+                if self.transitions.len() < 33 {
+                    self.transitions.push(phase);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 #[cfg(unix)]
