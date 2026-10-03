@@ -361,7 +361,6 @@ mod tests {
 
     #[test]
     fn general_system_prompt_composes_each_runtime_contract_once_without_bootstrap() {
-        const DOCS_RULE: &str = "Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names.";
         let rendered = render_system_prompt("codex", None);
         assert_eq!(
             rendered
@@ -373,24 +372,19 @@ mod tests {
             rendered.matches(crate::prompts::BRIDGE_MEM.trim()).count(),
             1
         );
-        assert!(rendered.contains("You are the General Agent"));
-        assert_eq!(rendered.matches("You are the General Agent").count(), 1);
         assert_eq!(
             rendered
                 .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
                 .count(),
             1
         );
-        assert_eq!(rendered.matches("# CodeTerm CLI reference").count(), 1);
-        assert_eq!(rendered.matches("# CodeTerm Memory Protocol").count(), 1);
-        assert_eq!(rendered.matches(DOCS_RULE).count(), 1);
+        assert_eq!(rendered.matches(cli_without_memory_section().trim()).count(), 1);
         assert!(!rendered.contains("<!-- bootstrap: true -->"));
-        assert!(!rendered.contains("first-ever boot"));
+        assert!(!rendered.contains(crate::prompts::BOOTSTRAP_INSTRUCTIONS_TEMPLATE.trim()));
     }
 
     #[test]
     fn generated_instruction_files_are_provider_correct_and_single_copy() {
-        const DOCS_RULE: &str = "Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names.";
         let dir = std::env::temp_dir().join(format!("ga-instructions-{}", ulid::Ulid::new()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("identity.md"), "IDENTITY_SENTINEL").unwrap();
@@ -406,7 +400,6 @@ mod tests {
         let pad_rule = crate::prompts::AGENT_PAD_RULE.trim();
         assert!(!pad_rule.is_empty(), "an empty fragment proves nothing");
         for contract in [&agent, &agents] {
-            assert_eq!(contract.matches("You are the General Agent").count(), 1);
             assert_eq!(
                 contract
                     .matches(crate::prompts::AGENT_CODETERM_PRIMER.trim())
@@ -418,14 +411,13 @@ mod tests {
                 1,
                 "the written instruction file must carry the AgentPad rule exactly once"
             );
-            assert_eq!(contract.matches("# CodeTerm CLI reference").count(), 1);
-            assert_eq!(contract.matches("# CodeTerm Memory Protocol").count(), 1);
+            assert_eq!(contract.matches(cli_without_memory_section().trim()).count(), 1);
+            assert_eq!(contract.matches(crate::prompts::BRIDGE_MEM.trim()).count(), 1);
             assert_eq!(contract.matches("IDENTITY_SENTINEL").count(), 1);
             assert_eq!(contract.matches("SOUL_SENTINEL").count(), 1);
-            assert_eq!(contract.matches(DOCS_RULE).count(), 1);
         }
         assert_eq!(claude.matches("@./AGENT.md").count(), 1);
-        assert_eq!(claude.matches(DOCS_RULE).count(), 0);
+        assert_eq!(claude.matches(crate::prompts::BRIDGE_MEM.trim()).count(), 0);
         assert!(claude.contains("USER_CLAUDE_NOTE"));
         assert!(agents.contains("USER_AGENTS_NOTE"));
 
@@ -457,11 +449,29 @@ mod tests {
             assert!(agents.starts_with(prepended_notes));
             assert!(agents.ends_with(appended_notes));
             assert_eq!(agents.matches(GENERATED_START).count(), 1);
-            assert_eq!(agents.matches("You are the General Agent").count(), 1);
-            assert_eq!(agents.matches("# CodeTerm CLI reference").count(), 1);
-            assert_eq!(agents.matches("# CodeTerm Memory Protocol").count(), 1);
+            assert_eq!(agents.matches(cli_without_memory_section().trim()).count(), 1);
+            assert_eq!(agents.matches(crate::prompts::BRIDGE_MEM.trim()).count(), 1);
         }
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn renamed_unmarked_generated_contract_preserves_notes_without_duplicate_body() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = render_agent_md_at(dir.path(), "codex", "");
+        let renamed = original.replace("CodeTerm", "Domios");
+        let prefix = "USER_PREFIX\r\n";
+        let suffix = "\nUSER_SUFFIX  \r\n";
+        let existing = format!("{prefix}{renamed}{suffix}");
+        let replacement = "OPAQUE_CURRENT_CONTRACT";
+
+        let rewritten = generated_contract_file(&existing, replacement);
+
+        assert_eq!(
+            rewritten,
+            format!("{prefix}{GENERATED_START}\n{replacement}\n{GENERATED_END}{suffix}")
+        );
+        assert_eq!(generated_contract_file(&rewritten, replacement), rewritten);
     }
 
     #[test]
