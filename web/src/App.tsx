@@ -13,6 +13,7 @@ import { DownloadFeedback } from './download/DownloadFeedback';
 import { useBrandEntrance } from './brand/useBrandEntrance';
 import { SiteHeader } from './SiteHeader';
 import { MemoryGallery } from './MemoryGallery';
+import { HeroCapabilities } from './HeroCapabilities';
 
 const github = 'https://github.com/rollacode/codeterm-releases';
 const pillars: { icon: IconName; title: string; text: string; detail: string }[] = [
@@ -38,11 +39,7 @@ export function App() {
         <DownloadActions download={download} github={github} />
         <AgentNetwork />
         <ProviderStrip />
-        <ul className="hero-capabilities">
-          <li><span>One memory. Every agent.</span><small>Shared on this machine.</small></li>
-          <li><span>Scheduled work</span><small>Tasks on your schedule.</small></li>
-          <li><span>Your messenger</span><small>Telegram updates &amp; replies</small></li>
-        </ul>
+        <HeroCapabilities />
       </section>
       <BuilderNotes staticMotion={reducedMotion} />
       <JevSection />
