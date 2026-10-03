@@ -134,7 +134,7 @@ export function ProviderIntegrationHealthCard({
       icon={<Cable size={16} />}
       title={`${provider.display_name} hooks`}
       headerRight={<IntegrationStatePill state={phase} />}
-      description="CodeTerm reads the provider's installed hook configuration directly."
+      description="Domios reads the provider's installed hook configuration directly."
     >
       <div
         aria-live="polite"
