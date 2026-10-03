@@ -2733,7 +2733,7 @@ Watch a bounded shell probe, classifying only changed output
 
 - `--buckets`
 - `--every` — Owner-requested cadence (minimum 10s)
-- `--handlers-file` — JSON bucket-to-array of declared {id,type,parameters} handlers
+- `--handlers-file` — JSON bucket-to-array of {id,type,parameters} handlers, including fixed local command actions
 - `--match` — Deterministic fallback when no Choice adapter is connected: bucket=regex
 - `--max-actions` — Finite action-attempt budget (maximum 1024)
 - `--max-transitions` — Finite accepted transition budget (maximum 256)

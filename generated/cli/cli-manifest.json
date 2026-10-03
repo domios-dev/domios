@@ -12958,7 +12958,7 @@
               "value_name": "HANDLERS_FILE",
               "possible_values": [],
               "default": null,
-              "help": "JSON bucket-to-array of declared {id,type,parameters} handlers",
+              "help": "JSON bucket-to-array of {id,type,parameters} handlers, including fixed local command actions",
               "aliases": []
             },
             {
