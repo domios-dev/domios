@@ -1,9 +1,9 @@
 # Voice transcription & local dictation
 
-How speech-to-text works in CodeTerm, and how you (an agent) stand up either
+How speech-to-text works in Domios, and how you (an agent) stand up either
 direction yourself. The guiding principle: **the STT engine is an external,
-swappable service behind a `/transcribe` contract; CodeTerm only ships the thin
-glue.** Never embed a whisper model in the CodeTerm binary — it's GPU/CUDA-bound,
+swappable service behind a `/transcribe` contract; Domios only ships the thin
+glue.** Never embed a whisper model in the Domios binary — it's GPU/CUDA-bound,
 platform-specific, and multi-GB. Keep it a daemon, point at it by URL.
 
 ## The two directions
@@ -18,7 +18,7 @@ Both speak the **same `/transcribe` contract**, so one STT daemon serves both.
 ## The `/transcribe` contract
 
 Any HTTP service that implements this can be the backend. Bring-your-own:
-local whisper, a remote peer, cloud STT — CodeTerm only cares about the contract.
+local whisper, a remote peer, cloud STT — Domios only cares about the contract.
 
 ```
 GET  /healthz   -> {"ok": true, "model": "...", "device": "..."}
@@ -36,7 +36,7 @@ proxy can accept one and forward the other — see "Proxy layer" below.
 
 ## Inbound: already wired
 
-CodeTerm's bridge calls the daemon directly. Config:
+Domios's bridge calls the daemon directly. Config:
 
 ```toml
 [integrations.voice_transcribe]
@@ -110,4 +110,4 @@ A working prototype lives in the `transcribe-telegram-voice` skill scripts
 
 Transcription uses an external service; today an external dictation driver can submit through the supported tab-send API. To add a new STT backend, implement `/transcribe` and point a URL at it. Don't put the model in the binary.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->

@@ -158,9 +158,9 @@ skips read as coverage that does not exist.
 Ship this charter through the embedded documentation registry, not only as a repo doc.
 Rationale: it is tier-3 product-general operating knowledge for agents who
 write tests in any project, and it passes the stranger's-repo check because
-the rules name no CodeTerm-only internals beyond the CLI smoke-run examples.
+the rules name no Domios-only internals beyond the CLI smoke-run examples.
 Keeping the repo path in the role_guidance still matters for local contributors;
 the embedded copy gives spawned agents a stable recovery path when they are
 outside this checkout.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
