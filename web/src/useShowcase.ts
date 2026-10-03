@@ -104,11 +104,6 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
-    if (loaded) video.load();
-  }, [loaded, clip.mp4.src, clip.webm.src]);
-  useEffect(() => {
-    const video = videoRef.current;
-    if (!video) return;
     if (loaded && inView && visible && !pausedByUser && (!reducedMotion || requestedByUser)) {
       attemptPlay();
     } else { ++playAttempt.current; video.pause(); }
