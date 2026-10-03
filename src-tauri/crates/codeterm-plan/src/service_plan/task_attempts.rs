@@ -8,6 +8,7 @@ use super::{PlanError, PlanStore};
 mod plan_skill_evidence;
 pub mod remote_dispatch;
 mod report_ingest;
+mod restore_binding;
 
 #[cfg(test)]
 mod compete_lane_tests;

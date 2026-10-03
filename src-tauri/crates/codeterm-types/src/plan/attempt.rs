@@ -78,6 +78,21 @@ pub struct LoadedPlanSkillEvidence {
     pub loaded_at: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AttemptBindingRestorationReceipt {
+    pub operation_id: String,
+    pub restored_at: u64,
+    pub attempt_id: String,
+    pub executor_tab_id: String,
+    pub session_id: String,
+    pub provider: String,
+    pub owner_epoch: u64,
+    pub old_nonce_digest: String,
+    pub current_nonce_digest: String,
+    pub lineage_proof_kind: String,
+    pub lineage_proof_digest: String,
+}
+
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkerPlacement {
@@ -120,6 +135,8 @@ pub struct TaskExecutionAttempt {
     pub session_id: Option<String>,
     #[serde(default)]
     pub session_binding_nonce: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub binding_restorations: Vec<AttemptBindingRestorationReceipt>,
     #[serde(default)]
     pub role: Option<String>,
     #[serde(default)]

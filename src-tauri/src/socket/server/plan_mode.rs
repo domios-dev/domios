@@ -94,6 +94,9 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true, "mode": mode }))
         }
         "plan.session.rebind" => {
+            if attempt_binding::is_targeted(params) {
+                return attempt_binding::dispatch(params, app, svc);
+            }
             let outcome = svc
                 .rebind_stale_planning_session(&caller(params))
                 .map_err(rebind_error)?;
