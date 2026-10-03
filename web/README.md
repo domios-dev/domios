@@ -49,3 +49,5 @@ The production build embeds the small landing-page stylesheet in HTML through `v
 If TypeScript rejects an `Object.fromEntries` cast to the media library with TS2352, the generated object's keys are not proven complete. Keep the explicit typed four-clip record and shared clip factory in `src/media.ts`; do not mask it with a double cast. Run `npm run build` again after the correction.
 
 In Windows PowerShell, use `npm.cmd run preview -- --port 4173 --strictPort` when forwarding flags. The `npm.ps1` shim can consume those flags and pass the port as a positional directory, causing a misleading missing-`dist` error even after a successful build.
+
+If a DOM controller fails with TS18047 inside nested function declarations, an outer null check may not retain its narrowing in those functions. Bind fresh constants after checking the queried elements, so callbacks capture non-null types without assertions. Re-run the website build before browser verification.
