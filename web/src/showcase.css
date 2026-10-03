@@ -36,8 +36,6 @@
 .video-stage:fullscreen .caption-region { right: 5vw; bottom: 80px; left: 5vw; }
 .video-error, .fullscreen-error { position: absolute; z-index: 4; top: 12px; left: 12px; max-width: calc(100% - 24px); padding: 6px 9px; border: 1px solid var(--ct-border); border-radius: 7px; background: var(--ct-surface); color: var(--ct-magenta); font-size: 11px; line-height: 1.4; }
 .fullscreen-error { top: 50px; }
-.music-credit { margin: 7px 0 0; color: var(--ct-muted-fg); font-size: 10px; line-height: 1.45; overflow-wrap: anywhere; }
-.music-credit a { color: var(--ct-accent); text-decoration: underline; text-underline-offset: 2px; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 @keyframes common-channel {
   0% { transform: translate(var(--sx-from), var(--sy-from)) scale(1); animation-timing-function: cubic-bezier(.5, 0, .6, .6); }

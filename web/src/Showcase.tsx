@@ -63,7 +63,6 @@ export function Showcase({ reducedMotion }: { reducedMotion: boolean }) {
   if (selection.active !== active) setSelection({ active, previous: selection.active });
   const previous = selection.previous;
   const compact = useMediaQuery('(max-width: 800px)');
-  const chapter = chapters[active];
   const select = (index: number) => player.seek(chapters[index].start);
   const onKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
     let next = index;
@@ -91,6 +90,5 @@ export function Showcase({ reducedMotion }: { reducedMotion: boolean }) {
         </button>)}
       </nav>
     </div>
-    <div className="showcase-caption"><p>{chapter.description}</p>{media.music && <p className="music-credit">{media.music.credit} <a href={media.music.sourcePage}>Source</a> · <a href={media.music.licenseUrl}>Terms</a></p>}</div>
   </section>;
 }
