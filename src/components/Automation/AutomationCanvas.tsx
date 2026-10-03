@@ -1,9 +1,9 @@
-import { useId, useMemo } from "react";
-import { Bell, Bot, CircleSlash, Clock3, Ellipsis, Maximize2, Minus, OctagonX, Plus, Radar, SquareTerminal, Zap } from "lucide-react";
+import { useId } from "react";
+import { Bell, Bot, CircleSlash, Clock3, Ellipsis, LocateFixed, Maximize2, Minus, OctagonX, Plus, Radar, SquareTerminal, Zap } from "lucide-react";
 import { automationState } from "./model";
 import { commandOutcome } from "./CommandResultDetails";
 import type { ActionLeaf } from "./projection";
-import { LABEL_LINE_HEIGHT, layoutAutomationOrientations } from "./layout";
+import { LABEL_LINE_HEIGHT } from "./layout";
 import type { AutomationGraph, AutomationNode } from "./types";
 import { useAutomationViewport, type AutomationCamera } from "./useAutomationViewport";
 import { AUTOMATION_TOOL, stateTone } from "./styles";
@@ -70,8 +70,7 @@ function Legend() {
 /** `fill` stretches the canvas over the remaining bounded height; otherwise it keeps its own bounded height for embedding. */
 export function AutomationCanvas({ graph, selected, camera, fill = false, onSelect }: { graph: AutomationGraph; selected: string | null; camera: AutomationCamera; fill?: boolean; onSelect: (node: AutomationNode) => void }) {
   const markerId = useId();
-  const layouts = useMemo(() => layoutAutomationOrientations(graph), [graph]);
-  const viewport = useAutomationViewport(layouts, camera);
+  const viewport = useAutomationViewport(graph, camera, selected);
   const { layout } = viewport;
   const connected = new Set(selected ? layout.edges.filter((route) => route.from === selected || route.to === selected).flatMap((route) => [route.from, route.to]) : []);
   return <div className={`flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : ""}`}>
@@ -79,7 +78,8 @@ export function AutomationCanvas({ graph, selected, camera, fill = false, onSele
       <div className="flex gap-1.5" role="group" aria-label="Graph view controls">
         <button type="button" className={AUTOMATION_TOOL} aria-label="Zoom out" title="Zoom out" onClick={() => viewport.zoom(-0.2)}><Minus size={14} aria-hidden="true" /></button>
         <button type="button" className={AUTOMATION_TOOL} aria-label="Zoom in" title="Zoom in" onClick={() => viewport.zoom(0.2)}><Plus size={14} aria-hidden="true" /></button>
-        <button type="button" className={AUTOMATION_TOOL} onClick={viewport.fit}><Maximize2 size={13} aria-hidden="true" />Fit graph</button>
+        <button type="button" className={AUTOMATION_TOOL} title="Readable view of the selected participant, or the root" onClick={viewport.fit}><LocateFixed size={13} aria-hidden="true" />Fit graph</button>
+        <button type="button" className={AUTOMATION_TOOL} title="Whole graph at any size" onClick={viewport.showOverview}><Maximize2 size={13} aria-hidden="true" />Overview</button>
       </div>
       <Legend />
     </div>
@@ -97,7 +97,7 @@ export function AutomationCanvas({ graph, selected, camera, fill = false, onSele
       className={`relative ${fill ? "min-h-[16rem] flex-1" : "h-[min(36rem,64vh)] min-h-[16rem]"} min-w-0 touch-none overflow-hidden bg-[var(--ct-bg)] bg-[radial-gradient(color-mix(in_srgb,var(--ct-fg)_9%,transparent)_1px,transparent_1px)] [background-size:20px_20px] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-[var(--ct-accent)]`}
       style={{ cursor: viewport.isDragging ? "grabbing" : "grab" }}
     >
-      <p id={`${markerId}-hint`} className="sr-only">Arrow keys pan, plus and minus zoom, zero fits the whole graph. Tab moves between participants.</p>
+      <p id={`${markerId}-hint`} className="sr-only">Arrow keys pan, plus and minus zoom, zero returns to a readable view. Overview shows the whole graph. Tab moves between participants and actions.</p>
       <div ref={viewport.layerRef} className="absolute left-0 top-0" style={{ width: layout.bounds.width, height: layout.bounds.height, transformOrigin: "0 0", visibility: viewport.measured ? undefined : "hidden" }}>
         <svg width={layout.bounds.width} height={layout.bounds.height} className="pointer-events-none absolute inset-0 overflow-visible" aria-hidden="true">
           <defs>{Object.entries(EDGE_COLORS).map(([tone, color]) => <marker key={tone} id={`${markerId}-${tone}`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill={color} /></marker>)}</defs>
