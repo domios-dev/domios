@@ -703,7 +703,7 @@ impl WindowsRun {
         } else {
             Some(unsafe { GetLastError() })
         };
-        if overlapped.is_null() {
+        if !succeeded && overlapped.is_null() {
             if event_error == Some(windows_sys::Win32::Foundation::ERROR_TIMEOUT) {
                 return Ok(false);
             }
@@ -713,12 +713,16 @@ impl WindowsRun {
                 .unwrap_or_else(|| "probe completion packet lacked an owned event".into()));
         }
         if key == JOB_KEY {
-            let message = overlapped as usize as u32;
-            if let Err(error) = self.observe_job_event(message, bytes) {
+            if let Err(error) = self.observe_job_event(bytes, overlapped as usize as u32) {
                 self.permanent_unconfirmed = true;
                 return Err(error);
             }
         } else if key == STDOUT_KEY || key == STDERR_KEY {
+            if overlapped.is_null() {
+                self.unknown_completion = true;
+                self.permanent_unconfirmed = true;
+                return Err("probe capture completion lacked an owned operation".into());
+            }
             if let Err(error) =
                 self.observe_read_event(key == STDOUT_KEY, overlapped, bytes, event_error)
             {
