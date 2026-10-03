@@ -155,27 +155,27 @@ async function fixture(local = false) {
     useLayoutEffect(() => { current = config; snapshots.push(config); });
     return <><WebPeerPicker /><SettingsPanel config={config.config} onUpdateConfig={config.updateConfig} onClose={() => {}} initialSection="general" /><MeshPresenceTray /></>;
   }
-  const host = win.document.createElement("div");
-  win.document.body.appendChild(host);
+  const host = document.createElement("div");
+  document.body.appendChild(host);
   const root = createRoot(host);
   async function done() {
-      await act(async () => root.unmount());
-      events.__resetWebEventsForTest();
-      for (const stream of allStreams) stream.controller.close();
-      holdLocalBody = false; bodyRelease?.();
-      for (const request of allRequests) request.release();
-      api.invalidateWebRequestContext();
-      globalThis.fetch = originalFetch;
-      host.remove();
-      for (const [key, descriptor] of descriptors) {
-        if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
-      }
-      if (actDescriptor) Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", actDescriptor); else Reflect.deleteProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT");
-      await win.happyDOM.close();
+    await act(async () => root.unmount());
+    events.__resetWebEventsForTest();
+    for (const stream of allStreams) stream.controller.close();
+    holdLocalBody = false; bodyRelease?.();
+    for (const request of allRequests) request.release();
+    api.invalidateWebRequestContext();
+    globalThis.fetch = originalFetch;
+    host.remove();
+    for (const [key, descriptor] of descriptors) {
+      if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
+    }
+    if (actDescriptor) Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", actDescriptor); else Reflect.deleteProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT");
+    await win.happyDOM.close();
   }
   try { await act(async () => root.render(<App />)); } catch (error) { await done(); throw error; }
   function button(selector: string) {
-    const element = win.document.querySelector<HTMLButtonElement>(selector);
+    const element = document.querySelector<HTMLButtonElement>(selector);
     assert(element, `missing ${selector}`);
     return element;
   }
@@ -184,7 +184,7 @@ async function fixture(local = false) {
     await click('[data-testid="peer-picker-button"]');
     if (id === null) await click('[data-testid="peer-picker-self"]');
     else {
-      const rows = [...win.document.querySelectorAll<HTMLButtonElement>('[data-testid="peer-picker-item"]')];
+      const rows = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="peer-picker-item"]')];
       const row = rows.find((entry) => entry.dataset.peerName === (id === A ? "eight" : "rollacodebot"));
       assert(row);
       await act(async () => row.click());
@@ -216,7 +216,7 @@ async function fixture(local = false) {
   }
   async function rows() {
     await click('[data-testid="peer-picker-button"]');
-    const values = [...win.document.querySelectorAll<HTMLButtonElement>('[data-testid="peer-picker-item"]')].map((row) => ({ id: row.dataset.peerId, name: row.dataset.peerName, text: row.textContent }));
+    const values = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="peer-picker-item"]')].map((row) => ({ id: row.dataset.peerId, name: row.dataset.peerName, text: row.textContent }));
     await click('[data-testid="peer-picker-button"]');
     return values;
   }
@@ -230,9 +230,9 @@ async function fixture(local = false) {
       await act(async () => release());
     },
     async presenceOffline() {
-      const trigger = [...win.document.querySelectorAll<HTMLButtonElement>("button")].find((entry) => entry.title.startsWith("Mesh:"));
+      const trigger = [...document.querySelectorAll<HTMLButtonElement>("button")].find((entry) => entry.title.startsWith("Mesh:"));
       assert(trigger); await act(async () => trigger.click());
-      const option = [...win.document.querySelectorAll<HTMLButtonElement>("button")].find((entry) => entry.textContent?.startsWith("Offline"));
+      const option = [...document.querySelectorAll<HTMLButtonElement>("button")].find((entry) => entry.textContent?.startsWith("Offline"));
       assert(option); await act(async () => option.click());
     },
     done,

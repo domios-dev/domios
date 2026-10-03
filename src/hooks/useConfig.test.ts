@@ -78,8 +78,8 @@ async function nativeConfigSaves() {
     useLayoutEffect(() => { current = config; });
     return null;
   }
-  const host = win.document.createElement("div");
-  win.document.body.appendChild(host);
+  const host = document.createElement("div");
+  document.body.appendChild(host);
   const root = createRoot(host);
   try {
     await act(async () => root.render(createElement(Probe)));
