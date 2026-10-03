@@ -5,6 +5,7 @@ param(
     [Parameter(Mandatory, ParameterSetName = 'Maintenance')]
     [ValidateSet('provision-verify-cleanup')][string]$Operation
 )
+. (Join-Path $PSScriptRoot 'windows-sccache-archive.ps1')
 $script:Pin = [ordered]@{
     Version = '0.18.0'
     SourceCommit = '01c35e69b97f516c2ebfbdb418b5cd6277bde280'
@@ -341,9 +342,11 @@ function Invoke-ContractOnly {
     $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::CandidateInventoryContractControls()) 3
     $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::StartupNotificationContractControls()) 18
     $inputCases += Convert-NativeContractCases ([WindowsSccacheNative]::DirectServerMemberContractControls()) 3
+    $inputCases += Get-ArchiveStreamContractCases
     $group2 = Invoke-ContractGroup 'inputs_ownership_deadline_and_pinned_reuse' $inputCases {
         param($facts)
         if ($facts.ContainsKey('NativePassed')) { [pscustomobject]@{ Valid = $facts.NativePassed; Reasons = $(if ($facts.NativeError) { @($facts.NativeError) } else { @() }) } }
+        elseif ($facts.DecisionKind -eq 'archive_stream') { Test-ArchiveStreamContract $facts.Mutation }
         elseif ($facts.DecisionKind -eq 'pinned_reuse') { Get-PinnedReuseDecision $facts }
         else { Get-InputDecision $facts }
     }
@@ -665,21 +668,6 @@ function Receive-PinnedArchive([string]$Directory, [long]$DeadlineTicks) {
     } finally { if ($response) { $response.Dispose() }; $client.Dispose(); $handler.Dispose() }
 }
 
-function Test-ArchiveEntryMatchesFile($Entry, [string]$Path) {
-    $archive = $null; $file = $null
-    try { $archive = $Entry.Open(); $file = [IO.File]::Open($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
-        if ($archive.Length -ne $file.Length) { return $false }
-        $left = [byte[]]::new(65536); $right = [byte[]]::new(65536)
-        while ($true) {
-            $a = 0; $b = 0
-            while ($a -lt $left.Length) { $n = $archive.Read($left, $a, $left.Length - $a); if ($n -eq 0) { break }; $a += $n }
-            while ($b -lt $right.Length) { $n = $file.Read($right, $b, $right.Length - $b); if ($n -eq 0) { break }; $b += $n }
-            if ($a -ne $b) { return $false }
-            if ($a -eq 0) { return $true }
-            for ($i = 0; $i -lt $a; $i++) { if ($left[$i] -ne $right[$i]) { return $false } }
-        }
-    } finally { if ($file) { $file.Dispose() }; if ($archive) { $archive.Dispose() } }
-}
 function Confirm-PinnedRuntimeReuse($Session, $Paths) {
     $receiptValid = Test-InstalledReceipt $Paths
     $Session.ArchivePath = Join-Path $Session.OperationDirectory 'sccache-v0.18.0-x64.zip'
