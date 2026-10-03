@@ -12,7 +12,8 @@ from PIL import Image
 from media_contract import probe, read_timing, require, run, validate_captions, write_json
 from narration_proof import sha256, verify_words, verify_character_alignment
 from timeline_audit import timeline_audit
-from soundtrack_proof import measure_balance, enforce_balance
+from soundtrack_proof import (measure_balance, enforce_balance, require_complete_phrase_balance,
+                              verify_continuous_arrangement)
 from music_review import (PRIVATE_MARKERS, validate_markers, validate_music, validate_license,
                           credit_payload, protect_private_path, prepared_music)
 
@@ -144,6 +145,15 @@ def published_assets(directory, timing, require_audio, timing_path, private_revi
         allowed |= {'credits.json', 'credits.txt'}
         require(json.loads((directory / 'credits.json').read_text(encoding='utf-8-sig')) == manifest['music'], 'Music credits differ')
         require((directory / 'credits.txt').read_text(encoding='utf-8-sig').strip() == manifest['music']['credit'], 'Music attribution missing')
+        arrangement = manifest.get('musicArrangement')
+        if arrangement is not None:
+            require(all(isinstance(arrangement.get(key), str) and arrangement[key]
+                        for key in ('sourceSha256', 'editMapSha256', 'arrangementSha256',
+                                    'modificationDisclosure')),
+                    'Continuous arrangement disclosure is incomplete')
+            require(all(len(arrangement[key]) == 64 for key in
+                        ('sourceSha256', 'editMapSha256', 'arrangementSha256')),
+                    'Continuous arrangement hashes are invalid')
     require({path.name for path in directory.iterdir()} == allowed, 'Unexpected/missing published files; no private masters allowed')
     assets = [manifest[key] for key in ('mp4', 'webm', 'poster')]
     if require_audio:
@@ -158,7 +168,8 @@ def published_assets(directory, timing, require_audio, timing_path, private_revi
             poster.load()
     total = sum(path.stat().st_size for path in directory.iterdir())
     require(total == manifest['totalBytes'] and total < 6_000_000, 'Aggregate budget/manifest mismatch')
-    return dict(totalBytes=total, files=len(allowed), music=manifest.get('music'))
+    return dict(totalBytes=total, files=len(allowed), music=manifest.get('music'),
+                musicArrangement=manifest.get('musicArrangement'))
 
 
 def narration_oracle(proof_path, timing, timing_path, private_review=False):
@@ -188,9 +199,15 @@ def narration_oracle(proof_path, timing, timing_path, private_review=False):
     balance = measure_balance(timing, proof['mixStems'], proof['finalAudio'], proof['mastering'])
     require(balance == proof['phraseBalance'], 'Recorded phrase levels differ from actual hashed stem samples')
     enforce_balance(balance)
+    continuous = None
+    if proof.get('continuousMusicProof'):
+        require_complete_phrase_balance(balance, [cue['id'] for cue in timing['cues']])
+        continuous = verify_continuous_arrangement(proof['continuousMusicProof'], proof, timing, timing_path,
+                                                   proof['mastering'])
     return dict(words=len(timing['narration']['words']), sourceAudioSha256=proof['sourceAudio']['sha256'],
                 finalAudioPath=proof['finalAudio']['path'], finalAudioSha256=proof['finalAudio']['sha256'],
                 phraseBalance=balance,
+                continuousMusic=continuous,
                 musicCredit=credit_payload(proof['music'], private_review) if proof['music'] else None,
                 listening='Root must audition complete A/V and every cue; metadata cannot prove pronunciation or clicks')
 
@@ -226,6 +243,17 @@ if __name__ == '__main__':
             require(args.timing and args.narration_alignment, 'Actual timestamp/audio provenance required')
             report['narration'] = narration_oracle(args.narration_alignment, timing, args.timing, args.private_review)
             require(report['assets']['music'] == report['narration']['musicCredit'], 'Exported credits differ from audio provenance')
+            require(report['assets']['musicArrangement'] is None
+                    or report['narration']['continuousMusic'] is not None,
+                    'Published continuous arrangement lacks its independent audio proof')
+            if report['narration']['continuousMusic']:
+                continuous = report['narration']['continuousMusic']
+                lineage = report['assets']['musicArrangement']
+                require(lineage == dict(sourceSha256=continuous['sourceSha256'],
+                                        editMapSha256=continuous['editMapSha256'],
+                                        arrangementSha256=continuous['preparedMusicSha256'],
+                                        modificationDisclosure=continuous['modificationDisclosure']),
+                        'Published arrangement disclosure differs from the proved soundtrack')
         report['formats'] = {}
         for kind in ('mp4', 'webm'):
             candidate = args.candidate_dir / f'trailer.{kind}'
