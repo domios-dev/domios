@@ -14,6 +14,19 @@ const ROUTES: Route[] = [
   { id: 'home-telegram', from: 'home', to: 'telegram' },
 ];
 
+const CUES = [
+  'Recall request',
+  'Read memory',
+  'Return knowledge',
+  'Return to Team',
+  'Needs input',
+  'Ask JEV to observe',
+  'JEV state label',
+  'Notify with evidence',
+  'Telegram reply',
+  'Team response',
+];
+
 function edgePoint(rect: DOMRect, towardX: number, towardY: number, origin: DOMRect): Point {
   const centerX = rect.left + rect.width / 2;
   const centerY = rect.top + rect.height / 2;
@@ -31,7 +44,13 @@ function routeFor(from: StoryNode, to: StoryNode): { route: Route; forward: bool
   return route ? { route, forward: route.from === from } : undefined;
 }
 
-function writeState(element: HTMLElement, state: StoryState) {
+function writeState(
+  element: HTMLElement,
+  state: StoryState,
+  nodes: Map<StoryNode, HTMLElement>,
+  paths: Map<string, SVGPathElement>,
+  cue: HTMLElement,
+) {
   const phase = String(state.phase);
   const cycles = String(state.cycles);
   if (element.dataset.storyPhase !== phase) element.dataset.storyPhase = phase;
@@ -39,6 +58,21 @@ function writeState(element: HTMLElement, state: StoryState) {
   if (element.dataset.storyFrom !== state.from) element.dataset.storyFrom = state.from;
   if (element.dataset.storyTo !== state.to) element.dataset.storyTo = state.to;
   if (element.dataset.storyCycle !== cycles) element.dataset.storyCycle = cycles;
+  if (cue.textContent !== CUES[state.phase]) cue.textContent = CUES[state.phase];
+  const activeRoute = routeFor(state.from, state.to)?.route.id;
+  paths.forEach((path, id) => {
+    const active = String(id === activeRoute);
+    if (path.dataset.storyActive !== active) path.dataset.storyActive = active;
+  });
+  nodes.forEach((node, name) => {
+    const flow = name === state.from ? 'source' : name === state.to ? 'target' : undefined;
+    if (node.dataset.storyFlow !== flow) {
+      if (flow) node.dataset.storyFlow = flow;
+      else delete node.dataset.storyFlow;
+    }
+  });
+  const evidence = state.phase === 7 ? 'active' : 'idle';
+  if (element.dataset.storyEvidence !== evidence) element.dataset.storyEvidence = evidence;
 }
 
 export function useSpineStory() {
@@ -52,12 +86,13 @@ export function useSpineStory() {
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
     const svg = board.querySelector<SVGSVGElement>('.jev-routes');
     const signal = board.querySelector<SVGEllipseElement>('[data-story-signal]');
+    const cue = board.querySelector<HTMLElement>('[data-story-cue]');
     const nodes = new Map<StoryNode, HTMLElement>();
     board.querySelectorAll<HTMLElement>('[data-story-node]').forEach((node) => {
       const name = node.dataset.storyNode as StoryNode | undefined;
       if (name) nodes.set(name, node);
     });
-    if (!svg || !signal) return;
+    if (!svg || !signal || !cue) return;
 
     let state = createStory();
     let visible = false;
@@ -130,6 +165,10 @@ export function useSpineStory() {
       if (board.dataset.storyMotion !== 'static') board.dataset.storyMotion = 'static';
       if (board.dataset.storyPhase !== 'static') board.dataset.storyPhase = 'static';
       if (board.dataset.storyStage !== 'static') board.dataset.storyStage = 'static';
+      if (cue.textContent !== 'Recall · needs input · reply') cue.textContent = 'Recall · needs input · reply';
+      if (board.dataset.storyEvidence !== 'static') board.dataset.storyEvidence = 'static';
+      paths.forEach((path) => delete path.dataset.storyActive);
+      nodes.forEach((node) => delete node.dataset.storyFlow);
       if (signal.getAttribute('opacity') !== '0') signal.setAttribute('opacity', '0');
       if (signal.hasAttribute('transform')) signal.removeAttribute('transform');
     }
@@ -141,7 +180,7 @@ export function useSpineStory() {
       previous = timestamp;
       if (elapsed > 0) state = advanceStory(state, elapsed);
       if (geometryDirty) refreshGeometry();
-      writeState(board, state);
+      writeState(board, state, nodes, paths, cue);
       paintSignal(state);
       frame = requestAnimationFrame(tick);
     }
@@ -165,7 +204,7 @@ export function useSpineStory() {
       }
       if (geometryDirty) refreshGeometry();
       board.dataset.storyMotion = 'running';
-      writeState(board, state);
+      writeState(board, state, nodes, paths, cue);
       paintSignal(state);
       if (!frame) {
         previous = 0;
