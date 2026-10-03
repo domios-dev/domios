@@ -6,7 +6,7 @@ use super::process::{ProbeFailure, ResourceKind};
 #[cfg(windows)]
 use super::windows::WindowsRun;
 
-pub(super) const MAX_RESOURCE_SLOTS: usize = 8;
+pub(in crate::sentinel) const MAX_RESOURCE_SLOTS: usize = 8;
 const MAX_DIAGNOSTICS: usize = 16;
 const MAX_DIAGNOSTIC_BYTES: usize = 256;
 
@@ -25,6 +25,7 @@ struct Slot {
     retained: Option<Box<dyn RetainedResources>>,
     in_owner: bool,
     terminal_unconfirmed: bool,
+    cancellation: Option<super::cancellation::Cancellation>,
 }
 
 impl Default for Slot {
@@ -35,6 +36,7 @@ impl Default for Slot {
             retained: None,
             in_owner: false,
             terminal_unconfirmed: false,
+            cancellation: None,
         }
     }
 }
@@ -119,10 +121,7 @@ impl WindowsRun {
             return Err("probe read endpoint cannot close while I/O is pending".into());
         }
         if let Err(error) = self.stream_mut(stdout).reader.close() {
-            return Err(mark_close_uncertain(
-                &mut self.permanent_unconfirmed,
-                error,
-            ));
+            return Err(mark_close_uncertain(&mut self.permanent_unconfirmed, error));
         }
         let capture_registered =
             std::mem::replace(&mut self.stream_mut(stdout).capture_registered, false);
@@ -181,10 +180,7 @@ impl WindowsRun {
     pub(super) fn close_completed_runtime_handles(&mut self) -> Result<(), String> {
         if self.parent_exited && self.job_empty {
             if let Err(error) = self.job.close() {
-                return Err(mark_close_uncertain(
-                    &mut self.permanent_unconfirmed,
-                    error,
-                ));
+                return Err(mark_close_uncertain(&mut self.permanent_unconfirmed, error));
             }
             let registered = std::mem::replace(&mut self.job_registered, false);
             self.settle_resource(ResourceKind::Job, registered);
@@ -197,14 +193,17 @@ impl WindowsRun {
             && !self.stdout.reader.is_open()
             && !self.stderr.reader.is_open()
         {
+            self.detach_cancel_port();
             if let Err(error) = self.port.close() {
-                return Err(mark_close_uncertain(
-                    &mut self.permanent_unconfirmed,
-                    error,
-                ));
+                return Err(mark_close_uncertain(&mut self.permanent_unconfirmed, error));
             }
             let registered = std::mem::replace(&mut self.port_registered, false);
             self.settle_resource(ResourceKind::OverlappedIo, registered);
+        }
+        if !self.port.is_open() && !self.process.is_open() {
+            if let Err(error) = self.close_cancellation() {
+                return Err(mark_close_uncertain(&mut self.permanent_unconfirmed, error));
+            }
         }
         Ok(())
     }
@@ -218,6 +217,7 @@ impl WindowsRun {
             && !self.stderr.pending_active
             && !self.job.is_open()
             && !self.port.is_open()
+            && self.events.is_none()
             && self.failure.is_none()
     }
 
@@ -226,38 +226,28 @@ impl WindowsRun {
             return Err("probe success facts are incomplete".into());
         }
         if let Err(error) = self.stdout.reader.close() {
-            return Err(mark_close_uncertain(
-                &mut self.permanent_unconfirmed,
-                error,
-            ));
+            return Err(mark_close_uncertain(&mut self.permanent_unconfirmed, error));
         }
         let stdout_registered = std::mem::replace(&mut self.stdout.capture_registered, false);
         self.settle_resource(ResourceKind::Capture, stdout_registered);
         if let Err(error) = self.stderr.reader.close() {
-            return Err(mark_close_uncertain(
-                &mut self.permanent_unconfirmed,
-                error,
-            ));
+            return Err(mark_close_uncertain(&mut self.permanent_unconfirmed, error));
         }
         let stderr_registered = std::mem::replace(&mut self.stderr.capture_registered, false);
         self.settle_resource(ResourceKind::Capture, stderr_registered);
         if let Err(error) = self.job.close() {
-            return Err(mark_close_uncertain(
-                &mut self.permanent_unconfirmed,
-                error,
-            ));
+            return Err(mark_close_uncertain(&mut self.permanent_unconfirmed, error));
         }
         let job_registered = std::mem::replace(&mut self.job_registered, false);
         self.settle_resource(ResourceKind::Job, job_registered);
+        self.detach_cancel_port();
         if let Err(error) = self.port.close() {
-            return Err(mark_close_uncertain(
-                &mut self.permanent_unconfirmed,
-                error,
-            ));
+            return Err(mark_close_uncertain(&mut self.permanent_unconfirmed, error));
         }
         let port_registered = std::mem::replace(&mut self.port_registered, false);
         self.settle_resource(ResourceKind::OverlappedIo, port_registered);
-        Ok(())
+        self.close_cancellation()
+            .map_err(|error| mark_close_uncertain(&mut self.permanent_unconfirmed, error))
     }
 
     pub(super) fn failure_resources_settled(&self) -> bool {
@@ -275,6 +265,7 @@ impl WindowsRun {
             && !self.stderr.connect_pending
             && !self.job.is_open()
             && !self.port.is_open()
+            && self.events.is_none()
     }
 
     pub(super) fn owner_is_closing(&self) -> bool {
@@ -352,7 +343,7 @@ pub(super) enum AdmissionError {
 
 #[cfg(test)]
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct Snapshot {
+pub(in crate::sentinel) struct Snapshot {
     pub free: usize,
     pub reserved: usize,
     pub active: usize,
@@ -387,21 +378,26 @@ impl ProbeResourceOwner {
                 }
             }
         }
-        Self {
-            core,
-            unavailable,
-        }
+        Self { core, unavailable }
     }
 
     pub(super) fn reserve(&self) -> Result<Reservation, AdmissionError> {
         if let Some(error) = &self.unavailable {
             return Err(AdmissionError::Unavailable(error.clone()));
         }
-        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self
+            .core
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         if state.closed {
             return Err(AdmissionError::Closed);
         }
-        let Some(index) = state.slots.iter().position(|slot| slot.phase == Phase::Free) else {
+        let Some(index) = state
+            .slots
+            .iter()
+            .position(|slot| slot.phase == Phase::Free)
+        else {
             return Err(AdmissionError::Full);
         };
         state.slots[index] = Slot {
@@ -417,11 +413,11 @@ impl ProbeResourceOwner {
         })
     }
 
-    pub(super) fn close_admission(&self) {
+    pub(in crate::sentinel) fn close_admission(&self) {
         close_core(&self.core);
     }
 
-    pub(super) fn is_closing(&self) -> bool {
+    pub(in crate::sentinel) fn is_closing(&self) -> bool {
         self.core
             .state
             .lock()
@@ -434,16 +430,28 @@ impl ProbeResourceOwner {
     }
 
     #[cfg(test)]
-    pub(super) fn snapshot(&self) -> Snapshot {
-        let state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
+    pub(in crate::sentinel) fn snapshot(&self) -> Snapshot {
+        let state = self
+            .core
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         Snapshot {
-            free: state.slots.iter().filter(|slot| slot.phase == Phase::Free).count(),
+            free: state
+                .slots
+                .iter()
+                .filter(|slot| slot.phase == Phase::Free)
+                .count(),
             reserved: state
                 .slots
                 .iter()
                 .filter(|slot| slot.phase == Phase::Reserved)
                 .count(),
-            active: state.slots.iter().filter(|slot| slot.phase == Phase::Active).count(),
+            active: state
+                .slots
+                .iter()
+                .filter(|slot| slot.phase == Phase::Active)
+                .count(),
             unconfirmed: state
                 .slots
                 .iter()
@@ -455,10 +463,7 @@ impl ProbeResourceOwner {
     }
 
     #[cfg(test)]
-    pub(super) fn wait_for_unconfirmed_with_timeout(
-        &self,
-        timeout: std::time::Duration,
-    ) -> bool {
+    pub(super) fn wait_for_unconfirmed_with_timeout(&self, timeout: std::time::Duration) -> bool {
         self.wait_for_unconfirmed_state(timeout, false)
     }
 
@@ -471,15 +476,17 @@ impl ProbeResourceOwner {
     }
 
     #[cfg(test)]
-    fn wait_for_unconfirmed_state(
-        &self,
-        timeout: std::time::Duration,
-        terminal: bool,
-    ) -> bool {
+    fn wait_for_unconfirmed_state(&self, timeout: std::time::Duration, terminal: bool) -> bool {
         let deadline = std::time::Instant::now() + timeout;
-        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self
+            .core
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         loop {
-            if state.slots.iter().any(|slot| slot.phase == Phase::Unconfirmed && (!terminal || slot.terminal_unconfirmed)) {
+            if state.slots.iter().any(|slot| {
+                slot.phase == Phase::Unconfirmed && (!terminal || slot.terminal_unconfirmed)
+            }) {
                 return true;
             }
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
@@ -493,7 +500,9 @@ impl ProbeResourceOwner {
                 .unwrap_or_else(|error| error.into_inner());
             state = next;
             if result.timed_out()
-                && !state.slots.iter().any(|slot| slot.phase == Phase::Unconfirmed && (!terminal || slot.terminal_unconfirmed))
+                && !state.slots.iter().any(|slot| {
+                    slot.phase == Phase::Unconfirmed && (!terminal || slot.terminal_unconfirmed)
+                })
             {
                 return false;
             }
@@ -507,9 +516,19 @@ impl ProbeResourceOwner {
         timeout: std::time::Duration,
     ) -> bool {
         let deadline = std::time::Instant::now() + timeout;
-        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self
+            .core
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         loop {
-            if state.slots.iter().filter(|slot| slot.phase == Phase::Free).count() >= expected {
+            if state
+                .slots
+                .iter()
+                .filter(|slot| slot.phase == Phase::Free)
+                .count()
+                >= expected
+            {
                 return true;
             }
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
@@ -523,7 +542,12 @@ impl ProbeResourceOwner {
                 .unwrap_or_else(|error| error.into_inner());
             state = next;
             if result.timed_out()
-                && state.slots.iter().filter(|slot| slot.phase == Phase::Free).count() < expected
+                && state
+                    .slots
+                    .iter()
+                    .filter(|slot| slot.phase == Phase::Free)
+                    .count()
+                    < expected
             {
                 return false;
             }
@@ -532,8 +556,29 @@ impl ProbeResourceOwner {
 }
 
 impl Reservation {
+    pub(super) fn register_cancellation(
+        &mut self,
+        cancellation: super::cancellation::Cancellation,
+    ) -> Result<(), super::process::ProbeFailure> {
+        let mut state = self
+            .core
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if state.closed {
+            cancellation.cancel();
+            return Err(super::process::ProbeFailure::new("probe_owner_closing"));
+        }
+        state.slots[self.index].cancellation = Some(cancellation);
+        Ok(())
+    }
+
     pub(super) fn register_resource(&mut self) -> Result<(), String> {
-        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self
+            .core
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let slot = &mut state.slots[self.index];
         if !matches!(slot.phase, Phase::Reserved | Phase::Active) {
             return Err("probe resource registered outside an owned slot".into());
@@ -546,7 +591,11 @@ impl Reservation {
     }
 
     pub(super) fn resource_settled(&mut self) -> Result<(), String> {
-        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self
+            .core
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let slot = &mut state.slots[self.index];
         if self.resource_count == 0 || slot.resources == 0 {
             return Err("probe resource settlement was not registered".into());
@@ -561,7 +610,11 @@ impl Reservation {
         if self.resource_count != 0 {
             return Err("probe slot released with unsettled resources".into());
         }
-        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self
+            .core
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let slot = &mut state.slots[self.index];
         if slot.resources != 0 || !matches!(slot.phase, Phase::Reserved | Phase::Active) {
             return Err("probe slot ownership changed before release".into());
@@ -573,7 +626,11 @@ impl Reservation {
     }
 
     pub(super) fn retain(mut self, resources: Box<dyn RetainedResources>) {
-        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self
+            .core
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let slot = &mut state.slots[self.index];
         slot.phase = Phase::Unconfirmed;
         slot.retained = Some(resources);
@@ -587,7 +644,11 @@ impl Drop for Reservation {
         if self.finished {
             return;
         }
-        let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
+        let mut state = self
+            .core
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
         let slot = &mut state.slots[self.index];
         if slot.phase == Phase::Reserved && slot.resources == 0 {
             *slot = Slot::default();
@@ -674,6 +735,11 @@ fn owner_loop(core: Arc<Core>, index: usize) {
 fn close_core(core: &Core) {
     let mut state = core.state.lock().unwrap_or_else(|error| error.into_inner());
     state.closed = true;
+    for slot in &state.slots {
+        if let Some(cancellation) = &slot.cancellation {
+            cancellation.cancel();
+        }
+    }
     core.changed.notify_all();
 }
 

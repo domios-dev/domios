@@ -6,7 +6,32 @@ impl WindowsRun {
             .process
             .raw()
             .ok_or_else(|| "probe pending process handle missing".to_string())?;
-        match unsafe { WaitForSingleObject(process, timeout.map(timeout_ms).unwrap_or(u32::MAX)) } {
+        #[cfg(test)]
+        if let Some(events) = &self.events {
+            events.waiting(super::super::cancellation::WaitPhase::Parent);
+        }
+        let result = if !self.cancel_attempted {
+            if let Some(cancel) = self.events.as_ref().and_then(Events::event) {
+                let handles = [process, cancel];
+                unsafe {
+                    windows_sys::Win32::System::Threading::WaitForMultipleObjects(
+                        2,
+                        handles.as_ptr(),
+                        0,
+                        timeout.map(timeout_ms).unwrap_or(u32::MAX),
+                    )
+                }
+            } else {
+                unsafe { WaitForSingleObject(process, timeout.map(timeout_ms).unwrap_or(u32::MAX)) }
+            }
+        } else {
+            unsafe { WaitForSingleObject(process, timeout.map(timeout_ms).unwrap_or(u32::MAX)) }
+        };
+        if result == WAIT_OBJECT_0 + 1 {
+            self.fail("probe_cancelled");
+            return Ok(true);
+        }
+        match result {
             WAIT_OBJECT_0 => {
                 self.observe_parent_exit()?;
                 Ok(true)
@@ -48,5 +73,112 @@ impl WindowsRun {
             self.close_thread_handle()?;
         }
         self.close_completed_runtime_handles()
+    }
+}
+
+impl WindowsRun {
+    pub(super) fn prepare_cancellation(&mut self, signal: &Cancellation) -> Result<(), String> {
+        self.events = Some(Events::new(signal)?);
+        self.events_registered = self.register(ResourceKind::OverlappedIo);
+        if self.events_registered {
+            Ok(())
+        } else {
+            Err("probe cancellation event registration failed".into())
+        }
+    }
+
+    pub(super) fn cancelled(&self) -> bool {
+        self.events.as_ref().is_some_and(Events::cancelled)
+    }
+
+    pub(super) fn detach_cancel_port(&self) {
+        if let Some(events) = &self.events {
+            events.detach_port();
+        }
+    }
+
+    pub(super) fn close_cancellation(&mut self) -> Result<(), String> {
+        if let Some(error) = self.events.as_ref().and_then(Events::take_delivery_error) {
+            self.fail("probe_cancel_wake_failed");
+            self.add_error(error);
+        }
+        if let Some(events) = &mut self.events {
+            events.close()?;
+            self.events = None;
+            let registered = std::mem::replace(&mut self.events_registered, false);
+            self.settle_resource(ResourceKind::OverlappedIo, registered);
+        }
+        Ok(())
+    }
+}
+
+impl WindowsRun {
+    pub(super) fn wait_event(&mut self, timeout: Option<Duration>) -> Result<bool, String> {
+        if self.parent_exit_pending
+            || (self.stdout.eof && self.stderr.eof && self.process.is_open())
+        {
+            return self.wait_parent_exit(timeout);
+        }
+        let Some(port) = self.port.raw() else {
+            return Err("probe completion port is not owned".into());
+        };
+        let mut bytes = 0u32;
+        let mut key = 0usize;
+        let mut overlapped = null_mut();
+        let millis = timeout.map(timeout_ms).unwrap_or(u32::MAX);
+        #[cfg(test)]
+        if let Some(events) = &self.events {
+            events.waiting(super::super::cancellation::WaitPhase::Capture);
+        }
+        let succeeded = unsafe {
+            GetQueuedCompletionStatus(port, &mut bytes, &mut key, &mut overlapped, millis)
+        } != 0;
+        let event_error = if succeeded {
+            None
+        } else {
+            Some(unsafe { GetLastError() })
+        };
+        if !succeeded && overlapped.is_null() {
+            if event_error == Some(windows_sys::Win32::Foundation::ERROR_TIMEOUT) {
+                return Ok(false);
+            }
+            self.permanent_unconfirmed = true;
+            return Err(event_error
+                .map(|error| std::io::Error::from_raw_os_error(error as i32).to_string())
+                .unwrap_or_else(|| "probe completion packet lacked an owned event".into()));
+        }
+        if key == CANCEL_KEY && succeeded && overlapped.is_null() {
+            if !self.cancel_attempted {
+                self.fail("probe_cancelled");
+            }
+        } else if key == JOB_KEY {
+            if let Err(error) = self.observe_job_event(bytes, overlapped as usize as u32) {
+                self.permanent_unconfirmed = true;
+                return Err(error);
+            }
+        } else if key == STDOUT_KEY || key == STDERR_KEY {
+            if overlapped.is_null() {
+                self.unknown_completion = true;
+                self.permanent_unconfirmed = true;
+                return Err("probe capture completion lacked an owned operation".into());
+            }
+            if let Err(error) =
+                self.observe_read_event(key == STDOUT_KEY, overlapped, bytes, event_error)
+            {
+                if self.unknown_completion {
+                    self.permanent_unconfirmed = true;
+                }
+                return Err(error);
+            }
+            if let Err(error) = self.close_completed_runtime_handles() {
+                self.permanent_unconfirmed = true;
+                return Err(error);
+            }
+        } else {
+            self.unknown_completion = true;
+            self.permanent_unconfirmed = true;
+            return Err("probe completion packet had an unknown owner key".into());
+        }
+        Ok(true)
     }
 }

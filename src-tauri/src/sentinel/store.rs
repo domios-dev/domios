@@ -1,9 +1,6 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
+use std::sync::{atomic::Ordering, Arc};
 
 use serde::{Deserialize, Serialize};
 
@@ -86,15 +83,16 @@ pub struct Owner {
 
 pub struct Lease {
     pub job: Sentinel,
-    pub cancelled: Arc<AtomicBool>,
+    pub cancelled: Arc<super::probe::cancellation::Cancellation>,
 }
 
 pub struct Store {
     pub(super) jobs: Vec<Sentinel>,
-    pub(super) active: HashMap<String, Arc<AtomicBool>>,
+    pub(super) active: HashMap<String, Arc<super::probe::cancellation::Cancellation>>,
     file: StateFile,
     pub clock: SharedClock,
     unavailable: Option<LoadFailure>,
+    pub(super) admission_closed: bool,
     committed_revisions: BTreeMap<(String, Option<String>), String>,
     changes: BTreeMap<(String, Option<String>), String>,
 }
@@ -230,6 +228,24 @@ fn decode(raw: &str) -> Result<Vec<Sentinel>, String> {
             }
             let mut results = std::collections::BTreeSet::new();
             for result in &transition.handlers {
+                if let Some(command) = &result.command_result {
+                    command.validate()?;
+                    let handler = declared
+                        .iter()
+                        .find(|handler| handler.id == result.handler_id)
+                        .ok_or("command result has no declared handler")?;
+                    let expected = match command.status {
+                        super::command::Status::Success => handlers::Status::Completed,
+                        super::command::Status::Unconfirmed => handlers::Status::Unconfirmed,
+                        _ => handlers::Status::Failed,
+                    };
+                    if !matches!(handler.action, Route::Command(_))
+                        || result.status != expected
+                        || result.execution_id.is_none()
+                    {
+                        return Err("invalid stored command handler result identity".into());
+                    }
+                }
                 if !results.insert(&result.handler_id)
                     || !declared
                         .iter()
@@ -248,7 +264,7 @@ fn decode(raw: &str) -> Result<Vec<Sentinel>, String> {
                 Route::Sentinel(id) => Some(("sentinel", id)),
                 Route::Send(id) => Some(("worker", id)),
                 Route::Cron(id) => Some(("cron", id)),
-                Route::Notify | Route::Stop => None,
+                Route::Notify | Route::Stop | Route::Command(_) => None,
             };
             if let Some((kind, id)) = expected_kind_id {
                 Route::parse(&format!(
@@ -336,6 +352,7 @@ impl Store {
             file,
             clock,
             unavailable,
+            admission_closed: false,
             committed_revisions,
             changes: BTreeMap::new(),
         }
@@ -423,6 +440,9 @@ impl Store {
         owner: Owner,
         connected: bool,
     ) -> Result<Sentinel, String> {
+        if self.admission_closed {
+            return Err("sentinel_shutdown_admission_closed".into());
+        }
         self.ensure_available()?;
         let Owner {
             creator_tab_id: creator,
@@ -590,6 +610,13 @@ impl Store {
         self.insert(job)
     }
 
+    pub(super) fn close_admission(&mut self) {
+        self.admission_closed = true;
+        for cancellation in self.active.values() {
+            cancellation.cancel();
+        }
+    }
+
     pub fn stop(&mut self, id: &str, reason: &str) -> Result<Sentinel, String> {
         let job = self
             .jobs
@@ -608,7 +635,6 @@ impl Store {
     }
 
     pub fn remove_team(&mut self, team: &str) -> Result<(), String> {
-        self.ensure_available()?;
         for job in self
             .jobs
             .iter()
@@ -623,6 +649,9 @@ impl Store {
     }
 
     pub fn due(&mut self) -> Result<Vec<Lease>, String> {
+        if self.admission_closed {
+            return Err("sentinel_shutdown_admission_closed".into());
+        }
         self.ensure_available()?;
         let now = self.clock.now_ms();
         let mut due = Vec::new();
@@ -673,7 +702,7 @@ impl Store {
                 job.next_run = job
                     .next_run
                     .saturating_add((missed + 1).saturating_mul(job.interval_ms));
-                let cancelled = Arc::new(AtomicBool::new(false));
+                let cancelled = Arc::new(super::probe::cancellation::Cancellation::new(false));
                 self.active.insert(job.id.clone(), cancelled.clone());
                 due.push(Lease {
                     job: job.clone(),

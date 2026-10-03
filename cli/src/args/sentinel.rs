@@ -19,7 +19,7 @@ pub enum SentinelAction {
         /// Closed-set route: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop
         #[arg(long = "route", value_parser = parse_route)]
         routes: Vec<String>,
-        /// JSON bucket-to-array of declared {id,type,parameters} handlers
+        /// JSON bucket-to-array of {id,type,parameters} handlers, including fixed local command actions
         #[arg(long, conflicts_with = "routes")]
         handlers_file: Option<std::path::PathBuf>,
         /// Create a dormant downstream stage; its lifetime starts now
