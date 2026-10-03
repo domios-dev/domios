@@ -42,7 +42,7 @@ const B = "opaque-b-91de";
 type ConfigHook = ReturnType<typeof import("./useConfig").useConfig>;
 type Request = {
   destination: string; method: string; body: AppConfig | null; signal: AbortSignal;
-  snapshot: AppConfig; release: () => void; accept: () => void;
+  snapshot: AppConfig; release: () => void; accept: () => void; fail: () => void;
 };
 type Stream = { destination: string; controller: ReadableStreamDefaultController<Uint8Array> };
 
@@ -124,6 +124,9 @@ async function fixture(local = false) {
           updated.api.token = previous.api.token;
           stores.set(destination, updated);
         },
+        fail() {
+          reply.resolve(Response.json(envelope ? { ok: false, status: 500, data: {}, error: "fixture refusal" } : {}, { status: envelope ? 200 : 500 }));
+        },
         release() {
           if (!envelope && method === "GET" && holdLocalBody) {
             const stream = new ReadableStream<Uint8Array>({ start(controller) {
@@ -134,6 +137,7 @@ async function fixture(local = false) {
           } else reply.resolve(Response.json(envelope ? { ok: true, status: 200, data: result, error: null } : result));
         },
       };
+      if (method === "PATCH") request.accept();
       allRequests.push(request); requests.push(request);
       return reply.promise;
     }
@@ -142,10 +146,9 @@ async function fixture(local = false) {
   };
   let current!: ConfigHook;
   const snapshots: ConfigHook[] = [];
-  let renderSignal: (() => void) | undefined;
   function App() {
     const config = useConfig();
-    useLayoutEffect(() => { current = config; snapshots.push(config); renderSignal?.(); renderSignal = undefined; });
+    useLayoutEffect(() => { current = config; snapshots.push(config); });
     return <><WebPeerPicker /><SettingsPanel config={config.config} onUpdateConfig={config.updateConfig} onClose={() => {}} initialSection="general" /><MeshPresenceTray /></>;
   }
   const host = win.document.createElement("div");
@@ -194,7 +197,7 @@ async function fixture(local = false) {
   }
   async function rows() {
     await click('[data-testid="peer-picker-button"]');
-    const values = [...win.document.querySelectorAll<HTMLButtonElement>('[data-testid="peer-picker-item"]')].map((row) => ({ name: row.dataset.peerName, text: row.textContent }));
+    const values = [...win.document.querySelectorAll<HTMLButtonElement>('[data-testid="peer-picker-item"]')].map((row) => ({ id: row.dataset.peerId, name: row.dataset.peerName, text: row.textContent }));
     await click('[data-testid="peer-picker-button"]');
     return values;
   }
@@ -202,7 +205,11 @@ async function fixture(local = false) {
     api, stores, initialA, initialB, requests, streams, allRequests, snapshots,
     current: () => current, switchTo, load, release, saveToggle, persist, deliver, rows,
     holdBody() { holdLocalBody = true; }, bodyStarted: bodyStarted.promise,
-    async finishBody() { assert(bodyRelease); await act(async () => bodyRelease!()); },
+    async finishBody() {
+      assert(bodyRelease);
+      const release = bodyRelease; bodyRelease = undefined;
+      await act(async () => release());
+    },
     async presenceOffline() {
       const trigger = [...win.document.querySelectorAll<HTMLButtonElement>("button")].find((entry) => entry.title.startsWith("Mesh:"));
       assert(trigger); await act(async () => trigger.click());
@@ -228,6 +235,7 @@ async function fixture(local = false) {
 }
 
 async function run(name: string, test: (f: Awaited<ReturnType<typeof fixture>>) => Promise<void>, local = false) {
+  if (process.env.CONFIG_PEER_CASE && !name.includes(process.env.CONFIG_PEER_CASE)) return;
   const f = await fixture(local);
   try { await test(f); console.log(`PASS ${name}`); } finally { await f.done(); }
 }
@@ -244,7 +252,7 @@ async function main() {
     const staleConfig = f.current().config;
     await f.switchTo(B);
     await f.saveToggle();
-    assert.deepEqual(f.stores.get(B), f.initialB, "B stays independent before config readiness");
+    assert.deepEqual(f.stores.get(B), f.initialB, "CAUSAL RED: persisted B stays independent after a stale Settings autosave");
     assert.equal(f.allRequests.filter((request) => request.method === "PATCH" && request.destination === B).length, 0, "CAUSAL RED: stale Settings autosave must never start a B write");
     await assert.rejects(staleSave(staleConfig));
     await f.load();
@@ -254,7 +262,26 @@ async function main() {
     assert.equal(current.body!.api.token, "gateway-auth-sentinel");
     assert.deepEqual(f.stores.get(B), { ...f.initialB, font: { ...f.initialB.font, ligatures: false } });
     assert.deepEqual(f.stores.get(A), { ...f.initialA, font: { ...f.initialA.font, ligatures: false } });
-    assert.deepEqual((await f.rows()).map((row) => row.name), ["eight", "rollacodebot"]);
+    assert.deepEqual((await f.rows()).map(({ id, name }) => ({ id, name })), [{ id: A, name: "eight" }, { id: B, name: "rollacodebot" }]);
+  });
+  await run("loading and failed config contexts refuse defaults and events cannot enable saving", async (f) => {
+    const loadingSave = f.current().updateConfig;
+    await assert.rejects(loadingSave(f.current().config));
+    await f.saveToggle();
+    const read = await f.requests.next("failed hook read");
+    const otherRead = await f.requests.next("failed presence read");
+    await act(async () => { read.fail(); otherRead.fail(); });
+    assert.equal(f.current().loading, false);
+    await assert.rejects(f.current().updateConfig(f.current().config));
+    const stream = await f.streams.next("event after failed read");
+    await f.deliver(stream, f.initialA);
+    await f.saveToggle();
+    assert.equal(f.allRequests.filter((request) => request.method === "PATCH").length, 0);
+    assert.deepEqual(f.stores.get(A), f.initialA); assert.deepEqual(f.stores.get(B), f.initialB);
+    await f.switchTo(B); await f.load();
+    await assert.rejects(loadingSave(f.current().config));
+    await f.saveToggle(); await f.persist();
+    assert.deepEqual(f.stores.get(B), { ...f.initialB, font: { ...f.initialB.font, ligatures: false } });
   });
   await run("accepted pre-switch saves stay pinned and late completion cannot succeed for B", async (f) => {
     await f.load();
@@ -310,8 +337,8 @@ async function main() {
     await f.release(pending); await f.bodyStarted;
     await f.switchTo(B);
     await f.finishBody();
-    assert.equal(f.allRequests.filter((request) => request.method === "PATCH" && request.destination === B).length, 0, "CAUSAL RED: A presence transaction cannot start a B write");
-    assert.deepEqual(f.stores.get(B), f.initialB);
+    assert.deepEqual(f.stores.get(B), f.initialB, "CAUSAL RED: held A presence transaction must not replace persisted B");
+    assert.equal(f.allRequests.filter((request) => request.method === "PATCH" && request.destination === B).length, 0);
     assert.deepEqual(f.stores.get(A), { ...f.initialA, mesh: { ...f.initialA.mesh, enabled: false } });
   }, true);
 }
