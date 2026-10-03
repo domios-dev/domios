@@ -79,20 +79,24 @@ export function useSpineStory() {
   const boardRef = useRef<HTMLElementTagNameMap['figure']>(null);
 
   useEffect(() => {
-    const board = boardRef.current;
-    if (!board) return;
+    const element = boardRef.current;
+    if (!element) return;
+    const board = element;
 
     const site = board.closest<HTMLElement>('.site');
     const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
-    const svg = board.querySelector<SVGSVGElement>('.jev-routes');
-    const signal = board.querySelector<SVGEllipseElement>('[data-story-signal]');
-    const cue = board.querySelector<HTMLElement>('[data-story-cue]');
+    const routeElement = board.querySelector<SVGSVGElement>('.jev-routes');
+    const signalElement = board.querySelector<SVGEllipseElement>('[data-story-signal]');
+    const cueElement = board.querySelector<HTMLElement>('[data-story-cue]');
+    if (!routeElement || !signalElement || !cueElement) return;
+    const svg = routeElement;
+    const signal = signalElement;
+    const cue = cueElement;
     const nodes = new Map<StoryNode, HTMLElement>();
     board.querySelectorAll<HTMLElement>('[data-story-node]').forEach((node) => {
       const name = node.dataset.storyNode as StoryNode | undefined;
       if (name) nodes.set(name, node);
     });
-    if (!svg || !signal || !cue) return;
 
     let state = createStory();
     let visible = false;
