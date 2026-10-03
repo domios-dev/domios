@@ -14,6 +14,14 @@ async function main() {
     Object.defineProperty(globalThis, key, { configurable: true, value: (win as unknown as Record<string, unknown>)[key] });
   }
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
+  const cronReads: unknown[] = [];
+  __setInvokeForTest(async <T,>(command: string, args?: unknown): Promise<T> => {
+    if (command !== "cron_list") throw new Error(`unexpected invoke: ${command}`);
+    cronReads.push(args);
+    return [] as T;
+  });
+  __setListenForTest(async () => () => undefined);
   const { WorkspaceAutomationView } = await import("./WorkspaceAutomationView");
   const { WorkspaceAutomationAction } = await import("./WorkspaceAutomationAction");
   const team: Team = { id: attachment.team_id!, workspace_id: attachment.workspace_id, name: "Sentinel-only Team", lifecycle: "active", created_at: 0 };
@@ -30,7 +38,7 @@ async function main() {
     return <><WorkspaceAutomationAction workspaceId={attachment.workspace_id} workspaceName="Workspace A" onOpen={setWorkspaceId} />{workspaceId && <WorkspaceAutomationView workspaceId={workspaceId} teams={teams} adapter={transport} onClose={() => { closed++; setWorkspaceId(null); }} />}</>;
   }
   const selectTeam = async () => {
-    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Automation Team"]');
+    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Jobs Team"]');
     assert.ok(select);
     await renderAct(async () => { select.value = team.id; select.dispatchEvent(new Event("change", { bubbles: true })); });
   };
@@ -39,7 +47,8 @@ async function main() {
     const action = host.querySelector<HTMLButtonElement>('[data-testid="workspace-automation-action"]');
     assert.ok(action);
     await renderAct(async () => { action.focus(); action.click(); });
-    assert.ok(host.querySelector('[aria-label="Workspace automations"]'));
+    assert.ok(host.querySelector('section[aria-label="Jobs"]'));
+    assert.deepEqual(cronReads[cronReads.length - 1], { workspaceId: attachment.workspace_id }, "Jobs reads Cron records for the exact workspace");
     assert.ok(!host.textContent?.includes(foreign.name));
     assert.equal(transport.attachments[transport.attachments.length - 1].team_id, null);
     await selectTeam();
@@ -78,16 +87,18 @@ async function main() {
     await renderAct(async () => root.render(<Harness teams={[foreign]} />));
     assert.ok(host.textContent?.includes("selected Team is unavailable"));
     assert.equal(host.querySelector('[aria-label="Automations"]'), null);
-    const close = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Close automations");
+    const close = host.querySelector<HTMLButtonElement>('button[aria-label="Close jobs"]');
     assert.ok(close);
     await renderAct(async () => close.click());
-    assert.equal(host.querySelector('[aria-label="Workspace automations"]'), null);
+    assert.equal(host.querySelector('section[aria-label="Jobs"]'), null);
     assert.equal(closed, 1);
     console.log("✓ removed Team stays unavailable and close returns to workspace action");
     console.log("3 WorkspaceAutomationView cases passed");
   } finally {
     await renderAct(async () => root.unmount());
     host.remove();
+    __setInvokeForTest(null);
+    __setListenForTest(null);
   }
 }
 void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });
