@@ -116,8 +116,10 @@ pub(super) fn authorized(target: &Target, evidence: &Evidence<'_>) -> bool {
 
 #[derive(Default)]
 pub(super) struct Agreement {
-    key: Option<(String, u64, String)>,
-    prior: Option<(u64, u64, f64)>,
+    key: Option<(String, String, String)>,
+    prior: Option<(u64, Instant)>,
+    count: usize,
+    minimum: f64,
     adapter: Option<std::sync::Weak<dyn DecisionModel>>,
 }
 
@@ -131,6 +133,8 @@ impl Agreement {
         {
             self.key = None;
             self.prior = None;
+            self.count = 0;
+            self.minimum = 0.0;
         }
         self.adapter = Some(Arc::downgrade(adapter));
     }
@@ -138,36 +142,84 @@ impl Agreement {
     pub(super) fn observe(
         &mut self,
         launch: &str,
-        occurrence: u64,
+        occurrence: &str,
         observation: u64,
-        frame: u64,
         choice: &str,
         confidence: f64,
+        deadline: Instant,
     ) -> (usize, f64) {
-        let key = (launch.to_string(), occurrence, choice.to_string());
+        let key = (
+            launch.to_string(),
+            occurrence.to_string(),
+            choice.to_string(),
+        );
         if self.key.as_ref() != Some(&key) {
             self.prior = None;
+            self.count = 0;
+            self.minimum = 0.0;
         }
         self.key = Some(key);
+        if self
+            .prior
+            .is_some_and(|(_, expires)| Instant::now() >= expires)
+        {
+            self.prior = None;
+            self.count = 0;
+            self.minimum = 0.0;
+        }
         if !(0.90..=1.0).contains(&confidence) {
             self.prior = None;
+            self.count = 0;
+            self.minimum = 0.0;
             return (0, confidence);
         }
-        let result = match self.prior {
-            Some((prior, old_frame, old_confidence))
-                if prior >= observation || old_frame == frame =>
-            {
-                return (1, old_confidence)
-            }
-            Some((_, _, old_confidence)) => (2, old_confidence.min(confidence)),
-            None => (1, confidence),
+        if self.prior.is_some_and(|(prior, _)| prior >= observation) {
+            return (self.count, self.minimum);
+        }
+        self.count = (self.count + 1).min(2);
+        self.minimum = if self.count == 1 {
+            confidence
+        } else {
+            self.minimum.min(confidence)
         };
-        self.prior = Some((observation, frame, confidence));
-        result
+        self.prior = Some((observation, deadline));
+        (self.count, self.minimum)
     }
 }
 
 static AGREEMENT: LazyLock<Mutex<HashMap<String, Agreement>>> = LazyLock::new(Default::default);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Progress {
+    NotHandled,
+    ConfirmationQueued,
+    StepQueued,
+}
+
+pub(super) fn cancel_for_correlation(tab: &str, correlation: &identity::correlation::Correlation) {
+    let mut agreements = AGREEMENT.lock();
+    if agreements.get(tab).is_some_and(|agreement| {
+        agreement
+            .key
+            .as_ref()
+            .is_some_and(|(launch, occurrence, _)| {
+                launch == correlation.launch_id() && occurrence == correlation.occurrence_id()
+            })
+    }) {
+        agreements.remove(tab);
+    }
+}
+
+pub(super) fn cancel_for_verdict(tab: &str, verdict: &CandidateVerdict) {
+    if let Some(correlation) = verdict
+        .receipt
+        .as_ref()
+        .and_then(|receipt| receipt.metadata.envelope.as_ref())
+        .map(|envelope| &envelope.correlation)
+    {
+        cancel_for_correlation(tab, correlation);
+    }
+}
 
 #[cfg(test)]
 static QUALIFICATION_OVERRIDES: LazyLock<
@@ -189,10 +241,10 @@ pub(super) fn override_qualification_for_test(
     adapter: &str,
     model: &str,
     criteria: &str,
-    receipt: serde_json::Value,
+    fixture: serde_json::Value,
 ) -> QualificationOverrideGuard {
     let key = (adapter.to_string(), model.to_string(), criteria.to_string());
-    QUALIFICATION_OVERRIDES.lock().insert(key.clone(), receipt);
+    QUALIFICATION_OVERRIDES.lock().insert(key.clone(), fixture);
     QualificationOverrideGuard(key)
 }
 
@@ -241,7 +293,7 @@ pub(super) fn criteria_version() -> String {
             "safe_choice": "unique_provider_option_values_plus_other_v1",
             "actions": ["provider_declared_update_skip", "delegated_provider_onboarding_not_now"],
             "minimum_component": 0.90,
-            "observations": "two_distinct_ids_and_frames_in_current_occurrence_v1",
+            "observations": "two_distinct_completed_ids_in_current_occurrence_and_step_v1",
         }))
         .unwrap_or_default(),
     )
@@ -255,7 +307,80 @@ fn recorded_qualification(
     .ok()
 }
 
+fn qualified_for(adapter: &str, model: Option<&str>, criteria: &str, heldout_hash: &str) -> bool {
+    #[cfg(test)]
+    if model.is_some_and(|model| {
+        QUALIFICATION_OVERRIDES
+            .lock()
+            .get(&(adapter.to_string(), model.to_string(), criteria.to_string()))
+            .is_some_and(|fixture| fixture["fixture_authorized"] == true)
+    }) {
+        return true;
+    }
+    recorded_qualification().is_some_and(|qualification| {
+        qualification.authorizes(adapter, model, criteria, heldout_hash)
+            && qualification.supports_label(LOGIN_OR_AUTH_REQUIRED)
+    })
+}
+
 impl ServiceContext {
+    pub(super) fn followup_scope(&self, tab_id: &str, screen: &str) -> Option<String> {
+        let tab = self.mux.read().get_tab(tab_id)?.clone();
+        let target = self.model_safe_response_target(tab_id, screen)?;
+        let prompt = identity::prompt_hash(&tab)?;
+        if tab.pending_prompt.as_ref() != Some(&target.prompt)
+            || tab.pending_prompt_kind
+                != Some(match target.kind {
+                    Kind::Update => codeterm_types::pty::PromptKind::ManualUpdate,
+                    Kind::Onboarding => codeterm_types::pty::PromptKind::Provider,
+                })
+        {
+            return None;
+        }
+        let config = self.supporter_decision_config();
+        Some(supporter::criteria_hash(
+            &serde_json::to_vec(&serde_json::json!([
+                identity::LocalIdentity::of_tab(&tab).launch_key,
+                prompt,
+                target.frame_key,
+                identity::supporter_policy(&config),
+                self.ledger_snapshot(tab_id),
+            ]))
+            .ok()?,
+        ))
+    }
+
+    pub(super) fn try_model_safe_response_from_receipt(
+        &self,
+        tab_id: &str,
+        verdict: &CandidateVerdict,
+    ) -> Progress {
+        let Some(receipt) = verdict.receipt.as_ref() else {
+            return Progress::NotHandled;
+        };
+        let Some(envelope) = receipt.metadata.envelope.as_ref() else {
+            return Progress::NotHandled;
+        };
+        let Some(tab) = receipt.metadata.tab_snapshot.as_ref() else {
+            cancel_for_correlation(tab_id, &envelope.correlation);
+            return Progress::NotHandled;
+        };
+        let Some(agent_type) = tab.agent_type.clone() else {
+            cancel_for_correlation(tab_id, &envelope.correlation);
+            return Progress::NotHandled;
+        };
+        self.try_model_safe_response(
+            &crate::agent::tab_state::TabStateSnapshot {
+                tab_id: tab_id.to_string(),
+                agent_type,
+                session_id: tab.agent_session_id.clone(),
+                cwd: tab.cwd.clone(),
+                screen_text: envelope.captured_screen.clone(),
+            },
+            verdict,
+        )
+    }
+
     pub(super) fn model_safe_response_target(&self, tab: &str, screen: &str) -> Option<Target> {
         let tab = self.mux.read().get_tab(tab)?.clone();
         let provider = self
@@ -298,32 +423,38 @@ impl ServiceContext {
         &self,
         snapshot: &crate::agent::tab_state::TabStateSnapshot,
         verdict: &CandidateVerdict,
-    ) -> bool {
+    ) -> Progress {
         let tab_id = &snapshot.tab_id;
-        if !privacy::complete_screen(&snapshot.screen_text) {
-            AGREEMENT.lock().remove(tab_id);
-            return false;
-        }
         let Some(receipt) = verdict.receipt.as_ref() else {
-            return false;
+            return Progress::NotHandled;
         };
         let Some(envelope) = receipt.metadata.envelope.as_ref() else {
-            return false;
+            return Progress::NotHandled;
         };
+        if !privacy::complete_screen(&snapshot.screen_text) {
+            cancel_for_correlation(tab_id, &envelope.correlation);
+            return Progress::NotHandled;
+        }
+        if envelope.correlation.decision_point() != "prompt_candidate"
+            || !envelope.correlation.is_safe_response_producer()
+        {
+            cancel_for_correlation(tab_id, &envelope.correlation);
+            return Progress::NotHandled;
+        }
         let Some(target) = self
             .model_safe_response_target(tab_id, &snapshot.screen_text)
             .filter(|target| target.kind.label_matches(&verdict.label))
         else {
-            AGREEMENT.lock().remove(tab_id);
-            return false;
+            cancel_for_correlation(tab_id, &envelope.correlation);
+            return Progress::NotHandled;
         };
         if !verdict.live_prompt()
             || receipt.metadata.declared_safe_choice.as_deref() != Some(&target.choice)
             || !candidates::allows_prompt(verdict, &snapshot.screen_text, &target.prompt)
             || self.prompt_detector.lock().active_prompt_explicit(tab_id) == Some(true)
         {
-            AGREEMENT.lock().remove(tab_id);
-            return false;
+            cancel_for_correlation(tab_id, &envelope.correlation);
+            return Progress::NotHandled;
         }
         let choice = verdict
             .safe_choice
@@ -333,31 +464,22 @@ impl ServiceContext {
             .filter(|(choice, _)| *choice == target.choice)
             .map_or(0.0, |(_, confidence)| verdict.confidence.min(confidence));
         let Some(adapter) = envelope.adapter.as_ref() else {
-            return false;
+            cancel_for_correlation(tab_id, &envelope.correlation);
+            return Progress::NotHandled;
         };
+        let config = self.supporter_decision_config();
         let semantic = format!(
-            "{:?}:{}:{}:{}:{:?}:{:?}:{:?}",
+            "{:?}:{}:{}:{}:{}:{:?}:{:?}:{:?}:{:?}",
             target.kind,
             verdict.label,
             target.choice,
+            target.frame_key,
             receipt.adapter_id,
             adapter.model_id(),
             envelope.policy_hash,
-            envelope.local
+            envelope.local,
+            envelope.ledgers
         );
-        let (observations, minimum) = {
-            let mut books = AGREEMENT.lock();
-            let book = books.entry(tab_id.clone()).or_default();
-            book.bind_adapter(adapter);
-            book.observe(
-                &receipt.metadata.session_key,
-                envelope.observation.occurrence,
-                envelope.observation_id,
-                envelope.frame_hash,
-                &semantic,
-                confidence,
-            )
-        };
         let tab = self.mux.read().get_tab(tab_id).cloned();
         let eligible = tab.as_ref().is_some_and(|tab| {
             tab.pending_prompt.as_ref() == Some(&target.prompt)
@@ -367,18 +489,57 @@ impl ServiceContext {
                         Kind::Onboarding => codeterm_types::pty::PromptKind::Provider,
                     })
         });
-        let config = crate::config::load_config().supporter;
+        if !eligible
+            || !receipt.unclaimed_mutation_current(self, tab_id)
+            || config.active_id() != Some(receipt.adapter_id.as_str())
+        {
+            cancel_for_correlation(tab_id, &envelope.correlation);
+            return Progress::NotHandled;
+        }
         let model = envelope.adapter.as_ref().and_then(|model| model.model_id());
-        let qualified = recorded_qualification().is_some_and(|qualification| {
-            qualification.authorizes(
-                &receipt.adapter_id,
-                model.as_deref(),
-                &criteria_version(),
-                &supporter::criteria_hash(include_bytes!(
-                    "../../../../evals/tab-state-jev/heldout.jsonl"
-                )),
-            ) && qualification.supports_label(LOGIN_OR_AUTH_REQUIRED)
-        });
+        let heldout_hash = supporter::criteria_hash(include_bytes!(
+            "../../../../evals/tab-state-jev/heldout.jsonl"
+        ));
+        let qualified = qualified_for(
+            &receipt.adapter_id,
+            model.as_deref(),
+            &criteria_version(),
+            &heldout_hash,
+        );
+        let Some(scope) = self.followup_scope(tab_id, &snapshot.screen_text) else {
+            cancel_for_correlation(tab_id, &envelope.correlation);
+            return Progress::NotHandled;
+        };
+        let (observations, minimum) = {
+            let mut books = AGREEMENT.lock();
+            let book = books.entry(tab_id.clone()).or_default();
+            book.bind_adapter(adapter);
+            book.observe(
+                envelope.correlation.launch_id(),
+                envelope.correlation.occurrence_id(),
+                envelope.observation_id,
+                &semantic,
+                confidence,
+                receipt.deadline,
+            )
+        };
+        if observations == 1 {
+            if !coordinator::global().claim_followup(tab_id, &scope, true) {
+                cancel_for_correlation(tab_id, &envelope.correlation);
+                return Progress::NotHandled;
+            }
+            if self.observe_scrape_candidate_from(
+                snapshot.clone(),
+                |_| {},
+                ObservationTrigger::PromptConfirmation,
+                Some(envelope.observation_id),
+                envelope.local.as_ref(),
+            ) {
+                return Progress::ConfirmationQueued;
+            }
+            cancel_for_correlation(tab_id, &envelope.correlation);
+            return Progress::NotHandled;
+        }
         if !authorized(
             &target,
             &Evidence {
@@ -391,10 +552,11 @@ impl ServiceContext {
                 model_choice: choice,
             },
         ) {
-            return false;
+            return Progress::NotHandled;
         }
         let Some(pty) = tab.and_then(|tab| tab.pty_id) else {
-            return false;
+            cancel_for_correlation(tab_id, &envelope.correlation);
+            return Progress::NotHandled;
         };
         let episode = format!(
             "{}:{}",
@@ -412,7 +574,7 @@ impl ServiceContext {
             ),
         };
         if !claimed {
-            return false;
+            return Progress::NotHandled;
         }
         let ledgers = self.ledger_snapshot(tab_id);
         let owned_revision = match target.kind {
@@ -432,6 +594,8 @@ impl ServiceContext {
         let receipt = receipt.clone();
         let step = target.step.clone();
         let label = verdict.label.clone();
+        let correlation = envelope.correlation.clone();
+        let observation_id = envelope.observation_id;
         super::super::output::write_bound_prompt_steps(
             self.pty.clone(),
             pty,
@@ -455,16 +619,20 @@ impl ServiceContext {
                 } else if !current {
                     super::super::output::release_model_update_step(&tab, &occurrence);
                 }
-                let envelope = receipt.metadata.envelope.as_ref().unwrap();
                 let mut event = identity::journal(
                     &tab,
-                    envelope.observation_id,
+                    identity::correlation::RecordIdentity::captured(observation_id, &correlation),
                     identity::DecisionSource::Adapter,
                     &label,
                     Some(minimum),
                     &receipt.metadata.title,
                 );
                 event["action"] = serde_json::json!("recovery");
+                event["phase"] = serde_json::json!(if current {
+                    "action_authorized"
+                } else {
+                    "action_stale"
+                });
                 event["reason"] = serde_json::json!(if current {
                     "provider_safe_step_authorized"
                 } else {
@@ -489,7 +657,7 @@ impl ServiceContext {
                 current
             },
         );
-        true
+        Progress::StepQueued
     }
 }
 

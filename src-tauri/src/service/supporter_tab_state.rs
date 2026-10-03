@@ -49,6 +49,7 @@ pub(crate) use privacy::value as redact_decision_diagnostic;
 mod questions;
 pub(crate) mod safe_choice;
 mod safe_response;
+pub(crate) use safe_response::Progress as SafeResponseProgress;
 mod state;
 
 pub(crate) use state::{
@@ -93,6 +94,10 @@ pub(crate) enum ObservationTrigger {
     SpawnDeadline,
     StartupEscalation,
     PromptCandidate,
+    OutputCandidate,
+    ParkedEdge,
+    PromptEstablished,
+    PromptConfirmation,
     WorkerIdle,
     BusyNoOutput,
     TabExit,
@@ -104,7 +109,11 @@ impl ObservationTrigger {
             Self::SpawnReady => ObservationEvent::SpawnReady,
             Self::SpawnDeadline => ObservationEvent::SpawnDeadline,
             Self::StartupEscalation => ObservationEvent::StartupEscalation,
-            Self::PromptCandidate => ObservationEvent::PromptCandidate,
+            Self::PromptCandidate
+            | Self::OutputCandidate
+            | Self::ParkedEdge
+            | Self::PromptEstablished
+            | Self::PromptConfirmation => ObservationEvent::PromptCandidate,
             Self::WorkerIdle => ObservationEvent::WorkerIdle,
             Self::BusyNoOutput => ObservationEvent::BusyNoOutput,
             Self::TabExit => ObservationEvent::TabExit,
@@ -116,7 +125,11 @@ impl ObservationTrigger {
             Self::SpawnReady => "launch_ready",
             Self::SpawnDeadline => "startup_deadline",
             Self::StartupEscalation => "startup_escalation",
-            Self::PromptCandidate => "prompt_candidate",
+            Self::PromptCandidate
+            | Self::OutputCandidate
+            | Self::ParkedEdge
+            | Self::PromptEstablished
+            | Self::PromptConfirmation => "prompt_candidate",
             Self::WorkerIdle => "worker_idle_without_report",
             Self::BusyNoOutput => "busy_without_output",
             Self::TabExit => "tab_exit",
@@ -125,6 +138,32 @@ impl ObservationTrigger {
 
     fn is_spawn(self) -> bool {
         matches!(self, Self::SpawnReady | Self::SpawnDeadline)
+    }
+
+    fn producer(self) -> identity::correlation::Producer {
+        use identity::correlation::Producer;
+        match self {
+            Self::OutputCandidate => Producer::OutputCandidate,
+            Self::ParkedEdge => Producer::ParkedEdge,
+            Self::PromptEstablished => Producer::PromptEstablished,
+            Self::PromptConfirmation => Producer::PromptConfirmation,
+            _ => Producer::LifecycleEvent,
+        }
+    }
+
+    fn is_prompt_candidate(self) -> bool {
+        matches!(
+            self,
+            Self::PromptCandidate
+                | Self::OutputCandidate
+                | Self::ParkedEdge
+                | Self::PromptEstablished
+                | Self::PromptConfirmation
+        )
+    }
+
+    fn is_internal_candidate(self) -> bool {
+        matches!(self, Self::PromptEstablished | Self::PromptConfirmation)
     }
 
     fn after_startup_deadline(self) -> bool {
@@ -443,7 +482,7 @@ impl ShadowHost for ServiceContext {
             attempt_id: task_binding.and_then(|binding| binding.attempt_id.clone()),
             prompt_options,
         };
-        if matches!(trigger, ObservationTrigger::PromptCandidate) {
+        if trigger.is_prompt_candidate() {
             self.add_safe_response_metadata(tab_id, screen, &mut metadata);
         }
         Ok(metadata)
@@ -517,7 +556,9 @@ impl ServiceContext {
         runtime: Arc<SupporterRuntime>,
     ) -> TestSupporterOverrideGuard {
         let key = Arc::as_ptr(&self.mux) as usize;
-        TEST_SUPPORTER_OVERRIDES.lock().insert(key, (config, runtime));
+        TEST_SUPPORTER_OVERRIDES
+            .lock()
+            .insert(key, (config, runtime));
         TestSupporterOverrideGuard(key)
     }
 
