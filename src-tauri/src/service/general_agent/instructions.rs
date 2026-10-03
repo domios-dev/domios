@@ -155,17 +155,48 @@ fn compose_system_prompt(agent: &str) -> String {
 const GENERATED_START: &str = "<!-- CODETERM-GENERATED-START -->";
 const GENERATED_END: &str = "<!-- CODETERM-GENERATED-END -->";
 const LEGACY_CONTRACT_START: &str = "# CodeTerm General Agent (v";
+const LEGACY_CONTRACT_MEMORY: &str = include_str!("legacy_contract_memory.txt");
+const LEGACY_CONTRACT_PRIMER: &str = include_str!("legacy_contract_primer.txt");
 
 fn generated_contract_bounds(existing: &str) -> Option<(usize, usize)> {
     match (existing.find(GENERATED_START), existing.find(GENERATED_END)) {
         (Some(start), Some(end)) if start < end => Some((start, end + GENERATED_END.len())),
-        _ => {
-            let start = existing.find(LEGACY_CONTRACT_START)?;
-            let memory_offset = existing[start..].find(crate::prompts::BRIDGE_MEM.trim())?;
-            let end = start + memory_offset + crate::prompts::BRIDGE_MEM.trim().len();
-            Some((start, end))
-        }
+        _ => unmarked_contract_bounds(existing),
     }
+}
+
+fn unmarked_contract_bounds(existing: &str) -> Option<(usize, usize)> {
+    let current_heading = crate::prompts::GENERAL_AGENT_TEMPLATE
+        .split("{version}")
+        .next()?;
+    let heading = [current_heading, LEGACY_CONTRACT_START]
+        .into_iter()
+        .filter_map(|heading| existing.find(heading))
+        .min()?;
+    let end = [
+        crate::prompts::BRIDGE_MEM,
+        LEGACY_CONTRACT_MEMORY,
+        crate::prompts::BRIDGE_MEM.trim(),
+        LEGACY_CONTRACT_MEMORY.trim(),
+    ]
+    .into_iter()
+    .find_map(|memory| {
+        let offset = existing[heading..].find(memory)?;
+        Some(heading + offset + memory.len())
+    })?;
+    let start = [
+        crate::prompts::AGENT_CODETERM_PRIMER,
+        LEGACY_CONTRACT_PRIMER,
+    ]
+    .into_iter()
+    .find_map(|primer| {
+        let prelude = format!("{primer}\n\n---\n\n");
+        existing[..heading]
+            .strip_suffix(&prelude)
+            .map(|notes| notes.len())
+    })
+    .unwrap_or(heading);
+    Some((start, end))
 }
 
 fn generated_contract_file(existing: &str, contract: &str) -> String {
@@ -378,7 +409,12 @@ mod tests {
                 .count(),
             1
         );
-        assert_eq!(rendered.matches(cli_without_memory_section().trim()).count(), 1);
+        assert_eq!(
+            rendered
+                .matches(cli_without_memory_section().trim())
+                .count(),
+            1
+        );
         assert!(!rendered.contains("<!-- bootstrap: true -->"));
         assert!(!rendered.contains(crate::prompts::BOOTSTRAP_INSTRUCTIONS_TEMPLATE.trim()));
     }
@@ -411,8 +447,16 @@ mod tests {
                 1,
                 "the written instruction file must carry the AgentPad rule exactly once"
             );
-            assert_eq!(contract.matches(cli_without_memory_section().trim()).count(), 1);
-            assert_eq!(contract.matches(crate::prompts::BRIDGE_MEM.trim()).count(), 1);
+            assert_eq!(
+                contract
+                    .matches(cli_without_memory_section().trim())
+                    .count(),
+                1
+            );
+            assert_eq!(
+                contract.matches(crate::prompts::BRIDGE_MEM.trim()).count(),
+                1
+            );
             assert_eq!(contract.matches("IDENTITY_SENTINEL").count(), 1);
             assert_eq!(contract.matches("SOUL_SENTINEL").count(), 1);
         }
@@ -434,7 +478,10 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("identity.md"), "LEGACY_IDENTITY").unwrap();
         std::fs::write(dir.join("soul.md"), "LEGACY_SOUL").unwrap();
-        let legacy_contract = render_agent_md_at(&dir, "codex", "");
+        let legacy_contract = format!(
+            "{LEGACY_CONTRACT_PRIMER}\n\n---\n\n{LEGACY_CONTRACT_START}0.0.0)\nOPAQUE_LEGACY_BODY\n\n{}",
+            LEGACY_CONTRACT_MEMORY,
+        );
         let prepended_notes = "USER PREFIX\r\nkeep-leading-space:  yes\n";
         let appended_notes = "\n\nUSER SUFFIX  \r\nkeep-final-newline\n";
         std::fs::write(
@@ -449,7 +496,10 @@ mod tests {
             assert!(agents.starts_with(prepended_notes));
             assert!(agents.ends_with(appended_notes));
             assert_eq!(agents.matches(GENERATED_START).count(), 1);
-            assert_eq!(agents.matches(cli_without_memory_section().trim()).count(), 1);
+            assert_eq!(
+                agents.matches(cli_without_memory_section().trim()).count(),
+                1
+            );
             assert_eq!(agents.matches(crate::prompts::BRIDGE_MEM.trim()).count(), 1);
         }
         std::fs::remove_dir_all(dir).unwrap();
@@ -461,7 +511,8 @@ mod tests {
         let contract = render_agent_md_at(dir.path(), "codex", "");
         let prefix = "OPAQUE_USER_PREFIX\r\n";
         let suffix = "\nOPAQUE_USER_SUFFIX  \r\n";
-        let rewritten = generated_contract_file(&format!("{prefix}{contract}{suffix}"), "CURRENT_CONTRACT");
+        let rewritten =
+            generated_contract_file(&format!("{prefix}{contract}{suffix}"), "CURRENT_CONTRACT");
 
         assert_eq!(
             rewritten,
@@ -486,6 +537,23 @@ mod tests {
             format!("{prefix}{GENERATED_START}\n{replacement}\n{GENERATED_END}{suffix}")
         );
         assert_eq!(generated_contract_file(&rewritten, replacement), rewritten);
+    }
+
+    #[test]
+    fn incomplete_or_foreign_unmarked_contract_is_preserved_as_notes() {
+        let current_heading = crate::prompts::GENERAL_AGENT_TEMPLATE
+            .split("{version}")
+            .next()
+            .unwrap();
+        for existing in [
+            format!("{current_heading}0.0.0)\nOPAQUE_INCOMPLETE_BODY\n"),
+            format!("# FOREIGN_HEADER\n{}\n", crate::prompts::BRIDGE_MEM.trim()),
+        ] {
+            assert_eq!(
+                generated_contract_file(&existing, "OPAQUE_REPLACEMENT"),
+                format!("{GENERATED_START}\nOPAQUE_REPLACEMENT\n{GENERATED_END}\n\n{existing}")
+            );
+        }
     }
 
     #[test]
