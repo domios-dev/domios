@@ -500,7 +500,7 @@ export function SecretsTab({
                 </form>
                 <div className="text-[10px] text-[var(--ct-muted-fg)]">
                   The vault must accept the password first; the backend then keeps it in its own
-                  protected bucket. CodeTerm writes no separate credential file.
+                  protected bucket. Domios writes no separate credential file.
                 </div>
               </div>
             )

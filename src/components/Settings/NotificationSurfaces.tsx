@@ -71,7 +71,7 @@ export function NotificationSurfaces({
           data-testid="settings-desktop-permission-refused"
           className="text-[10px] text-[var(--ct-yellow)] leading-relaxed"
         >
-          The system refused notifications for CodeTerm, so this stays off until you allow them in
+          The system refused notifications for Domios, so this stays off until you allow them in
           system settings.
         </p>
       )}

@@ -48,7 +48,7 @@ export function SupporterTabStateFigure() {
       viewBox="0 0 420 196"
       className="w-full max-w-lg mx-auto"
       role="img"
-      aria-label="Tab check with the Supporter Agent: a starting tab's screen and recent context go to the Supporter, which reads it as looks fine, a weak hint, or a strong signal that the tab seems stuck. It is off by default, and CodeTerm's own checks stay in charge."
+      aria-label="Tab check with the Supporter Agent: a starting tab's screen and recent context go to the Supporter, which reads it as looks fine, a weak hint, or a strong signal that the tab seems stuck. It is off by default, and Domios's own checks stay in charge."
     >
       <defs>
         <ArrowMarker id={TAB_MARKER} />
@@ -64,7 +64,7 @@ export function SupporterTabStateFigure() {
           <Box x={312} y={o.y} w={100} h={44} label={o.label} sub={o.sub} dashed={o.dashed} emphasis={o.emphasis} />
         </g>
       ))}
-      <Caption x={210} y={190} text="Off by default. CodeTerm's own checks stay in charge." />
+      <Caption x={210} y={190} text="Off by default. Domios's own checks stay in charge." />
     </svg>
   );
 }
