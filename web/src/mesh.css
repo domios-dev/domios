@@ -69,10 +69,6 @@
 .machine-agent:first-child { position: relative; }
 .machine-agent:first-child::after { content: ''; position: absolute; inset: -1px; border: 1px solid var(--ct-accent); border-radius: inherit; background: color-mix(in srgb, var(--ct-accent) 12%, transparent); opacity: var(--agent-energy, 0); pointer-events: none; }
 .machine-task { font-size: 10px; color: var(--ct-muted-fg); margin-top: 11px; }
-.hero-capabilities { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; max-width: 760px; margin: 0 auto; padding: 0; color: var(--ct-heading); list-style: none; }
-.hero-capabilities > li { display: grid; grid-template-rows: auto 1fr; align-content: start; gap: 5px; min-width: 0; padding: 12px 10px; border-radius: 10px; background: color-mix(in srgb, var(--ct-surface) 45%, var(--ct-bg)); font-size: 14px; line-height: 1.4; }
-.hero-capabilities > li > span { font-weight: 500; }
-.hero-capabilities small { color: var(--ct-muted-fg); font-size: 12px; font-weight: 400; line-height: 1.5; }
 .liquid-transfer { color: var(--ct-accent); }
 .liquid-transfer[data-kind="report"] { color: var(--ct-magenta); }
 .liquid-neck, .liquid-drop > path, .liquid-satellite { fill: currentColor; }
@@ -111,8 +107,4 @@
   .machine-agents { margin-top: 11px; }
   .machine-task { display: none; }
   .liquid-label text { font-size: 10px; }
-  .hero-capabilities { gap: 6px; }
-  .hero-capabilities > li { padding: 10px 6px; font-size: 12px; }
-  .hero-capabilities > li > span { display: flex; align-items: center; justify-content: center; min-height: 2.8em; }
-  .hero-capabilities small { font-size: 11px; }
 }
