@@ -266,7 +266,7 @@ def https_exchange(raw, token, end, *, policy=None, clock=time.monotonic):
             raise WorkerError("socket_close_unconfirmed", **facts) from error
 
 
-WINDOWS_SUBPROCESS_SHA256 = "6628ffdd65c093a6c08cae01ffe82877d3ced515aac9e7be0cff16512c30a7d9"
+WINDOWS_SUBPROCESS_SHA256 = "a7b6bdf4657b018e4e76f22ebbb975a5fa6f0501088177fe950df1e20c18b209"
 WINDOWS_ADMINS = frozenset(("S-1-5-18", "S-1-5-32-544"))
 WINDOWS_MUTATION = 0x500D0156
 WINDOWS_REPLACEMENT = 0x500D0140
