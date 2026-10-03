@@ -8,15 +8,22 @@ use std::collections::BTreeMap;
 use std::io::Read;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
-use std::sync::mpsc;
-use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+#[cfg(test)]
+mod pty;
+use pty::{
+    child_exit_is_success, panic_message, run_modal, stage_failure, CleanupEvidence,
+    CompletionEvidence, ModalStage, PtyChild, ReaderEnd, ReaderEvidence, ReaderJoinState,
+    ReaderJoinStatus, ReaderWait, ReaderWaitStatus, StageFailureReason,
+};
 
 const STAGE_TIMEOUT: Duration = Duration::from_secs(15);
 const COMPLETION_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_STAGE_SCREEN_BYTES: usize = 8 * 1024;
 const MAX_MODEL_SCREENS: usize = 4;
 const MAX_MODEL_SCREEN_BYTES: usize = 8 * 1024;
+const MAX_FIXTURE_DIAGNOSTIC_BYTES: usize = 64 * 1024;
 const MAX_JOURNAL_BYTES: usize = 64 * 1024;
 const INITIAL_MARKER: &str = "SAFE_TEST_INITIAL_MODAL";
 const FOCUS_MARKER: &str = "SAFE_TEST_FOCUS_EVENT";
@@ -30,21 +37,41 @@ struct StaticModalModel {
     model_id: String,
     screens: Arc<Mutex<CapturedScreens>>,
 }
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Default)]
 struct CapturedScreens {
     count: usize,
     snapshots: Vec<BoundedText>,
     truncated: bool,
+    adjacent_equal: bool,
+    previous_screen: Option<String>,
 }
 impl CapturedScreens {
     fn record(&mut self, screen: &str) {
         self.count += 1;
+        self.adjacent_equal |= self.previous_screen.as_deref() == Some(screen);
+        self.previous_screen = Some(screen.to_string());
         if self.snapshots.len() == MAX_MODEL_SCREENS {
             self.truncated = true;
         } else {
-            self.snapshots
-                .push(BoundedText::tail(screen, MAX_MODEL_SCREEN_BYTES));
+            let safe_screen = super::super::privacy::screen(screen);
+            let snapshot = BoundedText::tail(&safe_screen, MAX_MODEL_SCREEN_BYTES);
+            self.truncated |= snapshot.truncated;
+            self.snapshots.push(snapshot);
         }
+    }
+    fn meets_original_capture_oracle(&self) -> bool {
+        self.count >= 4 && self.adjacent_equal
+    }
+}
+impl std::fmt::Debug for CapturedScreens {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CapturedScreens")
+            .field("count", &self.count)
+            .field("snapshots", &self.snapshots)
+            .field("truncated", &self.truncated)
+            .field("adjacent_equal", &self.adjacent_equal)
+            .finish()
     }
 }
 impl DecisionModel for StaticModalModel {
@@ -142,564 +169,6 @@ impl BoundedText {
         Self {
             text: format!("{prefix}{}", &text[start..]),
             truncated: true,
-        }
-    }
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ModalStage {
-    Initial,
-    Focus,
-    Closed,
-}
-impl ModalStage {
-    const ALL: [Self; 3] = [Self::Initial, Self::Focus, Self::Closed];
-    fn marker(self) -> &'static str {
-        match self {
-            Self::Initial => INITIAL_MARKER,
-            Self::Focus => FOCUS_MARKER,
-            Self::Closed => CLOSED_MARKER,
-        }
-    }
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum ReaderEnd {
-    Eof,
-    Panicked,
-    ReadError {
-        kind: String,
-        raw_os_error: Option<i32>,
-    },
-    SpawnError {
-        kind: String,
-    },
-}
-impl ReaderEnd {
-    fn is_clean_eof(&self) -> bool {
-        matches!(self, Self::Eof)
-    }
-}
-#[derive(Clone, Debug)]
-struct ScreenSnapshot {
-    sequence: u64,
-    observed_at: Instant,
-    screen: BoundedText,
-}
-#[derive(Clone, Debug)]
-struct StageEvent {
-    stage: ModalStage,
-    snapshot: ScreenSnapshot,
-}
-#[derive(Clone, Debug)]
-struct ReaderEvidence {
-    started_at: Instant,
-    sequence: u64,
-    last_snapshot: Option<ScreenSnapshot>,
-    stage_events: Vec<StageEvent>,
-    end: Option<ReaderEnd>,
-    end_elapsed_ms: Option<u128>,
-    reader_finished: bool,
-}
-impl ReaderEvidence {
-    fn new() -> Self {
-        Self {
-            started_at: Instant::now(),
-            sequence: 0,
-            last_snapshot: None,
-            stage_events: Vec::new(),
-            end: None,
-            end_elapsed_ms: None,
-            reader_finished: false,
-        }
-    }
-    fn record_screen(&mut self, screen: &str) {
-        self.sequence += 1;
-        let snapshot = ScreenSnapshot {
-            sequence: self.sequence,
-            observed_at: Instant::now(),
-            screen: BoundedText::tail(screen, MAX_STAGE_SCREEN_BYTES),
-        };
-        self.last_snapshot = Some(snapshot.clone());
-        for stage in ModalStage::ALL {
-            if screen.contains(stage.marker())
-                && !self.stage_events.iter().any(|event| event.stage == stage)
-            {
-                self.stage_events.push(StageEvent {
-                    stage,
-                    snapshot: snapshot.clone(),
-                });
-            }
-        }
-    }
-    fn record_end(&mut self, end: ReaderEnd) {
-        self.end_elapsed_ms = Some(self.started_at.elapsed().as_millis());
-        self.end = Some(end);
-    }
-    fn mark_finished(&mut self) {
-        self.reader_finished = true;
-    }
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum StageFailureReason {
-    Deadline,
-    ReaderEof,
-    ReaderError(ReaderEnd),
-    NotificationDisconnected,
-}
-#[derive(Clone, Debug)]
-struct StageFailure {
-    stage: ModalStage,
-    marker: &'static str,
-    reason: StageFailureReason,
-    elapsed_ms: u128,
-    deadline_ms: u128,
-    event_sequence: u64,
-    last_snapshot: Option<ScreenSnapshot>,
-}
-fn stage_failure(
-    stage: ModalStage,
-    reason: StageFailureReason,
-    elapsed_ms: u128,
-    evidence: &ReaderEvidence,
-) -> StageFailure {
-    StageFailure {
-        stage,
-        marker: stage.marker(),
-        reason,
-        elapsed_ms,
-        deadline_ms: STAGE_TIMEOUT.as_millis(),
-        event_sequence: evidence.sequence,
-        last_snapshot: evidence.last_snapshot.clone(),
-    }
-}
-fn wait_for_screen(
-    evidence: &Arc<Mutex<ReaderEvidence>>,
-    wake: &mpsc::Receiver<()>,
-    stage: ModalStage,
-) -> Result<StageEvent, StageFailure> {
-    let started_at = Instant::now();
-    let deadline = started_at + STAGE_TIMEOUT;
-    let fail = |reason, evidence: &ReaderEvidence| {
-        stage_failure(stage, reason, started_at.elapsed().as_millis(), evidence)
-    };
-    loop {
-        let snapshot = evidence.lock().clone();
-        if let Some(event) = snapshot
-            .stage_events
-            .iter()
-            .find(|event| event.stage == stage)
-            .cloned()
-        {
-            if event.snapshot.observed_at <= deadline {
-                return Ok(event);
-            }
-            return Err(fail(StageFailureReason::Deadline, &snapshot));
-        }
-        if let Some(end) = snapshot.end.clone() {
-            let reason = if end == ReaderEnd::Eof {
-                StageFailureReason::ReaderEof
-            } else {
-                StageFailureReason::ReaderError(end)
-            };
-            return Err(fail(reason, &snapshot));
-        }
-        if snapshot.reader_finished {
-            return Err(fail(
-                StageFailureReason::NotificationDisconnected,
-                &snapshot,
-            ));
-        }
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            return Err(fail(StageFailureReason::Deadline, &snapshot));
-        }
-        match wake.recv_timeout(remaining) {
-            Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) => {}
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                let snapshot = evidence.lock().clone();
-                return Err(fail(
-                    StageFailureReason::NotificationDisconnected,
-                    &snapshot,
-                ));
-            }
-        }
-    }
-}
-struct ReaderFinish {
-    session: Arc<codeterm_pty::pty::manager::PtySession>,
-    evidence: Arc<Mutex<ReaderEvidence>>,
-    wake: mpsc::SyncSender<()>,
-}
-impl Drop for ReaderFinish {
-    fn drop(&mut self) {
-        self.session.mark_backend_reader_finished();
-        let mut evidence = self.evidence.lock();
-        if std::thread::panicking() && evidence.end.is_none() {
-            evidence.record_end(ReaderEnd::Panicked);
-        }
-        evidence.mark_finished();
-        let _ = self.wake.try_send(());
-    }
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum ReaderWaitStatus {
-    Completed,
-    Late,
-    Deadline,
-    NotificationDisconnected,
-}
-#[derive(Clone, Debug)]
-struct ReaderWait {
-    end: Option<ReaderEnd>,
-    status: ReaderWaitStatus,
-    observed_elapsed_ms: Option<u128>,
-}
-fn reader_wait(
-    end: Option<ReaderEnd>,
-    status: ReaderWaitStatus,
-    started_at: Instant,
-) -> ReaderWait {
-    ReaderWait {
-        end,
-        status,
-        observed_elapsed_ms: Some(started_at.elapsed().as_millis()),
-    }
-}
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum ReaderJoinStatus {
-    Joined,
-    Panicked(String),
-    NotAttempted,
-    Deadline,
-}
-#[derive(Clone, Debug)]
-struct CompletionEvidence {
-    child_exit: Option<Option<i32>>,
-    child_exit_observed_ms: Option<u128>,
-    reader: ReaderWait,
-    reader_join: ReaderJoinStatus,
-    within_deadline: bool,
-    elapsed_ms: u128,
-}
-impl CompletionEvidence {
-    fn succeeds(&self) -> bool {
-        let limit = COMPLETION_TIMEOUT.as_millis();
-        child_exit_is_success(self.child_exit)
-            && self
-                .reader
-                .end
-                .as_ref()
-                .is_some_and(ReaderEnd::is_clean_eof)
-            && self.reader.status == ReaderWaitStatus::Completed
-            && self.reader_join == ReaderJoinStatus::Joined
-            && self.within_deadline
-            && self.elapsed_ms <= limit
-            && self
-                .child_exit_observed_ms
-                .is_some_and(|elapsed| elapsed <= limit)
-            && self
-                .reader
-                .observed_elapsed_ms
-                .is_some_and(|elapsed| elapsed <= limit)
-    }
-}
-#[derive(Clone, Debug)]
-struct CleanupEvidence {
-    generation_matched: bool,
-    begin_kill_error: Option<String>,
-    reap_error: Option<String>,
-    reaped: bool,
-    post_cleanup_child_exit: Option<Option<i32>>,
-    post_cleanup_reader_end: Option<ReaderEnd>,
-    reader_join: ReaderJoinStatus,
-    reader_started: bool,
-}
-impl CleanupEvidence {
-    fn succeeds(&self) -> bool {
-        self.generation_matched
-            && self.begin_kill_error.is_none()
-            && self.reap_error.is_none()
-            && self.reaped
-            && !matches!(
-                &self.reader_join,
-                ReaderJoinStatus::Panicked(_) | ReaderJoinStatus::Deadline
-            )
-            && (!self.reader_started
-                || (self.post_cleanup_reader_end.is_some()
-                    && self.reader_join == ReaderJoinStatus::Joined))
-    }
-}
-struct PtyChild {
-    service: crate::service::ServiceContext,
-    pty: String,
-    tab_id: String,
-    session: Arc<codeterm_pty::pty::manager::PtySession>,
-    generation: u64,
-    reader_evidence: Arc<Mutex<ReaderEvidence>>,
-    wake: mpsc::Receiver<()>,
-    wake_sender: Option<mpsc::SyncSender<()>>,
-    reader_join: Option<JoinHandle<()>>,
-    reader_started: bool,
-    completion_deadline: Option<Instant>,
-    completion: Option<CompletionEvidence>,
-    cleanup_started: bool,
-}
-impl PtyChild {
-    fn new(
-        service: crate::service::ServiceContext,
-        pty: String,
-        tab_id: String,
-        session: Arc<codeterm_pty::pty::manager::PtySession>,
-    ) -> Self {
-        let generation = session.generation;
-        let reader_evidence = Arc::new(Mutex::new(ReaderEvidence::new()));
-        let (wake_sender, wake) = mpsc::sync_channel(1);
-        Self {
-            service,
-            pty,
-            tab_id,
-            session,
-            generation,
-            reader_evidence,
-            wake,
-            wake_sender: Some(wake_sender),
-            reader_join: None,
-            reader_started: false,
-            completion_deadline: None,
-            completion: None,
-            cleanup_started: false,
-        }
-    }
-    fn start_reader(&mut self) -> Result<(), String> {
-        let mut reader = self
-            .session
-            .reader
-            .lock()
-            .map_err(|error| error.to_string())?
-            .take()
-            .ok_or_else(|| "fixture PTY reader was already taken".to_string())?;
-        self.session.mark_backend_reader_started();
-        self.reader_started = true;
-        let session = self.session.clone();
-        let service = self.service.clone();
-        let pty = self.pty.clone();
-        let generation = self.generation;
-        let evidence = self.reader_evidence.clone();
-        let wake = self.wake_sender.take().unwrap();
-        let reader_join = std::thread::Builder::new()
-            .name("qualified-modal-pty-reader".into())
-            .spawn(move || {
-                let _finish = ReaderFinish {
-                    session,
-                    evidence: evidence.clone(),
-                    wake: wake.clone(),
-                };
-                let end = loop {
-                    let mut bytes = [0u8; 8192];
-                    match reader.read(&mut bytes) {
-                        Ok(0) => break ReaderEnd::Eof,
-                        Ok(count) => {
-                            service.feed_pty_output_for_generation(
-                                &pty,
-                                generation,
-                                &bytes[..count],
-                            );
-                            let screen = service
-                                .screen_state
-                                .lock()
-                                .get_screen_text(&pty)
-                                .unwrap_or_default();
-                            evidence.lock().record_screen(&screen);
-                            let _ = wake.try_send(());
-                        }
-                        Err(error) => {
-                            break ReaderEnd::ReadError {
-                                kind: format!("{:?}", error.kind()),
-                                raw_os_error: error.raw_os_error(),
-                            }
-                        }
-                    }
-                };
-                evidence.lock().record_end(end);
-            })
-            .map_err(|error| {
-                self.session.mark_backend_reader_finished();
-                self.reader_evidence
-                    .lock()
-                    .record_end(ReaderEnd::SpawnError {
-                        kind: format!("{:?}", error.kind()),
-                    });
-                self.reader_evidence.lock().mark_finished();
-                format!("fixture PTY reader spawn failed: {:?}", error.kind())
-            })?;
-        self.reader_join = Some(reader_join);
-        Ok(())
-    }
-    fn wait_for_screen(&self, stage: ModalStage) -> Result<StageEvent, StageFailure> {
-        wait_for_screen(&self.reader_evidence, &self.wake, stage)
-    }
-    fn completion_deadline(&mut self) -> Instant {
-        *self
-            .completion_deadline
-            .get_or_insert_with(|| Instant::now() + COMPLETION_TIMEOUT)
-    }
-    fn wait_for_reader_end(&self, deadline: Instant, started_at: Instant) -> ReaderWait {
-        loop {
-            let snapshot = self.reader_evidence.lock().clone();
-            if snapshot.reader_finished {
-                let status = if snapshot.end.is_none() {
-                    ReaderWaitStatus::NotificationDisconnected
-                } else if Instant::now() <= deadline {
-                    ReaderWaitStatus::Completed
-                } else {
-                    ReaderWaitStatus::Late
-                };
-                return reader_wait(snapshot.end, status, started_at);
-            }
-            let remaining = deadline.saturating_duration_since(Instant::now());
-            if remaining.is_zero() {
-                return reader_wait(snapshot.end, ReaderWaitStatus::Deadline, started_at);
-            }
-            match self.wake.recv_timeout(remaining) {
-                Ok(()) => {}
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    return reader_wait(
-                        self.reader_evidence.lock().end.clone(),
-                        ReaderWaitStatus::Deadline,
-                        started_at,
-                    );
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => {
-                    return reader_wait(
-                        self.reader_evidence.lock().end.clone(),
-                        ReaderWaitStatus::NotificationDisconnected,
-                        started_at,
-                    )
-                }
-            }
-        }
-    }
-    fn join_reader(&mut self, allowed: bool, deadline: Instant) -> ReaderJoinStatus {
-        if !allowed {
-            return if Instant::now() <= deadline {
-                ReaderJoinStatus::NotAttempted
-            } else {
-                ReaderJoinStatus::Deadline
-            };
-        }
-        if Instant::now() > deadline {
-            return ReaderJoinStatus::Deadline;
-        }
-        let Some(reader_join) = self.reader_join.take() else {
-            return ReaderJoinStatus::NotAttempted;
-        };
-        match reader_join.join() {
-            Ok(()) if Instant::now() <= deadline => ReaderJoinStatus::Joined,
-            Ok(()) => ReaderJoinStatus::Deadline,
-            Err(payload) => ReaderJoinStatus::Panicked(panic_message(payload.as_ref())),
-        }
-    }
-    fn await_normal_completion(&mut self) -> Result<(), String> {
-        let started_at = Instant::now();
-        let deadline = self.completion_deadline();
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        let child_exit = self.session.child_exit.wait_resolved(remaining);
-        let child_exit_observed_at = Instant::now();
-        let child_exit_observed_ms = Some(
-            child_exit_observed_at
-                .duration_since(started_at)
-                .as_millis(),
-        );
-        let reader = self.wait_for_reader_end(deadline, started_at);
-        let reader_join = self.join_reader(
-            self.reader_evidence.lock().reader_finished
-                || reader.status == ReaderWaitStatus::NotificationDisconnected,
-            deadline,
-        );
-        let evidence = CompletionEvidence {
-            child_exit,
-            child_exit_observed_ms,
-            reader,
-            reader_join,
-            within_deadline: Instant::now() <= deadline,
-            elapsed_ms: Instant::now().duration_since(started_at).as_millis(),
-        };
-        let success = evidence.succeeds();
-        self.completion = Some(evidence.clone());
-        if success {
-            Ok(())
-        } else {
-            Err(format!(
-                "owned host/reader completion was not clean: {evidence:?}"
-            ))
-        }
-    }
-    fn cleanup(&mut self, deadline: Instant) -> CleanupEvidence {
-        let (generation_matched, begin_kill) = {
-            let mut manager = self.service.pty.lock();
-            let matched = manager.session_generation_matches(&self.pty, self.generation);
-            let result = if matched {
-                manager
-                    .begin_kill(&self.pty)
-                    .map_err(|error| error.to_string())
-            } else {
-                Err("fixture PTY generation is no longer the manager owner".to_string())
-            };
-            (matched, result)
-        };
-        let (begin_kill_error, reap_error, reaped) = match begin_kill {
-            Ok(reaper) => {
-                let result =
-                    reaper.wait_bounded(deadline.saturating_duration_since(Instant::now()));
-                match result {
-                    Ok(()) if Instant::now() <= deadline => (None, None, true),
-                    Ok(()) => (
-                        None,
-                        Some("PTY reaper completed after the shared deadline".to_string()),
-                        false,
-                    ),
-                    Err(error) => (None, Some(error), false),
-                }
-            }
-            Err(error) => (Some(error), None, false),
-        };
-        let reader_finished = self.reader_evidence.lock().reader_finished || reaped;
-        let reader_join = self.join_reader(reader_finished, deadline);
-        let evidence = CleanupEvidence {
-            generation_matched,
-            begin_kill_error,
-            reap_error,
-            reaped,
-            post_cleanup_child_exit: self.session.child_exit.resolved(),
-            post_cleanup_reader_end: self.reader_evidence.lock().end.clone(),
-            reader_join,
-            reader_started: self.reader_started,
-        };
-        self.cleanup_started = true;
-        evidence
-    }
-}
-impl Drop for PtyChild {
-    fn drop(&mut self) {
-        if self.cleanup_started {
-            return;
-        }
-        self.cleanup_started = true;
-        let result = {
-            let mut manager = self.service.pty.lock();
-            if manager.session_generation_matches(&self.pty, self.generation) {
-                manager
-                    .begin_kill(&self.pty)
-                    .map_err(|error| error.to_string())
-            } else {
-                Err("fixture PTY generation is no longer the manager owner".to_string())
-            }
-        };
-        match result {
-            Ok(reaper) => eprintln!(
-                "qualified fixture fallback cleanup: {:?}",
-                reaper.wait_bounded(Duration::ZERO)
-            ),
-            Err(error) => eprintln!("qualified fixture fallback cleanup failed: {error}"),
         }
     }
 }
@@ -811,10 +280,22 @@ struct ModalEvidence {
     reader: ReaderEvidence,
     reader_started: bool,
     captured_screens: CapturedScreens,
-    identity: Option<(bool, bool, bool, bool)>,
+    identity: Option<IdentityMatches>,
     manager_generation_matches: bool,
     child_exit_before_cleanup: Option<Option<i32>>,
     journal: JournalEvidence,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct IdentityMatches {
+    prompt_cleared: bool,
+    session_matches: bool,
+    nonce_matches: bool,
+    pty_matches: bool,
+}
+impl IdentityMatches {
+    fn all_match(self) -> bool {
+        self.prompt_cleared && self.session_matches && self.nonce_matches && self.pty_matches
+    }
 }
 fn capture_modal_evidence(
     child: &PtyChild,
@@ -822,15 +303,18 @@ fn capture_modal_evidence(
     journal_path: &Path,
 ) -> ModalEvidence {
     let reader = child.reader_evidence.lock().clone();
-    let identity = child.service.mux.read().get_tab(&child.tab_id).map(|tab| {
-        (
-            tab.pending_prompt.is_none(),
-            tab.agent_session_id.as_deref() == Some(SESSION_ID),
-            tab.session_binding_nonce.as_deref() == Some(SESSION_NONCE)
+    let identity = child
+        .service
+        .mux
+        .read()
+        .get_tab(&child.tab_id)
+        .map(|tab| IdentityMatches {
+            prompt_cleared: tab.pending_prompt.is_none(),
+            session_matches: tab.agent_session_id.as_deref() == Some(SESSION_ID),
+            nonce_matches: tab.session_binding_nonce.as_deref() == Some(SESSION_NONCE)
                 && tab.reported_session_binding_nonce.as_deref() == Some(SESSION_NONCE),
-            tab.pty_id.as_deref() == Some(child.pty.as_str()),
-        )
-    });
+            pty_matches: tab.pty_id.as_deref() == Some(child.pty.as_str()),
+        });
     let manager_generation_matches = child
         .service
         .pty
@@ -868,17 +352,9 @@ fn verify_qualified_journey(
         }
     }
     let captures = &evidence.captured_screens;
-    let repeated = captures.snapshots.iter().enumerate().any(|(i, left)| {
-        captures.snapshots[i + 1..]
-            .iter()
-            .any(|right| left.text == right.text)
-    });
-    let model_screens_repeat = captures.count >= 2
-        && !captures.truncated
-        && !captures.snapshots.iter().any(|s| s.truncated)
-        && repeated;
-    let current_identity =
-        evidence.identity == Some((true, true, true, true)) && evidence.manager_generation_matches;
+    let model_screens_repeat = captures.meets_original_capture_oracle();
+    let current_identity = evidence.identity.is_some_and(IdentityMatches::all_match)
+        && evidence.manager_generation_matches;
     let completion_matches = completion.is_some_and(CompletionEvidence::succeeds)
         && completion.is_some_and(|c| c.child_exit == evidence.child_exit_before_cleanup);
     reject_unless!(
@@ -923,8 +399,16 @@ fn verify_qualified_journey(
         .iter()
         .find(|row| row["correlation"]["producer"] == "prompt_confirmation")
         .ok_or_else(|| "prompt-confirmation capture row is absent".to_string())?;
+    let action = rows
+        .iter()
+        .find(|row| {
+            row["phase"] == "action_authorized"
+                && row["observation_id"] == confirmation["observation_id"]
+        })
+        .ok_or_else(|| "confirmation action row is absent".to_string())?;
     if seed["observation_status"] != "completed"
         || confirmation["observation_status"] != "completed"
+        || action["observation_status"] != "completed"
         || seed["decision_point"] != "prompt_candidate"
         || confirmation["decision_point"] != "prompt_candidate"
         || seed["decided_by"] != "adapter"
@@ -940,59 +424,15 @@ fn verify_qualified_journey(
             "seed/confirmation evidence mismatch: seed={seed:?} confirmation={confirmation:?}"
         ));
     }
-    let action = rows
-        .iter()
-        .find(|row| {
-            row["phase"] == "action_authorized"
-                && row["observation_id"] == confirmation["observation_id"]
-        })
-        .ok_or_else(|| "confirmation action row is absent".to_string())?;
     reject_unless!(
         action["correlation"] == confirmation["correlation"],
         "action lost confirmation correlation"
     );
     Ok(())
 }
-fn run_modal(child: &mut PtyChild, command: &str) -> Result<(), String> {
-    let bound = child
-        .service
-        .screen_state
-        .lock()
-        .bind_pty_generation(&child.pty, child.generation);
-    if !bound {
-        return Err("fixture screen binding rejected its PTY generation".to_string());
-    }
-    child.start_reader()?;
-    child
-        .service
-        .pty
-        .lock()
-        .write_and_flush(&child.pty, command.as_bytes(), Duration::from_secs(2))
-        .map_err(|error| format!("fixture command write failed: {error}"))?;
-    for stage in [ModalStage::Initial, ModalStage::Focus, ModalStage::Closed] {
-        let event = child
-            .wait_for_screen(stage)
-            .map_err(|failure| format!("fixture stage failed: {failure:?}"))?;
-        let screen = &event.snapshot.screen.text;
-        if stage == ModalStage::Closed
-            && (!screen.contains("SAFE_TEST_OPTION_SELECTED")
-                || screen.contains("SAFE_TEST_WRONG_RESPONSE"))
-        {
-            return Err("fixture closed without the exact safe option".to_string());
-        }
-    }
-    child.await_normal_completion()
-}
-fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
-    payload
-        .downcast_ref::<String>()
-        .cloned()
-        .or_else(|| {
-            payload
-                .downcast_ref::<&str>()
-                .map(|message| (*message).into())
-        })
-        .unwrap_or_else(|| "fixture run panicked with a non-string payload".into())
+fn bounded_diagnostic(text: &str) -> BoundedText {
+    let safe_text = super::super::privacy::screen(text);
+    BoundedText::tail(&safe_text, MAX_FIXTURE_DIAGNOSTIC_BYTES)
 }
 #[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
@@ -1091,17 +531,67 @@ if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) 
         .as_ref()
         .ok()
         .map(|_| verify_qualified_journey(&evidence, child.completion.as_ref()));
+    let completion = child.completion.clone();
+    let identity = evidence.identity.unwrap_or(IdentityMatches {
+        prompt_cleared: false,
+        session_matches: false,
+        nonce_matches: false,
+        pty_matches: false,
+    });
+    eprintln!(
+        "qualified fixture primary: {:?}",
+        bounded_diagnostic(&format!("{primary:?}"))
+    );
+    eprintln!(
+        "qualified fixture pre-cleanup identity matches: tab_present={} prompt_cleared={} session_matches={} nonce_matches={} pty_matches={} manager_generation_matches={}",
+        evidence.identity.is_some(),
+        identity.prompt_cleared,
+        identity.session_matches,
+        identity.nonce_matches,
+        identity.pty_matches,
+        evidence.manager_generation_matches
+    );
+    eprintln!(
+        "qualified fixture model capture summary: calls={} diagnostic_snapshots={} adjacent_equal={} truncated={}",
+        evidence.captured_screens.count,
+        evidence.captured_screens.snapshots.len(),
+        evidence.captured_screens.adjacent_equal,
+        evidence.captured_screens.truncated
+    );
+    eprintln!(
+        "qualified fixture pre-cleanup evidence: {:?}",
+        bounded_diagnostic(&format!("{evidence:#?}"))
+    );
+    eprintln!(
+        "qualified fixture validation: {:?}",
+        bounded_diagnostic(&format!("{validation:?}"))
+    );
+    eprintln!(
+        "qualified fixture completion receipt: {:?}",
+        bounded_diagnostic(&format!("{completion:#?}"))
+    );
     let completion_deadline = child.completion_deadline();
     let cleanup = child.cleanup(completion_deadline);
+    eprintln!(
+        "qualified fixture cleanup receipt: {:?}",
+        bounded_diagnostic(&format!("{cleanup:#?}"))
+    );
     assert!(
-        primary.is_ok()
-            && validation.as_ref().is_some_and(Result::is_ok)
-            && cleanup.succeeds(),
-        "qualified fixture did not complete cleanly\nprimary={primary:?}\nvalidation={validation:?}\nevidence={evidence:#?}\ncleanup={cleanup:#?}"
+        primary.is_ok() && validation.as_ref().is_some_and(Result::is_ok) && cleanup.succeeds(),
+        "qualified fixture primary, validation, or cleanup fact failed; see bounded receipts above"
     );
 }
-fn child_exit_is_success(exit: Option<Option<i32>>) -> bool {
-    exit == Some(Some(0))
+#[test]
+fn qualified_fixture_capture_summary_survives_diagnostic_truncation() {
+    let mut captures = CapturedScreens::default();
+    for screen in ["one", "two", "three", "four", "four"] {
+        captures.record(screen);
+    }
+    assert_eq!(captures.count, 5);
+    assert_eq!(captures.snapshots.len(), MAX_MODEL_SCREENS);
+    assert!(captures.truncated);
+    assert!(captures.adjacent_equal);
+    assert!(captures.meets_original_capture_oracle());
 }
 #[test]
 fn qualified_fixture_stage_timeout_retains_actual_last_snapshot() {
@@ -1175,6 +665,56 @@ fn qualified_fixture_cleanup_exit_cannot_promote_pre_cleanup_failure() {
     };
     assert!(child_exit_is_success(cleanup_exit));
     assert!(!completion.succeeds());
+
+    let deadline = Instant::now() + COMPLETION_TIMEOUT;
+    let cleanup_receipt = |reader_join| CleanupEvidence {
+        generation_matched: true,
+        begin_kill_error: None,
+        reap_error: None,
+        reaped: true,
+        post_cleanup_child_exit: Some(Some(0)),
+        post_cleanup_reader_end: Some(ReaderEnd::Eof),
+        reader_join,
+        reader_started: true,
+    };
+    let mut normal_join = ReaderJoinState::from_handle(std::thread::spawn(|| {}));
+    let completion_join = normal_join.settle(true, deadline);
+    let cleanup_join = normal_join.settle(true, deadline);
+    assert_eq!(completion_join, ReaderJoinStatus::Joined);
+    assert_eq!(cleanup_join, completion_join);
+    let successful_completion = CompletionEvidence {
+        child_exit: Some(Some(0)),
+        child_exit_observed_ms: Some(0),
+        reader: ReaderWait {
+            end: Some(ReaderEnd::Eof),
+            status: ReaderWaitStatus::Completed,
+            observed_elapsed_ms: Some(0),
+        },
+        reader_join: completion_join,
+        within_deadline: true,
+        elapsed_ms: 0,
+    };
+    assert!(successful_completion.succeeds());
+    assert!(cleanup_receipt(cleanup_join).succeeds());
+
+    let mut never_joined = ReaderJoinState::default();
+    let never_joined = never_joined.settle(true, deadline);
+    assert_eq!(never_joined, ReaderJoinStatus::NotAttempted);
+    assert!(!cleanup_receipt(never_joined).succeeds());
+
+    let mut panicked_join = ReaderJoinState::from_handle(std::thread::spawn(|| {
+        panic!("fixture reader panic");
+    }));
+    let panicked_join = panicked_join.settle(true, deadline);
+    assert!(matches!(&panicked_join, ReaderJoinStatus::Panicked(_)));
+    assert!(!cleanup_receipt(panicked_join).succeeds());
+
+    let mut expired_state = ReaderJoinState::from_handle(std::thread::spawn(|| {}));
+    let expired_deadline = Instant::now() - Duration::from_secs(1);
+    let expired_join = expired_state.settle(true, expired_deadline);
+    assert_eq!(expired_join, ReaderJoinStatus::Deadline);
+    assert_eq!(expired_join, expired_state.settle(true, deadline));
+    assert!(!cleanup_receipt(expired_join).succeeds());
 }
 #[test]
 fn qualified_fixture_incomplete_journal_does_not_claim_missing_rows() {
