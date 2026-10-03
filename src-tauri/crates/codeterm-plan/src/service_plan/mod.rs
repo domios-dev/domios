@@ -177,6 +177,8 @@ impl MutationWriter {
         let mut state = self.state.lock();
         let ticket = state.next_ticket;
         state.next_ticket += 1;
+        #[cfg(test)]
+        self.ready.notify_all();
         while state.serving_ticket != ticket {
             self.ready.wait(&mut state);
         }

@@ -17,6 +17,7 @@ mod model_error;
 mod pair_headers;
 pub(crate) mod spawn_ownership;
 mod spawn_rejection;
+mod worker_transfer;
 
 pub(super) use pair_headers::create_orchestration_pair;
 use spawn_ownership::ownership_for_spawning_peer;
@@ -531,7 +532,7 @@ pub async fn set_tab_role(
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let mut role_probe = crate::service::SpawnAgentParams {
         role: Some(body.role),
-        role_profile: body.role_profile,
+        role_profile: body.role_profile.clone(),
         ..Default::default()
     };
     role_probe
@@ -555,6 +556,20 @@ pub async fn set_tab_role(
             .place_planner_on_plan(&id, &plan_id, body.parent_tab_id.as_deref(), true)
             .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
         return Ok(Json(serde_json::json!({"ok": true})));
+    }
+    if let Some(outcome) = worker_transfer::try_task_bound_worker_transfer(
+        &state.svc,
+        &headers,
+        &id,
+        parsed_role,
+        body.role_profile.as_deref(),
+        body.plan_id.as_deref(),
+        body.parent_tab_id.as_deref(),
+        body.can_spawn,
+    )
+    .map_err(|error| (StatusCode::BAD_REQUEST, error))?
+    {
+        return Ok(Json(outcome));
     }
     let becomes_anchor = codeterm_types::agent::role_kind::anchors_team(
         Some(parsed_role),

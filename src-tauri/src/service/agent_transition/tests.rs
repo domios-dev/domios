@@ -450,7 +450,7 @@ fn stale_or_foreign_nonce_rejects_transition_without_mutation() {
 }
 
 #[test]
-fn task_bound_worker_transfer_currently_revokes_assignment_and_lane() {
+fn generic_task_bound_worker_transfer_refuses_before_revoking_assignment_and_lane() {
     let dir = tempfile::tempdir().unwrap();
     let mut fixture = Fixture::new(dir.path());
     fixture
@@ -463,16 +463,9 @@ fn task_bound_worker_transfer_currently_revokes_assignment_and_lane() {
         .unwrap();
     fixture
         .store
-        .set_mode(
-            &fixture.plan_id,
-            crate::plan::PlanMode::Approved,
-            2,
-        )
+        .set_mode(&fixture.plan_id, crate::plan::PlanMode::Approved, 2)
         .unwrap();
-    let workspace_id = fixture
-        .mux
-        .find_workspace_for_tab(&fixture.target)
-        .unwrap();
+    let workspace_id = fixture.mux.find_workspace_for_tab(&fixture.target).unwrap();
     let task_id = fixture
         .store
         .add_task(
@@ -485,12 +478,7 @@ fn task_bound_worker_transfer_currently_revokes_assignment_and_lane() {
                 lane: crate::plan::TaskLaneMetadata {
                     tab_id: Some(fixture.target.clone()),
                     workspace_id: Some(workspace_id),
-                    worktree_path: Some(
-                        dir.path()
-                            .join("worker-lane")
-                            .display()
-                            .to_string(),
-                    ),
+                    worktree_path: Some(dir.path().join("worker-lane").display().to_string()),
                     branch: Some("lane/worker-transfer".into()),
                     base: Some("base-transfer".into()),
                     ..Default::default()
@@ -548,20 +536,10 @@ fn task_bound_worker_transfer_currently_revokes_assignment_and_lane() {
         .clone();
     fixture
         .store
-        .acknowledge_task_attempt(
-            &fixture.plan_id,
-            &task_id,
-            &fixture.target,
-            &attempt_id,
-            6,
-        )
+        .acknowledge_task_attempt(&fixture.plan_id, &task_id, &fixture.target, &attempt_id, 6)
         .unwrap();
     let before = fixture.store.get(&fixture.plan_id).unwrap();
-    let before_task = before
-        .tasks
-        .iter()
-        .find(|task| task.id == task_id)
-        .unwrap();
+    let before_task = before.tasks.iter().find(|task| task.id == task_id).unwrap();
     assert_eq!(before.mode, crate::plan::PlanMode::Approved);
     assert_eq!(before_task.status, crate::plan::TaskStatus::InProgress);
     assert_eq!(
@@ -573,12 +551,9 @@ fn task_bound_worker_transfer_currently_revokes_assignment_and_lane() {
         Some(fixture.target.as_str())
     );
     assert_eq!(before_task.execution_attempts.len(), 1);
-    assert_eq!(
-        before_task.execution_attempts[0].acknowledged_at,
-        Some(6)
-    );
+    assert_eq!(before_task.execution_attempts[0].acknowledged_at, Some(6));
 
-    execute_transition(
+    let result = execute_transition(
         &mut fixture.mux,
         &fixture.store,
         AgentTransitionRequest {
@@ -593,9 +568,11 @@ fn task_bound_worker_transfer_currently_revokes_assignment_and_lane() {
             plan_rebind: None,
         },
         TransitionFailurePoint::None,
-    )
-    .unwrap();
+    );
 
+    assert!(result
+        .unwrap_err()
+        .contains("authenticated source-manager transfer"));
     assert_eq!(fixture.store.get(&fixture.plan_id).unwrap(), before);
 }
 
