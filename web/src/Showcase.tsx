@@ -77,9 +77,9 @@ export function Showcase({ reducedMotion }: { reducedMotion: boolean }) {
     document.getElementById(`chapter-${chapters[next].id}`)?.focus({ preventScroll: true });
   };
   return <section id="explore" className="showcase section-wrap" aria-labelledby="showcase-title">
-    <div className="section-heading"><div><p className="eyebrow">ONE APP. YOUR WHOLE TEAM.</p><h2 id="showcase-title">Pull up a chair.</h2></div><p>From your desktop to every machine.<br />{Math.round(media.duration)} seconds inside Domios.</p></div>
-    <div className="showcase-caption"><div><span className="eyebrow">0{active + 1} / {timestamp(chapter.start)}</span><h3>{chapter.title}</h3></div><div className="showcase-caption-copy"><p>{chapter.description}</p>{media.music && <p className="music-credit">{media.music.credit} <a href={media.music.sourcePage}>Source</a> · <a href={media.music.licenseUrl}>Terms</a></p>}</div></div>
+    <div className="section-heading"><h2 id="showcase-title">See Domios at work.</h2><p>{Math.round(media.duration)} seconds inside Domios.</p></div>
     <div className="showcase-workbench">
+      <div className="clip-panel" id="trailer-player"><VideoPlayer clip={media} player={player} /></div>
       <nav className="clip-shelf ct-liquid-segmented" aria-label="Trailer chapters" style={{
         '--sx-from': `${compact ? previous % 2 * 100 : 0}%`, '--sx-to': `${compact ? active % 2 * 100 : 0}%`,
         '--sy-from': `${(compact ? Math.floor(previous / 2) : previous) * 100}%`, '--sy-to': `${(compact ? Math.floor(active / 2) : active) * 100}%`,
@@ -90,7 +90,7 @@ export function Showcase({ reducedMotion }: { reducedMotion: boolean }) {
           <span className="clip-label"><span className="clip-number">0{index + 1}</span>{item.label}<Icon name="arrow" size={14} /></span>
         </button>)}
       </nav>
-      <div className="clip-panel" id="trailer-player"><VideoPlayer clip={media} player={player} /></div>
     </div>
+    <div className="showcase-caption"><p>{chapter.description}</p>{media.music && <p className="music-credit">{media.music.credit} <a href={media.music.sourcePage}>Source</a> · <a href={media.music.licenseUrl}>Terms</a></p>}</div>
   </section>;
 }

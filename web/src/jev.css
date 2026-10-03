@@ -1,4 +1,4 @@
-.jev-section { padding-top: 100px; }
+.jev-section { padding-top: var(--section-space); }
 .jev-heading { display: flex; align-items: end; justify-content: space-between; gap: 24px 48px; }
 .jev-heading h2 { max-width: 620px; margin: 0; font-size: clamp(28px, 3.4vw, 39px); letter-spacing: -1.5px; line-height: 1.18; }
 .jev-heading p { max-width: 350px; margin: 0; padding-bottom: 4px; color: var(--ct-muted-fg); font-size: 15px; line-height: 1.55; }
@@ -39,7 +39,7 @@
 #jev:has(.jev-board[data-story-evidence="active"]) .jev-authority { color: var(--ct-green); font-weight: 550; }
 
 @media (max-width: 900px) {
-  .jev-section { padding-top: 72px; }
+
   .jev-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
   .jev-heading h2 { font-size: clamp(29px, 4vw, 39px); }
   .jev-heading p { max-width: 440px; font-size: 14px; }
@@ -57,7 +57,7 @@
 }
 
 @media (max-width: 430px) {
-  .jev-section { padding-top: 64px; }
+
   .jev-heading h2 { font-size: 29px; letter-spacing: -1.2px; }
   .jev-heading p { font-size: 14px; }
   .jev-board { grid-template-rows: minmax(76px, auto) 164px minmax(88px, auto); gap: 18px 12px; margin-top: 24px; }
@@ -77,3 +77,5 @@
 @media (prefers-reduced-motion: reduce) {
   .jev-signal { display: none; }
 }
+
+.jev-roles-description { max-width: 660px; margin: 24px auto 0; text-align: center; color: var(--ct-fg); font-size: 14px; line-height: 1.6; }
