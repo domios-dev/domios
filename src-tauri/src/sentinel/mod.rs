@@ -24,3 +24,6 @@ mod scheduler_tests;
 
 #[cfg(test)]
 mod graph_tests;
+
+#[cfg(test)]
+mod command_tests;
