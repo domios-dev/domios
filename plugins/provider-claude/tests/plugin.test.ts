@@ -328,6 +328,7 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
     const question = rows.slice(Math.max(0, first - 5), first).reverse().find((row) => row.endsWith("?"));
     const parsed = hostPlugin.parsePrompt(screen);
     const response = hostPlugin.launchOnboardingResponse(screen);
+    eq(hostPlugin.launchOnboardingSafeChoice(screen), "2", `provider-declared choice value for ${file}`);
     assert(Boolean(response), `onboarding capability recognizes ${file}`);
     eq(parsed?.question, question, `pending prompt question comes from the dialog row in ${file}`);
     eq(parsed?.options?.map(([label, value]) => [label, value]), optionRows.map(({ label, value }) => [label, value]), `pending prompt choices preserve captured order in ${file}`);
@@ -359,6 +360,9 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
     eq(parsed?.options?.map(([, value]) => value), ["2", "3"], `fallback options omit malformed first row in ${file}`);
   }
   eq(hostPlugin.launchOnboardingResponse(captured.replace(capturedQuestion!, "A different startup question?")), null, "unclassified startup dialog is left alone");
+  eq(hostPlugin.launchOnboardingSafeChoice(captured.replace(capturedQuestion!, "A different startup question?")), null, "unclassified dialog has no safe choice");
+  const reordered = "Auto configure your environment?\n 1. Don't show again\n❯ 2. Yes\n 3. Not now\nEnter to select · Esc to cancel\n";
+  eq(hostPlugin.launchOnboardingSafeChoice(reordered), "3", "safe value follows reordered provider options");
 }
 
 {

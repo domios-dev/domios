@@ -1,4 +1,17 @@
 use super::*;
+
+#[test]
+fn supporter_feed_safe_step_preserves_narrative_and_observation() {
+    for reason in ["provider_safe_step_authorized", "provider_safe_step_stale"] {
+        let record = serde_json::json!({"time": 1, "kind": "tab_state", "action": "recovery", "label": "provider_update_prompt", "confidence": 0.95, "reason": reason, "decided_by": "adapter", "observation_id": 42, "asked": [{"name": "safe_choice", "question": "opaque-question", "answer": "token=private-value"}]});
+        let projected = entry(&record).unwrap();
+        assert_eq!(projected["reason"], reason);
+        assert_eq!(projected["decided_by"], "adapter");
+        assert_eq!(projected["observation_id"], 42);
+        assert_eq!(projected["asked"][0]["name"], "safe_choice");
+        assert!(!projected.to_string().contains("private-value"));
+    }
+}
 use crate::service::supporter::narrative::{self, QuestionAnswer};
 
 fn record(asked: Value) -> Value {
@@ -151,4 +164,55 @@ fn supporter_feed_keeps_observation_identity_and_capped_narrative_together() {
     assert!(question.chars().count() <= narrative::MAX_QUESTION_CHARS);
     assert!(!projected.to_string().contains(secret));
     assert!(!projected.to_string().contains(code));
+}
+
+#[test]
+fn supporter_feed_passive_correlation_scrubs_and_rejects_wrong_point_or_identity() {
+    let value = json!({
+        "time":1, "kind":"tab_state", "action":"classification", "label":"provider_update_prompt",
+        "reason":"model_answer", "confidence":0.95, "decided_by":"adapter", "observation_id":42,
+        "decision_point":"prompt_candidate", "observation_status":"completed",
+        "model_verdict":{"status":"observed", "label":"provider_update_prompt", "confidence":0.95},
+        "alternate_verdict":{"status":"skipped"},
+        "correlation":{
+            "version":1, "decision_point":"prompt_candidate", "observation_id":42,
+            "launch_id":"a".repeat(64), "session_id":null, "occurrence_id":"b".repeat(64),
+            "occurrence":3, "frame_hash":"0000000000000007",
+            "candidate_evidence":{"status":"unavailable"},
+        },
+    });
+    let feed = entry(&value).unwrap();
+    assert_eq!(feed["correlation"], value["correlation"]);
+    assert_eq!(feed["decision_point"], "prompt_candidate");
+    assert_eq!(feed["observation_status"], "completed");
+    assert_eq!(feed["alternate_verdict"], json!({"status":"skipped"}));
+    for (field, supplied) in [
+        ("decision_point", json!("tab_exit")),
+        ("observation_id", json!(43)),
+        ("screen", json!("private-screen")),
+    ] {
+        let mut changed = value.clone();
+        changed["correlation"][field] = supplied;
+        let feed = entry(&changed).unwrap();
+        assert!(feed.get("correlation").is_none());
+        assert!(!feed.to_string().contains("private-screen"));
+    }
+    let mut changed = value;
+    changed["model_verdict"] =
+        json!({"status":"observed", "label":"token=private-model", "confidence":0.95});
+    changed["alternate_verdict"] = json!({"status":"skipped", "label":"private-alternate"});
+    let feed = entry(&changed).unwrap();
+    assert!(!feed.to_string().contains("private-model"));
+    assert!(!feed.to_string().contains("private-alternate"));
+}
+
+#[test]
+fn supporter_feed_passive_no_adapter_source_sets_fallback_honestly() {
+    let value = json!({"time":1, "kind":"tab_state", "action":"classification", "label":"other",
+        "reason":"model_answer", "decided_by":"fallback(no_adapter)", "observation_id":42,
+        "observation_status":"unavailable", "alternate_verdict":{"status":"unavailable"}});
+    let feed = entry(&value).unwrap();
+    assert_eq!(feed["fallback"], true);
+    assert_eq!(feed["observation_status"], "unavailable");
+    assert!(feed.get("correlation").is_none());
 }

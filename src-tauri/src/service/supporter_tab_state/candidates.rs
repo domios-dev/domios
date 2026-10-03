@@ -7,6 +7,8 @@ pub(crate) struct CandidateVerdict {
     pub(crate) confidence: f64,
     visible: bool,
     area: String,
+    pub(super) safe_choice: Option<(String, f64)>,
+    pub(super) receipt: Option<safe_response::Receipt>,
 }
 
 impl CandidateVerdict {
@@ -61,6 +63,8 @@ pub(crate) fn select(
                 confidence: minimum,
                 visible,
                 area: choice,
+                safe_choice: verdict.safe_choice,
+                receipt: None,
             }),
             minimum,
             other,
@@ -93,6 +97,7 @@ struct Pending<H: ShadowHost> {
     metadata: TabStateMetadata,
     source: identity::DecisionSource,
     recorded: bool,
+    model_verdict: Option<identity::correlation::ModelVerdict>,
 }
 
 impl<H: ShadowHost> Pending<H> {
@@ -116,7 +121,11 @@ impl<H: ShadowHost> Pending<H> {
             observer::record(
                 &self.host,
                 &self.tab,
-                envelope.observation_id,
+                identity::correlation::RecordIdentity::captured(
+                    envelope.observation_id,
+                    &envelope.correlation,
+                )
+                .with_model_verdict(self.model_verdict.clone()),
                 source,
                 verdict.map_or(OTHER, |verdict| verdict.label.as_str()),
                 verdict.map(|verdict| verdict.confidence),
@@ -166,6 +175,7 @@ pub(crate) fn spawn<H: ShadowHost>(
         metadata,
         source: identity::DecisionSource::Error,
         recorded: false,
+        model_verdict: None,
     };
     if expected_screen.is_some_and(|screen| {
         pending
@@ -176,9 +186,12 @@ pub(crate) fn spawn<H: ShadowHost>(
     }) {
         return None;
     }
-    request
-        .questions
-        .retain(|key, _| matches!(key.as_str(), "label" | "prompt_visible" | "input_area"));
+    request.questions.retain(|key, _| {
+        matches!(
+            key.as_str(),
+            "label" | "prompt_visible" | "input_area" | "safe_choice"
+        )
+    });
     let criteria_version = supporter::criteria_hash(&serde_json::to_vec(&request.questions).ok()?);
     let config = config.clone();
     pending.source = identity::DecisionSource::Budget;
@@ -202,15 +215,24 @@ pub(crate) fn spawn<H: ShadowHost>(
                 Some(criteria_version),
                 Some(supporter::ActivityContext::TabState {
                     title: pending.metadata.title.clone(),
-                    declared_safe_choice: None,
+                    declared_safe_choice: pending.metadata.declared_safe_choice.clone(),
                 }),
             );
             model.decide_questions(&request, deadline)
         };
+        pending.model_verdict = result
+            .as_ref()
+            .ok()
+            .and_then(identity::correlation::ModelVerdict::from_response);
         if !pending.current(&adapter_id, &adapter) {
             return None;
         }
-        let (verdict, source) = select(result);
+        let (mut verdict, source) = select(result);
+        if !request.questions.contains_key("safe_choice") {
+            if let Some(verdict) = verdict.as_mut() {
+                verdict.safe_choice = None;
+            }
+        }
         pending.record(source, verdict.as_ref());
         let envelope = pending.metadata.envelope.as_ref()?;
         let ledgers = pending.host.ledger_snapshot(&pending.tab);
@@ -219,6 +241,14 @@ pub(crate) fn spawn<H: ShadowHost>(
             || !pending.current(&adapter_id, &adapter)
         {
             return None;
+        }
+        if let Some(verdict) = verdict.as_mut() {
+            verdict.receipt = Some(safe_response::Receipt {
+                metadata: pending.metadata.clone(),
+                adapter_id: adapter_id.clone(),
+                ticket: ticket.clone(),
+                deadline,
+            });
         }
         let valid = || {
             coordinator::global()
@@ -232,7 +262,7 @@ pub(crate) fn spawn<H: ShadowHost>(
 
 impl ServiceContext {
     pub(crate) fn scrape_model_connected(&self) -> bool {
-        let config = crate::config::load_config().supporter;
+        let config = self.supporter_decision_config();
         config
             .active_id()
             .is_some_and(|adapter| observer::connected(self, &config, adapter))
@@ -265,7 +295,7 @@ impl ServiceContext {
             identity::LocalIdentity::of_tab(tab)
         };
         let host = self.clone();
-        let config = crate::config::load_config().supporter;
+        let config = self.supporter_decision_config();
         let tab = snapshot.tab_id.clone();
         let screen = snapshot.screen_text.clone();
         let _ = spawn(

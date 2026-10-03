@@ -20,6 +20,48 @@ pub(crate) fn observation_revision(tab_id: &str) -> u64 {
     })
 }
 
+pub(crate) fn claim_model_onboarding_step(tab_id: &str, occurrence: &str, frame: &str) -> bool {
+    let mut ledger = LEDGER.lock();
+    let tab = ledger.tabs.entry(tab_id.into()).or_default();
+    if tab.in_flight {
+        return false;
+    }
+    if tab
+        .model_occurrence
+        .as_deref()
+        .is_some_and(|prior| prior != occurrence)
+    {
+        tab.answered_frame = None;
+    }
+    tab.model_occurrence = Some(occurrence.into());
+    ledger.claim(tab_id, frame_id(&format!("launch-onboarding:{frame}")))
+}
+
+pub(crate) fn model_onboarding_step_revision(frame: &str) -> u64 {
+    let frame = frame_id(&format!("launch-onboarding:{frame}"));
+    super::supporter_tab_state::frame_hash(&format!("{:?}:true", Some(frame)))
+}
+
+pub(crate) fn finish_model_onboarding_step(
+    tab_id: &str,
+    occurrence: &str,
+    frame: &str,
+    authorized: bool,
+) {
+    let mut ledger = LEDGER.lock();
+    let Some(tab) = ledger.tabs.get_mut(tab_id) else {
+        return;
+    };
+    if tab.model_occurrence.as_deref() == Some(occurrence)
+        && tab.answered_frame == Some(frame_id(&format!("launch-onboarding:{frame}")))
+    {
+        tab.in_flight = false;
+        if !authorized {
+            tab.answered_frame = None;
+        }
+    }
+}
+
 static SHARED_TRUST: LazyLock<parking_lot::Mutex<SharedTrustCache>> =
     LazyLock::new(Default::default);
 
@@ -153,6 +195,7 @@ pub(crate) struct TrustLedger {
 
 #[derive(Debug, Default)]
 struct TabTrust {
+    model_occurrence: Option<String>,
     answered_frame: Option<u64>,
     in_flight: bool,
     last_note: Option<(&'static str, u64)>,

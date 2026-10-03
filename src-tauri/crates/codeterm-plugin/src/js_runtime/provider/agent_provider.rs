@@ -359,23 +359,15 @@ impl AgentProvider for JsProvider {
         &self,
         screen: &str,
     ) -> Option<crate::provider::ProviderPromptKeyStep> {
-        #[derive(Deserialize)]
-        #[serde(rename_all = "camelCase")]
-        struct WireResponse {
-            frame_key: String,
-            step: String,
-        }
-        let response =
-            self.try_call::<Option<WireResponse>>("launchOnboardingResponse", &[json!(screen)])??;
-        use base64::Engine;
-        let step = base64::engine::general_purpose::STANDARD
-            .decode(response.step.as_bytes())
-            .ok()
-            .filter(|bytes| !bytes.is_empty())?;
-        (!response.frame_key.is_empty()).then_some(crate::provider::ProviderPromptKeyStep {
-            frame_key: response.frame_key,
-            step,
-        })
+        self.launch_onboarding_response_from_js(screen)
+    }
+
+    fn launch_onboarding_safe_choice(&self, screen: &str) -> Option<String> {
+        self.try_call::<Option<String>>("launchOnboardingSafeChoice", &[json!(screen)])?
+    }
+
+    fn live_prompt_response(&self, option_index: usize, screen: &str) -> Option<Vec<Vec<u8>>> {
+        self.live_prompt_response_from_js(option_index, screen)
     }
 
     fn permission_prompt_response(

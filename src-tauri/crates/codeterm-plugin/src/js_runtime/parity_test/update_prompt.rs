@@ -196,3 +196,30 @@ fn parity_update_prompt_availability_captured_menu() {
     );
     assert_eq!(undeclared.update_prompt_availability(&screen), None);
 }
+
+#[test]
+fn parity_live_prompt_response_abstains_without_explicit_valid_steps() {
+    let screen = "Fixture selection\n❯ 1. Update\n 2. Skip\nEnter to confirm\n";
+    let native = crate::agent_claude::provider::ClaudeProvider::new();
+    let js = load_js("claude");
+    assert_eq!(
+        native.live_prompt_response(1, screen),
+        js.live_prompt_response(1, screen)
+    );
+    assert!(native.live_prompt_response(1, screen).is_some());
+    for source in [
+        "module.exports.default = {};",
+        "module.exports.default = { buildPromptResponse() { throw new Error('fixture'); } };",
+        "module.exports.default = { buildPromptResponse() { return ['not-base64']; } };",
+        "module.exports.default = { buildPromptResponse() { return []; } };",
+        "module.exports.default = { buildPromptResponse() { return ['']; } };",
+    ] {
+        let provider = load_inline_js("live-response-fixture", source);
+        assert_eq!(provider.live_prompt_response(1, screen), None);
+    }
+    for id in ["codex", "opencode"] {
+        let provider = load_js(id);
+        assert_eq!(provider.launch_onboarding_safe_choice(screen), None);
+        assert!(provider.live_prompt_response(1, screen).is_some());
+    }
+}

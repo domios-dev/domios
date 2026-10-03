@@ -291,9 +291,171 @@ fn supporter_first_opinion_scrape_service_persists_only_evidenced_prompt() {
     );
 }
 
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch() {
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    mux.link_pty(&id, "safe-choice-batch-pty".into());
+    mux.get_tab_mut(&id).unwrap().agent_type = Some("fixture-provider".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let mut update = prompt();
+    update.options[0].label = "Update".into();
+    update.options[1].label = "Skip".into();
+    update.options[1].value = "opaque-skip-value".into();
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("fixture-provider")
+            .with_parsed_prompt(update)
+            .with_classified_prompt_auto_response(
+                codeterm_plugin::provider::ClassifiedPromptOptionRole::Skip,
+            ),
+    ));
+    let (mut host, calls, seen) = StubHost::new(
+        "Fixture selection\n❯ 1. Update\n2. Skip\nEnter to confirm\n",
+        StubModel::answering(Ok(choice(OTHER, 0.99))),
+    );
+    host.metadata_service = Some(fixture.service.clone());
+    let config = SupporterConfig {
+        adapter: Some("fixture".into()),
+        ..Default::default()
+    };
+    candidates::spawn(&host, &config, &id, None, |_, _, _| {})
+        .unwrap()
+        .join()
+        .unwrap();
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    let request = seen.lock().clone().unwrap();
+    assert_eq!(
+        request
+            .questions
+            .keys()
+            .map(String::as_str)
+            .collect::<Vec<_>>(),
+        ["input_area", "label", "prompt_visible", "safe_choice"]
+    );
+    let codeterm_types::decision::DecisionQuestion::Choice { options } =
+        &request.questions["safe_choice"].question
+    else {
+        panic!("choice");
+    };
+    assert!(options.contains_key("opaque-skip-value"));
+    assert!(options.contains_key(OTHER));
+    assert!(!serde_json::to_string(&request)
+        .unwrap()
+        .contains("private-value"));
+    assert_eq!(host.writes.load(Ordering::SeqCst), 0);
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&id)
+        .unwrap()
+        .pending_prompt
+        .is_none());
+    let (mut redacted, _, seen) = StubHost::new(
+        "Fixture selection\n❯ 1. Update\n2. Skip\nEnter to confirm\ntoken=private-value",
+        StubModel::answering(Ok(choice(OTHER, 0.99))),
+    );
+    redacted.metadata_service = Some(fixture.service.clone());
+    candidates::spawn(&redacted, &config, &id, None, |_, _, _| {})
+        .unwrap()
+        .join()
+        .unwrap();
+    let request = seen.lock().clone().unwrap();
+    assert!(!request.questions.contains_key("safe_choice"));
+    assert!(!serde_json::to_string(&request)
+        .unwrap()
+        .contains("private-value"));
+}
+
 struct CandidateModel {
     response: Result<DecisionResponse, DecisionError>,
     hook: Option<Box<dyn Fn() + Send + Sync>>,
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn supporter_first_opinion_safe_response_bound_receipt_cancels_user_nonce_and_disconnect() {
+    for arm in 0..3 {
+        let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+        let pty = format!("safe-response-{}", uuid::Uuid::new_v4());
+        mux.link_pty(&id, pty.clone());
+        let tab = mux.get_tab_mut(&id).unwrap();
+        tab.agent_type = Some("fixture-provider".into());
+        tab.session_binding_nonce = Some("nonce-a".into());
+        tab.pending_prompt = Some(prompt());
+        tab.pending_prompt_kind = Some(PromptKind::ManualUpdate);
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        fixture.service.agent_registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::new("fixture-provider")
+                .with_parsed_prompt(prompt()),
+        ));
+        fixture
+            .service
+            .prompt_detector
+            .lock()
+            .hook_detected_scraped(&id, prompt());
+        let (mut host, _, _) = StubHost::new(
+            "Fixture selection\n❯ 1. Opaque alpha\n2. Opaque beta\nEnter to confirm\n",
+            StubModel::answering(Ok(choice(OTHER, 0.99))),
+        );
+        host.metadata_service = Some(fixture.service.clone());
+        let mut response = answer(PROVIDER_UPDATE_PROMPT, 0.95, 0.95, "active_modal");
+        response
+            .answers
+            .insert("safe_choice".into(), choice("2", 0.96));
+        host.models.register(
+            "fixture",
+            Arc::new(CandidateModel {
+                response: Ok(response),
+                hook: None,
+            }),
+        );
+        let selected = Arc::new(Mutex::new(None));
+        let save = selected.clone();
+        candidates::spawn(
+            &host,
+            &SupporterConfig {
+                adapter: Some("fixture".into()),
+                ..Default::default()
+            },
+            &id,
+            None,
+            move |verdict, source, valid| {
+                assert!(valid());
+                assert_eq!(source, identity::DecisionSource::Adapter);
+                *save.lock() = verdict;
+            },
+        )
+        .unwrap()
+        .join()
+        .unwrap();
+        let verdict = selected.lock().clone().unwrap();
+        let receipt = verdict.receipt.unwrap();
+        let ledgers = receipt.metadata.envelope.as_ref().unwrap().ledgers.clone();
+        assert!(receipt.current(&host, &id, &ledgers));
+        let mut expired = receipt.clone();
+        expired.deadline = Instant::now();
+        assert!(!expired.current(&host, &id, &ledgers));
+        match arm {
+            0 => fixture.service.prompt_detector.lock().mark_responded(&id),
+            1 => {
+                fixture
+                    .service
+                    .mux
+                    .write()
+                    .get_tab_mut(&id)
+                    .unwrap()
+                    .session_binding_nonce = Some("nonce-b".into())
+            }
+            _ => host.models.unregister("fixture"),
+        }
+        assert!(!receipt.current(&host, &id, &ledgers));
+        assert_eq!(
+            crate::service::output::prompt_step_dispatch_count_for_test(&pty),
+            0
+        );
+        assert_eq!(host.writes.load(Ordering::SeqCst), 0);
+    }
 }
 
 impl DecisionModel for CandidateModel {

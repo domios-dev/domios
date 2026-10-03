@@ -26,6 +26,10 @@ pub(crate) struct Qualification {
 }
 
 impl Qualification {
+    pub(crate) fn supports_label(&self, label: &str) -> bool {
+        self.human_labelled_support.get(label).copied().unwrap_or(0) >= 4
+    }
+
     pub(crate) fn authorizes(
         &self,
         adapter: &str,

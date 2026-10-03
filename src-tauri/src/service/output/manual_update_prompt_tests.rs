@@ -15,6 +15,22 @@ fn update_frame() -> String {
     std::fs::read_to_string(path).expect("Codex update fixture")
 }
 
+#[test]
+fn supporter_first_opinion_safe_update_stale_cleanup_keeps_new_occurrence() {
+    let tab = uuid::Uuid::new_v4().to_string();
+    assert!(claim_manual_update_occurrence(&tab, "launch:1:frame"));
+    assert_eq!(
+        super::manual_update_observation_revision(&tab),
+        crate::service::supporter_tab_state::frame_hash("launch:1:frame")
+    );
+    assert!(claim_manual_update_occurrence(&tab, "launch:2:frame"));
+    super::release_model_update_step(&tab, "launch:1:frame");
+    assert!(!claim_manual_update_occurrence(&tab, "launch:2:frame"));
+    super::release_model_update_step(&tab, "launch:2:frame");
+    assert!(claim_manual_update_occurrence(&tab, "launch:2:frame"));
+    clear_manual_update_occurrence(&tab);
+}
+
 fn menu_options(screen: &str) -> Vec<PromptOption> {
     screen
         .lines()

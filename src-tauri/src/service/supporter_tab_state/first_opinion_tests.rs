@@ -172,6 +172,20 @@ fn supporter_first_opinion_action_ticket_single_owner_across_ledgers() {
 }
 
 #[test]
+fn supporter_first_opinion_safe_response_fresh_observation_in_same_occurrence_has_one_ticket() {
+    let owner = coordinator::ActionOwner::default();
+    let ledgers = coordinator::LedgerSnapshot::default();
+    let first = owner.observe("tab", "launch", Some(10), 20);
+    let ticket = owner.claim(&first, ledgers.clone()).unwrap();
+    assert!(owner.claim(&first, ledgers.clone()).is_none());
+    let second = owner.observe("tab", "launch", Some(10), 21);
+    assert_eq!(first.occurrence, second.occurrence);
+    assert!(!owner.ticket_is_current(&ticket, &ledgers));
+    assert!(owner.claim(&second, ledgers.clone()).is_some());
+    assert!(owner.claim(&second, ledgers).is_none());
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn supporter_first_opinion_reused_pty_new_nonce_and_user_answer_rejected() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
