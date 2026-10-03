@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 2,
+  "duration": 45.0,
+  "fps": 30,
+  "width": 1280,
+  "height": 720,
+  "chapters": [
+    {
+      "id": "agents",
+      "start": 0,
+      "end": 7.2,
+      "posterTime": 3.066666666666667
+    },
+    {
+      "id": "board",
+      "start": 7.2,
+      "end": 13.633333333333333,
+      "posterTime": 9.146666666666667
+    },
+    {
+      "id": "mesh",
+      "start": 13.633333333333333,
+      "end": 25.133333333333333,
+      "posterTime": 16.46
+    },
+    {
+      "id": "plugins",
+      "start": 25.133333333333333,
+      "end": 45.0,
+      "posterTime": 27.453333333333333
+    }
+  ],
+  "framing": {
+    "brandSourceSha256": "d36e00f5c6f45cac5f286f064611a7803c17115a7e5cca0306bd299f1fd007c3",
+    "brandManifestSha256": "71fe615327f40eb77cd3bce8a876a8eff97fb188d865a540eca8f3ce42392e86",
+    "changedFrameRanges": [
+      [
+        0,
+        48
+      ],
+      [
+        1112,
+        1350
+      ]
+    ]
+  },
+  "timingSha256": "7cf3286126b446e58596064e0656602364af406afdefbfc14300551350f0829f",
+  "mp4": {
+    "src": "/media/trailer.mp4",
+    "bytes": 2984218
+  },
+  "webm": {
+    "src": "/media/trailer.webm",
+    "bytes": 2902968
+  },
+  "poster": {
+    "src": "/media/trailer-poster.webp",
+    "bytes": 25502
+  },
+  "totalBytes": 5962916,
+  "hasNarration": true,
+  "subtitles": {
+    "src": "/media/captions.vtt",
+    "bytes": 988
+  },
+  "music": {
+    "title": "Domios soundtrack",
+    "author": "Grok (SpaceXAI)",
+    "sourcePage": "https://x.ai/legal/faq",
+    "license": "Grok service output terms",
+    "licenseUrl": "https://x.ai/legal/terms-of-service",
+    "credit": "Music created with Grok (SpaceXAI), arranged and mixed for Domios."
+  },
+  "musicEditLineage": {
+    "openingSourceSha256": "389ef2c7fa857bfa3556122ffa754d48a2e94a3a16b808df1220533617e61612",
+    "arrangedMusicSha256": "33cb0ad53e12804b763889a139ba877d8334085b9293cc3ff788e76a1502d411",
+    "sourceExcerpt": {
+      "startSeconds": 2.6,
+      "endSeconds": 6.6,
+      "startSample": 124800,
+      "sampleCount": 192000
+    },
+    "outputRange": {
+      "startSample": 0,
+      "endSample": 192000,
+      "startSeconds": 0,
+      "endSeconds": 4.0
+    },
+    "crossfade": {
+      "startSample": 156000,
+      "endSample": 192000,
+      "startSeconds": 3.25,
+      "endSeconds": 4.0,
+      "durationSeconds": 0.75
+    },
+    "antiClickRamp": {
+      "startSample": 0,
+      "endSample": 576,
+      "durationSeconds": 0.012
+    },
+    "gain": {
+      "onsetMinimumLinearGain": 0.18369524548844832,
+      "phraseMaximumLinearGain": 39.3549000040431,
+      "selectedLinearGain": 0.24798859140940524,
+      "selectedGainDb": -12.111365964274771
+    },
+    "changedSampleRange": [
+      0,
+      192000
+    ]
+  }
+}
