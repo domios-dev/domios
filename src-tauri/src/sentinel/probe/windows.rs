@@ -487,7 +487,7 @@ impl WindowsRun {
             unsafe { DeleteProcThreadAttributeList(attributes) };
             return Err(last_error());
         }
-        let mut command_line = capture::power_shell_command_line(command);
+        let mut command_line = capture::windows_command_line(command, self.events.as_ref());
         let mut current_directory = cwd.as_os_str().encode_wide().chain([0]).collect::<Vec<_>>();
         let mut information = windows_sys::Win32::System::Threading::PROCESS_INFORMATION::default();
         if self.cancelled() {
