@@ -160,8 +160,8 @@ asynchronous reader. The server receives its path in `SCCACHE_STARTUP_NOTIFY`. T
 accepts only `Ok { addr: "127.0.0.1:4226" }`. It refuses malformed, partial, oversized, error,
 address-in-use, timeout, and unknown variants. The connected pipe client's PID must match the
 retained direct server handle; PID, creation time, liveness, and `IsProcessInJob` are checked around
-the notification. Pipe identity or completion uncertainty is a refusal. The no-window and process
-group flags remain as-is; direct mode does not establish that Windows will omit a console host.
+the notification. Pipe identity or completion uncertainty is a refusal. The direct server uses `DETACHED_PROCESS`; finite helpers retain `CREATE_NO_WINDOW`.
+Process-group and Job ownership remain unchanged. Exact-head native proof must establish the member inventory.
 
 Once notification and direct-process checks complete, the helper queries
 `JobObjectBasicAccountingInformation` and `JobObjectBasicProcessIdList` once each. The accounting
@@ -221,8 +221,8 @@ if a termination request succeeded.
 The provisioning operation does not run a Rust case and does not leave a daemon for later jobs.
 Native success must be reviewed from one separately admitted run at the reviewed full SHA, with
 actual archive, PE, process/Job/listener, capture, exit, and handle evidence. Portable contract
-controls establish only pure source decisions. The three groups select 117 cases: 14 archive
-pin/shape cases, 55 input/ownership/deadline/reuse and actual C# decoder/lease/candidate-inventory/
+controls establish only pure source decisions. The three groups select 120 cases: 14 archive
+pin/shape cases, 58 input/ownership/deadline/reuse and actual C# decoder/lease/candidate-inventory/
 direct-startup cases, and 48
 completion/output/freshness/statistics/rollback and Job membership cases. Membership controls
 exercise one candidate, retained exited launches plus one candidate, no candidate, ambiguous or
@@ -401,7 +401,7 @@ Runner-local environment:
 
 ## Incident Record
 
-Direct-server maintenance at `ba3f4ffb1` authenticated the startup notification but still observed `sccache.exe` plus `conhost.exe` and refused readiness. Cleanup confirmed active zero and closed handles. The cache-only direct launch now uses `DETACHED_PROCESS`; finite helper launches retain `CREATE_NO_WINDOW`. Absence of a console-host member remains a native hypothesis until the exact-head operation passes; the exact-one rule and original cleanup deadline remain unchanged.
+Direct-server maintenance at `ba3f4ffb1` authenticated the startup notification but still observed `sccache.exe` plus `conhost.exe` and refused readiness. Cleanup confirmed active zero and closed handles. The cache-only direct launch now uses `DETACHED_PROCESS`; finite helper launches retain `CREATE_NO_WINDOW`. CI37132916446 at758234 verified one server member, startup identity/listener and complete44ms owned cleanup. The exact-one rule and original cleanup deadline remain unchanged.
 
 | Symptom | Root Cause | Automated check/fix | Manual escalation boundary |
 | --- | --- | --- | --- |
@@ -441,3 +441,7 @@ Then dispatch the non-secret `tests.yml` workflow and confirm `rust (windows)` r
 ## Secret Handling
 
 Registration tokens, signing keys, package tokens, and Tauri signing passwords stay outside the repository and outside this script. Pass runner registration through `-RegistrationTokenCommand` so the token can be fetched from an ephemeral external source at runtime. The script never writes the token to `.env`, docs, or logs.
+
+Reuse can falsely report `installed_executable_differs_from_pinned_archive` when comparing a ZIP entry stream's unsupported `Length` property. Compare the entry descriptor length, then drain and compare both streams. Three in-memory compressed ZIP controls cover equality across buffer boundaries, changed bytes and changed length; never replace installed bytes to bypass refusal.
+
+<!-- revision: 1 -->
