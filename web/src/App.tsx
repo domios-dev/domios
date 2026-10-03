@@ -39,7 +39,7 @@ export function App() {
       <BuilderNotes staticMotion={reducedMotion} />
       <section className="closing section-wrap" aria-labelledby="closing-title"><h2 id="closing-title">Your next idea.<br /><span>A whole team behind it.</span></h2><DownloadActions download={download} github={github} placement="closing" /><p>Available for macOS, Windows, and Linux.</p></section>
     </main>
-    <footer className="site-footer section-wrap"><a className="brand" href="#" aria-label="Domios home"><BrandMark motion="interactive" />domios</a><span>A place for agents. Built for you.</span><nav aria-label="Footer navigation"><a href={download.href} data-download-trigger="footer" onClick={event => download.onClick(event)} aria-label={download.label}>Download</a><a href={github}>GitHub <span aria-hidden="true">↗</span></a><a href="#explore">Explore</a></nav></footer>
+    <footer className="site-footer section-wrap"><a className="brand" href="#" aria-label="Domios home"><BrandMark motion="interactive" />domios</a><span>Agents live here</span><nav aria-label="Footer navigation"><a href={download.href} data-download-trigger="footer" onClick={event => download.onClick(event)} aria-label={download.label}>Download</a><a href={github}>GitHub <span aria-hidden="true">↗</span></a><a href="#explore">Explore</a></nav></footer>
     <DownloadFeedback download={download} />
   </div>;
 }
