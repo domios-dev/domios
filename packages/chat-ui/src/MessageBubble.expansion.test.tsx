@@ -3,6 +3,7 @@ import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 
 import { reduceToolEvents, type NormalizedChatMessage } from "@codeterm/chat-core";
+import { detectChatPrefix } from "../../../src/lib/chatPrefixes";
 import { MessageBubble } from "./MessageBubble";
 
 const windowInstance = new Window({ url: "http://localhost/chat-ui-expansion-tests" });
@@ -46,6 +47,35 @@ async function run() {
   const completedRead = command("collapsed-read", "src/coordination.ts");
   const completedCommand = command("collapsed-command", "git status --short");
   const completedEdit = command("expanded-edit", "edit src/coordination.ts");
+  const tabPrefix = detectChatPrefix("-=-codeterm:tab label=Auditor tab=tab-dom-12 model=model-dom-4-=-/agent-pad/pointer/opaque-dom-tab-12.md");
+  assert(tabPrefix?.origin.kind === "tab", "parser supplies the Tab origin used by the DOM fixture");
+  const reportPrefix = detectChatPrefix("-=-codeterm:report from=Worker tab=tab-report-dom-13 model=model-report-dom-5-=-/agent-pad/pointer/opaque-dom-report-13.md");
+  assert(reportPrefix?.origin.kind === "tab" && reportPrefix.origin.report, "parser supplies the report origin used by the DOM fixture");
+  const systemPrefix = detectChatPrefix("-=-codeterm:system context=sYsTeM-=-/agent-pad/pointer/opaque-dom-system-14.md");
+  assert(systemPrefix?.origin.kind === "system", "parser supplies the System origin used by the DOM fixture");
+  const tabPointerMessage: NormalizedChatMessage = {
+    id: "parsed-tab-pointer-message",
+    type: "user",
+    content: tabPrefix.body,
+    inboundKind: "tab",
+  };
+  const reportPointerMessage: NormalizedChatMessage = {
+    id: "parsed-report-pointer-message",
+    type: "user",
+    content: reportPrefix.body,
+    inboundKind: "report",
+  };
+  const systemPointerMessage: NormalizedChatMessage = {
+    id: "parsed-system-pointer-message",
+    type: "user",
+    content: systemPrefix.body,
+    inboundKind: "system",
+  };
+  const unmarkedPointerMessage: NormalizedChatMessage = {
+    id: "unmarked-pointer-message",
+    type: "user",
+    content: "/agent-pad/pointer/opaque-unmarked-dom-15.md",
+  };
   const systemEvent: NormalizedChatMessage = {
     id: "collapsed-system-event",
     type: "user",
@@ -82,6 +112,10 @@ async function run() {
           message={completedEdit}
           item={{ kind: "tool", event: { id: completedEdit.id, phase: "result", status: "success", kind: "edit", summary: "src/coordination.ts", edits: [{ path: "src/coordination.ts", old: "old", new: "new" }], message: completedEdit } }}
         />
+        <MessageBubble message={tabPointerMessage} origin={tabPrefix.origin} />
+        <MessageBubble message={reportPointerMessage} origin={reportPrefix.origin} />
+        <MessageBubble message={systemPointerMessage} origin={systemPrefix.origin} />
+        <MessageBubble message={unmarkedPointerMessage} />
         <MessageBubble message={systemEvent} origin={{ kind: "system", context: "lifecycle" }} />
         <MessageBubble message={ordinaryUser} />
         <MessageBubble message={ordinaryAssistant} />
@@ -101,8 +135,45 @@ async function run() {
   assert(!read?.textContent?.includes("private inspection output"), "collapsed read-only inspection should hide output");
   assert(completedCommandCard?.querySelector('[aria-label="Show full command"]'), "completed shell command should start collapsed");
   assert(edit?.querySelector('[aria-label="Collapse tool details"]'), "completed code edit should stay visibly expanded");
-  const system = host.querySelector<HTMLElement>('[data-testid="chat-system-event"]');
+  const tabPointer = host.querySelector<HTMLElement>('[data-testid="chat-inbound-message"]');
+  const tabToggle = tabPointer?.querySelector<HTMLButtonElement>('button[aria-expanded]');
+  assert(tabPointer?.textContent?.includes("Received from Auditor"), "parsed Tab sender appears in the inbound header");
+  assert(tabToggle?.getAttribute("aria-expanded") === "true", "Tab card keeps its existing initial disclosure state");
+  assert(tabPointer.textContent?.includes("opaque-dom-tab-12.md"), "expanded Tab card displays the opaque pointer body");
+  await act(async () => tabToggle?.click());
+  assert(tabToggle?.getAttribute("aria-expanded") === "false", "Tab card collapses on demand");
+  assert(tabPointer?.textContent?.includes("Received from Auditor"), "collapsed Tab header keeps its supplied sender");
+  await act(async () => tabToggle?.click());
+  assert(tabToggle?.getAttribute("aria-expanded") === "true", "Tab card expands on demand");
+  assert(tabPointer?.textContent?.includes("opaque-dom-tab-12.md"), "expanded Tab body keeps its opaque pointer");
+  const reportPointer = host.querySelector<HTMLElement>('[data-testid="chat-inbound-report"]');
+  const reportToggle = reportPointer?.querySelector<HTMLButtonElement>('button[aria-expanded]');
+  assert(reportPointer?.textContent?.includes("Report from Worker"), "parsed report sender appears in the report header");
+  assert(reportToggle?.getAttribute("aria-expanded") === "true", "report card keeps its existing initial disclosure state");
+  assert(reportPointer.textContent?.includes("opaque-dom-report-13.md"), "expanded report displays the opaque pointer body");
+  await act(async () => reportToggle?.click());
+  assert(reportToggle?.getAttribute("aria-expanded") === "false", "report card collapses on demand");
+  assert(reportPointer?.textContent?.includes("Report from Worker"), "collapsed report header keeps its supplied sender");
+  await act(async () => reportToggle?.click());
+  assert(reportToggle?.getAttribute("aria-expanded") === "true", "report card expands on demand");
+  assert(reportPointer?.textContent?.includes("opaque-dom-report-13.md"), "expanded report body keeps its opaque pointer");
+  const systemPointer = host.querySelector<HTMLElement>('[data-testid="chat-system-event"]');
+  const systemPointerTitle = systemPointer?.querySelector("button > span");
+  const systemPointerToggle = systemPointer?.querySelector<HTMLButtonElement>("button");
+  assert(systemPointer?.getAttribute("role") === "status", "parsed System remains a status message");
+  assert(systemPointerTitle?.textContent === "System", "duplicate System context is omitted from the event title");
+  assert(systemPointerToggle?.getAttribute("aria-expanded") === "false", "System disclosure remains collapsed initially");
+  assert(!systemPointer?.textContent?.includes("opaque-dom-system-14.md"), "collapsed System event hides its opaque pointer body");
+  await act(async () => systemPointerToggle?.click());
+  assert(systemPointerToggle?.getAttribute("aria-expanded") === "true", "System disclosure expands on demand");
+  assert(systemPointer?.textContent?.includes("opaque-dom-system-14.md"), "expanded System event shows its opaque pointer body");
+  assert(host.querySelectorAll('[data-testid="chat-inbound-message"]').length === 1, "unmarked pointer does not acquire a supplied-sender card");
+  assert(host.textContent?.includes("opaque-unmarked-dom-15.md"), "unmarked pointer remains ordinary message content");
+  assert(!systemPointer?.querySelector('[data-testid="inbound-show-tab"]'), "System event has no agent focus action");
+  const system = Array.from(host.querySelectorAll<HTMLElement>('[data-testid="chat-system-event"]'))
+    .find((event) => event.querySelector("button > span")?.textContent === "System · lifecycle");
   const systemToggle = system?.querySelector<HTMLButtonElement>("button");
+  assert(system?.querySelector("button > span")?.textContent === "System · lifecycle", "distinct System context remains visible");
   assert(systemToggle?.getAttribute("aria-expanded") === "false", "system event should start collapsed");
   assert(!system?.textContent?.includes("Internal lifecycle detail"), "collapsed system event should hide its body");
   await act(async () => systemToggle?.click());

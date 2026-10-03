@@ -3,7 +3,7 @@
  * Run: npx tsx src/lib/chatPrefixes.test.ts
  */
 
-import { detectChatPrefix, splitChatPrefixedMessages } from "./chatPrefixes";
+import { detectChatPrefix, labelFor, splitChatPrefixedMessages } from "./chatPrefixes";
 
 let passed = 0;
 let failed = 0;
@@ -99,6 +99,48 @@ console.log("detectChatPrefix");
   const r = detectChatPrefix("-=-codeterm:system context=plan-=-Reconcile the active Plan.");
   eq(r?.origin, { kind: "system", context: "plan" }, "ct system marker is not a Tab origin");
   eq(r?.body, "Reconcile the active Plan.", "ct system marker body stripped");
+}
+
+{
+  const tabMarker = (body: string) =>
+    detectChatPrefix(`-=-codeterm:tab label=Auditor tab=tab-opaque-7 model=model-opaque-2-=-${body}`);
+  const ordinary = tabMarker("ordinary body");
+  const pointer = tabMarker("/agent-pad/pointer/opaque-tab-7.md");
+  eq(ordinary?.origin, { kind: "tab", title: "Auditor", tabIdShort: "tab-opaque-7", model: "model-opaque-2" }, "Tab marker keeps supplied sender metadata");
+  eq(pointer?.origin, ordinary?.origin, "Tab pointer body leaves supplied sender metadata unchanged");
+  eq(pointer?.body, "/agent-pad/pointer/opaque-tab-7.md", "Tab pointer body stays opaque text");
+}
+
+{
+  const reportMarker = (body: string) =>
+    detectChatPrefix(`-=-codeterm:report from=Worker tab=tab-report-8 model=model-report-3-=-${body}`);
+  const ordinary = reportMarker("ordinary report body");
+  const pointer = reportMarker("/agent-pad/pointer/opaque-report-8.md");
+  eq(ordinary?.origin, { kind: "tab", title: "Worker", tabIdShort: "tab-report-8", model: "model-report-3", report: true }, "Report marker keeps supplied sender metadata");
+  eq(pointer?.origin, ordinary?.origin, "Report pointer body leaves supplied report metadata unchanged");
+  eq(pointer?.body, "/agent-pad/pointer/opaque-report-8.md", "Report pointer body stays opaque text");
+}
+
+{
+  const pointer = detectChatPrefix("-=-codeterm:system context=heartbeat-=-/agent-pad/pointer/opaque-system-9.md");
+  eq(pointer?.origin, { kind: "system", context: "heartbeat" }, "System pointer keeps supplied System context");
+  eq(pointer?.body, "/agent-pad/pointer/opaque-system-9.md", "System pointer body stays opaque text");
+  eq(labelFor({ kind: "system", context: "heartbeat-opaque-9" }), "System · heartbeat-opaque-9", "distinct System context stays visible");
+}
+
+{
+  eq(detectChatPrefix("/agent-pad/pointer/opaque-unmarked-10.md"), null, "unmarked pointer does not acquire a sender");
+  eq(
+    detectChatPrefix("-=-codeterm:tab label=Auditor-=-/agent-pad/pointer/opaque-incomplete-11.md"),
+    null,
+    "incomplete Tab marker does not acquire a sender from its body",
+  );
+}
+
+{
+  eq(labelFor({ kind: "system", context: "system" }), "System", "duplicate System context is omitted");
+  eq(labelFor({ kind: "system", context: "  SyStEm  " }), "System", "case and whitespace duplicate System context is omitted");
+  eq(labelFor({ kind: "system", context: " \t " }), "System", "blank System context is omitted");
 }
 
 {
