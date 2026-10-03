@@ -1,4 +1,4 @@
-# CodeTerm Motion Lab
+# Domios Motion Lab
 
 An isolated visual scratchpad for micro-interactions, status signals, and component motion. It uses the repository's React and Vite toolchain without adding a production dependency or coupling experiments to the application bundle.
 
@@ -22,7 +22,7 @@ npx vite build --config playground/vite.config.ts
 
 - Put each exploration family under `playground/src/concepts/<author-or-theme>/`.
 - Render concepts in the shared gallery so alternatives remain comparable.
-- Use CodeTerm theme semantics through playground custom properties, not fixed product colors.
+- Use Domios theme semantics through playground custom properties, not fixed product colors.
 - Start with [`src/motion-tokens.css`](./src/motion-tokens.css), then tune a concept when its physical action calls for a distinct rhythm.
 - Keep the semantic map from [MOTION_LANGUAGE.md](./MOTION_LANGUAGE.md#semantic-families): Working, Handoff, Completed, and Needs attention have distinct meanings. This gallery currently evaluates Working only.
 - Animate only `transform` and `opacity` unless the experiment explicitly measures another property.
@@ -37,4 +37,4 @@ The lightweight review loop is in [MOTION_LANGUAGE.md](./MOTION_LANGUAGE.md#revi
 
 Storybook, Ladle, and React Cosmos are strong component-workshop systems. This lab starts smaller because its first job is rapid motion comparison: many variants in one viewport, shared tempo and accent controls, instant HMR, and no new runtime or test dependency. If the lab expands into a general component catalog, its concept modules can be promoted into stories or fixtures later.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

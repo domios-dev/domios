@@ -1,6 +1,6 @@
 # Periodic Tasks (Cron)
 
-Schedule recurring or one-time tasks. **Never use built-in CronCreate/CronList tools** — CodeTerm has its own cron that spawns Claude agents on schedule and tracks results.
+Schedule recurring or one-time tasks. **Never use built-in CronCreate/CronList tools** — Domios has its own cron that spawns Claude agents on schedule and tracks results.
 
 ## Recurring jobs
 
