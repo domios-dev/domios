@@ -102,9 +102,24 @@
       "expected_output": "Creates a bounded sentinel to watch CI and deliver one transition instead of repeatedly polling with the agent.",
       "expectations": [
         "Uses the codeterm sentinel create command family with --probe, --question, and --buckets to watch the CI result",
-        "Sets an explicit cadence through --every and a bounded lifetime through --timeout or --until",
-        "Does NOT implement an agent polling loop or sleep between repeated status checks"
+        "Sets an explicit cadence through --every of at least 10s and a bounded lifetime through --timeout or --until; --until names exactly one declared bucket, never a comma-separated list",
+        "Does not write an agent-side polling loop or sleep between status checks; the real codeterm sentinel create command and its --every scheduler cadence are allowed and are not an agent polling loop",
+        "Uses default notifications to the creator or only a supplied existing route target. Does not invent tab get-id, noop routes or another recipient. Automatic reserved other is not included in declared --buckets. Explanation must not invent commands, automatic stopping or claim model-free classification."
       ]
+    },
+    {
+      "id": 10,
+      "name": "pr-wait-routes-to-existing-agent-and-cron",
+      "prompt": "Without executing commands: PR456 is waiting for CI. The authorized status probe is gh run view 456 --json status,conclusion. A connected Supporter adapter is available. Existing cron review_pr and agent tab repair_worker belong to your Team and workspace. Watch for a terminal result: passed must trigger that cron, failed must send the result to that agent, and CI still running must remain quiet. Give a bounded setup; the model must never invent a command or recipient.",
+      "expected_output": "Creates a bounded Sentinel with predefined passed/failed routes instead of starting a repeated full agent or allowing model-selected shell commands.",
+      "expectations": [
+        "Uses codeterm sentinel create with the supplied --probe, a decision --question, and terminal --buckets passed,failed",
+        "Sets --route passed=cron:review_pr and --route failed=send:repair_worker, selecting only the supplied existing targets",
+        "Explicitly classifies still-running CI as automatic other, not a declared bucket with guessed quiet behavior; no route while running and no early stop merely for a running result. Expiry at the explicit lifetime timeout is allowed and required.",
+        "Uses explicit --timeout or one declared --until bucket to bound the real codeterm sentinel create scheduler; does not write an agent-side polling loop or full recurring agent",
+        "The real codeterm sentinel create family with --probe, --question, --buckets, --every, --timeout, --until and --route is allowed. Routes use bucket=send:tab or bucket=cron:name syntax. Does not invent a shell command, another route type or recipient."
+      ],
+      "response_mode": "text"
     }
   ]
 }
