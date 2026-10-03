@@ -460,3 +460,8 @@ stop downstream test gates when compilation fails, and qualify the two focused s
 ContractOnly can report `native_control_selection_count_mismatch` after adding native controls while
 leaving its independent expected inventory stale. Match the authored group inventory (21 startup controls)
 and rerun the exact-head pure gate; never remove the count guard or count its refusal as a behavior failure.
+
+Windows Sentinel native probes can fail immediately with `probe_capture_or_completion_failed` when Job
+completion fields are reversed: transferred bytes carry the Job message, while OVERLAPPED carries the PID.
+ACTIVE_PROCESS_ZERO legitimately carries a null PID. Decode Job packets before rejecting null capture
+operations; failed dequeues with null OVERLAPPED still refuse. Re-run the fixed 11/4 Windows boundary.
