@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 
 use super::super::ServiceContext;
 
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub(crate) struct LedgerSnapshot {
     pub(crate) trust: u64,
     pub(crate) update: u64,
