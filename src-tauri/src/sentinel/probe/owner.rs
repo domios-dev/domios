@@ -459,10 +459,27 @@ impl ProbeResourceOwner {
         &self,
         timeout: std::time::Duration,
     ) -> bool {
+        self.wait_for_unconfirmed_state(timeout, false)
+    }
+
+    #[cfg(test)]
+    pub(super) fn wait_for_terminal_unconfirmed_with_timeout(
+        &self,
+        timeout: std::time::Duration,
+    ) -> bool {
+        self.wait_for_unconfirmed_state(timeout, true)
+    }
+
+    #[cfg(test)]
+    fn wait_for_unconfirmed_state(
+        &self,
+        timeout: std::time::Duration,
+        terminal: bool,
+    ) -> bool {
         let deadline = std::time::Instant::now() + timeout;
         let mut state = self.core.state.lock().unwrap_or_else(|error| error.into_inner());
         loop {
-            if state.slots.iter().any(|slot| slot.phase == Phase::Unconfirmed) {
+            if state.slots.iter().any(|slot| slot.phase == Phase::Unconfirmed && (!terminal || slot.terminal_unconfirmed)) {
                 return true;
             }
             let remaining = deadline.saturating_duration_since(std::time::Instant::now());
@@ -476,7 +493,7 @@ impl ProbeResourceOwner {
                 .unwrap_or_else(|error| error.into_inner());
             state = next;
             if result.timed_out()
-                && !state.slots.iter().any(|slot| slot.phase == Phase::Unconfirmed)
+                && !state.slots.iter().any(|slot| slot.phase == Phase::Unconfirmed && (!terminal || slot.terminal_unconfirmed))
             {
                 return false;
             }
