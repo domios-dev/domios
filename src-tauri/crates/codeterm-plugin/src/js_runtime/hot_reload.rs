@@ -566,7 +566,9 @@ impl HotReloadRegistry {
                     return Some(id);
                 }
                 self.bind_service(provider.vm());
-                if let Some(api_port) = runtime_api_port() {
+                if let Some(api_port) = runtime_api_port()
+                    .filter(|_| crate::global_writes::machine_global_write_allowed())
+                {
                     provider.ensure_integration_on_startup(api_port);
                 }
                 let had_tab_menu = self.caps.tab_menu.contains(&id);

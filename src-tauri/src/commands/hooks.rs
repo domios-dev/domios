@@ -308,6 +308,9 @@ fn spawn_reconciliation(
     config: Option<crate::config::ConfigState>,
     service: Option<ServiceState>,
 ) {
+    if !codeterm_plugin::global_writes::machine_global_write_allowed() {
+        return;
+    }
     let id = provider.id().to_string();
     if !provider.has_installable_integration() {
         log_reconciliation(
