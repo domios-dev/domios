@@ -1,6 +1,6 @@
 # Restore Matrix V2
 
-Focused provider restore eval for dev CodeTerm on port 7686.
+Focused provider restore eval for dev Domios on port 7686.
 
 This replaces the old broad `evals/session-restore` flow as the acceptance oracle for provider session restore. It creates one workspace named `RESTORE-MATRIX-<runid>`, attempts N tabs per system provider (`claude`, `codex`, `opencode`, `cursor`), sends a unique `RESTORE-MARKER-<uuid>` to each active tab, proves the marker materialized in that provider's session store before kill, hard-restarts dev, and requires API identity, `/chat` isolation, and a scoped ChatView UI-visible marker assertion.
 

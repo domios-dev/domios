@@ -108,7 +108,7 @@ Cursor exists at `/Users/kandrey/.local/bin/cursor-agent`, pointing to `versions
 
 `native_assembly.py --assemble` checks archive package name/version and the wrapper installer hash, preserves trees and writes separate wrapper/native byte/tree and selected executable receipts. An incomplete assembly stays unqualified. Six separately authorized darwin/arm64 archive assemblies now have canonical receipts; see RESULTS.md. All native `--version` and provider execution remain NOT RUN. The dedicated version runner below replaces the old three-value shared transport result; archive/TLS and shared transport source are unchanged.
 
-Codex's pinned startup source refuses a popup while `check_for_update_on_startup=false`; CodeTerm sets false for fresh and resumed launches. The real `codex update` command installs directly, not through the Skip picker. The helper does not seed a fake cache, rewrite the production flag, add a prompt or press keys. Genuine trigger proof remains pending. Claude/OpenCode real update prompts likewise require actual qualification after assembly; Cursor portable assembly and unsupported update disposition are still pending.
+Codex's pinned startup source refuses a popup while `check_for_update_on_startup=false`; Domios sets false for fresh and resumed launches. The real `codex update` command installs directly, not through the Skip picker. The helper does not seed a fake cache, rewrite the production flag, add a prompt or press keys. Genuine trigger proof remains pending. Claude/OpenCode real update prompts likewise require actual qualification after assembly; Cursor portable assembly and unsupported update disposition are still pending.
 
 ### Dedicated native version receipt — source only
 

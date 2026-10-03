@@ -2,7 +2,7 @@
 
 This deterministic fixture suite proves the bounce-unwinding record schema,
 immutable baseline fields, bounded follow-ups, controlled negative mutations,
-and the D1 requirement to read a complete CodeTerm document.
+and the D1 requirement to read a complete Domios document.
 
 ## Run
 
@@ -15,4 +15,4 @@ bash evals/prompt-contract/run.sh
 It prints `prompt-contract F1-F10 records, D1 docs read, and mutation negatives passed`
 and exits zero.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->
