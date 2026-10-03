@@ -423,7 +423,7 @@ pub enum PlanSkillAction {
     /// Create a new plan skill folder (SKILL.md + scripts/)
     New {
         slug: String,
-        /// Plan id (omit to use $CODETERM_PLAN_ID or the single active plan)
+        /// Plan id (omit for the caller Team's active plan; outside a tab, $CODETERM_PLAN_ID)
         #[arg(long)]
         plan: Option<String>,
         #[arg(long, allow_hyphen_values = true)]

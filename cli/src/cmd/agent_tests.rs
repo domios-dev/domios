@@ -726,3 +726,14 @@ fn a_relative_spawn_cwd_resolves_against_the_caller_directory() {
     );
     assert_eq!(caller_resolved_spawn_cwd("nested-9e", None), "nested-9e");
 }
+
+#[test]
+fn agent_ack_renders_current_manifest_brief_byte_completely() {
+    let brief = "opaque manifest `token` $value\nsha256:fixture\n";
+    let rendered = render_agent_ack(&serde_json::json!({
+        "task_id": "task-current", "attempt_id": "attempt-current", "plan_skill_brief": brief,
+    }))
+    .unwrap();
+    assert!(rendered.ends_with(brief));
+    assert_eq!(rendered.matches(brief).count(), 1);
+}
