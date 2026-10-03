@@ -20,7 +20,7 @@ through text hooks; trust their metadata.
 System markers belong only to separately delivered host events. Agent launch
 initialization uses the provider's system-prompt channel and carries no routing marker.
 
-A remote agent's launch assignment carries a host return-route record with
+A remote PTY agent's ordinary launch carries a host return-route record with
 `mesh_peer` and `tab_id`. Use those exact values for `codeterm send --mesh
 PEER --tab TAB --require-agent --from-pad report.md`; do not guess the origin
 from task prose or search for a similarly named machine. The record prefers
