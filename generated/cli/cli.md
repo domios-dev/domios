@@ -1296,7 +1296,7 @@ List all peers (paired + discovered)
 
 #### `codeterm mesh refresh`
 
-Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting CodeTerm
+Re-detect local addresses (Tailscale + LAN) and announce them to all paired peers. Use after a network swap so peers update their cache without restarting Domios
 
 #### `codeterm mesh reject`
 
@@ -3034,7 +3034,7 @@ Remove the OS-level autostart trigger created by `enable-autostart`. Idempotent 
 
 Install an OS login trigger for the external crash-aware supervisor. The supervisor alone applies clean-exit, backoff, and loop policy; platform wrappers never restart the app independently
 
-- `--binary` — Override the path to the CodeTerm executable. Defaults to the installed app binary for the current platform
+- `--binary` — Override the path to the Domios executable. Defaults to the installed app binary for the current platform
 - `--supervisor` — Override the path to the codeterm CLI supervisor. Defaults to the currently-running CLI executable
 
 #### `codeterm tab`
