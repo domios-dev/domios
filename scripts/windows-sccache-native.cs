@@ -860,9 +860,17 @@ public static class WindowsSccacheNative {
         results.Add(PureControl("direct_server_candidate_inventory_incomplete_refused", () => !ClassifyDirectServerReadiness(StartupControlEvidence(okay), new uint[] { 701 }, true, false, true).Valid));
         return results.ToArray();
     }
-    static JobProcessSnapshot DirectMemberSnapshot(uint[] pids) {
+    static Dictionary<string, object> DirectMemberSnapshot(uint[] pids) {
         uint count = (uint)pids.Length; ulong bytes = 8UL + (ulong)count * (ulong)IntPtr.Size;
-        return new JobProcessSnapshot { AccountingQuerySucceeded = true, AccountingComplete = true, AccountingError = 0, AccountingActiveProcesses = count, AccountingReturnLength = 48, AccountingRequiredBytes = 48, AccountingStartedTicks = 1, AccountingCompletedTicks = 2, ProcessListQuerySucceeded = true, ProcessListError = 0, AssignedCount = count, ListedCount = count, ProcessListReturnLength = (uint)bytes, BufferCapacity = 8192, BufferBytes = 65544, RequiredBytes = bytes, ProcessListStartedTicks = 3, ProcessListCompletedTicks = 4, ProcessIds = pids, Complete = true };
+        return new Dictionary<string, object> {
+            { "AccountingQuerySucceeded", true }, { "AccountingComplete", true }, { "AccountingError", 0 },
+            { "AccountingActiveProcesses", count }, { "AccountingReturnLength", 48 }, { "AccountingRequiredBytes", 48 },
+            { "AccountingStartedTicks", 1 }, { "AccountingCompletedTicks", 2 }, { "ProcessListQuerySucceeded", true },
+            { "ProcessListError", 0 }, { "AssignedCount", count }, { "ListedCount", count },
+            { "ProcessListReturnLength", (uint)bytes }, { "BufferCapacity", 8192 }, { "BufferBytes", 65544 },
+            { "RequiredBytes", bytes }, { "ProcessListStartedTicks", 3 }, { "ProcessListCompletedTicks", 4 },
+            { "ProcessIds", pids }, { "Complete", true }
+        };
     }
     static Dictionary<string,object> DirectMemberFact(uint pid, bool alive, bool identityValid) {
         return new Dictionary<string,object> { { "Created", true }, { "DirectServer", true }, { "Pid", pid }, { "HandlePid", pid }, { "CapturedCreationFileTime", (long)pid + 1000 }, { "CurrentCreationFileTime", (long)pid + 1000 }, { "Assigned", true }, { "HandleRetained", true }, { "IdentityValid", identityValid }, { "ProcessExitConfirmed", false }, { "CapturesComplete", false }, { "Alive", alive } };
