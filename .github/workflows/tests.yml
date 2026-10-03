@@ -1107,6 +1107,50 @@ jobs:
           function Write-TaskLocalReceipt {
             $receipt | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $receiptDir 'receipt.json') -Encoding utf8
           }
+          function Resolve-InstalledTaskSccache {
+            $resolution = [ordered]@{ candidates = @(); selected = $null; other_tools = @(); authenticity = 'unproven'; server = 'not_checked' }
+            $receipt.sccache_resolution = $resolution
+            $existing = Get-Command sccache -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+            $paths = @()
+            if ($existing) {
+              $paths += @{ origin = 'PATH'; path = $existing.Path }
+            } else {
+              foreach ($root in @(@{ origin = 'CARGO_HOME'; value = $env:CARGO_HOME; suffix = 'bin\sccache.exe' }, @{ origin = 'USERPROFILE'; value = $env:USERPROFILE; suffix = '.cargo\bin\sccache.exe' })) {
+                if (-not $root.value) {
+                  $resolution.candidates += @{ origin = $root.origin; path = $null; state = 'root_unset' }
+                  continue
+                }
+                if ($root.value -notmatch '^[A-Za-z]:[\\/]' -or $root.value.Contains('..')) { throw 'sccache_candidate_root_not_absolute_local' }
+                $path = [IO.Path]::GetFullPath((Join-Path $root.value $root.suffix))
+                if (-not @($paths | Where-Object { $_.path -ieq $path }).Count) { $paths += @{ origin = $root.origin; path = $path } }
+              }
+            }
+            $found = @()
+            foreach ($candidate in $paths) {
+              $fact = [ordered]@{ origin = $candidate.origin; path = $candidate.path; state = 'inspecting' }
+              $resolution.candidates += $fact
+              if (-not (Test-Path -LiteralPath $candidate.path)) { $fact.state = 'missing'; continue }
+              $item = Get-Item -LiteralPath $candidate.path -Force
+              if ($item.PSIsContainer) { $fact.state = 'directory'; throw 'sccache_candidate_is_directory' }
+              $fact.size = $item.Length
+              $fact.sha256 = (Get-FileHash -LiteralPath $candidate.path -Algorithm SHA256).Hash
+              $fact.state = 'file'
+              $found += $fact
+            }
+            if ($found.Count -ne 1) { throw 'sccache_missing_or_ambiguous_in_allowed_locations' }
+            $selected = $found[0]
+            foreach ($name in @('rustup', 'rustc', 'cargo', 'node')) {
+              $resolution.other_tools += @{ name = $name; before = (Get-Command $name -CommandType Application -ErrorAction Stop | Select-Object -First 1).Path }
+            }
+            if (-not $existing) { $env:PATH += ';' + (Split-Path -Parent $selected.path) }
+            $resolved = (Get-Command sccache -CommandType Application -ErrorAction Stop | Select-Object -First 1).Path
+            if ($resolved -ine $selected.path) { throw 'sccache_resolution_changed' }
+            foreach ($tool in $resolution.other_tools) {
+              $tool.after = (Get-Command $tool.name -CommandType Application -ErrorAction Stop | Select-Object -First 1).Path
+              if ($tool.before -ine $tool.after) { throw 'sccache_path_changed_other_tool' }
+            }
+            $resolution.selected = $selected
+          }
           function Resolve-TaskLocalBoundary {
             if ($env:TASK_BOUNDARY -notmatch '^(cantor|auditor|both)-(red|green)$') { throw 'invalid_task_boundary' }
             $pair = $Matches[1]
@@ -1200,7 +1244,8 @@ jobs:
               if (-not $rustBin) { throw 'installed_rust_path_missing' }
               $env:PATH = $rustBin + ';' + $env:PATH
             }
-            foreach ($tool in @('rustc', 'cargo', 'node', 'sccache')) { Get-Command $tool -ErrorAction Stop | Out-Null }
+            foreach ($tool in @('rustc', 'cargo', 'node')) { Get-Command $tool -CommandType Application -ErrorAction Stop | Out-Null }
+            Resolve-InstalledTaskSccache
             $bashPaths = @("$env:ProgramFiles\Git\bin\bash.exe", "$env:ProgramFiles\Git\usr\bin\bash.exe", "${env:ProgramFiles(x86)}\Git\bin\bash.exe", 'C:\msys64\usr\bin\bash.exe')
             if (-not @($bashPaths | Where-Object { Test-Path -LiteralPath $_ }).Count) { throw 'installed_bash_missing' }
             $pwsh = (Get-Process -Id $PID).Path
