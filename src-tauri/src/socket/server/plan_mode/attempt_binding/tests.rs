@@ -1,4 +1,5 @@
 use crate::multiplexer::state::MultiplexerState;
+use crate::multiplexer::types::AgentRole;
 use crate::plan::{OrchestratorRef, Plan, PlanMode, PlanSkillManifestEntry, TaskLaneMetadata};
 use crate::service::plan::plan_skills;
 use crate::service::plan::task_assignment::AssignmentRuntimeBinding;
@@ -15,9 +16,16 @@ const SESSION_ID: &str = "same-provider-session";
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real_skill_read() {
-    let (mut mux, _) = MultiplexerState::new();
+    let (mut mux, parent_tab_id) = MultiplexerState::new();
+    mux.set_orchestrator_role(&parent_tab_id).unwrap();
     let workspace_id = mux.list_workspaces()[0].id.clone();
     let tab_id = mux.create_tab(&workspace_id).unwrap();
+    mux.set_tab_role(&tab_id, AgentRole::Worker, Some(&parent_tab_id))
+        .unwrap();
+    let team_id = mux.get_tab(&tab_id).unwrap().team_id.clone().unwrap();
+    assert_eq!(mux.get_tab(&tab_id).unwrap().role, Some(AgentRole::Worker));
+    assert_eq!(mux.get_tab(&tab_id).unwrap().role_profile, None);
+    assert!(mux.get_team(&team_id).is_some());
     {
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some("codex".into());
@@ -36,6 +44,8 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
         OrchestratorRef::from_tab("orchestrator"),
     );
     plan.mode = PlanMode::Execution;
+    plan.team_id = Some(team_id.clone());
+    assert_eq!(plan.team_id.as_deref(), Some(team_id.as_str()));
     store.save(&mut plan, 1).unwrap();
     let task_id = store
         .add_task(
@@ -115,7 +125,12 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
         tab.session_binding_nonce = Some(CURRENT_NONCE.into());
         tab.reported_session_binding_nonce = Some(CURRENT_NONCE.into());
     }
-    let owner_epoch = store.show_task(&task_id).unwrap().task.interruption.owner_epoch;
+    let owner_epoch = store
+        .show_task(&task_id)
+        .unwrap()
+        .task
+        .interruption
+        .owner_epoch;
     let caller = json!({
         "plan_id": plan.id,
         "task_id": task_id,
@@ -126,6 +141,94 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
         "session_binding_nonce": CURRENT_NONCE,
     });
     let service = Arc::new(fixture.service.clone());
+    let before_role_and_team_refusals = store.show_task(&task_id).unwrap().task;
+    for refusal_cause in ["role", "role_profile", "missing_team", "unknown_team"] {
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.role = Some(AgentRole::Worker);
+            tab.role_profile = None;
+            tab.team_id = Some(team_id.clone());
+            match refusal_cause {
+                "role" => {
+                    tab.role = Some(AgentRole::Manager);
+                    tab.role_profile = Some("planner".into());
+                }
+                "role_profile" => tab.role_profile = Some("planner".into()),
+                "missing_team" => tab.team_id = None,
+                "unknown_team" => tab.team_id = Some("unregistered-team".into()),
+                _ => unreachable!(),
+            }
+        }
+        let before_mux_tab = {
+            let mux = fixture.service.mux.read();
+            serde_json::to_value(mux.get_tab(&tab_id).unwrap()).unwrap()
+        };
+        let refusal = super::super::dispatch(
+            "plan.session.rebind",
+            &Some(caller.clone()),
+            &fixture.service.app_handle,
+            &service,
+        )
+        .expect_err("targeted restoration requires the current Worker and its Team");
+        assert_eq!(
+            refusal.data.as_ref().unwrap()["type"],
+            "attempt_binding_restore_refused"
+        );
+        assert_eq!(
+            store.show_task(&task_id).unwrap().task,
+            before_role_and_team_refusals
+        );
+        let mux = fixture.service.mux.read();
+        assert_eq!(
+            serde_json::to_value(mux.get_tab(&tab_id).unwrap()).unwrap(),
+            before_mux_tab
+        );
+    }
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.role = Some(AgentRole::Worker);
+        tab.role_profile = None;
+        tab.team_id = Some(team_id.clone());
+    }
+    store
+        .with_plan(&plan.id, 5, |stored_plan| {
+            stored_plan.team_id = Some("different-team".into());
+            Ok(())
+        })
+        .unwrap();
+    let before_mux_tab = {
+        let mux = fixture.service.mux.read();
+        serde_json::to_value(mux.get_tab(&tab_id).unwrap()).unwrap()
+    };
+    let refusal = super::super::dispatch(
+        "plan.session.rebind",
+        &Some(caller.clone()),
+        &fixture.service.app_handle,
+        &service,
+    )
+    .expect_err("the plan Team must match the authenticated Worker Team");
+    assert_eq!(
+        refusal.data.as_ref().unwrap()["type"],
+        "attempt_binding_restore_refused"
+    );
+    assert_eq!(
+        store.show_task(&task_id).unwrap().task,
+        before_role_and_team_refusals
+    );
+    let mux = fixture.service.mux.read();
+    assert_eq!(
+        serde_json::to_value(mux.get_tab(&tab_id).unwrap()).unwrap(),
+        before_mux_tab
+    );
+    drop(mux);
+    store
+        .with_plan(&plan.id, 5, |stored_plan| {
+            stored_plan.team_id = Some(team_id.clone());
+            Ok(())
+        })
+        .unwrap();
     let rebound = super::super::dispatch(
         "plan.session.rebind",
         &Some(caller.clone()),
@@ -177,8 +280,9 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
     }
     {
         let mut mux = fixture.service.mux.write();
-        mux.get_tab_mut(&tab_id).unwrap().reported_session_binding_nonce =
-            Some("unrelated-reported-nonce".into());
+        mux.get_tab_mut(&tab_id)
+            .unwrap()
+            .reported_session_binding_nonce = Some("unrelated-reported-nonce".into());
     }
     let refusal = super::super::dispatch(
         "plan.session.rebind",
@@ -194,14 +298,18 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
     assert_eq!(store.show_task(&task_id).unwrap().task, before_refusal);
     {
         let mut mux = fixture.service.mux.write();
-        mux.get_tab_mut(&tab_id).unwrap().reported_session_binding_nonce =
-            Some(CURRENT_NONCE.into());
+        mux.get_tab_mut(&tab_id)
+            .unwrap()
+            .reported_session_binding_nonce = Some(CURRENT_NONCE.into());
     }
     {
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(&tab_id).unwrap();
         assert_eq!(tab.session_binding_nonce.as_deref(), Some(CURRENT_NONCE));
-        assert_eq!(tab.reported_session_binding_nonce.as_deref(), Some(CURRENT_NONCE));
+        assert_eq!(
+            tab.reported_session_binding_nonce.as_deref(),
+            Some(CURRENT_NONCE)
+        );
     }
     assert_eq!(rebound["status"], "restored");
     assert_eq!(rebound["plan_id"], plan.id);
@@ -209,11 +317,20 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
     assert_eq!(rebound["attempt_id"], attempt_id);
     assert!(rebound.get("session_binding_nonce").is_none());
     let after_restore = store.show_task(&task_id).unwrap().task;
+    assert_eq!(
+        after_restore.execution_attempts[0]
+            .binding_restorations
+            .len(),
+        1
+    );
     {
         let mux = fixture.service.mux.read();
         let tab = mux.get_tab(&tab_id).unwrap();
         assert_eq!(tab.session_binding_nonce.as_deref(), Some(CURRENT_NONCE));
-        assert_eq!(tab.reported_session_binding_nonce.as_deref(), Some(CURRENT_NONCE));
+        assert_eq!(
+            tab.reported_session_binding_nonce.as_deref(),
+            Some(CURRENT_NONCE)
+        );
     }
     let replay = super::super::dispatch(
         "plan.session.rebind",
@@ -225,7 +342,9 @@ fn attempt_binding_restore_existing_rebind_rpc_restores_current_attempt_for_real
     assert_eq!(replay["status"], "already_current");
     assert_eq!(store.show_task(&task_id).unwrap().task, after_restore);
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.execution_attempts[0].loaded_plan_skills.len(),
+        store.show_task(&task_id).unwrap().task.execution_attempts[0]
+            .loaded_plan_skills
+            .len(),
         1
     );
 }
