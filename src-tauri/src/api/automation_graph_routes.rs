@@ -415,7 +415,7 @@ mod tests {
                 .await;
             assert_eq!(status, StatusCode::OK);
             assert_eq!(result["reason"], "stopped_by_host");
-            assert!(lease.cancelled.load(std::sync::atomic::Ordering::SeqCst));
+            assert!(lease.is_cancelled());
             let restored = crate::sentinel::store::Store::new(
                 fixture.runtime.temp.path().join("sentinels.json"),
                 crate::cron::clock::MockClock::starting_at(1000),
