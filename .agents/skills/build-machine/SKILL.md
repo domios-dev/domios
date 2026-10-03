@@ -91,6 +91,11 @@ the reusable Windows job in `.github/workflows/release-windows.yml`, called by t
 
 ### Pinned cache maintenance and same-job task sessions
 
+If cleanup reports a property-assignment error for the captured server, verify its
+record declares `ExitCode` before launch. A PowerShell custom object cannot acquire
+an undeclared property through assignment; retain the handle and fail cleanup honestly.
+
+
 The focused Windows task workflow keeps its existing no-install path by default. Its existing
 `rust-windows-task-local` selector continues to inspect the runner's current `sccache` and
 requires the build wrapper's existing prestarted-server check. `cache_session_opt_in` defaults

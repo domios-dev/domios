@@ -773,7 +773,7 @@ function Start-WindowsSccacheSession {
         if ($pids.Count -ne 1) { throw 'job_server_membership_ambiguous' }
         $serverPid = [uint32]$pids[0]
         $serverHandle = [WindowsSccacheNative]::OpenProcessHandle($serverPid)
-        $session.Server = [pscustomobject]@{ Pid = $serverPid; Handle = $serverHandle; Creation = $null; Image = $null; UserSid = $null; Hash = $null }
+        $session.Server = [pscustomobject]@{ Pid = $serverPid; Handle = $serverHandle; Creation = $null; Image = $null; UserSid = $null; Hash = $null; ExitCode = $null }
         $session.Server.Creation = [WindowsSccacheNative]::ProcessCreation($serverHandle)
         $session.Server.Image = [WindowsSccacheNative]::ProcessImage($serverHandle)
         $session.Server.UserSid = [WindowsSccacheNative]::ProcessUserSid($serverHandle)
