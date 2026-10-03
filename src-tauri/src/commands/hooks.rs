@@ -98,7 +98,7 @@ fn install_provider_integration_body(
         })
         .ok_or_else(|| format!("Unknown provider: {provider_id}"))?;
     if has_unowned_plugin_file(kind, &status) {
-        return Err("CodeTerm will not change an unmarked provider plugin file".into());
+        return Err("Domios will not change an unmarked provider plugin file".into());
     }
     let port = match api_port {
         Some(port) => port,
@@ -199,7 +199,7 @@ pub fn uninstall_provider_integration(
         .with_provider(&provider_id, |provider| {
             let status = provider.check_integration();
             if has_unowned_plugin_file(provider.integration_kind(), &status) {
-                return Err("CodeTerm will not remove an unmarked provider plugin file".into());
+                return Err("Domios will not remove an unmarked provider plugin file".into());
             }
             provider.uninstall_integration()
         })

@@ -761,7 +761,7 @@ def render_ab_report(
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Evaluate or A/B compare CodeTerm prompt files against an eval set.",
+        description="Evaluate or A/B compare Domios prompt files against an eval set.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
