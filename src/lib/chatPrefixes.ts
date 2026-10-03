@@ -5,7 +5,7 @@
 
 export type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
 import type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
-import { parseMarker } from "@codeterm/chat-core";
+import { parseMarker, systemOriginLabel } from "@codeterm/chat-core";
 
 export interface PrefixMatch {
   origin: ChatOrigin;
@@ -273,7 +273,7 @@ export function labelFor(origin: ChatOrigin): string {
     case "plugin_config":
       return `Configure · ${origin.name}`;
     case "system":
-      return origin.context ? `System · ${origin.context}` : "System";
+      return systemOriginLabel(origin.context);
     case "system_prompt":
       return "System prompt";
     case "reminder":
