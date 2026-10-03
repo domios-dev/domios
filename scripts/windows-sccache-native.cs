@@ -1,6 +1,8 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Runtime.InteropServices;
@@ -58,6 +60,7 @@ public static class WindowsSccacheNative {
     [DllImport("kernel32.dll", SetLastError = true)] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool GetProcessTimes(IntPtr process, out long creation, out long exit, out long kernel, out long user);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern uint GetProcessId(IntPtr process);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, ExactSpelling = true, SetLastError = true)] static extern bool QueryFullProcessImageNameW(IntPtr process, uint flags, StringBuilder image, ref int size);
     [DllImport("advapi32.dll", SetLastError = true)] static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
     [DllImport("advapi32.dll", SetLastError = true)] static extern bool GetTokenInformation(IntPtr token, int infoClass, IntPtr info, int length, out int needed);
@@ -166,6 +169,7 @@ public static class WindowsSccacheNative {
         public bool ProcessExitConfirmed;
         public bool CapturesComplete;
         public bool UnassignedTerminationAttempted;
+        public long CreatedFileTime;
         uint exitCode;
         public uint ExitCode { get { if (!ProcessExitConfirmed && Handle != IntPtr.Zero) Need(GetExitCodeProcess(Handle, out exitCode), "GetExitCodeProcess"); return exitCode; } set { exitCode = value; } }
         public bool RecordProcessCreated(IntPtr process, IntPtr thread, uint pid) {
@@ -195,6 +199,10 @@ public static class WindowsSccacheNative {
         public void RecordProcessExited(uint code) {
             if (!Created || ProcessExitConfirmed) throw new InvalidOperationException("launch_process_exit_state_invalid");
             exitCode = code; ProcessExitConfirmed = true;
+        }
+        public void RecordCreationFileTime(long value) {
+            if (!Created || value <= 0 || CreatedFileTime != 0) throw new InvalidOperationException("launch_creation_identity_state_invalid");
+            CreatedFileTime = value;
         }
         public void RecordCapturesSettled(bool settled) { if (settled) CapturesComplete = true; }
         public bool CanCloseHandles(bool jobZeroConfirmed) { return CapturesComplete && (!Assigned || jobZeroConfirmed) && (!Created || ProcessExitConfirmed); }
@@ -252,6 +260,7 @@ public static class WindowsSccacheNative {
     }
     public static bool CanCloseLaunchHandles(ProcessLease lease, bool jobZeroConfirmed) { return lease.CanCloseHandles(jobZeroConfirmed); }
     public static bool CloseLaunchLease(ProcessLease lease, bool jobZeroConfirmed, int milliseconds) { return lease.CloseChecked(milliseconds, jobZeroConfirmed); }
+    public static uint HandleProcessId(IntPtr process) { uint pid = GetProcessId(process); if (pid == 0) throw Last("GetProcessId"); return pid; }
     public static object[] LaunchLeaseContractControls() {
         var results = new List<object>();
         results.Add(LaunchLeasePhaseControl("resume_failure", false));
@@ -320,18 +329,48 @@ public static class WindowsSccacheNative {
                 finally { Marshal.FreeHGlobal(p); }
             }
         }
-        public uint[] Members() {
+        public JobProcessSnapshot Snapshot() {
             const int capacity = 8192;
             int length = 8 + capacity * IntPtr.Size;
-            IntPtr p = Marshal.AllocHGlobal(length);
+            int accountingSize = Marshal.SizeOf(typeof(JOBOBJECT_BASIC_ACCOUNTING_INFORMATION));
+            var snapshot = new JobProcessSnapshot { BufferCapacity = (uint)capacity, BufferBytes = (uint)length, AccountingRequiredBytes = (uint)accountingSize, ProcessIds = new uint[0] };
+            IntPtr accounting = Marshal.AllocHGlobal(accountingSize);
             try {
-                uint needed; Need(QueryInformationJobObject(Handle, JobObjectBasicProcessIdList, p, (uint)length, out needed), "QueryInformationJobObject(process_ids)");
-                uint assigned = unchecked((uint)Marshal.ReadInt32(p)); uint listed = unchecked((uint)Marshal.ReadInt32(p, 4));
-                if (listed > capacity || assigned != listed) throw new InvalidOperationException("job_process_list_incomplete");
-                var values = new uint[(int)listed];
-                for (int i = 0; i < (int)listed; i++) values[i] = unchecked((uint)Marshal.ReadIntPtr(p, 8 + i * IntPtr.Size).ToInt64());
-                return values;
-            } finally { Marshal.FreeHGlobal(p); }
+                uint returned;
+                snapshot.AccountingStartedTicks = Stopwatch.GetTimestamp();
+                if (QueryInformationJobObject(Handle, JobObjectBasicAccountingInformation, accounting, (uint)accountingSize, out returned)) {
+                    snapshot.AccountingQuerySucceeded = true;
+                    snapshot.AccountingReturnLength = returned;
+                    snapshot.AccountingComplete = returned == (uint)accountingSize;
+                    snapshot.AccountingActiveProcesses = ((JOBOBJECT_BASIC_ACCOUNTING_INFORMATION)Marshal.PtrToStructure(accounting, typeof(JOBOBJECT_BASIC_ACCOUNTING_INFORMATION))).ActiveProcesses;
+                } else snapshot.AccountingError = Marshal.GetLastWin32Error();
+                snapshot.AccountingCompletedTicks = Stopwatch.GetTimestamp();
+            } finally { Marshal.FreeHGlobal(accounting); }
+            IntPtr processIds = Marshal.AllocHGlobal(length);
+            try {
+                uint returned;
+                snapshot.ProcessListStartedTicks = Stopwatch.GetTimestamp();
+                if (!QueryInformationJobObject(Handle, JobObjectBasicProcessIdList, processIds, (uint)length, out returned)) snapshot.ProcessListError = Marshal.GetLastWin32Error();
+                else {
+                    snapshot.ProcessListQuerySucceeded = true;
+                    snapshot.ProcessListReturnLength = returned;
+                    snapshot.AssignedCount = unchecked((uint)Marshal.ReadInt32(processIds));
+                    snapshot.ListedCount = unchecked((uint)Marshal.ReadInt32(processIds, 4));
+                    snapshot.RequiredBytes = 8UL + (ulong)snapshot.AssignedCount * (ulong)IntPtr.Size;
+                    if (snapshot.ListedCount <= capacity) {
+                        snapshot.ProcessIds = new uint[(int)snapshot.ListedCount];
+                        for (int i = 0; i < (int)snapshot.ListedCount; i++) {
+                            long pid = Marshal.ReadIntPtr(processIds, 8 + i * IntPtr.Size).ToInt64();
+                            if (pid <= 0 || pid > UInt32.MaxValue) { snapshot.ProcessListError = 87; snapshot.ProcessIds = new uint[0]; break; }
+                            snapshot.ProcessIds[i] = (uint)pid;
+                        }
+                        uint minimumBytes = 8U + snapshot.ListedCount * (uint)IntPtr.Size;
+                        snapshot.Complete = snapshot.ProcessListError == 0 && snapshot.AssignedCount == snapshot.ListedCount && returned >= minimumBytes && returned <= (uint)length;
+                    }
+                }
+                snapshot.ProcessListCompletedTicks = Stopwatch.GetTimestamp();
+            } finally { Marshal.FreeHGlobal(processIds); }
+            return snapshot;
         }
         public bool Contains(IntPtr process) { bool result; Need(IsProcessInJob(process, Handle, out result), "IsProcessInJob"); return result; }
         public bool Terminate(uint exitCode) { return TerminateJobObject(Handle, exitCode); }
@@ -348,6 +387,28 @@ public static class WindowsSccacheNative {
         }
         public bool CloseChecked() { bool a = port == IntPtr.Zero || CloseHandle(port); bool b = Handle == IntPtr.Zero || CloseHandle(Handle); return a && b; }
         public void Dispose() { CloseChecked(); }
+    }
+    public sealed class JobProcessSnapshot {
+        public bool AccountingQuerySucceeded;
+        public bool AccountingComplete;
+        public int AccountingError;
+        public uint AccountingActiveProcesses;
+        public uint AccountingReturnLength;
+        public uint AccountingRequiredBytes;
+        public long AccountingStartedTicks;
+        public long AccountingCompletedTicks;
+        public bool ProcessListQuerySucceeded;
+        public int ProcessListError;
+        public uint AssignedCount;
+        public uint ListedCount;
+        public uint ProcessListReturnLength;
+        public uint BufferCapacity;
+        public uint BufferBytes;
+        public ulong RequiredBytes;
+        public long ProcessListStartedTicks;
+        public long ProcessListCompletedTicks;
+        public uint[] ProcessIds;
+        public bool Complete;
     }
     public static JobLease CreateJob() { return new JobLease(); }
     public static void InitializeJob(JobLease job) { if (job == null) throw new ArgumentNullException("job"); job.Initialize(); }
@@ -383,6 +444,7 @@ public static class WindowsSccacheNative {
             var mutableCommand = new StringBuilder(commandLine);
             Need(CreateProcessW(app, mutableCommand, IntPtr.Zero, IntPtr.Zero, true, CREATE_SUSPENDED | CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | EXTENDED_STARTUPINFO_PRESENT, envText, cwd, ref si, out pi), "CreateProcessW");
             lease.RecordProcessCreated(pi.hProcess, pi.hThread, pi.dwProcessId);
+            lease.RecordCreationFileTime(ProcessCreation(lease.Handle));
             Need(AssignProcessToJobObject(job, lease.Handle), "AssignProcessToJobObject");
             lease.RecordAssigned();
             CloseLeaseHandle(ref lease.StdoutWriteHandle, "CloseHandle(stdout_write)");
@@ -497,8 +559,111 @@ public static class WindowsSccacheNative {
     }
     public static bool WaitJobZero(JobLease job, int ms) { return job.WaitForZero(ms); }
     public static uint ActiveCount(JobLease job) { return job.ActiveCount; }
-    public static uint[] Members(JobLease job) { return job.Members(); }
-    public static object Snapshot(JobLease job) { uint[] members = job.Members(); return new { ActiveCount = (uint)members.Length, Members = members }; }
+    public static JobProcessSnapshot Snapshot(JobLease job) { return job.Snapshot(); }
+    static object Fact(object source, string name) {
+        IDictionary values = source as IDictionary;
+        return values != null && values.Contains(name) ? values[name] : null;
+    }
+    static bool HasFact(object source, string name) { IDictionary values = source as IDictionary; return values != null && values.Contains(name); }
+    static bool FactBool(object source, string name) { object value = Fact(source, name); try { return value != null && Convert.ToBoolean(value); } catch { return false; } }
+    static int FactInt(object source, string name) { object value = Fact(source, name); try { return value == null ? 0 : Convert.ToInt32(value); } catch { return 0; } }
+    static uint FactUInt(object source, string name) { object value = Fact(source, name); try { return value == null ? 0 : Convert.ToUInt32(value); } catch { return 0; } }
+    static long FactLong(object source, string name) { object value = Fact(source, name); try { return value == null ? 0 : Convert.ToInt64(value); } catch { return 0; } }
+    static string FactString(object source, string name) { object value = Fact(source, name); return value == null ? null : Convert.ToString(value); }
+    static string[] UniqueReasons(List<string> reasons) {
+        var unique = new List<string>(); var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (string reason in reasons) if (seen.Add(reason)) unique.Add(reason);
+        return unique.ToArray();
+    }
+    static bool ValidExitedLaunch(object lease) {
+        uint pid = FactUInt(lease, "Pid"); uint handlePid = FactUInt(lease, "HandlePid");
+        long captured = FactLong(lease, "CapturedCreationFileTime"); long current = FactLong(lease, "CurrentCreationFileTime");
+        return FactBool(lease, "Created") && FactBool(lease, "Assigned") && FactBool(lease, "HandleRetained") && FactBool(lease, "IdentityValid") && pid != 0 && pid == handlePid && captured > 0 && captured == current && FactBool(lease, "ProcessExitConfirmed") && FactBool(lease, "CapturesComplete");
+    }
+    public sealed class JobMembershipEvidence {
+        public string[] Reasons;
+        public object[] Members;
+        public uint[] CandidatePids;
+        public object[] OwnedLaunchFacts;
+        public object[] ExcludedOwnedExits;
+        public uint EligibleOwnedExits;
+        public uint UnlistedOwnedExits;
+        public ulong AccountingMinimum;
+        public ulong AccountingMaximum;
+    }
+    public static JobMembershipEvidence ClassifyJobMembers(object snapshot, object[] leases) {
+        var reasons = new List<string>(); var members = new List<object>(); var candidates = new List<uint>();
+        var ownedFacts = new List<object>(); var excludedExits = new List<object>(); var pids = new List<uint>();
+        string[] snapshotFields = { "AccountingQuerySucceeded", "AccountingComplete", "AccountingError", "AccountingActiveProcesses", "AccountingReturnLength", "AccountingRequiredBytes", "AccountingStartedTicks", "AccountingCompletedTicks", "ProcessListQuerySucceeded", "ProcessListError", "AssignedCount", "ListedCount", "ProcessListReturnLength", "BufferCapacity", "BufferBytes", "RequiredBytes", "ProcessListStartedTicks", "ProcessListCompletedTicks", "ProcessIds", "Complete" };
+        foreach (string name in snapshotFields) if (!HasFact(snapshot, name)) reasons.Add("job_snapshot_fact_missing:" + name);
+        object rawPids = Fact(snapshot, "ProcessIds"); IEnumerable pidValues = rawPids as IEnumerable;
+        if (pidValues != null) foreach (object value in pidValues) { try { pids.Add(Convert.ToUInt32(value)); } catch { reasons.Add("job_process_list_pid_invalid"); } }
+        bool accountingSucceeded = FactBool(snapshot, "AccountingQuerySucceeded");
+        bool accountingComplete = FactBool(snapshot, "AccountingComplete");
+        bool processListSucceeded = FactBool(snapshot, "ProcessListQuerySucceeded");
+        bool listComplete = FactBool(snapshot, "Complete");
+        uint active = FactUInt(snapshot, "AccountingActiveProcesses"); uint accountingLength = FactUInt(snapshot, "AccountingReturnLength");
+        uint accountingRequired = FactUInt(snapshot, "AccountingRequiredBytes");
+        long accountingStarted = FactLong(snapshot, "AccountingStartedTicks"); long accountingCompleted = FactLong(snapshot, "AccountingCompletedTicks");
+        uint assigned = FactUInt(snapshot, "AssignedCount"); uint listed = FactUInt(snapshot, "ListedCount");
+        uint processLength = FactUInt(snapshot, "ProcessListReturnLength"); uint capacity = FactUInt(snapshot, "BufferCapacity");
+        uint bufferBytes = FactUInt(snapshot, "BufferBytes"); ulong requiredBytes = 0;
+        long processListStarted = FactLong(snapshot, "ProcessListStartedTicks"); long processListCompleted = FactLong(snapshot, "ProcessListCompletedTicks");
+        try { requiredBytes = Convert.ToUInt64(Fact(snapshot, "RequiredBytes")); } catch { reasons.Add("job_process_list_required_size_invalid"); }
+        if (!accountingSucceeded) reasons.Add("job_accounting_query_failed:" + FactInt(snapshot, "AccountingError"));
+        if (accountingSucceeded && (!accountingComplete || accountingRequired == 0 || accountingLength != accountingRequired)) reasons.Add("job_accounting_snapshot_incomplete");
+        if (!processListSucceeded) reasons.Add("job_process_list_query_failed:" + FactInt(snapshot, "ProcessListError"));
+        if (accountingStarted <= 0 || accountingCompleted < accountingStarted || processListStarted < accountingCompleted || processListCompleted < processListStarted) reasons.Add("job_snapshot_timestamps_incomplete");
+        ulong expectedRequiredBytes = 8UL + (ulong)assigned * (ulong)IntPtr.Size;
+        ulong minimumReturnedBytes = 8UL + (ulong)listed * (ulong)IntPtr.Size;
+        if (!listComplete || assigned != listed || listed != (uint)pids.Count || capacity < assigned || requiredBytes != expectedRequiredBytes || requiredBytes > bufferBytes || processLength < minimumReturnedBytes || processLength > bufferBytes) reasons.Add("job_process_list_incomplete");
+        var seen = new HashSet<uint>();
+        foreach (uint pid in pids) if (pid == 0 || !seen.Add(pid)) reasons.Add("job_process_list_duplicate_or_invalid_pid");
+        var createdLeases = new List<object>(); var validExitedPids = new HashSet<uint>();
+        foreach (object lease in leases ?? new object[0]) {
+            if (!FactBool(lease, "Created")) continue;
+            createdLeases.Add(lease);
+            uint pid = FactUInt(lease, "Pid"); uint handlePid = FactUInt(lease, "HandlePid");
+            long captured = FactLong(lease, "CapturedCreationFileTime"); long current = FactLong(lease, "CurrentCreationFileTime");
+            bool assignedLease = FactBool(lease, "Assigned"); bool handleRetained = FactBool(lease, "HandleRetained");
+            bool identityValid = FactBool(lease, "IdentityValid") && pid != 0 && pid == handlePid && captured > 0 && captured == current;
+            bool exited = FactBool(lease, "ProcessExitConfirmed"); bool captures = FactBool(lease, "CapturesComplete");
+            bool listedInSnapshot = seen.Contains(pid) || seen.Contains(handlePid);
+            bool validExit = ValidExitedLaunch(lease);
+            if (!assignedLease) reasons.Add("owned_launch_assignment_unconfirmed");
+            if (!handleRetained || !identityValid) reasons.Add("owned_launch_identity_unconfirmed");
+            if (!exited) reasons.Add("owned_launch_exit_unconfirmed");
+            if (!captures) reasons.Add("owned_launch_capture_unconfirmed");
+            if (validExit) validExitedPids.Add(pid);
+            ownedFacts.Add(new { Pid = pid, HandlePid = handlePid, CapturedCreationFileTime = captured, CurrentCreationFileTime = current, Assigned = assignedLease, HandleRetained = handleRetained, IdentityValid = identityValid, IdentityError = FactString(lease, "IdentityError"), ProcessExitConfirmed = exited, ExitCode = Fact(lease, "ExitCode"), CapturesComplete = captures, ListedInProcessIdList = listedInSnapshot, Classification = validExit ? (listedInSnapshot ? "owned_exited_listed" : "owned_exited_unlisted") : "owned_exit_unconfirmed" });
+            if (validExit) excludedExits.Add(new { Pid = pid, HandlePid = handlePid, CapturedCreationFileTime = captured, CurrentCreationFileTime = current, ExitCode = Fact(lease, "ExitCode"), CapturesComplete = captures, ListedInProcessIdList = listedInSnapshot });
+        }
+        for (int i = 0; i < createdLeases.Count; i++) {
+            uint pid = FactUInt(createdLeases[i], "Pid");
+            for (int j = i + 1; j < createdLeases.Count; j++) if (pid != 0 && pid == FactUInt(createdLeases[j], "Pid")) reasons.Add("owned_launch_identity_ambiguous");
+        }
+        foreach (uint memberPid in pids) {
+            var matches = new List<object>();
+            foreach (object lease in createdLeases) if (FactUInt(lease, "Pid") == memberPid || FactUInt(lease, "HandlePid") == memberPid) matches.Add(lease);
+            if (matches.Count > 1) { reasons.Add("owned_launch_identity_ambiguous"); members.Add(new { Pid = memberPid, Classification = "ambiguous_owned_launch" }); continue; }
+            if (matches.Count == 0) { candidates.Add(memberPid); members.Add(new { Pid = memberPid, Classification = "candidate_pending_identity" }); continue; }
+            object matched = matches[0]; uint launchPid = FactUInt(matched, "Pid"); uint handlePid = FactUInt(matched, "HandlePid");
+            long captured = FactLong(matched, "CapturedCreationFileTime"); long current = FactLong(matched, "CurrentCreationFileTime");
+            bool identityMatches = FactBool(matched, "Assigned") && FactBool(matched, "HandleRetained") && FactBool(matched, "IdentityValid") && launchPid == memberPid && handlePid == memberPid && captured > 0 && captured == current;
+            bool exited = FactBool(matched, "ProcessExitConfirmed"); bool captures = FactBool(matched, "CapturesComplete");
+            if (!identityMatches) reasons.Add("owned_launch_member_identity_mismatch");
+            if (!exited) reasons.Add("owned_launch_member_exit_unconfirmed");
+            if (!captures) reasons.Add("owned_launch_member_capture_unconfirmed");
+            members.Add(new { Pid = memberPid, Classification = identityMatches && exited && captures ? "owned_exited" : "owned_exit_unconfirmed", OwnedLaunchPid = launchPid, HandlePid = handlePid, CapturedCreationFileTime = captured, CurrentCreationFileTime = current, ProcessExitConfirmed = exited, ExitCode = Fact(matched, "ExitCode"), CapturesComplete = captures, IdentityError = FactString(matched, "IdentityError") });
+        }
+        uint unlistedExits = 0;
+        foreach (uint pid in validExitedPids) if (!seen.Contains(pid)) unlistedExits++;
+        ulong accountingMinimum = listed; ulong accountingMaximum = accountingMinimum + unlistedExits;
+        if (accountingSucceeded && accountingComplete && processListSucceeded && listComplete && assigned == listed && listed == (uint)pids.Count) {
+            if ((ulong)active < accountingMinimum || (ulong)active > accountingMaximum) reasons.Add("job_accounting_process_list_relationship_inconsistent");
+        }
+        return new JobMembershipEvidence { Reasons = UniqueReasons(reasons), Members = members.ToArray(), CandidatePids = candidates.ToArray(), OwnedLaunchFacts = ownedFacts.ToArray(), ExcludedOwnedExits = excludedExits.ToArray(), EligibleOwnedExits = (uint)validExitedPids.Count, UnlistedOwnedExits = unlistedExits, AccountingMinimum = accountingMinimum, AccountingMaximum = accountingMaximum };
+    }
     public static bool Contains(JobLease job, IntPtr process) { return job.Contains(process); }
     public static bool Terminate(JobLease job, uint code) { return job.Terminate(code); }
     public static bool CloseHandlePublic(IntPtr handle) { return handle != IntPtr.Zero && CloseHandle(handle); }
