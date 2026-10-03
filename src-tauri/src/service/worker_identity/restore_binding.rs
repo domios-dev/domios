@@ -1,4 +1,4 @@
-use crate::multiplexer::types::{PriorBindingNonce, TabBacking};
+use crate::multiplexer::types::{AgentRole, PriorBindingNonce, Tab, TabBacking};
 use crate::plan::AttemptBindingRestorationReceipt;
 use crate::service::plan::task_attempts::{
     RestoreCurrentAttemptBinding, RestoreCurrentAttemptBindingResult,
@@ -11,8 +11,8 @@ use sha2::Digest;
 const LINEAGE_PROOF_KIND: &str = "prior_session_binding_nonce_suffix";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SameSessionLineageProof {
-    pub digest: String,
+struct SameSessionLineageProof {
+    digest: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,7 +51,8 @@ pub(crate) fn restore_attempt_binding_for_caller(
         .ok_or_else(refusal)?;
     let mux = service.mux.read();
     let tab = mux.get_tab(tab_id).ok_or_else(refusal)?;
-    if !crate::service::plan_reconcile::tab_has_live_agent(tab)
+    if !is_current_worker_role(tab)
+        || !crate::service::plan_reconcile::tab_has_live_agent(tab)
         || tab.backing != TabBacking::Pty
         || tab.pty_id.is_none()
         || tab.agent_session_id.as_deref() != Some(session_id)
@@ -76,8 +77,16 @@ pub(crate) fn restore_attempt_binding_for_caller(
     if detail.plan_id != target.plan_id || detail.task.id != target.task_id {
         return Err(refusal());
     }
+    let team_id = tab
+        .team_id
+        .as_deref()
+        .filter(|team_id| !team_id.trim().is_empty())
+        .ok_or_else(refusal)?;
+    if mux.get_team(team_id).is_none() {
+        return Err(refusal());
+    }
     let plan = service.plan_store.get(target.plan_id).ok_or_else(refusal)?;
-    if plan.team_id.as_deref() != tab.team_id.as_deref() {
+    if plan.team_id.as_deref() != Some(team_id) {
         return Err(refusal());
     }
     let attempts = detail
@@ -129,7 +138,7 @@ pub(crate) fn restore_attempt_binding_for_caller(
                 executor_tab_id: tab_id.into(),
                 session_id: session_id.into(),
                 provider: provider.into(),
-                team_id: tab.team_id.clone(),
+                team_id: team_id.into(),
                 owner_epoch: target.owner_epoch,
                 expected_old_nonce: old_nonce.into(),
                 current_nonce: current_nonce.into(),
@@ -149,7 +158,29 @@ pub(crate) fn restore_attempt_binding_for_caller(
     }
 }
 
-pub(crate) fn prove_same_session_restoration(
+fn is_current_worker_role(tab: &Tab) -> bool {
+    if tab.role != Some(AgentRole::Worker) {
+        return false;
+    }
+    let Some(kind_id) = tab.role_kind_id() else {
+        return false;
+    };
+    let profile_matches_kind = tab
+        .role_profile
+        .as_deref()
+        .map(str::trim)
+        .filter(|profile| !profile.is_empty())
+        .is_none_or(|profile| profile == kind_id);
+    profile_matches_kind
+        && !codeterm_types::agent::role_kind::manages(tab.role, tab.role_profile.as_deref())
+        && !codeterm_types::agent::role_kind::anchors_team(tab.role, tab.role_profile.as_deref())
+        && !codeterm_types::agent::role_kind::has_team_authority(
+            tab.role,
+            tab.role_profile.as_deref(),
+        )
+}
+
+fn prove_same_session_restoration(
     lineage: &[PriorBindingNonce],
     old_nonce: &str,
     current_nonce: &str,
