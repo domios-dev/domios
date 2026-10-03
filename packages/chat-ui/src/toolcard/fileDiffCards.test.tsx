@@ -325,6 +325,29 @@ describe("file diff cards", () => {
     expect(all(openStream, "toolcard-edit-file")).toHaveLength(0);
   });
 
+  it("renders a nested patch and its completed activity once with expandable hunks", async () => {
+    const patch = "*** Begin Patch\n*** Update File: /repo/a.ts\n@@\n-before\n+after\n*** End Patch";
+    const records = [
+      { type: "response_item", payload: { type: "custom_tool_call", name: "exec", call_id: "nested-patch",
+        input: `text(await tools.apply_patch(${JSON.stringify(patch)}));`,
+        internal_chat_message_metadata_passthrough: { turn_id: "patch-turn" } } },
+      { type: "event_msg", payload: { type: "item_completed", turn_id: "patch-turn", item: {
+        type: "FileChange", id: "patch-activity", status: "completed",
+        changes: { "/repo/a.ts": { type: "update", unified_diff: "@@ -1 +1 @@\n-before\n+after\n" } },
+      } } },
+      { type: "response_item", payload: { type: "custom_tool_call_output", call_id: "nested-patch", output: "Script completed" } },
+    ];
+    const rows = parsers.codex.parseSessionDelta(records.map(record => JSON.stringify(record)).join("\n")).messages;
+    const events = toolEvents(reduceToolEvents(chatMessages(rows, "nested-patch-session")));
+    expect(events).toHaveLength(1);
+    const host = await mount(<ToolCallBubble event={events[0]} expanded={false} onToggle={() => undefined} />);
+    expect(all(host, "file-diff-card")).toHaveLength(1);
+    expect(all(host, "toolcard-edit-summary")).toHaveLength(0);
+    await expandAll(host);
+    expect(host.textContent).toContain("before");
+    expect(host.textContent).toContain("after");
+  });
+
   it("uses CodeTerm theme tokens with no right borders or motion", async () => {
     const host = await mount(<FileDiffCards event={diffEvent(diffsOf("codex"))} />);
     await expandAll(host);

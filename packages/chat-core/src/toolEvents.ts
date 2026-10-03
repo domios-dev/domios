@@ -430,6 +430,7 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
           message.toolInterrupted !== undefined ||
           message.toolBackgroundTaskId?.trim() ||
           message.toolEdits?.length ||
+          message.fileDiffs?.length ||
           message.toolInput,
       );
       if (!hasContent) continue;

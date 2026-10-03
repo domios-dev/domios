@@ -1657,6 +1657,39 @@ function completedActivity(value, ts, timestamp, turnId) {
   return null;
 }
 
+// plugins/provider-codex/src/fileChangePairing.ts
+function editFingerprint(edits) {
+  if (!edits.length) return "";
+  const files = /* @__PURE__ */ new Map();
+  for (const edit of edits) {
+    if (!edit.path || typeof edit.old !== "string" || typeof edit.new !== "string") return "";
+    const lines = files.get(edit.path) ?? { old: [], new: [] };
+    if (edit.old) lines.old.push(edit.old);
+    if (edit.new) lines.new.push(edit.new);
+    files.set(edit.path, lines);
+  }
+  return JSON.stringify([...files].sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([path, lines]) => [path, lines.old.join("\n"), lines.new.join("\n")]));
+}
+function pairFileChange(activity, turnId, pending) {
+  if (!activity || typeof turnId !== "string" || !turnId) return activity;
+  const call = activity.blocks.find((block) => block.kind === "tool_use")?.data;
+  if (call?.name !== "file_change" || !Array.isArray(call.file_diffs) || !call.file_diffs.length) return activity;
+  const edits = call.tool_edits;
+  const fingerprint = editFingerprint(edits);
+  const paths = call.input?.paths;
+  if (!fingerprint || !paths || paths.length !== new Set(edits.map((edit) => edit.path)).size) return activity;
+  const matches = [...pending].filter(([, entry]) => entry.turnId === turnId && entry.fingerprint === fingerprint);
+  if (matches.length !== 1) return activity;
+  const [id] = matches[0];
+  pending.delete(id);
+  const result = activity.blocks.find((block) => block.kind === "tool_result")?.data;
+  return { ...activity, blocks: [{ kind: "tool_result", data: {
+    ...result,
+    tool_use_id: id,
+    file_diffs: call.file_diffs
+  } }] };
+}
+
 // plugins/provider-codex/src/trust-carryover.ts
 function normalizedPath(value) {
   const isWindowsPath = /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\") || value.startsWith("//");
@@ -3798,7 +3831,7 @@ var plugin = {
       }
       if (v.type === "event_msg" && v.payload?.type === "item_completed") {
         if (pairCommandExecution(v.payload.item, v.payload.turn_id, commandPairing)) continue;
-        pushOnce(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id));
+        pushOnce(pairFileChange(completedActivity(v.payload.item, ts, tsIso, v.payload.turn_id), v.payload.turn_id, commandPairing.fileChanges));
         continue;
       }
       if (v.type === "event_msg" && v.payload?.type === "sub_agent_activity") {
@@ -3875,6 +3908,7 @@ var plugin = {
       } else if (p.type === "function_call_output" || p.type === "custom_tool_call_output") {
         const callId = typeof p.call_id === "string" ? p.call_id : "";
         const pending = p.type === "custom_tool_call_output" ? commandPairing.pending.get(callId) : void 0;
+        commandPairing.fileChanges.delete(callId);
         if (pending) commandPairing.pending.delete(callId);
         out.push({
           role: "assistant",
@@ -3921,6 +3955,12 @@ var plugin = {
         };
         const commands = name === "exec" && callId && typeof input.raw === "string" ? execScriptCommands(input.raw) : [];
         out.push(message);
+        const patchTurn = callTurnId(p);
+        const fingerprint = typeof input.patch === "string" ? editFingerprint(patchEdits(input.patch)) : "";
+        if (callId && patchTurn && fingerprint) {
+          commandPairing.fileChanges.set(callId, { turnId: patchTurn, fingerprint });
+          trimPendingCalls(commandPairing);
+        }
         if (commands.length > 0) {
           const turnId = callTurnId(p);
           if (!turnId) continue;
@@ -3936,7 +3976,7 @@ var plugin = {
         }
       }
     }
-    if (commandPairing.sessionKey && commandPairing.pending.size === 0) {
+    if (commandPairing.sessionKey && commandPairing.pending.size === 0 && commandPairing.fileChanges.size === 0) {
       commandPairingSessions.delete(commandPairing.sessionKey);
     }
     stampRows(lines.length - 1);
@@ -4060,14 +4100,14 @@ function commandPairingState(context) {
   const sessionKey = typeof context?.session_key === "string" ? context.session_key : "";
   const offset = context?.from_offset;
   if (!sessionKey || typeof offset !== "number" || !Number.isSafeInteger(offset) || offset < 0) {
-    return { pending: /* @__PURE__ */ new Map() };
+    return { pending: /* @__PURE__ */ new Map(), fileChanges: /* @__PURE__ */ new Map() };
   }
   let state = commandPairingSessions.get(sessionKey);
   if (state && state.lastOffset !== void 0 && offset <= state.lastOffset) {
     commandPairingSessions.delete(sessionKey);
     state = void 0;
   }
-  if (!state) state = { pending: /* @__PURE__ */ new Map(), sessionKey };
+  if (!state) state = { pending: /* @__PURE__ */ new Map(), fileChanges: /* @__PURE__ */ new Map(), sessionKey };
   state.lastOffset = offset;
   commandPairingSessions.delete(sessionKey);
   commandPairingSessions.set(sessionKey, state);
@@ -4079,6 +4119,11 @@ function commandPairingState(context) {
   return state;
 }
 function trimPendingCalls(state) {
+  while (state.fileChanges.size > MAX_PENDING_CALLS_PER_SESSION) {
+    const oldest = state.fileChanges.keys().next().value;
+    if (typeof oldest !== "string") break;
+    state.fileChanges.delete(oldest);
+  }
   while (state.pending.size > MAX_PENDING_CALLS_PER_SESSION) {
     const oldest = state.pending.keys().next().value;
     if (typeof oldest !== "string") break;
@@ -4086,6 +4131,9 @@ function trimPendingCalls(state) {
   }
 }
 function clearTurnPairings(state, turnId) {
+  for (const [callId, call] of state.fileChanges) {
+    if (call.turnId === turnId) state.fileChanges.delete(callId);
+  }
   for (const [callId, call] of state.pending) {
     if (call.turnId === turnId) state.pending.delete(callId);
   }
