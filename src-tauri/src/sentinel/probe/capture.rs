@@ -220,22 +220,38 @@ impl WindowsStream {
 }
 
 #[cfg(windows)]
+pub(super) fn windows_command_line(
+    command: &str,
+    _events: Option<&super::cancellation::windows::Events>,
+) -> Vec<u16> {
+    #[cfg(test)]
+    if let Some(argv) = _events.and_then(super::cancellation::windows::Events::fixture_argv) {
+        return windows_argument_line(argv.iter().map(String::as_str));
+    }
+    power_shell_command_line(command)
+}
+
+#[cfg(windows)]
 pub(super) fn power_shell_command_line(command: &str) -> Vec<u16> {
-    [
+    windows_argument_line([
         "powershell.exe",
         "-NoLogo",
         "-NoProfile",
         "-NonInteractive",
         "-Command",
         command,
-    ]
-    .iter()
-    .map(|argument| quote_windows_arg(argument))
-    .collect::<Vec<_>>()
-    .join(" ")
-    .encode_utf16()
-    .chain([0])
-    .collect()
+    ])
+}
+
+#[cfg(windows)]
+fn windows_argument_line<'a>(argv: impl IntoIterator<Item = &'a str>) -> Vec<u16> {
+    argv.into_iter()
+        .map(quote_windows_arg)
+        .collect::<Vec<_>>()
+        .join(" ")
+        .encode_utf16()
+        .chain([0])
+        .collect()
 }
 
 #[cfg(windows)]

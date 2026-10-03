@@ -18,6 +18,8 @@ struct State {
     wake: Option<Weak<dyn Wake>>,
     #[cfg(test)]
     wait_observer: Option<std::sync::mpsc::Sender<WaitPhase>>,
+    #[cfg(all(test, windows))]
+    fixture_argv: Option<Arc<[String]>>,
 }
 
 #[derive(Clone, Default)]
@@ -26,6 +28,16 @@ pub(in crate::sentinel) struct Cancellation {
 }
 
 impl Cancellation {
+    #[cfg(all(test, windows))]
+    pub(in crate::sentinel) fn for_windows_fixture(argv: Vec<String>) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(State {
+                fixture_argv: Some(argv.into()),
+                ..State::default()
+            })),
+        }
+    }
+
     pub(in crate::sentinel) fn new(cancelled: bool) -> Self {
         Self {
             state: Arc::new(Mutex::new(State {
@@ -131,6 +143,11 @@ impl Cancellation {
 
 #[cfg(test)]
 impl Registration {
+    #[cfg(windows)]
+    fn fixture_argv(&self) -> Option<Arc<[String]>> {
+        self.signal.state.lock().fixture_argv.clone()
+    }
+
     fn waiting(&self, phase: WaitPhase) {
         if let Some(observer) = &self.signal.state.lock().wait_observer {
             let _ = observer.send(phase);

@@ -61,6 +61,13 @@ pub(in crate::sentinel::probe) struct Events {
 
 impl Events {
     #[cfg(test)]
+    pub(in crate::sentinel::probe) fn fixture_argv(&self) -> Option<Arc<[String]>> {
+        self.registration
+            .as_ref()
+            .and_then(Registration::fixture_argv)
+    }
+
+    #[cfg(test)]
     pub(in crate::sentinel::probe) fn waiting(&self, phase: super::WaitPhase) {
         if let Some(registration) = &self.registration {
             registration.waiting(phase);
