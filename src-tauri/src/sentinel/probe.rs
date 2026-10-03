@@ -1,20 +1,26 @@
-use std::io::Read;
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
-use std::sync::mpsc;
-use std::time::{Duration, Instant};
+use std::sync::Arc;
+use std::time::Duration;
 
-use wait_timeout::ChildExt;
+#[cfg(unix)]
+mod unix;
+#[cfg(windows)]
+pub(super) mod windows;
 
-// PowerShell cold start alone can take several seconds on Windows hosts.
+mod capture;
+pub(super) mod owner;
+pub(super) mod process;
+
+#[cfg(test)]
+mod native_tests;
+#[cfg(test)]
+mod tests;
+
 #[cfg(windows)]
 pub const PROBE_RUNTIME: Duration = Duration::from_secs(10);
 #[cfg(not(windows))]
 pub const PROBE_RUNTIME: Duration = Duration::from_secs(3);
 pub const MAX_OUTPUT_BYTES: usize = 65_536;
-
-#[cfg(test)]
-mod tests;
 
 #[derive(Debug)]
 pub struct Output {
@@ -22,213 +28,56 @@ pub struct Output {
     pub text: String,
 }
 
-#[cfg(unix)]
-trait CaptureStream: Read + std::os::fd::AsRawFd + Send {}
-#[cfg(unix)]
-impl<T: Read + std::os::fd::AsRawFd + Send> CaptureStream for T {}
-#[cfg(windows)]
-trait CaptureStream: Read + Send {}
-#[cfg(windows)]
-impl<T: Read + Send> CaptureStream for T {}
-
-fn capture(
-    mut stream: impl CaptureStream + 'static,
-    deadline: Instant,
-) -> mpsc::Receiver<Result<Vec<u8>, &'static str>> {
-    let (tx, rx) = mpsc::sync_channel(1);
-    std::thread::spawn(move || {
-        let mut captured = Vec::new();
-        let mut buf = [0u8; 4096];
-        loop {
-            if Instant::now() >= deadline {
-                let _ = tx.send(Err("probe_capture_timeout"));
-                return;
-            }
-            #[cfg(unix)]
-            {
-                let mut fd = libc::pollfd {
-                    fd: stream.as_raw_fd(),
-                    events: libc::POLLIN,
-                    revents: 0,
-                };
-                let ms = deadline
-                    .saturating_duration_since(Instant::now())
-                    .as_millis()
-                    .min(i32::MAX as u128) as i32;
-                let ready = unsafe { libc::poll(&mut fd, 1, ms) };
-                if ready < 0 {
-                    if std::io::Error::last_os_error().kind() == std::io::ErrorKind::Interrupted {
-                        continue;
-                    }
-                    let _ = tx.send(Err("probe_capture_failed"));
-                    return;
-                }
-                if ready == 0 {
-                    let _ = tx.send(Err("probe_capture_timeout"));
-                    return;
-                }
-            }
-            match stream.read(&mut buf) {
-                Ok(0) => break,
-                Ok(n) => {
-                    let remaining = (MAX_OUTPUT_BYTES / 2).saturating_sub(captured.len());
-                    captured.extend_from_slice(&buf[..n.min(remaining)]);
-                }
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
-                Err(_) => {
-                    let _ = tx.send(Err("probe_capture_failed"));
-                    return;
-                }
-            }
-        }
-        let _ = tx.send(Ok(captured));
-    });
-    rx
+pub(super) fn run(
+    command: &str,
+    cwd: &Path,
+    limit: Duration,
+    owner: &Arc<owner::ProbeResourceOwner>,
+) -> Result<Output, process::ProbeFailure> {
+    let deadlines = process::Deadlines::start(limit, PROBE_RUNTIME)?;
+    run_transaction(command, cwd, deadlines, owner)
 }
 
-pub fn run(command: &str, cwd: &Path, limit: Duration) -> Result<Output, &'static str> {
-    let deadline = Instant::now() + limit.min(PROBE_RUNTIME);
+#[cfg(test)]
+pub(super) fn run_with_receipt(
+    command: &str,
+    cwd: &Path,
+    limit: Duration,
+    owner: &Arc<owner::ProbeResourceOwner>,
+) -> Result<
+    (Output, process::DeadlineReceipt),
+    (process::ProbeFailure, Option<process::DeadlineReceipt>),
+> {
+    let admitted = std::time::Instant::now();
+    let deadlines = process::Deadlines::at(limit, PROBE_RUNTIME, admitted)
+        .map_err(|failure| (failure, None))?;
+    let receipt = deadlines.receipt();
+    run_transaction(command, cwd, deadlines, owner)
+        .map(|output| (output, receipt))
+        .map_err(|failure| (failure, Some(receipt)))
+}
+
+fn run_transaction(
+    command: &str,
+    cwd: &Path,
+    deadlines: process::Deadlines,
+    owner: &Arc<owner::ProbeResourceOwner>,
+) -> Result<Output, process::ProbeFailure> {
+    let reservation = owner.reserve().map_err(|error| match error {
+        owner::AdmissionError::Full => process::ProbeFailure::new("probe_owner_capacity"),
+        owner::AdmissionError::Closed => process::ProbeFailure::new("probe_owner_closing"),
+        owner::AdmissionError::Unavailable(detail) => {
+            let mut failure = process::ProbeFailure::new("probe_owner_unavailable");
+            failure.cleanup_error(detail);
+            failure
+        }
+    })?;
     #[cfg(unix)]
-    let mut cmd = {
-        use std::os::unix::process::CommandExt;
-        let mut cmd = Command::new("/bin/sh");
-        cmd.args(["-c", command]).process_group(0);
-        cmd
-    };
+    {
+        unix::run(command, cwd, deadlines, reservation, owner)
+    }
     #[cfg(windows)]
-    let mut cmd = {
-        let mut cmd = Command::new("powershell.exe");
-        crate::process_util::no_window_std(&mut cmd);
-        cmd.args([
-            "-NoLogo",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            command,
-        ]);
-        cmd
-    };
-    cmd.current_dir(cwd)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    let child = cmd.spawn().map_err(|_| "probe_spawn_failed")?;
-    let mut process = Process::new(child)?;
-    let stdout = capture(
-        process.child.stdout.take().ok_or("probe_capture_failed")?,
-        deadline,
-    );
-    let stderr = capture(
-        process.child.stderr.take().ok_or("probe_capture_failed")?,
-        deadline,
-    );
-    let status = process
-        .child
-        .wait_timeout(deadline.saturating_duration_since(Instant::now()))
-        .map_err(|_| "probe_wait_failed")?
-        .ok_or("probe_timeout")?;
-    process.terminate_descendants();
-    let out = stdout
-        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-        .map_err(|_| "probe_capture_timeout")??;
-    let err = stderr
-        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
-        .map_err(|_| "probe_capture_timeout")??;
-    let bytes = [out.as_slice(), err.as_slice()].concat();
-    let text = format!(
-        "exit={}\nstdout:\n{}\nstderr:\n{}",
-        status
-            .code()
-            .map(|code| code.to_string())
-            .unwrap_or_else(|| "signal".into()),
-        String::from_utf8_lossy(&out),
-        String::from_utf8_lossy(&err)
-    );
-    let mut hashed = status.code().unwrap_or(-1).to_le_bytes().to_vec();
-    hashed.extend_from_slice(&(out.len() as u64).to_le_bytes());
-    hashed.extend_from_slice(&bytes);
-    Ok(Output {
-        bytes: hashed,
-        text,
-    })
-}
-
-struct Process {
-    child: Child,
-    terminated: bool,
-    #[cfg(windows)]
-    job: windows_sys::Win32::Foundation::HANDLE,
-}
-
-impl Process {
-    fn new(child: Child) -> Result<Self, &'static str> {
-        #[cfg(windows)]
-        {
-            let mut child = child;
-            use std::os::windows::io::AsRawHandle;
-            use windows_sys::Win32::Foundation::CloseHandle;
-            use windows_sys::Win32::System::JobObjects::{
-                AssignProcessToJobObject, CreateJobObjectW,
-            };
-            let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
-            let assigned = !job.is_null()
-                && unsafe { AssignProcessToJobObject(job, child.as_raw_handle() as _) } != 0;
-            // A probe can finish before assignment; an exited child has nothing left to contain.
-            if !assigned && !matches!(child.try_wait(), Ok(Some(_))) {
-                let _ = child.kill();
-                let _ = child.wait();
-                if !job.is_null() {
-                    unsafe {
-                        CloseHandle(job);
-                    }
-                }
-                return Err("probe_containment_failed");
-            }
-            let process = Self {
-                child,
-                terminated: false,
-                job,
-            };
-            Ok(process)
-        }
-        #[cfg(unix)]
-        {
-            Ok(Self {
-                child,
-                terminated: false,
-            })
-        }
-    }
-
-    fn terminate_descendants(&mut self) {
-        if self.terminated {
-            return;
-        }
-        self.terminated = true;
-        #[cfg(unix)]
-        self.terminate_group_with(|pgid| unsafe {
-            libc::kill(pgid, libc::SIGKILL);
-        });
-        #[cfg(windows)]
-        unsafe {
-            windows_sys::Win32::System::JobObjects::TerminateJobObject(self.job, 1);
-        }
-    }
-
-    #[cfg(unix)]
-    fn terminate_group_with(&mut self, signal: impl FnOnce(i32)) {
-        signal(-(self.child.id() as i32));
-    }
-}
-
-impl Drop for Process {
-    fn drop(&mut self) {
-        self.terminate_descendants();
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-        #[cfg(windows)]
-        unsafe {
-            windows_sys::Win32::Foundation::CloseHandle(self.job);
-        }
+    {
+        windows::run(command, cwd, deadlines, reservation, owner)
     }
 }

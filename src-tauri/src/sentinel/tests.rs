@@ -323,6 +323,7 @@ fn sentinel_duration_overflow_refused() {
 #[test]
 fn sentinel_probe_bounded_runtime_and_output() {
     let dir = tempfile::tempdir().unwrap();
+    let owner = std::sync::Arc::new(super::probe::owner::ProbeResourceOwner::new());
     #[cfg(unix)]
     let (large, stalled) = (
         "yes x | head -c 1000000",
@@ -333,40 +334,105 @@ fn sentinel_probe_bounded_runtime_and_output() {
         "[Console]::Out.Write(('x' * 200000))",
         "while ($true) { [Console]::Out.Write('x') }",
     );
-    // A fresh CI runner's first powershell.exe start can exceed any probe limit; warm it first.
-    #[cfg(windows)]
-    {
-        let mut warm = std::process::Command::new("powershell.exe");
-        crate::process_util::no_window_std(&mut warm);
-        let _ = warm
-            .args([
-                "-NoLogo",
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "exit",
-            ])
-            .status();
-    }
     let started = std::time::Instant::now();
-    let trivial = super::probe::run("echo ok", dir.path(), super::probe::PROBE_RUNTIME);
+    let trivial = super::probe::run(
+        "echo ok",
+        dir.path(),
+        super::probe::PROBE_RUNTIME,
+        &owner,
+    );
     assert!(
         trivial.is_ok(),
         "trivial probe failed after {:?}: {:?}",
         started.elapsed(),
         trivial.err()
     );
+    let trivial = trivial.unwrap();
+    assert_eq!(i32::from_le_bytes(trivial.bytes[..4].try_into().unwrap()), 0);
+    assert!(trivial.text.contains("stdout:\nok\n"));
     let started = std::time::Instant::now();
-    let output =
-        super::probe::run(large, dir.path(), super::probe::PROBE_RUNTIME).unwrap_or_else(|error| {
+    let output = super::probe::run(
+        large,
+        dir.path(),
+        super::probe::PROBE_RUNTIME,
+        &owner,
+    )
+        .unwrap_or_else(|error| {
             panic!("large probe failed after {:?}: {error}", started.elapsed())
         });
     assert!(output.bytes.len() <= super::probe::MAX_OUTPUT_BYTES + 12);
     assert!(output.bytes.len() >= super::probe::MAX_OUTPUT_BYTES / 2);
     let began = std::time::Instant::now();
-    let result = super::probe::run(stalled, dir.path(), std::time::Duration::from_millis(200));
-    assert_eq!(result.unwrap_err(), "probe_timeout");
+    let result = super::probe::run(
+        stalled,
+        dir.path(),
+        std::time::Duration::from_millis(200),
+        &owner,
+    );
+    assert_eq!(result.unwrap_err().primary, "probe_timeout");
     assert!(began.elapsed() < std::time::Duration::from_secs(3));
+}
+
+#[test]
+fn sentinel_probe_unconfirmed_cleanup_stops_watch_without_classification() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let store = std::sync::Arc::new(parking_lot::Mutex::new(store(dir.path(), clock)));
+    let (job, lease) = {
+        let mut store = store.lock();
+        let job = create(&mut store, "team");
+        let lease = store.due().unwrap().pop().unwrap();
+        (job, lease)
+    };
+    let state_path = dir.path().join("sentinels.json");
+    let state_file = crate::persisted_state::StateFile::new(&state_path);
+    state_file.hold_for_repair();
+
+    let mut failure = super::probe::process::ProbeFailure::new("probe_capture_failed");
+    failure.unconfirmed(super::probe::process::ResourceKind::Capture);
+    let classify_calls = std::cell::Cell::new(0);
+    let route_calls = std::cell::Cell::new(0);
+    let mut observed_skip = false;
+    let mut result = None;
+    let resolved = super::scheduler::resolve_probe_result(
+        Err(failure),
+        |failure| {
+            result = Some(super::scheduler::record_unconfirmed_failure_with(
+                &store,
+                &job,
+                &failure,
+                |stopped, outcome, stage| {
+                    observed_skip = true;
+                    assert_eq!(stage, super::provenance::Stage::Skip);
+                    assert!(outcome.evidence.state_hash.is_none());
+                    assert!(outcome.evidence.observation_id.is_none());
+                    assert!(outcome.verdict.is_none());
+                    assert!(outcome.route.is_none());
+                    assert!(stopped.machine.stopped);
+                    Ok(())
+                },
+            ));
+        },
+        |output: ()| {
+            classify_calls.set(classify_calls.get() + 1);
+            route_calls.set(route_calls.get() + 1);
+            output
+        },
+    );
+    assert!(resolved.is_none());
+    let result = result.unwrap();
+    assert!(result.persistence_error.is_some());
+    assert_eq!(result.journal_error, None);
+    assert!(observed_skip);
+    assert_eq!(classify_calls.get(), 0);
+    assert_eq!(route_calls.get(), 0);
+    let stopped = store.lock().get(&job.id).unwrap().clone();
+    assert!(stopped.machine.stopped);
+    assert_eq!(stopped.machine.last_hash, None);
+    assert_eq!(stopped.machine.last_bucket, None);
+    assert!(store.lock().due().unwrap().is_empty());
+    assert!(lease.cancelled.load(std::sync::atomic::Ordering::SeqCst));
+    crate::persisted_state::release_hold(&state_path);
 }
 
 #[test]
