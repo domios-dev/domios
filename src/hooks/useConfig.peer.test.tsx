@@ -28,6 +28,10 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
+async function refused(promise: Promise<void>) {
+  await assert.rejects(withFailureDeadline(promise, "config save refusal"), (error: unknown) =>
+    error instanceof Error && (error.name === "AbortError" || error.message === "Config is not ready for this peer"));
+}
 function queue<T>() {
   const entries: T[] = [];
   let waiter: ((value: T) => void) | undefined;
@@ -254,7 +258,7 @@ async function main() {
     await f.saveToggle();
     assert.deepEqual(f.stores.get(B), f.initialB, "CAUSAL RED: persisted B stays independent after a stale Settings autosave");
     assert.equal(f.allRequests.filter((request) => request.method === "PATCH" && request.destination === B).length, 0, "CAUSAL RED: stale Settings autosave must never start a B write");
-    await assert.rejects(staleSave(staleConfig));
+    await refused(staleSave(staleConfig));
     await f.load();
     await f.saveToggle();
     const current = await f.persist();
@@ -266,20 +270,20 @@ async function main() {
   });
   await run("loading and failed config contexts refuse defaults and events cannot enable saving", async (f) => {
     const loadingSave = f.current().updateConfig;
-    await assert.rejects(loadingSave(f.current().config));
+    await refused(loadingSave(f.current().config));
     await f.saveToggle();
     const read = await f.requests.next("failed hook read");
     const otherRead = await f.requests.next("failed presence read");
     await act(async () => { read.fail(); otherRead.fail(); });
     assert.equal(f.current().loading, false);
-    await assert.rejects(f.current().updateConfig(f.current().config));
+    await refused(f.current().updateConfig(f.current().config));
     const stream = await f.streams.next("event after failed read");
     await f.deliver(stream, f.initialA);
     await f.saveToggle();
     assert.equal(f.allRequests.filter((request) => request.method === "PATCH").length, 0);
     assert.deepEqual(f.stores.get(A), f.initialA); assert.deepEqual(f.stores.get(B), f.initialB);
     await f.switchTo(B); await f.load();
-    await assert.rejects(loadingSave(f.current().config));
+    await refused(loadingSave(f.current().config));
     await f.saveToggle(); await f.persist();
     assert.deepEqual(f.stores.get(B), { ...f.initialB, font: { ...f.initialB.font, ligatures: false } });
   });
@@ -309,7 +313,7 @@ async function main() {
     await f.switchTo(A);
     await f.release(bRead); await f.release(bPresence);
     await f.load();
-    await assert.rejects(old.updateConfig(old.config));
+    await refused(old.updateConfig(old.config));
     const bStream = await f.streams.next("B events");
     const newStream = await f.streams.next("new A events");
     const alien = { ...f.initialB, mesh: { ...f.initialB.mesh, instance_name: "alien" } };
@@ -330,6 +334,7 @@ async function main() {
     assert.deepEqual(f.stores.get(A), { ...f.initialA, mesh: { ...f.initialA.mesh, enabled: false } });
     // Toggle back through the actual tray so the held transaction changes a field.
     const stream = await f.streams.next("local A events");
+    await f.deliver(stream, f.stores.get(A)!);
     await f.deliver(stream, f.initialA);
     f.holdBody();
     await f.presenceOffline();
