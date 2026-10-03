@@ -1,5 +1,5 @@
 .agent-network { position: relative; max-width: 1000px; margin: 52px auto 20px; text-align: left; }
-.mesh-register { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-block: 15px; border-block: 1px solid var(--ct-border); color: var(--ct-muted-fg); font: 9px var(--ct-font-mono); letter-spacing: 1.4px; }
+.mesh-register { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-block: 15px; border-block: 1px solid transparent; color: var(--ct-muted-fg); font: 9px var(--ct-font-mono); letter-spacing: 1.4px; }
 .mesh-register > span:last-child { display: flex; align-items: center; gap: 8px; color: var(--ct-accent); }
 .mesh-register i { width: 5px; height: 5px; border-radius: 50%; background: var(--ct-green); }
 .mesh-desk { position: relative; height: 590px; isolation: isolate; contain: layout style; }
