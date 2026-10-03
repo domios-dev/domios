@@ -59,7 +59,7 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
   };
   const attemptPlay = () => {
     const video = videoRef.current;
-    if (!video || !canPlay()) return;
+    if (!video || video.readyState < 2 || !canPlay()) return;
     const attempt = ++playAttempt.current;
     video.muted = !soundChoice.current;
     video.loop = !soundChoice.current;
