@@ -153,12 +153,8 @@ fn sentinel_probe_capture_failure_cannot_return_output() {
 #[test]
 fn sentinel_probe_original_deadline_is_not_renewed() {
     let admitted = Instant::now();
-    let deadlines = Deadlines::at(
-        Duration::from_secs(9),
-        Duration::from_secs(3),
-        admitted,
-    )
-    .unwrap();
+    let deadlines =
+        Deadlines::at(Duration::from_secs(9), Duration::from_secs(3), admitted).unwrap();
     assert_eq!(deadlines.admitted, admitted);
     assert_eq!(deadlines.duration, Duration::from_secs(3));
     assert_eq!(deadlines.operation, admitted + Duration::from_millis(2500));
@@ -188,8 +184,8 @@ fn sentinel_probe_original_deadline_is_not_renewed() {
     );
     assert_eq!(deadlines.hard, admitted + Duration::from_secs(3));
 
-    let short = Deadlines::at(Duration::from_millis(100), Duration::from_secs(3), admitted)
-        .unwrap();
+    let short =
+        Deadlines::at(Duration::from_millis(100), Duration::from_secs(3), admitted).unwrap();
     assert_eq!(short.operation, admitted + Duration::from_millis(75));
     assert_eq!(short.hard, admitted + Duration::from_millis(100));
 }
@@ -229,20 +225,14 @@ fn sentinel_probe_owner_close_refuses_and_requests_cleanup() {
     let (settle_tx, settle_rx) = mpsc::channel();
     let (dropped_tx, dropped_rx) = mpsc::channel();
     reservation.retain(Box::new(event_resource(
-        1,
-        cancel_tx,
-        settle_rx,
-        dropped_tx,
-        None,
+        1, cancel_tx, settle_rx, dropped_tx, None,
     )));
     assert_eq!(cancel_rx.recv_timeout(OWNER_EVENT_DEADLINE).unwrap(), 1);
     assert!(owner.wait_for_unconfirmed_with_timeout(OWNER_EVENT_DEADLINE));
     settle_tx.send(true).unwrap();
     assert_eq!(dropped_rx.recv_timeout(OWNER_EVENT_DEADLINE).unwrap(), 1);
-    assert!(owner.wait_for_free_slots_with_timeout(
-        super::owner::MAX_RESOURCE_SLOTS,
-        OWNER_EVENT_DEADLINE
-    ));
+    assert!(owner
+        .wait_for_free_slots_with_timeout(super::owner::MAX_RESOURCE_SLOTS, OWNER_EVENT_DEADLINE));
 }
 
 #[test]
@@ -255,11 +245,7 @@ fn sentinel_probe_owner_drop_closes_without_retained_arc_cycle() {
     let (dropped_tx, dropped_rx) = mpsc::channel();
     drop(owner);
     reservation.retain(Box::new(event_resource(
-        6,
-        cancel_tx,
-        settle_rx,
-        dropped_tx,
-        None,
+        6, cancel_tx, settle_rx, dropped_tx, None,
     )));
 
     assert_eq!(cancel_rx.recv_timeout(OWNER_EVENT_DEADLINE).unwrap(), 6);
@@ -277,10 +263,8 @@ fn sentinel_probe_owner_signalled_event_releases_exact_slot() {
     assert_eq!(cancel_rx.recv_timeout(OWNER_EVENT_DEADLINE).unwrap(), 2);
     settle_tx.send(true).unwrap();
     assert_eq!(dropped_rx.recv_timeout(OWNER_EVENT_DEADLINE).unwrap(), 2);
-    assert!(owner.wait_for_free_slots_with_timeout(
-        super::owner::MAX_RESOURCE_SLOTS,
-        OWNER_EVENT_DEADLINE
-    ));
+    assert!(owner
+        .wait_for_free_slots_with_timeout(super::owner::MAX_RESOURCE_SLOTS, OWNER_EVENT_DEADLINE));
     let snapshot = owner.snapshot();
     assert_eq!(snapshot.settled_total, 1);
     assert_eq!(snapshot.free, super::owner::MAX_RESOURCE_SLOTS);
@@ -294,7 +278,14 @@ fn sentinel_probe_owner_unresolved_slot_does_not_starve_settled_slot() {
     let (dropped_tx, dropped_rx) = mpsc::channel();
     let (cancel_a_tx, cancel_a_rx) = mpsc::channel();
     let (cancel_b_tx, cancel_b_rx) = mpsc::channel();
-    retain_fake(&owner, 3, cancel_a_tx, settle_a_rx, dropped_tx.clone(), None);
+    retain_fake(
+        &owner,
+        3,
+        cancel_a_tx,
+        settle_a_rx,
+        dropped_tx.clone(),
+        None,
+    );
     retain_fake(&owner, 4, cancel_b_tx, settle_b_rx, dropped_tx, None);
     assert_eq!(cancel_a_rx.recv_timeout(OWNER_EVENT_DEADLINE).unwrap(), 3);
     assert_eq!(cancel_b_rx.recv_timeout(OWNER_EVENT_DEADLINE).unwrap(), 4);
@@ -312,10 +303,8 @@ fn sentinel_probe_owner_unresolved_slot_does_not_starve_settled_slot() {
 
     settle_a_tx.send(true).unwrap();
     assert_eq!(dropped_rx.recv_timeout(OWNER_EVENT_DEADLINE).unwrap(), 3);
-    assert!(owner.wait_for_free_slots_with_timeout(
-        super::owner::MAX_RESOURCE_SLOTS,
-        OWNER_EVENT_DEADLINE
-    ));
+    assert!(owner
+        .wait_for_free_slots_with_timeout(super::owner::MAX_RESOURCE_SLOTS, OWNER_EVENT_DEADLINE));
 }
 
 #[test]
@@ -338,10 +327,8 @@ fn sentinel_probe_owner_callback_observes_state_without_owner_lock() {
     assert_eq!(snapshot.unconfirmed, 1);
     settle_tx.send(true).unwrap();
     assert_eq!(dropped_rx.recv_timeout(OWNER_EVENT_DEADLINE).unwrap(), 5);
-    assert!(owner.wait_for_free_slots_with_timeout(
-        super::owner::MAX_RESOURCE_SLOTS,
-        OWNER_EVENT_DEADLINE
-    ));
+    assert!(owner
+        .wait_for_free_slots_with_timeout(super::owner::MAX_RESOURCE_SLOTS, OWNER_EVENT_DEADLINE));
 }
 
 #[test]
@@ -412,11 +399,7 @@ fn retain_fake(
     let mut reservation = owner.reserve().unwrap();
     reservation.register_resource().unwrap();
     reservation.retain(Box::new(event_resource(
-        id,
-        cancel,
-        settlement,
-        dropped,
-        observer,
+        id, cancel, settlement, dropped, observer,
     )));
 }
 
@@ -467,10 +450,7 @@ impl RetainedResources for PermanentCloseResource {
 
     fn wait_for_settlement(&mut self) -> Settlement {
         let mut permanent = false;
-        let error = super::owner::mark_close_uncertain(
-            &mut permanent,
-            self.opaque_error.into(),
-        );
+        let error = super::owner::mark_close_uncertain(&mut permanent, self.opaque_error.into());
         if super::owner::settlement_event_required(false, permanent, false) {
             self.event_waits.fetch_add(1, Ordering::SeqCst);
         }
