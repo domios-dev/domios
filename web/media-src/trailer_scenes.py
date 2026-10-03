@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 from media_contract import bounded_process, require
+from ending_memory import MEMORY_END_FRAME
 
 
 FPS = 30
@@ -355,22 +356,27 @@ def ending_mesh():
         return source.convert('RGB')
 
 
-def agent_ending(global_frame, frame, font, brand_rest):
+def agent_ending(global_frame, frame, font, brand_rest, memory_frame=None):
     image = wallpaper().copy()
-    screen = (window(ending_mesh(), 790, 522, font, (334, 50, 3496, 2079))
+    screen = (window(memory_frame, 790, 522, font) if memory_frame is not None else
+              window(ending_mesh(), 790, 522, font, (334, 50, 3496, 2079))
               if global_frame >= 1140 else window(frame, 790, 522, font))
     image.paste(screen, (64, 112))
     mark = brand_rest.resize((64, 64), Image.Resampling.LANCZOS)
     image.paste(mark, (930, 210), mark)
-    if global_frame < 1140:
+    if memory_frame is not None:
+        heading = 'One memory.\nEvery agent.'
+    elif global_frame < 1140:
         heading = 'Capabilities for\nyour workspace.'
-    elif global_frame < 1230:
+    elif global_frame < MEMORY_END_FRAME:
         heading = 'Agents across\nyour machines.'
     else:
         heading = 'Your next idea.\nA whole team\nbehind you.'
     draw = ImageDraw.Draw(image)
     draw.multiline_text((930, 292), heading, font=face(font, 34 if global_frame >= 1230 else 32),
                         fill=WHITE, spacing=4, align='left')
+    if memory_frame is not None:
+        draw.text((930, 448), 'Shared on this machine.', font=face(font, 14), fill=WHITE)
     draw.text((930, 514), 'domios.dev', font=face(font, 20), fill=BLUE, anchor='lm')
     return image
 
@@ -396,7 +402,7 @@ def render(edit, time, frame, font):
     return image
 
 
-def render_timeline_frame(edit, time, frame, font, brand_frames):
+def render_timeline_frame(edit, time, frame, font, brand_frames, memory_frame=None):
     frame_number = round((edit['at'] + time) * FPS)
     if 0 <= frame_number < OPENING_FRAMES:
         image = render(edit, time, frame, font)
@@ -406,5 +412,5 @@ def render_timeline_frame(edit, time, frame, font, brand_frames):
         image.paste(mark, (92, 276), mark)
         return image
     if ENDING_START_FRAME <= frame_number < ENDING_END_FRAME:
-        return agent_ending(frame_number, frame, font, brand_frames['images'][-1])
+        return agent_ending(frame_number, frame, font, brand_frames['images'][-1], memory_frame)
     return render(edit, time, frame, font)
