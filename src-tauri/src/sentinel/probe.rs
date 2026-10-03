@@ -63,6 +63,22 @@ fn run_transaction(
     deadlines: process::Deadlines,
     owner: &Arc<owner::ProbeResourceOwner>,
 ) -> Result<Output, process::ProbeFailure> {
+    admit_then(owner, |reservation| {
+        #[cfg(unix)]
+        {
+            unix::run(command, cwd, deadlines, reservation, owner)
+        }
+        #[cfg(windows)]
+        {
+            windows::run(command, cwd, deadlines, reservation, owner)
+        }
+    })
+}
+
+fn admit_then<T>(
+    owner: &Arc<owner::ProbeResourceOwner>,
+    start: impl FnOnce(owner::Reservation) -> Result<T, process::ProbeFailure>,
+) -> Result<T, process::ProbeFailure> {
     let reservation = owner.reserve().map_err(|error| match error {
         owner::AdmissionError::Full => process::ProbeFailure::new("probe_owner_capacity"),
         owner::AdmissionError::Closed => process::ProbeFailure::new("probe_owner_closing"),
@@ -72,12 +88,5 @@ fn run_transaction(
             failure
         }
     })?;
-    #[cfg(unix)]
-    {
-        unix::run(command, cwd, deadlines, reservation, owner)
-    }
-    #[cfg(windows)]
-    {
-        windows::run(command, cwd, deadlines, reservation, owner)
-    }
+    start(reservation)
 }

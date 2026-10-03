@@ -4,7 +4,7 @@ use std::os::windows::process::ExitStatusExt;
 use std::path::Path;
 use std::ptr::{null, null_mut};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{
@@ -40,7 +40,7 @@ use windows_sys::Win32::System::Threading::{
 
 use super::capture::{self, CaptureData, OwnedHandle, WindowsStream as Stream};
 use super::capture::{last_error, resource_name, timeout_ms};
-use super::owner::{ProbeResourceOwner, Reservation, WindowsPending};
+use super::owner::{mark_close_uncertain, ProbeResourceOwner, Reservation, WindowsPending};
 use super::process::{Deadlines, ProbeFailure, ResourceKind, WindowsLaunchState};
 use super::Output;
 
@@ -84,7 +84,7 @@ pub(super) fn run_with_assignment(
     owner: &Arc<ProbeResourceOwner>,
     assign: impl FnOnce(HANDLE, HANDLE) -> Result<(), String>,
 ) -> Result<Output, ProbeFailure> {
-    let mut run = WindowsRun::new(deadlines, reservation, owner.clone());
+    let mut run = WindowsRun::new(deadlines, reservation, owner);
     run.stdout.buffer_registered = run.register(ResourceKind::OverlappedIo);
     run.stderr.buffer_registered = run.register(ResourceKind::OverlappedIo);
     run.stdout.connect_buffer_registered = run.register(ResourceKind::OverlappedIo);
@@ -122,8 +122,8 @@ pub(super) fn run_with_assignment(
         return run.finish_failure();
     }
     while !run.stream(true).connected || !run.stream(false).connected {
-        if run.owner.is_closing() || run.deadlines.expired_operation() {
-            run.fail(if run.owner.is_closing() { "probe_owner_closing" } else { "probe_timeout" });
+        if run.owner_is_closing() || run.deadlines.expired_operation() {
+            run.fail(if run.owner_is_closing() { "probe_owner_closing" } else { "probe_timeout" });
             return run.finish_failure();
         }
         match run.wait_event(Some(run.deadlines.remaining_operation())) {
@@ -153,7 +153,7 @@ pub(super) fn run_with_assignment(
 
 pub(super) struct WindowsRun {
     deadlines: Deadlines,
-    pub(super) owner: Arc<ProbeResourceOwner>,
+    owner: Weak<ProbeResourceOwner>,
     reservation: Option<Reservation>,
     pub(super) job: OwnedHandle,
     pub(super) port: OwnedHandle,
@@ -186,11 +186,11 @@ impl WindowsRun {
     fn new(
         deadlines: Deadlines,
         reservation: Reservation,
-        owner: Arc<ProbeResourceOwner>,
+        owner: &Arc<ProbeResourceOwner>,
     ) -> Self {
         Self {
             deadlines,
-            owner,
+            owner: Arc::downgrade(owner),
             reservation: Some(reservation),
             job: OwnedHandle::empty(),
             port: OwnedHandle::empty(),
@@ -489,7 +489,7 @@ impl WindowsRun {
         if self.child_id <= 1 || self.child_id > i32::MAX as u32 {
             return Err("captured probe process id is outside the valid range".into());
         }
-        if self.deadlines.expired_operation() || self.owner.is_closing() {
+        if self.deadlines.expired_operation() || self.owner_is_closing() {
             return Err("probe deadline or owner closure preceded Job assignment".into());
         }
         assign(self.job.raw().unwrap(), self.process.raw().unwrap())?;
@@ -497,7 +497,7 @@ impl WindowsRun {
         self.launch_state.assigned().map_err(str::to_string)?;
         self.job_empty = false;
         self.close_child_writers()?;
-        if self.deadlines.expired_operation() || self.owner.is_closing() {
+        if self.deadlines.expired_operation() || self.owner_is_closing() {
             return Err("probe deadline or owner closure preceded process resume".into());
         }
         self.launch_state.resume().map_err(str::to_string)?;
@@ -607,8 +607,8 @@ impl WindowsRun {
 
     fn drive(mut self) -> Result<Output, ProbeFailure> {
         while self.failure.is_none() && !self.runtime_success_ready() {
-            if self.owner.is_closing() || self.deadlines.expired_operation() {
-                self.fail(if self.owner.is_closing() {
+            if self.owner_is_closing() || self.deadlines.expired_operation() {
+                self.fail(if self.owner_is_closing() {
                     "probe_owner_closing"
                 } else {
                     "probe_timeout"
@@ -636,6 +636,7 @@ impl WindowsRun {
         } else if self.runtime_success_ready() {
             let status = std::process::ExitStatus::from_raw(self.exit_code.unwrap_or(1));
             if let Err(error) = self.close_completed_handles() {
+                let error = mark_close_uncertain(&mut self.permanent_unconfirmed, error);
                 self.fail("probe_close_failed");
                 self.add_error(error);
                 let failure = self.failure.take().unwrap();
@@ -885,25 +886,6 @@ impl WindowsRun {
         Ok(())
     }
 
-    pub(super) fn close_reader(&mut self, stdout: bool) -> Result<(), String> {
-        if self.stream(stdout).pending_active || self.stream(stdout).connect_pending {
-            return Err("probe read endpoint cannot close while I/O is pending".into());
-        }
-        self.stream_mut(stdout).reader.close()?;
-        let capture_registered =
-            std::mem::replace(&mut self.stream_mut(stdout).capture_registered, false);
-        self.settle_resource(ResourceKind::Capture, capture_registered);
-        let buffer_registered =
-            std::mem::replace(&mut self.stream_mut(stdout).buffer_registered, false);
-        self.settle_resource(ResourceKind::OverlappedIo, buffer_registered);
-        let connect_buffer_registered = std::mem::replace(
-            &mut self.stream_mut(stdout).connect_buffer_registered,
-            false,
-        );
-        self.settle_resource(ResourceKind::OverlappedIo, connect_buffer_registered);
-        Ok(())
-    }
-
     fn cleanup_to_hard_end(&mut self, failure: &mut ProbeFailure) {
         self.request_cancel(failure);
         if !self.assigned && self.process.is_open() {
@@ -1118,6 +1100,7 @@ impl WindowsRun {
             }
         } else {
             self.mark_runtime_unconfirmed(&mut failure);
+            self.failure = Some(failure.clone());
             if let Some(reservation) = self.reservation.take() {
                 reservation.retain(Box::new(WindowsPending { run: self }));
             }
@@ -1134,7 +1117,7 @@ impl WindowsRun {
         {
             Some(Ok(())) => true,
             Some(Err(error)) => {
-                self.owner.record_failure(format!("{}: {error}", resource_name(kind)));
+                self.record_owner_failure(format!("{}: {error}", resource_name(kind)));
                 self.permanent_unconfirmed = true;
                 false
             }
@@ -1148,7 +1131,7 @@ impl WindowsRun {
         }
         if let Some(reservation) = self.reservation.as_mut() {
             if let Err(error) = reservation.resource_settled() {
-                self.owner.record_failure(format!("{}: {error}", resource_name(kind)));
+                self.record_owner_failure(format!("{}: {error}", resource_name(kind)));
                 self.permanent_unconfirmed = true;
             }
         }
@@ -1178,7 +1161,7 @@ impl WindowsRun {
         if let Some(reservation) = self.reservation.take() {
             if let Err(error) = reservation.release() {
                 self.permanent_unconfirmed = true;
-                self.owner.record_failure(&error);
+                self.record_owner_failure(&error);
                 return Err(error);
             }
         }

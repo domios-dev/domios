@@ -66,7 +66,7 @@ fn sentinel_probe_native_closed_stream_live_child_is_unconfirmed() {
     assert!(failure
         .unconfirmed
         .contains(&super::process::ResourceKind::ProcessGroup));
-    owner.wait_for_unconfirmed();
+    assert!(owner.wait_for_unconfirmed_with_timeout(Duration::from_secs(3)));
     assert_eq!(owner.snapshot().unconfirmed, 1);
 }
 
