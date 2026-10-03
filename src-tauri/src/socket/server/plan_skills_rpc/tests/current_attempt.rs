@@ -93,7 +93,7 @@ fn current_attempt_team_default_follows_changed_active_plan() {
     let team_id = {
         let mut mux = caller.svc.mux.write();
         mux.set_orchestrator_role(&tab_id).unwrap();
-        mux.get_tab(&tab_id).unwrap().team_id.clone().unwrap()
+        mux.resolve_or_mint_team_for_parent(&tab_id).unwrap().team_id
     };
     caller.svc.plan_store.with_plan(&caller.plan_id, 8, |plan| { plan.team_id = Some(team_id.clone()); Ok(()) }).unwrap();
     let mut params = caller.production_params();
