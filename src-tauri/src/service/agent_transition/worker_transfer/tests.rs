@@ -170,7 +170,7 @@ fn assert_refused_without_changes(
     fixture: &TransferFixture,
     call: impl FnOnce(&ServiceContext) -> Result<(), String>,
 ) {
-    let before_mux = serde_json::to_value(fixture.fixture.service.mux.read().snapshot()).unwrap();
+    let before_mux = mux_snapshot_without_generation(&fixture.fixture.service.mux.read());
     let before_plan = fixture
         .fixture
         .service
@@ -179,8 +179,8 @@ fn assert_refused_without_changes(
         .unwrap();
     assert!(call(&fixture.fixture.service).is_err());
     assert_eq!(
-        serde_json::to_value(fixture.fixture.service.mux.read().snapshot()).unwrap(),
-        before_mux
+        mux_snapshot_without_generation(&fixture.fixture.service.mux.read()),
+        before_mux,
     );
     assert_eq!(
         fixture
@@ -191,6 +191,12 @@ fn assert_refused_without_changes(
             .unwrap(),
         before_plan
     );
+}
+
+fn mux_snapshot_without_generation(mux: &MultiplexerState) -> serde_json::Value {
+    let mut snapshot = serde_json::to_value(mux.snapshot()).unwrap();
+    snapshot.as_object_mut().unwrap().remove("generation");
+    snapshot
 }
 
 #[test]
@@ -404,7 +410,7 @@ fn transfer_refuses_stale_worker_nonce_without_mutating_placement_or_task() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn transfer_rechecks_source_and_destination_sessions_after_candidate_detection() {
+fn transfer_rechecks_source_authority_and_accepts_current_destination_rotation() {
     let fixture = TransferFixture::new();
     assert!(fixture
         .fixture
@@ -427,11 +433,57 @@ fn transfer_rechecks_source_and_destination_sessions_after_candidate_detection()
         .fixture
         .service
         .task_bound_worker_transfer_candidate(&fixture.worker, &fixture.destination));
+    let before_plan = fixture
+        .fixture
+        .service
+        .plan_store
+        .get(&fixture.plan_id)
+        .unwrap();
+    assert!(before_plan.owner.session_id.is_none());
     {
         let mut mux = fixture.fixture.service.mux.write();
         let destination = mux.get_tab_mut(&fixture.destination).unwrap();
         destination.session_binding_nonce = Some("nonce-destination-next".into());
         destination.reported_session_binding_nonce = Some("nonce-destination-next".into());
+    }
+    let outcome = fixture
+        .fixture
+        .service
+        .transfer_task_bound_worker(&fixture.caller(), &fixture.worker, &fixture.destination)
+        .unwrap();
+    assert_eq!(outcome.status, "committed_observation_unconfirmed");
+    assert_eq!(
+        fixture
+            .fixture
+            .service
+            .plan_store
+            .get(&fixture.plan_id)
+            .unwrap(),
+        before_plan
+    );
+    assert_eq!(
+        fixture
+            .fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&fixture.destination)
+            .unwrap()
+            .session_binding_nonce
+            .as_deref(),
+        Some("nonce-destination-next")
+    );
+
+    let fixture = TransferFixture::new();
+    assert!(fixture
+        .fixture
+        .service
+        .task_bound_worker_transfer_candidate(&fixture.worker, &fixture.destination));
+    {
+        let mut mux = fixture.fixture.service.mux.write();
+        mux.get_tab_mut(&fixture.destination)
+            .unwrap()
+            .session_binding_nonce = Some("nonce-destination-next".into());
     }
     assert_refused_without_changes(&fixture, |service| {
         service

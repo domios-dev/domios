@@ -1,5 +1,5 @@
 use super::*;
-use crate::plan::{PlanMode, PlanStatus, TaskStatus, WorkerPlacement};
+use crate::plan::{PlanMode, PlanStatus, TaskStatus};
 
 #[cfg(test)]
 mod tests;

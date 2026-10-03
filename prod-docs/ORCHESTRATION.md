@@ -188,4 +188,4 @@ contracts (API-PLAN).
 
 A connected Supporter gates the reminder ticks: healthy, unchanged work stays quiet, and every heartbeat that does arrive names a concrete next step. Undelivered reports, failed gates, owner messages, worker incidents and plan mode changes always wake you. Record a deliberate review hold with `plan review hold --note`; it is not re-flagged as drift until the task's state or verdict changes.
 
-<!-- revision: 100 -->
+<!-- revision: 101 -->
