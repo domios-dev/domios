@@ -4,10 +4,20 @@ use super::{get_string_param, JsonRpcError};
 use crate::service::ServiceState;
 
 fn error(message: impl Into<String>) -> JsonRpcError {
+    let message = message.into();
+    let code = if message.starts_with("sentinel_store_unsupported_format:") {
+        "sentinel_store_unsupported_format"
+    } else if message.starts_with("sentinel_store_load_failed:") {
+        "sentinel_store_load_failed"
+    } else if message.starts_with("sentinel_store_persistence_failed:") {
+        "sentinel_store_persistence_failed"
+    } else {
+        "sentinel_refused"
+    };
     JsonRpcError {
         code: -32602,
-        message: message.into(),
-        data: Some(json!({"code": "sentinel_refused"})),
+        message,
+        data: Some(json!({"code": code})),
     }
 }
 
