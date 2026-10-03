@@ -8,24 +8,21 @@ use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use windows_sys::Win32::Foundation::{
-    GetLastError, SetHandleInformation, ERROR_BROKEN_PIPE, ERROR_IO_PENDING,
-    ERROR_NOT_FOUND, ERROR_OPERATION_ABORTED, ERROR_PIPE_CONNECTED, HANDLE, HANDLE_FLAG_INHERIT,
+    GetLastError, SetHandleInformation, ERROR_BROKEN_PIPE, ERROR_IO_PENDING, ERROR_NOT_FOUND,
+    ERROR_OPERATION_ABORTED, ERROR_PIPE_CONNECTED, HANDLE, HANDLE_FLAG_INHERIT,
     INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
 use windows_sys::Win32::Storage::FileSystem::{
-    CreateFileW, ReadFile, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAG_OVERLAPPED,
-    OPEN_EXISTING, PIPE_ACCESS_INBOUND,
-};
-use windows_sys::Win32::System::IO::{
-    CancelIoEx, CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED,
+    CreateFileW, ReadFile, FILE_ATTRIBUTE_NORMAL, FILE_FLAG_FIRST_PIPE_INSTANCE,
+    FILE_FLAG_OVERLAPPED, OPEN_EXISTING, PIPE_ACCESS_INBOUND,
 };
 use windows_sys::Win32::System::JobObjects::{
-    AssignProcessToJobObject, CreateJobObjectW, QueryInformationJobObject, SetInformationJobObject,
-    TerminateJobObject, JOBOBJECT_ASSOCIATE_COMPLETION_PORT,
-    JOBOBJECT_BASIC_ACCOUNTING_INFORMATION, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
-    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JobObjectAssociateCompletionPortInformation,
+    AssignProcessToJobObject, CreateJobObjectW, JobObjectAssociateCompletionPortInformation,
     JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation,
+    QueryInformationJobObject, SetInformationJobObject, TerminateJobObject,
+    JOBOBJECT_ASSOCIATE_COMPLETION_PORT, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 };
 use windows_sys::Win32::System::Pipes::{
     ConnectNamedPipe, CreateNamedPipeW, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS,
@@ -36,6 +33,9 @@ use windows_sys::Win32::System::Threading::{
     InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
     WaitForSingleObject, CREATE_NO_WINDOW, CREATE_SUSPENDED, EXTENDED_STARTUPINFO_PRESENT,
     PROC_THREAD_ATTRIBUTE_HANDLE_LIST, STARTF_USESTDHANDLES, STARTUPINFOEXW,
+};
+use windows_sys::Win32::System::IO::{
+    CancelIoEx, CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED,
 };
 
 use super::capture::{self, CaptureData, OwnedHandle, WindowsStream as Stream};
@@ -50,6 +50,8 @@ const STDOUT_KEY: usize = 1;
 const STDERR_KEY: usize = 2;
 const JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO: u32 = 4;
 const JOB_OBJECT_MSG_EXIT_PROCESS: u32 = 7;
+
+mod completion;
 
 static PIPE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
@@ -126,7 +128,11 @@ pub(super) fn run_with_assignment(
     }
     while !run.stream(true).connected || !run.stream(false).connected {
         if run.owner_is_closing() || run.deadlines.expired_operation() {
-            run.fail(if run.owner_is_closing() { "probe_owner_closing" } else { "probe_timeout" });
+            run.fail(if run.owner_is_closing() {
+                "probe_owner_closing"
+            } else {
+                "probe_timeout"
+            });
             return run.finish_failure();
         }
         match run.wait_event(Some(run.deadlines.remaining_operation())) {
@@ -229,9 +235,7 @@ impl WindowsRun {
         if !self.job_registered {
             return Err("probe Job ownership registration failed".into());
         }
-        let port = unsafe {
-            CreateIoCompletionPort(INVALID_HANDLE_VALUE, null_mut(), 0, 1)
-        };
+        let port = unsafe { CreateIoCompletionPort(INVALID_HANDLE_VALUE, null_mut(), 0, 1) };
         self.port = OwnedHandle::new(port).ok_or_else(last_error)?;
         self.port_registered = self.register(ResourceKind::OverlappedIo);
         if !self.port_registered {
@@ -328,14 +332,8 @@ impl WindowsRun {
         }
         let key = if stdout { STDOUT_KEY } else { STDERR_KEY };
         let reader = self.stream(stdout).reader.raw().unwrap();
-        let associated = unsafe {
-            CreateIoCompletionPort(
-                reader,
-                self.port.raw().unwrap(),
-                key,
-                0,
-            )
-        };
+        let associated =
+            unsafe { CreateIoCompletionPort(reader, self.port.raw().unwrap(), key, 0) };
         if associated.is_null() {
             return Err(last_error());
         }
@@ -344,12 +342,8 @@ impl WindowsRun {
         if !connect_registered {
             return Err("probe pipe connection registration failed".into());
         }
-        let connected = unsafe {
-            ConnectNamedPipe(
-                reader,
-                &mut *self.stream_mut(stdout).connect_overlapped,
-            )
-        };
+        let connected =
+            unsafe { ConnectNamedPipe(reader, &mut *self.stream_mut(stdout).connect_overlapped) };
         if connected != 0 {
             self.stream_mut(stdout).connect_pending = true;
         } else {
@@ -358,10 +352,8 @@ impl WindowsRun {
                 self.stream_mut(stdout).connect_pending = true;
             } else if error == ERROR_PIPE_CONNECTED {
                 self.stream_mut(stdout).connected = true;
-                let registered = std::mem::replace(
-                    &mut self.stream_mut(stdout).connect_registered,
-                    false,
-                );
+                let registered =
+                    std::mem::replace(&mut self.stream_mut(stdout).connect_registered, false);
                 self.settle_resource(ResourceKind::OverlappedIo, registered);
                 let buffer_registered = std::mem::replace(
                     &mut self.stream_mut(stdout).connect_buffer_registered,
@@ -369,10 +361,8 @@ impl WindowsRun {
                 );
                 self.settle_resource(ResourceKind::OverlappedIo, buffer_registered);
             } else {
-                let registered = std::mem::replace(
-                    &mut self.stream_mut(stdout).connect_registered,
-                    false,
-                );
+                let registered =
+                    std::mem::replace(&mut self.stream_mut(stdout).connect_registered, false);
                 self.settle_resource(ResourceKind::OverlappedIo, registered);
                 let buffer_registered = std::mem::replace(
                     &mut self.stream_mut(stdout).connect_buffer_registered,
@@ -400,14 +390,7 @@ impl WindowsRun {
             return Err("probe pipe writer ownership registration failed".into());
         }
         let writer = self.stream(stdout).child_writer.raw().unwrap();
-        if unsafe {
-            SetHandleInformation(
-                writer,
-                HANDLE_FLAG_INHERIT,
-                HANDLE_FLAG_INHERIT,
-            )
-        } == 0
-        {
+        if unsafe { SetHandleInformation(writer, HANDLE_FLAG_INHERIT, HANDLE_FLAG_INHERIT) } == 0 {
             return Err(last_error());
         }
         Ok(())
@@ -420,9 +403,17 @@ impl WindowsRun {
         assign: impl FnOnce(HANDLE, HANDLE) -> Result<(), String>,
     ) -> Result<(), String> {
         let mut handles = [
-            self.stdin.raw().ok_or_else(|| "probe stdin handle missing".to_string())?,
-            self.stdout.child_writer.raw().ok_or_else(|| "probe stdout writer missing".to_string())?,
-            self.stderr.child_writer.raw().ok_or_else(|| "probe stderr writer missing".to_string())?,
+            self.stdin
+                .raw()
+                .ok_or_else(|| "probe stdin handle missing".to_string())?,
+            self.stdout
+                .child_writer
+                .raw()
+                .ok_or_else(|| "probe stdout writer missing".to_string())?,
+            self.stderr
+                .child_writer
+                .raw()
+                .ok_or_else(|| "probe stderr writer missing".to_string())?,
         ];
         let mut size = 0usize;
         unsafe {
@@ -512,7 +503,9 @@ impl WindowsRun {
         }
         let resume_status = unsafe { NtResumeProcess(self.process.raw().unwrap()) };
         if resume_status < 0 {
-            return Err(format!("probe process resume failed: NTSTATUS {resume_status:#x}"));
+            return Err(format!(
+                "probe process resume failed: NTSTATUS {resume_status:#x}"
+            ));
         }
         self.close_thread_handle()?;
         self.close_stdin_handle()?;
@@ -694,17 +687,7 @@ impl WindowsRun {
 
     pub(super) fn wait_event(&mut self, timeout: Option<Duration>) -> Result<bool, String> {
         if self.parent_exit_pending {
-            let process = self.process.raw()
-                .ok_or_else(|| "probe pending process handle missing".to_string())?;
-            match unsafe { WaitForSingleObject(process, timeout.map(timeout_ms).unwrap_or(u32::MAX)) } {
-                WAIT_OBJECT_0 => {
-                    self.observe_parent_exit()?;
-                    self.parent_exit_pending = false;
-                    return Ok(true);
-                }
-                WAIT_TIMEOUT => return Ok(false),
-                _ => return Err(last_error()),
-            }
+            return self.wait_parent_exit(timeout);
         }
         let Some(port) = self.port.raw() else {
             return Err("probe completion port is not owned".into());
@@ -768,7 +751,9 @@ impl WindowsRun {
         let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
         if unsafe {
             QueryInformationJobObject(
-                self.job.raw().ok_or_else(|| "probe Job handle missing".to_string())?,
+                self.job
+                    .raw()
+                    .ok_or_else(|| "probe Job handle missing".to_string())?,
                 JobObjectBasicAccountingInformation,
                 (&mut accounting as *mut JOBOBJECT_BASIC_ACCOUNTING_INFORMATION).cast(),
                 std::mem::size_of_val(&accounting) as u32,
@@ -790,40 +775,6 @@ impl WindowsRun {
         }
         self.close_completed_runtime_handles()?;
         Ok(())
-    }
-
-    fn observe_parent_exit_if_signaled(&mut self) -> Result<(), String> {
-        let Some(process) = self.process.raw() else {
-            return Ok(());
-        };
-        match unsafe { WaitForSingleObject(process, 0) } {
-            WAIT_OBJECT_0 => self.observe_parent_exit(),
-            WAIT_TIMEOUT => Ok(()),
-            _ => Err(last_error()),
-        }
-    }
-
-    fn observe_parent_exit(&mut self) -> Result<(), String> {
-        let Some(process) = self.process.raw() else {
-            return Ok(());
-        };
-        if unsafe { WaitForSingleObject(process, 0) } != WAIT_OBJECT_0 {
-            return Err("Job exit packet preceded captured process signaling".into());
-        }
-        let mut exit_code = 0u32;
-        if unsafe { GetExitCodeProcess(process, &mut exit_code) } == 0 {
-            return Err(last_error());
-        }
-        self.exit_code = Some(exit_code);
-        self.parent_exited = true;
-        self.parent_exit_pending = false;
-        self.process.close()?;
-        let registered = std::mem::replace(&mut self.process_registered, false);
-        self.settle_resource(ResourceKind::Child, registered);
-        if self.primary_thread.is_open() {
-            self.close_thread_handle()?;
-        }
-        self.close_completed_runtime_handles()
     }
 
     fn observe_read_event(
@@ -1013,7 +964,9 @@ impl WindowsRun {
                 if result == 0 {
                     let error = unsafe { GetLastError() };
                     if error != ERROR_NOT_FOUND {
-                        failure.cleanup_error(std::io::Error::from_raw_os_error(error as i32).to_string());
+                        failure.cleanup_error(
+                            std::io::Error::from_raw_os_error(error as i32).to_string(),
+                        );
                     }
                 }
             }
@@ -1027,7 +980,9 @@ impl WindowsRun {
                 if result == 0 {
                     let error = unsafe { GetLastError() };
                     if error != ERROR_NOT_FOUND {
-                        failure.cleanup_error(std::io::Error::from_raw_os_error(error as i32).to_string());
+                        failure.cleanup_error(
+                            std::io::Error::from_raw_os_error(error as i32).to_string(),
+                        );
                     }
                 }
             }
@@ -1104,7 +1059,10 @@ impl WindowsRun {
     }
 
     fn finish_failure(mut self) -> Result<Output, ProbeFailure> {
-        let mut failure = self.failure.take().unwrap_or_else(|| ProbeFailure::new("probe_failed"));
+        let mut failure = self
+            .failure
+            .take()
+            .unwrap_or_else(|| ProbeFailure::new("probe_failed"));
         self.cleanup_to_hard_end(&mut failure);
         self.deadlines.record_lateness(&mut failure);
         self.finish_failure_with(failure)
@@ -1175,11 +1133,19 @@ impl WindowsRun {
     }
 
     pub(super) fn stream(&self, stdout: bool) -> &Stream {
-        if stdout { &self.stdout } else { &self.stderr }
+        if stdout {
+            &self.stdout
+        } else {
+            &self.stderr
+        }
     }
 
     pub(super) fn stream_mut(&mut self, stdout: bool) -> &mut Stream {
-        if stdout { &mut self.stdout } else { &mut self.stderr }
+        if stdout {
+            &mut self.stdout
+        } else {
+            &mut self.stderr
+        }
     }
 
     fn release_reservation(&mut self) -> Result<(), String> {
