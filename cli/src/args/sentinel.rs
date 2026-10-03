@@ -4,6 +4,9 @@ use clap::Subcommand;
 pub enum SentinelAction {
     /// Watch a bounded shell probe, classifying only changed output
     Create {
+        /// Display name of the Sentinel scenario or stage
+        #[arg(long)]
+        name: Option<String>,
         #[arg(long)]
         probe: String,
         #[arg(long)]
@@ -13,9 +16,21 @@ pub enum SentinelAction {
         /// Owner-requested cadence (minimum 10s)
         #[arg(long, default_value = "20s")]
         every: String,
-        /// Closed-set route: bucket=notify|send:<tab>|cron:<name>|stop
+        /// Closed-set route: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop
         #[arg(long = "route", value_parser = parse_route)]
         routes: Vec<String>,
+        /// JSON bucket-to-array of declared {id,type,parameters} handlers
+        #[arg(long, conflicts_with = "routes")]
+        handlers_file: Option<std::path::PathBuf>,
+        /// Create a dormant downstream stage; its lifetime starts now
+        #[arg(long)]
+        paused: bool,
+        /// Finite accepted transition budget (maximum 256)
+        #[arg(long, value_parser = clap::value_parser!(u16).range(1..=256))]
+        max_transitions: Option<u16>,
+        /// Finite action-attempt budget (maximum 1024)
+        #[arg(long, value_parser = clap::value_parser!(u16).range(1..=1024))]
+        max_actions: Option<u16>,
         /// Stop after this bucket's first confident transition
         #[arg(long)]
         until: Option<String>,
@@ -50,11 +65,12 @@ fn parse_route(value: &str) -> Result<String, String> {
         || action
             .strip_prefix("send:")
             .or_else(|| action.strip_prefix("cron:"))
+            .or_else(|| action.strip_prefix("sentinel:"))
             .is_some_and(|target| !target.trim().is_empty())
     {
         Ok(value)
     } else {
-        Err("route must be notify, send:<tab>, cron:<name>, or stop".into())
+        Err("route must be notify, sentinel:<exact-id>, send:<tab>, cron:<name>, or stop".into())
     }
 }
 
@@ -118,11 +134,40 @@ mod tests {
 
     #[test]
     fn sentinel_routes_closed_set() {
-        for action in ["notify", "send:tab", "cron:check", "stop"] {
+        for action in [
+            "notify",
+            "sentinel:sentinel_child",
+            "send:tab",
+            "cron:check",
+            "stop",
+        ] {
             assert!(parse_route(&format!("passed={action}")).is_ok());
         }
         for action in ["sh:evil", "send:", "cron:", "notify;evil", "exec", ""] {
             assert!(parse_route(&format!("passed={action}")).is_err());
+        }
+    }
+    #[test]
+    fn sentinel_composition_flags_refuse_mixed_input_and_out_of_range_budgets() {
+        let prefix = [
+            "codeterm",
+            "sentinel",
+            "create",
+            "--probe",
+            "status",
+            "--question",
+            "state?",
+            "--buckets",
+            "done",
+        ];
+        for suffix in [
+            vec!["--route", "done=notify", "--handlers-file", "handlers.json"],
+            vec!["--max-transitions", "0"],
+            vec!["--max-transitions", "257"],
+            vec!["--max-actions", "0"],
+            vec!["--max-actions", "1025"],
+        ] {
+            assert!(Cli::try_parse_from(prefix.into_iter().chain(suffix)).is_err());
         }
     }
 }
