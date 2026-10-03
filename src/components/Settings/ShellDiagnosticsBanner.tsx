@@ -52,7 +52,7 @@ export function ShellDiagnosticsBanner({ onDismissSettings }: { onDismissSetting
         <div className="text-[13px] font-medium text-[var(--ct-fg)]">Faster shell available</div>
         <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5">
           You're on Windows PowerShell 5.1 which cold-starts slowly and stalls on Defender AMSI.
-          PowerShell 7 (pwsh) starts 5–10× faster. CodeTerm will auto-detect it after install.
+          PowerShell 7 (pwsh) starts 5–10× faster. Domios will auto-detect it after install.
         </div>
         <div className="flex gap-1.5 mt-2">
           <button
@@ -65,7 +65,7 @@ export function ShellDiagnosticsBanner({ onDismissSettings }: { onDismissSetting
             onClick={handleRestart}
             className="text-[11px] px-2.5 py-1 rounded border bg-transparent text-[var(--ct-muted-fg)] border-[var(--ct-border)] hover:text-[var(--ct-fg)]"
           >
-            Restart CodeTerm
+            Restart Domios
           </button>
         </div>
       </div>

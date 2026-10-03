@@ -220,7 +220,7 @@ export function PluginDetailPanel({
           }}
         >
           Reload required — this plugin is installed but its capability won’t
-          activate until you reload CodeTerm.
+          activate until you reload Domios.
         </div>
       )}
 
@@ -483,7 +483,7 @@ function AllowedHostsEditor({
 
 function channelLabel(channel: string): string {
   if (channel === "codeterm-core") return "Core";
-  if (channel === "codeterm-plugins") return "CodeTerm Plugins";
+  if (channel === "codeterm-plugins") return "Domios Plugins";
   return channel;
 }
 

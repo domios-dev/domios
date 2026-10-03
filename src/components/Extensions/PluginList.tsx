@@ -322,7 +322,7 @@ function sectionRank(section: { key: string; label: string }): string {
 
 function channelLabel(channel: string): string {
   if (channel === CORE_CHANNEL) return "Core";
-  if (channel === PLUGINS_CHANNEL) return "CodeTerm Plugins";
+  if (channel === PLUGINS_CHANNEL) return "Domios Plugins";
   return channel;
 }
 

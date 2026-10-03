@@ -192,12 +192,12 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
         ref={triggerRef}
         type="button"
         data-testid="peer-picker-button"
-        aria-label={`Switch CodeTerm host, current host ${label}`}
+        aria-label={`Switch Domios host, current host ${label}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => (open ? closeMenu() : setOpen(true))}
         className={`flex min-h-[44px] items-center gap-1.5 rounded text-xs text-[var(--ct-fg)] bg-[var(--ct-hover)] hover:bg-[var(--ct-active)] border border-[var(--ct-border)] sm:min-h-0 sm:h-7 ${compact ? "min-w-0 max-w-[126px] px-2" : "px-2.5"}`}
-        title="Switch CodeTerm host"
+        title="Switch Domios host"
       >
         <span className={`w-2 h-2 shrink-0 rounded-full ${switchingTo ? "animate-pulse bg-[var(--ct-muted,#8b949e)]" : switchFailed ? "bg-[var(--ct-red,#f85149)]" : "bg-[var(--ct-green,#3fb950)]"}`} />
         <span className="max-w-[104px] truncate sm:max-w-[120px]">{label}</span>
@@ -208,7 +208,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
           ref={menuRef}
           data-testid="peer-picker-menu"
           role="menu"
-          aria-label="CodeTerm hosts"
+          aria-label="Domios hosts"
           onKeyDown={onMenuKeyDown}
           className="fixed z-50 w-[min(320px,calc(100vw-0.5rem))] overflow-y-auto rounded border border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] shadow-lg py-1"
           style={{ top: menuPosition.top, left: menuPosition.left, maxHeight: menuPosition.maxHeight }}
@@ -243,7 +243,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
                 disabled={!available}
                 onClick={() => switchTo(p)}
                 className={`w-full text-left px-3 min-h-[44px] flex items-center gap-2 text-xs hover:bg-[var(--ct-hover)] disabled:opacity-40 ${active ? "text-[var(--ct-accent,#58a6ff)]" : "text-[var(--ct-fg)]"}`}
-                title={!p.online ? `${p.instance_name} is offline` : compatible ? p.instance_name : `Update CodeTerm on ${p.instance_name}`}
+                title={!p.online ? `${p.instance_name} is offline` : compatible ? p.instance_name : `Update Domios on ${p.instance_name}`}
               >
                 <span
                   className={`w-2 h-2 rounded-full shrink-0 ${p.online ? "bg-[var(--ct-green,#3fb950)]" : "bg-[var(--ct-muted,#8b949e)]"}`}
