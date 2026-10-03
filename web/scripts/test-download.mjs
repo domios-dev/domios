@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, readFile, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, mkdir, writeFile, rm, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
-const temporary = await mkdtemp(join(tmpdir(), 'domios-download-'));
+const temporary = await realpath(await mkdtemp(join(tmpdir(), 'domios-download-')));
 const realFetch = globalThis.fetch;
 const realTimeout = AbortSignal.timeout;
 const deadline = AbortSignal.timeout(30_000);
@@ -61,7 +61,7 @@ async function fixture(label, baseline = null) {
     await writeFile(target, output.outputText);
   }
   return () => {
-    for (const path of Object.keys(require.cache)) if (path.startsWith(folder)) delete require.cache[path];
+    for (const path of Object.keys(require.cache)) if (path.startsWith(folder + sep)) delete require.cache[path];
     return {
       catalog: require(join(folder, 'src/download/catalog.js')),
       detect: require(join(folder, 'src/download/detect.js')).detectInstaller,
