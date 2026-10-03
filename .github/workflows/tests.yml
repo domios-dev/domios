@@ -18,7 +18,7 @@ on:
       evaluator_scope:
         description: Focused evaluator/task qualification or the existing full matrix
         type: choice
-        options: [full, jev-linux, jev-windows, jev-windows-inventory, rust-windows-task-local, sentinel-linux-task-local, windows-sccache-maintenance]
+        options: [full, jev-linux, jev-windows, jev-windows-inventory, rust-windows-task-local, sentinel-linux-task-local, sentinel-command-linux, windows-sccache-maintenance]
         default: full
         required: true
       expected_source_sha:
@@ -1413,6 +1413,77 @@ jobs:
         with:
           name: rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/rust-windows-task-local-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: error
+
+  sentinel-command-linux:
+    name: Sentinel command native qualification (Linux)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'sentinel-command-linux' }}
+    runs-on: [self-hosted, linux-build]
+    timeout-minutes: 30
+    env:
+      EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+      WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
+      TEST_CAP_SECS: '600'
+      CARGO_TERM_COLOR: never
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify exact source and run five native controls
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SOURCE_SHA" ]]
+          [[ "$GITHUB_SHA" == "$EXPECTED_SOURCE_SHA" ]]
+          [[ "$WORKFLOW_SOURCE_SHA" == "$EXPECTED_SOURCE_SHA" ]]
+          [[ -z "$(git status --porcelain)" ]]
+          receipt_dir="$RUNNER_TEMP/sentinel-command-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          mkdir -- "$receipt_dir"
+          git rev-parse HEAD > "$receipt_dir/source.txt"
+          date -u +%FT%TZ > "$receipt_dir/started.txt"
+          set +e
+          ./build.sh test-one app sentinel_command_native_ 2>&1 | tee "$receipt_dir/native.log"
+          result=${PIPESTATUS[0]}
+          set -e
+          printf '%s\n' "$result" > "$receipt_dir/exit-code.txt"
+          date -u +%FT%TZ > "$receipt_dir/finished.txt"
+          git status --porcelain > "$receipt_dir/status-after.txt"
+          [[ "$(git rev-parse HEAD)" == "$EXPECTED_SOURCE_SHA" ]]
+          [[ "$result" == 0 ]]
+          python3 - "$receipt_dir/native.log" <<'PY'
+          import re
+          import sys
+          from pathlib import Path
+          text = Path(sys.argv[1]).read_text()
+          prefix = 'sentinel::command_native_tests::sentinel_command_native_'
+          expected = {
+              prefix + suffix for suffix in (
+                  'finite_actual_zero_nonzero_stdout_stderr',
+                  'precancel_refuses_before_side_effect_and_owner_admission',
+                  'cancel_during_capture_settles_exact_owned_resources',
+                  'cancel_after_eof_wakes_parent_wait_and_settles',
+                  'owner_shutdown_wakes_active_wait',
+              )
+          }
+          actual = re.findall(r'^test (\S+) \.\.\. ok$', text, re.M)
+          if len(actual) != 5 or set(actual) != expected:
+              raise SystemExit(f'Unexpected native inventory: {actual!r}')
+          summaries = re.findall(r'test result: (\w+)\. (\d+) passed; (\d+) failed; (\d+) ignored;', text)
+          if summaries != [('ok', '5', '0', '0')]:
+              raise SystemExit(f'Unexpected native summaries: {summaries!r}')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sentinel-command-linux-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/sentinel-command-${{ github.run_id }}-${{ github.run_attempt }}/
           if-no-files-found: error
 
   sentinel-linux-task-local:
