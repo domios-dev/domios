@@ -282,7 +282,11 @@ fn mesh_spawn_return_route_reaches_the_launch_prompt_once() {
     const PEER: &str = "opaque-origin-peer-7da32";
     const TAB: &str = "opaque-origin-tab-b8219";
     const ASSIGNMENT: &str = "opaque-assignment-936ac";
-    for (role, capable) in [(Some("Orchestrator"), true), (Some("Worker"), true), (None, false)] {
+    for (role, capable) in [
+        (Some("Orchestrator"), true),
+        (Some("Worker"), true),
+        (None, false),
+    ] {
         let params = SpawnAgentParams {
             role: role.map(str::to_string),
             task: Some(ASSIGNMENT.into()),
@@ -299,7 +303,11 @@ fn mesh_spawn_return_route_reaches_the_launch_prompt_once() {
 
 #[test]
 fn mesh_spawn_return_route_does_not_guess_partial_or_local_targets() {
-    for (peer, tab) in [(None, Some("opaque-local-tab")), (Some("opaque-peer"), None), (Some(" "), Some("opaque-tab"))] {
+    for (peer, tab) in [
+        (None, Some("opaque-local-tab")),
+        (Some("opaque-peer"), None),
+        (Some(" "), Some("opaque-tab")),
+    ] {
         let params = SpawnAgentParams {
             task: Some("opaque-assignment".into()),
             report_target_mesh_peer: peer.map(str::to_string),
@@ -311,4 +319,30 @@ fn mesh_spawn_return_route_does_not_guess_partial_or_local_targets() {
             super::role_launch_task(params.task.as_deref(), None, None, true),
         );
     }
+}
+
+#[test]
+fn mesh_spawn_return_route_prefers_the_matching_owned_peer_identity() {
+    const PEER_NAME: &str = "opaque-peer-alias";
+    const PEER_ID: &str = "opaque-stable-peer-id";
+    let mut params = SpawnAgentParams {
+        task: Some("opaque-assignment".into()),
+        report_target_mesh_peer: Some(PEER_NAME.into()),
+        report_target_tab_id: Some("opaque-recipient".into()),
+        ownership: Some(codeterm_types::pty::RemoteOwnership {
+            controller_title: "opaque-controller".into(),
+            controller_tab_id: None,
+            peer_id: PEER_ID.into(),
+            peer_name: PEER_NAME.into(),
+            team: None,
+        }),
+        ..Default::default()
+    };
+    let prompt = super::spawn_launch_task(&params, true).unwrap();
+    assert_eq!(prompt.matches(PEER_ID).count(), 1);
+    assert!(!prompt.contains(PEER_NAME));
+    params.report_target_mesh_peer = Some("opaque-other-peer".into());
+    let prompt = super::spawn_launch_task(&params, true).unwrap();
+    assert!(prompt.contains("opaque-other-peer"));
+    assert!(!prompt.contains(PEER_ID));
 }
