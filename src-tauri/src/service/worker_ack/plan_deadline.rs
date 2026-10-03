@@ -318,13 +318,14 @@ impl ServiceContext {
             (
                 supervisor_tab_id.to_string(),
                 mux.display_label_for_tab(agent_tab_id),
+                agent.team_id.clone(),
             )
         };
         self.worker_ack.register_startup_supervisor(
             agent_tab_id,
             &supervisor.0,
             &supervisor.1,
-            None,
+            supervisor.2.as_deref(),
             task_identity,
         );
         true
@@ -418,10 +419,27 @@ impl ServiceContext {
                 }
             }
         }
+        let owner_epoch = supervisor.task_identity.as_ref().and_then(|identity| {
+            let detail = self.plan_store.show_task(&identity.task_id)?;
+            let task = &detail.task;
+            let attempt = task.execution_attempts.iter().find(|attempt| {
+                attempt.id == identity.attempt_id
+                    && attempt.executor_tab_id == agent_tab_id
+                    && attempt.closed_at.is_none()
+                    && attempt.retired_at.is_none()
+            })?;
+            (detail.plan_id == identity.plan_id
+                && task.assigned_tab_id.as_deref() == Some(agent_tab_id)
+                && task.interruption.owner_tab_id.as_deref() == Some(agent_tab_id)
+                && task.interruption.owner_epoch > 0
+                && task.interruption.owner_epoch == attempt.interruption.owner_epoch)
+                .then_some(task.interruption.owner_epoch)
+        });
         self.arm_agent_startup_deadline(
             StartupAuthority::new(&supervisor.supervisor_tab_id, agent_tab_id, attempt_id)
                 .in_team(supervisor.team_id.clone())
                 .for_task(supervisor.task_identity.clone())
+                .for_task_owner_epoch(owner_epoch)
                 .for_binding(session_id.as_deref(), binding_nonce),
             &supervisor.agent_title,
         );

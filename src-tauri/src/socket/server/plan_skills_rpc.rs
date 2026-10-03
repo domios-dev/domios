@@ -10,7 +10,7 @@ use crate::service::plan::PlanStore;
 use crate::service::ServiceState;
 
 mod caller;
-pub(super) use caller::ack_skill_brief;
+pub(super) use caller::{ack_skill_brief, attempt_binding_refusal};
 
 pub(super) fn handles(method: &str) -> bool {
     matches!(

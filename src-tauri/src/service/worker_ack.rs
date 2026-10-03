@@ -13,6 +13,8 @@ use crate::service::startup_lease::{
 
 use super::ServiceContext;
 
+#[path = "worker_ack/launch_binding.rs"]
+mod launch_binding;
 #[path = "worker_ack/plan_deadline.rs"]
 mod plan_deadline;
 #[path = "worker_ack/registry.rs"]

@@ -5,11 +5,13 @@ use codeterm_types::agent::ReportStatus;
 
 use super::{PlanError, PlanStore};
 
+mod launch_binding;
 mod plan_skill_evidence;
 pub mod remote_dispatch;
 mod report_ingest;
 mod restore_binding;
 
+pub use launch_binding::CompleteAcknowledgedDispatchBinding;
 pub use restore_binding::{RestoreCurrentAttemptBinding, RestoreCurrentAttemptBindingResult};
 
 #[cfg(test)]
