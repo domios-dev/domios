@@ -30,7 +30,7 @@ Must run on the **source** machine. Running it through `--mesh PEER` is rejected
    ```
    codeterm config set integrations.telegram_enabled true && codeterm bridge restart
    ```
-10. **Optional `--announce`.** When `--announce` is set, post `[CodeTerm] Telegram bridge migrated to <to> from <from>` to `--announce-chat-id` (defaults to the target's first allow-listed bridge user) via `POST /api/bridge/announce` on the target. Failures here are non-fatal — the migration is already done.
+10. **Optional `--announce`.** When `--announce` is set, post `[Domios] Telegram bridge migrated to <to> from <from>` to `--announce-chat-id` (defaults to the target's first allow-listed bridge user) via `POST /api/bridge/announce` on the target. Failures here are non-fatal — the migration is already done.
 
 ### Secret locality guarantee
 
@@ -58,4 +58,4 @@ Each daemon resolves its own vault. The CLI never reads `telegram_bot_token` fro
 | `6` | Usage error (e.g. ran via `--mesh` — must run on the source machine) |
 | `7` | Split-brain (rollback also failed — manual repair needed) |
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

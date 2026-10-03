@@ -95,7 +95,7 @@ codeterm bridge migrate --to PEER \
 |------|---------|-------------|
 | `--to` | *(required)* | Target peer `instance_name` or `instance_id` from `codeterm mesh peers`. |
 | `--service` | `telegram` | Bridge to migrate. Only `telegram` today. |
-| `--announce` | `false` | Post `[CodeTerm] Telegram bridge migrated to <to> from <from>` after success. |
+| `--announce` | `false` | Post `[Domios] Telegram bridge migrated to <to> from <from>` after success. |
 | `--announce-chat-id` | `186809246` | Chat id for `--announce`. |
 | `--no-rollback` | `false` | If the target claim fails, leave the source disabled instead of restarting it. |
 | `--force` | `false` | Skip the target preflight (`token_present || has_secret_in_vault`). |
