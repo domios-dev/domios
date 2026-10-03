@@ -153,7 +153,7 @@ pub(super) fn run_with_assignment(
 
 pub(super) struct WindowsRun {
     deadlines: Deadlines,
-    owner: Weak<ProbeResourceOwner>,
+    pub(super) owner: Weak<ProbeResourceOwner>,
     reservation: Option<Reservation>,
     pub(super) job: OwnedHandle,
     pub(super) port: OwnedHandle,
