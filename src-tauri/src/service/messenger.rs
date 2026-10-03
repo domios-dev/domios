@@ -84,7 +84,7 @@ impl MessageKind {
 
 impl MessageEnvelope {
     /// CodeTerm's own sender identity — single source so no path hardcodes it.
-    pub const CODETERM: &'static str = "CodeTerm";
+    pub const CODETERM: &'static str = "Domios";
     /// A host event from CodeTerm with no reply address.
     pub fn from_codeterm() -> Self {
         Self::system(None)
