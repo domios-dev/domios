@@ -10182,7 +10182,7 @@
                   "value_name": "PLAN",
                   "possible_values": [],
                   "default": null,
-                  "help": "Plan id (omit to use $CODETERM_PLAN_ID or the single active plan)",
+                  "help": "Plan id (omit for the caller Team's active plan; outside a tab, $CODETERM_PLAN_ID)",
                   "aliases": []
                 },
                 {
