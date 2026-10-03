@@ -46,18 +46,18 @@ function capture(value: CommandCapture | null | undefined): string {
 }
 
 function outcomeFacts(metadata: CommandResultMetadata | null | undefined): Array<[string, string]> {
-  if (!metadata) return [COMMAND_FACT.outcome, COMMAND_FACT.exit, COMMAND_FACT.resources, COMMAND_FACT.stdout, COMMAND_FACT.stderr, COMMAND_FACT.started, COMMAND_FACT.finished, COMMAND_FACT.duration].map((term): [string, string] => [term, COMMAND_VALUE.notRecorded]);
+  if (!metadata) return [COMMAND_FACT.outcome, COMMAND_FACT.exit, COMMAND_FACT.resources, COMMAND_FACT.duration, COMMAND_FACT.stdout, COMMAND_FACT.stderr, COMMAND_FACT.started, COMMAND_FACT.finished].map((term): [string, string] => [term, COMMAND_VALUE.notRecorded]);
   const started = instant(metadata.started_at) ? metadata.started_at : null;
   const finished = instant(metadata.finished_at) ? metadata.finished_at : null;
   return [
     [COMMAND_FACT.outcome, OUTCOMES.includes(metadata.status) ? metadata.status : COMMAND_VALUE.unknown],
     [COMMAND_FACT.exit, Number.isSafeInteger(metadata.exit_code) ? String(metadata.exit_code) : COMMAND_VALUE.unknown],
     [COMMAND_FACT.resources, metadata.resources_confirmed === true ? COMMAND_VALUE.confirmed : metadata.resources_confirmed === false ? COMMAND_VALUE.unconfirmed : COMMAND_VALUE.unknown],
+    [COMMAND_FACT.duration, started !== null && finished !== null && finished >= started ? `${finished - started} ms` : COMMAND_VALUE.notRecorded],
     [COMMAND_FACT.stdout, capture(metadata.stdout)],
     [COMMAND_FACT.stderr, capture(metadata.stderr)],
     [COMMAND_FACT.started, started === null ? COMMAND_VALUE.notRecorded : new Date(started).toLocaleString()],
     [COMMAND_FACT.finished, finished === null ? COMMAND_VALUE.notRecorded : new Date(finished).toLocaleString()],
-    [COMMAND_FACT.duration, started !== null && finished !== null && finished >= started ? `${finished - started} ms` : COMMAND_VALUE.notRecorded],
   ];
 }
 
@@ -66,8 +66,9 @@ export function CommandResultFacts({ handlerId, handler, result }: { handlerId: 
   const label = typeof supplied === "string" && supplied.trim() ? supplied : COMMAND_VALUE.notRecorded;
   const timeoutMs = handler?.timeout_ms;
   const timeout = count(timeoutMs) && timeoutMs > 0 ? `${timeoutMs} ms` : COMMAND_VALUE.notRecorded;
-  const facts: Array<[string, string]> = [[COMMAND_FACT.label, label], [COMMAND_FACT.timeout, timeout], ...(result === undefined ? [] : outcomeFacts(result?.command_result))];
-  return <dl aria-label={commandResultLabel(handlerId)} className="mt-1.5 grid basis-full grid-cols-[minmax(6.5rem,auto)_1fr] gap-x-4 gap-y-1 break-words text-xs [&>dd]:min-w-0 [&>dd]:text-[var(--ct-fg)] [&>dt]:text-[var(--ct-muted)]">
+  const outcome = result === undefined ? [] : outcomeFacts(result?.command_result);
+  const facts: Array<[string, string]> = [[COMMAND_FACT.label, label], ...outcome.slice(0, 4), [COMMAND_FACT.timeout, timeout], ...outcome.slice(4)];
+  return <dl aria-label={commandResultLabel(handlerId)} className="mt-1.5 grid basis-full grid-cols-[minmax(6.5rem,auto)_1fr] gap-x-4 gap-y-1 break-words text-xs [&>dd]:min-w-0 [&>dd]:text-[var(--ct-fg)] [&>dt]:text-[var(--ct-muted-fg)]">
     {facts.map(([term, value]) => <Fragment key={term}><dt>{term}</dt><dd className={term === COMMAND_FACT.label ? "font-medium" : undefined}>{value}</dd></Fragment>)}
   </dl>;
 }

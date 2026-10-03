@@ -85,3 +85,24 @@ export function multiScenarioGraph(): AutomationGraph {
     ],
   };
 }
+
+/** Three-stage chain shaped like the BLACKSTAR scenario: Sentinel root, internal Sentinel stage, Worker target. */
+export function chainGraph(): AutomationGraph {
+  const [root, stage] = ["chain-root", "chain-stage"].map((id) => identity("sentinel", id));
+  const worker = identity("worker", "chain-worker");
+  const definition = (target: AutomationIdentity) => ({ source: "stored_agent_definition" as const, definition_id: target.id, creator_tab_id: target.owner_tab_id! });
+  const result = (execution_id: string) => ({ status: "completed", execution_id, accepted_at: 100000 });
+  return {
+    workspace_id: attachment.workspace_id, team_id: attachment.team_id, revision: "chain-a",
+    scenarios: [{ id: "scenario-chain", name: "Chain scenario", root }],
+    nodes: [
+      { ...fixtureNode(root, "Chain root"), sentinel_definition: definition(root) },
+      { ...fixtureNode(stage, "Chain stage"), sentinel_definition: definition(stage) },
+      fixtureNode(worker, "Chain worker"),
+    ],
+    edges: [
+      { id: "chain-edge-a", source: root, target: stage, bucket: "passed-a", handler_id: "chain-handler-a", handler_type: "sentinel", result: result("chain-execution-a"), evidence: { kind: "configured", route_id: "chain-route-a" } },
+      { id: "chain-edge-b", source: stage, target: worker, bucket: "passed-b", handler_id: "chain-handler-b", handler_type: "send", result: result("chain-execution-b"), evidence: { kind: "configured", route_id: "chain-route-b" } },
+    ],
+  };
+}
