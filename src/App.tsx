@@ -31,6 +31,7 @@ import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
 import { WorkspaceAutomationView } from "./components/Automation/WorkspaceAutomationView";
+import type { JobsTarget } from "./components/Jobs/JobsView";
 import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
 import { useConfig } from "./hooks/useConfig";
@@ -115,6 +116,7 @@ function AppInner() {
   const [mainView, setMainView] = useState<"workspace" | "settings" | "memory" | "mesh" | "extensions" | "analytics">("workspace");
   const automationOpener = useRef<HTMLElement | null>(null);
   const [automationWorkspaceId, setAutomationWorkspaceId] = useState<string | null>(null);
+  const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number }) | null>(null);
   const [workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId] = useState<string | null>(null);
   const [pluginViewId, setPluginViewId] = useState<string | null>(null);
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
@@ -396,7 +398,7 @@ function AppInner() {
     setAutomationWorkspaceId(null);
     if (automationOpener.current?.isConnected) automationOpener.current.focus();
   }, []);
-  const openWorkspaceAutomation = useCallback((workspaceId: string) => {
+  const openWorkspaceAutomation = useCallback((workspaceId: string, target?: JobsTarget) => {
     if (document.activeElement instanceof HTMLElement) automationOpener.current = document.activeElement;
     closePluginView();
     setActiveWorkspace(workspaceId);
@@ -406,6 +408,7 @@ function AppInner() {
     setWorkspaceMapWorkspaceId(null);
     setMainView("workspace");
     setAutomationWorkspaceId(workspaceId);
+    setJobsTarget((current) => target ? { ...target, request: (current?.request ?? 0) + 1 } : null);
     closeSidebarOnMobile();
   }, [closePluginView, closeSidebarOnMobile, setActiveWorkspace]);
   const openWorkspaceMap = useCallback((workspaceId: string) => {
@@ -741,7 +744,7 @@ function AppInner() {
           )}
           {automationWorkspaceId && mainView === "workspace" && (
             <div className="absolute inset-0" style={{ zIndex: 26 }}>
-              <WorkspaceAutomationView key={automationWorkspaceId} workspaceId={automationWorkspaceId} teams={state.teams} onClose={closeWorkspaceAutomation} />
+              <WorkspaceAutomationView key={`${automationWorkspaceId}:${jobsTarget?.request ?? 0}`} workspaceId={automationWorkspaceId} teams={state.teams} initialTeamId={jobsTarget?.teamId ?? null} initialScenarioId={jobsTarget?.scenarioId} onClose={closeWorkspaceAutomation} />
             </div>
           )}
           {workspaceMapWorkspaceId && mainView === "workspace" && (

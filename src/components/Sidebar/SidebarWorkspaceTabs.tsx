@@ -26,7 +26,8 @@ import { isSidebarTabVisible } from "./workspaceTabs";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { cronSelectionStore } from "../Cron/cronSelectionStore";
 import { DropdownMenu } from "../shared/DropdownMenu";
-import { TeamUnit } from "./TeamUnit";
+import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
+import type { JobsTarget } from "../Jobs/JobsView";
 import type { DeclaredAttentionLevel } from "./declaredAttention";
 
 type TeamTab = Tab & { team_id?: string | null };
@@ -163,6 +164,7 @@ export interface SidebarWorkspaceTabsProps {
     model?: string,
   ) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => void;
+  onOpenSentinelJob?: (target: JobsTarget) => void;
 }
 
 export function SidebarWorkspaceTabs({
@@ -197,6 +199,7 @@ export function SidebarWorkspaceTabs({
   onRenameTeam,
   onAddTeamMember,
   onCloseTeam,
+  onOpenSentinelJob,
 }: SidebarWorkspaceTabsProps) {
   const { jobs: workspaceCrons, refresh: refreshCrons } = useWorkspaceCrons(ws.id);
   const sortedTabs = useMemo(
@@ -400,8 +403,10 @@ export function SidebarWorkspaceTabs({
     const teamCrons = workspaceCrons.filter((job) => job.team_id === teamId);
 
     rows.push(
-      <TeamUnit
+      <TeamJobsUnit
         key={teamId}
+        sentinelScope={onOpenSentinelJob && teamById.has(teamId) ? { workspace_id: ws.id, team_id: teamId } : undefined}
+        onOpenSentinel={onOpenSentinelJob ? (scenarioId) => onOpenSentinelJob({ teamId, scenarioId }) : undefined}
         team={team}
         plan={plansByTeam.get(teamId) ?? null}
         tabs={tabs}
