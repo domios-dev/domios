@@ -53,6 +53,9 @@ const JOB_OBJECT_MSG_EXIT_PROCESS: u32 = 7;
 
 static PIPE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(test)]
+pub(super) mod ordering_tests;
+
 pub(super) fn run(
     command: &str,
     cwd: &Path,
@@ -165,6 +168,7 @@ pub(super) struct WindowsRun {
     child_id: u32,
     pub(super) assigned: bool,
     pub(super) parent_exited: bool,
+    parent_exit_pending: bool,
     exit_code: Option<u32>,
     pub(super) job_empty: bool,
     pub(super) cancel_attempted: bool,
@@ -202,6 +206,7 @@ impl WindowsRun {
             child_id: 0,
             assigned: false,
             parent_exited: false,
+            parent_exit_pending: false,
             exit_code: None,
             job_empty: true,
             cancel_attempted: false,
@@ -688,6 +693,19 @@ impl WindowsRun {
     }
 
     pub(super) fn wait_event(&mut self, timeout: Option<Duration>) -> Result<bool, String> {
+        if self.parent_exit_pending {
+            let process = self.process.raw()
+                .ok_or_else(|| "probe pending process handle missing".to_string())?;
+            match unsafe { WaitForSingleObject(process, timeout.map(timeout_ms).unwrap_or(u32::MAX)) } {
+                WAIT_OBJECT_0 => {
+                    self.observe_parent_exit()?;
+                    self.parent_exit_pending = false;
+                    return Ok(true);
+                }
+                WAIT_TIMEOUT => return Ok(false),
+                _ => return Err(last_error()),
+            }
+        }
         let Some(port) = self.port.raw() else {
             return Err("probe completion port is not owned".into());
         };
@@ -764,7 +782,9 @@ impl WindowsRun {
             self.job_empty = true;
         }
         if message == JOB_OBJECT_MSG_EXIT_PROCESS && process_id == self.child_id {
-            self.observe_parent_exit()?;
+            // Job notification can precede process signaling; retain the handle for its own wait.
+            self.parent_exit_pending = self.process.is_open();
+            self.observe_parent_exit_if_signaled()?;
         } else if self.process.is_open() {
             self.observe_parent_exit_if_signaled()?;
         }
@@ -796,6 +816,7 @@ impl WindowsRun {
         }
         self.exit_code = Some(exit_code);
         self.parent_exited = true;
+        self.parent_exit_pending = false;
         self.process.close()?;
         let registered = std::mem::replace(&mut self.process_registered, false);
         self.settle_resource(ResourceKind::Child, registered);
