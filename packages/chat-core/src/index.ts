@@ -20,6 +20,7 @@ export type {
   FileDiffHunk,
   ToolRichResult,
 } from "./types";
+export { SYSTEM_ORIGIN_LABEL, systemOriginLabel } from "./originLabels";
 export { localThumbnailSource, normalizeToolRichResult, type ThumbnailSource } from "./toolRichResult";
 export {
   shellCommandMessage,

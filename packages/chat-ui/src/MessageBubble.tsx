@@ -5,7 +5,7 @@ import type {
   ChatAttachment as ImageAttachment,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isTabMarkerPlaceholderLabel, shortTabRef, toolCommand } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, shortTabRef, systemOriginLabel, toolCommand } from "@codeterm/chat-core";
 import {
   Download, Image,
   Send,            // generic chat (telegram / service)
@@ -246,7 +246,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
     }
 
     if (effectiveOrigin?.kind === "system") {
-      const title = effectiveOrigin.context ? `System · ${effectiveOrigin.context}` : "System";
+      const title = systemOriginLabel(effectiveOrigin.context);
       return (
         <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto" role="status">
           <div
