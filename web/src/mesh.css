@@ -65,7 +65,17 @@
 .agent-name { display: flex; align-items: center; gap: 5px; font-size: 11px; }
 .agent-name i { width: 4px; height: 4px; border-radius: 50%; background: var(--ct-accent); }
 .agent-provider { display: flex; align-items: center; gap: 4px; color: var(--ct-muted-fg); font-size: 9px; white-space: nowrap; }
-.agent-provider svg { flex-shrink: 0; }
+.agent-logo { display: flex; align-items: center; justify-content: center; flex: 0 0 16px; height: 16px; }
+.agent-logo .provider-logo { display: block; width: 16px; height: 16px; object-fit: contain; flex: none; }
+.agent-logo .provider-logo[data-provider-logo="codex"] { width: 16px; height: 16px; padding: 2px; border-radius: 3px; background: #000; box-sizing: border-box; }
+.agent-logo .provider-logo[data-provider-logo="opencode"], .agent-logo .provider-logo[data-provider-logo="lmstudio"] { width: 100%; height: auto; max-height: 16px; }
+.agent-logo-dark { display: flex; }
+.agent-logo-light { display: none; }
+[data-theme="light"] .agent-logo-dark { display: none; }
+[data-theme="light"] .agent-logo-light { display: flex; }
+.agent-provider-name { min-width: 0; }
+.agent-provider:has([data-provider-logo="opencode"]) .agent-logo, .agent-provider:has([data-provider-logo="lmstudio"]) .agent-logo { flex-basis: 62px; }
+.agent-provider:has([data-provider-logo="opencode"]) .agent-provider-name, .agent-provider:has([data-provider-logo="lmstudio"]) .agent-provider-name { display: none; }
 .machine-agent:first-child { position: relative; }
 .machine-agent:first-child::after { content: ''; position: absolute; inset: -1px; border: 1px solid var(--ct-accent); border-radius: inherit; background: color-mix(in srgb, var(--ct-accent) 12%, transparent); opacity: var(--agent-energy, 0); pointer-events: none; }
 .machine-task { font-size: 10px; color: var(--ct-muted-fg); margin-top: 11px; }
