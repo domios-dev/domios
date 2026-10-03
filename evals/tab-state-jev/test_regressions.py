@@ -902,6 +902,22 @@ class WindowsAcquisitionRegressionTests(unittest.TestCase):
 
 
 class WindowsAcquisitionRepairTests(unittest.TestCase):
+    def test_reparse_creation_failure_retains_numeric_cause_and_unknown_paths(self):
+        with ExitStack() as stack:
+            api, guards = self.fixture(stack)
+            error = OSError(13, "opaque path-bearing detail", "opaque private path")
+            error.winerror = 1314
+            stack.enter_context(patch.object(local_module.os, "symlink", side_effect=error))
+            report = local_module.run_trust_case("reparse_refused")
+        self.assertEqual(report["error"], "windows_reparse_control_unavailable")
+        self.assertEqual(report["preparation"], {"reparse_creation_os": {"errno": 13, "winerror": 1314}})
+        self.assertEqual(report["native_control"], "NOT RUN")
+        self.assertEqual(len(report["fixture"]["unconfirmed_paths"]), 2)
+        self.assertFalse(report["fixture"]["unconfirmed_paths"][-1]["creation_confirmed"])
+        self.assertFalse(report["fixture"]["root_closed"])
+        self.assertTrue(all(guard.closed for guard in guards))
+        self.assertFalse(any(path.endswith("\\target") for path in api.removed))
+
     def test_inherited_control_uses_default_creation_and_requires_observed_inheritance(self):
         for inherited in (True, False):
             with self.subTest(inherited=inherited), ExitStack() as stack:
