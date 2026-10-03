@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "../../lib/bridge";
 import type { AppConfig } from "../../lib/types";
 import {
@@ -94,7 +94,10 @@ export function SettingsPanel({
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const [localConfig, setLocalConfig] = useState<AppConfig>(config);
+  const [draft, setDraft] = useState({ config, save: onUpdateConfig });
+  const localConfig = draft.save === onUpdateConfig ? draft.config : config;
+  const draftRef = useRef(draft);
+  draftRef.current = draft.save === onUpdateConfig ? draft : { config, save: onUpdateConfig };
   const [themes, setThemes] = useState<string[]>([]);
   const [themesDir, setThemesDir] = useState<string>("");
   const [autostartEnabled, setAutostartEnabled] = useState<boolean | null>(null);
@@ -106,8 +109,8 @@ export function SettingsPanel({
   }, []);
 
   useEffect(() => {
-    setLocalConfig(config);
-  }, [config]);
+    setDraft({ config, save: onUpdateConfig });
+  }, [config, onUpdateConfig]);
 
   useEffect(() => {
     refreshThemes();
@@ -130,15 +133,20 @@ export function SettingsPanel({
     }
   }, []);
 
+  const saveDraft = useCallback((next: AppConfig) => {
+    if (draftRef.current.save !== onUpdateConfig) return;
+    const updated = { config: next, save: onUpdateConfig };
+    draftRef.current = updated;
+    setDraft(updated);
+    void onUpdateConfig(next).catch(() => {});
+  }, [onUpdateConfig]);
+
   const update = useCallback(
     <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => {
-      setLocalConfig((prev) => {
-        const next = { ...prev, [section]: Object.assign({}, prev[section], patch) };
-        onUpdateConfig(next).catch(() => {});
-        return next;
-      });
+      const previous = draftRef.current.config;
+      saveDraft({ ...previous, [section]: Object.assign({}, previous[section], patch) });
     },
-    [onUpdateConfig],
+    [saveDraft],
   );
 
   const headerTitle =
@@ -413,7 +421,7 @@ export function SettingsPanel({
                     ["next_tab", "Next Tab / Plan Entry"],
                     ["prev_tab", "Previous Tab / Plan Entry"],
                     ["reopen_tab", "Reopen Closed Tab"],
-                  ]} config={localConfig} onUpdate={(c) => { setLocalConfig(c); onUpdateConfig(c).catch(() => {}); }} />
+                  ]} config={localConfig} onUpdate={saveDraft} />
                 </SettingsCard>
               </SettingsPage>
             )}
@@ -423,10 +431,7 @@ export function SettingsPanel({
                 <NotificationsOverview
                   config={localConfig}
                   onUpdate={(section, patch) => update(section, patch)}
-                  onUpdateFullConfig={(next) => {
-                    setLocalConfig(next);
-                    onUpdateConfig(next).catch(() => {});
-                  }}
+                  onUpdateFullConfig={saveDraft}
                 />
               </SettingsPage>
             )}
@@ -448,10 +453,7 @@ export function SettingsPanel({
                 <AgentProviderScreen
                   providerId={top.providerId}
                   fullConfig={localConfig}
-                  onUpdateFullConfig={(next) => {
-                    setLocalConfig(next);
-                    onUpdateConfig(next).catch(() => {});
-                  }}
+                  onUpdateFullConfig={saveDraft}
                   onProviderGone={pop}
                 />
               </div>

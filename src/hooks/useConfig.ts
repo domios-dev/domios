@@ -1,6 +1,7 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "../lib/bridge";
 import { listen } from "../lib/bridge";
+import { webRequestContext, assertWebRequestContext } from "../lib/webApi";
 import type { AppConfig } from "../lib/types";
 import { DEFAULT_THEME, readCachedTheme } from "../lib/themeCss";
 
@@ -127,66 +128,68 @@ export function mergeConfigEvent(previous: AppConfig, incoming: AppConfig): AppC
 }
 
 export function useConfig() {
-  const [config, setConfig] = useState<AppConfig>(() => defaultConfig());
-  const [loading, setLoading] = useState(true);
+  const [generation, setGeneration] = useState(webRequestContext);
+  const [snapshot, setSnapshot] = useState(() => ({
+    generation, config: defaultConfig(), loading: true, ready: false,
+  }));
+  const readyGeneration = useRef<number | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
-
-    invoke<AppConfig>("get_config")
-      .then((cfg) => {
-        if (!cancelled) {
-          setConfig(cfg);
-          setLoading(false);
-        }
-      })
-      .catch((err) => {
-        console.warn("Failed to load config from backend:", err);
-        if (!cancelled) setLoading(false);
-      });
-
+    const reset = () => {
+      readyGeneration.current = null;
+      setSnapshot({ generation: webRequestContext(), config: defaultConfig(), loading: true, ready: false });
+    };
+    const rebind = () => setGeneration(webRequestContext());
+    window.addEventListener("codeterm-peer-switch-reset", reset);
+    window.addEventListener("codeterm-peer-switch-rebind", rebind);
     return () => {
-      cancelled = true;
+      window.removeEventListener("codeterm-peer-switch-reset", reset);
+      window.removeEventListener("codeterm-peer-switch-rebind", rebind);
     };
   }, []);
 
-  // Listen for config-changed events (hot reload)
   useEffect(() => {
-    let unlisten: (() => void) | null = null;
     let cancelled = false;
-
-    listen<AppConfig>("config-changed", (event) => {
-      if (!cancelled) {
-        setConfig((previous) => {
-          const next = mergeConfigEvent(previous, event.payload);
-          return configEquals(previous, next) ? previous : next;
-        });
-      }
-    }).then((fn) => {
-      if (cancelled) {
-        fn();
-      } else {
-        unlisten = fn;
-      }
+    let unlisten: (() => void) | undefined;
+    readyGeneration.current = null;
+    const current = () => !cancelled && generation === webRequestContext();
+    setSnapshot({ generation, config: defaultConfig(), loading: true, ready: false });
+    invoke<AppConfig>("get_config").then((config) => {
+      if (!current()) return;
+      if (!config) throw new Error("Config is unavailable");
+      readyGeneration.current = generation;
+      setSnapshot({ generation, config, loading: false, ready: true });
+    }).catch(() => {
+      if (current()) setSnapshot({ generation, config: defaultConfig(), loading: false, ready: false });
     });
-
+    void listen<AppConfig>("config-changed", (event) => {
+      if (!current() || readyGeneration.current !== generation) return;
+      setSnapshot((previous) => {
+        if (previous.generation !== generation || !previous.ready) return previous;
+        const config = mergeConfigEvent(previous.config, event.payload);
+        return configEquals(previous.config, config) ? previous : { ...previous, config };
+      });
+    }).then((fn) => {
+      if (current()) unlisten = fn;
+      else fn();
+    }).catch(() => undefined);
     return () => {
       cancelled = true;
+      readyGeneration.current = null;
       unlisten?.();
     };
-  }, []);
+  }, [generation]);
 
-  // Update config via Rust backend (persists to disk + emits event)
   const updateConfig = useCallback(async (newConfig: AppConfig) => {
-    try {
-      await invoke("update_config", { config: newConfig });
-    } catch (err) {
-      console.error("Failed to update config:", err);
-      throw err;
+    assertWebRequestContext(generation);
+    if (!snapshot.ready || snapshot.generation !== generation || readyGeneration.current !== generation) {
+      throw new Error("Config is not ready for this peer");
     }
-  }, []);
+    await invoke("update_config", { config: newConfig });
+    assertWebRequestContext(generation);
+  }, [generation, snapshot.ready, snapshot.generation]);
 
-  const theme = config.theme;
-
-  return { config, updateConfig, theme, loading };
+  const current = snapshot.generation === generation && generation === webRequestContext();
+  const config = current ? snapshot.config : defaultConfig();
+  return { config, updateConfig, theme: config.theme, loading: !current || snapshot.loading, ready: current && snapshot.ready };
 }

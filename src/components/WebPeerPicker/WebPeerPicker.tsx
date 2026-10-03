@@ -238,6 +238,7 @@ export function WebPeerPicker({ compact = false }: { compact?: boolean }) {
                 key={p.instance_id}
                 data-testid="peer-picker-item"
                 aria-current={active ? "true" : undefined}
+                data-peer-id={p.instance_id}
                 data-peer-name={p.instance_name}
                 data-peer-online={String(!!p.online)}
                 disabled={!available}
