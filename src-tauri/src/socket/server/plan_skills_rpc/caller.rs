@@ -131,9 +131,31 @@ pub(crate) fn ack_skill_brief(
 ) -> Result<Value, JsonRpcError> {
     let mut identity = params.clone().unwrap_or_else(|| json!({}));
     identity["caller_tab_id"] = identity["tab_id"].clone();
-    let bound = acknowledgement.attempt.session_id.is_some()
-        && acknowledgement.attempt.session_binding_nonce.is_some()
-        && identity.get("session_binding_nonce").is_some();
+    let attempt_bound = acknowledgement
+        .attempt
+        .session_id
+        .as_deref()
+        .is_some_and(|session| !session.trim().is_empty())
+        && acknowledgement
+            .attempt
+            .session_binding_nonce
+            .as_deref()
+            .is_some_and(|nonce| !nonce.trim().is_empty());
+    if acknowledgement.already_acknowledged && !attempt_bound {
+        return Err(JsonRpcError {
+            code: -32603,
+            message: "ACK is retained, but this attempt has no dispatch-proven session binding. Report the plan, task, and attempt to the Orchestrator for launch-proven binding repair; repeating ACK cannot establish that authority.".into(),
+            data: Some(json!({
+                "type": "plan_skill_attempt_binding_missing",
+                "plan_id": acknowledgement.plan_id,
+                "task_id": acknowledgement.task_id,
+                "attempt_id": acknowledgement.attempt.id,
+                "acknowledged_at": acknowledgement.attempt.acknowledged_at,
+                "recovery": "orchestrator_launch_proven_binding_repair",
+            })),
+        });
+    }
+    let bound = attempt_bound && identity.get("session_binding_nonce").is_some();
     let manifest = if bound {
         let caller = authenticate(mux, &Some(identity))?
             .ok_or_else(|| refused("plan skill announcement requires a live caller"))?;
