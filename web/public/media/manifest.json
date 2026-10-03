@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "duration": 45.0,
+  "duration": 54.333333333333336,
   "fps": 30,
   "width": 1280,
   "height": 720,
@@ -26,53 +26,28 @@
     {
       "id": "plugins",
       "start": 25.133333333333333,
-      "end": 45.0,
+      "end": 54.333333333333336,
       "posterTime": 27.453333333333333
     }
   ],
-  "framing": {
-    "brandSourceSha256": "d36e00f5c6f45cac5f286f064611a7803c17115a7e5cca0306bd299f1fd007c3",
-    "endingScreenshot": {
-      "path": "D:\\Developer\\codeterm\\web\\media-src\\assets\\owner-mesh.png",
-      "sha256": "204446b6fd91bfa1925f4c0f4df09a10b994c46393b82e0f3b6f1ae016d82871",
-      "firstFrame": 1140,
-      "crop": [
-        334,
-        50,
-        3496,
-        2079
-      ]
-    },
-    "brandManifestSha256": "71fe615327f40eb77cd3bce8a876a8eff97fb188d865a540eca8f3ce42392e86",
-    "changedFrameRanges": [
-      [
-        0,
-        48
-      ],
-      [
-        1112,
-        1350
-      ]
-    ]
-  },
-  "timingSha256": "7cf3286126b446e58596064e0656602364af406afdefbfc14300551350f0829f",
+  "timingSha256": "360d76a8ef6b49f475e1391e07e0ee0de0b2eee9a016931a2cb5a24db628d1f3",
   "mp4": {
     "src": "/media/trailer.mp4",
-    "bytes": 2991744
+    "bytes": 3278874
   },
   "webm": {
     "src": "/media/trailer.webm",
-    "bytes": 2925212
+    "bytes": 3514033
   },
   "poster": {
     "src": "/media/trailer-poster.webp",
     "bytes": 25502
   },
-  "totalBytes": 5992563,
+  "totalBytes": 6868234,
   "hasNarration": true,
   "subtitles": {
     "src": "/media/captions.vtt",
-    "bytes": 988
+    "bytes": 1166
   },
   "music": {
     "title": "Domios soundtrack",
@@ -80,12 +55,6 @@
     "sourcePage": "https://x.ai/legal/faq",
     "license": "Grok service output terms",
     "licenseUrl": "https://x.ai/legal/terms-of-service",
-    "credit": "Music created with Grok (SpaceXAI) from retained source audio, arranged and mixed for Domios."
-  },
-  "musicArrangement": {
-    "sourceSha256": "389ef2c7fa857bfa3556122ffa754d48a2e94a3a16b808df1220533617e61612",
-    "editMapSha256": "a6ebc9e5a2641d6abeae5a8be03b226077f0c2be8c1ec4138cb58d0b2bdd7fed",
-    "arrangementSha256": "fc6a5a97f77f5e2e152b720dbefd77aa930cd0d4e195ed4e2ec683d5cbe9be57",
-    "modificationDisclosure": "A new continuous 45-second arrangement made only from sample-indexed cuts, overlapping joins, an authored gain envelope, and phrase-aware ducking. No source generation, pitch shift, or time stretch."
+    "credit": "Music created with Grok (SpaceXAI) from retained source audio, arranged and mixed for Domios. Arrangement extended for the Memory episode."
   }
 }
