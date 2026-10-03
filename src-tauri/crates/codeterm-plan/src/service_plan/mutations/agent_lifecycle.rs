@@ -1,5 +1,8 @@
 use super::*;
 
+mod worker_transfer;
+pub use worker_transfer::VerifiedWorkerTransferBinding;
+
 #[derive(Debug, Clone)]
 pub struct AgentLifecyclePlanChange {
     pub tab_id: String,
