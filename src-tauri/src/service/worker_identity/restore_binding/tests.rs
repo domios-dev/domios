@@ -1,6 +1,11 @@
 use super::*;
+use crate::multiplexer::state::MultiplexerState;
 
-fn entry(session_id: Option<&str>, resume_target_session_id: Option<&str>, nonce: &str) -> PriorBindingNonce {
+fn entry(
+    session_id: Option<&str>,
+    resume_target_session_id: Option<&str>,
+    nonce: &str,
+) -> PriorBindingNonce {
     PriorBindingNonce {
         session_id: session_id.map(str::to_string),
         resume_target_session_id: resume_target_session_id.map(str::to_string),
@@ -9,9 +14,37 @@ fn entry(session_id: Option<&str>, resume_target_session_id: Option<&str>, nonce
 }
 
 #[test]
+fn attempt_binding_restore_current_tab_role_requires_a_worker_leaf_kind() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.role = Some(AgentRole::Worker);
+    assert!(is_current_worker_role(tab));
+
+    tab.role_profile = Some("worker".into());
+    assert!(is_current_worker_role(tab));
+
+    tab.role_profile = Some("custom-leaf".into());
+    assert!(is_current_worker_role(tab));
+
+    tab.role_profile = Some("planner".into());
+    assert!(!is_current_worker_role(tab));
+
+    tab.role_profile = Some("orchestrator".into());
+    assert!(!is_current_worker_role(tab));
+
+    tab.role = Some(AgentRole::Manager);
+    tab.role_profile = Some("planner".into());
+    assert!(!is_current_worker_role(tab));
+}
+
+#[test]
 fn attempt_binding_restore_same_session_lineage_accepts_the_ordered_retained_suffix() {
     let lineage = [
-        entry(Some("earlier-session"), None, "history-before-retained-entry"),
+        entry(
+            Some("earlier-session"),
+            None,
+            "history-before-retained-entry",
+        ),
         entry(Some("session-a"), None, "nonce-old"),
         entry(None, Some("session-a"), "resume-intent"),
         entry(Some("session-a"), None, "nonce-intermediate"),
@@ -22,7 +55,8 @@ fn attempt_binding_restore_same_session_lineage_accepts_the_ordered_retained_suf
 }
 
 #[test]
-fn attempt_binding_restore_same_session_lineage_refuses_unknown_ambiguous_foreign_and_unqualified_entries() {
+fn attempt_binding_restore_same_session_lineage_refuses_unknown_ambiguous_foreign_and_unqualified_entries(
+) {
     let invalid = [
         vec![entry(Some("session-a"), None, "different-old")],
         vec![entry(None, Some("session-a"), "nonce-old")],
@@ -67,6 +101,7 @@ fn attempt_binding_restore_same_session_lineage_refuses_foreign_resume_targets_a
         "session-a"
     )
     .is_err());
-    assert!(prove_same_session_restoration(&foreign_target, "", "nonce-current", "session-a")
-        .is_err());
+    assert!(
+        prove_same_session_restoration(&foreign_target, "", "nonce-current", "session-a").is_err()
+    );
 }

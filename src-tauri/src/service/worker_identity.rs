@@ -6,8 +6,7 @@ use super::{ServiceState, SpawnIdentityProvenance};
 mod restore_binding;
 
 pub(crate) use restore_binding::{
-    prove_same_session_restoration, restore_attempt_binding_for_caller,
-    AttemptBindingRestoreResult, AttemptBindingRestoreTarget, SameSessionLineageProof,
+    restore_attempt_binding_for_caller, AttemptBindingRestoreResult, AttemptBindingRestoreTarget,
 };
 
 pub(crate) fn respawn_title_provenance(explicit_title: bool) -> SpawnIdentityProvenance {

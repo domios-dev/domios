@@ -1,7 +1,5 @@
 use super::super::{PlanError, PlanStore};
-use crate::plan::{
-    AttemptBindingRestorationReceipt, PlanStatus, TaskStatus, WorkerPlacement,
-};
+use crate::plan::{AttemptBindingRestorationReceipt, PlanStatus, TaskStatus, WorkerPlacement};
 
 #[derive(Debug, Clone)]
 pub struct RestoreCurrentAttemptBinding {
@@ -11,7 +9,7 @@ pub struct RestoreCurrentAttemptBinding {
     pub executor_tab_id: String,
     pub session_id: String,
     pub provider: String,
-    pub team_id: Option<String>,
+    pub team_id: String,
     pub owner_epoch: u64,
     pub expected_old_nonce: String,
     pub current_nonce: String,
@@ -41,7 +39,8 @@ impl PlanStore {
                 || request.provider.trim().is_empty()
                 || request.expected_old_nonce.trim().is_empty()
                 || request.current_nonce.trim().is_empty()
-                || request.team_id.as_deref() != plan.team_id.as_deref()
+                || request.team_id.trim().is_empty()
+                || plan.team_id.as_deref() != Some(request.team_id.as_str())
             {
                 return Err(refused());
             }
@@ -108,8 +107,7 @@ impl PlanStore {
             if attempt.session_binding_nonce.as_deref() == Some(request.current_nonce.as_str()) {
                 return Ok(None);
             }
-            if attempt.session_binding_nonce.as_deref()
-                != Some(request.expected_old_nonce.as_str())
+            if attempt.session_binding_nonce.as_deref() != Some(request.expected_old_nonce.as_str())
                 || request.expected_old_nonce == request.current_nonce
                 || !valid_receipt(&request, now_ms)
                 || attempt
