@@ -591,7 +591,6 @@ impl Store {
     }
 
     pub fn stop(&mut self, id: &str, reason: &str) -> Result<Sentinel, String> {
-        self.ensure_available()?;
         let job = self
             .jobs
             .iter_mut()
