@@ -427,7 +427,7 @@ impl SupervisorLock {
                     return Self::acquire();
                 }
                 Err(format!(
-                    "another CodeTerm supervisor is already active: {}",
+                    "another Domios supervisor is already active: {}",
                     path.display()
                 ))
             }
