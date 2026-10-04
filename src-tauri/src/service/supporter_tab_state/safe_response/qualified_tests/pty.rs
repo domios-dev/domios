@@ -304,7 +304,7 @@ impl CompletionEvidence {
                 .is_some_and(|elapsed| elapsed <= limit)
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub(super) struct CleanupEvidence {
     pub(super) generation_matched: bool,
     pub(super) begin_kill_error: Option<String>,
@@ -314,6 +314,21 @@ pub(super) struct CleanupEvidence {
     pub(super) post_cleanup_reader_end: Option<ReaderEnd>,
     pub(super) reader_join: ReaderJoinStatus,
     pub(super) reader_started: bool,
+}
+impl std::fmt::Debug for CleanupEvidence {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CleanupEvidence")
+            .field("generation_matched", &self.generation_matched)
+            .field("begin_kill_error", &self.begin_kill_error)
+            .field("reap_error", &self.reap_error)
+            .field("reaped", &self.reaped)
+            .field("post_cleanup_child_exit", &self.post_cleanup_child_exit)
+            .field("post_cleanup_reader_end", &self.post_cleanup_reader_end)
+            .field("reader_join", &self.reader_join)
+            .field("reader_started", &self.reader_started)
+            .finish()
+    }
 }
 impl CleanupEvidence {
     pub(super) fn succeeds(&self) -> bool {
