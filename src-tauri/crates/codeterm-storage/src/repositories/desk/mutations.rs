@@ -257,8 +257,8 @@ pub(super) fn reorder_tabs(
     for (ordinal, id) in order.iter().enumerate() {
         if current.iter().position(|current_id| current_id == id) != Some(ordinal) {
             cx.write(
-                "UPDATE desk_tabs SET ordinal = ?2, sort_order = ?2, revision = ?3 WHERE id = ?1",
-                params![id, ordinal as i64, revision],
+                "UPDATE desk_tabs SET ordinal = ?2, sort_order = ?2 WHERE id = ?1",
+                params![id, ordinal as i64],
             )?;
         }
     }
