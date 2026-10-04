@@ -411,6 +411,11 @@ impl UserSendStore {
         Ok(())
     }
 
+    #[cfg(test)]
+    pub(crate) fn settle_cycle(&self, record: &UserSendRecord, proven_zero_write: bool) -> Result<(), String> {
+        self.finish_handoff(record, proven_zero_write)
+    }
+
     pub(crate) fn complete(&self, record: &UserSendRecord) -> Result<bool, String> {
         let tab = self.tab(&record.authority.tab_id);
         if tab.revoked.load(Ordering::Acquire) || tab.failed.load(Ordering::Acquire)

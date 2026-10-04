@@ -2,6 +2,10 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Weak};
 use tauri::Manager;
 
+mod live_evidence;
+pub(crate) use live_evidence::{LiveProvenance, TurnPosition};
+use live_evidence::{ConsumedTurnWatermark, LiveEvidenceProgress};
+
 use super::pending_delivery_payloads::user_sends::{
     PreparedUserBody, UserReservation, UserSendAuthority, UserSendRecord, MAX_PREPARED_BYTES,
 };
@@ -95,7 +99,10 @@ struct ChatSendLedgerState {
     latest_failure_by_tab: HashMap<String, String>,
     order: VecDeque<String>,
     owned: HashMap<String, (UserSendAuthority, bool)>,
-    owned_live_turns: HashMap<String, HashSet<(String, String, String)>>,
+    absence_witness_by_id: HashMap<String, Arc<str>>,
+    sessionless_first_turn_by_id: HashSet<String>,
+    live_evidence_progress_by_tab: HashMap<String, LiveEvidenceProgress>,
+    consumed_turn_by_tab: HashMap<String, ConsumedTurnWatermark>,
 }
 
 impl Default for ChatSendLedgerState {
@@ -113,7 +120,10 @@ impl Default for ChatSendLedgerState {
             latest_failure_by_tab: HashMap::new(),
             order: VecDeque::new(),
             owned: HashMap::new(),
-            owned_live_turns: HashMap::new(),
+            absence_witness_by_id: HashMap::new(),
+            sessionless_first_turn_by_id: HashSet::new(),
+            live_evidence_progress_by_tab: HashMap::new(),
+            consumed_turn_by_tab: HashMap::new(),
         }
     }
 }
@@ -174,6 +184,8 @@ impl ChatSendLedger {
         }
         state.anchor_by_id.remove(&status.send_id);
         state.live_binding_by_id.remove(&status.send_id);
+        state.absence_witness_by_id.remove(&status.send_id);
+        state.sessionless_first_turn_by_id.remove(&status.send_id);
         state.payload_by_id.remove(&status.send_id);
         state.by_id.insert(status.send_id.clone(), status.clone());
         if let Some(token) = &record.client_token {
@@ -222,6 +234,11 @@ impl ChatSendLedger {
         text: &str,
         evidence: super::chat_send_evidence::CapturedSendEvidence,
     ) -> bool {
+        let absence_witness = evidence.absence_witness.clone();
+        let sessionless_first_turn = evidence.session_starts_on_first_user_turn
+            && evidence.live_binding.as_ref().is_some_and(|binding| binding.session_id.is_none())
+            && record.authority.session_id.is_none()
+            && record.authority.observed_session_id.is_none();
         let binding = evidence.live_binding;
         if binding.as_ref().is_some_and(|binding| binding.binding_nonce.as_deref()
             .is_some_and(|nonce| nonce != record.authority.binding_nonce)) {
@@ -239,7 +256,16 @@ impl ChatSendLedger {
         }
         state.turn_normalization_by_id.insert(record.send_id.clone(), evidence.turn_normalization);
         state.payload_by_id.insert(record.send_id.clone(), payload);
-        if let Some(anchor) = evidence.anchor { state.anchor_by_id.insert(record.send_id.clone(), anchor); }
+        if let Some(anchor) = evidence.anchor {
+            state.anchor_by_id.insert(record.send_id.clone(), anchor);
+            state.absence_witness_by_id.remove(&record.send_id);
+            state.sessionless_first_turn_by_id.remove(&record.send_id);
+        } else if let Some(witness) = absence_witness {
+            state.absence_witness_by_id.insert(record.send_id.clone(), witness);
+            state.sessionless_first_turn_by_id.remove(&record.send_id);
+        } else if sessionless_first_turn {
+            state.sessionless_first_turn_by_id.insert(record.send_id.clone());
+        }
         true
     }
 
@@ -264,6 +290,8 @@ impl ChatSendLedger {
         if let Some((_, active)) = state.owned.get_mut(send_id) { *active = false; }
         state.anchor_by_id.remove(send_id);
         state.live_binding_by_id.remove(send_id);
+        state.absence_witness_by_id.remove(send_id);
+        state.sessionless_first_turn_by_id.remove(send_id);
     }
 
     pub(crate) fn user_confirmed(&self, send_id: &str) -> bool {
@@ -576,56 +604,6 @@ impl ChatSendLedger {
         Some(Self::with_retention_window(&state, status))
     }
 
-    fn confirm_owned_live_turn(
-        &self,
-        tab_id: &str,
-        session_id: &str,
-        nonce: Option<&str>,
-        message: &crate::agent::chat_types::ChatMsg,
-    ) -> Option<ChatSendStatus> {
-        let nonce = nonce?;
-        if message.id.is_empty() { return None; }
-        let candidate = {
-            let mut state = self.state.lock();
-            if !state.owned.values().any(|(authority, _)| authority.tab_id == tab_id) { return None; }
-            let seen = state.owned_live_turns.entry(tab_id.to_string()).or_default();
-            if seen.len() >= MAX_RESULTS || !seen.insert((session_id.to_string(), nonce.to_string(), message.id.clone())) {
-                return None;
-            }
-            state.order.iter().find_map(|id| {
-                let (authority, active) = state.owned.get(id)?;
-                let status = state.by_id.get(id)?;
-                let binding = state.live_binding_by_id.get(id);
-                (*active && authority.tab_id == tab_id && authority.binding_nonce == nonce
-                    && matches!(status.state, ChatSendState::Written | ChatSendState::Unknown)
-                    && binding.is_none_or(|binding|
-                        binding.session_id.as_deref().is_none_or(|session| session == session_id)
-                        && binding.binding_nonce.as_deref().is_none_or(|binding_nonce| binding_nonce == nonce)))
-                    .then(|| (
-                        id.clone(), state.payload_by_id.get(id).cloned(),
-                        state.turn_normalization_by_id.get(id).copied(),
-                    ))
-            })
-        }?;
-        let (send_id, expected, normalization) = candidate;
-        let text = normalize_turn_evidence_with(&message.content, normalization?);
-        if text.is_empty() || expected.as_deref() != Some(text.as_str()) { return None; }
-        self.bind_user_live_session(&send_id, session_id, nonce);
-        self.confirm_send(&send_id)
-    }
-
-    fn bind_user_live_session(&self, send_id: &str, session_id: &str, nonce: &str) {
-        let mut state = self.state.lock();
-        if let Some((authority, active)) = state.owned.get(send_id) {
-            if *active && authority.binding_nonce == nonce {
-                state.live_binding_by_id.insert(send_id.to_string(), SendLiveBinding {
-                    session_id: Some(session_id.to_string()),
-                    binding_nonce: Some(nonce.to_string()),
-                });
-            }
-        }
-    }
-
     fn mark_sent(state: &mut ChatSendLedgerState, send_id: &str) -> Option<ChatSendStatus> {
         {
             let status = state.by_id.get_mut(send_id)?;
@@ -639,6 +617,7 @@ impl ChatSendLedger {
         state
             .latest_failure_by_tab
             .retain(|_, failed| failed != send_id);
+        state.sessionless_first_turn_by_id.remove(send_id);
         state.owned.remove(send_id);
         state.by_id.get(send_id).cloned()
     }
@@ -774,6 +753,8 @@ impl ChatSendLedger {
             state.token_by_id.remove(&expired);
             state.anchor_by_id.remove(&expired);
             state.live_binding_by_id.remove(&expired);
+            state.absence_witness_by_id.remove(&expired);
+            state.sessionless_first_turn_by_id.remove(&expired);
             state.latest_by_tab.retain(|_, send_id| send_id != &expired);
             state
                 .latest_failure_by_tab
@@ -818,10 +799,26 @@ pub(crate) fn delivered_turn_confirmations(
     source_session_id: &str,
     source_binding_nonce: Option<&str>,
     messages: &[crate::agent::chat_types::ChatMsg],
+    provenance: Option<&LiveProvenance>,
 ) -> Vec<ChatSendStatus> {
+    if let Some(provenance) = provenance {
+        ledger.advance_live_evidence(tab_id, source_session_id, source_binding_nonce, provenance);
+    }
     let mut confirmed = Vec::new();
-    for msg in messages.iter().filter(|msg| msg.kind == "user") {
-        let Some(status) = ledger.confirm_owned_live_turn(tab_id, source_session_id, source_binding_nonce, msg)
+    for (index, msg) in messages.iter().enumerate().filter(|(_, msg)| msg.kind == "user") {
+        let positioned = provenance.and_then(|provenance| {
+            provenance.positions.get(index).copied().map(|position| {
+                ledger.confirm_owned_live_turn(
+                    tab_id,
+                    source_session_id,
+                    source_binding_nonce,
+                    msg,
+                    position,
+                    provenance,
+                )
+            })
+        }).flatten();
+        let Some(status) = positioned
             .or_else(|| ledger.confirm_delivered_user_turn_scoped(
                 tab_id, source_session_id, source_binding_nonce, &msg.content,
             )) else {

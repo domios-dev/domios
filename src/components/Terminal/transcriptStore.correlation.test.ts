@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import test from "node:test";
+import { test } from "vitest";
 
 import { projectTranscript, transcriptRows, type TranscriptBatch } from "@codeterm/chat-core";
 import type { ChatSendStatus } from "./chatSendStatus";
