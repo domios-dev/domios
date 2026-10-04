@@ -27,6 +27,13 @@ impl StallEpisodeTracker {
         self.nudged.lock().remove(plan_id);
     }
 
+    fn forget(&self, key: &StallKey) {
+        let mut nudged = self.nudged.lock();
+        if nudged.get(&key.plan_id) == Some(key) {
+            nudged.remove(&key.plan_id);
+        }
+    }
+
     fn observe(&self, plan_id: &str, key: Option<StallKey>) -> Option<StallKey> {
         let mut nudged = self.nudged.lock();
         let next = match key {
@@ -88,12 +95,14 @@ fn task_bound_worker_tab_ids(plan: &Plan) -> HashSet<String> {
         .collect()
 }
 
-fn maybe_nudge_stalled_team(
+/// A suppressed nudge leaves its episode eligible; an accepted or failed
+/// delivery consumes it.
+pub(super) fn maybe_nudge_stalled_team(
     plan: &Plan,
     live_worker_tabs: &HashSet<String>,
     orchestrator_idle: bool,
     tracker: &StallEpisodeTracker,
-    deliver: impl FnOnce(&StallKey) -> Result<(), String>,
+    deliver: impl FnOnce(&StallKey) -> Result<bool, String>,
 ) -> Result<bool, String> {
     if !orchestrator_idle {
         return Ok(false);
@@ -101,8 +110,11 @@ fn maybe_nudge_stalled_team(
     let Some(key) = tracker.observe(&plan.id, stall_episode(plan, live_worker_tabs)) else {
         return Ok(false);
     };
-    deliver(&key)?;
-    Ok(true)
+    let delivered = deliver(&key)?;
+    if !delivered {
+        tracker.forget(&key);
+    }
+    Ok(delivered)
 }
 
 fn idle_orchestrator_candidates(
@@ -190,7 +202,6 @@ impl ServiceContext {
                     },
                     NudgeKind::StalledTeam,
                 )
-                .map(|_| ())
             },
         ) {
             log::warn!(

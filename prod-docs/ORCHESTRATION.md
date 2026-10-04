@@ -175,9 +175,14 @@ review, assignment and lane. Every verdict uses `--note`, never `--reason`.
 
 ### Quiet team heartbeat
 
-A connected Supporter suppresses healthy, unchanged reminder ticks; every
-delivered heartbeat names a next step. Undelivered reports, failed gates, owner
-messages, Worker incidents and mode changes always wake you. Record deliberate
-holds with `plan review hold --note`; drift stays quiet until state or verdict changes.
+Automatic plan reminders (the periodic heartbeat and the mode-change,
+stalled-team, Worker and complete-plan wrap-up reminders) arrive only when the
+connected Supporter approves that reminder with a confident `action_needed`
+choice. Without an adapter, or on a denial, uncertain or invalid answer,
+timeout, error or exhausted cap, none is sent; elapsed silence and hard events
+never force one, and an unchanged observation is never sent twice. Every
+delivered heartbeat names a next step. Reports, owner messages, decisions and
+failure alerts still reach you through their own channels. Record deliberate
+holds with `plan review hold --note`.
 
-<!-- revision: 102 -->
+<!-- revision: 103 -->

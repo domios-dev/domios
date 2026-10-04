@@ -1,4 +1,7 @@
 use super::*;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+const MAX_SCOPES: usize = 256;
 
 #[derive(Clone, Default)]
 pub(crate) struct Observation {
@@ -9,49 +12,119 @@ pub(crate) struct Observation {
     pub pending_hard: Vec<HardWake>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Refusal {
+    InFlight,
+    Capacity,
+}
+
+impl Refusal {
+    pub(crate) fn reason(self) -> &'static str {
+        match self {
+            Self::InFlight => "in_flight",
+            Self::Capacity => "scope_capacity",
+        }
+    }
+}
+
+/// Phase counts per scope: suppression, emission attempt, emitter acceptance
+/// and emitter failure are recorded separately and never inferred from each other.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Telemetry {
+    pub suppressed: u64,
+    pub attempted: u64,
+    pub accepted: u64,
+    pub failed: u64,
+    pub last_reason: Option<&'static str>,
+}
+
+struct Slot {
+    identity: String,
+    decision: Decision,
+    attempted: bool,
+}
+
 #[derive(Default)]
 struct Entry {
+    epoch: u64,
     baseline: Observation,
-    first_tick: Option<u64>,
-    last_delivered: Option<u64>,
-    last_decision: Option<Decision>,
-    last_hash: Option<String>,
-    delivery_pending: bool,
+    slots: BTreeMap<ReminderKind, Slot>,
     last_soft_class: Option<String>,
     last_soft_delivery: Option<u64>,
     in_flight: bool,
+    telemetry: Telemetry,
 }
 
 #[derive(Default)]
 pub(crate) struct Gate {
     entries: Mutex<HashMap<String, Entry>>,
+    epochs: AtomicU64,
 }
 
 pub(crate) struct Claim<'a> {
     gate: &'a Gate,
     key: String,
+    epoch: u64,
+}
+
+impl Claim<'_> {
+    pub(crate) fn key(&self) -> &str {
+        &self.key
+    }
 }
 
 impl Drop for Claim<'_> {
     fn drop(&mut self) {
         if let Some(entry) = self.gate.entries.lock().get_mut(&self.key) {
-            entry.in_flight = false;
+            if entry.epoch == self.epoch {
+                entry.in_flight = false;
+            }
         }
     }
 }
 
 impl Gate {
-    pub(crate) fn claim(&self, key: &str) -> Option<Claim<'_>> {
+    fn entry<'m>(
+        &self,
+        entries: &'m mut HashMap<String, Entry>,
+        key: &str,
+    ) -> Option<&'m mut Entry> {
+        if !entries.contains_key(key) {
+            if entries.len() >= MAX_SCOPES {
+                return None;
+            }
+            let epoch = self.epochs.fetch_add(1, Ordering::Relaxed) + 1;
+            entries.insert(
+                key.into(),
+                Entry {
+                    epoch,
+                    ..Default::default()
+                },
+            );
+        }
+        entries.get_mut(key)
+    }
+
+    pub(crate) fn claim(&self, key: &str) -> Result<Claim<'_>, Refusal> {
         let mut entries = self.entries.lock();
-        let entry = entries.entry(key.into()).or_default();
+        let entry = self.entry(&mut entries, key).ok_or(Refusal::Capacity)?;
         if entry.in_flight {
-            return None;
+            entry.telemetry.suppressed += 1;
+            entry.telemetry.last_reason = Some(Refusal::InFlight.reason());
+            return Err(Refusal::InFlight);
         }
         entry.in_flight = true;
-        Some(Claim {
+        Ok(Claim {
             gate: self,
             key: key.into(),
+            epoch: entry.epoch,
         })
+    }
+
+    /// Drops every scope outside the current eligible set; an in-flight claim
+    /// on a dropped scope can no longer record an attempt.
+    pub(crate) fn retain(&self, keys: &HashSet<String>) {
+        self.entries.lock().retain(|key, _| keys.contains(key));
     }
 
     pub(crate) fn mode_changed(&self, key: &str, current: &str) -> bool {
@@ -73,7 +146,9 @@ impl Gate {
 
     pub(crate) fn observed(&self, key: &str, observation: Observation) {
         let mut entries = self.entries.lock();
-        let entry = entries.entry(key.into()).or_default();
+        let Some(entry) = self.entry(&mut entries, key) else {
+            return;
+        };
         if entry.baseline.projection.is_none() {
             entry.baseline.projection = observation.projection;
         }
@@ -95,6 +170,8 @@ impl Gate {
         self.decide_with_interval(key, snapshot, now, model, deadline, IDLE_NO_REPORT_SECS)
     }
 
+    /// One verdict per observation identity and reminder kind. Absent adapters,
+    /// errors, uncertainty and denial suppress; hard events and silence never wake.
     pub(crate) fn decide_with_interval(
         &self,
         key: &str,
@@ -105,110 +182,134 @@ impl Gate {
         interval: u64,
     ) -> Result<Decision, String> {
         let hash = snapshot.hash();
-        let (same, cached, pending, silence, soft_class, soft_delivered) = {
+        let kind = snapshot.scope.kind;
+        let state = {
             let mut entries = self.entries.lock();
-            let entry = entries.entry(key.into()).or_default();
-            let first = *entry.first_tick.get_or_insert(now);
-            (
-                entry.last_hash.as_deref() == Some(&hash),
-                entry.last_decision.clone(),
-                entry.delivery_pending,
-                now.saturating_sub(entry.last_delivered.unwrap_or(first)) >= SAFETY_STATUS_SECS,
-                entry.last_soft_class.clone(),
-                entry.last_soft_delivery,
-            )
+            self.entry(&mut entries, key).map(|entry| {
+                (
+                    entry
+                        .slots
+                        .get(&kind)
+                        .filter(|slot| slot.identity == hash)
+                        .map(|slot| slot.decision.clone()),
+                    entry.last_soft_class.clone(),
+                    entry.last_soft_delivery,
+                )
+            })
         };
-        let hard = !snapshot.hard.is_empty();
-        let mut decision = if same {
-            let mut decision = cached.ok_or("heartbeat decision cache unavailable")?;
-            decision.wake = pending || hard || silence;
-            decision.safety = decision.safety && pending;
-            decision.reason = if hard { "hard_wake" } else { "same_snapshot" };
-            decision.decided_by = "heuristic".into();
-            if !decision.safety {
-                decision.next_steps = snapshot
-                    .hard
-                    .iter()
-                    .map(|hard| hard.next_step(&snapshot.plan_id))
-                    .collect();
-                for worker in &snapshot.workers {
-                    let label = decision
-                        .worker_labels
-                        .get(&worker.tab_id)
-                        .map(String::as_str)
-                        .unwrap_or_else(|| worker.heuristic_label());
-                    if worker.unhealthy()
-                        || !matches!(label, "on_track" | "idle_no_report" | "looping")
-                        || (!worker.held && matches!(label, "idle_no_report" | "looping"))
-                    {
-                        decision.next_steps.push(worker.next_step(label));
-                    }
-                }
-                if decision.wake && decision.next_steps.is_empty() {
-                    decision.next_steps.push(format!(
-                        "inspect the pending decision with codeterm plan state {}",
-                        snapshot.plan_id
-                    ));
-                }
+        let Some((cached, soft_class, soft_delivered)) = state else {
+            return Ok(suppressed(snapshot, "capacity", Refusal::Capacity.reason()));
+        };
+        if let Some(mut decision) = cached {
+            decision.wake = false;
+            decision.decided_by = "cache".into();
+            decision.reason = "same_snapshot";
+            decision.observation_id = crate::plan::ids::short_id("hb");
+            return Ok(decision);
+        }
+        let mut decision = match model {
+            None => suppressed(snapshot, "no_adapter", "no_adapter"),
+            Some(_) if kind == ReminderKind::Owner && snapshot.healthy_and_unchanged() => {
+                suppressed(snapshot, "heuristic", "healthy_snapshot")
             }
-            decision
-        } else if model.is_some()
-            && !hard
-            && snapshot.delta.is_empty()
-            && snapshot.workers.iter().all(|worker| !worker.unhealthy())
-        {
-            fallback(snapshot, "heuristic", "healthy_snapshot")
-        } else {
-            match model {
-                Some(model) => classify(snapshot, model, deadline).unwrap_or_else(|error| {
-                    let reason = match error {
-                        DecisionError::Budget => "budget_exhausted",
-                        DecisionError::Deadline => "model_deadline",
-                        _ => "model_failed",
-                    };
-                    fallback(snapshot, &format!("fallback({reason})"), reason)
-                }),
-                None => fallback(snapshot, "fallback(no_adapter)", "no_adapter"),
-            }
+            Some(model) => match bounded_questions(snapshot) {
+                None => suppressed(snapshot, "bounds", "observation_bounds"),
+                Some(request) => {
+                    classify(snapshot, request, model, deadline).unwrap_or_else(|error| {
+                        suppressed(snapshot, "adapter_error", error_reason(&error))
+                    })
+                }
+            },
         };
         if decision.wake
-            && !hard
-            && !pending
-            && !decision.safety
+            && snapshot.hard.is_empty()
             && soft_class.as_deref() == Some(decision.soft_class().as_str())
             && soft_delivered.is_some_and(|last| now.saturating_sub(last) < interval)
         {
             decision.wake = false;
             decision.reason = "soft_cooldown";
         }
-        if silence && !decision.wake {
-            decision.wake = true;
-            decision.safety = true;
-            decision.reason = "safety_status";
-        }
-        if same && silence && !pending && !hard {
-            decision.safety = true;
-            decision.reason = "safety_status";
-        }
-        decision.observation_id = crate::plan::ids::short_id("hb");
         let mut entries = self.entries.lock();
-        let entry = entries.entry(key.into()).or_default();
-        entry.last_hash = Some(hash);
-        entry.last_decision = Some(decision.clone());
-        entry.delivery_pending = decision.wake;
+        if let Some(entry) = self.entry(&mut entries, key) {
+            // A bounds overflow restarts the delta so later observations fit.
+            if decision.reason == "observation_bounds" {
+                entry.baseline.projection = Some(snapshot.projection.clone());
+                entry.baseline.pending_hard.clear();
+            }
+            entry.slots.insert(
+                kind,
+                Slot {
+                    identity: hash,
+                    decision: decision.clone(),
+                    attempted: false,
+                },
+            );
+        }
         Ok(decision)
+    }
+
+    /// The single emission attempt for an approving observation; false when the
+    /// scope was dropped, re-decided or already attempted.
+    pub(crate) fn attempt(&self, claim: &Claim<'_>, decision: &Decision) -> bool {
+        let mut entries = self.entries.lock();
+        let Some(entry) = entries
+            .get_mut(&claim.key)
+            .filter(|entry| entry.epoch == claim.epoch)
+        else {
+            return false;
+        };
+        let Some(slot) = entry.slots.get_mut(&decision.scope.kind).filter(|slot| {
+            slot.identity == decision.snapshot_hash && slot.decision.wake && !slot.attempted
+        }) else {
+            return false;
+        };
+        slot.attempted = true;
+        entry.telemetry.attempted += 1;
+        true
     }
 
     pub(crate) fn delivered(&self, key: &str, snapshot: &Snapshot, decision: &Decision, now: u64) {
         let mut entries = self.entries.lock();
-        let entry = entries.entry(key.into()).or_default();
+        let Some(entry) = self.entry(&mut entries, key) else {
+            return;
+        };
         entry.baseline.projection = Some(snapshot.projection.clone());
-        entry.last_delivered = Some(now);
-        if snapshot.hard.is_empty() && !decision.safety {
+        if snapshot.hard.is_empty() {
             entry.last_soft_class = Some(decision.soft_class());
             entry.last_soft_delivery = Some(now);
         }
-        entry.delivery_pending = false;
         entry.baseline.pending_hard.clear();
+        entry.telemetry.accepted += 1;
+    }
+
+    pub(crate) fn failed(&self, key: &str) {
+        if let Some(entry) = self.entries.lock().get_mut(key) {
+            entry.telemetry.failed += 1;
+        }
+    }
+
+    pub(crate) fn suppressed(&self, key: &str, reason: &'static str) {
+        if let Some(entry) = self.entries.lock().get_mut(key) {
+            entry.telemetry.suppressed += 1;
+            entry.telemetry.last_reason = Some(reason);
+        }
+    }
+
+    pub(crate) fn telemetry(&self, key: &str) -> Telemetry {
+        self.entries
+            .lock()
+            .get(key)
+            .map(|entry| entry.telemetry.clone())
+            .unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn unlocked(&self) -> bool {
+        self.entries.try_lock().is_some()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn scopes(&self) -> usize {
+        self.entries.lock().len()
     }
 }
