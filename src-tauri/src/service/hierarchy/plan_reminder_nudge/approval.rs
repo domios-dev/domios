@@ -192,12 +192,14 @@ fn admit_claimed(
     if !decision.wake {
         return suppress(gate, claim, decision.reason);
     }
-    let current = host.supporter();
-    let connection_unchanged = current.epoch == supporter.epoch
-        && current.generation().as_deref() == Some(adapter.as_str());
-    let plan = match resolve(host, request, Some(&plan.id)) {
-        Ok((plan, fresh)) if fresh == scope && connection_unchanged => plan,
-        _ => return suppress(gate, claim, "stale_scope"),
+    let current = |plan_id: &str| match resolve(host, request, Some(plan_id)) {
+        Ok((plan, fresh)) if fresh == scope && connected_as(host, &supporter, &adapter) => {
+            Some(plan)
+        }
+        _ => None,
+    };
+    let Some(plan) = current(&plan.id) else {
+        return suppress(gate, claim, "stale_scope");
     };
     // The approved identity must still describe the plan the text is built from.
     let (mut fresh, _) = observe(host, &plan, &scope, &previous, now);
@@ -206,7 +208,8 @@ fn admit_claimed(
         return suppress(gate, claim, "stale_observation");
     }
     let emission = host.compose(&plan, &scope, &snapshot, &decision);
-    if !gate.attempt(claim, &decision) {
+    // Re-observation and compose can take IO time; the last check is bound to the handoff.
+    if current(&plan.id).is_none() || !gate.attempt(claim, &decision) {
         return suppress(gate, claim, "stale_scope");
     }
     match host.emit(&plan.id, &scope, &emission) {
@@ -219,6 +222,13 @@ fn admit_claimed(
             ReminderOutcome::Failed(error)
         }
     }
+}
+
+/// The connection epoch and adapter fingerprint still equal those of the
+/// approving decision; a fresh Supporter view is read on every call.
+fn connected_as(host: &impl ReminderHost, approved: &Supporter<'_>, adapter: &str) -> bool {
+    let current = host.supporter();
+    current.epoch == approved.epoch && current.generation().as_deref() == Some(adapter)
 }
 
 fn observe(
