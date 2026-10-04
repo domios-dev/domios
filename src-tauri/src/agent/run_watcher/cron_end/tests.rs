@@ -275,7 +275,8 @@ fn cron_settle_async_runtime_progresses_while_cron_writer_is_held() {
     caller.join().unwrap();
     settlement.join().unwrap();
 
-    let history = run.cron.lock().get_history(&run.job_id);
+    let cron = run.cron.lock();
+    let history = cron.get_history(&run.job_id);
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].status, CronRunStatus::Success);
 }

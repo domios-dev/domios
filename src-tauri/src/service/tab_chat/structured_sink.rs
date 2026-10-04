@@ -409,6 +409,14 @@ mod tests {
             "sourced-jsonl"
         }
 
+        fn detect_session_id(&self, _cwd: &str, _exclude: &[String], _max_age: Option<Duration>) -> Option<String> {
+            None
+        }
+
+        fn build_resume_command(&self, _session_id: &str, _skip_permissions: bool) -> Option<String> {
+            None
+        }
+
         fn display_name(&self) -> &str {
             "Sourced JSONL"
         }
@@ -560,7 +568,7 @@ mod tests {
             fixture
                 .service
                 .chat_send_ledger
-                .finish(&accepted.send_id, Ok())
+                .finish(&accepted.send_id, Ok(()))
                 .unwrap()
                 .state,
             ChatSendState::Unknown

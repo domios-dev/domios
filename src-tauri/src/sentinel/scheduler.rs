@@ -184,7 +184,7 @@ fn scheduler_wait_ms(store: &Store) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use super::store::{Create, Owner};
+    use crate::sentinel::store::{Create, Owner};
     use super::*;
     use serde_json::json;
 
