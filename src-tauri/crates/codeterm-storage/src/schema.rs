@@ -113,10 +113,16 @@ pub(crate) fn open_reader(
     Ok((conn, settings))
 }
 
-/// Opens an existing database without ever creating one.
+/// Opens an existing database without ever creating one. On Windows the bundled
+/// `win32-longpath` VFS takes the extended path; the default VFS caps names at MAX_PATH.
 pub(crate) fn open_existing(path: &Path, access: OpenFlags) -> Result<Connection, StorageError> {
-    Connection::open_with_flags(path, access | OpenFlags::SQLITE_OPEN_NO_MUTEX)
-        .map_err(|error| sqlite_error("open database", error))
+    let flags = access | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    #[cfg(windows)]
+    let opened =
+        Connection::open_with_flags_and_vfs(assets::native_path(path), flags, "win32-longpath");
+    #[cfg(not(windows))]
+    let opened = Connection::open_with_flags(path, flags);
+    opened.map_err(|error| sqlite_error("open database", error))
 }
 
 /// A missing database is fresh only when no sidecar or asset survives it.
