@@ -19,10 +19,10 @@ pub use owner::{
     Storage, StorageConfig, DEFAULT_MAILBOX_BYTES, DEFAULT_MAILBOX_COMMANDS, MAX_READ_CONNECTIONS,
 };
 pub use repositories::cron::{
-    CronApplied, CronHistoryDisposition, CronHistoryImport, CronIdentity, CronImport, CronJobId,
-    CronJobImport, CronJobRecord, CronJobState, CronRepository, CronRunId, CronRunRecord,
-    CronRunState, CronScope, CronSnapshot, CronWrite, StoredCronJob, MAX_CRON_BATCH,
-    MAX_CRON_HISTORY, MAX_CRON_JOBS,
+    CronApplied, CronDivergenceOrigin, CronHistoryDisposition, CronHistoryImport, CronIdentity,
+    CronImport, CronJobId, CronJobImport, CronJobRecord, CronJobState, CronLastRunDivergence,
+    CronRepository, CronRunField, CronRunId, CronRunRecord, CronRunState, CronScope, CronSnapshot,
+    CronWrite, StoredCronJob, MAX_CRON_BATCH, MAX_CRON_HISTORY, MAX_CRON_JOBS,
 };
 pub use repositories::workspaces::{
     AssetRole, StoredWorkspace, WorkspaceAsset, WorkspaceId, WorkspaceInventory, WorkspaceRecord,

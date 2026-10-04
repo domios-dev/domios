@@ -1,5 +1,6 @@
 //! Typed cron definitions and ordered run rows. Each identity's revision covers its
-//! definition and runs; history outlives the definition as a retired identity.
+//! definition and runs; history outlives the definition as a retired identity, and an
+//! imported last run that differs from its history row is kept as its own copy.
 
 mod mutations;
 mod queries;
@@ -7,9 +8,10 @@ mod records;
 
 pub(crate) use mutations::write_import;
 pub use records::{
-    CronApplied, CronHistoryDisposition, CronHistoryImport, CronIdentity, CronImport, CronJobId,
-    CronJobImport, CronJobRecord, CronJobState, CronRunId, CronRunRecord, CronRunState, CronScope,
-    CronSnapshot, CronWrite, StoredCronJob, MAX_CRON_BATCH, MAX_CRON_HISTORY, MAX_CRON_JOBS,
+    CronApplied, CronDivergenceOrigin, CronHistoryDisposition, CronHistoryImport, CronIdentity,
+    CronImport, CronJobId, CronJobImport, CronJobRecord, CronJobState, CronLastRunDivergence,
+    CronRunField, CronRunId, CronRunRecord, CronRunState, CronScope, CronSnapshot, CronWrite,
+    StoredCronJob, MAX_CRON_BATCH, MAX_CRON_HISTORY, MAX_CRON_JOBS,
 };
 
 use crate::owner::Storage;
@@ -79,6 +81,7 @@ impl CronRepository {
             expect,
             runs,
             job,
+            last_run: None,
         }])
     }
 

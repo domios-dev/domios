@@ -1,5 +1,7 @@
 //! Cron domain tables. A job identity outlives its definition so retained run history
 //! never needs a live job, and a retired identity can never become a live cron again.
+//! `cron_last_run_mirrors` holds the current copy of an imported last run that differs
+//! from its history row; the original bytes stay in the importer's backup.
 
 /// Registered after the foundation schema in `MIGRATIONS`.
 pub(crate) const SCHEMA: &str = r#"
@@ -54,10 +56,29 @@ CREATE TABLE cron_jobs (
     consecutive_failures INTEGER NOT NULL
         CHECK (consecutive_failures BETWEEN 0 AND 4294967295),
     protected INTEGER NOT NULL CHECK (protected IN (0, 1)),
+    UNIQUE (id, last_run_id),
     FOREIGN KEY (id, last_run_id) REFERENCES cron_runs(job_id, run_id)
 ) STRICT;
 CREATE INDEX cron_jobs_by_workspace ON cron_jobs(workspace_id);
 CREATE INDEX cron_jobs_by_team ON cron_jobs(team_id);
+CREATE TABLE cron_last_run_mirrors (
+    job_id TEXT PRIMARY KEY NOT NULL,
+    run_id TEXT NOT NULL,
+    started_at INTEGER NOT NULL CHECK (started_at >= 0),
+    finished_at INTEGER CHECK (finished_at IS NULL OR finished_at >= 0),
+    status TEXT NOT NULL CHECK (status IN
+        ('running', 'awaiting_owner_prompt', 'success', 'failed', 'cancelled')),
+    tab_id TEXT,
+    session_id TEXT,
+    cwd TEXT,
+    summary TEXT,
+    report_delivery TEXT,
+    origin TEXT NOT NULL CHECK (origin = 'legacy_import'),
+    imported_revision INTEGER NOT NULL CHECK (imported_revision > 0),
+    imported_differing TEXT NOT NULL CHECK (length(imported_differing) > 0),
+    FOREIGN KEY (job_id, run_id) REFERENCES cron_jobs(id, last_run_id),
+    FOREIGN KEY (job_id, run_id) REFERENCES cron_runs(job_id, run_id)
+) STRICT;
 "#;
 
 #[cfg(feature = "test-support")]

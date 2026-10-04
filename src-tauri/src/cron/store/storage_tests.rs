@@ -23,8 +23,9 @@ use crate::storage::{
 };
 
 mod concurrency;
+mod divergence;
 
-/// Failure bound around event waits only; elapsed time never signals success.
+/// Failure bound around event waits only; elapsed time never signals readiness.
 const DEADLINE: Duration = Duration::from_secs(30);
 const START_MS: u64 = 1_700_000_000_000;
 
@@ -429,12 +430,9 @@ fn storage_cron_legacy_decoder_refuses_without_touching_originals() {
         read_legacy_cron_file(&temp.path().join("absent.json")),
         Ok(None)
     );
-    let divergent = r#"{"version": "1", "jobs": [{"id": "j", "name": "n",
+    let unnamed = r#"{"version": "1", "jobs": [{"id": "", "name": "n",
         "workspace_id": "w", "schedule": "0 * * * *", "enabled": true, "agent": "a",
-        "task": "t", "created_at": 1, "last_run": {"run_id": "r", "started_at": 1,
-        "status": "Running", "tab_id": null}}],
-        "history": {"j": [{"run_id": "r", "started_at": 1, "finished_at": 2,
-        "status": "Cancelled", "tab_id": null}]}}"#;
+        "task": "t", "created_at": 1}], "history": {}}"#;
     let repeated = r#"{"version": "1", "jobs": [], "history": {"j": [
         {"run_id": "r", "started_at": 1, "status": "Success", "tab_id": null},
         {"run_id": "r", "started_at": 2, "status": "Success", "tab_id": null}]}}"#;
@@ -454,7 +452,7 @@ fn storage_cron_legacy_decoder_refuses_without_touching_originals() {
             r#"{"jobs": [], "history": {}}"#,
             |e: &LegacyCronError| matches!(e, LegacyCronError::Corrupt(_)),
         ),
-        ("divergent", divergent, |e: &LegacyCronError| {
+        ("unnamed", unnamed, |e: &LegacyCronError| {
             matches!(e, LegacyCronError::Conflict(_))
         }),
         ("repeated", repeated, |e: &LegacyCronError| {

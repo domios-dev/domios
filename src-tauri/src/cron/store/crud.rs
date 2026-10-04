@@ -1,5 +1,5 @@
 //! CronStore operations. Each `prepare_*` derives one authorized change from the cache
-//! without touching it; the backend commits that change before the cache receives it.
+//! without touching it; the backend commits that change before the cache sees it.
 
 use super::{
     cap_jitter_max_ms_at, compute_backoff, compute_next_run_jittered_at, default_max_history,
@@ -200,7 +200,7 @@ impl CronStore {
         })
     }
 
-    fn history_entry(&self, job_id: &str, run_id: &str) -> Option<&CronRunInfo> {
+    pub(super) fn history_entry(&self, job_id: &str, run_id: &str) -> Option<&CronRunInfo> {
         self.file
             .history
             .get(job_id)?
