@@ -1,8 +1,9 @@
 use super::legacy_decode;
 use super::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
 use codeterm_storage::{
-    DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields, DeskSnapshot, DeskState, DeskTab,
-    DeskTeam, DeskTeamLifecycle, DeskWorkspace, Revision, Storage, StorageConfig,
+    Committed, Completion, DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields, DeskSnapshot,
+    DeskState, DeskTab, DeskTeam, DeskTeamLifecycle, DeskWorkspace, Revision, Storage,
+    StorageConfig,
 };
 use codeterm_types::plan::task_key::WorkspaceTaskKeys;
 use std::path::Path;
@@ -255,6 +256,23 @@ impl StorageDeskAdapter {
             .wait(COMPLETION_DEADLINE)
             .map(|committed| committed.receipt.revision)
             .map_err(|error| error.to_string())
+    }
+
+    pub fn delta_snapshot(
+        &self,
+        snapshot: &SessionSnapshot,
+        identities: Vec<DeskAgentSessionIdentity>,
+        expected: Revision,
+        intent: super::SaveIntent,
+    ) -> Result<Completion<Committed<()>>, String> {
+        let normalized = to_desk_snapshot(snapshot, identities)?;
+        let desk = self.storage.desk();
+        Ok(match intent {
+            super::SaveIntent::PreserveDesk => desk.save_preserving(normalized, expected),
+            super::SaveIntent::AuthorizedReduction => {
+                desk.save_authorized_reduction(normalized, expected)
+            }
+        })
     }
 
     pub fn flush(&self) -> Result<(), String> {

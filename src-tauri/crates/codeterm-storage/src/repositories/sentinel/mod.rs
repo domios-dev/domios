@@ -14,12 +14,13 @@ use records::{identifier, overhead, text};
 use std::collections::HashSet;
 
 pub use records::{
-    BatchFence, BucketDefinition, CaptureRecord, CommandParameters, CommandResultRecord,
-    CommandStatus, DefinitionProvenance, Fence, HandlerAction, HandlerDefinition,
-    HandlerResultRecord, HandlerStatus, MutationOutcome, NewTransition, RuntimeOutcome,
-    ScheduleUpdate, SentinelCommit, SentinelCreate, SentinelId, SentinelIdentity, SentinelImport,
-    SentinelRecord, SentinelScope, StageDefinition, StageRuntime, StoredDefinition, StoredSentinel,
-    TargetIdentity, TransitionRecord, MAX_SENTINEL_BATCH, MAX_SENTINEL_RECORDS,
+    AmendmentRecord, BatchFence, BucketDefinition, CaptureRecord, CommandParameters,
+    CommandResultRecord, CommandStatus, DefinitionProvenance, DefinitionUpdate, EscalateTarget,
+    Fence, HandlerAction, HandlerDefinition, HandlerResultRecord, HandlerStatus, MutationOutcome,
+    NewTransition, ObserveKind, ObserveSource, RunRecord, RuntimeOutcome, SafeKind, ScheduleUpdate,
+    SentinelCommit, SentinelCreate, SentinelId, SentinelIdentity, SentinelImport, SentinelRecord,
+    SentinelScope, StageDefinition, StageRuntime, StoredDefinition, StoredSentinel, TargetIdentity,
+    TransitionRecord, MAX_SENTINEL_BATCH, MAX_SENTINEL_LINEAGE, MAX_SENTINEL_RECORDS, OTHER_BUCKET,
 };
 
 impl Storage {
@@ -125,19 +126,20 @@ impl SentinelRepository {
             .submit_mutation(cost, move |cx| runtime::import(cx, records))
     }
 
-    /// Appends a new immutable version against the expected current head version.
+    /// Appends a new immutable version against the expected current head version and
+    /// advances the stage generation in the same commit.
     pub fn update_definition(
         &self,
         id: SentinelId,
         expect_version: u64,
-        definition: StageDefinition,
+        update: DefinitionUpdate,
     ) -> Mutation {
-        if let Err(error) = definition.validate() {
+        if let Err(error) = update.validate() {
             return refused(error);
         }
-        let cost = overhead() + id.as_str().len() + definition.cost();
+        let cost = overhead() + id.as_str().len() + update.cost();
         self.storage.submit_mutation(cost, move |cx| {
-            runtime::update_definition(cx, &id, expect_version, definition)
+            runtime::update_definition(cx, &id, expect_version, update)
         })
     }
 

@@ -45,6 +45,7 @@ pub(crate) use identity::correlation::project_diagnostics as project_observation
 #[cfg(test)]
 use observer::{choice_model, observation_answers, observe_guarded};
 pub(crate) use observer::{prepare_observation, spawn_observer};
+pub(crate) use privacy::screen as redact_screen;
 pub(crate) use privacy::value as redact_decision_diagnostic;
 mod questions;
 pub(crate) mod safe_choice;

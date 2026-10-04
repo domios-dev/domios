@@ -5,6 +5,7 @@ use super::ServiceContext;
 use crate::sentinel::{
     classify, routes,
     scheduler::Handle,
+    source,
     store::{Create, Sentinel},
 };
 
@@ -116,6 +117,9 @@ impl ServiceContext {
             if !live {
                 return Err("sentinel creator or Team is gone".into());
             }
+            if let Some(crate::sentinel::source::TabBinding::Tab(tab_id)) = &job.observe {
+                source::validate_tab_scope(&mux, &job, tab_id)?;
+            }
             for handler in job.routes.values().flatten() {
                 if let crate::sentinel::machine::Route::Send(id) = &handler.action {
                     let target = mux.get_tab(id).ok_or("sentinel send target disappeared")?;
@@ -220,7 +224,8 @@ mod tests {
         );
         let params = crate::sentinel::store::Create {
             name: None,
-            probe: "status".into(),
+            probe: Some("status".into()),
+            observe: None,
             question: "state".into(),
             buckets: vec!["done".into()],
             every: "10s".into(),
