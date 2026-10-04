@@ -214,10 +214,10 @@ pub struct DeskState {
 
 impl DeskSnapshot {
     pub fn validate(&self) -> Result<usize, StorageError> {
-        if self.workspaces.is_empty() || self.workspaces.len() > MAX_DESK_WORKSPACES {
+        if self.workspaces.len() > MAX_DESK_WORKSPACES {
             return Err(StorageError::invalid(
                 "desk workspaces",
-                format!("must contain 1..={MAX_DESK_WORKSPACES} records"),
+                format!("must contain at most {MAX_DESK_WORKSPACES} records"),
             ));
         }
         if self.teams.len() > MAX_DESK_TEAMS
@@ -256,7 +256,10 @@ impl DeskSnapshot {
                         "invalid identity or title",
                     ));
                 }
-                cost = cost.saturating_add(tab.id.len() + tab.title.len());
+                cost = cost
+                    .saturating_add(tab.id.len())
+                    .saturating_add(tab.title.len())
+                    .saturating_add(tab.description.as_ref().map_or(0, String::len));
                 count_layout(&tab.layout, 0, &mut nodes, &mut cost)?;
             }
         }
@@ -267,7 +270,10 @@ impl DeskSnapshot {
                     "empty or duplicate identity",
                 ));
             }
-            cost = cost.saturating_add(team.id.len() + team.workspace_id.len());
+            cost = cost
+                .saturating_add(team.id.len())
+                .saturating_add(team.workspace_id.len())
+                .saturating_add(team.name.as_ref().map_or(0, String::len));
         }
         for identity in &self.agent_session_identities {
             if identity.provider.is_empty()
@@ -280,14 +286,13 @@ impl DeskSnapshot {
                     "provider/session identity is empty or duplicated",
                 ));
             }
-            cost = cost.saturating_add(
-                identity.provider.len()
-                    + identity.session_id.len()
-                    + identity.record_provider.len()
-                    + identity.role.len()
-                    + identity.role_profile.as_ref().map_or(0, String::len)
-                    + identity.parent_tab_id.as_ref().map_or(0, String::len),
-            );
+            cost = cost
+                .saturating_add(identity.provider.len())
+                .saturating_add(identity.session_id.len())
+                .saturating_add(identity.record_provider.len())
+                .saturating_add(identity.role.len())
+                .saturating_add(identity.role_profile.as_ref().map_or(0, String::len))
+                .saturating_add(identity.parent_tab_id.as_ref().map_or(0, String::len));
         }
         if tabs.len() > MAX_DESK_TABS || nodes > MAX_DESK_LAYOUT_NODES {
             return Err(StorageError::invalid(
@@ -328,7 +333,9 @@ fn count_layout(
                 ));
             }
             fields.validate()?;
-            *cost = cost.saturating_add(tab_id.len() + cwd.as_ref().map_or(0, String::len));
+            *cost = cost
+                .saturating_add(tab_id.len())
+                .saturating_add(cwd.as_ref().map_or(0, String::len));
             *cost =
                 cost.saturating_add(serde_json::to_vec(&fields.values).unwrap_or_default().len());
         }

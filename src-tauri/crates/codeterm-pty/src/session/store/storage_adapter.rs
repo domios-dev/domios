@@ -1,8 +1,8 @@
 use super::legacy_decode;
 use super::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
 use codeterm_storage::{
-    DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields, DeskSnapshot, DeskTab, DeskTeam,
-    DeskTeamLifecycle, DeskWorkspace, Revision, Storage, StorageConfig,
+    DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields, DeskSnapshot, DeskState, DeskTab,
+    DeskTeam, DeskTeamLifecycle, DeskWorkspace, Revision, Storage, StorageConfig,
 };
 use codeterm_types::plan::task_key::WorkspaceTaskKeys;
 use std::path::Path;
@@ -10,8 +10,7 @@ use std::time::Duration;
 
 const COMPLETION_DEADLINE: Duration = Duration::from_secs(30);
 
-/// Explicit, dormant bridge from legacy snapshot records to the normalized desk owner.
-/// Callers choose it only after the all-domain activation barrier.
+/// Blocking, dormant bridge from legacy snapshots to typed desk rows; use off the async runtime.
 pub struct StorageDeskAdapter {
     storage: Storage,
 }
@@ -33,9 +32,21 @@ impl StorageDeskAdapter {
         snapshot_json: &str,
         identity_catalog_json: Option<&str>,
     ) -> Result<(), String> {
-        let snapshot = legacy_decode::decode_snapshot(snapshot_json)?;
+        let decoded = legacy_decode::decode_snapshot(snapshot_json)?;
         let identities = legacy_decode::decode_identity_catalog(identity_catalog_json)?;
-        self.import_snapshot(&snapshot, identities)
+        let mut snapshot = to_desk_snapshot(&decoded.snapshot, identities)?;
+        if snapshot.workspaces.len() != decoded.layouts.len() {
+            return Err("legacy snapshot layout count does not match workspaces".to_string());
+        }
+        for (workspace, layouts) in snapshot.workspaces.iter_mut().zip(decoded.layouts) {
+            if workspace.tabs.len() != layouts.len() {
+                return Err("legacy snapshot layout count does not match tabs".to_string());
+            }
+            for (tab, layout) in workspace.tabs.iter_mut().zip(layouts) {
+                tab.layout = layout;
+            }
+        }
+        self.import_normalized(snapshot)
     }
 
     pub fn import_snapshot(
@@ -44,6 +55,10 @@ impl StorageDeskAdapter {
         identities: Vec<DeskAgentSessionIdentity>,
     ) -> Result<(), String> {
         let normalized = to_desk_snapshot(snapshot, identities)?;
+        self.import_normalized(normalized)
+    }
+
+    fn import_normalized(&self, normalized: DeskSnapshot) -> Result<(), String> {
         self.storage
             .desk()
             .import(normalized)
@@ -67,13 +82,20 @@ impl StorageDeskAdapter {
     }
 
     pub fn snapshot(&self) -> Result<SessionSnapshot, String> {
-        let state = self
-            .storage
+        from_desk_snapshot(self.normalized_snapshot()?)
+    }
+
+    pub fn normalized_snapshot(&self) -> Result<DeskSnapshot, String> {
+        Ok(self.state()?.snapshot)
+    }
+
+    pub fn state(&self) -> Result<DeskState, String> {
+        self.storage
             .desk()
             .snapshot()
             .wait(COMPLETION_DEADLINE)
-            .map_err(|error| error.to_string())?;
-        from_desk_snapshot(state.value.snapshot)
+            .map(|state| state.value)
+            .map_err(|error| error.to_string())
     }
 
     pub fn identity_catalog(&self) -> Result<Vec<DeskAgentSessionIdentity>, String> {
@@ -99,6 +121,19 @@ impl StorageDeskAdapter {
             .map_err(|error| error.to_string())
     }
 
+    pub fn update_workspace(
+        &self,
+        record: codeterm_storage::WorkspaceRecord,
+        expected: Revision,
+    ) -> Result<Revision, String> {
+        self.storage
+            .desk()
+            .update_workspace(record, expected)
+            .wait(COMPLETION_DEADLINE)
+            .map(|committed| committed.receipt.revision)
+            .map_err(|error| error.to_string())
+    }
+
     pub fn rename_tab(
         &self,
         id: String,
@@ -108,6 +143,115 @@ impl StorageDeskAdapter {
         self.storage
             .desk()
             .rename_tab(id, expected, title)
+            .wait(COMPLETION_DEADLINE)
+            .map(|committed| committed.receipt.revision)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn rename_team(
+        &self,
+        id: String,
+        expected: Revision,
+        name: String,
+    ) -> Result<Revision, String> {
+        self.storage
+            .desk()
+            .rename_team(id, expected, name)
+            .wait(COMPLETION_DEADLINE)
+            .map(|committed| committed.receipt.revision)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn set_team_lifecycle(
+        &self,
+        id: String,
+        expected: Revision,
+        lifecycle: DeskTeamLifecycle,
+    ) -> Result<Revision, String> {
+        self.storage
+            .desk()
+            .set_team_lifecycle(id, expected, lifecycle)
+            .wait(COMPLETION_DEADLINE)
+            .map(|committed| committed.receipt.revision)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn remove_team(&self, id: String, expected: Revision) -> Result<Revision, String> {
+        self.storage
+            .desk()
+            .remove_team(id, expected)
+            .wait(COMPLETION_DEADLINE)
+            .map(|committed| committed.receipt.revision)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn select_workspace(
+        &self,
+        id: Option<String>,
+        expected: Revision,
+    ) -> Result<Revision, String> {
+        self.storage
+            .desk()
+            .select_workspace(id, expected)
+            .wait(COMPLETION_DEADLINE)
+            .map(|committed| committed.receipt.revision)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn select_tab(
+        &self,
+        workspace_id: String,
+        expected_workspace: Revision,
+        tab_id: Option<String>,
+    ) -> Result<Revision, String> {
+        self.storage
+            .desk()
+            .select_tab(workspace_id, expected_workspace, tab_id)
+            .wait(COMPLETION_DEADLINE)
+            .map(|committed| committed.receipt.revision)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn reorder_workspaces(
+        &self,
+        expected_order: Revision,
+        order: Vec<String>,
+    ) -> Result<Revision, String> {
+        self.storage
+            .desk()
+            .reorder_workspaces(expected_order, order)
+            .wait(COMPLETION_DEADLINE)
+            .map(|committed| committed.receipt.revision)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn reorder_tabs(
+        &self,
+        workspace_id: String,
+        expected_order: Revision,
+        order: Vec<String>,
+    ) -> Result<Revision, String> {
+        self.storage
+            .desk()
+            .reorder_tabs(workspace_id, expected_order, order)
+            .wait(COMPLETION_DEADLINE)
+            .map(|committed| committed.receipt.revision)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn close_tab(&self, id: String, expected: Revision) -> Result<Revision, String> {
+        self.storage
+            .desk()
+            .close_tab(id, expected)
+            .wait(COMPLETION_DEADLINE)
+            .map(|committed| committed.receipt.revision)
+            .map_err(|error| error.to_string())
+    }
+
+    pub fn close_workspace(&self, id: String, expected: Revision) -> Result<Revision, String> {
+        self.storage
+            .desk()
+            .close_workspace(id, expected)
             .wait(COMPLETION_DEADLINE)
             .map(|committed| committed.receipt.revision)
             .map_err(|error| error.to_string())

@@ -1,13 +1,98 @@
 use super::{PersistedAgentSessionIdentity, SessionSnapshot};
-use codeterm_storage::DeskAgentSessionIdentity;
+use codeterm_storage::{DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields};
 use std::collections::HashMap;
 
-pub(super) fn decode_snapshot(json: &str) -> Result<SessionSnapshot, String> {
+pub(super) struct DecodedSnapshot {
+    pub snapshot: SessionSnapshot,
+    pub layouts: Vec<Vec<DeskLayoutNode>>,
+}
+
+pub(super) fn decode_snapshot(json: &str) -> Result<DecodedSnapshot, String> {
     let mut value: serde_json::Value =
         serde_json::from_str(json).map_err(|error| error.to_string())?;
     codeterm_types::startup_records::normalize_pane_id_fields(&mut value)
         .map_err(|error| error.to_string())?;
-    serde_json::from_value(value).map_err(|error| error.to_string())
+    let snapshot = serde_json::from_value(value.clone()).map_err(|error| error.to_string())?;
+    let layouts = decode_layouts(&value)?;
+    Ok(DecodedSnapshot { snapshot, layouts })
+}
+
+fn decode_layouts(value: &serde_json::Value) -> Result<Vec<Vec<DeskLayoutNode>>, String> {
+    value
+        .get("workspaces")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "legacy snapshot has no workspace array".to_string())?
+        .iter()
+        .map(|workspace| {
+            workspace
+                .get("tabs")
+                .and_then(serde_json::Value::as_array)
+                .ok_or_else(|| "legacy workspace has no tab array".to_string())?
+                .iter()
+                .map(|tab| {
+                    let tree = tab
+                        .get("split_tree")
+                        .ok_or_else(|| "legacy tab has no split tree".to_string())?;
+                    decode_layout(tree)
+                })
+                .collect()
+        })
+        .collect()
+}
+
+fn decode_layout(value: &serde_json::Value) -> Result<DeskLayoutNode, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| "legacy layout node is not an object".to_string())?;
+    match object.get("type").and_then(serde_json::Value::as_str) {
+        Some("Leaf") => {
+            let tab_id = object
+                .get("tab_id")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "legacy layout leaf has no tab id".to_string())?
+                .to_owned();
+            let cwd = match object.get("cwd") {
+                Some(serde_json::Value::Null) | None => None,
+                Some(serde_json::Value::String(cwd)) => Some(cwd.clone()),
+                _ => return Err("legacy layout cwd is not a string or null".to_string()),
+            };
+            let mut fields = object.clone();
+            fields.remove("type");
+            fields.remove("tab_id");
+            fields.remove("cwd");
+            Ok(DeskLayoutNode::Leaf {
+                tab_id,
+                cwd,
+                fields: DeskLeafFields {
+                    values: serde_json::Value::Object(fields),
+                },
+            })
+        }
+        Some("Split") => {
+            let orientation = object
+                .get("orientation")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| "legacy split has no orientation".to_string())?
+                .to_owned();
+            let ratio = object
+                .get("ratio")
+                .and_then(serde_json::Value::as_f64)
+                .ok_or_else(|| "legacy split has no numeric ratio".to_string())?;
+            let children = object
+                .get("children")
+                .and_then(serde_json::Value::as_array)
+                .ok_or_else(|| "legacy split has no children array".to_string())?
+                .iter()
+                .map(decode_layout)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(DeskLayoutNode::Split {
+                orientation,
+                ratio,
+                children,
+            })
+        }
+        _ => Err("legacy layout node has an unknown type".to_string()),
+    }
 }
 
 pub(super) fn decode_identity_catalog(

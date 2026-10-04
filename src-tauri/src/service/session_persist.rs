@@ -181,13 +181,46 @@ mod tests {
         };
 
         adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
+        let initial = adapter.state().unwrap();
+        let workspace_revision = initial.workspace_revisions["ws-a"];
+        let committed_revision = adapter
+            .rename_workspace("ws-a".into(), workspace_revision, "Renamed".into())
+            .unwrap();
+        assert!(committed_revision > initial.revision);
+        assert!(adapter
+            .rename_workspace("ws-a".into(), workspace_revision, "Stale".into())
+            .is_err());
+        let mut backup = snapshot.clone();
+        backup.timestamp = 99;
+        backup.active_workspace_id = Some("ws-b".into());
+        backup.workspaces[0].name = "Stale backup".into();
+        backup
+            .workspaces
+            .push(crate::session::store::WorkspaceSnapshot {
+                id: "ws-b".into(),
+                name: "Restored".into(),
+                tabs: vec![],
+                active_tab_id: None,
+                cwd: None,
+                provisioned_cwd: None,
+                protected: false,
+                sort_order: 19,
+                task_keys: Default::default(),
+            });
+        adapter.additive_restore(&backup, Vec::new()).unwrap();
+        adapter.additive_restore(&backup, Vec::new()).unwrap();
         adapter.flush().unwrap();
         let restored = adapter.snapshot().unwrap();
 
         assert_eq!(restored.active_workspace_id, Some("ws-a".into()));
         assert_eq!(restored.workspaces[0].active_tab_id, None);
+        assert_eq!(restored.workspaces[0].name, "Renamed");
+        assert_eq!(restored.workspaces[0].cwd, None);
+        assert_eq!(restored.workspaces[0].provisioned_cwd, None);
         assert_eq!(restored.workspaces[0].sort_order, 8);
         assert!(restored.workspaces[0].protected);
         assert_eq!(restored.timestamp, 17);
+        assert_eq!(restored.workspaces.len(), 2);
+        assert_eq!(restored.workspaces[1].name, "Restored");
     }
 }

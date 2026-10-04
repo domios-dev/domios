@@ -142,6 +142,37 @@ pub(super) fn rename_workspace(
     bump_desk(cx)
 }
 
+pub(super) fn update_workspace(
+    cx: &mut WriteCx<'_>,
+    record: WorkspaceRecord,
+    expect: Revision,
+) -> Result<(), StorageError> {
+    record.validate()?;
+    let id = record.id.as_str();
+    let actual = workspace_revision(cx.conn, id)?;
+    expect_matches(&format!("workspace {id}"), Expect::At(expect), actual)?;
+    let revision = sql_revision(cx)?;
+    cx.write(
+        "UPDATE workspaces SET name = ?2, cwd = ?3, provisioned_cwd = ?4, protected = ?5, \
+         task_key_prefix = ?6, task_key_next = ?7, revision = ?8 WHERE id = ?1",
+        params![
+            id,
+            record.name,
+            record.cwd,
+            record.provisioned_cwd,
+            record.protected,
+            record.task_key_prefix,
+            to_sql_u64("workspace task key counter", record.task_key_next)?,
+            revision
+        ],
+    )?;
+    cx.write(
+        "UPDATE desk_workspace_state SET revision = ?2 WHERE workspace_id = ?1",
+        params![id, revision],
+    )?;
+    bump_desk(cx)
+}
+
 pub(super) fn rename_tab(
     cx: &mut WriteCx<'_>,
     id: &str,
@@ -157,6 +188,46 @@ pub(super) fn rename_tab(
     cx.write(
         "UPDATE desk_tabs SET title = ?2, revision = ?3 WHERE id = ?1",
         params![id, title, revision],
+    )?;
+    bump_desk(cx)
+}
+
+pub(super) fn rename_team(
+    cx: &mut WriteCx<'_>,
+    id: &str,
+    expect: Revision,
+    name: String,
+) -> Result<(), StorageError> {
+    if id.is_empty() || name.len() > 1024 {
+        return Err(StorageError::invalid("Team rename", "invalid id or name"));
+    }
+    let actual = team_revision(cx.conn, id)?;
+    expect_matches(&format!("Team {id}"), Expect::At(expect), actual)?;
+    let revision = sql_revision(cx)?;
+    cx.write(
+        "UPDATE desk_teams SET name = ?2, revision = ?3 WHERE id = ?1",
+        params![id, name, revision],
+    )?;
+    bump_desk(cx)
+}
+
+pub(super) fn set_team_lifecycle(
+    cx: &mut WriteCx<'_>,
+    id: &str,
+    expect: Revision,
+    lifecycle: super::records::DeskTeamLifecycle,
+) -> Result<(), StorageError> {
+    let actual = team_revision(cx.conn, id)?;
+    expect_matches(&format!("Team {id}"), Expect::At(expect), actual)?;
+    let lifecycle = match lifecycle {
+        super::records::DeskTeamLifecycle::Forming => "forming",
+        super::records::DeskTeamLifecycle::Active => "active",
+        super::records::DeskTeamLifecycle::Closing => "closing",
+    };
+    let revision = sql_revision(cx)?;
+    cx.write(
+        "UPDATE desk_teams SET lifecycle = ?2, revision = ?3 WHERE id = ?1",
+        params![id, lifecycle, revision],
     )?;
     bump_desk(cx)
 }
@@ -246,20 +317,27 @@ pub(super) fn close_tab(
 ) -> Result<(), StorageError> {
     let actual = tab_revision(cx.conn, id)?;
     expect_matches(&format!("tab {id}"), Expect::At(expect), actual)?;
-    let workspace_id: String = cx
+    let (workspace_id, ordinal, active_tab_id): (String, i64, Option<String>) = cx
         .conn
         .query_row(
-            "SELECT workspace_id FROM desk_tabs WHERE id = ?1",
+            "SELECT t.workspace_id, t.ordinal, s.active_tab_id \
+             FROM desk_tabs t JOIN desk_workspace_state s ON s.workspace_id = t.workspace_id \
+             WHERE t.id = ?1",
             [id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .map_err(|error| sqlite_error("read tab workspace", error))?;
+    let active_tab_after = if active_tab_id.as_deref() == Some(id) {
+        adjacent_tab(cx.conn, &workspace_id, id, ordinal)?
+    } else {
+        active_tab_id
+    };
     let revision = sql_revision(cx)?;
     cx.write("DELETE FROM desk_tabs WHERE id = ?1", [id])?;
     cx.write(
-        "UPDATE desk_workspace_state SET active_tab_id = CASE WHEN active_tab_id = ?2 THEN NULL ELSE active_tab_id END, \
-         revision = ?3, tab_order_revision = ?3 WHERE workspace_id = ?1",
-        params![workspace_id, id, revision],
+        "UPDATE desk_workspace_state SET active_tab_id = ?2, revision = ?3, \
+         tab_order_revision = ?3 WHERE workspace_id = ?1",
+        params![workspace_id, active_tab_after, revision],
     )?;
     bump_desk(cx)
 }
@@ -339,12 +417,32 @@ pub(super) fn close_workspace(
 ) -> Result<(), StorageError> {
     let actual = workspace_revision(cx.conn, id)?;
     expect_matches(&format!("workspace {id}"), Expect::At(expect), actual)?;
+    let active_workspace_id: Option<String> = cx
+        .conn
+        .query_row(
+            "SELECT active_workspace_id FROM desk_meta WHERE singleton = 1",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|error| sqlite_error("read active workspace before close", error))?;
+    let active_workspace_after = if active_workspace_id.as_deref() == Some(id) {
+        cx.conn
+            .query_row(
+                "SELECT id FROM workspaces WHERE id <> ?1 ORDER BY ordinal LIMIT 1",
+                [id],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|error| sqlite_error("select active workspace after close", error))?
+    } else {
+        active_workspace_id
+    };
     let revision = sql_revision(cx)?;
     cx.write("DELETE FROM workspaces WHERE id = ?1", [id])?;
     cx.write(
-        "UPDATE desk_meta SET active_workspace_id = CASE WHEN active_workspace_id = ?1 THEN NULL ELSE active_workspace_id END, \
-         workspace_order_revision = ?2 WHERE singleton = 1",
-        params![id, revision],
+        "UPDATE desk_meta SET active_workspace_id = ?1, workspace_order_revision = ?2 \
+         WHERE singleton = 1",
+        params![active_workspace_after, revision],
     )?;
     schema::write_meta(cx.conn, WORKSPACE_ORDER_REVISION, cx.revision.0)?;
     bump_desk(cx)
@@ -597,6 +695,24 @@ fn tab_order(conn: &Connection, workspace_id: &str) -> Result<Vec<String>, Stora
         "SELECT id FROM desk_tabs WHERE workspace_id = ?1 ORDER BY ordinal",
         workspace_id,
     )
+}
+
+fn adjacent_tab(
+    conn: &Connection,
+    workspace_id: &str,
+    closed_tab_id: &str,
+    closed_ordinal: i64,
+) -> Result<Option<String>, StorageError> {
+    conn.query_row(
+        "SELECT id FROM desk_tabs WHERE workspace_id = ?1 AND id <> ?2 \
+         ORDER BY CASE WHEN ordinal >= ?3 THEN 0 ELSE 1 END, \
+         CASE WHEN ordinal >= ?3 THEN ordinal END ASC, \
+         CASE WHEN ordinal < ?3 THEN ordinal END DESC LIMIT 1",
+        params![workspace_id, closed_tab_id, closed_ordinal],
+        |row| row.get(0),
+    )
+    .optional()
+    .map_err(|error| sqlite_error("select active tab after close", error))
 }
 
 fn workspace_order(conn: &Connection) -> Result<Vec<String>, StorageError> {
