@@ -37,6 +37,8 @@ pub struct ChatSendStatus {
     /// on NormalizedChatMessage. Absent when the send carried none — never synthesized.
     #[serde(rename = "correlationId", skip_serializing_if = "Option::is_none")]
     pub correlation_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pending_reason: Option<String>,
 }
 
 /// Capability-based append-window boundary captured at send start.
@@ -154,6 +156,7 @@ impl ChatSendLedger {
             sequence: record.ledger_sequence,
             retained_from: record.ledger_sequence,
             correlation_id: record.client_token.clone(),
+            pending_reason: None,
         };
         state.owned.insert(record.send_id.clone(), (record.authority.clone(), false));
         let latest_sequence = state.latest_by_tab.get(&status.tab_id)
@@ -287,6 +290,7 @@ impl ChatSendLedger {
             sequence,
             retained_from: sequence,
             correlation_id: None,
+            pending_reason: None,
         };
         state
             .latest_by_tab
@@ -335,24 +339,36 @@ impl ChatSendLedger {
         result: Result<(), String>,
     ) -> Option<ChatSendStatus> {
         let mut state = self.state.lock();
-        let result = if state.owned.contains_key(send_id) { Ok(()) } else { result };
+        let user_owned = state.owned.contains_key(send_id);
+        let result = if user_owned { Ok(()) } else { result };
         let failed_tab = {
             let status = state.by_id.get_mut(send_id)?;
             // Exact turn evidence already proved delivery — a late transport
             // classification must never downgrade it back to a false failure.
             match result {
-                _ if status.state == ChatSendState::Sent => None,
+                _ if status.state == ChatSendState::Sent => {
+                    status.pending_reason = None;
+                    None
+                }
+                _ if user_owned && status.pending_reason.is_some() => {
+                    status.state = ChatSendState::Pending;
+                    status.error = None;
+                    None
+                }
                 Ok(()) => {
+                    status.pending_reason = None;
                     status.state = ChatSendState::Unknown;
                     status.error = None;
                     None
                 }
                 Err(error) if error.starts_with("submit_unconfirmed:") => {
+                    status.pending_reason = None;
                     status.state = ChatSendState::Unknown;
                     status.error = None;
                     None
                 }
                 Err(error) => {
+                    status.pending_reason = None;
                     status.state = ChatSendState::Failed;
                     status.error = Some(error);
                     Some(status.tab_id.clone())
@@ -365,6 +381,25 @@ impl ChatSendLedger {
                 .insert(tab_id, send_id.to_string());
         }
         let status = state.by_id.get(send_id).cloned()?;
+        Some(Self::with_retention_window(&state, status))
+    }
+
+    pub(crate) fn set_user_pending_reason(
+        &self,
+        send_id: &str,
+        reason: Option<&str>,
+    ) -> Option<ChatSendStatus> {
+        let mut state = self.state.lock();
+        let status = state.by_id.get_mut(send_id)?;
+        if matches!(status.state, ChatSendState::Sent | ChatSendState::Failed) {
+            return None;
+        }
+        let reason = reason.map(str::to_string);
+        if status.pending_reason == reason {
+            return None;
+        }
+        status.pending_reason = reason;
+        let status = status.clone();
         Some(Self::with_retention_window(&state, status))
     }
 
@@ -515,6 +550,7 @@ impl ChatSendLedger {
             }
             status.state = ChatSendState::Sent;
             status.error = None;
+            status.pending_reason = None;
         }
         state
             .latest_failure_by_tab

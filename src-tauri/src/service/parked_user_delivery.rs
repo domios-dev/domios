@@ -43,6 +43,19 @@ pub(crate) enum UserDrain {
     ZeroWriteRefusal { dispatch_generation: u64 },
 }
 
+type UserReadiness = super::supporter_tab_state::UserDeliveryReadiness;
+
+fn supporter_pending_reason(error: &str) -> &'static str {
+    match error {
+        "supporter_adapter_unavailable" => "supporter_adapter_unavailable",
+        "supporter_observation_not_queued" => "supporter_observation_not_queued",
+        "supporter_observation_deadline" => "supporter_observation_deadline",
+        "supporter_observation_cancelled" => "supporter_observation_cancelled",
+        "supporter_observation_unavailable" => "supporter_observation_unavailable",
+        _ => "supporter_observation_capture_unavailable",
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UserWake {
     Readiness,
@@ -72,14 +85,78 @@ impl super::ServiceContext {
         if owner.revoked.load(Ordering::Acquire) || owner.failed.load(Ordering::Acquire) { return false; }
         let mux = self.mux.read();
         mux.get_tab(&authority.tab_id).is_some_and(|tab| {
-            matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty)
-                && tab.pty_id.as_deref() == Some(authority.pty_id.as_str())
-                && tab.session_binding_nonce.as_deref() == Some(authority.binding_nonce.as_str())
-                && tab.agent_type.as_deref() == Some(authority.provider_id.as_str())
+            self.user_authority_matches_launch(tab, authority)
                 && tab.launch_session_authenticated()
                 && authority.session_id.as_deref().is_none_or(|session| tab.agent_session_id.as_deref() == Some(session))
                 && matches!(tab.boot_stage, Some(codeterm_types::pty::BootStage::AgentReady | codeterm_types::pty::BootStage::PtyReattached))
         })
+    }
+
+    fn user_authority_matches_launch(
+        &self,
+        tab: &crate::multiplexer::types::Tab,
+        authority: &UserSendAuthority,
+    ) -> bool {
+        matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty)
+            && tab.pty_id.as_deref() == Some(authority.pty_id.as_str())
+            && tab.session_binding_nonce.as_deref() == Some(authority.binding_nonce.as_str())
+            && tab.agent_type.as_deref() == Some(authority.provider_id.as_str())
+            && authority.observed_session_id.as_deref()
+                .is_none_or(|session| tab.agent_session_id.as_deref() == Some(session))
+    }
+
+    fn pending_user_send(&self, record: &UserSendRecord, reason: &str) -> UserDrain {
+        log::warn!(
+            "[chat-send] user owner pending tab={} send_id={} reason={reason}",
+            record.authority.tab_id,
+            record.send_id,
+        );
+        if let Some(status) = self.chat_send_ledger.set_user_pending_reason(&record.send_id, Some(reason)) {
+            crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+        }
+        UserDrain::Idle
+    }
+
+    fn clear_user_pending_reason(&self, record: &UserSendRecord) {
+        if let Some(status) = self.chat_send_ledger.set_user_pending_reason(&record.send_id, None) {
+            crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+        }
+    }
+
+    fn user_readiness_fallback(
+        &self,
+        authority: &UserSendAuthority,
+    ) -> Result<UserReadiness, &'static str> {
+        let (same_launch, binding_authenticated) = {
+            let mux = self.mux.read();
+            mux.get_tab(&authority.tab_id).map_or((false, false), |tab| {
+                (self.user_authority_matches_launch(tab, authority), tab.launch_session_authenticated())
+            })
+        };
+        if !same_launch { return Err("launch_generation_changed"); }
+        if binding_authenticated { return Err("exact_binding_present_stage_pending"); }
+        if authority.observed_session_id.is_none() { return Err("resume_session_unknown"); }
+        let first = self
+            .observe_user_delivery_readiness(&authority.tab_id, None)
+            .map_err(|error| supporter_pending_reason(&error))?;
+        if let Some(reason) = first.pending_reason() { return Err(reason); }
+        if !self.user_delivery_observation_is_current(&first) {
+            return Err("supporter_first_observation_stale");
+        }
+        let second = self
+            .observe_user_delivery_readiness(&authority.tab_id, Some(&first))
+            .map_err(|error| supporter_pending_reason(&error))?;
+        let pair = UserReadiness::new(first, second).map_err(|reason| reason)?;
+        let current_launch = {
+            let mux = self.mux.read();
+            mux.get_tab(&authority.tab_id)
+                .is_some_and(|tab| self.user_authority_matches_launch(tab, authority))
+        };
+        if !current_launch { return Err("launch_generation_changed"); }
+        if !self.user_delivery_observation_is_current(pair.current_observation()) {
+            return Err("supporter_second_observation_stale");
+        }
+        Ok(pair)
     }
 
     pub(crate) fn park_refused_user_send(&self, tab_id: &str, send_id: &str, text: &str, error: &DeliveryError) {
@@ -143,48 +220,66 @@ impl super::ServiceContext {
 
     pub(crate) fn drain_user_owner(&self, tab_id: &str) -> Result<UserDrain, String> {
         if self.pending_delivery_payloads.user_sends.tab(tab_id).revoked.load(Ordering::Acquire) {
+            if let Some(head) = self.pending_delivery_payloads.user_sends.head(tab_id)? {
+                return Ok(self.pending_user_send(&head, "owner_revoked"));
+            }
             return Ok(UserDrain::Idle);
         }
         if let Err(outcome) = self.deliver_parked_bootstrap_record(tab_id) { return Ok(outcome); }
-        self.drain_user_owner_with(tab_id, |record, text| self.submit_owned_user(record, text))
+        self.drain_user_owner_with(tab_id, |record, text, readiness| self.submit_owned_user(record, text, readiness))
     }
 
     fn drain_user_owner_with(
         &self,
         tab_id: &str,
-        mut submit: impl FnMut(&UserSendRecord, &str) -> Result<(), DeliveryError>,
+        mut submit: impl FnMut(&UserSendRecord, &str, Option<&UserReadiness>) -> Result<(), DeliveryError>,
     ) -> Result<UserDrain, String> {
         let store = &self.pending_delivery_payloads.user_sends;
         for _ in 0..super::pending_delivery_payloads::user_sends::MAX_UNSETTLED * 2 {
             let Some(head) = store.head(tab_id)? else { return Ok(UserDrain::Idle); };
-            if !self.user_authority_is_ready(&head.authority) { return Ok(UserDrain::Idle); }
+            if !self.user_authority_is_ready(&head.authority) && head.state == UserSendState::Uncertain {
+                return Ok(self.pending_user_send(&head, "exact_binding_required_for_uncertain_send"));
+            }
+            let readiness = if self.user_authority_is_ready(&head.authority) {
+                None
+            } else {
+                match self.user_readiness_fallback(&head.authority) {
+                    Ok(readiness) => Some(readiness),
+                    Err(reason) => return Ok(self.pending_user_send(&head, reason)),
+                }
+            };
             if head.state == UserSendState::Uncertain {
                 self.reconcile_chat_send_evidence(tab_id);
                 let current_session = self.mux.read().get_tab(tab_id).and_then(|tab| tab.agent_session_id.clone());
                 if current_session != head.handoff_session || !head.cycle_settled
                     || !self.chat_send_ledger.user_confirmed(&head.send_id) || !store.complete(&head)? {
-                    return Ok(UserDrain::Idle);
+                    return Ok(self.pending_user_send(&head, "uncertain_handoff_requires_exact_turn_evidence"));
                 }
                 self.chat_send_ledger.release_user(&head.send_id);
                 continue;
             }
-            if !store.eligible(&head) { return Ok(UserDrain::Idle); }
+            if !store.eligible(&head) { return Ok(self.pending_user_send(&head, "owner_head_not_eligible")); }
             let text = store.prepared(&head)?;
             let evidence = self.chat_send_anchor(tab_id);
-            let Some(binding) = evidence.live_binding.as_ref() else { return Ok(UserDrain::Idle); };
-            let Some(session) = binding.session_id.as_deref() else { return Ok(UserDrain::Idle); };
+            let Some(binding) = evidence.live_binding.as_ref() else { return Ok(self.pending_user_send(&head, "session_binding_missing")); };
+            let Some(session) = binding.session_id.as_deref() else { return Ok(self.pending_user_send(&head, "resume_session_unknown")); };
             if evidence.anchor.as_ref().is_some_and(|anchor| anchor.provider_id != head.authority.provider_id)
                 || binding.binding_nonce.as_deref() != Some(head.authority.binding_nonce.as_str())
-                || !self.user_authority_is_ready(&head.authority) { return Ok(UserDrain::Idle); }
+                || head.authority.observed_session_id.as_deref().is_some_and(|expected| expected != session)
+                || (!self.user_authority_is_ready(&head.authority)
+                    && readiness.as_ref().is_none_or(|receipt| !self.user_readiness_is_current(&head.authority, receipt))) {
+                return Ok(self.pending_user_send(&head, "launch_binding_changed_before_claim"));
+            }
             let turn_text = format!("{text}{}", head.typed_follow_up.as_deref().unwrap_or_default());
-            if !store.claim(&head, session)? { return Ok(UserDrain::Idle); }
+            if !store.claim(&head, session)? { return Ok(self.pending_user_send(&head, "owner_head_claim_refused")); }
             if !self.chat_send_ledger.begin_user_handoff(&head, &turn_text, evidence) {
                 return Err("persisted handoff has no joined ledger admission; held uncertainty".into());
             }
+            self.clear_user_pending_reason(&head);
             let claimed = store.head(tab_id)?.ok_or("durable user claim disappeared")?;
             let dispatch_generation = store.tab(tab_id).dispatch_generation.load(Ordering::Acquire);
-            let outcome = if self.user_authority_is_ready(&claimed.authority) {
-                submit(&claimed, &text)
+            let outcome = if self.user_send_readiness_is_current(&claimed.authority, readiness.as_ref()) {
+                submit(&claimed, &text, readiness.as_ref())
             } else {
                 Err(DeliveryError::TabBusyRefused { tab: tab_id.to_string(), detail: "user owner authority revoked before handoff".into() })
             };
@@ -338,15 +433,42 @@ impl super::ServiceContext {
         self.send_chat_text_claimed(tab_id, text, None)
     }
 
-    fn submit_owned_user(&self, record: &UserSendRecord, text: &str) -> Result<(), DeliveryError> {
+    fn user_readiness_is_current(&self, authority: &UserSendAuthority, readiness: &UserReadiness) -> bool {
+        self.user_authority_matches_launch_current(authority)
+            && self.user_delivery_observation_is_current(readiness.current_observation())
+    }
+
+    fn user_send_readiness_is_current(
+        &self,
+        authority: &UserSendAuthority,
+        readiness: Option<&UserReadiness>,
+    ) -> bool {
+        self.user_authority_is_ready(authority)
+            || readiness.is_some_and(|readiness| self.user_readiness_is_current(authority, readiness))
+    }
+
+    fn user_authority_matches_launch_current(&self, authority: &UserSendAuthority) -> bool {
+        let owner = self.pending_delivery_payloads.user_sends.tab(&authority.tab_id);
+        !owner.revoked.load(Ordering::Acquire)
+            && !owner.failed.load(Ordering::Acquire)
+            && self.mux.read().get_tab(&authority.tab_id)
+                .is_some_and(|tab| self.user_authority_matches_launch(tab, authority))
+    }
+
+    fn submit_owned_user(
+        &self,
+        record: &UserSendRecord,
+        text: &str,
+        readiness: Option<&UserReadiness>,
+    ) -> Result<(), DeliveryError> {
+        let authority = &record.authority;
+        let tab_id = authority.tab_id.as_str();
+        if !self.user_send_readiness_is_current(authority, readiness) {
+            return Err(DeliveryError::TabBusyRefused { tab: tab_id.into(), detail: "user owner is not ready for this launch".into() });
+        }
         // Resolved after readiness was observed, so a hook installed before readiness is never missed.
         #[cfg(test)]
         if let Some(boundary) = tests::submit_boundary(&record.authority.tab_id) { return boundary(record, text); }
-        let authority = &record.authority;
-        let tab_id = authority.tab_id.as_str();
-        if !self.user_authority_is_ready(authority) {
-            return Err(DeliveryError::TabBusyRefused { tab: tab_id.into(), detail: "user owner is not ready for this launch".into() });
-        }
         let permit = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id).ok_or_else(|| DeliveryError::TabBusyRefused {
@@ -356,7 +478,8 @@ impl super::ServiceContext {
                 || tab.session_binding_nonce.as_deref() != Some(authority.binding_nonce.as_str())
                 || tab.agent_session_id != record.handoff_session
                 || tab.agent_type.as_deref() != Some(authority.provider_id.as_str())
-                || !tab.launch_session_authenticated()
+                || (!tab.launch_session_authenticated()
+                    && readiness.is_none_or(|readiness| !self.user_readiness_is_current(authority, readiness)))
                 || self.pending_delivery_payloads.user_sends.tab(tab_id).revoked.load(Ordering::Acquire) {
                 return Err(DeliveryError::TabBusyRefused { tab: tab_id.into(), detail: "user owner launch changed".into() });
             }
@@ -369,14 +492,29 @@ impl super::ServiceContext {
         let track_turn = !text.is_empty() && matches!(&strategy, crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. });
         let session_matches = self.mux.read().get_tab(tab_id)
             .is_some_and(|tab| tab.agent_session_id == record.handoff_session);
-        if !self.user_authority_is_ready(authority) || !session_matches {
+        if !self.user_send_readiness_is_current(authority, readiness) || !session_matches {
             return Err(DeliveryError::TabBusyRefused { tab: tab_id.into(), detail: "user owner revoked before submit cycle".into() });
         }
         let claim = super::pty_io::submit_transaction::claim_submit_cycle(&authority.pty_id);
-        super::pty_io::submit_transaction::submit_text_with_key_claimed_and_follow_up(
+        if !self.user_send_readiness_is_current(authority, readiness) {
+            return Err(DeliveryError::TabBusyRefused { tab: tab_id.into(), detail: "user owner readiness changed before payload write".into() });
+        }
+        let service = self.clone();
+        let authority = authority.clone();
+        let pending_record = record.clone();
+        let readiness = readiness.cloned().map(std::sync::Arc::new);
+        let pre_write_guard: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
+            std::sync::Arc::new(move || {
+                let current = service.user_send_readiness_is_current(&authority, readiness.as_deref());
+                if !current {
+                    service.pending_user_send(&pending_record, "readiness_changed_before_payload_write");
+                }
+                current
+            });
+        super::pty_io::submit_transaction::submit_text_with_key_claimed_and_follow_up_revalidated(
             self, &authority.pty_id, text, record.typed_follow_up.as_deref(), true, b"\r", strategy,
             super::inject_verify::VerifyOpts { require_prompt_first: false, verify_echo: true, verify_submit: true, ..Default::default() },
-            Some(permit), track_turn, claim,
+            Some(permit), track_turn, claim, Some(pre_write_guard),
         ).and_then(|result| {
             let elapsed = result.elapsed;
             result.require_submission(track_turn, elapsed, String::new()).map(|_| ())

@@ -647,8 +647,8 @@ pub(crate) fn registered_launch_marker(tab_id: &str) -> Option<String> {
 }
 
 impl ServiceContext {
-    /// One detection per tab at a time. Detection itself refuses a bound tab,
-    /// and the commit refuses a launch the tab has since rotated.
+    /// One detection per tab at a time. A live current-PTY provider record can
+    /// re-authenticate a restored session after its launch nonce has rotated.
     pub(crate) fn detect_unbound_launch_session(&self, tab_id: &str) {
         if !IN_FLIGHT.lock().insert(tab_id.to_string()) {
             return;
@@ -674,7 +674,7 @@ impl ServiceContext {
         let (provider_id, pty_id, binding_nonce, cwd, launched_at_ms) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id)?;
-            if tab.agent_session_id.is_some() {
+            if tab.launch_session_authenticated() {
                 return None;
             }
             let launched_at_ms = tab

@@ -73,6 +73,10 @@ pub(crate) const ERROR_LOOP: &str = "error_loop";
 pub(crate) const OTHER: &str = "other";
 pub(crate) const STILL_STARTING: &str = "still_starting";
 
+#[cfg(test)]
+#[path = "supporter_tab_state/user_delivery_readiness_tests.rs"]
+mod user_delivery_readiness_tests;
+
 const CRITERIA_JSON: &str = include_str!("../../../evals/tab-state-jev/criteria.json");
 const SPAWN_OK_LINE: &str = "spawn ok";
 const WEAK_HINT_PREFIX: &str = "Tab-state hint";
@@ -101,6 +105,7 @@ pub(crate) enum ObservationTrigger {
     WorkerIdle,
     BusyNoOutput,
     TabExit,
+    UserDeliveryReadiness,
 }
 
 impl ObservationTrigger {
@@ -117,6 +122,7 @@ impl ObservationTrigger {
             Self::WorkerIdle => ObservationEvent::WorkerIdle,
             Self::BusyNoOutput => ObservationEvent::BusyNoOutput,
             Self::TabExit => ObservationEvent::TabExit,
+            Self::UserDeliveryReadiness => ObservationEvent::PromptCandidate,
         }
     }
 
@@ -133,6 +139,7 @@ impl ObservationTrigger {
             Self::WorkerIdle => "worker_idle_without_report",
             Self::BusyNoOutput => "busy_without_output",
             Self::TabExit => "tab_exit",
+            Self::UserDeliveryReadiness => "user_delivery_readiness",
         }
     }
 
@@ -200,6 +207,8 @@ pub(crate) struct ShadowVerdict {
     pub(crate) label: String,
     pub(crate) confidence: f64,
     pub(crate) prompt_visible: f64,
+    pub(crate) reported_prompt_visible: f64,
+    pub(crate) input_area: Option<(String, f64)>,
     pub(crate) safe_choice: Option<(String, f64)>,
     pub(crate) action: SignalAction,
     pub(crate) classified_frame_hash: u64,
@@ -607,6 +616,30 @@ impl ServiceContext {
         );
     }
 
+    pub(crate) fn observe_user_delivery_readiness(
+        &self,
+        tab_id: &str,
+        previous: Option<&UserDeliveryObservation>,
+    ) -> Result<UserDeliveryObservation, String> {
+        let expected_local = previous
+            .and_then(|observation| observation.metadata.envelope.as_ref())
+            .and_then(|envelope| envelope.local.as_ref());
+        observer::observe_user_delivery_readiness(self, tab_id, expected_local)
+    }
+
+    pub(crate) fn user_delivery_observation_is_current(
+        &self,
+        observation: &UserDeliveryObservation,
+    ) -> bool {
+        observation.decided_by == identity::DecisionSource::Adapter
+            && self.connection_is_current(&observation.adapter_id)
+            && self
+                .supporter_models()
+                .get(&observation.adapter_id)
+                .is_some_and(|current| Arc::ptr_eq(&current, &observation.adapter))
+            && self.observation_is_current(&observation.tab_id, &observation.metadata)
+    }
+
     pub(crate) fn capture_exit_tab_observation(
         &self,
         tab_id: &str,
@@ -710,6 +743,119 @@ impl ServiceContext {
             "worker_idle_without_report",
         );
     }
+}
+
+#[derive(Clone)]
+pub(crate) struct UserDeliveryObservation {
+    pub(crate) tab_id: String,
+    pub(crate) adapter_id: String,
+    adapter: Arc<dyn DecisionModel>,
+    pub(crate) observation_id: u64,
+    pub(crate) decided_by: identity::DecisionSource,
+    pub(crate) metadata: TabStateMetadata,
+    pub(crate) verdict: ShadowVerdict,
+}
+
+#[derive(Clone)]
+pub(crate) struct UserDeliveryReadiness {
+    observations: [UserDeliveryObservation; 2],
+}
+
+impl UserDeliveryReadiness {
+    pub(crate) fn new(
+        first: UserDeliveryObservation,
+        second: UserDeliveryObservation,
+    ) -> Result<Self, &'static str> {
+        if first.observation_id == second.observation_id {
+            return Err("observations_not_distinct");
+        }
+        let first_local = first.metadata.envelope.as_ref().and_then(|envelope| envelope.local.as_ref());
+        let second_local = second.metadata.envelope.as_ref().and_then(|envelope| envelope.local.as_ref());
+        if first.tab_id != second.tab_id
+            || first.adapter_id != second.adapter_id
+            || !Arc::ptr_eq(&first.adapter, &second.adapter)
+            || !user_delivery_pair_has_same_generation(
+                first.observation_id,
+                second.observation_id,
+                first_local,
+                second_local,
+            )
+        {
+            return Err("observation_generation_changed");
+        }
+        if !first.qualifies() || !second.qualifies() {
+            return Err(first
+                .pending_reason()
+                .or_else(|| second.pending_reason())
+                .unwrap_or("supporter_verdict_not_ready_idle"));
+        }
+        Ok(Self { observations: [first, second] })
+    }
+
+    pub(crate) fn current_observation(&self) -> &UserDeliveryObservation {
+        &self.observations[1]
+    }
+}
+
+fn user_delivery_pair_has_same_generation(
+    first_id: u64,
+    second_id: u64,
+    first: Option<&identity::LocalIdentity>,
+    second: Option<&identity::LocalIdentity>,
+) -> bool {
+    first_id != second_id && first.zip(second).is_some_and(|(first, second)| first == second)
+}
+
+impl UserDeliveryObservation {
+    pub(crate) fn qualifies(&self) -> bool {
+        self.pending_reason().is_none()
+    }
+
+    pub(crate) fn pending_reason(&self) -> Option<&'static str> {
+        let source_reason = match self.decided_by {
+            identity::DecisionSource::Adapter => None,
+            identity::DecisionSource::NoAdapter => Some("supporter_no_adapter"),
+            identity::DecisionSource::Timeout => Some("supporter_timeout"),
+            identity::DecisionSource::Error => Some("supporter_error"),
+            identity::DecisionSource::Budget => Some("supporter_budget"),
+            identity::DecisionSource::Other => Some("supporter_other"),
+            identity::DecisionSource::LowConfidence => Some("supporter_low_confidence"),
+        };
+        source_reason
+            .or_else(|| (self.verdict.label != READY_IDLE).then_some("supporter_verdict_not_ready_idle"))
+            .or_else(|| (self.verdict.confidence < 0.90).then_some("supporter_confidence_below_threshold"))
+            .or_else(|| {
+                (self.verdict.reported_prompt_visible > 0.10).then_some("supporter_prompt_visible")
+            })
+            .or_else(|| {
+                self.verdict.input_area.as_ref().map_or(
+                    Some("supporter_input_area_unavailable"),
+                    |(area, confidence)| {
+                        if area != "composer" {
+                            Some("supporter_input_area_not_composer")
+                        } else if *confidence < 0.90 {
+                            Some("supporter_input_area_low_confidence")
+                        } else {
+                            None
+                        }
+                    },
+                )
+            })
+    }
+}
+
+fn user_delivery_verdict_qualifies(
+    decided_by: identity::DecisionSource,
+    label: &str,
+    confidence: f64,
+    prompt_visible: f64,
+    input_area: Option<(&str, f64)>,
+) -> bool {
+    decided_by == identity::DecisionSource::Adapter
+        && label == READY_IDLE
+        && confidence >= 0.90
+        && prompt_visible <= 0.10
+        && input_area.is_some_and(|(area, confidence)| area == "composer" && confidence >= 0.90)
 }
 
 pub(crate) fn screen_tail(text: &str) -> String {

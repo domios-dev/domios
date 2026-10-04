@@ -421,6 +421,46 @@ fn settled_listener(fixture: &ServiceFixture, tab: &str) -> (tauri::EventId, mps
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
+fn restored_head_waits_with_reason_then_writes_once_after_current_nonce_binding() {
+    let (fixture, tab) = queue_fixture(true, None);
+    {
+        let mut mux = fixture.service.mux.write();
+        let restored = mux.get_tab_mut(&tab).unwrap();
+        restored.boot_stage = Some(codeterm_types::pty::BootStage::LaunchWritten);
+        restored.session_binding_nonce = Some("nonce-restored-current".into());
+        restored.reported_session_binding_nonce = Some("nonce-before-restore".into());
+        restored.agent_session_id = Some("opaque-session".into());
+    }
+    let accepted = admit_current_ledger(&fixture.service, &tab, FIRST_PAYLOAD, "restored-client");
+    refuse_and_park_current_send(&fixture.service, accepted.clone(), FIRST_PAYLOAD);
+    let writes = Arc::new(AtomicUsize::new(0));
+    let count = writes.clone();
+    let _submit = UserSubmitBoundary::install(&tab, Arc::new(move |_, _| {
+        count.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }));
+
+    fixture.service.drain_user_owner(&tab).unwrap();
+    let pending = fixture.service.chat_send_ledger.status(&accepted.send_id).unwrap();
+    assert_eq!(pending.state, ChatSendState::Unknown);
+    assert!(pending.pending_reason.is_some());
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
+
+    mark_ready(&fixture, &tab);
+    fixture.service.drain_user_owner(&tab).unwrap();
+    fixture.service.drain_user_owner(&tab).unwrap();
+
+    assert_eq!(writes.load(Ordering::SeqCst), 1);
+    let settled = fixture.service.chat_send_ledger.status(&accepted.send_id).unwrap();
+    assert_eq!(settled.state, ChatSendState::Unknown);
+    assert_eq!(settled.pending_reason, None);
+    let record = fixture.service.pending_delivery_payloads.user_sends.head(&tab).unwrap().unwrap();
+    assert_eq!(record.state, UserSendState::Uncertain);
+    assert!(record.cycle_settled);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
 fn ordered_owner_joins_exact_append_evidence_and_cycle_settlement_before_tail() {
     let (fixture, tab) = queue_fixture(true, None);
     append_turn(&fixture, "opaque-equal");
