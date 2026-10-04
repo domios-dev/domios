@@ -489,6 +489,8 @@ test("an admission receipt clears only the unchanged draft and attachments", asy
   const h = await renderComposer(tabId, {
     attachments: ["/opaque/attachment-unchanged.txt"], send: () => admission.promise,
   });
+  const composerValue = () => h.el.value;
+  const statusCount = () => h.statuses.length;
   try {
     const text = "opaque-unchanged-draft";
     setDomValue(h.el, text);
@@ -496,14 +498,14 @@ test("an admission receipt clears only the unchanged draft and attachments", asy
     await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13 }));
     await flush();
     assert(h.sendCalls.length === 1, "one request reached the real composer transport");
-    assert(h.el.value === text, "pending admission retains the unsaved draft");
+    assert(composerValue() === text, "pending admission retains the unsaved draft");
     assert(h.attachments().length === 1, "pending admission retains its attachment");
-    assert(h.statuses.length === 0, "pending transport supplies no receipt");
+    assert(statusCount() === 0, "pending transport supplies no receipt");
     await act(async () => admission.resolve(acceptedStatus(tabId)));
     await flush();
-    assert(h.el.value === "", "the admitted unchanged draft clears");
+    assert(composerValue() === "", "the admitted unchanged draft clears");
     assert(h.attachments().length === 0, "the admitted unchanged attachment clears");
-    assert(h.statuses.length === 1, "exactly one actual acceptance is observed");
+    assert(statusCount() === 1, "exactly one actual acceptance is observed");
   } finally {
     admission.resolve(acceptedStatus(tabId));
     await teardown(h);
