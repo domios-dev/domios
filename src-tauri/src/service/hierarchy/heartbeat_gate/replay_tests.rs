@@ -65,6 +65,13 @@ impl DecisionModel for FixtureModel {
     }
 }
 
+/// Plan projection, worker health and learnings: the state an accepted reminder
+/// leaves unchanged when it only moves the delta baseline.
+fn absolute_state(snapshot: &Snapshot) -> Value {
+    let health: Vec<_> = snapshot.workers.iter().map(Worker::health).collect();
+    json!({ "projection": snapshot.projection, "health": health, "learnings": snapshot.learnings })
+}
+
 /// The policy oracle is independent of the gate's verdict: only an approving
 /// adapter emits, once per new observation; hard incidents never force a wake.
 fn run(arm: &str, model: Option<&dyn DecisionModel>, approving: bool) {
@@ -83,11 +90,21 @@ fn run(arm: &str, model: Option<&dyn DecisionModel>, approving: bool) {
     let gate = Gate::default();
     let (mut woken, mut suppressed) = (0, 0);
     let (mut missed, mut unexpected) = (Vec::new(), Vec::new());
-    let mut previous: Option<String> = None;
+    let mut decided: Option<(String, Value, Vec<HardWake>)> = None;
     for tick in &replay.ticks {
-        let identity = tick.snapshot.hash();
-        let expected = approving && previous.as_deref() != Some(identity.as_str());
-        previous = Some(identity);
+        let snapshot = &tick.snapshot;
+        let identity = snapshot.hash();
+        let state = absolute_state(snapshot);
+        let same = decided.as_ref().is_some_and(|(id, prior, hard)| {
+            *id == identity
+                || (snapshot.delta.is_empty()
+                    && *prior == state
+                    && snapshot.hard.iter().all(|event| hard.contains(event)))
+        });
+        let expected = approving && !same;
+        if !same {
+            decided = Some((identity, state, snapshot.hard.clone()));
+        }
         let decision = gate
             .decide(
                 "owner",
