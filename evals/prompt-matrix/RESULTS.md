@@ -57,6 +57,47 @@ Jev off is the heuristic arm. Jev on is the primary adapter arm with any actual 
 | opencode | permission | disagreement / scrape_candidate | No off-arm disagreement cell | NOT RUN / unobserved | none |
 | cursor | permission | disagreement / scrape_candidate | No off-arm disagreement cell | NOT RUN / unobserved | none |
 
+## Cron launch-prompt cells
+
+These 32 provider × folder × Jev cells are separate from the original 91-cell inventory. Every outcome remains NOT RUN until canonical receipts exist. The owner isolation choice and provider-auth policy are PENDING; no provider launched and no transcript is claimed.
+
+| Provider | Folder | Jev | Expected outcome | Result | Deciding arm | Transcript / reason |
+|---|---|---|---|---|---|---|
+| claude | owner-dir | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| claude | owner-dir | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| claude | new-dir | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| claude | new-dir | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| claude | lane | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| claude | lane | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| claude | home | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| claude | home | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| codex | owner-dir | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| codex | owner-dir | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| codex | new-dir | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| codex | new-dir | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| codex | lane | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| codex | lane | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| codex | home | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| codex | home | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| opencode | owner-dir | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| opencode | owner-dir | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| opencode | new-dir | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| opencode | new-dir | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| opencode | lane | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| opencode | lane | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| opencode | home | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| opencode | home | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Fixture authentication pending; no live receipt |
+| cursor | owner-dir | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Launchability unobserved; no qualified portable executable |
+| cursor | owner-dir | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Launchability unobserved; no qualified portable executable |
+| cursor | new-dir | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Launchability unobserved; no qualified portable executable |
+| cursor | new-dir | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Launchability unobserved; no qualified portable executable |
+| cursor | lane | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Launchability unobserved; no qualified portable executable |
+| cursor | lane | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Launchability unobserved; no qualified portable executable |
+| cursor | home | off | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Launchability unobserved; no qualified portable executable |
+| cursor | home | on | answer if provenance matches; otherwise one owner notice | NOT RUN | unobserved | Launchability unobserved; no qualified portable executable |
+
+Launch-prompt counts: NOT RUN=32. No deciding arm or transcript path is claimed.
+
 Counts: PASS=0; FAIL=0; NOT RUN=90; N/A=1. The baseline 86 executable cells and sole N/A are preserved; four explicit disagreements are additional. Auditor's final point list may increase these counts.
 
 Owner decision: budget-exhausted with Jev off is not applicable because regex mode never spends model budget. The Jev-on explicit cap plus a disconnected regex companion covers exhaustion. Source binding does not claim an executed outcome.

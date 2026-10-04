@@ -23,6 +23,8 @@ from sentinel_scenarios import SentinelScenario
 from transport import Dev, Events, Finding, InstanceLock, Pending, Transcript, read_secret, run_group
 from attribution import binding_ready
 from launch_env import register_scope, remove_scope
+from launch_prompt import contract_blocker as launch_prompt_blocker
+from launch_prompt import judge as judge_launch_prompt
 from native_assembly import require_native
 from coordinator_scenarios import CoordinatorScenario, preflight as courier_preflight
 
@@ -39,7 +41,8 @@ def arguments():
     mode.add_argument("--create-owner", action="store_true")
     mode.add_argument("--remove-owner", action="store_true")
     parser.add_argument("--provider", choices=PROVIDERS)
-    parser.add_argument("--case", choices=(*CASES, "update-coordinator", "sentinel"))
+    parser.add_argument("--case", choices=(*CASES, "launch-prompt", "update-coordinator", "sentinel"))
+    parser.add_argument("--folder", choices=("owner-dir", "new-dir", "lane", "home"))
     parser.add_argument("--jev", choices=("off", "on"), default="off")
     parser.add_argument("--variant", choices=("default", "busy", "fail", "git", "fake-ci",
                                              "regex-no-jev", "budget-exhausted", "activity-feed", "disagreement"),
@@ -160,6 +163,88 @@ def evidence_for(dev, scenario, before_ids, journal_start, data_dir, baseline_la
     return evidence
 
 
+def same_path(left, right):
+    if not left or not right:
+        return False
+    return os.path.normcase(os.path.realpath(left)) == os.path.normcase(os.path.realpath(right))
+
+
+def launch_prompt_evidence(dev, scenario, before_ids, journal_start, data_dir):
+    try:
+        tab = scenario.observe()
+    except Exception:
+        tab = getattr(scenario, "last_tab", None)
+        if tab is None:
+            return None
+    transcript = read_transcript(dev.transcript.directory)
+    screens = []
+    for row in transcript:
+        if row["kind"] != "screen" or row["value"].get("tab_id") != scenario.tab:
+            continue
+        screen = row["value"].get("screen")
+        if isinstance(screen, dict):
+            screen = screen.get("text")
+        if isinstance(screen, str) and screen:
+            screens.append(screen)
+    prompt = tab.get("pending_prompt")
+    kind = prompt_kind(tab)
+    captured = any(row["kind"] == "launch_prompt_capture" for row in transcript)
+    if not captured and prompt and kind and screens:
+        dev.transcript.record("launch_prompt_capture", {
+            "tab_id": scenario.tab, "provider": scenario.options.provider,
+            "kind": kind, "prompt": prompt, "screen": screens[-1],
+        })
+        transcript = read_transcript(dev.transcript.directory)
+    captures = [row.get("value", {}) for row in transcript
+                if row.get("kind") == "launch_prompt_capture"]
+    captured_kind = captures[0].get("kind") if len(captures) == 1 else None
+
+    journal = load_journal(data_dir)[journal_start:]
+    if getattr(scenario, "last_journal", None) != journal:
+        dev.transcript.record("launch_journal", journal)
+        scenario.last_journal = journal
+    rows = [row for row in journal if row.get("tab") == scenario.tab or
+            row.get("tab_id") == scenario.tab]
+    notifications = tab_notifications(dev.dc("notify", "list"), scenario.tab, before_ids)
+    history = dev.dc("cron", "history", scenario.cron)
+    run = next((item for item in objects(history)
+                if item.get("run_id") == scenario.run_id), {})
+    launches = [row for row in scenario.launches() if row.get("tab_id") == scenario.tab]
+    launch = launches[-1] if launches else {}
+    cwd = launch.get("cwd") or tab.get("cwd")
+    provisioned_cwd = tab.get("provisioned_cwd")
+    route_rows = [row for row in rows if row.get("action") == "unattended_launch_prompt"]
+    snapshots = []
+    capture_n = next((row["n"] for row in transcript if row["kind"] == "launch_prompt_capture"), None)
+    if capture_n is not None:
+        for row in transcript:
+            if row["kind"] != "snapshot" or row["n"] <= capture_n:
+                continue
+            snapshots.extend(item for item in objects(row["value"])
+                             if item.get("id") == scenario.tab)
+    cleared = any(not item.get("pending_prompt") for item in snapshots)
+    authenticated_sessions = {item.get("agent_session_id") for item in snapshots
+                              if item.get("boot_stage") == "agent_ready" and
+                              item.get("agent_session_id") and item.get("session_binding_nonce")}
+    authenticated = len(authenticated_sessions) == 1
+    status = "finished" if run.get("status") == "Success" and run.get("finished_at") is not None else run.get("status", "running")
+    role_marker = any("MATRIX_PROMPT_MATRIX_READY" in screen for screen in screens)
+    return {
+        "provider": scenario.options.provider, "folder": scenario.options.folder,
+        "jev": scenario.options.jev, "tab_id": scenario.tab, "run_id": scenario.run_id,
+        "status": status, "cwd": cwd, "expected_cwd": scenario.fixture["cwd"],
+        "provisioned_cwd": provisioned_cwd,
+        "provenance_authorized": same_path(cwd, provisioned_cwd),
+        "prompt_kind": captured_kind,
+        "transcript_path": str(dev.transcript.directory / "transcript.jsonl"),
+        "transcript": transcript, "journal_rows": rows,
+        "prompt_cleared": cleared, "session_authenticated": authenticated,
+        "provider_session_id": next(iter(authenticated_sessions)) if authenticated else None,
+        "role_marker": role_marker,
+        "owner_notices": len(notifications), "cron_run": run,
+    }
+
+
 def read_transcript(directory):
     path = directory / "transcript.jsonl"
     return [json.loads(line) for line in path.read_text().splitlines() if line]
@@ -197,13 +282,23 @@ def create_owner(dev, root, provider):
         raise
 
 
+def ensure_launch_cell_unrun(root, provider, folder, jev):
+    for path in root.glob("transcripts/*/*/result.json"):
+        result = json.loads(path.read_text())
+        if (result.get("case") == "launch-prompt" and result.get("provider") == provider and
+                result.get("folder") == folder and result.get("jev") == jev):
+            raise Finding("Launch-prompt cell already has a receipt; duplicate runs are refused")
+
+
 def live(options, root):
-    case_key = f"{options.provider or 'host'}-{options.case or 'smoke'}-{options.jev}-{options.variant}"
+    variant = options.folder if options.case == "launch-prompt" else options.variant
+    case_key = f"{options.provider or 'host'}-{options.case or 'smoke'}-{options.jev}-{variant}"
     run_id = str(time.time_ns())
     transcript = Transcript(root / "transcripts" / case_key / run_id)
     dev = Dev(dict(os.environ), transcript)
     result = {"provider": options.provider or "host", "case": options.case or "smoke",
               "jev": options.jev, "variant": options.variant, "status": "FAIL",
+              "folder": options.folder if options.case == "launch-prompt" else None,
               "decision_point": options.decision_point,
               "run_id": run_id, "transcript": str(transcript.directory), "path": None}
     scenario = None
@@ -248,6 +343,9 @@ def live(options, root):
             result.update(status="SMOKE", reason="Real named-instance CLI read/help calls completed")
             return 0
         require(options.case, "--case is required for a live cell")
+        if options.case == "launch-prompt":
+            require(options.provider, "--provider is required for a launch-prompt cell")
+            require(options.folder, "--folder is required for a launch-prompt cell")
         if options.case == "sentinel":
             accepted = next((cell for cell in contracts["sentinel"]["not_applicable"]
                              if cell["variant"] == options.variant and cell["jev"] == options.jev), None)
@@ -262,6 +360,81 @@ def live(options, root):
             require(status.get("adapter") == "typesafe-jev", "Requested arm is not connected Jev")
         if contracts["isolation"]["status"] != "bound":
             raise Pending(contracts["isolation"]["reason"])
+        if options.case == "launch-prompt":
+            launch_contract = contracts["launch_prompt_matrix"]
+            blocker = launch_prompt_blocker(launch_contract)
+            if blocker:
+                raise Pending(blocker)
+            provider_contract = launch_contract.get("providers", {}).get(options.provider, {})
+            if provider_contract.get("status") != "executable":
+                raise Pending(provider_contract.get("reason", "Provider launchability is not bound"))
+            ensure_launch_cell_unrun(root, options.provider, options.folder, options.jev)
+            version = json.loads((HERE / "versions.json").read_text())["providers"].get(options.provider, {}).get("target")
+            if not version:
+                raise Pending(f"{options.provider} target version is not bound in versions.json")
+            require_native(root, options.provider, version)
+            fixture = case_fixture(root, options.provider, "launch-prompt", options.folder, options.bad_model)
+            fixture["version"] = version
+            result["folder"] = options.folder
+            result["decision_point"] = "unattended_launch_prompt"
+            baseline = dev.dc("notify", "list")
+            before_ids = {item["id"] for item in objects(baseline) if item.get("id")}
+            journal_start = len(load_journal(data_dir))
+            with Events(dev) as events:
+                scenario = Scenario(dev, events, root, fixture, options)
+                scenario.start()
+
+                def prompt_completed():
+                    evidence = launch_prompt_evidence(dev, scenario, before_ids, journal_start, data_dir)
+                    if evidence is None:
+                        return False
+                    trace = evidence.get("transcript", [])
+                    if not any(row.get("kind") == "launch_prompt_capture" for row in trace):
+                        return False
+                    routes = [row for row in evidence["journal_rows"]
+                              if row.get("action") == "unattended_launch_prompt"]
+                    if not routes:
+                        return False
+                    arm = routes[-1].get("decided_by")
+                    allowed = (arm == "adapter") if options.jev == "on" else arm in ("heuristic", "fallback(no_adapter)")
+                    require(allowed, "Launch-prompt producer journal names the wrong deciding arm")
+                    captures = [row.get("value", {}) for row in trace
+                                if row.get("kind") == "launch_prompt_capture"]
+                    require(len(captures) == 1, "Launch-prompt transcript has no unique prompt capture")
+                    actions = [row for row in evidence["journal_rows"]
+                               if row.get("phase") in ("action_authorized", "action_stale")]
+                    deterministic = [row for row in evidence["journal_rows"]
+                                     if row.get("reason") == "deterministic_directory_trust"]
+                    if any(row.get("phase") == "action_stale" for row in evidence["journal_rows"]):
+                        raise Finding("Launch-prompt action was stale")
+                    if captures[0].get("kind") != "directory_trust":
+                        if actions or deterministic:
+                            judge_launch_prompt(evidence, launch_contract)
+                        if evidence["owner_notices"] != 1:
+                            return False
+                    elif evidence["provenance_authorized"]:
+                        if not (actions or deterministic):
+                            return False
+                        if evidence["status"] != "finished":
+                            return False
+                    elif actions or deterministic:
+                        judge_launch_prompt(evidence, launch_contract)
+                    elif evidence["owner_notices"] != 1:
+                        return False
+                    if (captures[0].get("kind") == "directory_trust" and
+                            evidence["provenance_authorized"] and not evidence["role_marker"]):
+                        raise Finding("Cron finished without the supplied provider-session marker")
+                    verdict = judge_launch_prompt(evidence, launch_contract)
+                    evidence.update(outcome=verdict["outcome"], decided_by=verdict["decided_by"])
+                    return evidence
+
+                evidence = events.until(prompt_completed,
+                                        "provider prompt -> producer decision -> cron completion or owner notice")
+                saved_evidence = {key: value for key, value in evidence.items() if key != "transcript"}
+                result.update(status="PASS", evidence=saved_evidence, path=evidence["decided_by"],
+                              decided_by=evidence["decided_by"], outcome=evidence["outcome"],
+                              reason="Bound launch-prompt oracle passed")
+            return 0
         pending_special(options)
         if options.case == "update-coordinator":
             courier_preflight(contracts, options, root)
