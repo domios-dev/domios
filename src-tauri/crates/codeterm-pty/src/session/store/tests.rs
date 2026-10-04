@@ -608,3 +608,105 @@ fn desk_backup_retention_policy() {
     let days: Vec<u64> = (0..7).map(|d| now - d * 86_400 - 1000).collect();
     assert!(super::retention::timestamps_to_evict(&days, now).is_empty());
 }
+
+#[test]
+fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_values() {
+    let root = tempfile::tempdir().unwrap();
+    let adapter = super::StorageDeskAdapter::open(root.path().join("state")).unwrap();
+    let snapshot = r#"{
+        "version":"legacy",
+        "timestamp":91,
+        "active_workspace_id":"ws-a",
+        "teams":[],
+        "workspaces":[{
+            "id":"ws-a",
+            "name":"Alpha",
+            "tabs":[{
+                "id":"group-a",
+                "title":"Group",
+                "sort_order":3,
+                "split_tree":{
+                    "type":"Split",
+                    "orientation":"horizontal",
+                    "ratio":0.4,
+                    "children":[
+                        {
+                            "type":"Leaf",
+                            "tab_id":"tab-a",
+                            "cwd":"C:/project",
+                            "agent_type":"provider-unverified",
+                            "claude_session_id":"session-unverified",
+                            "agent_identity":{"session_binding_nonce":"nonce-unverified"},
+                            "role":"Worker",
+                            "permission_auto_confirm":true
+                        },
+                        {
+                            "type":"Split",
+                            "orientation":"vertical",
+                            "ratio":0.7,
+                            "children":[{
+                                "type":"Leaf",
+                                "tab_id":"runtime-only-reference",
+                                "cwd":null,
+                                "agent_type":"unknown-provider",
+                                "role":"Manager"
+                            }]
+                        }
+                    ]
+                }
+            }],
+            "active_tab_id":"group-a",
+            "cwd":"C:/project",
+            "protected":false,
+            "sort_order":5
+        }]
+    }"#;
+    let identities = r#"{"sessions":{"5:codexsession-a":{"provider":"stored-provider-value","role":"Worker","can_spawn":false,"parent_tab_id":"missing-parent"}}}"#;
+
+    adapter.import_legacy(snapshot, Some(identities)).unwrap();
+    let restored = adapter.snapshot().unwrap();
+    let identity = adapter.identity_catalog().unwrap();
+
+    assert_eq!(restored.workspaces[0].tabs[0].id, "group-a");
+    assert_eq!(restored.workspaces[0].tabs[0].sort_order, 3);
+    match &restored.workspaces[0].tabs[0].split_tree {
+        SplitNodeSnapshot::Split { children, .. } => {
+            assert_eq!(children.len(), 2);
+            match &children[0] {
+                SplitNodeSnapshot::Leaf {
+                    tab_id,
+                    claude_session_id,
+                    agent_identity,
+                    permission_auto_confirm,
+                    ..
+                } => {
+                    assert_eq!(tab_id, "tab-a");
+                    assert_eq!(claude_session_id.as_deref(), Some("session-unverified"));
+                    assert_eq!(
+                        agent_identity
+                            .as_ref()
+                            .and_then(|identity| identity.session_binding_nonce.as_deref()),
+                        Some("nonce-unverified")
+                    );
+                    assert!(*permission_auto_confirm);
+                }
+                SplitNodeSnapshot::Split { .. } => panic!("first node must stay a leaf"),
+            }
+            match &children[1] {
+                SplitNodeSnapshot::Split { children, .. } => match &children[0] {
+                    SplitNodeSnapshot::Leaf { tab_id, .. } => {
+                        assert_eq!(tab_id, "runtime-only-reference");
+                    }
+                    SplitNodeSnapshot::Split { .. } => panic!("nested node must retain its leaf"),
+                },
+                SplitNodeSnapshot::Leaf { .. } => panic!("nested split must remain nested"),
+            }
+        }
+        SplitNodeSnapshot::Leaf { .. } => panic!("root split must not be flattened"),
+    }
+    assert_eq!(identity.len(), 1);
+    assert_eq!(identity[0].provider, "codex");
+    assert_eq!(identity[0].record_provider, "stored-provider-value");
+    assert_eq!(identity[0].session_id, "session-a");
+    assert_eq!(identity[0].parent_tab_id.as_deref(), Some("missing-parent"));
+}

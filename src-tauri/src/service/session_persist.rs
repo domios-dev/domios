@@ -157,4 +157,37 @@ mod tests {
         let tab = ws_snap.tabs.iter().find(|t| t.id == tab_id).unwrap();
         assert_eq!(tab.title, "renamed-tab");
     }
+
+    #[test]
+    fn storage_desk_app_adapter_imports_and_flushes_exact_selection() {
+        let root = tempfile::tempdir().unwrap();
+        let adapter = crate::session::store::StorageDeskAdapter::open(root.path()).unwrap();
+        let snapshot = crate::session::store::SessionSnapshot {
+            version: "test".into(),
+            timestamp: 17,
+            active_workspace_id: Some("ws-a".into()),
+            teams: vec![],
+            workspaces: vec![crate::session::store::WorkspaceSnapshot {
+                id: "ws-a".into(),
+                name: "Alpha".into(),
+                tabs: vec![],
+                active_tab_id: None,
+                cwd: None,
+                provisioned_cwd: None,
+                protected: true,
+                sort_order: 8,
+                task_keys: Default::default(),
+            }],
+        };
+
+        adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
+        adapter.flush().unwrap();
+        let restored = adapter.snapshot().unwrap();
+
+        assert_eq!(restored.active_workspace_id, Some("ws-a".into()));
+        assert_eq!(restored.workspaces[0].active_tab_id, None);
+        assert_eq!(restored.workspaces[0].sort_order, 8);
+        assert!(restored.workspaces[0].protected);
+        assert_eq!(restored.timestamp, 17);
+    }
 }
