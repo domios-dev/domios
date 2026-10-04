@@ -33,26 +33,19 @@ def test_supporter_status_activity_budget_contract(api_only):
         expected = "credit_exhausted" if status["spend"]["exhausted"] else "budget_reached" if budget["reached"] else "active"
         assert status["state"] == expected
     spend = status["spend"]
-    for period in ("today", "month", "since_balance"):
+    for period in ("today", "month"):
         assert isinstance(spend[period]["input_tokens"], int)
         assert isinstance(spend[period]["output_tokens"], int)
         assert spend[period]["estimated_usd"] is None or isinstance(spend[period]["estimated_usd"], (int, float))
     assert isinstance(spend["exhausted"], bool)
 
 
-def test_supporter_negative_balance_is_refused_without_changing_value(api_only):
-    import pytest
-
-    models = api_only.get("/api/supporter/models")["adapters"]
-    if not models:
-        pytest.skip("a registered adapter is required")
-    before = api_only.get("/api/supporter/status")
+def test_supporter_status_has_no_owner_entered_balance_contract(api_only):
+    status = api_only.get("/api/supporter/status")
+    assert set(status["spend"]) == {"today", "month", "exhausted", "next_probe_at", "storage_ready"}
     response = api_only.s.post(
         f"{api_only.base}/api/supporter/balance",
-        json={"adapter": models[0]["id"], "balance_usd": -1},
+        json={},
         timeout=10,
     )
-    assert response.status_code == 400
-    after = api_only.get("/api/supporter/status")
-    assert after["spend"]["balance_usd"] == before["spend"]["balance_usd"]
-    assert after["spend"]["balance_set_at"] == before["spend"]["balance_set_at"]
+    assert response.status_code == 404

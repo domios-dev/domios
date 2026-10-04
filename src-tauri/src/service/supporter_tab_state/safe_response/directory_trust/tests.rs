@@ -208,7 +208,6 @@ fn unattended_launch_prompt_jev_chooses_among_declared_trust_options() {
                     Some((target.choice.as_str(), 0.93))
                 ),
                 true,
-                false,
             ),
             UnattendedRoute::Model
         );
@@ -222,7 +221,7 @@ fn unattended_launch_prompt_jev_chooses_among_declared_trust_options() {
 }
 
 #[test]
-fn unattended_launch_prompt_model_picks_undeclared_or_refusal_never_writes() {
+fn owned_prompt_model_may_choose_any_declared_option() {
     let target = trust_target(NO_FIRST);
     let refusal = target
         .prompt
@@ -232,33 +231,35 @@ fn unattended_launch_prompt_model_picks_undeclared_or_refusal_never_writes() {
         .unwrap()
         .value
         .clone();
-    for (choice, expected) in [
-        (refusal.as_str(), NON_AFFIRMATIVE_CHOICE),
-        ("not-a-declared-value", UNDECLARED_CHOICE),
-    ] {
-        for qualified in [true, false] {
-            let decision = route(
-                Some(&target),
-                &view(TRUST_OR_PERMISSION_PROMPT, 0.99, Some((choice, 0.99))),
-                qualified,
-                false,
-            );
-            assert_eq!(decision, UnattendedRoute::OwnerNotice(expected));
-            assert!(decision.vetoes());
-        }
-    }
     assert_eq!(
         route(
             Some(&target),
-            &view(
-                TRUST_OR_PERMISSION_PROMPT,
-                0.99,
-                Some((target.choice.as_str(), 0.99))
-            ),
-            true,
+            &view(TRUST_OR_PERMISSION_PROMPT, 0.80, Some((refusal.as_str(), 0.80))),
             true,
         ),
-        UnattendedRoute::OwnerNotice("vetoed")
+        UnattendedRoute::Model
+    );
+    assert_eq!(
+        route(
+            Some(&target),
+            &view(TRUST_OR_PERMISSION_PROMPT, 0.99, Some(("not-a-declared-value", 0.99))),
+            true,
+        ),
+        UnattendedRoute::Fallback("abstain")
+    );
+}
+
+#[test]
+fn login_classification_never_authorizes_a_prompt_answer() {
+    let target = super::super::provider_target(&claude(), ONBOARDING).unwrap();
+    assert_eq!(target.kind, Kind::Onboarding);
+    assert_eq!(
+        route(
+            Some(&target),
+            &view(LOGIN_OR_AUTH_REQUIRED, 0.99, Some((target.choice.as_str(), 0.99))),
+            true,
+        ),
+        UnattendedRoute::Fallback("not_prompt")
     );
 }
 
@@ -266,7 +267,7 @@ fn unattended_launch_prompt_model_picks_undeclared_or_refusal_never_writes() {
 fn unattended_launch_prompt_other_or_low_confidence_falls_back() {
     let target = trust_target(NO_FIRST);
     let choice = target.choice.as_str();
-    for (verdict, qualified, expected) in [
+    for (verdict, calibrated, expected) in [
         (
             view(TRUST_OR_PERMISSION_PROMPT, 0.95, Some((OTHER, 0.95))),
             true,
@@ -278,12 +279,12 @@ fn unattended_launch_prompt_other_or_low_confidence_falls_back() {
             UnattendedRoute::Fallback("abstain"),
         ),
         (
-            view(TRUST_OR_PERMISSION_PROMPT, 0.85, Some((choice, 0.99))),
+            view(TRUST_OR_PERMISSION_PROMPT, 0.79, Some((choice, 0.99))),
             true,
             UnattendedRoute::Fallback("low_confidence"),
         ),
         (
-            view(TRUST_OR_PERMISSION_PROMPT, 0.99, Some((choice, 0.89))),
+            view(TRUST_OR_PERMISSION_PROMPT, 0.99, Some((choice, 0.79))),
             true,
             UnattendedRoute::Fallback("low_confidence"),
         ),
@@ -295,40 +296,39 @@ fn unattended_launch_prompt_other_or_low_confidence_falls_back() {
         (
             view(READY_IDLE, 0.70, Some((choice, 0.99))),
             true,
-            UnattendedRoute::Fallback("low_confidence"),
+            UnattendedRoute::Fallback("not_prompt"),
         ),
         (
             view(TRUST_OR_PERMISSION_PROMPT, 0.95, Some((choice, 0.95))),
             false,
-            UnattendedRoute::Fallback("unqualified"),
+            UnattendedRoute::Fallback("uncalibrated"),
         ),
         (
             view(READY_IDLE, 0.95, Some((choice, 0.95))),
             true,
-            UnattendedRoute::OwnerNotice("model_disagrees"),
+            UnattendedRoute::Fallback("not_prompt"),
         ),
     ] {
-        assert_eq!(route(Some(&target), &verdict, qualified, false), expected);
+        assert_eq!(route(Some(&target), &verdict, calibrated), expected);
     }
     let mut composer = view(TRUST_OR_PERMISSION_PROMPT, 0.95, Some((choice, 0.95)));
     composer.live_prompt = false;
     assert_eq!(
-        route(Some(&target), &composer, true, false),
-        UnattendedRoute::OwnerNotice("model_disagrees")
+        route(Some(&target), &composer, true),
+        UnattendedRoute::Fallback("not_prompt")
     );
     assert_eq!(
         route(
             None,
             &view(TRUST_OR_PERMISSION_PROMPT, 0.99, None),
-            true,
-            false
+            true
         ),
         UnattendedRoute::Fallback("no_candidate")
     );
 }
 
 #[test]
-fn unattended_launch_prompt_stale_generation_rejects_the_target() {
+fn owned_prompt_target_does_not_require_folder_provenance() {
     let (mut mux, tab_id) = cron_tab();
     assert!(target_applies(mux.get_tab(&tab_id).unwrap()));
     {
@@ -337,25 +337,28 @@ fn unattended_launch_prompt_stale_generation_rejects_the_target() {
         tab.session_binding_nonce = Some("launch-nonce".into());
         tab.reported_session_binding_nonce = Some("launch-nonce".into());
     }
-    assert!(
-        !target_applies(mux.get_tab(&tab_id).unwrap()),
-        "an authenticated launch is past its launch gate"
-    );
+    assert!(target_applies(mux.get_tab(&tab_id).unwrap()));
     mux.get_tab_mut(&tab_id)
         .unwrap()
         .reported_session_binding_nonce = None;
     assert!(target_applies(mux.get_tab(&tab_id).unwrap()));
     mux.get_tab_mut(&tab_id).unwrap().cwd = Some("/srv/cron/elsewhere".into());
-    assert!(
-        !target_applies(mux.get_tab(&tab_id).unwrap()),
-        "a cwd that drifted from its provenance loses the launch gate"
-    );
+    assert!(target_applies(mux.get_tab(&tab_id).unwrap()));
+
+    let (mut worker, worker_id) =
+        unattended_tab(crate::multiplexer::types::TabAudience::Automation, true);
+    let worker = worker.get_tab_mut(&worker_id).unwrap();
+    worker.agent_session_id = Some("bound-session".into());
+    worker.session_binding_nonce = Some("launch-nonce".into());
+    worker.reported_session_binding_nonce = Some("launch-nonce".into());
+    assert!(!target_applies(worker));
+
     let (visible, visible_id) = unattended_tab(crate::multiplexer::types::TabAudience::User, false);
     assert!(!target_applies(visible.get_tab(&visible_id).unwrap()));
 }
 
 #[test]
-fn unattended_launch_prompt_onboarding_reaches_roleless_unattended_tabs() {
+fn launch_onboarding_heuristic_scope_includes_worker_and_cron() {
     let (cron, cron_id) = cron_tab();
     let (worker, worker_id) =
         unattended_tab(crate::multiplexer::types::TabAudience::Automation, true);
@@ -369,70 +372,17 @@ fn unattended_launch_prompt_onboarding_reaches_roleless_unattended_tabs() {
     assert!(applies(&cron, &cron_id));
     assert!(applies(&worker, &worker_id));
     assert!(!applies(&visible, &visible_id));
-    let target = super::super::provider_target(&claude(), ONBOARDING).unwrap();
-    assert_eq!(target.kind, Kind::Onboarding);
-    assert!(confirms_unattended(target.kind, cron.get_tab(&cron_id)));
-    assert!(!confirms_unattended(
-        target.kind,
-        visible.get_tab(&visible_id)
-    ));
-    assert!(!confirms_unattended(Kind::Update, cron.get_tab(&cron_id)));
 }
 
 #[test]
-fn unattended_launch_prompt_permission_prompt_has_no_trust_target() {
+fn provider_permission_target_includes_declared_answers() {
     let provider = claude();
     assert!(super::super::provider_target(&provider, TOOL_PERMISSION).is_none());
-    assert!(provider_target(&provider, TOOL_PERMISSION).is_none());
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn unattended_launch_prompt_refusal_never_writes_and_vetoes_the_fallback() {
-    let (mux, tab_id) = cron_tab();
-    let (fixture, _guard) = fixture_for(mux);
-    let pty = pty_of(&fixture, &tab_id);
-    let target = trust_target(NO_FIRST);
-    let refusal = target
-        .prompt
-        .options
-        .iter()
-        .find(|option| option.value != target.choice)
-        .unwrap()
-        .value
-        .clone();
-    let verdict = adapter_verdict(TRUST_OR_PERMISSION_PROMPT, Some(refusal.as_str()), 0.99);
-    assert!(fixture
-        .service
-        .route_unattended_launch_prompt(&snapshot(&tab_id, NO_FIRST), &verdict));
-    let tab = fixture
-        .service
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .cloned()
-        .unwrap();
-    assert_eq!(tab.pending_prompt.as_ref(), Some(&target.prompt));
-    assert_eq!(
-        tab.pending_prompt_kind,
-        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
-    );
-    fixture
-        .service
-        .resolve_scrape_candidate_fallback(&snapshot(&tab_id, NO_FIRST));
-    assert_eq!(
-        crate::service::output::prompt_step_dispatch_count_for_test(&pty),
-        0,
-        "a refused trust option and a later fallback never type into the PTY"
-    );
-    let rows = journal_rows(&fixture);
-    let notice = rows
-        .iter()
-        .find(|row| row["phase"] == "unattended_owner_notice")
-        .expect("owner notice decision row");
-    assert_eq!(notice["decided_by"], "adapter");
-    assert_eq!(notice["reason"], NON_AFFIRMATIVE_CHOICE);
-    assert!(notice["observation_id"].as_u64().is_some());
+    let prompt = provider.parse_prompt(TOOL_PERMISSION).unwrap();
+    let target = permission_target(&provider, TOOL_PERMISSION, prompt, "Bash")
+        .expect("provider permission target");
+    assert_eq!(target.kind, Kind::Permission);
+    assert!(target.prompt.options.len() >= 2);
 }
 
 #[test]
@@ -457,7 +407,7 @@ fn unattended_launch_prompt_fallback_runs_the_deterministic_responder() {
     );
     let rows = journal_rows(&fixture)
         .into_iter()
-        .filter(|row| row["phase"] == "unattended_fallback")
+        .filter(|row| row["phase"] == "owned_fallback")
         .collect::<Vec<_>>();
     assert_eq!(
         rows.iter()
@@ -522,12 +472,12 @@ fn unattended_launch_prompt_no_adapter_path_is_identical() {
     }
     assert!(journal_rows(&fixture)
         .iter()
-        .all(|row| row["action"] != "unattended_launch_prompt"));
+        .all(|row| row["action"] != "owned_prompt_answer"));
 }
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
-fn unattended_launch_prompt_visible_tab_unchanged() {
+fn owner_launched_directory_trust_prompt_remains_owner_facing() {
     let (mux, tab_id) = unattended_tab(crate::multiplexer::types::TabAudience::User, false);
     let (fixture, _guard) = fixture_for(mux);
     let pty = pty_of(&fixture, &tab_id);
@@ -551,14 +501,13 @@ fn unattended_launch_prompt_visible_tab_unchanged() {
         crate::service::output::prompt_step_dispatch_count_for_test(&pty),
         0
     );
-    assert!(fixture
-        .service
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .unwrap()
-        .pending_prompt
-        .is_none());
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert!(tab.pending_prompt.is_some());
+    assert_eq!(
+        tab.pending_prompt_kind,
+        Some(codeterm_types::pty::PromptKind::DirectoryTrust)
+    );
     assert!(journal_rows(&fixture).is_empty());
 }
 

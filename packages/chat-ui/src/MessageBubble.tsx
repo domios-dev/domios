@@ -21,7 +21,7 @@ import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
 import { InboundReportCard, parseInboundReport } from "./codeterm/InboundReportCard";
 import { InboundMessageCard } from "./codeterm/InboundMessageCard";
-import { messageTimestamp } from "./codeterm/relativeTime";
+import { MessageTime } from "./MessageTime";
 import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
 import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
 import {
@@ -54,6 +54,7 @@ import {
 
 interface MessageBubbleProps {
   message: ChatMessage;
+  showTimestamp?: boolean;
   item?: TimelineItem;
   isLatestFailedToolCall?: boolean;
   /** Route an interactive widget's answer back to the agent (existing send path). */
@@ -125,7 +126,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, showTimestamp = false, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder }: MessageBubbleProps) {
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
@@ -437,39 +438,31 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
       </>
     );
 
-    const timestampFooter = (() => {
-      const ts = messageTimestamp(message.timestamp);
-      if (!ts) return null;
-      return (
-        <div
-          className={`mt-0.5 text-[10px] opacity-0 transition-opacity duration-150 group-hover:opacity-60 ${effectiveOrigin ? "text-left" : "text-right"}`}
-          style={{ color: "var(--ct-muted-fg)" }}
-          title={ts.full}
-        >
-          {ts.short}
-        </div>
-      );
-    })();
+    const showUserTime = showTimestamp && !effectiveOrigin && !message.inboundKind;
 
     return (
-      <div className={`group flex mb-3 w-full max-w-4xl min-w-0 mx-auto ${effectiveOrigin ? "justify-start" : "justify-end"}`}>
-        <div className="min-w-0 max-w-[75%] sm:max-w-[75%]">
-          {originHeader}
-          <div
-            className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 ${userText} select-text cursor-text border ${TEXT_WRAP_CLASS}`}
-            style={{
-              background: effectiveOrigin
-                ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, var(--ct-surface, #161b22) 88%)"
-                : "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, var(--ct-bg, #0d1117) 78%)",
-              borderColor: effectiveOrigin
-                ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)"
-                : "color-mix(in srgb, var(--ct-accent, #58a6ff) 45%, transparent)",
-              color: "var(--ct-fg)",
-            }}
-          >
-            {userBubbleInner}
+      <div className="ct-chat-message-row ct-chat-message-row--user mb-3 w-full min-w-0">
+        {showUserTime && <MessageTime timestamp={message.timestamp} side="right" />}
+        <div className="ct-chat-message-column w-full max-w-4xl min-w-0 mx-auto">
+          <div className={`group flex w-full min-w-0 ${effectiveOrigin ? "justify-start" : "justify-end"}`}>
+            <div className="min-w-0 max-w-[75%] sm:max-w-[75%]">
+              {originHeader}
+              <div
+                className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 ${userText} select-text cursor-text border ${TEXT_WRAP_CLASS}`}
+                style={{
+                  background: effectiveOrigin
+                    ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, var(--ct-surface, #161b22) 88%)"
+                    : "color-mix(in srgb, var(--ct-accent, #58a6ff) 22%, var(--ct-bg, #0d1117) 78%)",
+                  borderColor: effectiveOrigin
+                    ? "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)"
+                    : "color-mix(in srgb, var(--ct-accent, #58a6ff) 45%, transparent)",
+                  color: "var(--ct-fg)",
+                }}
+              >
+                {userBubbleInner}
+              </div>
+            </div>
           </div>
-          {timestampFooter}
         </div>
       </div>
     );
@@ -478,12 +471,15 @@ export const MessageBubble = React.memo(function MessageBubble({ message, item, 
   if (message.type === "assistant") {
     const assistantText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
     return (
-      <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto">
-        <div
-          className={`min-w-0 max-w-full ${assistantText} leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
-          style={{ color: "var(--ct-fg)" }}
-        >
-          {renderedContent}
+      <div className="ct-chat-message-row ct-chat-message-row--agent mb-3 w-full min-w-0">
+        {showTimestamp && <MessageTime timestamp={message.timestamp} side="left" />}
+        <div className="ct-chat-message-column w-full max-w-4xl min-w-0 mx-auto">
+          <div
+            className={`min-w-0 max-w-full ${assistantText} leading-relaxed select-text cursor-text ${TEXT_WRAP_CLASS}`}
+            style={{ color: "var(--ct-fg)" }}
+          >
+            {renderedContent}
+          </div>
         </div>
       </div>
     );

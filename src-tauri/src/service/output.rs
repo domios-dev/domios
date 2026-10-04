@@ -36,7 +36,7 @@ pub(super) use manual_update::parse_manual_update_prompt;
 pub(super) use manual_update::{
     claim_manual_update_occurrence, clear_manual_update_occurrence, manual_update_prompt_candidate,
     parse_manual_update_prompt_with_response, release_model_update_step,
-    resolve_classified_manual_update_prompt,
+    resolve_classified_manual_update_prompt, resolve_classified_manual_update_prompt_fallback,
 };
 
 #[cfg(test)]

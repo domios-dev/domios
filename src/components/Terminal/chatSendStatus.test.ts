@@ -1,15 +1,16 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import test from "node:test";
+import { resolve } from "node:path";
+import { test } from "vitest";
 
 import { __setInvokeForTest } from "../../lib/bridge";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 
-function acceptedStatus(): ChatSendStatus {
+function heldStatus(): ChatSendStatus {
   return {
     send_id: "send-1",
     tab_id: "tab-1",
-    state: "accepted",
+    state: "held",
     error: null,
     ledger_id: "ledger-1",
     sequence: 1,
@@ -18,9 +19,9 @@ function acceptedStatus(): ChatSendStatus {
   };
 }
 
-test("accepted send enters the backend ledger once", async () => {
+test("held send enters the backend ledger once", async () => {
   const calls: Array<{ command: string; args: unknown }> = [];
-  const accepted = acceptedStatus();
+  const accepted = heldStatus();
   __setInvokeForTest(async <T>(command: string, args?: unknown) => {
     calls.push({ command, args });
     return accepted as T;
@@ -57,7 +58,7 @@ test("request rejection is logged and rethrown without a UI status channel", asy
 });
 
 test("frontend delivery module has no status listener, Retry, or notification path", () => {
-  const source = readFileSync(new URL("./chatSendStatus.ts", import.meta.url), "utf8");
+  const source = readFileSync(resolve(process.cwd(), "src/components/Terminal/chatSendStatus.ts"), "utf8");
   assert.doesNotMatch(source, /\blisten\b/);
   assert.doesNotMatch(source, /Retry|addNotification|chat-send-status/);
 });

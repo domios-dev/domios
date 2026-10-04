@@ -19,9 +19,18 @@ pub(crate) struct UserSendAuthority {
     pub(crate) tab_id: String,
     pub(crate) pty_id: String,
     pub(crate) binding_nonce: String,
+    pub(crate) pty_session_generation: Option<u64>,
     pub(crate) provider_id: String,
     pub(crate) session_id: Option<String>,
     pub(crate) observed_session_id: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ReadyUserLaunch {
+    pty_id: String,
+    binding_nonce: String,
+    pty_session_generation: u64,
+    provider_id: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,7 +52,6 @@ pub(crate) struct UserSendRecord {
     pub(crate) owner_epoch: String,
     pub(crate) reservation: u64,
     pub(crate) state: UserSendState,
-    pub(crate) cycle_settled: bool,
     pub(crate) handoff_session: Option<String>,
     pub(crate) typed_follow_up: Option<String>,
     original_digest: String,
@@ -90,6 +98,7 @@ pub(crate) struct UserTab {
     pub(crate) running: AtomicBool,
     pub(crate) wake_generation: AtomicU64,
     pub(crate) dispatch_generation: AtomicU64,
+    ready_launch: Mutex<Option<ReadyUserLaunch>>,
     admission_wake: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
@@ -149,8 +158,40 @@ impl UserSendStore {
             running: AtomicBool::new(false),
             wake_generation: AtomicU64::new(0),
             dispatch_generation: AtomicU64::new(0),
+            ready_launch: Mutex::new(None),
             admission_wake: Mutex::new(None),
         })).clone()
+    }
+
+    pub(crate) fn latch_ready_launch(&self, authority: &UserSendAuthority) -> bool {
+        let Some(pty_session_generation) = authority.pty_session_generation else {
+            return false;
+        };
+        let tab = self.tab(&authority.tab_id);
+        let mut ready_launch = tab.ready_launch.lock();
+        let current = ReadyUserLaunch {
+            pty_id: authority.pty_id.clone(),
+            binding_nonce: authority.binding_nonce.clone(),
+            pty_session_generation,
+            provider_id: authority.provider_id.clone(),
+        };
+        *ready_launch = Some(current);
+        true
+    }
+
+    pub(crate) fn ready_launch_is_latched(&self, authority: &UserSendAuthority) -> bool {
+        let Some(pty_session_generation) = authority.pty_session_generation else {
+            return false;
+        };
+        let current = ReadyUserLaunch {
+            pty_id: authority.pty_id.clone(),
+            binding_nonce: authority.binding_nonce.clone(),
+            pty_session_generation,
+            provider_id: authority.provider_id.clone(),
+        };
+        let tab = self.tab(&authority.tab_id);
+        let latched = tab.ready_launch.lock().as_ref() == Some(&current);
+        latched
     }
 
     pub(crate) fn reserve(
@@ -239,7 +280,6 @@ impl UserSendStore {
             owner_epoch: self.epoch.clone(),
             reservation: reservation.ordinal,
             state: UserSendState::Queued,
-            cycle_settled: false,
             handoff_session: None,
             typed_follow_up,
             original_digest: digest(original.as_bytes()),
@@ -288,6 +328,37 @@ impl UserSendStore {
         Ok(self.records(tab_id)?.into_iter().find(|record| record.state != UserSendState::BodyLease))
     }
 
+    pub(crate) fn queued(&self, tab_id: &str) -> Result<Vec<UserSendRecord>, String> {
+        Ok(self.records(tab_id)?.into_iter().filter(|record| record.state == UserSendState::Queued).collect())
+    }
+
+    pub(crate) fn bind_pty_session_generation(
+        &self,
+        record: &UserSendRecord,
+        generation: u64,
+    ) -> Result<Option<UserSendRecord>, String> {
+        let tab = self.tab(&record.authority.tab_id);
+        let mut data = tab.data.lock();
+        let loaded = self.load(&tab, &mut data)?;
+        let Some(current) = loaded.index.records.iter().find(|item| item.send_id == record.send_id) else {
+            return Ok(None);
+        };
+        if current.authority != record.authority || current.state != UserSendState::Queued {
+            return Ok(None);
+        }
+        if let Some(current_generation) = current.authority.pty_session_generation {
+            return Ok((current_generation == generation).then(|| current.clone()));
+        }
+        let mut next = loaded.index.clone();
+        let current = next.records.iter_mut().find(|item| item.send_id == record.send_id)
+            .ok_or("user head disappeared")?;
+        current.authority.pty_session_generation = Some(generation);
+        let bound = current.clone();
+        self.persist(&tab, &next)?;
+        loaded.index = next;
+        Ok(Some(bound))
+    }
+
     pub(crate) fn eligible(&self, record: &UserSendRecord) -> bool {
         let tab = self.tab(&record.authority.tab_id);
         record.owner_epoch == self.epoch && record.state == UserSendState::Queued
@@ -295,46 +366,54 @@ impl UserSendStore {
             && !tab.admissions.lock().pending.iter().any(|ordinal| *ordinal <= record.reservation)
     }
 
-    pub(crate) fn claim(&self, record: &UserSendRecord, session: &str) -> Result<bool, String> {
+    pub(crate) fn claim<'a>(
+        &self,
+        record: &UserSendRecord,
+        session: impl Into<Option<&'a str>>,
+    ) -> Result<bool, String> {
+        let session = session.into();
         let tab = self.tab(&record.authority.tab_id);
         let mut data = tab.data.lock();
         let loaded = self.load(&tab, &mut data)?;
         if !self.eligible(record) { return Ok(false); }
-        let Some(head) = loaded.index.records.iter().find(|item| item.state != UserSendState::BodyLease) else {
+        let Some(current) = loaded.index.records.iter().find(|item| item.send_id == record.send_id) else {
             return Ok(false);
         };
-        if head.send_id != record.send_id || head.state != UserSendState::Queued
-            || head.authority != record.authority || head.owner_epoch != record.owner_epoch
-            || head.authority.session_id.as_deref().is_some_and(|expected| expected != session) {
+        if current.state != UserSendState::Queued || current.authority != record.authority
+            || current.owner_epoch != record.owner_epoch
+            || session.is_some_and(|session| current.authority.session_id.as_deref().is_some_and(|expected| expected != session)) {
             return Ok(false);
         }
         let mut next = loaded.index.clone();
-        let head = next.records.iter_mut().find(|head| head.send_id == record.send_id)
-            .ok_or("user head disappeared")?;
-        head.state = UserSendState::Claimed;
-        head.handoff_session = Some(session.to_string());
-        head.cycle_settled = false;
+        let current = next.records.iter_mut().find(|item| item.send_id == record.send_id)
+            .ok_or("user send disappeared")?;
+        current.state = UserSendState::Claimed;
+        current.handoff_session = session.map(str::to_string);
         self.persist(&tab, &next)?;
         loaded.index = next;
         Ok(true)
     }
 
-    pub(crate) fn settle_cycle(&self, record: &UserSendRecord, proven_zero_write: bool) -> Result<(), String> {
+    pub(crate) fn finish_handoff(&self, record: &UserSendRecord, proven_zero_write: bool) -> Result<(), String> {
         let tab = self.tab(&record.authority.tab_id);
         let mut data = tab.data.lock();
         let loaded = self.load(&tab, &mut data)?;
         let mut next = loaded.index.clone();
-        let head = next.records.iter_mut().find(|head| head.send_id == record.send_id)
+        let current = next.records.iter_mut().find(|item| item.send_id == record.send_id)
             .ok_or("user claim disappeared")?;
-        if head.state != UserSendState::Claimed || head.authority != record.authority || head.owner_epoch != self.epoch
+        if current.state != UserSendState::Claimed || current.authority != record.authority || current.owner_epoch != self.epoch
             || record.owner_epoch != self.epoch {
             return Err("user claim is not active in this owner epoch".into());
         }
-        head.cycle_settled = true;
-        head.state = if proven_zero_write { UserSendState::Queued } else { UserSendState::Uncertain };
+        current.state = if proven_zero_write { UserSendState::Queued } else { UserSendState::Uncertain };
         self.persist(&tab, &next)?;
         loaded.index = next;
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn settle_cycle(&self, record: &UserSendRecord, proven_zero_write: bool) -> Result<(), String> {
+        self.finish_handoff(record, proven_zero_write)
     }
 
     pub(crate) fn complete(&self, record: &UserSendRecord) -> Result<bool, String> {
@@ -343,17 +422,16 @@ impl UserSendStore {
             || record.owner_epoch != self.epoch { return Ok(false); }
         let mut data = tab.data.lock();
         let loaded = self.load(&tab, &mut data)?;
-        let Some(head) = loaded.index.records.iter().find(|head| head.state != UserSendState::BodyLease) else { return Ok(false); };
-        if head.send_id != record.send_id || head.authority != record.authority
-            || head.state != UserSendState::Uncertain || !head.cycle_settled {
+        let Some(current) = loaded.index.records.iter().find(|item| item.send_id == record.send_id) else { return Ok(false); };
+        if current.authority != record.authority || current.state != UserSendState::Uncertain {
             return Ok(false);
         }
         let mut next = loaded.index.clone();
         if record.body_digest.is_some() {
             let leases = next.records.iter().filter(|item| item.state == UserSendState::BodyLease).count();
             if leases >= MAX_BODY_LEASES { return Err("prepared body lease capacity reached".into()); }
-            next.records.iter_mut().find(|head| head.send_id == record.send_id)
-                .ok_or("user head disappeared")?.state = UserSendState::BodyLease;
+            next.records.iter_mut().find(|item| item.send_id == record.send_id)
+                .ok_or("user send disappeared")?.state = UserSendState::BodyLease;
         } else {
             next.records.retain(|head| head.send_id != record.send_id);
         }

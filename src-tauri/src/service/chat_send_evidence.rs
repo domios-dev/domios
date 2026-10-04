@@ -184,6 +184,7 @@ pub(crate) struct CapturedSendEvidence {
     pub(crate) live_binding: Option<SendLiveBinding>,
     pub(crate) turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
     pub(crate) absence_witness: Option<Arc<str>>,
+    pub(crate) session_starts_on_first_user_turn: bool,
 }
 
 /// One turn instance confirms at most one send: a scan may only confirm when
@@ -244,12 +245,21 @@ impl ServiceContext {
                 })
             })
             .unwrap_or_default();
+        let session_starts_on_first_user_turn = provider_id
+            .as_deref()
+            .and_then(|provider_id| {
+                self.agent_registry.with_provider(provider_id, |provider| {
+                    provider.session_starts_on_first_user_turn()
+                })
+            })
+            .unwrap_or(false);
         let (Some(provider_id), Some(session_id)) = (provider_id, session_id) else {
             return CapturedSendEvidence {
                 anchor: None,
                 live_binding,
                 turn_normalization,
                 absence_witness: None,
+                session_starts_on_first_user_turn,
             };
         };
         let structured = self
@@ -289,6 +299,7 @@ impl ServiceContext {
             live_binding,
             turn_normalization,
             absence_witness,
+            session_starts_on_first_user_turn,
         }
     }
 

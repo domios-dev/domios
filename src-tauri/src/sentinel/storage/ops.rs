@@ -36,10 +36,10 @@ impl Store {
             tab_id: run.tab_id,
             bound_at: run.bound_at,
         };
+        let replaced = run.as_ref().and(expected_run.clone());
         let expected_run = expected_run.map(to_record);
         let run = run.map(to_record);
         let binding = run.is_some();
-        let replaced = run.as_ref().and(expected_run.clone());
         let (cron_id, sentinel_id) = (cron_id.to_string(), id.to_string());
         let committed_id = sentinel_id.clone();
         self.submit(
