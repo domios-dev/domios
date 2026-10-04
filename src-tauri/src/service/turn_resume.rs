@@ -11,9 +11,8 @@ use parking_lot::{Condvar, Mutex};
 
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::{
-    observe_turn, request_continue_from, request_continue_for_restored_start,
-    settle_turn_resume, suppress_continue, withdraw_sent_claim, Tab, TabBacking,
-    TurnResumeOutcome, TurnResumeSender,
+    observe_turn, request_continue_for_restored_start, request_continue_from, settle_turn_resume,
+    suppress_continue, withdraw_sent_claim, Tab, TabBacking, TurnResumeOutcome, TurnResumeSender,
 };
 
 use super::ServiceContext;
@@ -85,6 +84,16 @@ fn persist_then_send(
     send().map_err(DeliveryFailure::SendRefused)
 }
 
+fn deliver_claim(
+    claim: &Claim,
+    persist: impl FnOnce() -> bool,
+    binding_matches: impl FnOnce() -> bool,
+    send: impl FnOnce(&str, &Claim) -> Result<(), String>,
+) -> Result<(), DeliveryFailure> {
+    let body = claim.prompt.as_deref().unwrap_or(DEFAULT_CONTINUE);
+    persist_then_send(persist, binding_matches, || send(body, claim))
+}
+
 fn ready_binding_on_own_session(tab: &Tab, session_id: &str) -> Option<(String, String)> {
     if !matches!(tab.backing, TabBacking::Pty)
         || tab.boot_stage != Some(BootStage::AgentReady)
@@ -93,10 +102,7 @@ fn ready_binding_on_own_session(tab: &Tab, session_id: &str) -> Option<(String, 
     {
         return None;
     }
-    Some((
-        tab.pty_id.clone()?,
-        tab.session_binding_nonce.clone()?,
-    ))
+    Some((tab.pty_id.clone()?, tab.session_binding_nonce.clone()?))
 }
 
 /// The tab's own session while its PTY agent is mid-turn.
@@ -116,7 +122,7 @@ pub(crate) fn record_turn_edge(tab: &mut Tab, start_epoch: &str) -> bool {
     observe_turn(&mut tab.turn_resume, session.as_deref(), start_epoch)
 }
 
-fn record_turn_resume_edge_if_active(
+pub(crate) fn record_turn_resume_edge_if_active(
     tab: &mut Tab,
     start_epoch: &str,
     shutting_down: bool,
@@ -291,30 +297,20 @@ pub(crate) fn arm(svc: &ServiceContext) {
         return;
     };
     let pending_update = crate::update::post_update::pending();
-    let update_tab = pending_update
-        .as_ref()
-        .and_then(|message| stage_after_update_prompt(svc, start_epoch, message));
-    if let Some(tab_id) = update_tab.as_deref() {
-        let saved = matches!(
-            super::session_persist::write_session_snapshot(&svc.app_handle, &svc.mux),
-            Ok(crate::session::store::SaveOutcome::Saved)
-        );
-        let consumed = saved && crate::update::post_update::consume().is_ok();
-        if !consumed {
-            let reason = if saved {
-                AFTER_UPDATE_NOT_CONSUMED
-            } else {
-                AFTER_UPDATE_NOT_PERSISTED
-            };
-            {
-                let mut mux = svc.mux.write();
-                if let Some(tab) = mux.get_tab_mut(tab_id) {
-                    skip(tab, start_epoch, reason);
-                }
-            }
-            log::warn!("[turn-resume] tab={tab_id} skipped: {reason}");
-            svc.schedule_session_persist_debounced();
-        }
+    if let Err((tab_id, reason)) = arm_after_update_message(
+        &svc.mux,
+        start_epoch,
+        pending_update.as_ref(),
+        || {
+            matches!(
+                super::session_persist::write_session_snapshot(&svc.app_handle, &svc.mux),
+                Ok(crate::session::store::SaveOutcome::Saved)
+            )
+        },
+        || crate::update::post_update::consume().is_ok(),
+    ) {
+        log::warn!("[turn-resume] tab={tab_id} skipped: {reason}");
+        svc.schedule_session_persist_debounced();
     }
     let owed = owed_tab_ids(&svc.mux, start_epoch);
     if owed.is_empty() {
@@ -326,7 +322,8 @@ pub(crate) fn arm(svc: &ServiceContext) {
             "[turn-resume] disabled; {} owed continue(s) settled as skipped",
             owed.len()
         );
-        if let Err(error) = super::session_persist::write_session_snapshot(&svc.app_handle, &svc.mux)
+        if let Err(error) =
+            super::session_persist::write_session_snapshot(&svc.app_handle, &svc.mux)
         {
             log::warn!("[turn-resume] disabled marks were not persisted: {error}");
         }
@@ -362,12 +359,43 @@ pub(crate) fn arm(svc: &ServiceContext) {
     }
 }
 
+fn arm_after_update_message(
+    mux: &MuxState,
+    start_epoch: &str,
+    message: Option<&crate::update::post_update::PendingMessage>,
+    persist: impl FnOnce() -> bool,
+    consume: impl FnOnce() -> bool,
+) -> Result<Option<String>, (String, &'static str)> {
+    let Some(message) = message else {
+        return Ok(None);
+    };
+    let Some(tab_id) = stage_after_update_prompt(mux, start_epoch, message) else {
+        return Ok(None);
+    };
+    let reason = if !persist() {
+        Some(AFTER_UPDATE_NOT_PERSISTED)
+    } else if !consume() {
+        Some(AFTER_UPDATE_NOT_CONSUMED)
+    } else {
+        None
+    };
+    if let Some(reason) = reason {
+        let mut mux = mux.write();
+        if let Some(tab) = mux.get_tab_mut(&tab_id) {
+            skip(tab, start_epoch, reason);
+        }
+        Err((tab_id, reason))
+    } else {
+        Ok(Some(tab_id))
+    }
+}
+
 fn stage_after_update_prompt(
-    svc: &ServiceContext,
+    mux: &MuxState,
     start_epoch: &str,
     message: &crate::update::post_update::PendingMessage,
 ) -> Option<String> {
-    let mut mux = svc.mux.write();
+    let mut mux = mux.write();
     let tab_id = mux.resolve_tab_id(crate::service::general_agent::GENERAL_ALIAS)?;
     let tab = mux.get_tab_mut(&tab_id)?;
     if !matches!(tab.backing, TabBacking::Pty) || tab.agent_type.is_none() {
@@ -448,7 +476,10 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn suppress_turn_resume_for_caller(&self, caller_tab_id: &str) -> Result<bool, String> {
+    pub(crate) fn suppress_turn_resume_for_caller(
+        &self,
+        caller_tab_id: &str,
+    ) -> Result<bool, String> {
         let start_epoch =
             crate::crash::lifecycle::current_start_epoch().ok_or("start epoch is not recorded")?;
         let changed = {
@@ -467,7 +498,11 @@ impl ServiceContext {
                 let session_id = tab
                     .agent_session_id
                     .as_deref()
-                    .or_else(|| tab.turn_resume.as_ref().map(|mark| mark.session_id.as_str()))
+                    .or_else(|| {
+                        tab.turn_resume
+                            .as_ref()
+                            .map(|mark| mark.session_id.as_str())
+                    })
                     .unwrap_or_default();
                 suppress_continue(&mut tab.turn_resume, session_id, start_epoch)
             }
@@ -558,8 +593,8 @@ impl ServiceContext {
     /// The claim is made durable before the payload is written, so a crash
     /// after the write can never deliver a second continue for this turn.
     fn deliver_turn_resume(&self, tab_id: &str, claim: Claim, start_epoch: &'static str) {
-        let body = claim.prompt.as_deref().unwrap_or(DEFAULT_CONTINUE);
-        let delivery = persist_then_send(
+        let delivery = deliver_claim(
+            &claim,
             || {
                 matches!(
                     super::session_persist::write_session_snapshot(&self.app_handle, &self.mux),
@@ -572,7 +607,7 @@ impl ServiceContext {
                         == Some((claim.pty_id.clone(), claim.binding_nonce.clone()))
                 })
             },
-            || {
+            |body, claim| {
                 super::messenger::Messenger::deliver_turn_resume(
                     self,
                     tab_id,

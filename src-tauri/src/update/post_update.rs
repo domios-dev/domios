@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -30,7 +30,11 @@ pub fn stash(text: &str, sender: Option<TurnResumeSender>) -> std::io::Result<()
 }
 
 pub(crate) fn pending() -> Option<PendingMessage> {
-    let raw = std::fs::read_to_string(path()).ok()?;
+    pending_at(&path())
+}
+
+pub(crate) fn pending_at(path: &Path) -> Option<PendingMessage> {
+    let raw = std::fs::read_to_string(path).ok()?;
     parse_pending(&raw)
 }
 
@@ -80,5 +84,18 @@ mod tests {
 
         assert_eq!(restored.text, "opaque legacy text");
         assert!(restored.sender.is_none());
+    }
+
+    #[test]
+    fn pending_reads_the_stashed_message_from_its_owned_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(FILENAME);
+        let message = PendingMessage {
+            text: "opaque update prompt".into(),
+            sender: None,
+        };
+        std::fs::write(&path, serde_json::to_vec(&message).unwrap()).unwrap();
+
+        assert_eq!(pending_at(&path), Some(message));
     }
 }

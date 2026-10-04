@@ -375,13 +375,12 @@ impl ServiceContext {
         expected_binding_nonce: &str,
         text: &str,
     ) -> Result<(), String> {
-        let delivery =
-            self.authenticated_pty_delivery(
-                tab_id,
-                None,
-                expected_session_id,
-                expected_binding_nonce,
-            )?;
+        let delivery = self.authenticated_pty_delivery(
+            tab_id,
+            None,
+            expected_session_id,
+            expected_binding_nonce,
+        )?;
         self.send_authenticated_delivery_with_options(
             delivery,
             text,
@@ -398,19 +397,41 @@ impl ServiceContext {
         expected_binding_nonce: &str,
         text: &str,
     ) -> Result<(), String> {
-        let pty_claim = self.pty_ownership.acquire(tab_id);
-        let delivery = self.authenticated_pty_delivery(
+        self.send_to_authenticated_agent_session_pinned_with(
             tab_id,
-            Some(expected_pty_id),
+            expected_pty_id,
             expected_session_id,
             expected_binding_nonce,
-        )?;
-        let result = self.send_authenticated_delivery_with_options(
-            delivery,
             text,
-            super::submit_transaction::PtySubmitEntry::Messenger,
-            true,
-        );
+            |delivery, text| {
+                self.send_authenticated_delivery_with_options(
+                    delivery,
+                    text,
+                    super::submit_transaction::PtySubmitEntry::Messenger,
+                    true,
+                )
+            },
+        )
+    }
+
+    fn send_to_authenticated_agent_session_pinned_with<T>(
+        &self,
+        tab_id: &str,
+        expected_pty_id: &str,
+        expected_session_id: &str,
+        expected_binding_nonce: &str,
+        text: &str,
+        send: impl FnOnce(AuthenticatedPtyDelivery, &str) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let pty_claim = self.pty_ownership.acquire(tab_id);
+        let result = self
+            .authenticated_pty_delivery(
+                tab_id,
+                Some(expected_pty_id),
+                expected_session_id,
+                expected_binding_nonce,
+            )
+            .and_then(|delivery| send(delivery, text));
         drop(pty_claim);
         result
     }

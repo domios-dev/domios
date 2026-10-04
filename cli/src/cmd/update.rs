@@ -22,6 +22,18 @@ fn resolve_local_install_continuation(
     (prompt, tab)
 }
 
+fn validate_auto_continue_tab(
+    auto: bool,
+    requested_tab: Option<&str>,
+    caller_tab: Option<&str>,
+) -> Result<(), &'static str> {
+    if auto && requested_tab.is_some_and(|requested| caller_tab != Some(requested)) {
+        Err("--continue-tab must match the authenticated caller tab")
+    } else {
+        Ok(())
+    }
+}
+
 #[derive(Debug, PartialEq, Eq)]
 enum ContinuationRegistration {
     NotRequested,
@@ -84,7 +96,10 @@ fn post_session_save(
         .map_err(|error| error.to_string())
 }
 
-fn continuation_withdraw_action(prompt: Option<&str>, tab: Option<&str>) -> Option<serde_json::Value> {
+fn continuation_withdraw_action(
+    prompt: Option<&str>,
+    tab: Option<&str>,
+) -> Option<serde_json::Value> {
     let tab = tab?;
     Some(serde_json::json!({
         "withdraw_continue_tab": tab,
@@ -169,6 +184,19 @@ fn withdraw_session_continuation(
     }
 }
 
+fn install_with_withdrawal(
+    install: impl FnOnce() -> Result<(), String>,
+    withdraw: impl FnOnce(),
+) -> Result<(), String> {
+    match install() {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            withdraw();
+            Err(error)
+        }
+    }
+}
+
 fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
     let status_url = format!("{}/api/update/status", base_url);
     let started = Instant::now();
@@ -236,8 +264,8 @@ fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_continuation, resolve_local_install_continuation, ContinuationRegistration,
-        continuation_withdraw_action, session_save_action, DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT,
+        classify_continuation, continuation_withdraw_action, resolve_local_install_continuation,
+        session_save_action, ContinuationRegistration, DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT,
     };
 
     #[test]
@@ -290,10 +318,23 @@ mod tests {
     }
 
     #[test]
+    fn auto_continue_tab_must_match_the_caller() {
+        assert_eq!(
+            super::validate_auto_continue_tab(true, Some("tab-b"), Some("tab-a")),
+            Err("--continue-tab must match the authenticated caller tab")
+        );
+        assert!(super::validate_auto_continue_tab(true, Some("tab-a"), Some("tab-a")).is_ok());
+        assert!(super::validate_auto_continue_tab(true, None, Some("tab-a")).is_ok());
+    }
+
+    #[test]
     fn no_continue_saves_a_caller_suppression_action() {
         let action = session_save_action(None, Some("tab-1"), true).unwrap();
 
-        assert_eq!(action, serde_json::json!({ "suppress_continue_tab": "tab-1" }));
+        assert_eq!(
+            action,
+            serde_json::json!({ "suppress_continue_tab": "tab-1" })
+        );
         assert_eq!(
             session_save_action(None, None, true),
             None,
@@ -332,6 +373,32 @@ mod tests {
             })
         );
         assert_eq!(continuation_withdraw_action(None, None), None);
+    }
+
+    #[test]
+    fn install_helper_failure_withdraws_the_continuation() {
+        use std::cell::Cell;
+
+        let withdrawals = Cell::new(0);
+        let result = super::install_with_withdrawal(
+            || Err("helper failed".into()),
+            || withdrawals.set(withdrawals.get() + 1),
+        );
+
+        assert_eq!(result, Err("helper failed".into()));
+        assert_eq!(withdrawals.get(), 1);
+    }
+
+    #[test]
+    fn successful_install_does_not_withdraw_the_continuation() {
+        use std::cell::Cell;
+
+        let withdrawals = Cell::new(0);
+        let result =
+            super::install_with_withdrawal(|| Ok(()), || withdrawals.set(withdrawals.get() + 1));
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(withdrawals.get(), 0);
     }
 }
 
@@ -451,13 +518,17 @@ pub fn handle_update(
                         tab.as_deref(),
                     );
                 }
-                if let Err(error) = crate::cmd::install::run_install_from_file(&path, json) {
-                    withdraw_session_continuation(
-                        &http,
-                        &base_url,
-                        continue_prompt.as_deref(),
-                        tab.as_deref(),
-                    );
+                if let Err(error) = install_with_withdrawal(
+                    || crate::cmd::install::run_install_from_file(&path, json),
+                    || {
+                        withdraw_session_continuation(
+                            &http,
+                            &base_url,
+                            continue_prompt.as_deref(),
+                            tab.as_deref(),
+                        )
+                    },
+                ) {
                     crate::cmd::print::fail(1, error);
                 }
                 return;
@@ -465,6 +536,12 @@ pub fn handle_update(
             let mut params: Vec<(&str, String)> = Vec::new();
             if auto {
                 params.push(("method", "auto".into()));
+            }
+            let caller_tab = std::env::var("CODETERM_TAB_ID").ok();
+            if let Err(error) =
+                validate_auto_continue_tab(auto, continue_tab.as_deref(), caller_tab.as_deref())
+            {
+                crate::cmd::print::fail(1, error);
             }
             if no_continue {
                 if let Err(error) = save_session_with_suppression(
@@ -489,7 +566,7 @@ pub fn handle_update(
             let initiating_tab = if no_continue {
                 None
             } else {
-                continue_tab.or_else(|| std::env::var("CODETERM_TAB_ID").ok())
+                continue_tab.or(caller_tab)
             };
             if let Some(tab) = &initiating_tab {
                 params.push(("continue_tab", tab.clone()));
