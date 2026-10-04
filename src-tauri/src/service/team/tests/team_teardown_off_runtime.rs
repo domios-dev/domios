@@ -22,9 +22,12 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
     let fixture = ServiceFixture::new(mux);
     let storage = Storage::open(fixture.temp.path(), StorageConfig::default()).unwrap();
-    let mut store = Store::with_storage(&storage, MockClock::starting_at(1_000));
-    let sentinel = store
-        .create(
+    let store = Store::with_storage(&storage, MockClock::starting_at(1_000));
+    let sentinels = scheduler::fixture_handle(store, fixture._app.handle().clone());
+    let job = sentinels
+        .store
+        .lock()
+        .prepare(
             Create {
                 name: Some("Team teardown barrier".into()),
                 probe: Some("status".into()),
@@ -33,7 +36,7 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
                 buckets: vec!["waiting".into(), "passed".into(), "failed".into()],
                 every: "20s".into(),
                 routes: Default::default(),
-                matches: Default::default(),
+                matches: [("waiting".to_string(), ".*".to_string())].into_iter().collect(),
                 until: None,
                 timeout: Some("1h".into()),
                 paused: true,
@@ -50,8 +53,8 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
             false,
         )
         .unwrap();
+    let sentinel = crate::sentinel::storage::commit(&sentinels.store, |current| current.stage_insert(job)).unwrap();
     let sentinel_id = sentinel.id;
-    let sentinels = scheduler::fixture_handle(store, fixture._app.handle().clone());
     assert!(fixture._app.manage(sentinels.clone()));
 
     let hold = storage.hold_writer().unwrap();
