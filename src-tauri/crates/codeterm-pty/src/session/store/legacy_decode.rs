@@ -2,12 +2,12 @@ use super::{PersistedAgentSessionIdentity, SessionSnapshot};
 use codeterm_storage::{DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields};
 use std::collections::HashMap;
 
-pub(super) struct DecodedSnapshot {
+pub struct DecodedSnapshot {
     pub snapshot: SessionSnapshot,
     pub layouts: Vec<Vec<DeskLayoutNode>>,
 }
 
-pub(super) fn decode_snapshot(json: &str) -> Result<DecodedSnapshot, String> {
+pub fn decode_snapshot(json: &str) -> Result<DecodedSnapshot, String> {
     let mut value: serde_json::Value =
         serde_json::from_str(json).map_err(|error| error.to_string())?;
     codeterm_types::startup_records::normalize_pane_id_fields(&mut value)
@@ -95,7 +95,7 @@ fn decode_layout(value: &serde_json::Value) -> Result<DeskLayoutNode, String> {
     }
 }
 
-pub(super) fn decode_identity_catalog(
+pub fn decode_identity_catalog(
     json: Option<&str>,
 ) -> Result<Vec<DeskAgentSessionIdentity>, String> {
     let Some(json) = json else {

@@ -876,8 +876,8 @@ fn parse_tab_record(
     }
 }
 
+pub mod legacy_decode;
 mod retention;
-mod legacy_decode;
 mod storage_adapter;
 
 pub use storage_adapter::StorageDeskAdapter;
