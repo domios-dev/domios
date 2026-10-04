@@ -58,11 +58,6 @@ pub(crate) enum Step {
     Claimed(Claim),
 }
 
-/// Agent-ready on its own nonce-verified binding of `session_id`.
-pub(crate) fn ready_on_own_session(tab: &Tab, session_id: &str) -> bool {
-    ready_binding_on_own_session(tab, session_id).is_some()
-}
-
 #[derive(Debug, PartialEq, Eq)]
 enum DeliveryFailure {
     ClaimNotPersisted,

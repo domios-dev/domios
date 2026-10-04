@@ -195,6 +195,7 @@ async fn persist_desk_off_runtime(
 
 /// The capture-then-persist seam: a refused reduction keeps the fuller disk desk
 /// and still lets teardown finish; only an unknown-disk failure aborts it.
+#[cfg(test)]
 fn persist_desk_into(
     store: &crate::session::store::SessionStore,
     desk: &crate::session::SessionSnapshot,
