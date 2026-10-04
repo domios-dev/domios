@@ -316,9 +316,14 @@ pub(crate) fn ensure_owned_dir(path: &Path) -> Result<(), StorageError> {
         Ok(meta) if real_dir(&meta) => Ok(()),
         Ok(_) => Err(not_confined(path, "is not a real directory")),
         Err(error) if error.kind() == ErrorKind::NotFound => {
-            let mut builder = fs::DirBuilder::new();
             #[cfg(unix)]
-            std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+            let builder = {
+                let mut builder = fs::DirBuilder::new();
+                std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+                builder
+            };
+            #[cfg(not(unix))]
+            let builder = fs::DirBuilder::new();
             match builder.create(path) {
                 Ok(()) => Ok(()),
                 Err(error) if error.kind() == ErrorKind::AlreadyExists => {
