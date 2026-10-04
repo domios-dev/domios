@@ -309,6 +309,7 @@ impl WorkspaceRepository {
                 return Ok(None);
             };
             let asset = parse_asset(&asset)?;
+            cx.before_asset_file();
             assets::read_blob(cx.layout, &asset, from_sql_u64("asset size", byte_len)?).map(Some)
         })
     }

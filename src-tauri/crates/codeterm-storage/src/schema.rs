@@ -156,7 +156,7 @@ fn initialize(layout: &Layout) -> Result<(), StorageError> {
         conn.close()
             .map_err(|(_, e)| sqlite_error("close staging", e))?;
         assets::sync_file(&staging)?;
-        assets::rename_durable(&staging, &layout.database, &layout.dir)
+        assets::publish_no_replace(&staging, &layout.database, &layout.dir)
     })();
     if result.is_err() {
         for path in [

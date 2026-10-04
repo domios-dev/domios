@@ -128,7 +128,7 @@ fn audit(storage: &Storage) -> (u64, usize, usize, u64, usize) {
     )
 }
 
-fn held(hold: Result<WriterHold, StorageError>) -> WriterHold {
+fn held(hold: Result<Hold, StorageError>) -> Hold {
     let hold = hold.expect("writer hold admitted");
     hold.wait_held(DEADLINE).expect("writer reached the hold");
     hold
@@ -798,7 +798,10 @@ fn storage_contract_asset_detach_cleanup_failure_is_retained() {
         "retained across restart"
     );
     let report = done(storage.assets().run_cleanup());
-    assert_eq!((report.removed, report.retained.len()), (1, 0));
+    assert_eq!(
+        (report.removed, report.retained.len(), report.deferred),
+        (1, 0, 0)
+    );
     assert_eq!(audit(&storage), (0, 0, 0, 0, 0));
 
     let revision = stored(&inventory(&storage), "a").revision;
@@ -1034,23 +1037,143 @@ fn storage_contract_identifiers_are_confined() {
     }
     assert!(WorkspaceId::new("").is_err() && WorkspaceId::new("a\u{0}b").is_err());
     assert!(WorkspaceId::new("x".repeat(257)).is_err());
+}
+
+#[test]
+fn storage_contract_asset_read_survives_concurrent_detach() {
+    let root = temp_root();
+    let storage = open(root.path());
+    let created = create(&storage, &["a"]).revision;
+    let attached = done(attach(&storage, "a", created, "log", b"payload"));
+    let pause = storage.pause_next_asset_read();
+    let read = storage.workspaces().asset(id("a"), role("log"));
+    pause
+        .wait_held(DEADLINE)
+        .expect("reader holds a snapshot that sees the reference");
+
+    let revision = attached.receipt.revision;
+    let detached = done(
+        storage
+            .workspaces()
+            .detach_asset(id("a"), revision, role("log")),
+    );
+    assert_eq!(detached.value, attached.value.id);
+    assert!(
+        stored(&inventory(&storage), "a").assets.is_empty(),
+        "other reads stay usable"
+    );
+    assert_eq!(
+        audit(&storage),
+        (0, 0, 0, 0, 1),
+        "removal waits for the pinned snapshot"
+    );
+    let pending = done(storage.assets().audit()).pending_cleanup;
+    assert_eq!(pending[0].last_error, None);
+    let retry = done(storage.assets().run_cleanup());
+    assert_eq!(
+        (retry.removed, retry.deferred),
+        (0, 1),
+        "explicit retry respects the pin"
+    );
+
+    pause.release();
+    assert_eq!(done(read).value, Some(b"payload".to_vec()));
+    assert_eq!(
+        audit(&storage),
+        (0, 0, 0, 0, 0),
+        "the ended snapshot released the removal"
+    );
+    close(storage);
+}
+
+#[test]
+fn storage_contract_asset_publication_never_replaces_existing_blob() {
+    let root = temp_root();
+    let storage = open(root.path());
+    let created = create(&storage, &["a"]).revision;
+    let first = done(attach(&storage, "a", created, "one", b"original"));
+    done(storage.inject_fault(Fault::NextAssetId(first.value.id.clone())));
+    let revision = first.receipt.revision;
+    let collided = failed(attach(&storage, "a", revision, "two", b"intruder"));
+    let refused = matches!(
+        collided,
+        E::Io {
+            kind: std::io::ErrorKind::AlreadyExists,
+            ..
+        }
+    );
+    assert!(refused, "{collided:?}");
+    assert_eq!(
+        asset_bytes(&storage, "a", "one"),
+        Some(b"original".to_vec())
+    );
+    assert_eq!(
+        audit(&storage),
+        (1, 0, 0, 0, 0),
+        "nothing replaced and no staging left"
+    );
+    let second = done(attach(&storage, "a", revision, "two", b"second"));
+    assert_ne!(second.value.id, first.value.id);
+    close(storage);
+}
+
+/// Unix symlink or Windows directory junction; `mklink /J` needs no privilege.
+fn link_dir(link: &Path, target: &Path) {
     #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link).expect("directory symlink");
+    #[cfg(windows)]
     {
-        let base = temp_root();
-        let (outside, root) = (base.path().join("outside"), base.path().join("root"));
-        fs::create_dir_all(&outside).unwrap();
-        fs::create_dir_all(&root).unwrap();
-        std::os::unix::fs::symlink(&outside, root.join("storage")).unwrap();
+        let mut command = std::process::Command::new("cmd");
+        codeterm_util::process_util::no_window_std(&mut command);
+        let output = command
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output();
+        let output = output.expect("run mklink");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "junction creation failed: {stderr}"
+        );
+    }
+}
+
+fn unlink_dir(link: &Path) {
+    #[cfg(unix)]
+    fs::remove_file(link).expect("remove symlink");
+    #[cfg(windows)]
+    fs::remove_dir(link).expect("remove junction");
+}
+
+#[test]
+fn storage_contract_linked_storage_directories_are_refused() {
+    let base = temp_root();
+    let outside = base.path().join("outside");
+    fs::create_dir_all(&outside).unwrap();
+    let top = base.path().join("top");
+    fs::create_dir_all(&top).unwrap();
+    link_dir(&top.join("storage"), &outside);
+    let nested = base.path().join("nested");
+    close(open(&nested));
+    let blobs = storage_dir(&nested).join("assets").join("blobs");
+    fs::remove_dir(&blobs).unwrap();
+    link_dir(&blobs, &outside);
+
+    for root in [&top, &nested] {
         for _ in 0..2 {
-            let refused = Storage::open(&root, StorageConfig::default()).err();
+            let refused = Storage::open(root, StorageConfig::default()).err();
             assert!(
                 matches!(refused, Some(E::RootInvalid { .. })),
                 "{refused:?}"
             );
         }
-        assert!(
-            fs::read_dir(&outside).unwrap().next().is_none(),
-            "nothing written through the link"
-        );
     }
+    let outside_entries = fs::read_dir(&outside).unwrap().count();
+    assert_eq!(
+        outside_entries, 0,
+        "nothing is written through a link or junction"
+    );
+    unlink_dir(&top.join("storage"));
+    unlink_dir(&blobs);
 }
