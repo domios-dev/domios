@@ -173,6 +173,7 @@ struct FakeHost {
     owner_view: Mutex<Snapshot>,
     emits: Mutex<Vec<Emitted>>,
     emit_error: Mutex<Option<String>>,
+    compose_hook: Mutex<Option<fn(&FakeHost)>>,
     dir: tempfile::TempDir,
 }
 
@@ -233,6 +234,10 @@ impl ReminderHost for FakeHost {
     }
 
     fn compose(&self, plan: &Plan, scope: &Scope, _: &Snapshot, decision: &Decision) -> Emission {
+        let hook = self.compose_hook.lock().take();
+        if let Some(hook) = hook {
+            hook(self);
+        }
         let transport = match scope.kind {
             ReminderKind::Worker | ReminderKind::CompleteWrapup => Transport::Automated,
             _ => Transport::Heartbeat {
@@ -351,6 +356,7 @@ fn host(plans: Vec<Plan>, mux: MultiplexerState, reply: Reply) -> (FakeHost, Arc
         owner_view: Mutex::new(owner_view()),
         emits: Mutex::default(),
         emit_error: Mutex::default(),
+        compose_hook: Mutex::default(),
         dir,
     };
     (host, model)
@@ -858,6 +864,39 @@ fn plan_reminder_choice_stale_scope_and_disconnect_refuse() {
             "stale_scope"
         };
         assert_eq!(outcome, ReminderOutcome::Suppressed(reason), "{name}");
+        assert_eq!((f.model.calls(), f.emits()), (1, 0), "{name}");
+        let (_, attempted, accepted, _) = f.telemetry(kind);
+        assert_eq!((attempted, accepted), (0, 0), "{name}");
+    }
+    let during_compose: [(&str, ReminderKind, fn(&FakeHost)); 3] = [
+        ("compose_disconnect", ReminderKind::Worker, |host| {
+            host.registry.unregister("fake");
+            host.runtime.connection_changed();
+        }),
+        (
+            "compose_reconnect_same_instance",
+            ReminderKind::Owner,
+            |host| {
+                host.runtime.connection_changed();
+            },
+        ),
+        ("compose_plan_paused", ReminderKind::StalledTeam, |host| {
+            host.plans.lock()[0].mode = PlanMode::Paused;
+        }),
+    ];
+    for (name, kind, mutate) in during_compose {
+        let f = fixture(kind, approve());
+        *f.host.compose_hook.lock() = Some(mutate);
+        let outcome = f.admit(kind, 100);
+        assert_eq!(
+            outcome,
+            ReminderOutcome::Suppressed("stale_scope"),
+            "{name}"
+        );
+        assert!(
+            f.host.compose_hook.lock().is_none(),
+            "{name} never composed"
+        );
         assert_eq!((f.model.calls(), f.emits()), (1, 0), "{name}");
         let (_, attempted, accepted, _) = f.telemetry(kind);
         assert_eq!((attempted, accepted), (0, 0), "{name}");
