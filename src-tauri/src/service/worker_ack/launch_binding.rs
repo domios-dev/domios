@@ -117,4 +117,5 @@ impl ServiceContext {
 }
 
 #[cfg(test)]
+#[path = "launch_binding/tests.rs"]
 mod tests;
