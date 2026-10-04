@@ -1,0 +1,275 @@
+//! Typed Storage submissions for each staged Sentinel mutation. Cache publication happens in
+//! `Store::conclude` after COMMIT; each settlement maps the committed outcome to the domain.
+
+use super::{codec, finishing, Failure, Staged};
+use crate::sentinel::handlers::{ResultRecord, Transition};
+use crate::sentinel::store::{Lease, ScheduleChange, Sentinel, Store, MAX_ACTIVE};
+use crate::storage::{Fence, MutationOutcome, ScheduleUpdate};
+
+fn refused<T: Send + 'static>(error: String) -> Staged<T> {
+    Staged::ready(Err(error))
+}
+
+fn applied(outcome: MutationOutcome) -> bool {
+    outcome == MutationOutcome::Applied
+}
+
+impl Store {
+    pub(in crate::sentinel) fn sqlite_insert(
+        &mut self,
+        job: Sentinel,
+        associate: &[String],
+    ) -> Staged<Sentinel> {
+        let create = match codec::create(&job, associate) {
+            Ok(create) => create,
+            Err(error) => return refused(error),
+        };
+        self.submit(
+            move |repo| repo.create(create),
+            finishing(move |_, outcome| {
+                let commit = outcome.map_err(Failure::message)?;
+                match commit.outcome {
+                    MutationOutcome::Applied => Ok(job),
+                    MutationOutcome::Fenced(Fence::Duplicate) => {
+                        Err("duplicate sentinel ID".into())
+                    }
+                    MutationOutcome::Fenced(Fence::Capacity) => {
+                        Err("sentinel capacity reached".into())
+                    }
+                    other => Err(format!("sentinel creation refused: {other:?}")),
+                }
+            }),
+        )
+    }
+
+    /// The lease is already cancelled; a failed commit keeps the stop intent in memory.
+    pub(in crate::sentinel) fn sqlite_stop(&mut self, id: &str, reason: &str) -> Staged<Sentinel> {
+        let stored = match codec::id(id) {
+            Ok(stored) => stored,
+            Err(error) => return refused(error),
+        };
+        let (id, reason) = (id.to_string(), reason.to_string());
+        let stop_reason = reason.clone();
+        self.submit(
+            move |repo| repo.stop(stored, stop_reason),
+            finishing(move |store, outcome| match outcome {
+                Ok(commit) => match commit.outcome {
+                    MutationOutcome::Applied => commit
+                        .sentinels
+                        .first()
+                        .map(codec::decode)
+                        .ok_or_else(|| "sentinel stop returned no committed state".to_string()),
+                    MutationOutcome::Fenced(Fence::Missing) => {
+                        Err(format!("sentinel not found: {id}"))
+                    }
+                    other => Err(format!("sentinel stop refused: {other:?}")),
+                },
+                Err(Failure::Failed(message)) => {
+                    store.apply_stop(&id, &reason);
+                    Err(message)
+                }
+                Err(Failure::Refused(message)) => Err(message),
+            }),
+        )
+    }
+
+    pub(in crate::sentinel) fn sqlite_remove_team(&mut self, team: &str) -> Staged<()> {
+        let team = team.to_string();
+        let removed = team.clone();
+        self.submit(
+            move |repo| repo.remove_team(removed),
+            finishing(move |store, outcome| match outcome {
+                Ok(_) => Ok(()),
+                Err(Failure::Failed(message)) => {
+                    store
+                        .jobs
+                        .retain(|job| job.team_id.as_deref() != Some(team.as_str()));
+                    Err(message)
+                }
+                Err(Failure::Refused(message)) => Err(message),
+            }),
+        )
+    }
+
+    /// Leases are issued only after their scheduling commit; a failure revokes them all.
+    pub(in crate::sentinel) fn sqlite_due(
+        &mut self,
+        leases: Vec<Lease>,
+        changes: Vec<ScheduleChange>,
+    ) -> Staged<Vec<Lease>> {
+        if changes.is_empty() {
+            return Staged::ready(Ok(leases));
+        }
+        let mut updates = Vec::with_capacity(changes.len());
+        for change in changes {
+            let update = match change {
+                ScheduleChange::Advance { id, next_run } => {
+                    codec::id(&id).map(|id| ScheduleUpdate::Advance { id, next_run })
+                }
+                ScheduleChange::Stop { id, reason } => {
+                    codec::id(&id).map(|id| ScheduleUpdate::Stop {
+                        id,
+                        reason: reason.to_string(),
+                    })
+                }
+            };
+            match update {
+                Ok(update) => updates.push(update),
+                Err(error) => return revoke(self, leases, error),
+            }
+        }
+        self.submit(
+            move |repo| repo.schedule(updates),
+            finishing(move |store, outcome| match outcome {
+                Ok(_) => Ok(leases),
+                Err(failure) => {
+                    for lease in &leases {
+                        lease.cancelled.cancel();
+                        store.active.remove(&lease.job.id);
+                    }
+                    Err(failure.message())
+                }
+            }),
+        )
+    }
+
+    /// `transition` turns a lease outcome into an accepted transition in the same commit.
+    pub(in crate::sentinel) fn sqlite_finish(
+        &mut self,
+        job: &Sentinel,
+        transition: Option<Transition>,
+    ) -> Staged<bool> {
+        let stored = match codec::id(&job.id) {
+            Ok(stored) => stored,
+            Err(error) => return refused(error),
+        };
+        let outcome = codec::outcome(job);
+        let generation = job.revision;
+        let accepted = transition.as_ref().map(codec::new_transition);
+        let intent = job.clone();
+        self.submit(
+            move |repo| match accepted {
+                Some(accepted) => repo.accept_transition(stored, generation, outcome, accepted),
+                None => repo.finish(stored, generation, outcome),
+            },
+            finishing(move |store, result| match result {
+                Ok(commit) => Ok(applied(commit.outcome)),
+                Err(Failure::Failed(message)) => {
+                    store.keep_finish_intent(&intent, transition);
+                    Err(message)
+                }
+                Err(Failure::Refused(message)) => Err(message),
+            }),
+        )
+    }
+
+    /// Durable claim-before-action: the claim exists only once COMMIT returned.
+    pub(in crate::sentinel) fn sqlite_claim(
+        &mut self,
+        job: &Sentinel,
+        transition: &str,
+        claim: ResultRecord,
+    ) -> Staged<Option<ResultRecord>> {
+        let stored = match codec::id(&job.id) {
+            Ok(stored) => stored,
+            Err(error) => return refused(error),
+        };
+        let fence = codec::fence(job, transition);
+        let record = codec::result(&claim);
+        let source = job.id.clone();
+        self.submit(
+            move |repo| repo.claim_handler(stored, fence, record),
+            finishing(move |store, outcome| match outcome {
+                Ok(commit) => Ok(applied(commit.outcome).then_some(claim)),
+                Err(failure) => {
+                    if let Some(cancelled) = store.active.get(&source) {
+                        cancelled.cancel();
+                    }
+                    Err(failure.message())
+                }
+            }),
+        )
+    }
+
+    pub(in crate::sentinel) fn sqlite_handler_result(
+        &mut self,
+        source: &str,
+        transition: &str,
+        updated: &ResultRecord,
+    ) -> Staged<()> {
+        let stored = match codec::id(source) {
+            Ok(stored) => stored,
+            Err(error) => return refused(error),
+        };
+        let (transition, record) = (transition.to_string(), codec::result(updated));
+        self.submit(
+            move |repo| repo.finish_handler_result(stored, transition, record),
+            finishing(|_, outcome| outcome.map(|_| ()).map_err(Failure::message)),
+        )
+    }
+
+    pub(in crate::sentinel) fn sqlite_skip(
+        &mut self,
+        source: &str,
+        transition: &str,
+        skipped: &[ResultRecord],
+    ) -> Staged<()> {
+        if skipped.is_empty() {
+            return Staged::ready(Ok(()));
+        }
+        let stored = match codec::id(source) {
+            Ok(stored) => stored,
+            Err(error) => return refused(error),
+        };
+        let transition = transition.to_string();
+        let records = skipped.iter().map(codec::result).collect();
+        self.submit(
+            move |repo| repo.skip_handlers(stored, transition, records),
+            finishing(|_, outcome| outcome.map(|_| ()).map_err(Failure::message)),
+        )
+    }
+
+    pub(in crate::sentinel) fn sqlite_activate(
+        &mut self,
+        source: &Sentinel,
+        transition: &str,
+        target: &str,
+    ) -> Staged<bool> {
+        let (stored, activated) = match (codec::id(&source.id), codec::id(target)) {
+            (Ok(stored), Ok(activated)) => (stored, activated),
+            (Err(error), _) | (_, Err(error)) => return refused(error),
+        };
+        let fence = codec::fence(source, transition);
+        self.submit(
+            move |repo| repo.activate_target(stored, fence, activated, MAX_ACTIVE),
+            finishing(|_, outcome| {
+                let commit = outcome.map_err(Failure::message)?;
+                match commit.outcome {
+                    MutationOutcome::Applied => Ok(true),
+                    MutationOutcome::Unchanged => Ok(false),
+                    MutationOutcome::Fenced(Fence::Capacity) => {
+                        Err("sentinel active capacity reached".into())
+                    }
+                    MutationOutcome::Fenced(Fence::NotClaimed) => Err(
+                        "sentinel activation requires its declared durable handler claim".into(),
+                    ),
+                    MutationOutcome::Fenced(Fence::Missing) => {
+                        Err("sentinel target not found".into())
+                    }
+                    MutationOutcome::Fenced(Fence::Scope) => {
+                        Err("sentinel target requires the same creator, Team and workspace".into())
+                    }
+                    MutationOutcome::Fenced(_) => Err("sentinel activation source fenced".into()),
+                }
+            }),
+        )
+    }
+}
+
+fn revoke(store: &mut Store, leases: Vec<Lease>, error: String) -> Staged<Vec<Lease>> {
+    for lease in &leases {
+        lease.cancelled.cancel();
+        store.active.remove(&lease.job.id);
+    }
+    Staged::ready(Err(error))
+}

@@ -9,7 +9,7 @@ use tauri::Manager;
 use super::{
     classify, machine, probe,
     provenance::{Evidence, Scope, Stage},
-    routes,
+    routes, storage,
     store::{Lease, Sentinel, Store},
 };
 use crate::cron::clock::SharedClock;
@@ -36,8 +36,9 @@ impl Handle {
         }
     }
 
+    /// Blocking settlement: callers on the async runtime must move this off it.
     pub fn remove_team(&self, team: &str) -> Result<(), String> {
-        let result = self.store.lock().remove_team(team);
+        let result = storage::commit(&self.store, |store| store.stage_remove_team(team));
         self.notify();
         result
     }
@@ -102,7 +103,10 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
                 Ok(guard) => *guard,
                 Err(_) => return,
             };
-            let due = store.lock().due();
+            if let Err(error) = storage::reconcile(&store) {
+                log::error!("[sentinel] unconfirmed commit reconciliation failed: {error}");
+            }
+            let due = storage::commit(&store, Store::stage_due);
             match due {
                 Ok(leases) => {
                     for lease in leases {
@@ -263,7 +267,7 @@ fn record_failure(
 ) {
     let mut job = lease.job.clone();
     job.last_reason = Some(failure.reason());
-    if handle.store.lock().finish(&job).unwrap_or(false) {
+    if storage::commit(&handle.store, |store| store.stage_finish(&job)).unwrap_or(false) {
         let _ = journal(
             svc,
             &job,
@@ -315,13 +319,11 @@ pub(super) fn record_unconfirmed_failure_with(
     mut write_journal: impl FnMut(&Sentinel, &machine::Outcome, Stage) -> std::io::Result<()>,
 ) -> UnconfirmedRecordResult {
     let reason = failure.reason();
-    let (stopped, persistence_error) = {
-        let mut store = store.lock();
-        match store.stop(&job.id, &reason) {
+    let (stopped, persistence_error) =
+        match storage::commit(store, |current| current.stage_stop(&job.id, &reason)) {
             Ok(stopped) => (Some(stopped), None),
-            Err(error) => (store.get(&job.id).cloned(), Some(error)),
-        }
-    };
+            Err(error) => (store.lock().get(&job.id).cloned(), Some(error)),
+        };
     let journal_error = stopped.and_then(|stopped| {
         let outcome = machine::Outcome {
             evidence: Evidence::new(Scope::from(job), None),
@@ -359,7 +361,9 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         return;
     }
     if !routes::creator_live(svc, &lease.job) {
-        let _ = handle.store.lock().stop(&lease.job.id, "creator_gone");
+        let _ = storage::commit(&handle.store, |store| {
+            store.stage_stop(&lease.job.id, "creator_gone")
+        });
         return;
     }
     let remaining = {
@@ -404,20 +408,26 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         &output,
         || classify::classify(svc, &lease.job, &output.text, remaining),
         |job, transition, handler| {
-            let mux = svc.mux.read();
-            let live = mux
-                .get_tab(&job.creator_tab_id)
-                .is_some_and(|tab| tab.team_id == job.team_id)
-                && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref()
-                    == Some(&job.workspace_id)
-                && job
-                    .team_id
-                    .as_ref()
-                    .is_none_or(|id| mux.get_team(id).is_some());
-            if !live {
-                return Ok(None);
-            }
-            handle.store.lock().claim_handler(job, transition, handler)
+            let staged = {
+                let mux = svc.mux.read();
+                let live = mux
+                    .get_tab(&job.creator_tab_id)
+                    .is_some_and(|tab| tab.team_id == job.team_id)
+                    && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref()
+                        == Some(&job.workspace_id)
+                    && job
+                        .team_id
+                        .as_ref()
+                        .is_none_or(|id| mux.get_team(id).is_some());
+                if !live {
+                    return Ok(None);
+                }
+                handle
+                    .store
+                    .lock()
+                    .stage_claim_handler(job, transition, handler)
+            };
+            staged.settle(&handle.store)
         },
         |job, transition, handler, verdict| {
             use super::handlers::Status;
@@ -432,21 +442,23 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
             }
             match &handler.action {
                 machine::Route::Sentinel(target) => {
-                    let mux = svc.mux.read();
-                    let live = mux
-                        .get_tab(&job.creator_tab_id)
-                        .is_some_and(|tab| tab.team_id == job.team_id)
-                        && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref()
-                            == Some(&job.workspace_id)
-                        && job
-                            .team_id
-                            .as_ref()
-                            .is_none_or(|id| mux.get_team(id).is_some());
-                    if !live {
-                        return Err("sentinel creator or Team is gone".into());
-                    }
-                    let changed = handle.store.lock().activate(job, transition, target)?;
-                    drop(mux);
+                    let staged = {
+                        let mux = svc.mux.read();
+                        let live = mux
+                            .get_tab(&job.creator_tab_id)
+                            .is_some_and(|tab| tab.team_id == job.team_id)
+                            && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref()
+                                == Some(&job.workspace_id)
+                            && job
+                                .team_id
+                                .as_ref()
+                                .is_none_or(|id| mux.get_team(id).is_some());
+                        if !live {
+                            return Err("sentinel creator or Team is gone".into());
+                        }
+                        handle.store.lock().stage_activate(job, transition, target)
+                    };
+                    let changed = staged.settle(&handle.store)?;
                     if changed {
                         handle.notify();
                     }
@@ -478,13 +490,14 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
                     ))
                 }
                 machine::Route::Stop => {
-                    {
+                    let staged = {
                         let mut store = handle.store.lock();
                         if !store.action_permitted(job, transition) {
                             return Err("stop handler source fenced".into());
                         }
-                        store.stop(&job.id, "stop_handler")?;
-                    }
+                        store.stage_stop(&job.id, "stop_handler")
+                    };
+                    staged.settle(&handle.store)?;
                     handle.notify();
                     Ok(Status::Completed.into())
                 }
@@ -551,27 +564,28 @@ pub(super) fn advance(
     );
     job.last_reason = Some(outcome.reason.into());
     let committed = if outcome.reason == "transition" {
-        store.lock().accept_transition(
-            &job,
-            &outcome
-                .verdict
-                .as_ref()
-                .map(|v| v.bucket.clone())
-                .unwrap_or_default(),
-            &outcome.evidence.evaluation_id,
-        )
+        let bucket = outcome
+            .verdict
+            .as_ref()
+            .map(|v| v.bucket.clone())
+            .unwrap_or_default();
+        storage::commit(store, |current| {
+            current.stage_accept_transition(&job, &bucket, &outcome.evidence.evaluation_id)
+        })
     } else {
-        store.lock().finish(&job)
+        storage::commit(store, |current| current.stage_finish(&job))
     };
     if !matches!(committed, Ok(true)) {
         return;
     }
     if write_journal(&job, &outcome, Stage::Decision).is_err() {
-        let _ = store.lock().skip_remaining(
-            &job.id,
-            &outcome.evidence.evaluation_id,
-            &outcome.handlers,
-        );
+        let _ = storage::commit(store, |current| {
+            current.stage_skip_remaining(
+                &job.id,
+                &outcome.evidence.evaluation_id,
+                &outcome.handlers,
+            )
+        });
         return;
     }
     for (index, handler) in outcome.handlers.iter().enumerate() {
@@ -579,37 +593,34 @@ pub(super) fn advance(
         let permitted = !lease.cancelled.load(Ordering::SeqCst)
             && store.lock().action_permitted(&job, transition);
         if !permitted {
-            let _ = store
-                .lock()
-                .skip_remaining(&job.id, transition, &outcome.handlers[index..]);
+            let _ = storage::commit(store, |current| {
+                current.stage_skip_remaining(&job.id, transition, &outcome.handlers[index..])
+            });
             return;
         }
         let accepted = match claim(&job, transition, handler) {
             Ok(Some(claim)) => claim,
             _ => {
-                let _ =
-                    store
-                        .lock()
-                        .skip_remaining(&job.id, transition, &outcome.handlers[index..]);
+                let _ = storage::commit(store, |current| {
+                    current.stage_skip_remaining(&job.id, transition, &outcome.handlers[index..])
+                });
                 return;
             }
         };
         let mut handler_outcome = outcome.clone();
         handler_outcome.route = Some(handler.action.clone());
         if write_journal(&job, &handler_outcome, Stage::RouteClaim).is_err() {
-            let _ =
-                store
-                    .lock()
-                    .skip_remaining(&job.id, transition, &outcome.handlers[index + 1..]);
+            let _ = storage::commit(store, |current| {
+                current.stage_skip_remaining(&job.id, transition, &outcome.handlers[index + 1..])
+            });
             return;
         }
         if lease.cancelled.load(Ordering::SeqCst)
             || !store.lock().action_permitted(&job, transition)
         {
-            let _ =
-                store
-                    .lock()
-                    .skip_remaining(&job.id, transition, &outcome.handlers[index + 1..]);
+            let _ = storage::commit(store, |current| {
+                current.stage_skip_remaining(&job.id, transition, &outcome.handlers[index + 1..])
+            });
             return;
         }
         let Some(verdict) = outcome.verdict.as_ref() else {
@@ -632,18 +643,20 @@ pub(super) fn advance(
             .command_result
             .as_ref()
             .is_some_and(|result| !result.resources_confirmed);
-        if let Err(error) = store
-            .lock()
-            .finish_handler_result(&job.id, transition, &accepted, effect)
-        {
+        if let Err(error) = storage::commit(store, |current| {
+            current.stage_finish_handler_result(&job.id, transition, &accepted, effect)
+        }) {
             log::error!("[sentinel] handler result persistence failed: {error}");
             return;
         }
         let _ = write_journal(&job, &handler_outcome, stage);
         if unsafe_continuation {
-            let mut store = store.lock();
-            let _ = store.stop(&job.id, "command_resources_unconfirmed");
-            let _ = store.skip_remaining(&job.id, transition, &outcome.handlers[index + 1..]);
+            let _ = storage::commit(store, |current| {
+                current.stage_stop(&job.id, "command_resources_unconfirmed")
+            });
+            let _ = storage::commit(store, |current| {
+                current.stage_skip_remaining(&job.id, transition, &outcome.handlers[index + 1..])
+            });
             return;
         }
     }

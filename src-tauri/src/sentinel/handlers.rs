@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 
 use super::machine::Route;
+use super::storage::Staged;
 use super::store::{Sentinel, Store};
 
 pub const MAX_HANDLERS_PER_BUCKET: usize = 16;
@@ -225,52 +226,97 @@ pub fn default_actions() -> u16 {
     DEFAULT_ACTIONS
 }
 
+/// Admission decision of one handler claim, taken under the store lock.
+enum Gate {
+    Refuse,
+    Exhausted,
+    Claim,
+}
+
+fn apply_effect(record: &mut ResultRecord, effect: Effect) {
+    record.execution_id = effect.execution_id.or_else(|| match effect.status {
+        Status::Completed | Status::Noop => record.claim_id.clone(),
+        _ => None,
+    });
+    record.reason = match effect.status {
+        Status::Failed => Some("action_failed".into()),
+        Status::Unconfirmed => Some("effect_unconfirmed".into()),
+        _ => None,
+    };
+    record.command_result = effect.command_result;
+    record.status = effect.status;
+}
+
+fn skipped(handler: &Handler) -> ResultRecord {
+    ResultRecord {
+        handler_id: handler.id.clone(),
+        status: Status::Skipped,
+        claim_id: None,
+        execution_id: None,
+        accepted_at: None,
+        command_result: None,
+        reason: Some("batch_fenced".into()),
+    }
+}
+
 impl Store {
-    pub fn accept_transition(
+    pub(super) fn stage_accept_transition(
         &mut self,
         job: &Sentinel,
         bucket: &str,
         id: &str,
-    ) -> Result<bool, String> {
-        self.ensure_available()?;
+    ) -> Staged<bool> {
+        if let Err(error) = self.ensure_available() {
+            return Staged::ready(Err(error));
+        }
         if id.is_empty() || id.len() > 128 || !job.buckets.iter().any(|declared| declared == bucket)
         {
-            return Err("transition requires a stable identity and declared bucket".into());
+            return Staged::ready(Err(
+                "transition requires a stable identity and declared bucket".into(),
+            ));
         }
+        let now = self.clock.now_ms();
         let Some(current) = self.get(&job.id) else {
-            return Ok(false);
+            return Staged::ready(Ok(false));
         };
         if current
             .transitions
             .iter()
             .any(|transition| transition.id == id)
         {
-            return Ok(false);
+            return Staged::ready(Ok(false));
         }
         if !current.same_owner(job)
             || current.revision != job.revision
             || current.machine.stopped
             || current.machine.paused
-            || current
-                .expires_at
-                .is_some_and(|at| self.clock.now_ms() >= at)
+            || current.expires_at.is_some_and(|at| now >= at)
         {
-            return Ok(false);
+            return Staged::ready(Ok(false));
         }
         if current.transitions.len() >= usize::from(current.max_transitions) {
-            self.stop(&job.id, "transition_budget_exhausted")?;
-            return Ok(false);
+            return self
+                .stage_stop(&job.id, "transition_budget_exhausted")
+                .map(|_| false);
         }
-        let mut accepted = job.clone();
-        accepted.transitions = current.transitions.clone();
-        accepted.transitions.push(Transition {
+        let transition = Transition {
             id: id.into(),
             bucket: bucket.into(),
-            accepted_at: self.clock.now_ms(),
+            accepted_at: now,
             terminal: job.machine.stopped,
             handlers: Vec::new(),
-        });
-        self.finish(&accepted)
+        };
+        self.stage_finish_with(job, Some(transition))
+    }
+
+    #[cfg(test)]
+    pub fn accept_transition(
+        &mut self,
+        job: &Sentinel,
+        bucket: &str,
+        id: &str,
+    ) -> Result<bool, String> {
+        self.locked(|store| store.stage_accept_transition(job, bucket, id))
     }
 
     fn batch_live(&self, job: &Sentinel, transition_id: &str) -> bool {
@@ -299,14 +345,14 @@ impl Store {
         })
     }
 
-    pub fn claim_handler(
-        &mut self,
+    fn claim_gate(
+        &self,
         job: &Sentinel,
         transition_id: &str,
         handler: &Handler,
-    ) -> Result<Option<ResultRecord>, String> {
+    ) -> Result<Gate, String> {
         if !self.batch_live(job, transition_id) {
-            return Ok(None);
+            return Ok(Gate::Refuse);
         }
         let current = self.get(&job.id).ok_or("sentinel disappeared")?;
         let transition = current
@@ -319,7 +365,7 @@ impl Store {
             .iter()
             .any(|r| r.handler_id == handler.id)
         {
-            return Ok(None);
+            return Ok(Gate::Refuse);
         }
         if !current
             .routes
@@ -335,8 +381,27 @@ impl Store {
             .filter(|r| r.claim_id.is_some())
             .count();
         if actions >= usize::from(current.max_actions) {
-            self.stop(&job.id, "action_budget_exhausted")?;
-            return Ok(None);
+            return Ok(Gate::Exhausted);
+        }
+        Ok(Gate::Claim)
+    }
+
+    /// Durable claim-before-action: no effect may start until this settles with a claim.
+    pub(super) fn stage_claim_handler(
+        &mut self,
+        job: &Sentinel,
+        transition_id: &str,
+        handler: &Handler,
+    ) -> Staged<Option<ResultRecord>> {
+        match self.claim_gate(job, transition_id, handler) {
+            Ok(Gate::Claim) => {}
+            Ok(Gate::Refuse) => return Staged::ready(Ok(None)),
+            Ok(Gate::Exhausted) => {
+                return self
+                    .stage_stop(&job.id, "action_budget_exhausted")
+                    .map(|_| None)
+            }
+            Err(error) => return Staged::ready(Err(error)),
         }
         let claim = ResultRecord {
             handler_id: handler.id.clone(),
@@ -347,27 +412,37 @@ impl Store {
             command_result: None,
             reason: None,
         };
+        if self.backend.json().is_none() {
+            return self.sqlite_claim(job, transition_id, claim);
+        }
         let previous = self.jobs.clone();
-        let current = self
+        let Some(transition) = self
             .jobs
             .iter_mut()
             .find(|j| j.id == job.id)
-            .ok_or("sentinel disappeared")?;
-        current
-            .transitions
-            .iter_mut()
-            .find(|t| t.id == transition_id)
-            .ok_or("transition missing")?
-            .handlers
-            .push(claim.clone());
+            .and_then(|j| j.transitions.iter_mut().find(|t| t.id == transition_id))
+        else {
+            return Staged::ready(Err("transition missing".into()));
+        };
+        transition.handlers.push(claim.clone());
         if let Err(error) = self.save() {
             self.jobs = previous;
             if let Some(cancelled) = self.active.get(&job.id) {
                 cancelled.store(true, std::sync::atomic::Ordering::SeqCst)
             }
-            return Err(error);
+            return Staged::ready(Err(error));
         }
-        Ok(Some(claim))
+        Staged::ready(Ok(Some(claim)))
+    }
+
+    #[cfg(test)]
+    pub fn claim_handler(
+        &mut self,
+        job: &Sentinel,
+        transition_id: &str,
+        handler: &Handler,
+    ) -> Result<Option<ResultRecord>, String> {
+        self.locked(|store| store.stage_claim_handler(job, transition_id, handler))
     }
 
     pub fn action_permitted(&self, job: &Sentinel, transition: &str) -> bool {
@@ -385,6 +460,7 @@ impl Store {
         self.finish_handler_result(source, transition_id, claim, status.into())
     }
 
+    #[cfg(test)]
     pub fn finish_handler_result(
         &mut self,
         source: &str,
@@ -392,7 +468,19 @@ impl Store {
         claim: &ResultRecord,
         effect: Effect,
     ) -> Result<(), String> {
-        let previous = self.jobs.clone();
+        self.locked(|store| store.stage_finish_handler_result(source, transition_id, claim, effect))
+    }
+
+    /// Records the effect of an existing claim; later stops never fence this record.
+    pub(super) fn stage_finish_handler_result(
+        &mut self,
+        source: &str,
+        transition_id: &str,
+        claim: &ResultRecord,
+        effect: Effect,
+    ) -> Staged<()> {
+        let typed = self.backend.json().is_none();
+        let previous = if typed { Vec::new() } else { self.jobs.clone() };
         let Some(record) = self
             .jobs
             .iter_mut()
@@ -404,62 +492,66 @@ impl Store {
                     .find(|r| r.handler_id == claim.handler_id && r.claim_id == claim.claim_id)
             })
         else {
-            return Ok(());
+            return Staged::ready(Ok(()));
         };
-        record.execution_id = effect.execution_id.or_else(|| match effect.status {
-            Status::Completed | Status::Noop => record.claim_id.clone(),
-            _ => None,
-        });
-        record.reason = match effect.status {
-            Status::Failed => Some("action_failed".into()),
-            Status::Unconfirmed => Some("effect_unconfirmed".into()),
-            _ => None,
-        };
-        record.command_result = effect.command_result;
-        record.status = effect.status;
+        if typed {
+            let mut updated = record.clone();
+            apply_effect(&mut updated, effect);
+            return self.sqlite_handler_result(source, transition_id, &updated);
+        }
+        apply_effect(record, effect);
         if let Err(error) = self.save() {
             self.jobs = previous;
-            return Err(error);
+            return Staged::ready(Err(error));
         }
-        Ok(())
+        Staged::ready(Ok(()))
     }
 
-    pub fn skip_remaining(
+    pub(super) fn stage_skip_remaining(
         &mut self,
         source: &str,
         transition_id: &str,
         handlers: &[Handler],
-    ) -> Result<(), String> {
-        let previous = self.jobs.clone();
+    ) -> Staged<()> {
+        let typed = self.backend.json().is_none();
+        let previous = if typed { Vec::new() } else { self.jobs.clone() };
         let Some(transition) = self
             .jobs
             .iter_mut()
             .find(|j| j.id == source)
             .and_then(|j| j.transitions.iter_mut().find(|t| t.id == transition_id))
         else {
-            return Ok(());
+            return Staged::ready(Ok(()));
         };
+        let mut fenced: Vec<ResultRecord> = Vec::new();
         for handler in handlers {
             if !transition
                 .handlers
                 .iter()
+                .chain(&fenced)
                 .any(|r| r.handler_id == handler.id)
             {
-                transition.handlers.push(ResultRecord {
-                    handler_id: handler.id.clone(),
-                    status: Status::Skipped,
-                    claim_id: None,
-                    execution_id: None,
-                    accepted_at: None,
-                    command_result: None,
-                    reason: Some("batch_fenced".into()),
-                });
+                fenced.push(skipped(handler));
             }
         }
+        if typed {
+            return self.sqlite_skip(source, transition_id, &fenced);
+        }
+        transition.handlers.extend(fenced);
         if let Err(error) = self.save() {
             self.jobs = previous;
-            return Err(error);
+            return Staged::ready(Err(error));
         }
-        Ok(())
+        Staged::ready(Ok(()))
+    }
+
+    #[cfg(test)]
+    pub fn skip_remaining(
+        &mut self,
+        source: &str,
+        transition_id: &str,
+        handlers: &[Handler],
+    ) -> Result<(), String> {
+        self.locked(|store| store.stage_skip_remaining(source, transition_id, handlers))
     }
 }

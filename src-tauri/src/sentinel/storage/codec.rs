@@ -1,0 +1,383 @@
+//! Lossless mapping between domain Sentinels and typed Storage records.
+
+use std::collections::{BTreeMap, BTreeSet};
+
+use crate::sentinel::command::{Capture, Parameters, ResultMetadata, Status as CommandStatus};
+use crate::sentinel::graph::Identity;
+use crate::sentinel::handlers::{Handler, ResultRecord, Status, Transition};
+use crate::sentinel::machine::{Machine, Route};
+use crate::sentinel::store::Sentinel;
+use crate::storage::{
+    BatchFence, BucketDefinition, CaptureRecord, CommandParameters, CommandResultRecord,
+    CommandStatus as StoredCommandStatus, HandlerAction, HandlerDefinition, HandlerResultRecord,
+    HandlerStatus, NewTransition, RuntimeOutcome, SentinelCreate, SentinelId, SentinelIdentity,
+    SentinelImport, SentinelScope, StageDefinition, StageRuntime, StoredSentinel, TargetIdentity,
+    TransitionRecord,
+};
+
+pub(super) fn id(id: &str) -> Result<SentinelId, String> {
+    SentinelId::new(id).map_err(|error| format!("invalid sentinel identity: {error}"))
+}
+fn action(route: &Route) -> HandlerAction {
+    match route {
+        Route::Notify => HandlerAction::Notify,
+        Route::Stop => HandlerAction::Stop,
+        Route::Send(target) => HandlerAction::Send(target.clone()),
+        Route::Cron(target) => HandlerAction::Cron(target.clone()),
+        Route::Sentinel(target) => HandlerAction::Sentinel(target.clone()),
+        Route::Command(parameters) => HandlerAction::Command(CommandParameters {
+            command: parameters.command.clone(),
+            label: parameters.label.clone(),
+            timeout_ms: parameters.timeout_ms,
+        }),
+    }
+}
+
+fn route(action: HandlerAction) -> Route {
+    match action {
+        HandlerAction::Notify => Route::Notify,
+        HandlerAction::Stop => Route::Stop,
+        HandlerAction::Send(target) => Route::Send(target),
+        HandlerAction::Cron(target) => Route::Cron(target),
+        HandlerAction::Sentinel(target) => Route::Sentinel(target),
+        HandlerAction::Command(parameters) => Route::Command(Parameters {
+            command: parameters.command,
+            label: parameters.label,
+            timeout_ms: parameters.timeout_ms,
+        }),
+    }
+}
+
+fn target(identity: &Identity) -> TargetIdentity {
+    TargetIdentity {
+        kind: identity.kind.clone(),
+        id: identity.id.clone(),
+        workspace_id: identity.workspace_id.clone(),
+        team_id: identity.team_id.clone(),
+        owner_tab_id: identity.owner_tab_id.clone(),
+    }
+}
+
+fn identity(target: TargetIdentity) -> Identity {
+    Identity {
+        kind: target.kind,
+        id: target.id,
+        workspace_id: target.workspace_id,
+        team_id: target.team_id,
+        owner_tab_id: target.owner_tab_id,
+    }
+}
+
+fn status(status: &Status) -> HandlerStatus {
+    match status {
+        Status::Unconfirmed => HandlerStatus::Unconfirmed,
+        Status::Completed => HandlerStatus::Completed,
+        Status::Failed => HandlerStatus::Failed,
+        Status::Noop => HandlerStatus::Noop,
+        Status::Skipped => HandlerStatus::Skipped,
+    }
+}
+
+fn domain_status(status: HandlerStatus) -> Status {
+    match status {
+        HandlerStatus::Unconfirmed => Status::Unconfirmed,
+        HandlerStatus::Completed => Status::Completed,
+        HandlerStatus::Failed => Status::Failed,
+        HandlerStatus::Noop => Status::Noop,
+        HandlerStatus::Skipped => Status::Skipped,
+    }
+}
+
+fn command_status(status: CommandStatus) -> StoredCommandStatus {
+    match status {
+        CommandStatus::Success => StoredCommandStatus::Success,
+        CommandStatus::Nonzero => StoredCommandStatus::Nonzero,
+        CommandStatus::Error => StoredCommandStatus::Error,
+        CommandStatus::Cancelled => StoredCommandStatus::Cancelled,
+        CommandStatus::Deadline => StoredCommandStatus::Deadline,
+        CommandStatus::Unconfirmed => StoredCommandStatus::Unconfirmed,
+    }
+}
+
+fn domain_command_status(status: StoredCommandStatus) -> CommandStatus {
+    match status {
+        StoredCommandStatus::Success => CommandStatus::Success,
+        StoredCommandStatus::Nonzero => CommandStatus::Nonzero,
+        StoredCommandStatus::Error => CommandStatus::Error,
+        StoredCommandStatus::Cancelled => CommandStatus::Cancelled,
+        StoredCommandStatus::Deadline => CommandStatus::Deadline,
+        StoredCommandStatus::Unconfirmed => CommandStatus::Unconfirmed,
+    }
+}
+
+fn capture(capture: &Capture) -> CaptureRecord {
+    CaptureRecord {
+        total_bytes: capture.total_bytes,
+        retained_bytes: capture.retained_bytes,
+        truncated: capture.truncated,
+    }
+}
+
+fn domain_capture(capture: CaptureRecord) -> Capture {
+    Capture {
+        total_bytes: capture.total_bytes,
+        retained_bytes: capture.retained_bytes,
+        truncated: capture.truncated,
+    }
+}
+
+fn metadata(metadata: &ResultMetadata) -> CommandResultRecord {
+    CommandResultRecord {
+        status: command_status(metadata.status),
+        exit_code: metadata.exit_code,
+        resources_confirmed: metadata.resources_confirmed,
+        stdout: metadata.stdout.as_ref().map(capture),
+        stderr: metadata.stderr.as_ref().map(capture),
+        started_at: metadata.started_at,
+        finished_at: metadata.finished_at,
+        primary: metadata.primary.clone(),
+        cleanup: metadata.cleanup.clone(),
+    }
+}
+
+fn domain_metadata(record: CommandResultRecord) -> ResultMetadata {
+    ResultMetadata {
+        status: domain_command_status(record.status),
+        exit_code: record.exit_code,
+        resources_confirmed: record.resources_confirmed,
+        stdout: record.stdout.map(domain_capture),
+        stderr: record.stderr.map(domain_capture),
+        started_at: record.started_at,
+        finished_at: record.finished_at,
+        primary: record.primary,
+        cleanup: record.cleanup,
+    }
+}
+
+pub(super) fn result(result: &ResultRecord) -> HandlerResultRecord {
+    HandlerResultRecord {
+        handler_id: result.handler_id.clone(),
+        status: status(&result.status),
+        claim_id: result.claim_id.clone(),
+        execution_id: result.execution_id.clone(),
+        accepted_at: result.accepted_at,
+        command_result: result.command_result.as_ref().map(metadata),
+        reason: result.reason.clone(),
+    }
+}
+
+fn domain_result(record: HandlerResultRecord) -> ResultRecord {
+    ResultRecord {
+        handler_id: record.handler_id,
+        status: domain_status(record.status),
+        claim_id: record.claim_id,
+        execution_id: record.execution_id,
+        accepted_at: record.accepted_at,
+        command_result: record.command_result.map(domain_metadata),
+        reason: record.reason,
+    }
+}
+
+/// Transitions recorded before versioned history keep `definition_version: None`.
+fn transition(transition: &Transition) -> TransitionRecord {
+    TransitionRecord {
+        id: transition.id.clone(),
+        bucket: transition.bucket.clone(),
+        accepted_at: transition.accepted_at,
+        terminal: transition.terminal,
+        definition_version: None,
+        handlers: transition.handlers.iter().map(result).collect(),
+    }
+}
+
+pub(super) fn new_transition(transition: &Transition) -> NewTransition {
+    NewTransition {
+        id: transition.id.clone(),
+        bucket: transition.bucket.clone(),
+        accepted_at: transition.accepted_at,
+        terminal: transition.terminal,
+    }
+}
+
+fn domain_transition(record: TransitionRecord) -> Transition {
+    Transition {
+        id: record.id,
+        bucket: record.bucket,
+        accepted_at: record.accepted_at,
+        terminal: record.terminal,
+        handlers: record.handlers.into_iter().map(domain_result).collect(),
+    }
+}
+
+/// Refuses any definition whose buckets, routes and matches would not round-trip exactly.
+fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
+    let declared: BTreeSet<&String> = job.buckets.iter().collect();
+    let exact = declared.len() == job.buckets.len()
+        && job.routes.len() == job.buckets.len()
+        && job.routes.keys().all(|bucket| declared.contains(bucket))
+        && job.matches.keys().all(|bucket| declared.contains(bucket));
+    if !exact {
+        return Err("sentinel definition is not losslessly representable".into());
+    }
+    let buckets = job
+        .buckets
+        .iter()
+        .map(|bucket| BucketDefinition {
+            name: bucket.clone(),
+            match_pattern: job.matches.get(bucket).cloned(),
+            handlers: job.routes[bucket]
+                .iter()
+                .map(|handler| HandlerDefinition {
+                    id: handler.id.clone(),
+                    action: action(&handler.action),
+                    target: handler.target.as_ref().map(target),
+                })
+                .collect(),
+        })
+        .collect();
+    Ok(StageDefinition {
+        name: job.name.clone(),
+        probe: job.probe.clone(),
+        question: job.question.clone(),
+        interval_ms: job.interval_ms,
+        until: job.until.clone(),
+        max_transitions: job.max_transitions,
+        max_actions: job.max_actions,
+        buckets,
+    })
+}
+
+fn runtime(job: &Sentinel) -> StageRuntime {
+    StageRuntime {
+        generation: job.revision,
+        next_run: job.next_run,
+        expires_at: job.expires_at,
+        paused: job.machine.paused,
+        stopped: job.machine.stopped,
+        last_hash: job.machine.last_hash.clone(),
+        last_bucket: job.machine.last_bucket.clone(),
+        last_reason: job.last_reason.clone(),
+    }
+}
+
+fn stage_identity(job: &Sentinel) -> Result<SentinelIdentity, String> {
+    Ok(SentinelIdentity {
+        id: id(&job.id)?,
+        scope: SentinelScope {
+            creator_tab_id: job.creator_tab_id.clone(),
+            workspace_id: job.workspace_id.clone(),
+            team_id: job.team_id.clone(),
+        },
+        cwd: job.cwd.clone(),
+        agent_authored: job.agent_authored,
+    })
+}
+
+fn scenario(job: &Sentinel) -> Result<Option<SentinelId>, String> {
+    job.scenario_id.as_deref().map(id).transpose()
+}
+
+pub(super) fn create(job: &Sentinel, associate: &[String]) -> Result<SentinelCreate, String> {
+    if !job.transitions.is_empty() {
+        return Err("a new sentinel carries no accepted transitions".into());
+    }
+    Ok(SentinelCreate {
+        identity: stage_identity(job)?,
+        scenario_id: scenario(job)?,
+        definition: definition(job)?,
+        runtime: runtime(job),
+        associate: associate
+            .iter()
+            .map(|child| id(child))
+            .collect::<Result<_, _>>()?,
+    })
+}
+
+/// Exact existing state for the immutable import path; nothing here can start work.
+pub(super) fn import(job: &Sentinel) -> Result<SentinelImport, String> {
+    Ok(SentinelImport {
+        identity: stage_identity(job)?,
+        scenario_id: scenario(job)?,
+        definition: definition(job)?,
+        runtime: runtime(job),
+        transitions: job.transitions.iter().map(transition).collect(),
+    })
+}
+
+pub(super) fn outcome(job: &Sentinel) -> RuntimeOutcome {
+    RuntimeOutcome {
+        last_hash: job.machine.last_hash.clone(),
+        last_bucket: job.machine.last_bucket.clone(),
+        stopped: job.machine.stopped,
+        last_reason: job.last_reason.clone(),
+    }
+}
+
+pub(super) fn fence(job: &Sentinel, transition: &str) -> BatchFence {
+    BatchFence {
+        generation: job.revision,
+        last_hash: job.machine.last_hash.clone(),
+        last_bucket: job.machine.last_bucket.clone(),
+        transition_id: transition.to_string(),
+    }
+}
+
+/// The committed aggregate as a domain Sentinel; the definition is the current head version.
+pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
+    let record = stored.record.clone();
+    let definition = record.definition.definition;
+    let mut buckets = Vec::with_capacity(definition.buckets.len());
+    let mut routes = BTreeMap::new();
+    let mut matches = BTreeMap::new();
+    for bucket in definition.buckets {
+        if let Some(pattern) = bucket.match_pattern {
+            matches.insert(bucket.name.clone(), pattern);
+        }
+        let handlers: Vec<Handler> = bucket
+            .handlers
+            .into_iter()
+            .map(|handler| Handler {
+                id: handler.id,
+                action: route(handler.action),
+                target: handler.target.map(identity),
+            })
+            .collect();
+        routes.insert(bucket.name.clone(), handlers);
+        buckets.push(bucket.name);
+    }
+    let runtime = record.runtime;
+    Sentinel {
+        id: record.identity.id.as_str().to_string(),
+        team_id: record.identity.scope.team_id,
+        creator_tab_id: record.identity.scope.creator_tab_id,
+        workspace_id: record.identity.scope.workspace_id,
+        cwd: record.identity.cwd,
+        probe: definition.probe,
+        question: definition.question,
+        buckets,
+        interval_ms: definition.interval_ms,
+        routes,
+        matches,
+        until: definition.until,
+        expires_at: runtime.expires_at,
+        next_run: runtime.next_run,
+        machine: Machine {
+            last_hash: runtime.last_hash,
+            last_bucket: runtime.last_bucket,
+            stopped: runtime.stopped,
+            paused: runtime.paused,
+        },
+        last_reason: runtime.last_reason,
+        revision: runtime.generation,
+        agent_authored: record.identity.agent_authored,
+        name: definition.name,
+        scenario_id: record.scenario_id.map(|id| id.as_str().to_string()),
+        max_transitions: definition.max_transitions,
+        max_actions: definition.max_actions,
+        transitions: record
+            .transitions
+            .into_iter()
+            .map(domain_transition)
+            .collect(),
+    }
+}

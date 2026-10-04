@@ -74,6 +74,7 @@ pub fn validate_scope(
     Ok(())
 }
 
+#[cfg(test)]
 pub fn scoped_inventory(
     store: &super::store::Store,
     mux: &MultiplexerState,
