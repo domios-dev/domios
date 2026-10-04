@@ -7,7 +7,7 @@ use std::collections::hash_map::RandomState;
 use std::collections::HashSet;
 use std::fmt;
 use std::fs::{self, File, OpenOptions, TryLockError};
-use std::hash::{BuildHasher, Hash, Hasher};
+use std::hash::BuildHasher;
 use std::io::{ErrorKind, Read as _, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -268,11 +268,7 @@ pub(crate) fn unique_token() -> u128 {
         .duration_since(UNIX_EPOCH)
         .map(|elapsed| elapsed.as_nanos())
         .unwrap_or_default();
-    let mix = |salt: u64| {
-        let mut hasher = RandomState::new().build_hasher();
-        (salt, sequence, nanos, std::process::id()).hash(&mut hasher);
-        hasher.finish()
-    };
+    let mix = |salt: u64| RandomState::new().hash_one((salt, sequence, nanos, std::process::id()));
     (u128::from(mix(1)) << 64) | u128::from(mix(2))
 }
 
