@@ -460,6 +460,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | REST port-release fails only in the parallel macOS suite | Closing a real occupier races Darwin. | Inject the first bind failure, then prove recovery binds a healthy listener. |
 | Linux clippy rejects a test-only parameter | Only `cfg(test)` uses it. | Keep injection at the test call site, outside production signatures. |
 | Storage clippy reports `manual_hash_one` in asset staging tokens | The token helper manually built and finalized a hasher. | Use `BuildHasher::hash_one` on the same salt, sequence, time and process tuple; rerun the owning clippy gate. |
+| Unix clippy flags Windows-only probe helpers and test-only deadline receipt fields | Shared code compiled unused platform or test telemetry in the production profile. | Gate helpers and receipt fields by their actual consumers; retain shared resource labels and unchanged cleanup predicates, then rerun clippy and probe controls. |
 | Standalone crate tests fail after local `verify` passed | The old gate ran only the app package. | Use current `verify`; it runs every workspace library package to completion. |
 | CLI docs report `BUILD exceeds 24 KiB` or `ORCHESTRATION exceeds 240 lines` | Troubleshooting or the compact operating contract outgrew its reading boundary. | Compress repetition or move detail to the named reference playbook; rerun `build.ps1 test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary`. |
 | Prompt tests fail a composed contract or launch byte ceiling | Shared fragments and the embedded manual accumulated beyond the whole launch budget. | Compact repetition without weakening authority or raising limits; rerun `test-one app prompts::tests` and the matching composed prompt comparison. |
@@ -486,4 +487,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

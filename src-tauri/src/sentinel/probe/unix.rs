@@ -541,12 +541,11 @@ impl UnixRun {
         } else if matches!(
             self.ownership,
             LeaderOwnership::Retired(_) | LeaderOwnership::Lost
-        ) {
-            if !self.group_absent {
-                self.group_unconfirmed = true;
-                self.mark_unconfirmed(ResourceKind::ProcessGroup);
-                failure.unconfirmed(ResourceKind::ProcessGroup);
-            }
+        ) && !self.group_absent
+        {
+            self.group_unconfirmed = true;
+            self.mark_unconfirmed(ResourceKind::ProcessGroup);
+            failure.unconfirmed(ResourceKind::ProcessGroup);
         }
         while self.has_open_streams() && Instant::now() < self.deadlines.hard {
             match self.wait_streams(Some(self.deadlines.remaining_hard())) {

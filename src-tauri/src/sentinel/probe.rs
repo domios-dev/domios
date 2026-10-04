@@ -21,6 +21,7 @@ mod tests;
 pub const PROBE_RUNTIME: Duration = Duration::from_secs(10);
 #[cfg(not(windows))]
 pub const PROBE_RUNTIME: Duration = Duration::from_secs(3);
+#[cfg(test)]
 pub const MAX_OUTPUT_BYTES: usize = 65_536;
 
 #[derive(Debug, Default)]
