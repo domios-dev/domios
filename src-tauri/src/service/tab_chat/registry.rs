@@ -107,7 +107,12 @@ impl JsonlSource {
         match binds {
             Some(false) => return SourceObservation::Present { incarnation: None, restart: false },
             Some(true) => {}
-            None => state.bound = Some((session_id.to_string(), path.to_path_buf())),
+            None => {
+                *state = SourceState {
+                    bound: Some((session_id.to_string(), path.to_path_buf())),
+                    ..SourceState::default()
+                };
+            }
         }
         let truncated = held.is_some() && held == state.current.as_ref() && offset > len;
         if state.pending_absence.is_some() || state.current.is_none() || truncated {

@@ -9,6 +9,7 @@ use tauri::AppHandle;
 
 use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::commands::MuxState;
+use crate::service::chat_send_transaction::{LiveProvenance, TurnPosition};
 
 pub trait StructuredSink: Send + Sync {
     fn emit(&self, tab_id: &str, messages: Vec<ChatMsg>, cursor: Option<String>);
@@ -82,6 +83,7 @@ impl StructuredSink for TauriStructuredSink {
             self.source_session_id.as_deref(),
             self.session_binding_nonce.as_deref(),
             &messages,
+            None,
         );
         let pty_id = self
             .mux
@@ -200,11 +202,48 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
         start_offset: u64,
         offset: u64,
     ) {
+        self.emit_inner(tab_id, messages, start_offset, offset, None);
+    }
+
+    fn emit_sourced(
+        &self,
+        tab_id: &str,
+        messages: Vec<crate::agent::chat_types::RichMessage>,
+        range: super::tailer::SourceRange,
+    ) {
+        self.emit_inner(
+            tab_id,
+            messages,
+            range.start_offset,
+            range.offset,
+            Some(range),
+        );
+    }
+}
+
+impl FlattenDeltaSink {
+    fn emit_inner(
+        &self,
+        tab_id: &str,
+        messages: Vec<crate::agent::chat_types::RichMessage>,
+        start_offset: u64,
+        offset: u64,
+        source_range: Option<super::tailer::SourceRange>,
+    ) {
         use std::sync::atomic::Ordering;
         let mut out: Vec<ChatMsg> = Vec::new();
+        let mut positions = Vec::new();
         for r in &messages {
             let base = self.base.fetch_add(1, Ordering::Relaxed);
-            out.extend(super::rich_to_chat_msgs_live(r, base));
+            let flattened = super::rich_to_chat_msgs_live(r, base);
+            positions.extend(
+                std::iter::repeat(TurnPosition {
+                    record_start: r.record_start,
+                    record_row: r.record_row,
+                })
+                .take(flattened.len()),
+            );
+            out.extend(flattened);
         }
         if out.is_empty() {
             return;
@@ -221,6 +260,12 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
                 &out,
             );
         }
+        let provenance = source_range.map(|range| LiveProvenance {
+            source_session_id: self.source_session_id.clone().unwrap_or_default(),
+            source_binding_nonce: self.session_binding_nonce.clone(),
+            range,
+            positions,
+        });
         reconcile_current_session_turns(
             &self.app,
             &self.mux,
@@ -229,6 +274,7 @@ impl super::tailer::DeltaSink for FlattenDeltaSink {
             self.source_session_id.as_deref(),
             self.session_binding_nonce.as_deref(),
             &out,
+            provenance.as_ref(),
         );
         let event = format!("tab-chat-msg-{}", tab_id);
         let payload = ChatMsgEvent {
@@ -274,6 +320,7 @@ fn reconcile_current_session_turns(
     source_session_id: Option<&str>,
     source_binding_nonce: Option<&str>,
     messages: &[ChatMsg],
+    provenance: Option<&LiveProvenance>,
 ) {
     for status in current_binding_turn_confirmations(
         mux,
@@ -282,6 +329,7 @@ fn reconcile_current_session_turns(
         source_session_id,
         source_binding_nonce,
         messages,
+        provenance,
     ) {
         crate::api::events::emit_everywhere(app, "chat-send-status", &status);
     }
@@ -296,6 +344,7 @@ pub(crate) fn current_binding_turn_confirmations(
     source_session_id: Option<&str>,
     source_binding_nonce: Option<&str>,
     messages: &[ChatMsg],
+    provenance: Option<&LiveProvenance>,
 ) -> Vec<crate::service::chat_send_transaction::ChatSendStatus> {
     let (Some(ledger), Some(source_session_id)) = (ledger, source_session_id) else {
         return Vec::new();
@@ -309,6 +358,7 @@ pub(crate) fn current_binding_turn_confirmations(
         source_session_id,
         source_binding_nonce,
         messages,
+        provenance,
     )
 }
 
@@ -448,6 +498,7 @@ mod tests {
             Some("sess-old"),
             Some("nonce-old"),
             &user_turn,
+            None,
         );
         assert!(stale.is_empty(), "stale-scope turns cannot confirm");
 
@@ -458,6 +509,7 @@ mod tests {
             Some("sess-live"),
             Some("nonce-live"),
             &user_turn,
+            None,
         );
         assert_eq!(confirmed.len(), 1);
         assert_eq!(confirmed[0].send_id, send.send_id);
