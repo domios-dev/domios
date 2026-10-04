@@ -17,10 +17,12 @@ use super::super::store::{Create, Lease, Owner, Sentinel, Store};
 use super::{codec, commit, legacy_import};
 use crate::cron::clock::MockClock;
 use crate::storage::{
-    Completion, DefinitionProvenance, MutationOutcome, Storage, StorageConfig, StoredSentinel,
+    Completion, DefinitionProvenance, DefinitionUpdate, Fence, MutationOutcome, StageRuntime,
+    Storage, StorageConfig, StoredSentinel,
 };
 
 mod coherence;
+mod graph_fields;
 mod races;
 
 /// Failure bound around event waits only; elapsed time never signals readiness.
@@ -342,16 +344,27 @@ fn storage_sentinel_definition_versions_are_independent_of_runtime_state() {
     assert_eq!(first.definition.provenance, DefinitionProvenance::Authored);
     let mut revised = first.definition.definition.clone();
     revised.question = "Revised question?".into();
-    let updated = done(repo.update_definition(id.clone(), 1, revised.clone()));
+    let update = |definition| DefinitionUpdate {
+        definition,
+        author_tab_id: "creator".into(),
+        cause_transition_id: None,
+        authored_at: 1000,
+    };
+    let updated = done(repo.update_definition(id.clone(), 1, update(revised.clone())));
     assert_eq!(updated.value.outcome, MutationOutcome::Applied);
-    let stale = done(repo.update_definition(id.clone(), 1, revised));
-    assert!(matches!(stale.value.outcome, MutationOutcome::Fenced(_)));
+    let stale = done(repo.update_definition(id.clone(), 1, update(revised)));
+    assert_eq!(stale.value.outcome, MutationOutcome::Fenced(Fence::Version));
 
     let after = stored(&storage, &job.id).record;
     assert_eq!(after.definition.version, 2);
+    let generation = first.runtime.generation + 1;
     assert_eq!(
-        after.runtime, first.runtime,
-        "a new version never touches runtime"
+        after.runtime,
+        StageRuntime {
+            generation,
+            ..first.runtime.clone()
+        },
+        "a new version advances only the generation, exactly once"
     );
     let history = done(repo.history(id.clone())).value;
     assert_eq!(history.len(), 2);
@@ -362,7 +375,7 @@ fn storage_sentinel_definition_versions_are_independent_of_runtime_state() {
 
     let accepted = done(repo.accept_transition(
         id.clone(),
-        0,
+        generation,
         codec::outcome(&job),
         crate::storage::NewTransition {
             id: "eval-after-update".into(),
@@ -376,7 +389,7 @@ fn storage_sentinel_definition_versions_are_independent_of_runtime_state() {
     assert_eq!(stopped.value.outcome, MutationOutcome::Applied);
     let last = stored(&storage, &job.id).record;
     assert_eq!(last.transitions[0].definition_version, Some(2));
-    assert_eq!(last.runtime.generation, 1);
+    assert_eq!(last.runtime.generation, generation + 1);
     assert_eq!(
         done(repo.history(id)).value.len(),
         2,

@@ -375,6 +375,7 @@ impl UserSendStore {
         Ok(true)
     }
 
+    #[cfg(test)]
     pub(crate) fn original(&self, tab_id: &str, send_id: &str) -> Result<String, String> {
         let record = self.records(tab_id)?.into_iter().find(|record| record.send_id == send_id)
             .ok_or("user send is not indexed")?;
@@ -579,15 +580,16 @@ pub(crate) fn read_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>, String>
 }
 
 fn validate_owner_directory(metadata: &fs::Metadata) -> Result<(), String> {
-    if !metadata.file_type().is_dir() {
-        return Err("user owner directory is not an owned regular directory".into());
-    }
+    // Rust types a junction as a symlink, so the reparse attribute must be read before is_dir.
     #[cfg(windows)]
     {
         use std::os::windows::fs::MetadataExt;
         if metadata.file_attributes() & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT != 0 {
             return Err("user owner directory is a reparse point".into());
         }
+    }
+    if !metadata.file_type().is_dir() {
+        return Err("user owner directory is not an owned regular directory".into());
     }
     Ok(())
 }

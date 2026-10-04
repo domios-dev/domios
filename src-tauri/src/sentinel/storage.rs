@@ -587,10 +587,25 @@ pub(crate) fn committed_scope(
     Ok((read.value.iter().map(codec::decode).collect(), leases))
 }
 
+/// Why a legacy Sentinel file does not decode into import records.
+#[allow(dead_code)] // The all-domain importer consumes this; tests drive it now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LegacySentinelError {
+    /// The bytes are not a typed Sentinel inventory.
+    Malformed(String),
+    /// A well-formed inventory that breaks a stored-inventory invariant.
+    Conflict(String),
+}
+
 /// Side-effect-free decode of the legacy file into exact import records; it never renames,
 /// rewrites or holds the source and starts no work.
 #[allow(dead_code)] // The all-domain importer consumes this; tests drive it now.
-pub(crate) fn legacy_import(raw: &str) -> Result<Vec<SentinelImport>, String> {
-    let jobs: Vec<Sentinel> = serde_json::from_str(raw).map_err(|error| error.to_string())?;
-    validate(jobs)?.iter().map(codec::import).collect()
+pub(crate) fn legacy_import(raw: &str) -> Result<Vec<SentinelImport>, LegacySentinelError> {
+    let jobs: Vec<Sentinel> = serde_json::from_str(raw)
+        .map_err(|error| LegacySentinelError::Malformed(error.to_string()))?;
+    let jobs = validate(jobs).map_err(LegacySentinelError::Conflict)?;
+    jobs.iter()
+        .map(codec::import)
+        .collect::<Result<_, _>>()
+        .map_err(LegacySentinelError::Conflict)
 }

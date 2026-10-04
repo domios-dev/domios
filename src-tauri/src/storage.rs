@@ -3,5 +3,9 @@
 
 pub use codeterm_storage::*;
 
+#[allow(dead_code)] // The all-domain cutover calls the importer; tests drive it until then.
+mod migration;
+#[cfg(test)]
+mod migration_tests;
 #[cfg(test)]
 mod tests;

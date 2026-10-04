@@ -54,7 +54,15 @@ pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Ro
             }
             Ok(Route::Cron(candidates[0].id.clone()))
         }
+        Route::RespondPrompt(_) | Route::Escalate(_) => Err(unavailable(route)),
     }
+}
+
+fn unavailable(route: &Route) -> String {
+    format!(
+        "sentinel_capability_unavailable: {} is not executable yet",
+        action_name(route)
+    )
 }
 
 pub(super) fn resolve_send(
@@ -153,6 +161,7 @@ pub fn run(
         Route::Stop => Ok(None),
         Route::Command(_) => Err("command execution requires a durable scheduler claim".into()),
         Route::Sentinel(_) => Err("sentinel activation requires a durable scheduler claim".into()),
+        resolved @ (Route::RespondPrompt(_) | Route::Escalate(_)) => Err(unavailable(&resolved)),
     }
 }
 
@@ -164,5 +173,7 @@ pub fn action_name(route: &Route) -> &'static str {
         Route::Stop => "stop",
         Route::Command(_) => "command",
         Route::Sentinel(_) => "sentinel",
+        Route::RespondPrompt(_) => "respond_prompt",
+        Route::Escalate(_) => "escalate",
     }
 }

@@ -175,12 +175,6 @@ impl CronStore {
         self.file.jobs.iter().filter(|j| j.enabled).collect()
     }
 
-    /// Test arrangement only: edits the cache without any persistence.
-    #[cfg(test)]
-    pub fn get_mut(&mut self, id: &str) -> Option<&mut CronJob> {
-        self.file.jobs.iter_mut().find(|j| j.id == id)
-    }
-
     pub fn get_history(&self, job_id: &str) -> Vec<&CronRunInfo> {
         self.file
             .history

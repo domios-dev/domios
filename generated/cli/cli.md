@@ -3362,11 +3362,11 @@ Install update (--auto for automatic download + install + restart)
 
 - `--after-update` — Message to inject into the General Agent tab after the new daemon boots. Lets the GA continue work post-update — e.g. "verify the new build and report version via Telegram"
 - `--auto` — Use Tauri built-in updater: download, install, and restart automatically
-- `--continue-prompt` — Optional prompt to send to the calling tab once the new daemon is up — lets a session continue work post-restart
-- `--continue-tab` — Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_TAB_ID`
+- `--continue-prompt` — Optional prompt to send to the calling tab's own session after restart
+- `--continue-tab` — Calling tab to continue. Must match `$CODETERM_TAB_ID`
 - `--from-file` — Install from a local NSIS installer (Windows) or app bundle/DMG (macOS), then relaunch Domios. Bypasses the network
 - `--manifest-url` — Override manifest URL (dev/test escape hatch). Requires the backend to be built with the `dev-updater-allowlocal` feature for non-https schemes; release builds reject it
-- `--no-continue` — Disable the default continuation sent back to the calling tab
+- `--no-continue` — Suppress the calling tab's continuation for the next start
 
 #### `codeterm usage`
 

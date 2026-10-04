@@ -5,6 +5,33 @@ use axum::{
 };
 
 use crate::api::routes::{check_auth, AppState};
+use crate::service::ServiceContext;
+use crate::{CronState, CronWake};
+
+const CRON_WORKER_FAILED: &str = "Cron worker failed";
+
+/// Storage blocks a cron mutation until COMMIT, so it never runs on a runtime worker.
+async fn off_runtime<T: Send + 'static>(
+    state: &AppState,
+    work: impl FnOnce(&ServiceContext, &CronState, &CronWake) -> T + Send + 'static,
+) -> Result<T, tokio::task::JoinError> {
+    let (svc, cron, wake) = (
+        state.svc.clone(),
+        state.cron.clone(),
+        state.cron_wake.clone(),
+    );
+    tokio::task::spawn_blocking(move || work(svc.as_ref(), &cron, &wake)).await
+}
+
+fn worker_failed(error: tokio::task::JoinError) -> (StatusCode, &'static str) {
+    log::error!("[cron] route worker failed: {error}");
+    (StatusCode::INTERNAL_SERVER_ERROR, CRON_WORKER_FAILED)
+}
+
+fn worker_failed_text(error: tokio::task::JoinError) -> (StatusCode, String) {
+    let (status, message) = worker_failed(error);
+    (status, message.to_string())
+}
 
 pub async fn cron_list(
     AxumState(state): AxumState<AppState>,
@@ -39,10 +66,12 @@ pub async fn cron_create(
     if body.creator_tab_id.is_none() {
         body.creator_tab_id = crate::api::tab_routes::caller_tab_header(&headers);
     }
-    let job = state
-        .svc
-        .cron_create(&state.cron, &state.cron_wake, body)
-        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+    let job = off_runtime(&state, move |svc, cron, wake| {
+        svc.cron_create(cron, wake, body)
+    })
+    .await
+    .map_err(worker_failed_text)?
+    .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     Ok(Json(serde_json::to_value(job).unwrap()))
 }
 
@@ -53,17 +82,19 @@ pub async fn cron_update(
     Json(body): Json<crate::cron::store::CronUpdateParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
-    let job = state
-        .svc
-        .cron_update(&state.cron, &state.cron_wake, &id, body)
-        .map_err(|error| {
-            let status = if error.starts_with("Cron job not found:") {
-                StatusCode::NOT_FOUND
-            } else {
-                StatusCode::BAD_REQUEST
-            };
-            (status, error)
-        })?;
+    let job = off_runtime(&state, move |svc, cron, wake| {
+        svc.cron_update(cron, wake, &id, body)
+    })
+    .await
+    .map_err(worker_failed_text)?
+    .map_err(|error| {
+        let status = if error.starts_with("Cron job not found:") {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::BAD_REQUEST
+        };
+        (status, error)
+    })?;
     Ok(Json(serde_json::to_value(job).unwrap()))
 }
 
@@ -73,11 +104,29 @@ pub async fn cron_delete(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    state
-        .svc
-        .cron_delete(&state.cron, &state.cron_wake, &id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
+    off_runtime(&state, move |svc, cron, wake| {
+        svc.cron_delete(cron, wake, &id)
+    })
+    .await
+    .map_err(worker_failed)?
+    .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
     Ok(Json(serde_json::json!({"ok": true})))
+}
+
+async fn set_enabled(
+    state: AppState,
+    headers: HeaderMap,
+    id: String,
+    enabled: bool,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let job = off_runtime(&state, move |svc, cron, wake| {
+        svc.cron_enable(cron, wake, &id, enabled)
+    })
+    .await
+    .map_err(worker_failed)?
+    .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
+    Ok(Json(serde_json::to_value(job).unwrap()))
 }
 
 pub async fn cron_enable(
@@ -85,12 +134,7 @@ pub async fn cron_enable(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let job = state
-        .svc
-        .cron_enable(&state.cron, &state.cron_wake, &id, true)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
-    Ok(Json(serde_json::to_value(job).unwrap()))
+    set_enabled(state, headers, id, true).await
 }
 
 pub async fn cron_disable(
@@ -98,12 +142,7 @@ pub async fn cron_disable(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-    let job = state
-        .svc
-        .cron_enable(&state.cron, &state.cron_wake, &id, false)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
-    Ok(Json(serde_json::to_value(job).unwrap()))
+    set_enabled(state, headers, id, false).await
 }
 
 pub async fn cron_trigger(
@@ -112,16 +151,19 @@ pub async fn cron_trigger(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    let run = state.svc.cron_trigger(&state.cron, &id).map_err(|e| {
-        let code = if e.contains("already running") {
-            StatusCode::CONFLICT
-        } else if e.contains("not found") {
-            StatusCode::NOT_FOUND
-        } else {
-            StatusCode::INTERNAL_SERVER_ERROR
-        };
-        (code, e)
-    })?;
+    let run = off_runtime(&state, move |svc, cron, _| svc.cron_trigger(cron, &id))
+        .await
+        .map_err(worker_failed_text)?
+        .map_err(|e| {
+            let code = if e.contains("already running") {
+                StatusCode::CONFLICT
+            } else if e.contains("not found") {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::INTERNAL_SERVER_ERROR
+            };
+            (code, e)
+        })?;
     Ok(Json(serde_json::to_value(run).unwrap()))
 }
 
@@ -134,10 +176,12 @@ pub async fn cron_cancel(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let cancelled = state
-        .svc
-        .cron_cancel_running(&state.cron, &id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
+    let cancelled = off_runtime(&state, move |svc, cron, _| {
+        svc.cron_cancel_running(cron, &id)
+    })
+    .await
+    .map_err(worker_failed)?
+    .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
     Ok(Json(serde_json::json!({"cancelled": cancelled})))
 }
 
@@ -153,3 +197,8 @@ pub async fn cron_history(
         .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
     Ok(Json(serde_json::to_value(history).unwrap()))
 }
+
+#[cfg(test)]
+pub(crate) mod off_runtime_gate;
+#[cfg(test)]
+mod tests;

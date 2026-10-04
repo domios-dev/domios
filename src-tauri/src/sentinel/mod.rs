@@ -1,5 +1,7 @@
+pub(crate) mod amend;
 pub(crate) mod classify;
 pub(crate) mod command;
+pub(crate) mod escalation;
 pub(crate) mod graph;
 pub(crate) mod handlers;
 pub(crate) mod machine;
@@ -7,6 +9,7 @@ pub(crate) mod probe;
 pub(crate) mod provenance;
 pub(crate) mod routes;
 pub(crate) mod scheduler;
+pub(crate) mod source;
 pub(crate) mod storage;
 pub(crate) mod store;
 #[cfg(test)]

@@ -20,8 +20,11 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 app_handle.try_state::<MuxState>(),
                 app_handle.try_state::<SessionState>(),
             ) {
-                let snapshot = mux.write().to_session_snapshot();
-                let saved = session.lock().save(&snapshot);
+                let saved = crate::session::save_current_snapshot(
+                    session.inner(),
+                    mux.inner(),
+                    crate::session::store::SaveIntent::PreserveDesk,
+                );
                 if let Err(e) = saved {
                     log::warn!("Auto-save failed: {}", e);
                 } else {

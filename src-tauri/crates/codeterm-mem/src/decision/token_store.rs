@@ -22,6 +22,8 @@ impl fmt::Debug for ApiToken {
 }
 
 #[derive(Debug, Clone)]
+const RESERVED_FILES: [&str; 3] = ["spend.json", "calls.json", "launch-origins.json"];
+
 pub struct TokenStore {
     base_dir: PathBuf,
 }
@@ -52,6 +54,13 @@ impl TokenStore {
             {
                 continue;
             }
+            let holds_token = fs::read(&path)
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .is_some_and(|value| value.get("token").is_some_and(serde_json::Value::is_string));
+            if !holds_token {
+                continue;
+            }
             if let Some(id) = path.file_stem().and_then(|id| id.to_str()) {
                 ids.push(id.into());
             }
@@ -79,7 +88,10 @@ impl TokenStore {
 
     fn token_path(&self, adapter_id: &str) -> io::Result<PathBuf> {
         let path = self.path(adapter_id);
-        if path.file_name().is_some_and(|name| name == "spend.json") {
+        if path
+            .file_name()
+            .is_some_and(|name| RESERVED_FILES.iter().any(|reserved| name == *reserved))
+        {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
                 "reserved token file name",

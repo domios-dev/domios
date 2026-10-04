@@ -171,6 +171,9 @@ struct Fence {
 pub(super) struct StorageCron {
     repo: CronRepository,
     deadline: Duration,
+    settle_notify: Option<Arc<dyn Fn() + Send + Sync>>,
+    unavailable: Option<String>,
+    unavailable_reported: bool,
     /// Last published identity revision per job, kept after removal to fence late publishes.
     revisions: HashMap<String, Revision>,
     fence: Fence,
@@ -202,6 +205,9 @@ impl CronStore {
             backend: Backend::Storage(Box::new(StorageCron {
                 repo,
                 deadline: options.deadline,
+                settle_notify: None,
+                unavailable: None,
+                unavailable_reported: false,
                 revisions: HashMap::new(),
                 fence: Fence::default(),
                 draft: None,
@@ -227,6 +233,44 @@ impl CronStore {
         if let Some(storage) = self.storage_mut() {
             storage.deadline = deadline;
         }
+    }
+
+    pub(crate) fn set_fence_notifier(&mut self, notifier: impl Fn() + Send + Sync + 'static) {
+        if let Some(storage) = self.storage_mut() {
+            storage.settle_notify = Some(Arc::new(notifier));
+        }
+    }
+
+    pub(crate) fn scheduler_unavailable(&self) -> bool {
+        self.storage()
+            .is_some_and(|storage| storage.unavailable.is_some())
+    }
+
+    pub(crate) fn scheduler_settlement_ready(&self) -> bool {
+        self.storage().is_some_and(|storage| {
+            let fence = &storage.fence;
+            (fence.in_flight.is_empty() && !fence.reread && !fence.resolving)
+                || fence
+                    .in_flight
+                    .iter()
+                    .any(|in_flight| in_flight.completion.is_settled())
+        })
+    }
+
+    pub(crate) fn mark_scheduler_unavailable(&mut self, reason: String) {
+        if let Some(storage) = self.storage_mut() {
+            storage.unavailable.get_or_insert(reason);
+        }
+    }
+
+    pub(crate) fn take_scheduler_unavailable_incident(&mut self) -> Option<String> {
+        let storage = self.storage_mut()?;
+        if storage.unavailable_reported {
+            return None;
+        }
+        let reason = storage.unavailable.clone()?;
+        storage.unavailable_reported = true;
+        Some(reason)
     }
 
     fn storage(&self) -> Option<&StorageCron> {
@@ -508,7 +552,7 @@ pub(crate) fn commit<T>(
     }
     settle_fence(cron)?;
     for _ in 0..MAX_ATTEMPTS {
-        let (prepared, plan, repo, deadline, probe) = {
+        let (prepared, plan, repo, deadline, probe, settle_notify) = {
             let mut store = cron.lock();
             let prepared = prepare(&mut store).map_err(CronCommitError::Refused)?;
             if prepared.changes.is_empty() {
@@ -531,6 +575,7 @@ pub(crate) fn commit<T>(
                 repo,
                 storage.deadline,
                 storage.probe.clone(),
+                storage.settle_notify.clone(),
             )
         };
         probe.hit(CronStage::Prepared);
@@ -553,7 +598,12 @@ pub(crate) fn commit<T>(
             repo.apply(writes)
         };
         probe.hit(CronStage::Submitted);
-        match wait_retaining(completion, deadline) {
+        let waited = wait_retaining(completion, deadline);
+        let waited = match waited {
+            Waited::Expired(completion) => register_settlement_wake(completion, settle_notify),
+            settled => settled,
+        };
+        match waited {
             Waited::Settled(Ok(committed)) => {
                 probe.hit(CronStage::Committed);
                 let consistent = cron.lock().publish(
@@ -582,6 +632,9 @@ pub(crate) fn commit<T>(
                 return Err(CronCommitError::Unconfirmed(error.to_string()));
             }
             Waited::Settled(Err(error)) => {
+                if matches!(&error, StorageError::Closed) {
+                    mark_unavailable(cron, error.to_string());
+                }
                 return Err(CronCommitError::NotApplied(error.to_string()));
             }
             Waited::Expired(completion) => {
@@ -656,6 +709,7 @@ fn settle_fence(cron: &CronState) -> Result<(), CronCommitError> {
         (std::mem::take(&mut fence.in_flight), reread)
     };
     let mut unresolved = Vec::new();
+    let mut terminal_error = None;
     for InFlight {
         completion,
         changes,
@@ -678,6 +732,11 @@ fn settle_fence(cron: &CronState) -> Result<(), CronCommitError> {
                 needs_reread |= !consistent;
             }
             Ok(Err(StorageError::Unconfirmed { .. })) => needs_reread = true,
+            Ok(Err(error @ StorageError::Closed)) => {
+                let reason = error.to_string();
+                mark_unavailable(cron, reason.clone());
+                terminal_error = Some(reason);
+            }
             Ok(Err(_)) => {}
         }
     }
@@ -687,15 +746,22 @@ fn settle_fence(cron: &CronState) -> Result<(), CronCommitError> {
         None
     };
     let still_unresolved = !unresolved.is_empty();
+    let terminal_reread = reread_error.is_some() && cron.lock().scheduler_unavailable();
     fence(cron, |fence| {
         fence.resolving = false;
         fence.in_flight.extend(unresolved);
         fence.reread |= reread_error.is_some();
     });
+    if !still_unresolved && terminal_reread {
+        notify_fence_settled(cron);
+    }
     if still_unresolved {
         return Err(CronCommitError::Fenced(
             "an earlier cron commit is still unresolved".to_string(),
         ));
+    }
+    if let Some(error) = terminal_error {
+        return Err(CronCommitError::NotApplied(error));
     }
     reread_error.map_or(Ok(()), |error| {
         Err(CronCommitError::Fenced(format!(
@@ -713,12 +779,195 @@ fn reread(cron: &CronState) -> Result<(), CronCommitError> {
             .ok_or_else(|| CronCommitError::NotApplied(STAGED_ONLY.to_string()))?;
         (storage.repo.clone(), storage.deadline)
     };
-    let read = repo.snapshot().wait(deadline).map_err(|error| {
-        CronCommitError::Unconfirmed(format!("committed cron state was not reread: {error}"))
-    })?;
-    cron.lock()
-        .merge(read.value.states, read.revision)
-        .map_err(CronCommitError::NotApplied)
+    let read = match repo.snapshot().wait(deadline) {
+        Ok(read) => read,
+        Err(error @ StorageError::Unconfirmed { .. }) => {
+            return Err(CronCommitError::Unconfirmed(format!(
+                "committed cron state was not reread: {error}"
+            )))
+        }
+        Err(error) => {
+            let reason = format!("committed cron state could not be reread: {error}");
+            mark_unavailable(cron, reason.clone());
+            return Err(CronCommitError::NotApplied(reason));
+        }
+    };
+    let merged = { cron.lock().merge(read.value.states, read.revision) };
+    if let Err(error) = merged {
+        mark_unavailable(cron, error.clone());
+        return Err(CronCommitError::NotApplied(error));
+    }
+    notify_fence_settled(cron);
+    Ok(())
+}
+
+/// A Storage change admitted without waiting for COMMIT.
+struct Admitted<T> {
+    completion: Completion<Committed<CronApplied>>,
+    prepared: Prepared<T>,
+    bases: Vec<(String, Option<Revision>)>,
+}
+
+enum Admission<T> {
+    Unchanged(T),
+    Admitted(Admitted<T>),
+}
+
+impl CronStore {
+    /// Whether changes commit to Storage off the cron lock rather than to the legacy file.
+    pub(crate) fn commits_to_storage(&self) -> bool {
+        self.storage().is_some()
+    }
+
+    /// Admits a Storage change without waiting for COMMIT; `None` when nothing is written.
+    /// The future is driven by the completion's own wake and publishes only what committed.
+    pub(crate) fn stage<T, P>(
+        cron: &CronState,
+        mut prepare: P,
+    ) -> Result<
+        Option<impl Future<Output = Result<CronCommitted<T>, CronCommitError>> + Send + 'static>,
+        CronCommitError,
+    >
+    where
+        T: Send + 'static,
+        P: FnMut(&mut CronStore) -> Result<Prepared<T>, String> + Send + 'static,
+    {
+        let admitted = match admit(cron, &mut prepare)? {
+            Admission::Unchanged(_) => return Ok(None),
+            Admission::Admitted(admitted) => admitted,
+        };
+        let cron = cron.clone();
+        Ok(Some(async move {
+            settle_admitted(&cron, admitted, prepare).await
+        }))
+    }
+}
+
+/// Prepares and admits in one cron lock hold. A fenced store refuses, since settling its
+/// fence waits on committed reads.
+fn admit<T>(
+    cron: &CronState,
+    prepare: impl FnOnce(&mut CronStore) -> Result<Prepared<T>, String>,
+) -> Result<Admission<T>, CronCommitError> {
+    let mut store = cron.lock();
+    let repo = store
+        .storage()
+        .map(|storage| storage.repo.clone())
+        .ok_or_else(|| CronCommitError::NotApplied(STAGED_ONLY.to_string()))?;
+    if !store.fence_clear() {
+        return Err(CronCommitError::Fenced(
+            "an earlier cron outcome is unresolved".to_string(),
+        ));
+    }
+    let prepared = prepare(&mut store).map_err(CronCommitError::Refused)?;
+    if prepared.changes.is_empty() {
+        return Ok(Admission::Unchanged(prepared.value));
+    }
+    let Plan { writes, bases } = store
+        .plan(&prepared.changes)
+        .map_err(|error| CronCommitError::NotApplied(error.to_string()))?;
+    let completion = repo.apply(writes);
+    Ok(Admission::Admitted(Admitted {
+        completion,
+        prepared,
+        bases,
+    }))
+}
+
+/// Publishes the outcome once the completion wakes; a stale base rereads committed state
+/// and admits the same request again, as `commit` does.
+async fn settle_admitted<T>(
+    cron: &CronState,
+    mut admitted: Admitted<T>,
+    mut prepare: impl FnMut(&mut CronStore) -> Result<Prepared<T>, String>,
+) -> Result<CronCommitted<T>, CronCommitError> {
+    let mut attempts = 1;
+    loop {
+        let Admitted {
+            completion,
+            prepared,
+            bases,
+        } = admitted;
+        let outcome = completion.await;
+        match outcome {
+            Ok(committed) => {
+                let consistent = cron.lock().publish(
+                    &prepared.changes,
+                    &bases,
+                    &committed.value,
+                    committed.receipt.revision,
+                );
+                if !consistent && reread_settled(cron).await.is_err() {
+                    fence(cron, |fence| fence.reread = true);
+                }
+                return Ok(CronCommitted {
+                    value: prepared.value,
+                    removed: removed_ids(&committed.value),
+                    receipt: Some(committed.receipt),
+                });
+            }
+            Err(StorageError::StaleRevision { .. }) => {
+                if let Err(error) = reread_settled(cron).await {
+                    fence(cron, |fence| fence.reread = true);
+                    return Err(error);
+                }
+                if attempts == MAX_ATTEMPTS {
+                    return Err(CronCommitError::NotApplied(
+                        "cron jobs kept changing concurrently".to_string(),
+                    ));
+                }
+                attempts += 1;
+                admitted = match admit(cron, &mut prepare)? {
+                    Admission::Admitted(next) => next,
+                    Admission::Unchanged(value) => {
+                        return Ok(CronCommitted {
+                            value,
+                            removed: Vec::new(),
+                            receipt: None,
+                        })
+                    }
+                };
+            }
+            Err(error @ StorageError::Unconfirmed { .. }) => {
+                fence(cron, |fence| fence.reread = true);
+                return Err(CronCommitError::Unconfirmed(error.to_string()));
+            }
+            Err(error @ StorageError::Closed) => {
+                mark_unavailable(cron, error.to_string());
+                return Err(CronCommitError::NotApplied(error.to_string()));
+            }
+            Err(error) => return Err(CronCommitError::NotApplied(error.to_string())),
+        }
+    }
+}
+
+/// `reread` driven by the read completion's wake instead of a blocking wait.
+async fn reread_settled(cron: &CronState) -> Result<(), CronCommitError> {
+    let repo = cron
+        .lock()
+        .storage()
+        .map(|storage| storage.repo.clone())
+        .ok_or_else(|| CronCommitError::NotApplied(STAGED_ONLY.to_string()))?;
+    let read = match repo.snapshot().await {
+        Ok(read) => read,
+        Err(error @ StorageError::Unconfirmed { .. }) => {
+            return Err(CronCommitError::Unconfirmed(format!(
+                "committed cron state was not reread: {error}"
+            )))
+        }
+        Err(error) => {
+            let reason = format!("committed cron state could not be reread: {error}");
+            mark_unavailable(cron, reason.clone());
+            return Err(CronCommitError::NotApplied(reason));
+        }
+    };
+    let merged = { cron.lock().merge(read.value.states, read.revision) };
+    if let Err(error) = merged {
+        mark_unavailable(cron, error.clone());
+        return Err(CronCommitError::NotApplied(error));
+    }
+    notify_fence_settled(cron);
+    Ok(())
 }
 
 /// Records a run completion; `Ok(true)` only for the first terminal transition, which
@@ -773,4 +1022,40 @@ fn wait_retaining<T>(mut completion: Completion<T>, deadline: Duration) -> Waite
             return Waited::Expired(completion);
         }
     }
+}
+
+struct SettlementNotifier(Option<Arc<dyn Fn() + Send + Sync>>);
+
+impl Wake for SettlementNotifier {
+    fn wake(self: Arc<Self>) {
+        if let Some(notify) = &self.0 {
+            notify();
+        }
+    }
+}
+
+fn register_settlement_wake<T>(
+    mut completion: Completion<T>,
+    notifier: Option<Arc<dyn Fn() + Send + Sync>>,
+) -> Waited<T> {
+    let waker = Waker::from(Arc::new(SettlementNotifier(notifier)));
+    let mut context = Context::from_waker(&waker);
+    match Pin::new(&mut completion).poll(&mut context) {
+        Poll::Ready(result) => Waited::Settled(result),
+        Poll::Pending => Waited::Expired(completion),
+    }
+}
+
+fn notify_fence_settled(cron: &CronState) {
+    let notifier = cron
+        .lock()
+        .storage()
+        .and_then(|storage| storage.settle_notify.clone());
+    if let Some(notify) = notifier {
+        notify();
+    }
+}
+
+fn mark_unavailable(cron: &CronState, reason: String) {
+    cron.lock().mark_scheduler_unavailable(reason);
 }

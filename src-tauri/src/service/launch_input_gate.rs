@@ -322,10 +322,26 @@ fn directory_trust_blocks_input(
     trust_state: codeterm_plugin::provider::DirectoryTrustState,
     prompt_visible: bool,
     prompt_observed: bool,
+    checkpoint_reached: bool,
 ) -> bool {
     prompt_visible
         || (trust_state == codeterm_plugin::provider::DirectoryTrustState::Untrusted
-            && !prompt_observed)
+            && !prompt_observed
+            && !checkpoint_reached)
+}
+
+fn directory_trust_checkpoint_reached(
+    mode: LaunchInputMode,
+    declares_structural_composer: bool,
+    composer_ready: bool,
+    pending_prompt: bool,
+    active_interactive_prompt: bool,
+) -> bool {
+    mode == LaunchInputMode::LazySessionStart
+        && declares_structural_composer
+        && composer_ready
+        && !pending_prompt
+        && !active_interactive_prompt
 }
 
 impl ServiceContext {
@@ -627,6 +643,13 @@ impl ServiceContext {
                     directory_trust_state,
                     directory_trust_prompt,
                     directory_trust_prompt_observed,
+                    directory_trust_checkpoint_reached(
+                        mode,
+                        declares_structural_composer,
+                        composer_ready,
+                        pending_prompt,
+                        active_interactive_prompt,
+                    ),
                 );
                 let observation = LaunchInputObservation {
                     session_bound,
