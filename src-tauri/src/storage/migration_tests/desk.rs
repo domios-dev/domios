@@ -168,7 +168,9 @@ fn storage_migration_desk_corrupt_current_requires_rotating_backup_selection() {
         } => {
             assert_eq!(domain, ImportDomain::Desk);
             assert_eq!(current.code(), "malformed");
-            assert!(candidates.is_empty());
+            assert_eq!(candidates.len(), 1);
+            assert_eq!(candidates[0].relative, "sessions/backups/1730000000.json");
+            assert_eq!(candidates[0].role, SourceRole::RotatingBackup);
         }
         other => panic!("expected rotating-backup recovery selection, got {other:?}"),
     }
@@ -327,6 +329,11 @@ fn storage_migration_foreign_key_failure_in_each_domain_rolls_back_all_domains()
 #[test]
 fn storage_migration_desk_disk_full_rolls_back_and_restarts_losslessly() {
     let fixture = Fixture::seeded_with_desk();
+    let large_cron = CRONS.replace(
+        "\"check the build\"",
+        &format!("\"{}\"", "x".repeat(128 * 1024)),
+    );
+    fixture.put("crons.json", large_cron.as_bytes());
     let originals = tree(&fixture.source());
     let storage = fixture.open();
     storage

@@ -62,7 +62,7 @@ fn load_live_capture(
     let tampered = || ImportRefusal::BackupTampered {
         relative: source_inventory::CAPTURE_MANIFEST.to_string(),
     };
-    let (mut file, metadata) =
+    let (file, metadata) =
         source_inventory::open_regular(&manifest_path).map_err(|_| uncaptured(tampered()))?;
     let bound = limits
         .max_files
