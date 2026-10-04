@@ -2427,7 +2427,7 @@ jobs:
       EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
       WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
       EVENT_SOURCE_SHA: ${{ github.sha }}
-      DOMAIN_REVIEWED_SHA: dc5cb198bfd440aba370ec578a98c182eb9e30ca
+      DOMAIN_REVIEWED_SHA: bae48571f3ec780816aa05b0d47c2289755cc029
       DOMAIN_ORIGIN_SHA: 3972c8bd13bbf666e4470a3fcf6a51c6d67f5447
       FOUNDATION_ACCEPTED_SHA: dbc17edee5c1c9032c1498caa0f04b00eb3468ad
       TEST_CAP_SECS: '600'
@@ -2589,6 +2589,7 @@ jobs:
             origin_domain_tree_status=$?
             cat > "$receipt_dir/fitted-domain-delta.expected" <<'DELTA'
           M	src-tauri/crates/codeterm-storage/src/assets.rs
+          M	src-tauri/src/sentinel/handlers.rs
           M	src-tauri/src/sentinel/probe.rs
           M	src-tauri/src/sentinel/probe/owner.rs
           M	src-tauri/src/sentinel/probe/process.rs
@@ -2821,11 +2822,12 @@ jobs:
             },
           ];
           const fixedHashPaths = ['.github/workflows/tests.yml', 'build.sh', 'scripts/test-capped.sh', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock'];
-          const domainReviewedSha = 'dc5cb198bfd440aba370ec578a98c182eb9e30ca';
+          const domainReviewedSha = 'bae48571f3ec780816aa05b0d47c2289755cc029';
           const domainOriginSha = '3972c8bd13bbf666e4470a3fcf6a51c6d67f5447';
           const foundationAcceptedSha = 'dbc17edee5c1c9032c1498caa0f04b00eb3468ad';
           const fittedDelta = [
             'M\tsrc-tauri/crates/codeterm-storage/src/assets.rs',
+            'M\tsrc-tauri/src/sentinel/handlers.rs',
             'M\tsrc-tauri/src/sentinel/probe.rs',
             'M\tsrc-tauri/src/sentinel/probe/owner.rs',
             'M\tsrc-tauri/src/sentinel/probe/process.rs',
