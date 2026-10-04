@@ -9,6 +9,27 @@ const QUARANTINED: &str = "crons.json.corrupt-0000000000003";
 const INTERRUPTED: &str = "crons.json.tmp.42.7";
 const SENTINEL_BAK: &str = "state-backups/sentinels.json/0000000000004-000001.bak";
 
+/// Makes `link` a directory link to `target` without privileges: a symlink on Unix, a
+/// junction on Windows.
+fn link_directory(link: &Path, target: &Path) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link).expect("directory symlink");
+    #[cfg(windows)]
+    {
+        let created = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .expect("run mklink");
+        assert!(
+            created.status.success(),
+            "junction: {}",
+            String::from_utf8_lossy(&created.stderr)
+        );
+    }
+}
+
 #[test]
 fn storage_migration_capture_backs_up_every_original_with_hash_and_size() {
     let f = Fixture::seeded();
@@ -253,6 +274,38 @@ fn storage_migration_unreadable_entry_change_mid_capture_refuses() {
         },
     )
     .expect_err("an unreadable entry that changed under the capture refuses");
+
+    assert_eq!(
+        refusal(error),
+        ImportRefusal::SourceChanged {
+            relative: "crons.json".to_string()
+        }
+    );
+    assert!(!f.backup().join("capture.manifest").exists());
+}
+
+#[test]
+fn storage_migration_unreadable_entry_kind_change_mid_capture_refuses() {
+    let f = Fixture::new();
+    let current = f.source().join("crons.json");
+    fs::create_dir_all(&current).expect("a directory where the file belongs");
+    let elsewhere = f.other("elsewhere");
+    fs::create_dir_all(&elsewhere).expect("link target");
+    f.put("sentinels.json", SENTINELS.as_bytes());
+
+    let error = SourceCapture::capture_observed(
+        &f.source(),
+        &f.backup(),
+        CaptureLimits::default(),
+        &mut |relative: &str| {
+            if relative == "crons.json" {
+                fs::remove_dir(&current).expect("drop the directory");
+                link_directory(&current, &elsewhere);
+            }
+            CaptureStep::Continue
+        },
+    )
+    .expect_err("a directory that became a link, still unreadable, refuses");
 
     assert_eq!(
         refusal(error),

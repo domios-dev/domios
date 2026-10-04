@@ -2,7 +2,9 @@
 //! manifests and of the receipt, and the completion marker committed in `storage_meta`.
 
 use super::compare::ProjectionMismatch;
-use super::source_inventory::{Captured, Sha256Digest, SourceCapture, SourceFile, SourceRole};
+use super::source_inventory::{
+    Captured, EntryKind, Sha256Digest, SourceCapture, SourceFile, SourceRole,
+};
 use super::{
     DecodeFailure, DecodeFailureKind, IgnoredKeys, ImportDomain, ImportProvenance, ImportReceipt,
 };
@@ -64,6 +66,12 @@ impl SourceStatus {
             | SourceStatus::Unsupported(detail)
             | SourceStatus::Conflict(detail) => Some(detail),
         }
+    }
+}
+
+impl SourceStatus {
+    pub(crate) fn unreadable(kind: EntryKind, detail: &str) -> Self {
+        SourceStatus::Unreadable(format!("{}: {detail}", kind.as_str()))
     }
 }
 
@@ -440,7 +448,9 @@ pub(crate) fn render_capture(source_root: &Path, files: &[SourceFile]) -> Vec<u8
         );
         let _ = match &file.captured {
             Captured::Bytes { size, sha256 } => writeln!(out, "{size} {sha256}"),
-            Captured::Unreadable { detail } => writeln!(out, "unreadable {}", token(detail)),
+            Captured::Unreadable { kind, detail } => {
+                writeln!(out, "unreadable {} {}", kind.as_str(), token(detail))
+            }
         };
     }
     let _ = writeln!(out, "end {}", files.len());

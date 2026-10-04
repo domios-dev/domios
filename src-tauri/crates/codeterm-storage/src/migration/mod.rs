@@ -15,8 +15,8 @@ pub use manifest::{
     RecoveryCandidate, RefusalReport, SourceStatus, IMPORT_MANIFEST_FORMAT,
 };
 pub use source_inventory::{
-    capture_sources, CaptureLimits, CaptureStep, Captured, Sha256Digest, SourceCapture, SourceFile,
-    SourceRole,
+    capture_sources, CaptureLimits, CaptureStep, Captured, EntryKind, Sha256Digest, SourceCapture,
+    SourceFile, SourceRole,
 };
 
 use crate::error::StorageError;
@@ -542,7 +542,7 @@ fn decode(
     statuses: &mut Statuses,
 ) -> Result<Result<Decoded, SourceStatus>, ImportRefusal> {
     let outcome = match &file.captured {
-        Captured::Unreadable { detail } => Err(SourceStatus::Unreadable(detail.clone())),
+        Captured::Unreadable { kind, detail } => Err(SourceStatus::unreadable(*kind, detail)),
         Captured::Bytes { .. } => {
             let bytes = capture.read(file)?;
             match decoder.decode(domain, &bytes) {
