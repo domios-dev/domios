@@ -53,6 +53,28 @@
     }
 
     #[test]
+    fn owner_prewrite_revalidation_keeps_pending_reason_visible() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "hello", None).unwrap();
+        let authority = crate::service::pending_delivery_payloads::user_sends::UserSendAuthority {
+            tab_id: "tab-1".into(),
+            pty_id: "pty-1".into(),
+            binding_nonce: "nonce-1".into(),
+            provider_id: "provider".into(),
+            session_id: None,
+            observed_session_id: Some("session-1".into()),
+        };
+        ledger.state.lock().owned.insert(pending.send_id.clone(), (authority, true));
+        ledger.set_user_pending_reason(&pending.send_id, Some("readiness_changed_before_payload_write"));
+
+        let status = ledger.finish(&pending.send_id, Err("zero_write: readiness changed".into())).unwrap();
+
+        assert_eq!(status.state, ChatSendState::Pending);
+        assert_eq!(status.error, None);
+        assert_eq!(status.pending_reason.as_deref(), Some("readiness_changed_before_payload_write"));
+    }
+
+    #[test]
     fn user_submit_unconfirmed_neither_fails_nor_rewrites() {
         let ledger = ChatSendLedger::default();
         let pending = ledger.try_start("tab-1", "hi", None).unwrap();
