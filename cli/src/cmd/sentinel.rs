@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io::Read;
 
-use crate::args::sentinel::SentinelAction;
+use crate::args::sentinel::{SentinelAction, SentinelEscalationAction};
 use crate::client::SocketClient;
 use crate::cmd::print::{fail, print_json};
 
@@ -49,6 +49,28 @@ fn render(job: &Value) {
     );
 }
 
+fn render_history(history: &Value) {
+    println!(
+        "{} history: current version {}{}",
+        history["sentinel_id"].as_str().unwrap_or("?"),
+        history["current_version"],
+        if history["history_truncated"].as_bool().unwrap_or(false) {
+            " (older versions truncated)"
+        } else {
+            ""
+        }
+    );
+    if let Some(versions) = history["versions"].as_array() {
+        for version in versions {
+            println!(
+                "Version {}: {}",
+                version["version"],
+                serde_json::to_string_pretty(&version["definition"]).unwrap_or_default()
+            );
+        }
+    }
+}
+
 pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: SentinelAction) {
     let (method, params) = request(
         action,
@@ -63,6 +85,26 @@ pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: Senti
         print_json(&result);
         return;
     }
+    if method == "sentinel.history" {
+        render_history(&result);
+        return;
+    }
+    if method == "sentinel.update" {
+        println!(
+            "Updated {} to definition version {}.",
+            result["id"].as_str().unwrap_or("?"),
+            result["definition_version"]
+        );
+        return;
+    }
+    if method == "sentinel.escalation.resolve" {
+        println!(
+            "Resolved escalation {} for {}.",
+            result["transition_id"],
+            result["id"].as_str().unwrap_or("?")
+        );
+        return;
+    }
     if let Some(jobs) = result.as_array() {
         if jobs.is_empty() {
             println!("No sentinels.");
@@ -73,9 +115,19 @@ pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: Senti
     } else {
         render(&result);
         if method == "sentinel.show" {
+            let source = result
+                .pointer("/observe/kind")
+                .and_then(Value::as_str)
+                .zip(result.pointer("/observe/id").and_then(Value::as_str))
+                .map(|(kind, id)| format!("Observe: {kind}:{id}"))
+                .or_else(|| {
+                    result["probe"]
+                        .as_str()
+                        .map(|probe| format!("Probe: {probe}"))
+                })
+                .unwrap_or_else(|| "Source: ?".into());
             println!(
-                "Probe: {}\nQuestion: {}\nCreator: {}",
-                result["probe"].as_str().unwrap_or("?"),
+                "{source}\nQuestion: {}\nCreator: {}",
                 result["question"].as_str().unwrap_or("?"),
                 result["creator_tab_id"].as_str().unwrap_or("?")
             );
@@ -93,11 +145,13 @@ fn request(
         SentinelAction::Create {
             name,
             probe,
+            observe,
             question,
             buckets,
             every,
             routes,
             handlers_file,
+            escalation_timeout_ms,
             paused,
             max_transitions,
             max_actions,
@@ -106,7 +160,10 @@ fn request(
             matches,
         } => {
             let (routes, handlers) = declared_outputs(routes, handlers_file.as_deref())?;
-            params["create"] = json!({ "name": name, "probe": probe, "question": question, "buckets": buckets, "every": every, "routes": routes, "handlers": handlers, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
+            let observe = observe
+                .map(|source| observation_binding(&source))
+                .transpose()?;
+            params["create"] = json!({ "name": name, "probe": probe, "observe": observe, "question": question, "buckets": buckets, "every": every, "routes": routes, "handlers": handlers, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
             "sentinel.create"
         }
         SentinelAction::List => "sentinel.list",
@@ -118,8 +175,65 @@ fn request(
             params["id"] = json!(id);
             "sentinel.stop"
         }
+        SentinelAction::Update {
+            id,
+            expect_version,
+            from_file,
+            cause,
+        } => {
+            params["id"] = json!(id);
+            params["expect_version"] = json!(expect_version);
+            params["update"] = read_update(&from_file, cause.as_deref())?;
+            "sentinel.update"
+        }
+        SentinelAction::History { id } => {
+            params["id"] = json!(id);
+            "sentinel.history"
+        }
+        SentinelAction::Escalation { action } => match action {
+            SentinelEscalationAction::Resolve { id, transition_id } => {
+                params["id"] = json!(id);
+                params["transition_id"] = json!(transition_id);
+                "sentinel.escalation.resolve"
+            }
+        },
     };
     Ok((method, params))
+}
+
+fn observation_binding(source: &str) -> Result<Value, String> {
+    let (kind, target) = if let Some(tab_id) = source.strip_prefix("tab:") {
+        ("tab", tab_id)
+    } else if let Some(cron_id) = source.strip_prefix("cron-run:") {
+        ("cron_run", cron_id)
+    } else {
+        return Err("use tab:<id> or cron-run:<id>".into());
+    };
+    if target.trim().is_empty() || target.len() > 256 || target.chars().any(char::is_control) {
+        return Err("--observe target must be nonempty and bounded".into());
+    }
+    Ok(json!({"kind":kind, "id":target}))
+}
+
+fn read_update(path: &std::path::Path, cause: Option<&str>) -> Result<Value, String> {
+    let mut raw = String::new();
+    std::fs::File::open(path)
+        .map_err(|error| error.to_string())?
+        .take(65_537)
+        .read_to_string(&mut raw)
+        .map_err(|error| error.to_string())?;
+    if raw.len() > 65_536 {
+        return Err("definition file exceeds 64 KiB".into());
+    }
+    let mut update: Value =
+        serde_json::from_str(&raw).map_err(|error| format!("invalid definition file: {error}"))?;
+    let object = update
+        .as_object_mut()
+        .ok_or("definition file must contain a JSON object")?;
+    if let Some(cause) = cause {
+        object.insert("cause".into(), json!(cause));
+    }
+    Ok(update)
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -214,7 +328,7 @@ fn declared_outputs(
                     }
                     match (handler.kind.as_str(), parameters.target.as_deref()) {
                         ("notify" | "stop", None) => {}
-                        ("sentinel" | "send" | "cron", Some(target))
+                        ("sentinel" | "send" | "cron" | "escalate", Some(target))
                             if !target.trim().is_empty() => {}
                         _ => return Err("unknown handler type or invalid parameters".into()),
                     }
@@ -301,6 +415,41 @@ mod tests {
             assert!(declared_outputs(Vec::new(), Some(&path)).is_err());
         }
     }
+
+    #[test]
+    fn sentinel_escalate_handlers_file_accepts_reserved_other_handler() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("handlers.json");
+        std::fs::write(
+            &path,
+            r#"{"other":[{"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}}]}"#,
+        )
+        .unwrap();
+
+        let (_, handlers) = declared_outputs(Vec::new(), Some(&path)).unwrap();
+
+        assert_eq!(
+            handlers.unwrap()["other"][0],
+            json!({"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}})
+        );
+    }
+
+    #[test]
+    fn sentinel_escalate_resolve_request_preserves_stage_and_transition_ids() {
+        let action = SentinelAction::Escalation {
+            action: SentinelEscalationAction::Resolve {
+                id: "sentinel_a".into(),
+                transition_id: "transition_9".into(),
+            },
+        };
+
+        let (method, params) =
+            request(action, Some("creator".into()), Some("nonce".into())).unwrap();
+
+        assert_eq!(method, "sentinel.escalation.resolve");
+        assert_eq!(params["id"], "sentinel_a");
+        assert_eq!(params["transition_id"], "transition_9");
+    }
     #[test]
     fn sentinel_create_rpc_request_preserves_declared_handlers_and_tab_nonce() {
         use clap::Parser;
@@ -353,12 +502,111 @@ mod tests {
         );
         assert_eq!(create["timeout"], "1h");
     }
+
+    #[test]
+    fn sentinel_update_cli_json_round_trip_preserves_definition_and_history_request() {
+        use clap::Parser;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("definition.json");
+        let definition = json!({
+            "name": "Updated graph",
+            "question": "Did it finish?",
+            "buckets": ["done"],
+            "every": "30s",
+            "routes": {"done": "notify"},
+            "matches": {"done": "^done$"},
+            "until": "done",
+            "on_other": [],
+            "max_transitions": 8,
+            "max_actions": 12,
+            "note": "new completion condition"
+        });
+        std::fs::write(&path, serde_json::to_vec(&definition).unwrap()).unwrap();
+        let cli = crate::args::cli::Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "update",
+            "sentinel_a",
+            "--expect-version",
+            "3",
+            "--from-file",
+            path.to_str().unwrap(),
+            "--cause",
+            "transition_2",
+        ])
+        .unwrap();
+        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+            panic!("unexpected command")
+        };
+        let (method, params) =
+            request(action, Some("editor".into()), Some("nonce".into())).unwrap();
+        assert_eq!(method, "sentinel.update");
+        assert_eq!(params["caller_tab_id"], "editor");
+        assert_eq!(params["session_binding_nonce"], "nonce");
+        assert_eq!(params["expect_version"], 3);
+        let mut expected = definition;
+        expected["cause"] = json!("transition_2");
+        assert_eq!(params["update"], expected);
+
+        let cli = crate::args::cli::Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "history",
+            "sentinel_a",
+        ])
+        .unwrap();
+        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+            panic!("unexpected command")
+        };
+        let (method, params) = request(action, Some("reader".into()), None).unwrap();
+        assert_eq!(method, "sentinel.history");
+        assert_eq!(params["id"], "sentinel_a");
+    }
 }
 
 #[cfg(test)]
 mod command_tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn sentinel_observe_request_roundtrips_tab_and_cron_run_bindings() {
+        for (source, expected) in [
+            ("tab:bound-agent", json!({"kind":"tab", "id":"bound-agent"})),
+            (
+                "cron-run:nightly",
+                json!({"kind":"cron_run", "id":"nightly"}),
+            ),
+        ] {
+            let cli = crate::args::cli::Cli::try_parse_from([
+                "codeterm",
+                "sentinel",
+                "create",
+                "--observe",
+                source,
+                "--question",
+                "tab state?",
+                "--buckets",
+                "waiting",
+                "--match",
+                "waiting=.*",
+                "--json",
+            ])
+            .unwrap();
+            let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+                panic!("wrong command")
+            };
+            let (method, params) =
+                request(action, Some("creator".into()), Some("nonce".into())).unwrap();
+            assert_eq!(method, "sentinel.create");
+            assert_eq!(params["create"]["probe"], Value::Null);
+            assert_eq!(params["create"]["observe"], expected);
+            let encoded = serde_json::to_string(&params["create"]).unwrap();
+            let decoded: Value = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(decoded, params["create"]);
+        }
+    }
 
     #[test]
     fn sentinel_command_handlers_file_reaches_authenticated_create_request_unchanged() {

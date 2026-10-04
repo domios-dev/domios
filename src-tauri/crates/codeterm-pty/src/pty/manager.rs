@@ -89,6 +89,28 @@ impl PtySession {
             .send_and_wait_guarded(data, permit, timeout)
     }
 
+    pub fn write_and_flush_with_enqueued(
+        &self,
+        data: Vec<u8>,
+        timeout: std::time::Duration,
+        on_enqueued: impl FnOnce(),
+    ) -> Result<(), String> {
+        self.write_queue
+            .send_frames_and_wait_with_enqueued(vec![data], timeout, on_enqueued)
+    }
+
+    pub fn write_and_flush_guarded_with_enqueued(
+        &self,
+        data: Vec<u8>,
+        permit: GuardedInputPermit,
+        timeout: std::time::Duration,
+        on_enqueued: impl FnOnce(),
+    ) -> Result<(), String> {
+        self.write_queue.send_frames_and_wait_guarded_with_enqueued(
+            vec![data], permit, timeout, on_enqueued,
+        )
+    }
+
     pub fn write_frames_and_flush_guarded(
         &self,
         frames: Vec<Vec<u8>>,

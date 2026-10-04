@@ -6,6 +6,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use tauri::Manager;
 
 use super::ServiceContext;
 use crate::lock_hold::{TimedMutex, TimedRwLock};
@@ -215,12 +216,22 @@ impl ServiceFixture {
             worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),
             gateway: Arc::new(crate::service::message_gateway::MessageGateway::new()),
         };
+        assert!(app.manage(Arc::clone(&service.mux)));
         let owner = Arc::new(service.clone());
         Self {
             service,
             _owner: owner,
             _app: app,
             temp,
+        }
+    }
+}
+
+impl Drop for ServiceFixture {
+    fn drop(&mut self) {
+        let reapers = self.service.pty.lock().begin_shutdown().unwrap_or_default();
+        for reaper in reapers {
+            reaper.reap_in_background();
         }
     }
 }

@@ -3,8 +3,12 @@ use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
 use crate::repositories::{expect_matches, from_sql_u64, to_sql_u64, Expect, Revision};
 use crate::schema::{self, WORKSPACE_ORDER_REVISION};
+use crate::WorkspaceRecord;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
+
+#[path = "delta.rs"]
+mod delta;
 
 pub(super) fn import(cx: &mut WriteCx<'_>, snapshot: DeskSnapshot) -> Result<(), StorageError> {
     import_empty(cx, snapshot)
@@ -253,8 +257,8 @@ pub(super) fn reorder_tabs(
     for (ordinal, id) in order.iter().enumerate() {
         if current.iter().position(|current_id| current_id == id) != Some(ordinal) {
             cx.write(
-                "UPDATE desk_tabs SET ordinal = ?2, sort_order = ?2, revision = ?3 WHERE id = ?1",
-                params![id, ordinal as i64, revision],
+                "UPDATE desk_tabs SET ordinal = ?2, sort_order = ?2 WHERE id = ?1",
+                params![id, ordinal as i64],
             )?;
         }
     }
@@ -399,7 +403,7 @@ pub(super) fn select_tab(
     bump_desk(cx)
 }
 
-pub(super) fn remove_team(
+pub(crate) fn remove_team(
     cx: &mut WriteCx<'_>,
     id: &str,
     expect: Revision,
@@ -518,7 +522,7 @@ fn insert_layout(
             let fields_json = serde_json::to_string(&fields.values)
                 .map_err(|error| StorageError::invalid("desk leaf fields", error.to_string()))?;
             cx.write(
-                "INSERT INTO desk_layout_nodes (group_id, parent_id, ordinal, kind, tab_id, cwd, leaf_fields_json) \
+                "INSERT INTO desk_layout_nodes (group_id, parent_id, ordinal, kind, tab_id, cwd, fields_json) \
                  VALUES (?1, ?2, ?3, 'leaf', ?4, ?5, ?6)",
                 params![group_id, parent_id, ordinal, tab_id, cwd, fields_json],
             )?;
@@ -528,11 +532,14 @@ fn insert_layout(
             orientation,
             ratio,
             children,
+            fields,
         } => {
+            let fields_json = serde_json::to_string(fields)
+                .map_err(|error| StorageError::invalid("desk split fields", error.to_string()))?;
             cx.write(
-                "INSERT INTO desk_layout_nodes (group_id, parent_id, ordinal, kind, orientation, ratio) \
-                 VALUES (?1, ?2, ?3, 'split', ?4, ?5)",
-                params![group_id, parent_id, ordinal, orientation, ratio],
+                "INSERT INTO desk_layout_nodes (group_id, parent_id, ordinal, kind, orientation, ratio, fields_json) \
+                 VALUES (?1, ?2, ?3, 'split', ?4, ?5, ?6)",
+                params![group_id, parent_id, ordinal, orientation, ratio, fields_json],
             )?;
             let id = cx.conn.last_insert_rowid();
             for (child_ordinal, child) in children.iter().enumerate() {
@@ -719,22 +726,24 @@ fn workspace_order(conn: &Connection) -> Result<Vec<String>, StorageError> {
     let mut statement = conn
         .prepare("SELECT w.id FROM workspaces w JOIN desk_workspace_state d ON d.workspace_id = w.id ORDER BY w.ordinal")
         .map_err(|error| sqlite_error("prepare workspace order", error))?;
-    statement
+    let ids = statement
         .query_map([], |row| row.get(0))
         .map_err(|error| sqlite_error("query workspace order", error))?
         .map(|row| row.map_err(|error| sqlite_error("read workspace order", error)))
-        .collect()
+        .collect();
+    ids
 }
 
 fn ordered_ids(conn: &Connection, sql: &str, scope: &str) -> Result<Vec<String>, StorageError> {
     let mut statement = conn
         .prepare(sql)
         .map_err(|error| sqlite_error("prepare desk order", error))?;
-    statement
+    let ids = statement
         .query_map([scope], |row| row.get(0))
         .map_err(|error| sqlite_error("query desk order", error))?
         .map(|row| row.map_err(|error| sqlite_error("read desk order", error)))
-        .collect()
+        .collect();
+    ids
 }
 
 fn exact_permutation(

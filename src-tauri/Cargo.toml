@@ -167,6 +167,10 @@ path = "src/bin/codeterm_embed.rs"
 name = "parser-eval"
 path = "src/bin/parser_eval.rs"
 
+[[bin]]
+name = "storage-verify"
+path = "src/bin/storage-verify.rs"
+
 # Build-speed profiles (round-16 build audit). dev: unpacked split-debuginfo
 # skips dSYM packing on macOS (faster links); line-tables keep usable
 # backtraces at a fraction of the debuginfo; deps carry no debuginfo at all.

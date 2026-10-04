@@ -34,7 +34,7 @@ struct LayoutRow {
     ratio: Option<f64>,
     tab_id: Option<String>,
     cwd: Option<String>,
-    leaf_fields_json: Option<String>,
+    fields_json: Option<String>,
 }
 
 pub(super) fn load(conn: &Connection) -> Result<DeskState, StorageError> {
@@ -167,7 +167,7 @@ pub(super) fn load(conn: &Connection) -> Result<DeskState, StorageError> {
                     roots.len()
                 )));
             }
-            let layout = build_layout(roots[0], &layouts, &mut visited_layouts, 0)?;
+            let layout = build_layout(&roots[0], &layouts, &mut visited_layouts, 0)?;
             workspace_tabs.push(DeskTab {
                 id: tab.id.clone(),
                 title: tab.title.clone(),
@@ -212,6 +212,64 @@ pub(super) fn load(conn: &Connection) -> Result<DeskState, StorageError> {
     })
 }
 
+pub(super) fn load_workspace_record_revisions(
+    conn: &Connection,
+) -> Result<HashMap<String, Revision>, StorageError> {
+    load_revisions(
+        conn,
+        "SELECT id, revision FROM workspaces",
+        "workspace record revision",
+    )
+}
+
+pub(super) fn load_identity_revisions(
+    conn: &Connection,
+) -> Result<HashMap<(String, String), Revision>, StorageError> {
+    let mut statement = conn
+        .prepare("SELECT provider, session_id, revision FROM agent_session_identities")
+        .map_err(|error| sqlite_error("prepare agent identity revisions", error))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(|error| sqlite_error("query agent identity revisions", error))?;
+    let mut revisions = HashMap::new();
+    for row in rows {
+        let (provider, session_id, revision) =
+            row.map_err(|error| sqlite_error("read agent identity revision", error))?;
+        revisions.insert(
+            (provider, session_id),
+            Revision(from_sql_u64("agent identity revision", revision)?),
+        );
+    }
+    Ok(revisions)
+}
+
+fn load_revisions(
+    conn: &Connection,
+    sql: &str,
+    field: &'static str,
+) -> Result<HashMap<String, Revision>, StorageError> {
+    let mut statement = conn
+        .prepare(sql)
+        .map_err(|error| sqlite_error("prepare desk revisions", error))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .map_err(|error| sqlite_error("query desk revisions", error))?;
+    let mut revisions = HashMap::new();
+    for row in rows {
+        let (id, revision) = row.map_err(|error| sqlite_error("read desk revision", error))?;
+        revisions.insert(id, Revision(from_sql_u64(field, revision)?));
+    }
+    Ok(revisions)
+}
+
 fn load_tabs(conn: &Connection) -> Result<Vec<TabRow>, StorageError> {
     let mut statement = conn
         .prepare(
@@ -251,7 +309,7 @@ fn load_layouts(
 ) -> Result<HashMap<(String, Option<i64>), Vec<LayoutRow>>, StorageError> {
     let mut statement = conn
         .prepare(
-            "SELECT id, group_id, parent_id, ordinal, kind, orientation, ratio, tab_id, cwd, leaf_fields_json \
+            "SELECT id, group_id, parent_id, ordinal, kind, orientation, ratio, tab_id, cwd, fields_json \
              FROM desk_layout_nodes ORDER BY group_id, parent_id, ordinal",
         )
         .map_err(|error| sqlite_error("prepare desk layout", error))?;
@@ -267,7 +325,7 @@ fn load_layouts(
                 ratio: row.get(6)?,
                 tab_id: row.get(7)?,
                 cwd: row.get(8)?,
-                leaf_fields_json: row.get(9)?,
+                fields_json: row.get(9)?,
             })
         })
         .map_err(|error| sqlite_error("query desk layout", error))?;
@@ -298,7 +356,7 @@ fn build_layout(
                 .clone()
                 .ok_or_else(|| corrupt("leaf has no tab identity"))?;
             let json = row
-                .leaf_fields_json
+                .fields_json
                 .as_deref()
                 .ok_or_else(|| corrupt("leaf has no typed fields"))?;
             let fields: Value = serde_json::from_str(json)
@@ -312,14 +370,24 @@ fn build_layout(
             })
         }
         "split" => {
+            let fields_json = row
+                .fields_json
+                .as_deref()
+                .ok_or_else(|| corrupt("split has no fields"))?;
+            let fields: Value = serde_json::from_str(fields_json)
+                .map_err(|error| corrupt(format!("invalid split fields: {error}")))?;
+            let fields = fields
+                .as_object()
+                .cloned()
+                .ok_or_else(|| corrupt("split fields are not an object"))?;
             let orientation = row
                 .orientation
                 .clone()
                 .ok_or_else(|| corrupt("split has no orientation"))?;
             let ratio = row.ratio.ok_or_else(|| corrupt("split has no ratio"))?;
-            let mut children = by_parent
+            let mut children: Vec<&LayoutRow> = by_parent
                 .get(&(row.group_id.clone(), Some(row.id)))
-                .cloned()
+                .map(|rows| rows.iter().collect())
                 .unwrap_or_default();
             children.sort_by_key(|child| child.ordinal);
             let children = children
@@ -330,6 +398,7 @@ fn build_layout(
                 orientation,
                 ratio,
                 children,
+                fields,
             })
         }
         other => Err(corrupt(format!("unknown layout kind {other}"))),

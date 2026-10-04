@@ -20,10 +20,8 @@ pub struct SaveSessionBody {
     pub withdraw_continue_prompt: Option<String>,
 }
 
-/// Snapshot the multiplexer into the session store NOW. Durability is
-/// otherwise the 30s auto-save timer plus the close-to-tray hook — a
-/// force-killed daemon (taskkill, crash, e2e harness) loses anything
-/// younger than the last tick. Restart-persistence tests call this first.
+/// Wait for the current desk snapshot to commit before confirming the save.
+/// Restart-persistence tests call this before restarting the daemon.
 /// A `continue_tab` asks the next start to deliver one continue to that tab.
 pub async fn save_session_api(
     AxumState(state): AxumState<AppState>,
@@ -96,8 +94,18 @@ pub async fn save_session_api(
             serde_json::json!({"tab_id": tab_id, "withdrawn": false, "reason": reason})
         })
     });
-    crate::update::shutdown::persist_session(&state.svc.app_handle, &state.svc)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let svc = state.svc.clone();
+    tokio::task::spawn_blocking(move || {
+        crate::update::shutdown::persist_session(&svc.app_handle, &svc)
+    })
+    .await
+    .map_err(|error| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("session persistence task failed: {error}"),
+        )
+    })?
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
     Ok(Json(
         serde_json::json!({
             "ok": true,

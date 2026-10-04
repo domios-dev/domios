@@ -169,6 +169,8 @@ struct PtySubmitTransport<'a> {
     #[allow(dead_code)]
     status_signal: Arc<codeterm_types::pty::TabStatusSignal>,
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    pre_write_guard: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    payload_queued: Option<Arc<dyn Fn() + Send + Sync>>,
     submit_cycle: Arc<SubmitCycle>,
     submit_generation: u64,
     paste_capability: PasteEncodingCapability,
@@ -431,16 +433,25 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .ok_or_else(|| InjectionError::PtyClosed {
                 pty_id: self.pty_id.to_string(),
             })?;
+        if self.pre_write_guard.as_ref().is_some_and(|guard| !guard()) {
+            return Err(InjectionError::AgentInputUnavailable {
+                pty_id: self.pty_id.to_string(),
+            });
+        }
         let timeout = deadline.saturating_duration_since(Instant::now());
-        let result = match self.permit.as_ref() {
-            Some(permit) => {
-                session.write_and_flush_guarded(paste.as_bytes().to_vec(), permit.clone(), timeout)
+        let callback = self.payload_queued.clone();
+        let on_enqueued = move || {
+            if let Some(callback) = callback {
+                callback();
             }
-            None => self
-                .svc
-                .pty
-                .lock()
-                .write_and_flush(self.pty_id, paste.as_bytes(), timeout),
+        };
+        let result = match self.permit.as_ref() {
+            Some(permit) => session.write_and_flush_guarded_with_enqueued(
+                paste.as_bytes().to_vec(), permit.clone(), timeout, on_enqueued,
+            ),
+            None => session.write_and_flush_with_enqueued(
+                paste.as_bytes().to_vec(), timeout, on_enqueued,
+            ),
         };
         result.map_err(|error| injection_write_error(self.pty_id, error))?;
         if self.permit.is_some() {
@@ -664,13 +675,47 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
     track_exact_session_turn: bool,
     claim: SubmitCycleClaim,
 ) -> Result<InjectionResult, InjectionError> {
+    submit_text_with_key_claimed_and_follow_up_revalidated(
+        svc,
+        pty_id,
+        text,
+        typed_follow_up,
+        enter,
+        submit_key,
+        strategy,
+        opts,
+        permit,
+        track_exact_session_turn,
+        claim,
+        None,
+        false,
+        None,
+    )
+}
+
+pub(crate) fn submit_text_with_key_claimed_and_follow_up_revalidated(
+    svc: &ServiceContext,
+    pty_id: &str,
+    text: &str,
+    typed_follow_up: Option<&str>,
+    enter: bool,
+    submit_key: &[u8],
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
+    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
+    track_exact_session_turn: bool,
+    claim: SubmitCycleClaim,
+    pre_write_guard: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    allow_superseded_payload: bool,
+    payload_queued: Option<Arc<dyn Fn() + Send + Sync>>,
+) -> Result<InjectionResult, InjectionError> {
     if claim.pty_id() != pty_id {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         });
     }
     pty_owner_guard(svc, pty_id)?;
-    if !claim.wait_until_active(Instant::now() + opts.submit_timeout) {
+    if !allow_superseded_payload && !claim.is_current() {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         });
@@ -690,6 +735,8 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
         signal: RefCell::new(signal),
         status_signal,
         permit,
+        pre_write_guard,
+        payload_queued,
         submit_cycle: Arc::clone(&submit_cycle),
         submit_generation,
         paste_capability,

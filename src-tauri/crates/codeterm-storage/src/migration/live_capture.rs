@@ -62,8 +62,8 @@ fn load_live_capture(
     let tampered = || ImportRefusal::BackupTampered {
         relative: source_inventory::CAPTURE_MANIFEST.to_string(),
     };
-    let (mut file, metadata) = source_inventory::open_regular(&manifest_path)
-        .map_err(|_| uncaptured(tampered()))?;
+    let (file, metadata) =
+        source_inventory::open_regular(&manifest_path).map_err(|_| uncaptured(tampered()))?;
     let bound = limits
         .max_files
         .checked_mul(2048)
@@ -80,7 +80,8 @@ fn load_live_capture(
     if bytes.len() as u64 != metadata.len() {
         return Err(uncaptured(tampered()));
     }
-    let files = parse_capture_manifest(&bytes, source, limits).map_err(|_| uncaptured(tampered()))?;
+    let files =
+        parse_capture_manifest(&bytes, source, limits).map_err(|_| uncaptured(tampered()))?;
     SourceCapture::from_live_archive(backup, files, &bytes)
 }
 
@@ -196,6 +197,7 @@ fn hex_value(byte: u8) -> Option<u8> {
 
 fn parse_domain(text: &str) -> Option<ImportDomain> {
     match text {
+        "desk" => Some(ImportDomain::Desk),
         "cron" => Some(ImportDomain::Cron),
         "sentinel" => Some(ImportDomain::Sentinel),
         _ => None,
@@ -206,6 +208,7 @@ fn parse_role(text: &str) -> Option<SourceRole> {
     match text {
         "current" => Some(SourceRole::Current),
         "rotating-backup" => Some(SourceRole::RotatingBackup),
+        "named-snapshot" => Some(SourceRole::NamedSnapshot),
         "quarantined" => Some(SourceRole::Quarantined),
         "interrupted-write" => Some(SourceRole::InterruptedWrite),
         "unrecognized" => Some(SourceRole::Unrecognized),

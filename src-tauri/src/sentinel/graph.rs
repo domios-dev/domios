@@ -225,12 +225,13 @@ fn target(
     let (kind, id, owner) = match action {
         Route::Sentinel(id) => ("sentinel", id, Some(source.creator_tab_id.clone())),
         Route::Send(id) => ("worker", id, None),
+        Route::Escalate(super::machine::EscalateTarget::Agent(id)) => ("worker", id, None),
         Route::Cron(id) => ("cron", id, None),
         Route::Notify
         | Route::Stop
         | Route::Command(_)
         | Route::RespondPrompt(_)
-        | Route::Escalate(_) => return None,
+        | Route::Escalate(super::machine::EscalateTarget::Creator) => return None,
     };
     let unknown = Identity {
         kind: kind.into(),
@@ -244,7 +245,7 @@ fn target(
             .iter()
             .find(|j| j.id == *id && j.same_owner(source) && j.agent_authored)
             .map(identity),
-        Route::Send(id) => mux
+        Route::Send(id) | Route::Escalate(super::machine::EscalateTarget::Agent(id)) => mux
             .get_tab(id)
             .filter(|tab| {
                 tab.agent_type.is_some()
@@ -467,7 +468,7 @@ pub fn project(
             outcomes.push(json!({"bucket":bucket,"handlers":handlers}));
         }
         let last_result = last.map(|t| json!({"bucket":t.bucket,"accepted_at":t.accepted_at,"handlers":t.handlers.iter().map(|r| { let mut value=record(r); value["handler_id"]=json!(r.handler_id); value }).collect::<Vec<_>>()}));
-        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":decision_executor,"sentinel_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id}}));
+        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":decision_executor,"sentinel_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
     }
     Ok(Snapshot {
         workspace_id: workspace.into(),

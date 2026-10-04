@@ -1,11 +1,11 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender};
 use std::sync::{Arc, OnceLock, Weak};
 use std::time::Instant;
 
 use super::{DeferredSubmitWait, SubmitTransport};
-use parking_lot::{Condvar, Mutex};
+use parking_lot::Mutex;
 
 impl<'a> super::PtySubmitTransport<'a> {
     pub(super) fn composer_ready_now(&self) -> bool {
@@ -122,13 +122,11 @@ pub(super) enum CycleWait {
 struct SubmitCycleState {
     next_generation: u64,
     current_generation: Option<u64>,
-    waiting_generations: VecDeque<u64>,
     waiter: Option<(u64, SyncSender<SubmitCycleSignal>)>,
 }
 
 pub(super) struct SubmitCycle {
     state: Mutex<SubmitCycleState>,
-    changed: Condvar,
     output_generation: AtomicU64,
 }
 
@@ -139,7 +137,6 @@ impl SubmitCycle {
                 next_generation: 1,
                 ..SubmitCycleState::default()
             }),
-            changed: Condvar::new(),
             output_generation: AtomicU64::new(0),
         }
     }
@@ -152,11 +149,10 @@ impl SubmitCycle {
         let mut state = self.state.lock();
         let generation = state.next_generation;
         state.next_generation = state.next_generation.wrapping_add(1).max(1);
-        if state.current_generation.is_none() {
-            state.current_generation = Some(generation);
-        } else {
-            state.waiting_generations.push_back(generation);
+        if let Some((_, waiter)) = state.waiter.take() {
+            let _ = waiter.try_send(SubmitCycleSignal::Closed);
         }
+        state.current_generation = Some(generation);
         generation
     }
 
@@ -165,21 +161,7 @@ impl SubmitCycle {
     }
 
     fn is_empty(&self) -> bool {
-        let state = self.state.lock();
-        state.current_generation.is_none() && state.waiting_generations.is_empty()
-    }
-
-    fn wait_until_active(&self, generation: u64, deadline: Instant) -> bool {
-        let mut state = self.state.lock();
-        while state.current_generation != Some(generation)
-            && state.waiting_generations.contains(&generation)
-        {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                return false;
-            };
-            self.changed.wait_for(&mut state, remaining);
-        }
-        state.current_generation == Some(generation)
+        self.state.lock().current_generation.is_none()
     }
 
     fn finish(&self, generation: u64) {
@@ -188,12 +170,7 @@ impl SubmitCycle {
             if let Some((_, waiter)) = state.waiter.take() {
                 let _ = waiter.try_send(SubmitCycleSignal::Closed);
             }
-            state.current_generation = state.waiting_generations.pop_front();
-            self.changed.notify_all();
-        } else {
-            state
-                .waiting_generations
-                .retain(|queued| *queued != generation);
+            state.current_generation = None;
         }
     }
 
@@ -288,11 +265,6 @@ impl SubmitCycleClaim {
         &self.pty_id
     }
 
-    pub(super) fn wait_until_active(&self, deadline: Instant) -> bool {
-        self.cycle.wait_until_active(self.generation, deadline)
-    }
-
-    #[cfg(test)]
     pub(super) fn is_current(&self) -> bool {
         self.cycle.is_current(self.generation)
     }
@@ -389,14 +361,14 @@ mod tests {
     }
 
     #[test]
-    fn queued_submit_claim_expires_before_the_prior_cycle_releases() {
+    fn newer_submit_claim_replaces_the_active_cycle_immediately() {
         let pty_id = "queued-claim-deadline";
         let first = claim_submit_cycle(pty_id);
         let second = claim_submit_cycle(pty_id);
 
-        assert!(!second.wait_until_active(Instant::now() + std::time::Duration::from_millis(10)));
-        drop(first);
-        drop(second);
+        assert!(!first.is_current());
+        assert!(second.is_current());
+        assert!(second.is_current());
     }
 }
 

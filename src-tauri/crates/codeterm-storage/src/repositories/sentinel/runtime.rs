@@ -6,8 +6,8 @@ use super::queries;
 use super::records::{
     AmendmentRecord, BatchFence, CommandResultRecord, CommandStatus, DefinitionProvenance,
     DefinitionUpdate, Fence, HandlerResultRecord, HandlerStatus, MutationOutcome, NewTransition,
-    RuntimeOutcome, ScheduleUpdate, SentinelCommit, SentinelCreate, SentinelId, SentinelIdentity,
-    SentinelImport, StageRuntime, TransitionRecord, MAX_SENTINEL_RECORDS,
+    RunRecord, RuntimeOutcome, ScheduleUpdate, SentinelCommit, SentinelCreate, SentinelId,
+    SentinelIdentity, SentinelImport, StageRuntime, TransitionRecord, MAX_SENTINEL_RECORDS,
 };
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
@@ -84,12 +84,14 @@ struct Live {
     stopped: bool,
     last_hash: Option<String>,
     last_bucket: Option<String>,
+    run_id: Option<String>,
+    run_tab_id: Option<String>,
 }
 
 fn live(conn: &Connection, id: &str) -> Result<Option<Live>, StorageError> {
     let row = conn
         .prepare_cached(
-            "SELECT generation, paused, stopped, last_hash, last_bucket \
+            "SELECT generation, paused, stopped, last_hash, last_bucket, run_id, run_tab_id \
              FROM sentinel_runtime WHERE sentinel_id = ?1",
         )
         .and_then(|mut statement| {
@@ -101,12 +103,15 @@ fn live(conn: &Connection, id: &str) -> Result<Option<Live>, StorageError> {
                         row.get::<_, bool>(2)?,
                         row.get::<_, Option<String>>(3)?,
                         row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                        row.get::<_, Option<String>>(6)?,
                     ))
                 })
                 .optional()
         })
         .map_err(|e| sqlite_error("read sentinel runtime", e))?;
-    let Some((generation, paused, stopped, last_hash, last_bucket)) = row else {
+    let Some((generation, paused, stopped, last_hash, last_bucket, run_id, run_tab_id)) = row
+    else {
         return Ok(None);
     };
     Ok(Some(Live {
@@ -115,7 +120,42 @@ fn live(conn: &Connection, id: &str) -> Result<Option<Live>, StorageError> {
         stopped,
         last_hash,
         last_bucket,
+        run_id,
+        run_tab_id,
     }))
+}
+
+fn observes_cron_run(conn: &Connection, id: &str, cron_id: &str) -> Result<bool, StorageError> {
+    let observed = conn
+        .prepare_cached(
+            "SELECT d.observe_kind, d.observe_ref FROM sentinel_heads h \
+             JOIN sentinel_definitions d ON d.sentinel_id = h.sentinel_id \
+             AND d.version = h.version WHERE h.sentinel_id = ?1",
+        )
+        .and_then(|mut statement| {
+            statement
+                .query_row([id], |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                    ))
+                })
+                .optional()
+        })
+        .map_err(|e| sqlite_error("read sentinel run source", e))?;
+    Ok(observed.is_some_and(|(kind, reference)| {
+        kind.as_deref() == Some("cron_run") && reference.as_deref() == Some(cron_id)
+    }))
+}
+
+fn run_identity_matches(live: &Live, expected: Option<&RunRecord>) -> bool {
+    match (live.run_id.as_deref(), live.run_tab_id.as_deref(), expected) {
+        (None, None, None) => true,
+        (Some(run_id), Some(tab_id), Some(expected)) => {
+            run_id == expected.run_id && tab_id == expected.tab_id
+        }
+        _ => false,
+    }
 }
 
 fn scalar(conn: &Connection, sql: &str, id: &str) -> Result<i64, StorageError> {
@@ -302,13 +342,14 @@ fn write_outcome(
 ) -> Result<(), StorageError> {
     cx.write(
         "UPDATE sentinel_runtime SET last_hash = ?2, last_bucket = ?3, stopped = ?4, \
-         last_reason = ?5 WHERE sentinel_id = ?1",
+         last_reason = ?5, held = ?6 WHERE sentinel_id = ?1",
         params![
             id,
             outcome.last_hash,
             outcome.last_bucket,
             outcome.stopped,
-            outcome.last_reason
+            outcome.last_reason,
+            outcome.held
         ],
     )?;
     Ok(())
@@ -634,6 +675,70 @@ pub(super) fn update_definition(
     )?;
     if advanced != 1 {
         return Err(corrupt("stage has no runtime"));
+    }
+    touch(cx, id)?;
+    finished(cx.conn, MutationOutcome::Applied, &[id.to_string()])
+}
+
+pub(super) fn set_run_binding(
+    cx: &mut WriteCx<'_>,
+    id: &SentinelId,
+    expected_generation: u64,
+    cron_id: &str,
+    expected_run: Option<&RunRecord>,
+    run: Option<&RunRecord>,
+    next_run: u64,
+    last_reason: Option<&str>,
+) -> Result<SentinelCommit, StorageError> {
+    let id = id.as_str();
+    let Some(live) = live(cx.conn, id)? else {
+        return Ok(SentinelCommit::fenced(Fence::Missing, None));
+    };
+    if live.generation != expected_generation || !run_identity_matches(&live, expected_run) {
+        return fenced(cx.conn, Fence::Generation, id);
+    }
+    if live.stopped && run.is_some() {
+        return fenced(cx.conn, Fence::Stopped, id);
+    }
+    if !observes_cron_run(cx.conn, id, cron_id)? {
+        return fenced(cx.conn, Fence::Observation, id);
+    }
+    if run.is_some_and(|next| {
+        live.run_id.as_deref() == Some(next.run_id.as_str())
+            && live.run_tab_id.as_deref() == Some(next.tab_id.as_str())
+    }) {
+        return fenced(cx.conn, Fence::Generation, id);
+    }
+    let generation = live
+        .generation
+        .checked_add(1)
+        .ok_or_else(|| StorageError::invalid("run generation", "is exhausted"))?;
+    let (run_id, run_tab_id, run_bound_at) = run.map_or((None, None, None), |run| {
+        (
+            Some(run.run_id.as_str()),
+            Some(run.tab_id.as_str()),
+            Some(run.bound_at),
+        )
+    });
+    let changed = cx.write(
+        "UPDATE sentinel_runtime SET generation = ?2, next_run = ?3, last_hash = NULL, \
+         last_bucket = NULL, last_reason = ?4, held = NULL, run_id = ?5, run_tab_id = ?6, \
+         run_bound_at = ?7 WHERE sentinel_id = ?1 AND generation = ?8",
+        params![
+            id,
+            to_sql_u64("run generation", generation)?,
+            to_sql_u64("next run", next_run)?,
+            last_reason,
+            run_id,
+            run_tab_id,
+            run_bound_at
+                .map(|at| to_sql_u64("run bound time", at))
+                .transpose()?,
+            to_sql_u64("expected run generation", expected_generation)?,
+        ],
+    )?;
+    if changed != 1 {
+        return fenced(cx.conn, Fence::Generation, id);
     }
     touch(cx, id)?;
     finished(cx.conn, MutationOutcome::Applied, &[id.to_string()])

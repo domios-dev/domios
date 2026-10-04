@@ -13,12 +13,13 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 
+use super::amend::DefinitionVersion;
 use super::store::{scope_revisions, validate, ScopeKey, Sentinel, Store};
 use crate::cron::clock::SharedClock;
 use crate::persisted_state::StateFile;
 use crate::storage::{
-    Committed, Completion, Revision, SentinelCommit, SentinelImport, SentinelRepository, Storage,
-    StorageError, StoredSentinel,
+    Committed, Completion, Read, Revision, SentinelCommit, SentinelImport, SentinelRepository,
+    Storage, StorageError, StoredDefinition, StoredSentinel,
 };
 
 /// Failure bound around a commit wait only; expiry is unconfirmed, never failure.
@@ -104,6 +105,7 @@ impl Store {
         Self {
             jobs,
             active: HashMap::new(),
+            wake_pending: BTreeSet::new(),
             backend: Backend::Json(file),
             clock,
             unavailable,
@@ -197,11 +199,15 @@ struct Known {
 /// Per-stage commit revisions fence publication, so a late older outcome never regresses
 /// the cache; tombstones stop an in-flight outcome from resurrecting a removed stage.
 pub(super) struct SqliteBackend {
-    repo: SentinelRepository,
+    pub(super) repo: SentinelRepository,
     known: HashMap<String, Known>,
     removed: BTreeSet<String>,
     floor: Option<Revision>,
     inflight: usize,
+}
+
+pub(crate) fn history_versions(records: Vec<StoredDefinition>) -> Vec<DefinitionVersion> {
+    records.into_iter().map(codec::history_version).collect()
 }
 
 /// Why a staged mutation did not commit.
@@ -316,6 +322,25 @@ fn classify(error: StorageError) -> (Option<LoadFailure>, String) {
 }
 
 impl Store {
+    pub(crate) fn ensure_external_commit_ready(&self) -> Result<(), String> {
+        self.ensure_available()?;
+        match &self.backend {
+            Backend::Sqlite(backend) if backend.inflight == 0 => Ok(()),
+            Backend::Sqlite(_) => Err("sentinel storage has unsettled commits".into()),
+            Backend::Json(_) => Err(GUARD_FREE_REQUIRED.into()),
+        }
+    }
+
+    pub(crate) fn adopt_external_commit(
+        &mut self,
+        committed: &Committed<SentinelCommit>,
+    ) -> Result<(), String> {
+        if !matches!(&self.backend, Backend::Sqlite(_)) {
+            return Err(GUARD_FREE_REQUIRED.into());
+        }
+        self.publish(committed)
+    }
+
     /// Admits one typed mutation without waiting; refusals settle through `finish` at once.
     pub(super) fn submit<T: Send + 'static>(
         &mut self,
@@ -363,7 +388,12 @@ impl Store {
 
     /// Adopts post-commit aggregates newer than the cache, then emits scoped invalidations.
     fn publish(&mut self, committed: &Committed<SentinelCommit>) -> Result<(), String> {
-        let Store { jobs, backend, .. } = self;
+        let Store {
+            jobs,
+            backend,
+            wake_pending,
+            ..
+        } = self;
         let Backend::Sqlite(backend) = backend else {
             return Err(GUARD_FREE_REQUIRED.into());
         };
@@ -376,6 +406,7 @@ impl Store {
                 let job = jobs.remove(position);
                 scopes.insert((job.workspace_id, job.team_id));
             }
+            wake_pending.remove(id);
         }
         for stored in &committed.value.sentinels {
             let id = stored.record.identity.id.as_str();
@@ -409,6 +440,13 @@ impl Store {
                         .unwrap_or(jobs.len());
                     jobs.insert(position, job);
                 }
+            }
+            if jobs
+                .iter()
+                .find(|current| current.id == id)
+                .is_none_or(|current| current.machine.stopped || current.machine.paused)
+            {
+                wake_pending.remove(id);
             }
             backend.known.insert(
                 id.to_string(),
@@ -487,6 +525,7 @@ impl Store {
         let mut store = Store {
             jobs: Vec::new(),
             active: HashMap::new(),
+            wake_pending: BTreeSet::new(),
             backend: Backend::Sqlite(SqliteBackend {
                 repo,
                 known: HashMap::new(),

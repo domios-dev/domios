@@ -39,6 +39,11 @@ pub(super) fn provider_target(provider: &dyn AgentProvider, screen: &str) -> Opt
     })
 }
 
+/// Unattended launch gates confirm through the output-candidate producer.
+pub(super) fn confirms_unattended(kind: Kind, tab: Option<&Tab>) -> bool {
+    kind != Kind::Update && tab.is_some_and(target_applies)
+}
+
 pub(super) fn target_applies(tab: &Tab) -> bool {
     at_owned_launch_prompt(tab) || tab.audience == TabAudience::UserOwnedAutomation
 }

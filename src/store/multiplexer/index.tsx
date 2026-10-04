@@ -506,16 +506,11 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       }
     }).then((unlisten) => unlisteners.push(unlisten));
 
-    const saveInterval = setInterval(() => {
-      invoke("save_session").catch(() => {});
-    }, 30_000);
-
     const beforeUnload = () => { invoke("save_session").catch(() => {}); };
     window.addEventListener("beforeunload", beforeUnload);
 
     return () => {
       for (const unlisten of unlisteners) unlisten();
-      clearInterval(saveInterval);
       window.removeEventListener("beforeunload", beforeUnload);
     };
   }, [acceptBackendState, refreshFromBackend]);

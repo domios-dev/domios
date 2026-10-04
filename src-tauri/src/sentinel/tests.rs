@@ -208,7 +208,8 @@ fn sentinel_routes_are_closed_set() {
 fn create_params() -> super::store::Create {
     super::store::Create {
         name: None,
-        probe: "check-ci".into(),
+        probe: Some("check-ci".into()),
+        observe: None,
         question: "CI result?".into(),
         buckets: buckets(),
         every: "10s".into(),
@@ -218,6 +219,7 @@ fn create_params() -> super::store::Create {
         timeout: None,
         paused: false,
         handlers: None,
+        escalation_timeout_ms: None,
         max_transitions: None,
         max_actions: None,
     }

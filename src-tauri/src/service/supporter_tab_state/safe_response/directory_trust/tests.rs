@@ -501,12 +501,8 @@ fn owner_launched_directory_trust_prompt_remains_owner_facing() {
         crate::service::output::prompt_step_dispatch_count_for_test(&pty),
         0
     );
-    let tab = fixture
-        .service
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .unwrap();
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&tab_id).unwrap();
     assert!(tab.pending_prompt.is_some());
     assert_eq!(
         tab.pending_prompt_kind,

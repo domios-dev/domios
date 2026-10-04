@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::{atomic::Ordering, Arc};
 
 use serde::{Deserialize, Serialize};
@@ -12,7 +12,7 @@ use super::source::{self, RunBinding, TabBinding};
 use super::storage::{Backend, LoadFailure, Staged};
 use crate::cron::clock::SharedClock;
 
-const MAX_SENTINELS: usize = 256;
+pub(super) const MAX_SENTINELS: usize = 256;
 pub(super) const MAX_ACTIVE: usize = 64;
 
 pub(super) type ScopeKey = (String, Option<String>);
@@ -21,7 +21,10 @@ pub(super) type ScopeKey = (String, Option<String>);
 #[serde(deny_unknown_fields)]
 pub struct Create {
     pub name: Option<String>,
-    pub probe: String,
+    #[serde(default)]
+    pub probe: Option<String>,
+    #[serde(default)]
+    pub observe: Option<TabBinding>,
     pub question: String,
     pub buckets: Vec<String>,
     #[serde(default = "default_every")]
@@ -35,6 +38,8 @@ pub struct Create {
     #[serde(default)]
     pub paused: bool,
     pub handlers: Option<BTreeMap<String, Vec<Definition>>>,
+    #[serde(default)]
+    pub escalation_timeout_ms: Option<u64>,
     pub max_transitions: Option<u16>,
     pub max_actions: Option<u16>,
 }
@@ -116,6 +121,7 @@ impl Lease {
 pub struct Store {
     pub(super) jobs: Vec<Sentinel>,
     pub(super) active: HashMap<String, Arc<Cancellation>>,
+    pub(super) wake_pending: BTreeSet<String>,
     pub(super) backend: Backend,
     pub clock: SharedClock,
     pub(super) unavailable: Option<LoadFailure>,
@@ -375,16 +381,24 @@ impl Store {
         }) {
             return Err("--name: provide a nonempty name up to 256 bytes".into());
         }
+        let (probe, observe) = match (params.probe, params.observe) {
+            (Some(probe), None) if !probe.trim().is_empty() && probe.len() <= 8192 => (probe, None),
+            (Some(_), None) => {
+                return Err("--probe must be nonempty and bounded to 8192 bytes".into());
+            }
+            (None, Some(binding)) if source::bounded_id(binding.id()) => {
+                (String::new(), Some(binding))
+            }
+            (Some(_), Some(_)) => return Err("--probe conflicts with --observe".into()),
+            (None, Some(_)) => {
+                return Err("--observe: use tab:<id> or cron-run:<id>".into());
+            }
+            _ => return Err("provide exactly one of --probe or --observe".into()),
+        };
         let interval_ms = duration_ms(&params.every)?;
         machine::validate(&params.buckets, &params.matches, connected, interval_ms)?;
-        if params.probe.trim().is_empty()
-            || params.probe.len() > 8192
-            || params.question.trim().is_empty()
-            || params.question.len() > 4096
-        {
-            return Err(
-                "--probe and --question must be nonempty and bounded to 8192/4096 bytes".into(),
-            );
+        if params.question.trim().is_empty() || params.question.len() > 4096 {
+            return Err("--question must be nonempty and bounded to 4096 bytes".into());
         }
         if self.jobs.len() >= MAX_SENTINELS || (!params.paused && self.active_count() >= MAX_ACTIVE)
         {
@@ -398,9 +412,11 @@ impl Store {
             return Err("--until: name a declared bucket".into());
         }
         let declared = params.handlers.is_some();
-        let routes = handlers::definitions(&params.buckets, params.routes, params.handlers)?;
+        let (routes, on_other) =
+            handlers::definitions_with_other(&params.buckets, params.routes, params.handlers)?;
         let composition = params.paused
             || declared
+            || !on_other.is_empty()
             || routes.values().any(|hs| {
                 hs.len() > 1 || hs.iter().any(|h| matches!(h.action, Route::Sentinel(_)))
             });
@@ -434,7 +450,7 @@ impl Store {
             creator_tab_id: creator,
             workspace_id: workspace,
             cwd,
-            probe: params.probe,
+            probe,
             question: params.question,
             buckets: params.buckets,
             interval_ms,
@@ -455,13 +471,15 @@ impl Store {
             max_transitions,
             max_actions,
             transitions: Vec::new(),
-            observe: None,
+            observe,
             run: None,
-            on_other: Vec::new(),
-            escalation_timeout_ms: None,
+            on_other,
+            escalation_timeout_ms: params.escalation_timeout_ms,
             definition_version: amend::initial_version(),
             amendments: Vec::new(),
         };
+        source::validate(&job)?;
+        escalation::validate(&job)?;
         Ok(job)
     }
 
@@ -506,7 +524,7 @@ impl Store {
     }
 
     /// Validates exact targets and collects unassociated stages joining the new scenario.
-    fn association_ids(&self, job: &Sentinel) -> Result<Vec<String>, String> {
+    pub(super) fn association_ids(&self, job: &Sentinel) -> Result<Vec<String>, String> {
         self.validate_targets(job)?;
         let mut association_ids = Vec::new();
         if job.scenario_id.is_some() {
@@ -589,6 +607,7 @@ impl Store {
         job.machine.stopped = true;
         job.revision += 1;
         job.last_reason = Some(reason.into());
+        self.wake_pending.remove(id);
         Some(job.clone())
     }
 
@@ -610,7 +629,14 @@ impl Store {
         if self.backend.json().is_none() {
             return self.sqlite_remove_team(team);
         }
+        let removed: BTreeSet<_> = self
+            .jobs
+            .iter()
+            .filter(|job| job.team_id.as_deref() == Some(team))
+            .map(|job| job.id.clone())
+            .collect();
         self.jobs.retain(|job| job.team_id.as_deref() != Some(team));
+        self.wake_pending.retain(|id| !removed.contains(id));
         Staged::ready(self.save())
     }
 
@@ -630,11 +656,18 @@ impl Store {
         let now = self.clock.now_ms();
         if self.backend.json().is_none() {
             let mut planned = self.jobs.clone();
-            let (due, changes) = plan_due(&mut planned, &mut self.active, now);
-            return self.sqlite_due(due, changes);
+            let (due, changes, consumed_wakes) =
+                plan_due(&mut planned, &mut self.active, &mut self.wake_pending, now);
+            return self.sqlite_due(due, changes, consumed_wakes);
         }
         let previous = self.jobs.clone();
-        let (due, changes) = plan_due(&mut self.jobs, &mut self.active, now);
+        let previous_wakes = self.wake_pending.clone();
+        let (due, changes, _) = plan_due(
+            &mut self.jobs,
+            &mut self.active,
+            &mut self.wake_pending,
+            now,
+        );
         if !changes.is_empty() {
             if let Err(error) = self.save() {
                 for lease in &due {
@@ -642,6 +675,7 @@ impl Store {
                     self.active.remove(&lease.job.id);
                 }
                 self.jobs = previous;
+                self.wake_pending = previous_wakes;
                 return Staged::ready(Err(error));
             }
         }
@@ -655,6 +689,60 @@ impl Store {
 
     pub(super) fn stage_finish(&mut self, job: &Sentinel) -> Staged<bool> {
         self.stage_finish_with(job, None)
+    }
+
+    pub(crate) fn stage_resolve_escalation(
+        &mut self,
+        id: &str,
+        transition_id: &str,
+    ) -> Staged<bool> {
+        if let Err(error) = self.ensure_available() {
+            return Staged::ready(Err(error));
+        }
+        let Some(current) = self.get(id).cloned() else {
+            return Staged::ready(Err(format!("sentinel not found: {id}")));
+        };
+        if current.machine.held.as_deref() != Some(transition_id) {
+            return Staged::ready(Err(
+                "sentinel escalation is not open for that transition".into()
+            ));
+        }
+        if let Some(cancelled) = self.active.remove(id) {
+            cancelled.cancel();
+        }
+        let mut resolved = current;
+        resolved.machine.held = None;
+        resolved.machine.last_hash = None;
+        resolved.last_reason = Some("escalation_resolved".into());
+        self.stage_finish_with(&resolved, None)
+    }
+
+    pub(crate) fn wake_stage(&mut self, id: &str) -> bool {
+        let Some(job) = self.get(id) else {
+            return false;
+        };
+        if job.machine.stopped || job.machine.paused || job.machine.held.is_some() {
+            return false;
+        }
+        self.wake_pending.insert(id.into())
+    }
+
+    pub(super) fn stage_expire_escalation(&mut self) -> Option<(Sentinel, Staged<bool>)> {
+        let now = self.clock.now_ms();
+        let current = self
+            .jobs
+            .iter()
+            .find(|job| {
+                !job.machine.stopped
+                    && !self.active.contains_key(&job.id)
+                    && !job.expires_at.is_some_and(|at| now >= at)
+                    && super::escalation::expiry_at(job).is_some_and(|at| now >= at)
+            })?
+            .clone();
+        let mut expired = current.clone();
+        expired.machine.held = None;
+        expired.last_reason = Some("escalation_expired".into());
+        Some((current, self.stage_finish_with(&expired, None)))
     }
 
     /// Records a lease outcome; with `transition` it also accepts that transition.
@@ -853,14 +941,46 @@ impl Store {
         }
     }
 
+    pub fn wake_tab(&mut self, tab_id: &str) -> bool {
+        if !source::bounded_id(tab_id) {
+            return false;
+        }
+        let now = self.clock.now_ms();
+        let matching: Vec<_> = self
+            .jobs
+            .iter()
+            .filter(|job| {
+                !job.machine.stopped
+                    && !job.machine.paused
+                    && !job.expires_at.is_some_and(|at| now >= at)
+                    && (matches!(job.observe.as_ref(), Some(TabBinding::Tab(id)) if id == tab_id)
+                        || matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_))
+                            if job.run.as_ref().is_some_and(|run| run.tab_id == tab_id)))
+            })
+            .map(|job| job.id.clone())
+            .collect();
+        let mut changed = false;
+        for id in matching {
+            changed |= self.wake_pending.insert(id);
+        }
+        changed
+    }
+
     pub fn next_deadline(&self) -> u64 {
         let now = self.clock.now_ms();
         self.jobs
             .iter()
             .filter(|job| !job.machine.stopped)
             .flat_map(|job| {
-                let next = if job.machine.paused || self.active.contains_key(&job.id) {
+                let active = self.active.contains_key(&job.id);
+                let waiting_for_run = matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
+                    && job.run.is_none();
+                let next = if job.machine.paused || active || waiting_for_run {
                     None
+                } else if job.machine.held.is_some() {
+                    super::escalation::expiry_at(job)
+                } else if self.wake_pending.contains(&job.id) {
+                    Some(now)
                 } else {
                     Some(job.next_run)
                 };
@@ -890,18 +1010,8 @@ impl Sentinel {
                 .chain(&self.on_other)
                 .map(|handler| &handler.action)
         };
-        if self.observe.is_some() || self.run.is_some() {
-            Some("tab observation")
-        } else if actions().any(|action| matches!(action, Route::RespondPrompt(_))) {
+        if actions().any(|action| matches!(action, Route::RespondPrompt(_))) {
             Some("respond_prompt")
-        } else if !self.on_other.is_empty()
-            || self.escalation_timeout_ms.is_some()
-            || self.machine.held.is_some()
-            || actions().any(|action| matches!(action, Route::Escalate(_)))
-        {
-            Some("escalation")
-        } else if self.definition_version != 1 || !self.amendments.is_empty() {
-            Some("definition amendment")
         } else {
             None
         }
@@ -924,6 +1034,7 @@ fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Trans
     current.machine.last_hash = job.machine.last_hash.clone();
     current.machine.last_bucket = job.machine.last_bucket.clone();
     current.machine.stopped = job.machine.stopped;
+    current.machine.held = job.machine.held.clone();
     current.last_reason = job.last_reason.clone();
     current.transitions.extend(transition);
 }
@@ -932,15 +1043,18 @@ fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Trans
 fn plan_due(
     jobs: &mut [Sentinel],
     active: &mut HashMap<String, Arc<Cancellation>>,
+    wake_pending: &mut BTreeSet<String>,
     now: u64,
-) -> (Vec<Lease>, Vec<ScheduleChange>) {
+) -> (Vec<Lease>, Vec<ScheduleChange>, Vec<String>) {
     let mut due = Vec::new();
     let mut changes = Vec::new();
+    let mut consumed_wakes = Vec::new();
     for job in jobs.iter_mut() {
         if job.machine.stopped {
             continue;
         }
         if job.expires_at.is_some_and(|at| now >= at) {
+            wake_pending.remove(&job.id);
             job.machine.stopped = true;
             job.revision += 1;
             job.last_reason = Some("timeout".into());
@@ -951,6 +1065,9 @@ fn plan_due(
                 id: job.id.clone(),
                 reason: "timeout",
             });
+            continue;
+        }
+        if job.machine.held.is_some() {
             continue;
         }
         let transitions_spent = job.transitions.len() >= usize::from(job.max_transitions);
@@ -970,6 +1087,7 @@ fn plan_due(
                 "action_budget_exhausted"
             };
             job.machine.stopped = true;
+            wake_pending.remove(&job.id);
             job.revision += 1;
             job.last_reason = Some(reason.into());
             changes.push(ScheduleChange::Stop {
@@ -981,11 +1099,22 @@ fn plan_due(
         if job.machine.paused {
             continue;
         }
-        if job.next_run <= now && !active.contains_key(&job.id) {
-            let missed = (now - job.next_run) / job.interval_ms;
-            job.next_run = job
-                .next_run
-                .saturating_add((missed + 1).saturating_mul(job.interval_ms));
+        if matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_))) && job.run.is_none() {
+            continue;
+        }
+        if (job.next_run <= now || wake_pending.contains(&job.id)) && !active.contains_key(&job.id)
+        {
+            if job.next_run <= now {
+                let missed = (now - job.next_run) / job.interval_ms;
+                job.next_run = job
+                    .next_run
+                    .saturating_add((missed + 1).saturating_mul(job.interval_ms));
+            } else {
+                job.next_run = now.saturating_add(job.interval_ms);
+            }
+            if wake_pending.remove(&job.id) {
+                consumed_wakes.push(job.id.clone());
+            }
             let cancelled = Arc::new(Cancellation::new(false));
             active.insert(job.id.clone(), cancelled.clone());
             due.push(Lease {
@@ -998,5 +1127,5 @@ fn plan_due(
             });
         }
     }
-    (due, changes)
+    (due, changes, consumed_wakes)
 }
