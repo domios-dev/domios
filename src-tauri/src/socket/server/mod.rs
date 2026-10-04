@@ -833,6 +833,7 @@ mod tests {
         let request = serde_json::json!({
             "jsonrpc": "2.0",
             "id": 1,
+            "protocol_version": protocol::PROTOCOL_VERSION,
             "method": "cron.complete",
             "params": {
                 "run_id": "rpc-complete-run",
@@ -863,10 +864,10 @@ mod tests {
         );
 
         assert_eq!(stream.tab_open_at_flush, Some(true));
-        assert!(mux.read().get_tab(&tab_id).is_none());
         let response: serde_json::Value =
             serde_json::from_slice(stream.output.strip_suffix(b"\n").unwrap()).unwrap();
-        assert_eq!(response["result"]["ok"], true);
+        assert_eq!(response["result"]["ok"], true, "response: {response}");
+        assert!(mux.read().get_tab(&tab_id).is_none());
     }
 
     #[test]
