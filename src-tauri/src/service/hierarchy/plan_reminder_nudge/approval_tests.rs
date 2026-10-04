@@ -183,6 +183,7 @@ impl ReminderHost for FakeHost {
 
     fn supporter(&self) -> Supporter<'_> {
         Supporter {
+            epoch: self.runtime.connection_epoch(),
             cfg: self.cfg.lock().clone(),
             token: TokenSnapshot {
                 usable: self.token_usable.load(Ordering::SeqCst),
@@ -659,7 +660,7 @@ fn plan_reminder_choice_approve_exact_scope_once() {
             );
         }
     }
-    let scopes: [(&str, ReminderKind, fn(&Fixture), &str); 7] = [
+    let scopes: [(&str, ReminderKind, fn(&Fixture), &str); 8] = [
         (
             "attempt_missing",
             ReminderKind::Worker,
@@ -723,6 +724,12 @@ fn plan_reminder_choice_approve_exact_scope_once() {
             },
             "recipient_scope_mismatch",
         ),
+        (
+            "teamless_recipient_for_team_plan",
+            ReminderKind::Worker,
+            |f| f.edit_plan(|plan| plan.team_id = Some("plan-team".into())),
+            "recipient_scope_mismatch",
+        ),
     ];
     for (name, kind, mutate, reason) in scopes {
         let f = fixture(kind, approve());
@@ -734,6 +741,13 @@ fn plan_reminder_choice_approve_exact_scope_once() {
         );
         assert_eq!((f.model.calls(), f.emits()), (0, 0), "{name}");
     }
+    let f = fixture(ReminderKind::Worker, approve());
+    f.edit_plan(|plan| plan.team_id = Some("plan-team".into()));
+    f.edit_tab(&f.worker, |tab| tab.team_id = Some("plan-team".into()));
+    assert_eq!(
+        f.admit(ReminderKind::Worker, 100),
+        ReminderOutcome::Accepted
+    );
 }
 
 #[test]
@@ -768,7 +782,7 @@ fn plan_reminder_choice_unchanged_observation_no_repeat() {
 
 #[test]
 fn plan_reminder_choice_stale_scope_and_disconnect_refuse() {
-    let cases: [(&str, ReminderKind, fn(&Fixture)); 15] = [
+    let cases: [(&str, ReminderKind, fn(&Fixture)); 16] = [
         ("owner_rebound", ReminderKind::Owner, |f| {
             f.edit_tab(&f.owner, |tab| bind(tab, "owner-session", "rotated"));
         }),
@@ -808,6 +822,17 @@ fn plan_reminder_choice_stale_scope_and_disconnect_refuse() {
                 tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
             });
         }),
+        (
+            "adapter_reconnected_same_instance",
+            ReminderKind::Owner,
+            |f| {
+                f.host.registry.unregister("fake");
+                f.host.runtime.connection_changed();
+                let same = f.model.clone() as Arc<dyn DecisionModel>;
+                f.host.registry.register("fake", same);
+                f.host.runtime.connection_changed();
+            },
+        ),
         (
             "adapter_replaced_same_id",
             ReminderKind::CompleteWrapup,
