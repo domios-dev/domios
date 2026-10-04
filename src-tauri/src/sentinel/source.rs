@@ -1,5 +1,12 @@
-//! Tab-scoped observation sources and the cron run a stage observes.
+use serde_json::{json, Value};
 
+use crate::multiplexer::{
+    state::MultiplexerState,
+    types::{PendingPrompt, Tab},
+};
+use crate::service::{supporter_tab_state, ServiceContext};
+
+use super::probe::{process::ProbeFailure, Output};
 use serde::{Deserialize, Serialize};
 
 use super::machine::Route;
@@ -48,7 +55,7 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
         }
     }
     if let Some(run) = &job.run {
-        if !matches!(job.observe, Some(TabBinding::CronRun(_)))
+        if !matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
             || !bounded_id(&run.run_id)
             || !bounded_id(&run.tab_id)
         {
@@ -65,3 +72,132 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
     }
     Ok(())
 }
+
+pub(crate) fn validate_tab_scope(
+    mux: &MultiplexerState,
+    job: &Sentinel,
+    tab_id: &str,
+) -> Result<Tab, String> {
+    let tab = mux.get_tab(tab_id).ok_or("observation tab not found")?;
+    if tab.agent_type.is_none()
+        || tab.team_id != job.team_id
+        || mux.find_workspace_for_tab(tab_id).as_deref() != Some(job.workspace_id.as_str())
+    {
+        return Err("observation tab must be an agent in the creator's Team and workspace".into());
+    }
+    Ok(tab.clone())
+}
+
+const MAX_SCREEN_BYTES: usize = 4 * 1024;
+const MAX_OBSERVATION_BYTES: usize = 16 * 1024;
+const MAX_PROMPT_OPTIONS: usize = 32;
+const MAX_PROMPT_TEXT_BYTES: usize = 2048;
+const MAX_OPTION_TEXT_BYTES: usize = 512;
+
+pub(super) fn observe(
+    svc: &ServiceContext,
+    job: &Sentinel,
+    binding: &TabBinding,
+) -> Result<Output, ProbeFailure> {
+    if job.observe.as_ref() != Some(binding) {
+        return Err(ProbeFailure::new("sentinel_observation_binding_changed"));
+    }
+    let TabBinding::Tab(tab_id) = binding else {
+        return Err(ProbeFailure::new("sentinel_observation_source_unavailable"));
+    };
+    let tab = {
+        let mux = svc.mux.read();
+        validate_tab_scope(&mux, job, tab_id)
+            .map_err(|_| ProbeFailure::new("sentinel_observation_scope_changed"))?
+    };
+    let status = crate::multiplexer::state::tab_status_label(&tab, svc.resolved_tab_status(&tab));
+    let screen = if tab.pending_prompt.is_none()
+        && status == codeterm_types::pty::TabStatus::Waiting.label()
+    {
+        tab.pty_id
+            .as_deref()
+            .and_then(|pty_id| svc.screen_state.lock().get_screen_text(pty_id))
+    } else {
+        None
+    };
+    let value = build_observation(
+        tab.pending_prompt.as_ref(),
+        tab.pending_prompt_kind,
+        status,
+        tab.agent_booting,
+        job.run.as_ref().map(|run| run.run_id.as_str()),
+        screen.as_deref(),
+    )
+    .map_err(|_| ProbeFailure::new("sentinel_observation_invalid"))?;
+    let text = serde_json::to_string(&value)
+        .map_err(|_| ProbeFailure::new("sentinel_observation_encoding_failed"))?;
+    if text.len() > MAX_OBSERVATION_BYTES {
+        return Err(ProbeFailure::new("sentinel_observation_too_large"));
+    }
+    Ok(Output {
+        bytes: text.as_bytes().to_vec(),
+        text,
+        success: true,
+        exit_code: Some(0),
+        ..Output::default()
+    })
+}
+
+fn build_observation(
+    prompt: Option<&PendingPrompt>,
+    prompt_kind: Option<codeterm_types::pty::PromptKind>,
+    status: &str,
+    agent_booting: bool,
+    run_id: Option<&str>,
+    screen: Option<&str>,
+) -> Result<Value, String> {
+    if status.len() > 64 || run_id.is_some_and(|id| !bounded_id(id)) {
+        return Err("observation identity is out of bounds".into());
+    }
+    let prompt = prompt
+        .map(|prompt| prompt_value(prompt, prompt_kind))
+        .transpose()?;
+    let screen_tail = screen.map(redacted_screen_tail);
+    let raw = json!({
+        "prompt": prompt,
+        "tab": {"status": status, "agent_booting": agent_booting},
+        "run_id": run_id,
+        "screen_tail": screen_tail
+    });
+    Ok(supporter_tab_state::redact_decision_diagnostic(&raw))
+}
+
+fn prompt_value(
+    prompt: &PendingPrompt,
+    prompt_kind: Option<codeterm_types::pty::PromptKind>,
+) -> Result<Value, String> {
+    if prompt.question.len() > MAX_PROMPT_TEXT_BYTES
+        || prompt.options.len() > MAX_PROMPT_OPTIONS
+        || prompt.options.iter().any(|option| {
+            option.label.len() > MAX_OPTION_TEXT_BYTES || option.value.len() > MAX_OPTION_TEXT_BYTES
+        })
+    {
+        return Err("prompt exceeds the observation bound".into());
+    }
+    Ok(json!({
+        "kind": prompt_kind,
+        "question": &prompt.question,
+        "options": prompt.options.iter().map(|option| {
+        json!({"label": &option.label, "value": &option.value})
+        }).collect::<Vec<_>>(),
+        "multi_select": prompt.multi_select
+    }))
+}
+
+fn redacted_screen_tail(input: &str) -> String {
+    let screen = supporter_tab_state::redact_screen(input);
+    let mut start = screen.len().saturating_sub(MAX_SCREEN_BYTES);
+    while !screen.is_char_boundary(start) {
+        start += 1;
+    }
+    screen[start..].to_string()
+}
+
+#[cfg(test)]
+#[path = "observe_tests.rs"]
+mod tests;

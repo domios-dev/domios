@@ -9,8 +9,9 @@ use tauri::Manager;
 use super::{
     classify, machine, probe,
     provenance::{Evidence, Scope, Stage},
-    routes, storage,
+    routes, source, storage,
     store::{Lease, Sentinel, Store},
+    wake,
 };
 use crate::cron::clock::SharedClock;
 use crate::service::{supporter, ServiceState};
@@ -35,6 +36,13 @@ impl Handle {
         if let Ok(mut generation) = generation.lock() {
             *generation = generation.wrapping_add(1);
             wake.notify_all();
+        }
+    }
+
+    pub(crate) fn wake_tab(&self, tab_id: &str) {
+        let changed = self.store.lock().wake_tab(tab_id);
+        if changed {
+            self.notify();
         }
     }
 
@@ -86,6 +94,7 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
         }
     }
     crate::service::sentinel::graph::install_invalidations(&svc, handle.store.clone());
+    wake::listen_any(&svc.app_handle, handle.clone());
     svc.app_handle.manage(handle.clone());
     if let Err(error) = handle.store.lock().ensure_available() {
         log::error!("[sentinel] subsystem unavailable: {error}");
@@ -184,8 +193,8 @@ fn scheduler_wait_ms(store: &Store) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::sentinel::store::{Create, Owner};
     use super::*;
+    use crate::sentinel::store::{Create, Owner};
     use serde_json::json;
 
     #[test]
@@ -450,13 +459,18 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
             .map(|at| Duration::from_millis(at.saturating_sub(now)))
             .unwrap_or(probe::PROBE_RUNTIME)
     };
-    let output = resolve_probe_result(
+    let observed = if let Some(binding) = &lease.job.observe {
+        source::observe(svc, &lease.job, binding)
+    } else {
         probe::run(
             &lease.job.probe,
             Path::new(&lease.job.cwd),
             remaining,
             &handle.probe_owner,
-        ),
+        )
+    };
+    let output = resolve_probe_result(
+        observed,
         |reason| {
             if reason.is_unconfirmed() {
                 record_unconfirmed_failure(handle, svc, lease, &reason);
