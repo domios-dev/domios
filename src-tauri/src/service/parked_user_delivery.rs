@@ -543,12 +543,12 @@ impl super::ServiceContext {
             return Err(DeliveryError::TabBusyRefused { tab: tab_id.into(), detail: "user owner readiness changed before payload write".into() });
         }
         let service = self.clone();
-        let authority = authority.clone();
+        let guard_authority = authority.clone();
         let pending_record = record.clone();
         let readiness = readiness.cloned().map(std::sync::Arc::new);
         let pre_write_guard: std::sync::Arc<dyn Fn() -> bool + Send + Sync> =
             std::sync::Arc::new(move || {
-                let current = service.user_send_readiness_is_current(&authority, readiness.as_deref());
+                let current = service.user_send_readiness_is_current(&guard_authority, readiness.as_deref());
                 if !current {
                     service.pending_user_send(&pending_record, "readiness_changed_before_payload_write");
                 }
