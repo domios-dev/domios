@@ -31,16 +31,29 @@ fn cron_to_mem(job: &store::CronJob) -> MemCronJob {
     }
 }
 
+/// Legacy JSON edits apply in memory until `save`; Storage edits collect in a draft that
+/// `cron::store::settle_port` commits once the caller released the cron lock.
 pub struct CronSchedulerPort<'a>(pub &'a mut CronStore);
+
+impl CronSchedulerPort<'_> {
+    fn job(&self, id: &str) -> Result<store::CronJob, String> {
+        self.0
+            .port_jobs()
+            .iter()
+            .find(|job| job.id == id)
+            .cloned()
+            .ok_or_else(|| format!("cron job not found: {id}"))
+    }
+}
 
 impl MemSchedulerPort for CronSchedulerPort<'_> {
     fn list_jobs(&self) -> Vec<MemCronJob> {
-        self.0.list().iter().map(cron_to_mem).collect()
+        self.0.port_jobs().iter().map(cron_to_mem).collect()
     }
 
     fn find_job_by_name(&self, name: &str) -> Option<MemCronJob> {
         self.0
-            .list()
+            .port_jobs()
             .iter()
             .find(|j| j.name == name)
             .map(cron_to_mem)
@@ -51,11 +64,8 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
         id: &str,
         update: &mut dyn FnMut(&mut MemCronJob),
     ) -> Result<(), String> {
-        let job = self
-            .0
-            .get_mut(id)
-            .ok_or_else(|| format!("cron job not found: {id}"))?;
-        let mut view = cron_to_mem(job);
+        let mut job = self.job(id)?;
+        let mut view = cron_to_mem(&job);
         update(&mut view);
         job.agent = view.agent;
         job.schedule = view.schedule;
@@ -66,52 +76,47 @@ impl MemSchedulerPort for CronSchedulerPort<'_> {
         job.oneshot = view.oneshot;
         job.protected = view.protected;
         job.tz = view.tz;
-        Ok(())
+        self.0.port_update(job)
     }
 
     fn set_job_protected(&mut self, id: &str, protected: bool) -> Result<(), String> {
-        let job = self
-            .0
-            .get_mut(id)
-            .ok_or_else(|| format!("cron job not found: {id}"))?;
+        let mut job = self.job(id)?;
         job.protected = protected;
-        Ok(())
+        self.0.port_update(job)
     }
 
     fn create_job(&mut self, params: MemCronCreateParams) -> Result<(), String> {
-        self.0
-            .create(CronCreateParams {
-                name: params.name,
-                workspace_id: params.workspace_id,
-                team_id: None,
-                detach_from_team: false,
-                schedule: params.schedule,
-                task: params.task,
-                description: params.description,
-                agent: params.agent,
-                model: params.model,
-                reasoning_effort: None,
-                cwd: params.cwd,
-                role: params.role,
-                skill: None,
-                creator_tab_id: params.creator_tab_id,
-                report_target_tab_id: None,
-                enabled: params.enabled,
-                max_history: params.max_history,
-                oneshot: params.oneshot,
-                jitter_max_ms: params.jitter_max_ms,
-                tz: params.tz,
-                timeout_seconds: params.timeout_seconds,
-            })
-            .map(|_| ())
+        self.0.port_create(CronCreateParams {
+            name: params.name,
+            workspace_id: params.workspace_id,
+            team_id: None,
+            detach_from_team: false,
+            schedule: params.schedule,
+            task: params.task,
+            description: params.description,
+            agent: params.agent,
+            model: params.model,
+            reasoning_effort: None,
+            cwd: params.cwd,
+            role: params.role,
+            skill: None,
+            creator_tab_id: params.creator_tab_id,
+            report_target_tab_id: None,
+            enabled: params.enabled,
+            max_history: params.max_history,
+            oneshot: params.oneshot,
+            jitter_max_ms: params.jitter_max_ms,
+            tz: params.tz,
+            timeout_seconds: params.timeout_seconds,
+        })
     }
 
     fn delete_job(&mut self, id: &str) -> Result<(), String> {
-        self.0.delete(id).map(|_| ())
+        self.0.port_delete(id)
     }
 
     fn save(&mut self) -> Result<(), String> {
-        self.0.save()
+        self.0.port_save()
     }
 
     fn compute_next_run_jittered_in(

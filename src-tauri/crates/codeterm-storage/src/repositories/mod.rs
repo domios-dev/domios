@@ -1,3 +1,4 @@
+pub mod cron;
 pub mod workspaces;
 
 use crate::error::StorageError;
