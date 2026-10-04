@@ -1,0 +1,12 @@
+[package]
+name = "codeterm-storage"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+# Writer hold gates, fault injection and layout probes for contract tests only.
+test-support = []
+
+[dependencies]
+codeterm-paths = { path = "../../../crates/codeterm-paths" }
+rusqlite = { version = "0.32", features = ["bundled", "backup"] }
