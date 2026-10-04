@@ -24,8 +24,13 @@ well-meaning "one more heuristic" changes. Read this before touching
    triggers an attempt and never claims readiness. After a key, exact normalized
    user-turn evidence in this tab's bound-session append window stops remaining
    keys. Never use screen/composer text as acknowledgement or branch on provider
-   identity. Each PTY owns one resettable cycle: a new send cancels the old cycle
-   instead of queueing messages.
+   identity. Each PTY owns one active submit cycle. The explicit user-send
+   exception is a bounded durable queue of never-written originals: 32 unsettled
+   records and 4 MiB prepared/body bytes per tab, with original storage separately
+   bounded. Enqueuing does not claim or cancel a cycle. Only the eligible head
+   claims after exact same-launch readiness; the tail advances after cycle
+   settlement plus exact own-session turn evidence. Possible handoffs and crashed
+   claims remain held uncertainty; no postwrite replay, reopen adoption, or rebind.
 3. **Exact turn evidence confirms delivery.** Missing evidence remains
    uncertainty, never a fabricated success or a zero-write claim. Once a paste
    reaches the write queue, an unconfirmed send is `submit_unconfirmed` with
@@ -45,19 +50,17 @@ well-meaning "one more heuristic" changes. Read this before touching
   serialized writer and normally still lands; claiming `pty_unavailable` here
   is exactly the false-failure incident this contract was written for.
 
-## User sends always deliver — never a user-facing refusal
+## Durable user admission conserves accepted sends
 
-A USER-initiated send (chat UI, via `start_chat_send`) may never surface a
-refusal. The wait-then-write path already waits on the observable link-readiness
-signals (`await_public_agent_input_ready_blocking`, `await_pty_link_blocking` —
-condvar-backed, bounded failure deadlines, no sleeps) before its single write,
-so a transient pre-write unlink (booting agent / unlinked PTY) or an unconfirmed
-submit degrades to `unknown` (pending-until-link, resolved by later turn
-evidence), never `failed`. This is `DeliveryError::surfaces_as_failure(origin)` /
-`into_surfaced(origin)`: `SendOrigin::User` always degrades; `Programmatic`
-(agent-to-agent / mesh / CLI `send_text`) keeps the honest typed split — a proven
-pre-write refusal fails, a post-write submit is unknown. Neutralizing a user
-refusal never re-writes the payload: the single write already happened upstream.
+An accepted USER-initiated send (chat UI, via `start_chat_send`) remains
+conserved or honestly unknown. Bounded durable admission can refuse capacity,
+preparation, or persistence before acceptance; preserve draft and attachments,
+including newer edits and ambiguous RPC completion, without automatic resubmit.
+Acceptance requires payload and index durability off the UI/runtime and outside
+mux/ledger locks. This user backlog is separate from launch/bootstrap replacement.
+The prewrite owner dispatches on authoritative readiness events. Proven zero-write
+refusal retains the admitted head; possible handoff stays unknown and never
+replays. Programmatic agent/mesh/CLI sends keep the existing honest typed split.
 
 ## The Chat send ledger reconciles by exact evidence
 

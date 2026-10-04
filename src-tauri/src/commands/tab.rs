@@ -818,18 +818,19 @@ pub async fn chat_send_text(
     let tab_id = svc.mux.read().resolve_tab_id(&tab_id).unwrap_or(tab_id);
     let run_stages =
         crate::chatpipeline::is_user_turn_send(false, false, svc.tab_has_agent(&tab_id));
-    let (text, pad_file) = svc.prepare_chat_send_text(&tab_id, text, run_stages)?;
-    let submit_claim = svc.claim_chat_submit_cycle(&tab_id);
-    // Anchor capture reads the session file and may enter a plugin VM.
+    let reservation = if svc.tab_chat_backing(&tab_id).is_none() {
+        Some(svc.reserve_user_send(&tab_id, client_token.clone())?)
+    } else { None };
     let svc = svc.inner().clone();
-    let status = tokio::task::spawn_blocking(move || {
-        svc.start_chat_send(&tab_id, text, submit_claim, client_token)
-    })
-    .await
-    .map_err(|e| e.to_string())??;
-    Ok(crate::service::agent_pad::ChatSendResult::new(
-        status, pad_file,
-    ))
+    tokio::task::spawn_blocking(move || {
+        if let Some(reservation) = reservation {
+            svc.prepare_and_admit_user_send(reservation, text, run_stages)
+        } else {
+            let (text, pad_file) = svc.prepare_chat_send_text(&tab_id, text, run_stages)?;
+            let status = svc.start_chat_send(&tab_id, text, None, client_token)?;
+            Ok(crate::service::agent_pad::ChatSendResult::new(status, pad_file))
+        }
+    }).await.map_err(|error| error.to_string())?
 }
 
 #[tauri::command]
