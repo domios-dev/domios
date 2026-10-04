@@ -300,6 +300,27 @@ impl CronStore {
             .and_then(|storage| storage.revisions.get(id).copied())
     }
 
+    pub(crate) fn team_teardown_revisions(
+        &self,
+        team_id: &str,
+    ) -> Result<Vec<(String, Revision)>, String> {
+        if self.storage().is_none() {
+            return Err(STAGED_ONLY.to_string());
+        }
+        if !self.fence_clear() {
+            return Err("cron storage has an unresolved commit fence".into());
+        }
+        self.list_for_team(team_id)
+            .into_iter()
+            .map(|job| {
+                let revision = self
+                    .cached_revision(&job.id)
+                    .ok_or_else(|| format!("cron job {} has no published revision", job.id))?;
+                Ok((job.id.clone(), revision))
+            })
+            .collect()
+    }
+
     fn set_revision(&mut self, id: &str, revision: Revision) {
         if let Some(storage) = self.storage_mut() {
             storage.revisions.insert(id.to_string(), revision);
@@ -523,6 +544,15 @@ impl CronStore {
             }
         }
         consistent
+    }
+
+    pub(crate) fn publish_external(
+        &mut self,
+        changes: &[CronChange],
+        applied: &CronApplied,
+        revision: Revision,
+    ) -> bool {
+        self.publish(changes, &[], applied, revision)
     }
 }
 

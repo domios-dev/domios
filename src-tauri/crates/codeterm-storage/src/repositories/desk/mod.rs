@@ -4,6 +4,8 @@ mod mutations;
 mod queries;
 mod records;
 
+pub(crate) use mutations::remove_team;
+
 #[cfg(test)]
 mod tests;
 
