@@ -13,12 +13,13 @@ use std::time::Duration;
 
 use parking_lot::Mutex;
 
+use super::amend::DefinitionVersion;
 use super::store::{scope_revisions, validate, ScopeKey, Sentinel, Store};
 use crate::cron::clock::SharedClock;
 use crate::persisted_state::StateFile;
 use crate::storage::{
-    Committed, Completion, Revision, SentinelCommit, SentinelImport, SentinelRepository, Storage,
-    StorageError, StoredSentinel,
+    Committed, Completion, Read, Revision, SentinelCommit, SentinelImport, SentinelRepository,
+    Storage, StorageError, StoredDefinition, StoredSentinel,
 };
 
 /// Failure bound around a commit wait only; expiry is unconfirmed, never failure.
@@ -197,11 +198,15 @@ struct Known {
 /// Per-stage commit revisions fence publication, so a late older outcome never regresses
 /// the cache; tombstones stop an in-flight outcome from resurrecting a removed stage.
 pub(super) struct SqliteBackend {
-    repo: SentinelRepository,
+    pub(super) repo: SentinelRepository,
     known: HashMap<String, Known>,
     removed: BTreeSet<String>,
     floor: Option<Revision>,
     inflight: usize,
+}
+
+pub(crate) fn history_versions(records: Vec<StoredDefinition>) -> Vec<DefinitionVersion> {
+    records.into_iter().map(codec::history_version).collect()
 }
 
 /// Why a staged mutation did not commit.

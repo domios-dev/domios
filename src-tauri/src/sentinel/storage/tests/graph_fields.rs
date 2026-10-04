@@ -211,6 +211,7 @@ fn sentinel_schema_v4_graph_fields_round_trip_on_both_backends() {
             author_tab_id: "creator".into(),
             cause_transition_id: None,
             at: 1300,
+            previous_definition: None,
         },
     );
     assert!(
@@ -341,20 +342,10 @@ fn sentinel_schema_v4_unexecutable_kinds_are_refused_at_creation_on_both_backend
         target: None,
     }];
     escalating.escalation_timeout_ms = Some(60_000);
-    let mut amended = base.clone();
-    amended.definition_version = 2;
-    amended.amendments = vec![Amendment {
-        version: 2,
-        replaced_version: 1,
-        author_tab_id: "creator".into(),
-        cause_transition_id: None,
-        at: 1000,
-    }];
     let refused = [
         (observed, "tab observation"),
         (answering, "tab observation"),
         (escalating, "escalation"),
-        (amended, "definition amendment"),
     ];
     for (job, capability) in refused {
         assert_eq!(job.pending_capability(), Some(capability));

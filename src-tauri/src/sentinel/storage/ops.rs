@@ -42,6 +42,55 @@ impl Store {
         )
     }
 
+    pub(in crate::sentinel) fn sqlite_update_definition(
+        &mut self,
+        expect_version: u64,
+        author_tab_id: &str,
+        authored_at: u64,
+        cause_transition_id: Option<String>,
+        job: Sentinel,
+    ) -> Staged<Sentinel> {
+        let id = match codec::id(&job.id) {
+            Ok(id) => id,
+            Err(error) => return refused(error),
+        };
+        let update = match codec::update_definition(
+            &job,
+            author_tab_id.into(),
+            cause_transition_id,
+            authored_at,
+        ) {
+            Ok(update) => update,
+            Err(error) => return refused(error),
+        };
+        let public_id = job.id.clone();
+        self.submit(
+            move |repo| repo.update_definition(id, expect_version, update),
+            finishing(move |_, outcome| {
+                let commit = outcome.map_err(Failure::message)?;
+                match commit.outcome {
+                    MutationOutcome::Applied => {
+                        commit.sentinels.first().map(codec::decode).ok_or_else(|| {
+                            "sentinel update returned no committed state".to_string()
+                        })
+                    }
+                    MutationOutcome::Fenced(Fence::Version) => {
+                        let current_version = commit
+                            .sentinels
+                            .first()
+                            .map(|sentinel| sentinel.record.definition.version)
+                            .unwrap_or(expect_version);
+                        Err(crate::sentinel::amend::version_conflict(current_version))
+                    }
+                    MutationOutcome::Fenced(Fence::Missing) => {
+                        Err(format!("sentinel not found: {public_id}"))
+                    }
+                    other => Err(format!("sentinel update refused: {other:?}")),
+                }
+            }),
+        )
+    }
+
     /// The lease is already cancelled; a failed commit keeps the stop intent in memory.
     pub(in crate::sentinel) fn sqlite_stop(&mut self, id: &str, reason: &str) -> Staged<Sentinel> {
         let stored = match codec::id(id) {
