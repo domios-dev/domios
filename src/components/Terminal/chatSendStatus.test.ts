@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import test from "node:test";
+import { resolve } from "node:path";
+import { test } from "vitest";
 
 import { __setInvokeForTest } from "../../lib/bridge";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
@@ -57,7 +58,7 @@ test("request rejection is logged and rethrown without a UI status channel", asy
 });
 
 test("frontend delivery module has no status listener, Retry, or notification path", () => {
-  const source = readFileSync(new URL("./chatSendStatus.ts", import.meta.url), "utf8");
+  const source = readFileSync(resolve(process.cwd(), "src/components/Terminal/chatSendStatus.ts"), "utf8");
   assert.doesNotMatch(source, /\blisten\b/);
   assert.doesNotMatch(source, /Retry|addNotification|chat-send-status/);
 });
