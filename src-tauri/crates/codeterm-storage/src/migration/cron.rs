@@ -80,7 +80,7 @@ pub(super) fn preflight(import: &CronImport, facts: &mut Facts) -> Result<(), Im
     let unlisted = import
         .jobs
         .iter()
-        .filter(|job| job.last_run.as_ref().is_some_and(|run| !listed(*job, run)))
+        .filter(|job| job.last_run.as_ref().is_some_and(|run| !listed(job, run)))
         .count();
     let retired = import
         .histories
@@ -182,7 +182,7 @@ pub(super) fn verify(
     );
     compare::diff_divergences(divergences, &projection.divergences, revision, &mut diff);
     for (subject, field) in &projection.anomalies {
-        diff.note(subject, *field);
+        diff.note(subject, field);
     }
     diff.gate()?;
     Ok(())

@@ -213,6 +213,33 @@ fn storage_migration_sentinel_bounds_refuse_whole_import() {
 }
 
 #[test]
+fn storage_migration_sentinel_field_limits_refuse_whole_import() {
+    let f = Fixture::seeded();
+    let mut wide = stages(1);
+    wide[0].identity.cwd = "x".repeat(32 * 1024 + 1);
+
+    let refused = plan_refusal(&f, &Fixed::sentinel(wide));
+
+    assert!(
+        matches!(
+            refused,
+            ImportRefusal::Invalid {
+                domain: ImportDomain::Sentinel,
+                ..
+            }
+        ),
+        "{refused:?}"
+    );
+    assert!(
+        !f.backup().join("import.manifest").exists(),
+        "nothing was planned"
+    );
+    let storage = f.open();
+    assert_untouched(&storage);
+    close(storage);
+}
+
+#[test]
 fn storage_migration_wrong_domain_decoder_output_refuses() {
     let f = Fixture::seeded();
 

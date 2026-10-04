@@ -3,7 +3,9 @@
 
 use super::compare::ProjectionMismatch;
 use super::source_inventory::{Captured, Sha256Digest, SourceCapture, SourceFile, SourceRole};
-use super::{DecodeFailure, DecodeFailureKind, ImportDomain, ImportProvenance, ImportReceipt};
+use super::{
+    DecodeFailure, DecodeFailureKind, IgnoredKeys, ImportDomain, ImportProvenance, ImportReceipt,
+};
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
 use crate::repositories::cron::{CronDivergenceOrigin, CronJobId, CronRunField, CronRunId};
@@ -368,6 +370,21 @@ impl Facts {
             domain.as_str(),
             token(name),
             token(disposition)
+        ));
+    }
+
+    /// Keys the decoder read past, by owner; a comma inside a key stays encoded.
+    pub(crate) fn ignored(&mut self, domain: ImportDomain, ignored: &IgnoredKeys) {
+        let keys: Vec<String> = ignored
+            .keys
+            .iter()
+            .map(|key| token(key).replace(',', "%2C"))
+            .collect();
+        self.lines.push(format!(
+            "rule {} unknown-keys {} {}",
+            domain.as_str(),
+            token(&ignored.owner),
+            keys.join(",")
         ));
     }
 

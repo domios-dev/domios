@@ -5,6 +5,24 @@
 use super::*;
 use std::collections::HashSet;
 
+/// Keys the typed cron decoder does not keep: in the envelope, a job, its last run and a
+/// retired job's history run.
+const ANNOTATED_CRONS: &str = r#"{
+  "version": "1", "schema_hint": 2,
+  "jobs": [
+    {"id": "noted", "name": "noted", "workspace_id": "ws", "schedule": "0 * * * *",
+     "enabled": true, "agent": "claude", "task": "t", "created_at": 1, "legacy_color": "red",
+     "last_run": {"run_id": "n1", "started_at": 1, "finished_at": 2, "status": "Success",
+       "tab_id": null, "exit_hint": 3}}
+  ],
+  "history": {
+    "noted": [{"run_id": "n1", "started_at": 1, "finished_at": 2, "status": "Success",
+      "tab_id": null}],
+    "gone": [{"run_id": "g1", "started_at": 1, "finished_at": 2, "status": "Success",
+      "tab_id": null, "worker": "w1"}]
+  }
+}"#;
+
 fn fields(list: &[CronRunField]) -> String {
     list.iter()
         .map(|field| field.as_str())
@@ -350,6 +368,55 @@ fn storage_migration_import_constructs_no_effects() {
 }
 
 #[test]
+fn storage_migration_unknown_cron_keys_are_recorded_not_dropped() {
+    let f = Fixture::new();
+    f.put("crons.json", ANNOTATED_CRONS.as_bytes());
+    f.put("sentinels.json", SENTINELS.as_bytes());
+    let storage = f.open();
+
+    let receipt = import_seeded(&f, &storage);
+
+    let manifest = lines(&fs::read(f.backup().join("import.manifest")).expect("manifest"));
+    let recorded: Vec<&Vec<String>> = manifest
+        .iter()
+        .filter(|words| words.len() > 2 && words[0] == "rule" && words[2] == "unknown-keys")
+        .collect();
+    assert_eq!(
+        recorded,
+        [
+            &line(&["rule", "cron", "unknown-keys", "~", "schema_hint"]),
+            &line(&["rule", "cron", "unknown-keys", "gone", "history.g1.worker"]),
+            &line(&[
+                "rule",
+                "cron",
+                "unknown-keys",
+                "noted",
+                "last_run.exit_hint,legacy_color"
+            ]),
+        ]
+    );
+    let copy = fs::read(f.backup().join("originals").join("crons.json")).expect("backup copy");
+    assert_eq!(
+        copy,
+        ANNOTATED_CRONS.as_bytes(),
+        "the original keeps every key"
+    );
+    let snapshot = cron_snapshot(&storage);
+    let noted = snapshot
+        .states
+        .iter()
+        .find(|state| state.job_id.as_str() == "noted")
+        .and_then(|state| state.job.as_ref())
+        .expect("live job");
+    assert!(
+        noted.divergence.is_none(),
+        "an ignored key is no divergence"
+    );
+    assert!(receipt.comparison.expect("comparison").is_clean());
+    close(storage);
+}
+
+#[test]
 fn storage_migration_manifests_are_versioned_deterministic_and_parseable() {
     let f = Fixture::seeded();
     let first = f.plan();
@@ -386,12 +453,7 @@ fn storage_migration_manifests_are_versioned_deterministic_and_parseable() {
         line(&["rule", "cron", "fields", "repository-validated"]),
         line(&["bound", "sentinel", "stages", &stages, "3"]),
         line(&["bound", "sentinel", "import-batch", &import_batch, "3"]),
-        line(&[
-            "rule",
-            "sentinel",
-            "fields",
-            "repository-validation-unreachable",
-        ]),
+        line(&["rule", "sentinel", "fields", "repository-validated"]),
         line(&["count", "cron", "retired-identities", "1"]),
         line(&["count", "cron", "empty-live-histories", "1"]),
         line(&["count", "cron", "unlisted-last-runs", "1"]),
