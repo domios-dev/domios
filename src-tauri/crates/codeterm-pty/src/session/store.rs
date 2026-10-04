@@ -231,6 +231,8 @@ pub enum SplitNodeSnapshot {
         orientation: String,
         ratio: f64,
         children: Vec<SplitNodeSnapshot>,
+        #[serde(default, flatten)]
+        extra_fields: serde_json::Map<String, serde_json::Value>,
     },
 }
 
@@ -876,8 +878,8 @@ fn parse_tab_record(
     }
 }
 
+pub mod legacy_decode;
 mod retention;
-mod legacy_decode;
 mod storage_adapter;
 
 pub use storage_adapter::StorageDeskAdapter;

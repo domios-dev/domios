@@ -34,7 +34,7 @@ struct LayoutRow {
     ratio: Option<f64>,
     tab_id: Option<String>,
     cwd: Option<String>,
-    leaf_fields_json: Option<String>,
+    fields_json: Option<String>,
 }
 
 pub(super) fn load(conn: &Connection) -> Result<DeskState, StorageError> {
@@ -309,7 +309,7 @@ fn load_layouts(
 ) -> Result<HashMap<(String, Option<i64>), Vec<LayoutRow>>, StorageError> {
     let mut statement = conn
         .prepare(
-            "SELECT id, group_id, parent_id, ordinal, kind, orientation, ratio, tab_id, cwd, leaf_fields_json \
+            "SELECT id, group_id, parent_id, ordinal, kind, orientation, ratio, tab_id, cwd, fields_json \
              FROM desk_layout_nodes ORDER BY group_id, parent_id, ordinal",
         )
         .map_err(|error| sqlite_error("prepare desk layout", error))?;
@@ -325,7 +325,7 @@ fn load_layouts(
                 ratio: row.get(6)?,
                 tab_id: row.get(7)?,
                 cwd: row.get(8)?,
-                leaf_fields_json: row.get(9)?,
+                fields_json: row.get(9)?,
             })
         })
         .map_err(|error| sqlite_error("query desk layout", error))?;
@@ -356,7 +356,7 @@ fn build_layout(
                 .clone()
                 .ok_or_else(|| corrupt("leaf has no tab identity"))?;
             let json = row
-                .leaf_fields_json
+                .fields_json
                 .as_deref()
                 .ok_or_else(|| corrupt("leaf has no typed fields"))?;
             let fields: Value = serde_json::from_str(json)
@@ -370,6 +370,16 @@ fn build_layout(
             })
         }
         "split" => {
+            let fields_json = row
+                .fields_json
+                .as_deref()
+                .ok_or_else(|| corrupt("split has no fields"))?;
+            let fields: Value = serde_json::from_str(fields_json)
+                .map_err(|error| corrupt(format!("invalid split fields: {error}")))?;
+            let fields = fields
+                .as_object()
+                .cloned()
+                .ok_or_else(|| corrupt("split fields are not an object"))?;
             let orientation = row
                 .orientation
                 .clone()
@@ -388,6 +398,7 @@ fn build_layout(
                 orientation,
                 ratio,
                 children,
+                fields,
             })
         }
         other => Err(corrupt(format!("unknown layout kind {other}"))),
