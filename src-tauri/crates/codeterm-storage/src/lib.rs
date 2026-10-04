@@ -16,7 +16,7 @@ pub use backup::{BackupReceipt, RestoreReceipt};
 pub use error::{ConstraintKind, StorageError};
 pub use migration::{
     capture_sources, CaptureLimits, CaptureStep, Captured, ComparisonReport, DecodeFailure,
-    DecodeFailureKind, DomainComparison, DomainImport, ExpectedDivergence, IgnoredKeys,
+    DecodeFailureKind, DomainComparison, DomainImport, EntryKind, ExpectedDivergence, IgnoredKeys,
     ImportDomain, ImportMarker, ImportOutcome, ImportPlan, ImportProvenance, ImportReceipt,
     ImportRefusal, ImportRequest, ImportTamper, LegacyDecoder, MigrationError, ProjectionMismatch,
     RecordedManifest, RecoveryCandidate, RefusalReport, Sha256Digest, SourceCapture, SourceFile,

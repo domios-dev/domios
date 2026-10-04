@@ -271,7 +271,14 @@ fn storage_migration_unreadable_current_is_refused_as_unreadable() {
     let capture = lines(&fs::read(f.backup().join("capture.manifest")).expect("capture"));
     assert!(capture.iter().any(|words| starts(
         words,
-        &["file", "cron", "current", "crons.json", "unreadable"]
+        &[
+            "file",
+            "cron",
+            "current",
+            "crons.json",
+            "unreadable",
+            "directory"
+        ]
     )));
     close(storage);
 }

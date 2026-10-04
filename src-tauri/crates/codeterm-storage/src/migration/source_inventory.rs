@@ -76,6 +76,33 @@ impl SourceRole {
     }
 }
 
+/// What a source entry is; links and reparse points are recorded, never followed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EntryKind {
+    Regular,
+    Directory,
+    Symlink,
+    Junction,
+    Reparse,
+    Other,
+    /// Its metadata could not be read.
+    Unstatable,
+}
+
+impl EntryKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EntryKind::Regular => "regular",
+            EntryKind::Directory => "directory",
+            EntryKind::Symlink => "symlink",
+            EntryKind::Junction => "junction",
+            EntryKind::Reparse => "reparse",
+            EntryKind::Other => "other",
+            EntryKind::Unstatable => "unstatable",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Captured {
     Bytes {
@@ -84,6 +111,7 @@ pub enum Captured {
     },
     /// Enumerated but not copyable: a link, a non-file or an unreadable file stays in place.
     Unreadable {
+        kind: EntryKind,
         detail: String,
     },
 }
@@ -528,13 +556,14 @@ fn stage(
     limits: &CaptureLimits,
     total: &mut u64,
 ) -> Result<Captured, MigrationError> {
-    let unreadable = |detail: String| Captured::Unreadable {
+    let unreadable = |kind: EntryKind, detail: String| Captured::Unreadable {
+        kind,
         detail: bounded(&detail),
     };
     let path = resolve(source, &entry.relative);
     let (mut handle, meta) = match open_regular(&path) {
         Ok(opened) => opened,
-        Err(detail) => return Ok(unreadable(detail)),
+        Err((kind, detail)) => return Ok(unreadable(kind, detail)),
     };
     if meta.len() > limits.max_file_bytes {
         return Err(uncaptured(ImportRefusal::OverLimit {
@@ -570,7 +599,7 @@ fn stage(
     };
     let (size, sha256) = match pumped {
         Pumped::Done(size, sha256) => (size, sha256),
-        Pumped::SourceFailed(detail) => return Ok(unreadable(detail)),
+        Pumped::SourceFailed(detail) => return Ok(unreadable(EntryKind::Regular, detail)),
     };
     if hash_path(&target, size).ok() != Some((size, sha256)) {
         return Err(uncaptured(ImportRefusal::StagingConflict {
@@ -673,21 +702,110 @@ pub(crate) fn verify_immutable(
     Ok(())
 }
 
-/// Opens a regular, non-link file for reading; the error is why it cannot be captured.
-fn open_regular(path: &Path) -> Result<(File, fs::Metadata), String> {
-    let meta = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
-    if !meta.is_file() || is_link(&meta) {
-        return Err("not a regular file".to_string());
+#[cfg(windows)]
+const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA000_0003;
+#[cfg(windows)]
+const IO_REPARSE_TAG_SYMLINK: u32 = 0xA000_000C;
+
+/// The reparse tag of the entry itself, read without following it.
+#[cfg(windows)]
+fn reparse_tag(path: &Path) -> Option<u32> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{FindClose, FindFirstFileW, WIN32_FIND_DATAW};
+    let wide: Vec<u16> = assets::native_path(path)
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let mut found = WIN32_FIND_DATAW::default();
+    // SAFETY: `wide` is a NUL-terminated path and `found` a writable result buffer; the
+    // returned search handle is closed before leaving.
+    let handle = unsafe { FindFirstFileW(wide.as_ptr(), &mut found) };
+    if handle as isize == -1 {
+        return None;
     }
-    let handle = File::open(path).map_err(|error| error.to_string())?;
+    // SAFETY: `handle` is the valid search handle opened above.
+    unsafe { FindClose(handle) };
+    Some(found.dwReserved0)
+}
+
+#[cfg_attr(not(windows), allow(unused_variables))]
+fn entry_kind(path: &Path, meta: &fs::Metadata) -> EntryKind {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return match reparse_tag(path) {
+                Some(IO_REPARSE_TAG_SYMLINK) => EntryKind::Symlink,
+                Some(IO_REPARSE_TAG_MOUNT_POINT) => EntryKind::Junction,
+                _ => EntryKind::Reparse,
+            };
+        }
+    }
+    let file_type = meta.file_type();
+    if file_type.is_symlink() {
+        EntryKind::Symlink
+    } else if file_type.is_dir() {
+        EntryKind::Directory
+    } else if file_type.is_file() {
+        EntryKind::Regular
+    } else {
+        EntryKind::Other
+    }
+}
+
+/// The platform type bits of a non-regular entry, so two entries of one kind still differ.
+fn type_detail(meta: &fs::Metadata) -> String {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        format!(
+            "not a regular file (attributes {:#x})",
+            meta.file_attributes()
+        )
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        format!("not a regular file (mode {:o})", meta.mode() & 0o170_000)
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
+        let _ = meta;
+        "not a regular file".to_string()
+    }
+}
+
+/// Opens a regular file for reading; the error is the entry's kind and why it cannot be
+/// captured.
+fn open_regular(path: &Path) -> Result<(File, fs::Metadata), (EntryKind, String)> {
+    let meta =
+        fs::symlink_metadata(path).map_err(|error| (EntryKind::Unstatable, error.to_string()))?;
+    let kind = entry_kind(path, &meta);
+    if kind != EntryKind::Regular {
+        return Err((kind, type_detail(&meta)));
+    }
+    let handle = File::open(path).map_err(|error| (kind, error.to_string()))?;
     Ok((handle, meta))
 }
 
-/// What a capture of `path` sees now: its size and hash, or the bounded reason it cannot
-/// be copied, comparable with what the first pass recorded.
-fn observe(path: &Path, expected: u64) -> Result<(u64, Sha256Digest), String> {
-    let (handle, _) = open_regular(path).map_err(|detail| bounded(&detail))?;
-    hash_reader(handle, expected).map_err(|error| bounded(&error.to_string()))
+/// What a capture of a source entry sees, comparable with what an earlier pass recorded.
+#[derive(Debug, PartialEq, Eq)]
+enum Observed {
+    Bytes(u64, Sha256Digest),
+    Unreadable(EntryKind, String),
+}
+
+fn observe(path: &Path, expected: u64) -> Observed {
+    let handle = match open_regular(path) {
+        Ok((handle, _)) => handle,
+        Err((kind, detail)) => return Observed::Unreadable(kind, bounded(&detail)),
+    };
+    match hash_reader(handle, expected) {
+        Ok((size, sha256)) => Observed::Bytes(size, sha256),
+        Err(error) => Observed::Unreadable(EntryKind::Regular, bounded(&error.to_string())),
+    }
 }
 
 /// Hashes at most `expected + 1` bytes, so a grown file is seen without reading it all.
@@ -733,8 +851,12 @@ fn confirm_unchanged(
     for file in files {
         let path = resolve(source, &file.relative);
         let unchanged = match &file.captured {
-            Captured::Bytes { size, sha256 } => observe(&path, *size) == Ok((*size, *sha256)),
-            Captured::Unreadable { detail } => observe(&path, 0) == Err(detail.clone()),
+            Captured::Bytes { size, sha256 } => {
+                observe(&path, *size) == Observed::Bytes(*size, *sha256)
+            }
+            Captured::Unreadable { kind, detail } => {
+                observe(&path, 0) == Observed::Unreadable(*kind, detail.clone())
+            }
         };
         if !unchanged {
             return Err(ImportRefusal::SourceChanged {
