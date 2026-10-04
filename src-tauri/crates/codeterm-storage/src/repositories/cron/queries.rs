@@ -1,6 +1,8 @@
+//! Committed reads of cron identities, definitions, run rows and divergent last runs.
+
 use super::records::{
-    CronIdentity, CronJobId, CronJobRecord, CronJobState, CronRunId, CronRunRecord, CronRunState,
-    StoredCronJob,
+    CronDivergenceOrigin, CronIdentity, CronJobId, CronJobRecord, CronJobState,
+    CronLastRunDivergence, CronRunField, CronRunId, CronRunRecord, CronRunState, StoredCronJob,
 };
 use crate::error::{sqlite_error, StorageError};
 use crate::repositories::{from_sql_u64, Revision};
@@ -14,6 +16,9 @@ pub(crate) const JOB_COLUMNS: &str = "id, name, description, workspace_id, team_
 
 const RUN_COLUMNS: &str = "job_id, run_id, ordinal, started_at, finished_at, status, tab_id, \
      session_id, cwd, summary, report_delivery";
+
+const MIRROR_COLUMNS: &str = "job_id, run_id, NULL, started_at, finished_at, status, tab_id, \
+     session_id, cwd, summary, report_delivery, origin, imported_revision, imported_differing";
 
 fn corrupt(detail: &'static str) -> StorageError {
     StorageError::Corrupt {
@@ -250,12 +255,54 @@ fn jobs(conn: &Connection, only: Option<&CronJobId>) -> Result<Vec<CronJobRecord
 }
 
 /// Every identity (or only `only`) with its definition and history, in snapshot order.
+type Mirror = (CronRunRecord, CronLastRunDivergence);
+
+/// Imported last runs kept apart from the history row with the same run id, by job.
+fn mirrors(
+    conn: &Connection,
+    only: Option<&CronJobId>,
+) -> Result<HashMap<CronJobId, Mirror>, StorageError> {
+    let mut statement = conn
+        .prepare_cached(&format!(
+            "SELECT {MIRROR_COLUMNS} FROM cron_last_run_mirrors WHERE ?1 IS NULL OR job_id = ?1"
+        ))
+        .map_err(|e| sqlite_error("read cron last-run divergence", e))?;
+    let rows = statement
+        .query_map([only.map(CronJobId::as_str)], |row| {
+            Ok((
+                raw_run(row)?,
+                row.get::<_, String>(11)?,
+                row.get::<_, i64>(12)?,
+                row.get::<_, String>(13)?,
+            ))
+        })
+        .map_err(|e| sqlite_error("read cron last-run divergence", e))?;
+    let mut found = HashMap::new();
+    for row in rows {
+        let (raw, origin, revision, differing) =
+            row.map_err(|e| sqlite_error("read cron last-run divergence", e))?;
+        let owner = job_id(raw.job_id.clone())?;
+        let origin = match origin.as_str() {
+            "legacy_import" => CronDivergenceOrigin::LegacyImport,
+            _ => return Err(corrupt("unknown cron divergence origin")),
+        };
+        let divergence = CronLastRunDivergence {
+            origin,
+            imported_revision: Revision(from_sql_u64("revision", revision)?),
+            imported_differing: CronRunField::parse_list(&differing)?,
+        };
+        found.insert(owner, (decode_run(raw)?, divergence));
+    }
+    Ok(found)
+}
+
 pub(crate) fn load(
     conn: &Connection,
     only: Option<&CronJobId>,
 ) -> Result<Vec<CronJobState>, StorageError> {
     let mut identities = identities(conn, only)?;
     let mut runs = runs(conn, only)?;
+    let mut mirrors = mirrors(conn, only)?;
     let mut states = Vec::with_capacity(identities.len());
     for record in jobs(conn, only)? {
         let identity = identities
@@ -263,15 +310,26 @@ pub(crate) fn load(
             .filter(|identity| !identity.retired)
             .ok_or_else(|| corrupt("cron job without a live identity"))?;
         let mut owned = runs.remove(&record.id).unwrap_or_default();
-        let last_run = match &record.last_run_id {
-            None => None,
-            Some(last) => Some(match owned.listed.iter().find(|run| run.run_id == *last) {
-                Some(listed) => listed.clone(),
-                None => owned
-                    .unlisted
-                    .remove(last)
-                    .ok_or_else(|| corrupt("cron last run row is missing"))?,
-            }),
+        let (last_run, divergence) = match (&record.last_run_id, mirrors.remove(&record.id)) {
+            (Some(last), Some((copy, divergence))) => {
+                let listed = owned.listed.iter().any(|run| run.run_id == *last);
+                if copy.run_id != *last || !listed {
+                    return Err(corrupt("cron divergent last run lost its history row"));
+                }
+                (Some(copy), Some(divergence))
+            }
+            (None, Some(_)) => return Err(corrupt("cron divergent copy without a last run")),
+            (None, None) => (None, None),
+            (Some(last), None) => {
+                let resolved = match owned.listed.iter().find(|run| run.run_id == *last) {
+                    Some(listed) => listed.clone(),
+                    None => owned
+                        .unlisted
+                        .remove(last)
+                        .ok_or_else(|| corrupt("cron last run row is missing"))?,
+                };
+                (Some(resolved), None)
+            }
         };
         if !owned.unlisted.is_empty() {
             return Err(corrupt("cron run row without history or last-run owner"));
@@ -279,7 +337,11 @@ pub(crate) fn load(
         states.push(CronJobState {
             job_id: record.id.clone(),
             identity,
-            job: Some(StoredCronJob { record, last_run }),
+            job: Some(StoredCronJob {
+                record,
+                last_run,
+                divergence,
+            }),
             history: owned.listed,
         });
     }
@@ -301,7 +363,24 @@ pub(crate) fn load(
     if !runs.is_empty() {
         return Err(corrupt("cron runs without an identity"));
     }
+    if !mirrors.is_empty() {
+        return Err(corrupt("cron divergent copy without a live definition"));
+    }
     Ok(states)
+}
+
+/// The run id of a job's divergent last-run copy, if one is stored.
+pub(crate) fn mirror_run_of(
+    conn: &Connection,
+    id: &CronJobId,
+) -> Result<Option<String>, StorageError> {
+    conn.prepare_cached("SELECT run_id FROM cron_last_run_mirrors WHERE job_id = ?1")
+        .and_then(|mut statement| {
+            statement
+                .query_row([id.as_str()], |row| row.get(0))
+                .optional()
+        })
+        .map_err(|e| sqlite_error("read cron last-run divergence", e))
 }
 
 pub(crate) fn identity(

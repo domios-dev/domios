@@ -111,8 +111,11 @@ pub(super) fn job_record(job: &CronJob) -> Result<CronJobRecord, StorageError> {
     })
 }
 
+/// The cache keeps a divergent copy as `last_run`; its provenance stays in Storage.
 pub(super) fn job_info(stored: StoredCronJob) -> Result<CronJob, String> {
-    let StoredCronJob { record, last_run } = stored;
+    let StoredCronJob {
+        record, last_run, ..
+    } = stored;
     Ok(CronJob {
         id: record.id.as_str().to_string(),
         name: record.name,

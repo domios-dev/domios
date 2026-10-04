@@ -1,3 +1,5 @@
+//! Typed cron rows, write batches and import sets, with their validation and bounds.
+
 use crate::error::StorageError;
 use crate::repositories::{to_sql_u64, Revision};
 use std::collections::HashSet;
@@ -250,11 +252,103 @@ fn optional(field: &'static str, value: &Option<String>, limit: usize) -> Result
         .map_or(Ok(()), |value| bounded(field, value, limit))
 }
 
-/// A live definition with its resolved last run.
+/// One field of a run, as named in divergence metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum CronRunField {
+    StartedAt,
+    FinishedAt,
+    Status,
+    TabId,
+    SessionId,
+    Cwd,
+    Summary,
+    ReportDelivery,
+}
+
+impl CronRunField {
+    const ALL: [CronRunField; 8] = [
+        CronRunField::StartedAt,
+        CronRunField::FinishedAt,
+        CronRunField::Status,
+        CronRunField::TabId,
+        CronRunField::SessionId,
+        CronRunField::Cwd,
+        CronRunField::Summary,
+        CronRunField::ReportDelivery,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CronRunField::StartedAt => "started_at",
+            CronRunField::FinishedAt => "finished_at",
+            CronRunField::Status => "status",
+            CronRunField::TabId => "tab_id",
+            CronRunField::SessionId => "session_id",
+            CronRunField::Cwd => "cwd",
+            CronRunField::Summary => "summary",
+            CronRunField::ReportDelivery => "report_delivery",
+        }
+    }
+
+    pub(crate) fn parse_list(text: &str) -> Result<Vec<CronRunField>, StorageError> {
+        text.split(',')
+            .map(|name| {
+                CronRunField::ALL
+                    .into_iter()
+                    .find(|field| field.as_str() == name)
+                    .ok_or_else(|| StorageError::Corrupt {
+                        detail: "unknown cron run field".to_string(),
+                    })
+            })
+            .collect()
+    }
+
+    pub(crate) fn join(fields: &[CronRunField]) -> String {
+        let names: Vec<&str> = fields.iter().map(|field| field.as_str()).collect();
+        names.join(",")
+    }
+
+    /// Fields whose values differ between two copies of the same run, in a fixed order.
+    pub fn differing(left: &CronRunRecord, right: &CronRunRecord) -> Vec<CronRunField> {
+        let differs = |field: CronRunField| match field {
+            CronRunField::StartedAt => left.started_at != right.started_at,
+            CronRunField::FinishedAt => left.finished_at != right.finished_at,
+            CronRunField::Status => left.status != right.status,
+            CronRunField::TabId => left.tab_id != right.tab_id,
+            CronRunField::SessionId => left.session_id != right.session_id,
+            CronRunField::Cwd => left.cwd != right.cwd,
+            CronRunField::Summary => left.summary != right.summary,
+            CronRunField::ReportDelivery => left.report_delivery != right.report_delivery,
+        };
+        CronRunField::ALL
+            .into_iter()
+            .filter(|field| differs(*field))
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CronDivergenceOrigin {
+    /// An original source stored a last run that differs from its own history row.
+    LegacyImport,
+}
+
+/// Provenance of a last run kept apart from its history row. The copy itself is current
+/// state that later run updates evolve; `imported_differing` is fixed at import.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CronLastRunDivergence {
+    pub origin: CronDivergenceOrigin,
+    pub imported_revision: Revision,
+    pub imported_differing: Vec<CronRunField>,
+}
+
+/// A live definition with its resolved last run; with a divergence, `last_run` is the
+/// job's own copy and the history row with the same run id holds the other copy.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredCronJob {
     pub record: CronJobRecord,
     pub last_run: Option<CronRunRecord>,
+    pub divergence: Option<CronLastRunDivergence>,
 }
 
 /// Revision covers the definition and every run row of the identity.
@@ -306,11 +400,13 @@ pub enum CronWrite {
         expect: Revision,
     },
     /// Rewrites existing run rows; `job` also rewrites the definition, never its last run.
+    /// `last_run` evolves an imported divergent copy; it never creates one.
     UpdateRuns {
         job_id: CronJobId,
         expect: Revision,
         runs: Vec<CronRunRecord>,
         job: Option<CronJobRecord>,
+        last_run: Option<CronRunRecord>,
     },
     Remove {
         id: CronJobId,
@@ -337,10 +433,16 @@ impl CronWrite {
         match self {
             CronWrite::Create(job) | CronWrite::Patch { job, .. } => job.cost(),
             CronWrite::StartRun { job, run, .. } => job.cost() + run.cost(),
-            CronWrite::UpdateRuns { runs, job, .. } => {
+            CronWrite::UpdateRuns {
+                runs,
+                job,
+                last_run,
+                ..
+            } => {
                 RECORD_OVERHEAD
                     + runs.iter().map(CronRunRecord::cost).sum::<usize>()
                     + job.as_ref().map_or(0, CronJobRecord::cost)
+                    + last_run.as_ref().map_or(0, CronRunRecord::cost)
             }
             CronWrite::Remove { id, .. } => RECORD_OVERHEAD + id.0.len(),
             CronWrite::RemoveScope(CronScope::Workspace(scope) | CronScope::Team(scope)) => {
@@ -364,8 +466,15 @@ impl CronWrite {
                 Ok(())
             }
             CronWrite::UpdateRuns {
-                job_id, runs, job, ..
+                job_id,
+                runs,
+                job,
+                last_run,
+                ..
             } => {
+                if let Some(last_run) = last_run {
+                    last_run.validate()?;
+                }
                 let mut seen = HashSet::new();
                 for run in runs {
                     run.validate()?;
@@ -497,23 +606,18 @@ impl CronImport {
                 cost += run.cost();
             }
         }
-        for job in &self.jobs {
-            let Some(last) = &job.last_run else { continue };
-            let listed = self
-                .histories
-                .iter()
-                .find(|history| history.job_id == job.record.id)
-                .and_then(|history| history.runs.iter().find(|run| run.run_id == last.run_id));
-            if listed.is_some_and(|listed| listed != last) {
-                return Err(StorageError::invalid(
-                    "cron import",
-                    format!(
-                        "job {} last run {} differs from its history row",
-                        job.record.id.0, last.run_id.0
-                    ),
-                ));
-            }
-        }
         Ok(cost)
+    }
+
+    /// The history row an imported last run shares its run id with, when they differ.
+    pub(crate) fn divergent_row<'a>(&'a self, job: &'a CronJobImport) -> Option<&'a CronRunRecord> {
+        let last = job.last_run.as_ref()?;
+        self.histories
+            .iter()
+            .find(|history| history.job_id == job.record.id)?
+            .runs
+            .iter()
+            .find(|run| run.run_id == last.run_id)
+            .filter(|listed| *listed != last)
     }
 }

@@ -1,7 +1,9 @@
+//! Cron writes inside the writer's transaction; each identity-scoped write checks its revision.
+
 use super::queries::{self, JOB_COLUMNS};
 use super::records::{
-    CronApplied, CronHistoryDisposition, CronImport, CronJobId, CronJobRecord, CronRunId,
-    CronRunRecord, CronScope, CronWrite, MAX_CRON_JOBS,
+    CronApplied, CronHistoryDisposition, CronImport, CronJobId, CronJobRecord, CronRunField,
+    CronRunId, CronRunRecord, CronScope, CronWrite, MAX_CRON_JOBS,
 };
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
@@ -36,7 +38,8 @@ pub(crate) fn apply(
                 expect,
                 runs,
                 job,
-            } => update_runs(cx, &job_id, expect, &runs, job.as_ref())?,
+                last_run,
+            } => update_runs(cx, &job_id, expect, &runs, job.as_ref(), last_run.as_ref())?,
             CronWrite::Remove {
                 id,
                 expect,
@@ -329,6 +332,7 @@ fn start_run(
         })?;
     let ordinal = next_ordinal(cx, &job.id)?;
     insert_run_row(cx, &job.id, run, Some(ordinal))?;
+    drop_mirror(cx, &job.id)?;
     update_job_row(cx, job)?;
     trim_history(cx, &job.id, job.max_history, &run.run_id)?;
     if let Some(previous) = previous.filter(|previous| *previous != run.run_id.0) {
@@ -391,8 +395,9 @@ fn update_runs(
     expect: Revision,
     runs: &[CronRunRecord],
     job: Option<&CronJobRecord>,
+    last_run: Option<&CronRunRecord>,
 ) -> Result<(), StorageError> {
-    expect_identity(cx, job_id, expect, job.is_some())?;
+    expect_identity(cx, job_id, expect, job.is_some() || last_run.is_some())?;
     for run in runs {
         update_run_row(cx, job_id, run)?;
     }
@@ -400,7 +405,80 @@ fn update_runs(
         require_last_run(cx, job, "cron run update")?;
         update_job_row(cx, job)?;
     }
+    if let Some(last_run) = last_run {
+        evolve_mirror(cx, job_id, last_run)?;
+    }
+    if !runs.is_empty() || last_run.is_some() {
+        drop_converged_mirror(cx, job_id)?;
+    }
     touch(cx, job_id)
+}
+
+/// Only an imported divergence can be evolved; no write ever creates a new one.
+fn evolve_mirror(
+    cx: &mut WriteCx<'_>,
+    job_id: &CronJobId,
+    copy: &CronRunRecord,
+) -> Result<(), StorageError> {
+    match queries::mirror_run_of(cx.conn, job_id)? {
+        None => Err(StorageError::invalid(
+            "cron last run",
+            "a divergent last-run copy is created only by import",
+        )),
+        Some(run_id) if run_id != copy.run_id.0 => Err(StorageError::invalid(
+            "cron last run",
+            "the divergent copy belongs to another run",
+        )),
+        Some(_) => {
+            let (started_at, finished_at) = run_values(copy)?;
+            cx.write(
+                "UPDATE cron_last_run_mirrors SET started_at = ?2, finished_at = ?3, \
+                 status = ?4, tab_id = ?5, session_id = ?6, cwd = ?7, summary = ?8, \
+                 report_delivery = ?9 WHERE job_id = ?1",
+                params![
+                    job_id.0,
+                    started_at,
+                    finished_at,
+                    copy.status.as_sql(),
+                    copy.tab_id,
+                    copy.session_id,
+                    copy.cwd,
+                    copy.summary,
+                    copy.report_delivery
+                ],
+            )?;
+            Ok(())
+        }
+    }
+}
+
+/// A copy equal to its history row again is no longer a divergence.
+fn drop_converged_mirror(cx: &mut WriteCx<'_>, job_id: &CronJobId) -> Result<(), StorageError> {
+    cx.write(
+        "DELETE FROM cron_last_run_mirrors WHERE job_id = ?1 AND EXISTS (\
+         SELECT 1 FROM cron_runs r WHERE r.job_id = cron_last_run_mirrors.job_id \
+         AND r.run_id = cron_last_run_mirrors.run_id \
+         AND r.started_at = cron_last_run_mirrors.started_at \
+         AND r.finished_at IS cron_last_run_mirrors.finished_at \
+         AND r.status = cron_last_run_mirrors.status \
+         AND r.tab_id IS cron_last_run_mirrors.tab_id \
+         AND r.session_id IS cron_last_run_mirrors.session_id \
+         AND r.cwd IS cron_last_run_mirrors.cwd \
+         AND r.summary IS cron_last_run_mirrors.summary \
+         AND r.report_delivery IS cron_last_run_mirrors.report_delivery)",
+        [job_id.as_str()],
+    )?;
+    Ok(())
+}
+
+/// The current divergent copy goes with its definition or its last run; originals
+/// stay in the importer's backup.
+fn drop_mirror(cx: &mut WriteCx<'_>, job_id: &CronJobId) -> Result<(), StorageError> {
+    cx.write(
+        "DELETE FROM cron_last_run_mirrors WHERE job_id = ?1",
+        [job_id.as_str()],
+    )?;
+    Ok(())
 }
 
 fn drop_identity(cx: &mut WriteCx<'_>, id: &CronJobId) -> Result<(), StorageError> {
@@ -419,6 +497,7 @@ fn remove(
     history: CronHistoryDisposition,
 ) -> Result<(), StorageError> {
     expect_identity(cx, id, expect, true)?;
+    drop_mirror(cx, id)?;
     if cx.write("DELETE FROM cron_jobs WHERE id = ?1", [id.as_str()])? != 1 {
         return Err(StorageError::NotFound { entity: entity(id) });
     }
@@ -467,6 +546,7 @@ fn remove_scope(cx: &mut WriteCx<'_>, scope: &CronScope) -> Result<Vec<CronJobId
         let id = CronJobId::new(id).map_err(|_| StorageError::Corrupt {
             detail: "malformed cron job id".to_string(),
         })?;
+        drop_mirror(cx, &id)?;
         cx.write("DELETE FROM cron_jobs WHERE id = ?1", [id.as_str()])?;
         drop_identity(cx, &id)?;
         removed.push(id);
@@ -521,6 +601,33 @@ pub(crate) fn write_import(cx: &mut WriteCx<'_>, import: &CronImport) -> Result<
     }
     for (ordinal, job) in (0_i64..).zip(&import.jobs) {
         insert_job_row(cx, &job.record, Some(ordinal))?;
+    }
+    for job in &import.jobs {
+        let (Some(copy), Some(listed)) = (&job.last_run, import.divergent_row(job)) else {
+            continue;
+        };
+        let (started_at, finished_at) = run_values(copy)?;
+        let differing = CronRunField::join(&CronRunField::differing(copy, listed));
+        cx.write(
+            "INSERT INTO cron_last_run_mirrors (job_id, run_id, started_at, finished_at, \
+             status, tab_id, session_id, cwd, summary, report_delivery, origin, \
+             imported_revision, imported_differing) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, 'legacy_import', ?11, ?12)",
+            params![
+                job.record.id.0,
+                copy.run_id.0,
+                started_at,
+                finished_at,
+                copy.status.as_sql(),
+                copy.tab_id,
+                copy.session_id,
+                copy.cwd,
+                copy.summary,
+                copy.report_delivery,
+                revision,
+                differing
+            ],
+        )?;
     }
     Ok(())
 }

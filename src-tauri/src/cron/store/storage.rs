@@ -387,8 +387,8 @@ impl CronStore {
         Ok(plan)
     }
 
-    /// Run rows that changed; the last run is written through its own row and only a
-    /// changed definition rewrites the job row.
+    /// Run rows that changed. A last run equal to its history row is written through that
+    /// row; an imported divergent copy evolves apart from it and is never created here.
     fn plan_runs(
         &self,
         job_id: &str,
@@ -401,6 +401,7 @@ impl CronStore {
             .map(run_record)
             .collect::<Result<Vec<_>, _>>()?;
         let mut definition = None;
+        let mut divergent = None;
         if let Some(job) = job {
             let original = self.get(job_id);
             let previous_last = original.and_then(|original| original.last_run.as_ref());
@@ -409,12 +410,17 @@ impl CronStore {
                 .as_ref()
                 .filter(|last| previous_last != Some(*last))
             {
-                match history.iter().find(|run| run.run_id == last.run_id) {
-                    Some(listed) if listed != last => {
-                        return Err(StorageError::Invalid {
-                            field: "cron last run",
-                            reason: format!("run {} diverges from its history row", last.run_id),
-                        })
+                let listed = history
+                    .iter()
+                    .find(|run| run.run_id == last.run_id)
+                    .or_else(|| self.history_entry(job_id, &last.run_id));
+                let diverged = previous_last.is_some_and(|previous| {
+                    self.history_entry(job_id, &previous.run_id)
+                        .is_some_and(|entry| entry != previous)
+                });
+                match listed {
+                    Some(listed) if diverged || listed != last => {
+                        divergent = Some(run_record(last)?)
                     }
                     Some(_) => {}
                     None => runs.push(run_record(last)?),
@@ -431,6 +437,7 @@ impl CronStore {
             expect,
             runs,
             job: definition,
+            last_run: divergent,
         })
     }
 
