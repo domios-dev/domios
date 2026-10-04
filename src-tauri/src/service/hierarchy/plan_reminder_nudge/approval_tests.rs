@@ -659,7 +659,7 @@ fn plan_reminder_choice_approve_exact_scope_once() {
             );
         }
     }
-    let scopes: [(&str, ReminderKind, fn(&Fixture), &str); 6] = [
+    let scopes: [(&str, ReminderKind, fn(&Fixture), &str); 7] = [
         (
             "attempt_missing",
             ReminderKind::Worker,
@@ -714,6 +714,15 @@ fn plan_reminder_choice_approve_exact_scope_once() {
             },
             "ineligible",
         ),
+        (
+            "recipient_outside_plan_team",
+            ReminderKind::Owner,
+            |f| {
+                f.edit_plan(|plan| plan.team_id = Some("plan-team".into()));
+                f.edit_tab(&f.owner, |tab| tab.team_id = Some("other-team".into()));
+            },
+            "recipient_scope_mismatch",
+        ),
     ];
     for (name, kind, mutate, reason) in scopes {
         let f = fixture(kind, approve());
@@ -759,7 +768,7 @@ fn plan_reminder_choice_unchanged_observation_no_repeat() {
 
 #[test]
 fn plan_reminder_choice_stale_scope_and_disconnect_refuse() {
-    let cases: [(&str, ReminderKind, fn(&Fixture)); 10] = [
+    let cases: [(&str, ReminderKind, fn(&Fixture)); 15] = [
         ("owner_rebound", ReminderKind::Owner, |f| {
             f.edit_tab(&f.owner, |tab| bind(tab, "owner-session", "rotated"));
         }),
@@ -791,15 +800,39 @@ fn plan_reminder_choice_stale_scope_and_disconnect_refuse() {
         ("scope_cleaned_up", ReminderKind::StalledTeam, |f| {
             f.host.gate.retain(&HashSet::new());
         }),
+        ("owner_moved_team", ReminderKind::Owner, |f| {
+            f.edit_tab(&f.owner, |tab| tab.team_id = Some("moved-team".into()));
+        }),
+        ("worker_re_roled", ReminderKind::Worker, |f| {
+            f.edit_tab(&f.worker, |tab| {
+                tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
+            });
+        }),
+        (
+            "adapter_replaced_same_id",
+            ReminderKind::CompleteWrapup,
+            |f| {
+                let replacement = FakeChoice::new(approve()) as Arc<dyn DecisionModel>;
+                f.host.registry.register("fake", replacement);
+            },
+        ),
+        ("owner_state_changed", ReminderKind::StalledTeam, |f| {
+            let mut view = f.host.owner_view.lock();
+            view.delta.insert("task:task-a".into(), "changed".into());
+        }),
+        ("worker_task_changed", ReminderKind::Worker, |f| {
+            f.edit_plan(|plan| plan.tasks[0].status_label = Some("changed".into()));
+        }),
     ];
     for (name, kind, mutate) in cases {
         let f = fixture(kind, approve());
         let outcome = during_model_call(&f, kind, 100, || mutate(&f));
-        assert_eq!(
-            outcome,
-            ReminderOutcome::Suppressed("stale_scope"),
-            "{name}"
-        );
+        let reason = if name.ends_with("_changed") {
+            "stale_observation"
+        } else {
+            "stale_scope"
+        };
+        assert_eq!(outcome, ReminderOutcome::Suppressed(reason), "{name}");
         assert_eq!((f.model.calls(), f.emits()), (1, 0), "{name}");
         let (_, attempted, accepted, _) = f.telemetry(kind);
         assert_eq!((attempted, accepted), (0, 0), "{name}");
