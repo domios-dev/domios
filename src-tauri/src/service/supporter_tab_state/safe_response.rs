@@ -12,14 +12,15 @@ pub(super) enum Kind {
     Update,
     Onboarding,
     DirectoryTrust,
+    Permission,
 }
 
 impl Kind {
     fn label_matches(self, label: &str) -> bool {
         match self {
             Self::Update => label == PROVIDER_UPDATE_PROMPT,
-            Self::Onboarding => matches!(label, LOGIN_OR_AUTH_REQUIRED | STILL_STARTING),
-            Self::DirectoryTrust => label == TRUST_OR_PERMISSION_PROMPT,
+            Self::Onboarding => false,
+            Self::DirectoryTrust | Self::Permission => label == TRUST_OR_PERMISSION_PROMPT,
         }
     }
     fn context(self) -> &'static str {
@@ -27,6 +28,7 @@ impl Kind {
             Self::Update => "update",
             Self::Onboarding => "onboarding",
             Self::DirectoryTrust => "directory_trust",
+            Self::Permission => "tool_permission",
         }
     }
     fn prompt_kind(self) -> codeterm_types::pty::PromptKind {
@@ -34,12 +36,13 @@ impl Kind {
             Self::Update => codeterm_types::pty::PromptKind::ManualUpdate,
             Self::Onboarding => codeterm_types::pty::PromptKind::Provider,
             Self::DirectoryTrust => codeterm_types::pty::PromptKind::DirectoryTrust,
+            Self::Permission => codeterm_types::pty::PromptKind::Provider,
         }
     }
     fn qualifying_label(self) -> &'static str {
         match self {
             Self::Update | Self::Onboarding => LOGIN_OR_AUTH_REQUIRED,
-            Self::DirectoryTrust => TRUST_OR_PERMISSION_PROMPT,
+            Self::DirectoryTrust | Self::Permission => TRUST_OR_PERMISSION_PROMPT,
         }
     }
 }
@@ -412,34 +415,53 @@ impl ServiceContext {
             cancel_for_correlation(tab_id, &envelope.correlation);
             return Progress::NotHandled;
         };
-        self.try_model_safe_response(
-            &crate::agent::tab_state::TabStateSnapshot {
-                tab_id: tab_id.to_string(),
-                agent_type,
-                session_id: tab.agent_session_id.clone(),
-                cwd: tab.cwd.clone(),
-                screen_text: envelope.captured_screen.clone(),
-            },
-            verdict,
-        )
+        let snapshot = crate::agent::tab_state::TabStateSnapshot {
+            tab_id: tab_id.to_string(),
+            agent_type,
+            session_id: tab.agent_session_id.clone(),
+            cwd: tab.cwd.clone(),
+            screen_text: envelope.captured_screen.clone(),
+        };
+        if self.route_unattended_launch_prompt(&snapshot, verdict) {
+            Progress::StepQueued
+        } else {
+            self.try_model_safe_response(&snapshot, verdict)
+        }
     }
 
     pub(super) fn model_safe_response_target(&self, tab: &str, screen: &str) -> Option<Target> {
         let tab = self.mux.read().get_tab(tab)?.clone();
+        if !crate::service::unattended_launch::owns_prompt_answers(&tab) {
+            return None;
+        }
         let provider = self
             .agent_registry
             .provider_arc(tab.agent_type.as_deref()?)?;
-        let target = provider_target(provider.as_ref(), screen).or_else(|| {
-            directory_trust::target_applies(&tab)
-                .then(|| directory_trust::provider_target(provider.as_ref(), screen))
-                .flatten()
-        })?;
+        let target = provider_target(provider.as_ref(), screen)
+            .filter(|target| target.kind == Kind::Update)
+            .or_else(|| {
+                directory_trust::target_applies(&tab)
+                    .then(|| directory_trust::provider_target(provider.as_ref(), screen))
+                    .flatten()
+            })
+            .or_else(|| {
+                let (_, signal) = self
+                    .prompt_detector
+                    .lock()
+                    .pending_permission_request(&tab.id)?;
+                let prompt = parse_prompt_safely(|| provider.parse_prompt(screen))?;
+                directory_trust::permission_target(
+                    provider.as_ref(),
+                    screen,
+                    prompt,
+                    &signal.tool_name,
+                )
+            })?;
         let applies = match target.kind {
             Kind::Update => true,
-            Kind::Onboarding => {
-                super::super::directory_trust::launch_onboarding_check_applies(&tab, provider.id())
-            }
+            Kind::Onboarding => false,
             Kind::DirectoryTrust => directory_trust::target_applies(&tab),
+            Kind::Permission => true,
         };
         applies.then_some(target)
     }
@@ -497,6 +519,10 @@ impl ServiceContext {
             cancel_for_correlation(tab_id, &envelope.correlation);
             return Progress::NotHandled;
         };
+        if target.kind == Kind::Permission {
+            cancel_for_correlation(tab_id, &envelope.correlation);
+            return Progress::NotHandled;
+        }
         if !verdict.live_prompt()
             || receipt.metadata.declared_safe_choice.as_deref() != Some(&target.choice)
             || !candidates::allows_prompt(verdict, &snapshot.screen_text, &target.prompt)
@@ -617,6 +643,7 @@ impl ServiceContext {
             Kind::DirectoryTrust => {
                 super::super::directory_trust::claim_model_trust_step(tab_id, &screen)
             }
+            Kind::Permission => false,
         };
         if !claimed {
             return Progress::NotHandled;
@@ -630,11 +657,13 @@ impl ServiceContext {
             Kind::DirectoryTrust => {
                 super::super::directory_trust::model_trust_step_revision(&screen)
             }
+            Kind::Permission => frame_hash(&target.frame_key),
         };
         let mut unchanged = ledgers.clone();
         match target.kind {
             Kind::Update => unchanged.update = envelope.ledgers.update,
             Kind::Onboarding | Kind::DirectoryTrust => unchanged.trust = envelope.ledgers.trust,
+            Kind::Permission => unchanged.prompt = envelope.ledgers.prompt,
         }
         let service = self.clone();
         let tab = tab_id.clone();
@@ -651,6 +680,7 @@ impl ServiceContext {
                 let own_ledger_current = match target.kind {
                     Kind::Update => ledgers.update == owned_revision,
                     Kind::Onboarding | Kind::DirectoryTrust => ledgers.trust == owned_revision,
+                    Kind::Permission => ledgers.permission == owned_revision,
                 };
                 let current = own_ledger_current
                     && unchanged == receipt.metadata.envelope.as_ref().unwrap().ledgers
@@ -668,6 +698,7 @@ impl ServiceContext {
                     Kind::DirectoryTrust => super::super::directory_trust::finish_model_trust_step(
                         &tab, &screen, current,
                     ),
+                    Kind::Permission => {}
                     Kind::Update if !current => {
                         super::super::output::release_model_update_step(&tab, &occurrence)
                     }

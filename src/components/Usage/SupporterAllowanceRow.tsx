@@ -12,7 +12,6 @@ export function SupporterAllowanceRow({ api }: { api?: ApiConfig }) {
   const pricing = status.pricing;
   const priced = pricing && (pricing.input_usd_per_million > 0 || pricing.output_usd_per_million > 0);
   if (!priced && status.calls_last_day === 0 && status.calls_last_hour === 0) return null;
-  const remaining = status.spend.remaining_usd;
   return (
     <div
       role="status"
@@ -30,14 +29,6 @@ export function SupporterAllowanceRow({ api }: { api?: ApiConfig }) {
           <span data-estimate="month" data-usd={status.spend.month.estimated_usd ?? "unknown"}>
             This month estimate: {estimate(status.spend.month.estimated_usd)}
           </span>
-          {remaining !== null && (
-            <span data-estimate="remaining" data-usd={remaining}>
-              Remaining balance estimate: {estimate(remaining)}
-            </span>
-          )}
-          {remaining !== null && remaining < 1 && (
-            <span role="alert" data-balance-state="below_one">Balance estimate below $1</span>
-          )}
         </>
       )}
       <span>{status.calls_last_hour} Supporter requests per hour · {status.calls_last_day} per day</span>

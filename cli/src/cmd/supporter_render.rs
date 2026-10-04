@@ -59,7 +59,7 @@ fn state_text(status: &Value) -> String {
     match status.get("state").and_then(Value::as_str) {
         Some("active") => "Active".into(),
         Some("budget_reached") => "Budget reached".into(),
-        Some("credit_exhausted") => "Balance exhausted".into(),
+        Some("credit_exhausted") => "Credit exhausted".into(),
         Some("not_connected") => "Not connected".into(),
         Some("token_unusable") => "Token file needs attention".into(),
         Some("no_token") => "No token".into(),
@@ -170,10 +170,6 @@ pub(super) fn render_status(status: &Value) -> String {
                 spend[key]["estimated_usd"]
             ));
         }
-        out.push_str(&format!(
-            "Balance USD: {}; remaining USD: {} (estimate)\n",
-            spend["balance_usd"], spend["remaining_usd"]
-        ));
         if spend["exhausted"] == true {
             out.push_str(&format!(
                 "Credit exhausted; next request probe after {}\n",
