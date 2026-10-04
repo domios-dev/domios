@@ -5,6 +5,7 @@
 
 mod compare;
 mod cron;
+mod live_capture;
 mod manifest;
 mod sentinel;
 mod source_inventory;
@@ -14,6 +15,7 @@ pub use manifest::{
     ExpectedDivergence, ImportMarker, ImportRefusal, MigrationError, RecordedManifest,
     RecoveryCandidate, RefusalReport, SourceStatus, IMPORT_MANIFEST_FORMAT,
 };
+pub use live_capture::LiveRootImportRequest;
 pub use source_inventory::{
     capture_sources, CaptureLimits, CaptureStep, Captured, EntryKind, Sha256Digest, SourceCapture,
     SourceFile, SourceRole,

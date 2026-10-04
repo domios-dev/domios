@@ -4,7 +4,8 @@
 use super::manifest::{self, bounded, uncaptured, ImportRefusal, MigrationError};
 use super::ImportDomain;
 use crate::assets::{
-    self, canonical_dir, create_owner_file, ensure_owned_dir, publish_no_replace, unique_token,
+    self, canonical_dir, create_owner_file, ensure_owned_dir, publish_no_replace, sync_dir,
+    unique_token,
 };
 use crate::error::{io_error, StorageError};
 use std::collections::BTreeMap;
@@ -17,6 +18,7 @@ const CHUNK: usize = 64 * 1024;
 const ORIGINALS: &str = "originals";
 const STAGING: &str = "tmp";
 pub(crate) const CAPTURE_MANIFEST: &str = "capture.manifest";
+const LIVE_CAPTURE_EPOCH: &str = "0000000000000001";
 
 /// Count and byte bounds of one capture; exceeding any of them refuses the whole capture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -39,7 +41,7 @@ impl Default for CaptureLimits {
 }
 
 impl CaptureLimits {
-    fn validate(&self) -> Result<(), ImportRefusal> {
+    pub(crate) fn validate(&self) -> Result<(), ImportRefusal> {
         if self.max_files == 0
             || self.max_file_bytes == 0
             || self.max_total_bytes == 0
@@ -198,8 +200,11 @@ impl SourceCapture {
             let Captured::Bytes { size, sha256 } = &file.captured else {
                 continue;
             };
-            let same = hash_path(&self.original_path(file), *size)
-                .is_ok_and(|hashed| hashed == (*size, *sha256));
+            let path = self.original_path(file);
+            let readonly = fs::symlink_metadata(&path)
+                .is_ok_and(|metadata| metadata.permissions().readonly());
+            let same = readonly
+                && hash_path(&path, *size).is_ok_and(|hashed| hashed == (*size, *sha256));
             if !same {
                 return Err(ImportRefusal::BackupTampered {
                     relative: file.relative.clone(),
@@ -207,6 +212,35 @@ impl SourceCapture {
             }
         }
         Ok(())
+    }
+
+    pub(crate) fn from_live_archive(
+        backup_dir: &Path,
+        files: Vec<SourceFile>,
+        manifest: &[u8],
+    ) -> Result<SourceCapture, MigrationError> {
+        for file in &files {
+            let Captured::Bytes { size, sha256 } = &file.captured else {
+                continue;
+            };
+            let path = resolve(&backup_dir.join(ORIGINALS), &file.relative);
+            if hash_path(&path, *size).ok() != Some((*size, *sha256)) {
+                return Err(uncaptured(ImportRefusal::BackupTampered {
+                    relative: file.relative.clone(),
+                }));
+            }
+            set_readonly(&path)?;
+        }
+        set_readonly(&backup_dir.join(CAPTURE_MANIFEST))?;
+        let capture = SourceCapture {
+            source_root: canonical_dir(&backup_dir.join(ORIGINALS))?,
+            backup_dir: backup_dir.to_path_buf(),
+            files,
+            digest: Sha256Digest::of(manifest),
+            manifest_bytes: manifest.len() as u64,
+        };
+        capture.verify_sealed().map_err(uncaptured)?;
+        Ok(capture)
     }
 }
 
@@ -217,7 +251,21 @@ pub fn capture_sources(
     backup_dir: &Path,
     limits: CaptureLimits,
 ) -> Result<SourceCapture, MigrationError> {
-    capture(source_root, backup_dir, limits, &mut |_: &str| true)
+    capture(source_root, backup_dir, limits, &mut |_: &str| true, false)
+}
+
+pub(crate) fn capture_live_sources(
+    source_root: &Path,
+    limits: CaptureLimits,
+) -> Result<SourceCapture, MigrationError> {
+    let source = canonical_dir(source_root).map_err(|error| {
+        uncaptured(ImportRefusal::Unreadable {
+            relative: String::new(),
+            detail: bounded(&error.to_string()),
+        })
+    })?;
+    let backup = live_backup_dir(&source)?;
+    capture(&source, &backup, limits, &mut |_: &str| true, true)
 }
 
 /// What a test-support capture observer wants after one original was staged.
@@ -237,9 +285,34 @@ impl SourceCapture {
         limits: CaptureLimits,
         observer: &mut dyn FnMut(&str) -> CaptureStep,
     ) -> Result<SourceCapture, MigrationError> {
-        capture(source_root, backup_dir, limits, &mut |relative: &str| {
-            observer(relative) == CaptureStep::Continue
-        })
+        capture(
+            source_root,
+            backup_dir,
+            limits,
+            &mut |relative: &str| observer(relative) == CaptureStep::Continue,
+            false,
+        )
+    }
+
+    pub(crate) fn capture_live_observed(
+        source_root: &Path,
+        limits: CaptureLimits,
+        observer: &mut dyn FnMut(&str) -> CaptureStep,
+    ) -> Result<SourceCapture, MigrationError> {
+        let source = canonical_dir(source_root).map_err(|error| {
+            uncaptured(ImportRefusal::Unreadable {
+                relative: String::new(),
+                detail: bounded(&error.to_string()),
+            })
+        })?;
+        let backup = live_backup_dir(&source)?;
+        capture(
+            &source,
+            &backup,
+            limits,
+            &mut |relative: &str| observer(relative) == CaptureStep::Continue,
+            true,
+        )
     }
 }
 
@@ -248,6 +321,7 @@ fn capture(
     backup_dir: &Path,
     limits: CaptureLimits,
     observer: &mut dyn FnMut(&str) -> bool,
+    live_root: bool,
 ) -> Result<SourceCapture, MigrationError> {
     limits.validate().map_err(uncaptured)?;
     let source = canonical_dir(source_root).map_err(|error| {
@@ -256,7 +330,11 @@ fn capture(
             detail: bounded(&error.to_string()),
         })
     })?;
-    let backup = prepare_backup(&source, backup_dir)?;
+    let backup = if live_root {
+        live_backup_dir(&source)?
+    } else {
+        prepare_backup(&source, backup_dir)?
+    };
     let entries = scan(&source, &limits).map_err(uncaptured)?;
     let mut total = 0;
     let mut files = Vec::with_capacity(entries.len());
@@ -278,12 +356,31 @@ fn capture(
     let text = manifest::render_capture(&source, &files);
     publish_immutable(&backup, CAPTURE_MANIFEST, &text)?;
     Ok(SourceCapture {
-        source_root: source,
+        source_root: if live_root {
+            canonical_dir(&backup.join(ORIGINALS))?
+        } else {
+            source
+        },
         backup_dir: backup,
         files,
         digest: Sha256Digest::of(&text),
         manifest_bytes: text.len() as u64,
     })
+}
+
+pub(crate) fn live_backup_dir(source: &Path) -> Result<PathBuf, MigrationError> {
+    let storage = source.join("storage");
+    ensure_owned_dir(&storage)?;
+    let archives = storage.join("legacy-originals");
+    ensure_owned_dir(&archives)?;
+    let backup = archives.join(LIVE_CAPTURE_EPOCH);
+    ensure_owned_dir(&backup)?;
+    ensure_owned_dir(&backup.join(ORIGINALS))?;
+    ensure_owned_dir(&backup.join(STAGING))?;
+    sync_dir(&storage)?;
+    sync_dir(&archives)?;
+    sync_dir(&backup)?;
+    canonical_dir(&backup).map_err(MigrationError::from)
 }
 
 /// Only an inert copy is imported: the importing Storage's own root is never a source.
@@ -369,6 +466,39 @@ fn classify(domain: ImportDomain, dir: &str, name: &str) -> Option<SourceRole> {
     } else {
         SourceRole::Unrecognized
     })
+}
+
+pub(crate) fn valid_live_inventory_path(
+    domain: ImportDomain,
+    role: SourceRole,
+    relative: &str,
+) -> bool {
+    let mut parts = relative.split('/');
+    let first = parts.next().unwrap_or_default();
+    if first.is_empty()
+        || first == "."
+        || first == ".."
+        || (cfg!(windows) && first.contains('\\'))
+    {
+        return false;
+    }
+    let (dir, name) = match (first, parts.next(), parts.next(), parts.next()) {
+        (name, None, None, None) => ("", name),
+        ("state-backups", Some(file), Some(name), None)
+            if file == current_name(domain)
+                && !name.is_empty()
+                && name != "."
+                && name != ".."
+                && (!cfg!(windows) || !name.contains('\\')) =>
+        {
+            ("state-backups", name)
+        }
+        _ => return false,
+    };
+    if cfg!(windows) && name.contains(':') {
+        return false;
+    }
+    classify(domain, dir, name) == Some(role)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -606,6 +736,7 @@ fn stage(
             relative: entry.relative.clone(),
         }));
     }
+    set_readonly(&target)?;
     *total += size;
     Ok(Captured::Bytes { size, sha256 })
 }
@@ -636,7 +767,7 @@ fn publish_copy(
         Err(StorageError::Io {
             kind: ErrorKind::AlreadyExists,
             ..
-        }) if hash_path(target, expected.0).ok() == Some(expected) => Ok(()),
+        }) if hash_path(target, expected.0).ok() == Some(expected) => set_readonly(target),
         Err(StorageError::Io {
             kind: ErrorKind::AlreadyExists,
             ..
@@ -648,9 +779,12 @@ fn publish_copy(
 }
 
 fn set_readonly(path: &Path) -> Result<(), MigrationError> {
-    let mut permissions = fs::metadata(path)
-        .map_err(|error| io_error("inspect backup copy", error))?
-        .permissions();
+    let metadata = fs::symlink_metadata(path)
+        .map_err(|error| io_error("inspect backup copy", error))?;
+    let mut permissions = metadata.permissions();
+    if permissions.readonly() {
+        return Ok(());
+    }
     permissions.set_readonly(true);
     fs::set_permissions(path, permissions).map_err(|error| io_error("seal backup copy", error))?;
     Ok(())
@@ -667,6 +801,7 @@ pub(crate) fn publish_immutable(
     let expected = (bytes.len() as u64, Sha256Digest::of(bytes));
     if assets::entry_exists(&target)? {
         if hash_path(&target, expected.0).ok() == Some(expected) {
+            set_readonly(&target)?;
             return Ok(target);
         }
         return Err(uncaptured(ImportRefusal::StagingConflict {
@@ -694,7 +829,10 @@ pub(crate) fn verify_immutable(
     size: u64,
     digest: Sha256Digest,
 ) -> Result<(), ImportRefusal> {
-    if hash_path(&resolve(backup, relative), size).ok() != Some((size, digest)) {
+    let path = resolve(backup, relative);
+    let readonly = fs::symlink_metadata(&path)
+        .is_ok_and(|metadata| metadata.is_file() && metadata.permissions().readonly());
+    if !readonly || hash_path(&path, size).ok() != Some((size, digest)) {
         return Err(ImportRefusal::BackupTampered {
             relative: relative.to_string(),
         });
@@ -779,7 +917,7 @@ fn type_detail(meta: &fs::Metadata) -> String {
 
 /// Opens a regular file for reading; the error is the entry's kind and why it cannot be
 /// captured.
-fn open_regular(path: &Path) -> Result<(File, fs::Metadata), (EntryKind, String)> {
+pub(crate) fn open_regular(path: &Path) -> Result<(File, fs::Metadata), (EntryKind, String)> {
     let meta =
         fs::symlink_metadata(path).map_err(|error| (EntryKind::Unstatable, error.to_string()))?;
     let kind = entry_kind(path, &meta);
@@ -810,7 +948,9 @@ fn observe(path: &Path, expected: u64) -> Observed {
 
 /// Hashes at most `expected + 1` bytes, so a grown file is seen without reading it all.
 fn hash_path(path: &Path, expected: u64) -> std::io::Result<(u64, Sha256Digest)> {
-    hash_reader(File::open(path)?, expected)
+    let (handle, _) = open_regular(path)
+        .map_err(|(_, detail)| std::io::Error::new(ErrorKind::InvalidData, detail))?;
+    hash_reader(handle, expected)
 }
 
 fn hash_reader(handle: File, expected: u64) -> std::io::Result<(u64, Sha256Digest)> {

@@ -12,6 +12,7 @@ use std::time::{Duration, SystemTime};
 mod bounds;
 mod capture;
 mod conservation;
+mod live_root;
 mod selection;
 mod transaction;
 
