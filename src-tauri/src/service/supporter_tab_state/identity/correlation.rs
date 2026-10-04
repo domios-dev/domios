@@ -284,6 +284,7 @@ pub(crate) fn project(value: &Value) -> Option<Value> {
         ObservationTrigger::WorkerIdle,
         ObservationTrigger::BusyNoOutput,
         ObservationTrigger::TabExit,
+        ObservationTrigger::UserDeliveryReadiness,
     ];
     if correlation.version != 2
         || Some(correlation.observation_id) != value["observation_id"].as_u64()
