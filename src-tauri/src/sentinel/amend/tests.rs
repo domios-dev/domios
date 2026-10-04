@@ -16,7 +16,8 @@ fn fixture() -> (tempfile::TempDir, Store, Sentinel) {
         .create(
             Create {
                 name: Some("initial".into()),
-                probe: "status".into(),
+                probe: Some("status".into()),
+                observe: None,
                 question: "Is it done?".into(),
                 buckets: vec!["done".into()],
                 every: "10s".into(),

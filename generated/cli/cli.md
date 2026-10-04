@@ -2729,7 +2729,7 @@ Cheap hash-gated watchers with closed-set routes
 
 #### `codeterm sentinel create`
 
-Watch a bounded shell probe, classifying only changed output
+Classify a bounded probe or same-Team agent tab observation
 
 - `--buckets`
 - `--every` — Owner-requested cadence (minimum 10s)
@@ -2738,12 +2738,19 @@ Watch a bounded shell probe, classifying only changed output
 - `--max-actions` — Finite action-attempt budget (maximum 1024)
 - `--max-transitions` — Finite accepted transition budget (maximum 256)
 - `--name` — Display name of the Sentinel scenario or stage
+- `--observe` — Observe a same-Team agent tab and wake on prompt or status changes
 - `--paused` — Create a dormant downstream stage; its lifetime starts now
 - `--probe`
 - `--question`
 - `--route` — Closed-set route: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop
 - `--timeout` — End the sentinel after this duration
 - `--until` — Stop after this bucket's first confident transition
+
+#### `codeterm sentinel history`
+
+Show immutable definition versions
+
+- `<id>`
 
 #### `codeterm sentinel list`
 
@@ -2759,6 +2766,15 @@ Show one sentinel
 
 Stop one sentinel
 
+- `<id>`
+
+#### `codeterm sentinel update`
+
+Replace one definition at the expected version
+
+- `--cause`
+- `--expect-version`
+- `--from-file`
 - `<id>`
 
 #### `codeterm service`
