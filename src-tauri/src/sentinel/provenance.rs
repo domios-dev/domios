@@ -120,6 +120,7 @@ pub enum Stage {
     RouteClaim,
     RouteCompleted,
     RouteFailed,
+    EscalationExpired,
     Skip,
 }
 
@@ -130,6 +131,7 @@ impl Stage {
             Self::RouteClaim => "route_claim",
             Self::RouteCompleted => "route_completed",
             Self::RouteFailed => "route_failed",
+            Self::EscalationExpired => "escalation_expired",
             Self::Skip => "skip",
         }
     }
@@ -140,6 +142,7 @@ impl Stage {
             Self::RouteClaim => "claimed",
             Self::RouteCompleted => "api_completed",
             Self::RouteFailed => "failed",
+            Self::EscalationExpired => "not_attempted",
         }
     }
 }

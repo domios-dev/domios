@@ -73,6 +73,7 @@ mod tests {
                     timeout: None,
                     paused: false,
                     handlers: None,
+                    escalation_timeout_ms: None,
                     max_transitions: None,
                     max_actions: None,
                 },

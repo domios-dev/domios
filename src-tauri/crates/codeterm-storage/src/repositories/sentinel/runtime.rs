@@ -342,13 +342,14 @@ fn write_outcome(
 ) -> Result<(), StorageError> {
     cx.write(
         "UPDATE sentinel_runtime SET last_hash = ?2, last_bucket = ?3, stopped = ?4, \
-         last_reason = ?5 WHERE sentinel_id = ?1",
+         last_reason = ?5, held = ?6 WHERE sentinel_id = ?1",
         params![
             id,
             outcome.last_hash,
             outcome.last_bucket,
             outcome.stopped,
-            outcome.last_reason
+            outcome.last_reason,
+            outcome.held
         ],
     )?;
     Ok(())

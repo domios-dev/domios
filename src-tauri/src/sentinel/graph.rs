@@ -225,12 +225,13 @@ fn target(
     let (kind, id, owner) = match action {
         Route::Sentinel(id) => ("sentinel", id, Some(source.creator_tab_id.clone())),
         Route::Send(id) => ("worker", id, None),
+        Route::Escalate(super::machine::EscalateTarget::Agent(id)) => ("worker", id, None),
         Route::Cron(id) => ("cron", id, None),
         Route::Notify
         | Route::Stop
         | Route::Command(_)
         | Route::RespondPrompt(_)
-        | Route::Escalate(_) => return None,
+        | Route::Escalate(super::machine::EscalateTarget::Creator) => return None,
     };
     let unknown = Identity {
         kind: kind.into(),
@@ -244,7 +245,7 @@ fn target(
             .iter()
             .find(|j| j.id == *id && j.same_owner(source) && j.agent_authored)
             .map(identity),
-        Route::Send(id) => mux
+        Route::Send(id) | Route::Escalate(super::machine::EscalateTarget::Agent(id)) => mux
             .get_tab(id)
             .filter(|tab| {
                 tab.agent_type.is_some()

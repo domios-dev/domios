@@ -91,9 +91,24 @@ impl Route {
         match value {
             "notify" => Ok(Self::Notify),
             "stop" => Ok(Self::Stop),
+            "escalate:creator" => Ok(Self::Escalate(EscalateTarget::Creator)),
+            _ if value.starts_with("escalate:agent:") => {
+                let target = &value["escalate:agent:".len()..];
+                if target.trim().is_empty()
+                    || target.len() > 256
+                    || target.chars().any(char::is_control)
+                    || target.contains('/')
+                    || !target
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+                {
+                    return Err("route: escalation agent must be a bounded tab ID".into());
+                }
+                Ok(Self::Escalate(EscalateTarget::Agent(target.into())))
+            }
             _ => {
                 let (kind, target) = value.split_once(':').ok_or(
-                    "route: use notify, sentinel:<exact-id>, send:<tab>, cron:<name>, or stop",
+                    "route: use notify, sentinel:<exact-id>, send:<tab>, cron:<name>, stop, or escalate:creator|agent:<tab>",
                 )?;
                 if target.trim().is_empty()
                     || target.len() > 256
@@ -202,6 +217,28 @@ pub fn evaluate(
     scope: Scope,
     classify: impl FnOnce() -> Classification,
 ) -> Outcome {
+    evaluate_with_other(
+        machine,
+        output,
+        buckets,
+        routes,
+        &[],
+        until,
+        scope,
+        classify,
+    )
+}
+
+pub fn evaluate_with_other(
+    machine: &mut Machine,
+    output: &[u8],
+    buckets: &[String],
+    routes: &BTreeMap<String, Vec<Handler>>,
+    on_other: &[Handler],
+    until: Option<&str>,
+    scope: Scope,
+    classify: impl FnOnce() -> Classification,
+) -> Outcome {
     let mut evidence = Evidence::new(scope, None);
     let skipped = |reason, evidence| Outcome {
         evidence,
@@ -216,6 +253,9 @@ pub fn evaluate(
     if machine.stopped {
         return skipped("stopped", evidence);
     }
+    if machine.held.is_some() {
+        return skipped("held", evidence);
+    }
     let hash = format!("{:x}", Sha256::digest(output));
     evidence.state_hash = Some(hash.clone());
     if machine.last_hash.as_deref() == Some(&hash) {
@@ -224,7 +264,7 @@ pub fn evaluate(
     machine.last_hash = Some(hash);
     let classification = classify();
     evidence.classified(classification.source);
-    let verdict = match classification.result {
+    let mut verdict = match classification.result {
         Ok(verdict) => verdict,
         Err(failure) => return skipped(failure.reason(), evidence),
     };
@@ -248,6 +288,17 @@ pub fn evaluate(
             .get(&verdict.bucket)
             .cloned()
             .unwrap_or_else(|| vec![Handler::notify(&verdict.bucket)])
+    } else if matches!(reason, "other" | "low_confidence") && !on_other.is_empty() {
+        verdict.bucket = crate::storage::OTHER_BUCKET.into();
+        machine.last_bucket = Some(crate::storage::OTHER_BUCKET.into());
+        let handlers = on_other.to_vec();
+        if handlers
+            .iter()
+            .any(|handler| matches!(&handler.action, Route::Escalate(_)))
+        {
+            machine.held = Some(evidence.evaluation_id.clone());
+        }
+        handlers
     } else {
         Vec::new()
     };

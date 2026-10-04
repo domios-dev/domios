@@ -82,6 +82,8 @@ pub struct Update {
     pub handlers: Option<BTreeMap<String, Vec<Definition>>>,
     #[serde(default)]
     pub on_other: Vec<Definition>,
+    #[serde(default)]
+    pub escalation_timeout_ms: Option<u64>,
     pub max_transitions: u16,
     pub max_actions: u16,
     #[serde(default)]
@@ -223,6 +225,8 @@ impl Update {
         job.max_transitions = self.max_transitions;
         job.max_actions = self.max_actions;
         job.on_other = on_other;
+        job.escalation_timeout_ms = self.escalation_timeout_ms;
+        super::escalation::validate(&job)?;
         let snapshot = DefinitionSnapshot::from_job(&job);
         if serde_json::to_vec(&snapshot)
             .map_err(|error| error.to_string())?
@@ -293,6 +297,7 @@ impl Store {
         next.max_transitions = update.job.max_transitions;
         next.max_actions = update.job.max_actions;
         next.on_other = update.job.on_other;
+        next.escalation_timeout_ms = update.job.escalation_timeout_ms;
         if next
             .machine
             .last_bucket
