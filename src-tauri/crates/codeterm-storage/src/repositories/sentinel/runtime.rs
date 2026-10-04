@@ -522,7 +522,8 @@ pub(super) fn create(
     finished(cx.conn, MutationOutcome::Applied, &touched)
 }
 
-pub(super) fn import(
+/// Transaction join for the all-domain importer: exact existing stages as `Imported` v1.
+pub(crate) fn import(
     cx: &mut WriteCx<'_>,
     records: Vec<SentinelImport>,
 ) -> Result<SentinelCommit, StorageError> {

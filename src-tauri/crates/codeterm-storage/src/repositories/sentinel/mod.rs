@@ -4,7 +4,7 @@
 mod definitions;
 mod queries;
 mod records;
-/// `runtime::remove_team_rows` is the Team-teardown transaction join for integration owners.
+/// `runtime::{import, remove_team_rows}` are transaction joins for integration owners.
 pub(crate) mod runtime;
 
 use crate::error::StorageError;
