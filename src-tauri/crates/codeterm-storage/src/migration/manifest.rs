@@ -593,6 +593,15 @@ pub(crate) fn render_receipt(receipt: &ImportReceipt) -> Vec<u8> {
             divergence.last_run_copy_sha256
         );
     }
+    let _ = match &receipt.archive {
+        Ok(()) => writeln!(out, "archive verified"),
+        Err(refusal) => writeln!(
+            out,
+            "archive {} {}",
+            refusal.code(),
+            token(&refusal.detail())
+        ),
+    };
     match &receipt.comparison {
         Ok(report) => {
             for domain in &report.domains {

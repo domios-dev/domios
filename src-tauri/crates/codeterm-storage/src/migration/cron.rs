@@ -69,6 +69,7 @@ pub(super) fn preflight(import: &CronImport, facts: &mut Facts) -> Result<(), Im
     facts.bound(DOMAIN, "history-per-job", MAX_CRON_HISTORY, longest);
     facts.bound(DOMAIN, "max-history", MAX_CRON_HISTORY, widest);
     facts.bound(DOMAIN, "write-batch", MAX_CRON_BATCH as u64, 0);
+    facts.rule(DOMAIN, "write-batch", "typed-cronwrite-batches-only");
     facts.rule(DOMAIN, "fields", "repository-validated");
     let live: HashSet<&CronJobId> = import.jobs.iter().map(|job| &job.record.id).collect();
     let listed = |job: &CronJobImport, run: &CronRunRecord| {

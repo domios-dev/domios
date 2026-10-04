@@ -104,6 +104,7 @@ pub struct SourceCapture {
     backup_dir: PathBuf,
     files: Vec<SourceFile>,
     digest: Sha256Digest,
+    manifest_bytes: u64,
 }
 
 impl SourceCapture {
@@ -157,8 +158,14 @@ impl SourceCapture {
         Ok(bytes)
     }
 
-    /// Re-hashes every backup copy against the capture.
-    pub(crate) fn verify_backup(&self) -> Result<(), ImportRefusal> {
+    /// Re-hashes every backup copy and the capture manifest against the capture.
+    pub(crate) fn verify_sealed(&self) -> Result<(), ImportRefusal> {
+        verify_immutable(
+            &self.backup_dir,
+            CAPTURE_MANIFEST,
+            self.manifest_bytes,
+            self.digest,
+        )?;
         for file in &self.files {
             let Captured::Bytes { size, sha256 } = &file.captured else {
                 continue;
@@ -247,6 +254,7 @@ fn capture(
         backup_dir: backup,
         files,
         digest: Sha256Digest::of(&text),
+        manifest_bytes: text.len() as u64,
     })
 }
 
@@ -487,7 +495,7 @@ fn pump(
             Ok(0) => break,
             Ok(read) => read,
             Err(error) if error.kind() == ErrorKind::Interrupted => continue,
-            Err(error) => return Ok(Pumped::SourceFailed(bounded(&error.to_string()))),
+            Err(error) => return Ok(Pumped::SourceFailed(error.to_string())),
         };
         read_total += read as u64;
         if read_total > budget.file_limit {
@@ -524,13 +532,10 @@ fn stage(
         detail: bounded(&detail),
     };
     let path = resolve(source, &entry.relative);
-    let meta = match fs::symlink_metadata(&path) {
-        Ok(meta) => meta,
-        Err(error) => return Ok(unreadable(error.to_string())),
+    let (mut handle, meta) = match open_regular(&path) {
+        Ok(opened) => opened,
+        Err(detail) => return Ok(unreadable(detail)),
     };
-    if !meta.is_file() || is_link(&meta) {
-        return Ok(unreadable("not a regular file".to_string()));
-    }
     if meta.len() > limits.max_file_bytes {
         return Err(uncaptured(ImportRefusal::OverLimit {
             what: "source file bytes",
@@ -538,10 +543,6 @@ fn stage(
             observed: meta.len(),
         }));
     }
-    let mut handle = match File::open(&path) {
-        Ok(handle) => handle,
-        Err(error) => return Ok(unreadable(error.to_string())),
-    };
     let budget = Budget {
         declared: meta.len(),
         file_limit: limits.max_file_bytes,
@@ -672,9 +673,30 @@ pub(crate) fn verify_immutable(
     Ok(())
 }
 
+/// Opens a regular, non-link file for reading; the error is why it cannot be captured.
+fn open_regular(path: &Path) -> Result<(File, fs::Metadata), String> {
+    let meta = fs::symlink_metadata(path).map_err(|error| error.to_string())?;
+    if !meta.is_file() || is_link(&meta) {
+        return Err("not a regular file".to_string());
+    }
+    let handle = File::open(path).map_err(|error| error.to_string())?;
+    Ok((handle, meta))
+}
+
+/// What a capture of `path` sees now: its size and hash, or the bounded reason it cannot
+/// be copied, comparable with what the first pass recorded.
+fn observe(path: &Path, expected: u64) -> Result<(u64, Sha256Digest), String> {
+    let (handle, _) = open_regular(path).map_err(|detail| bounded(&detail))?;
+    hash_reader(handle, expected).map_err(|error| bounded(&error.to_string()))
+}
+
 /// Hashes at most `expected + 1` bytes, so a grown file is seen without reading it all.
 fn hash_path(path: &Path, expected: u64) -> std::io::Result<(u64, Sha256Digest)> {
-    let mut handle = File::open(path)?.take(expected.saturating_add(1));
+    hash_reader(File::open(path)?, expected)
+}
+
+fn hash_reader(handle: File, expected: u64) -> std::io::Result<(u64, Sha256Digest)> {
+    let mut handle = handle.take(expected.saturating_add(1));
     let mut hasher = Sha256::new();
     let mut buffer = vec![0_u8; CHUNK];
     let mut total = 0_u64;
@@ -709,11 +731,12 @@ fn confirm_unchanged(
         });
     }
     for file in files {
-        let Captured::Bytes { size, sha256 } = &file.captured else {
-            continue;
+        let path = resolve(source, &file.relative);
+        let unchanged = match &file.captured {
+            Captured::Bytes { size, sha256 } => observe(&path, *size) == Ok((*size, *sha256)),
+            Captured::Unreadable { detail } => observe(&path, 0) == Err(detail.clone()),
         };
-        let current = hash_path(&resolve(source, &file.relative), *size).ok();
-        if current != Some((*size, *sha256)) {
+        if !unchanged {
             return Err(ImportRefusal::SourceChanged {
                 relative: file.relative.clone(),
             });

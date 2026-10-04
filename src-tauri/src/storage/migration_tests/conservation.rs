@@ -145,6 +145,7 @@ fn storage_migration_one_transaction_conserves_cron_and_sentinel_exactly() {
         counts,
         [(ImportDomain::Cron, 4, 4), (ImportDomain::Sentinel, 3, 3)]
     );
+    assert_eq!(receipt.archive, Ok(()));
     assert!(matches!(receipt.recorded, RecordedManifest::File(_)));
     close(storage);
 }
@@ -451,6 +452,12 @@ fn storage_migration_manifests_are_versioned_deterministic_and_parseable() {
         line(&["bound", "cron", "max-history", &history, "100"]),
         line(&["bound", "cron", "write-batch", &batch, "0"]),
         line(&["rule", "cron", "fields", "repository-validated"]),
+        line(&[
+            "rule",
+            "cron",
+            "write-batch",
+            "typed-cronwrite-batches-only",
+        ]),
         line(&["bound", "sentinel", "stages", &stages, "3"]),
         line(&["bound", "sentinel", "import-batch", &import_batch, "3"]),
         line(&["rule", "sentinel", "fields", "repository-validated"]),
@@ -479,6 +486,7 @@ fn storage_migration_manifests_are_versioned_deterministic_and_parseable() {
         line(&["manifest", &digest]),
         line(&["capture", &capture]),
         line(&["revision", &revision]),
+        line(&["archive", "verified"]),
         line(&[
             "compare",
             "cron",

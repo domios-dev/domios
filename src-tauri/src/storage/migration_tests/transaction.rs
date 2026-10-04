@@ -285,6 +285,68 @@ fn storage_migration_tampered_backup_refuses_before_commit() {
 }
 
 #[test]
+fn storage_migration_tampered_capture_manifest_refuses_before_commit() {
+    let f = Fixture::seeded();
+    let storage = f.open();
+    let plan = f.plan();
+    let manifest = f.backup().join("capture.manifest");
+    make_writable(&manifest);
+    fs::write(&manifest, b"codeterm-legacy-capture 1\nend 0\n").expect("tamper");
+
+    let error = storage
+        .commit_legacy_import(plan, DEADLINE)
+        .expect_err("a changed capture manifest refuses");
+
+    assert_eq!(
+        refusal(error),
+        ImportRefusal::BackupTampered {
+            relative: "capture.manifest".to_string()
+        }
+    );
+    assert_untouched(&storage);
+    close(storage);
+}
+
+#[test]
+fn storage_migration_commit_reads_no_file_under_the_writer() {
+    let f = Fixture::seeded();
+    let storage = f.open();
+    let plan = f.plan();
+    let copy = plan.capture().original_path(&plan.capture().files()[0]);
+    let hold = storage.hold_writer().expect("hold the writer");
+    hold.wait_held(DEADLINE).expect("writer held");
+
+    let receipt = storage
+        .commit_legacy_import_after_submit(
+            plan,
+            DEADLINE,
+            Box::new(move || {
+                make_writable(&copy);
+                fs::write(&copy, EMPTY_CRONS).expect("tamper after the pre-submit check");
+                hold.release();
+            }),
+        )
+        .expect("the queued transaction reads no file, so it commits");
+
+    assert_eq!(
+        receipt.archive,
+        Err(ImportRefusal::BackupTampered {
+            relative: "crons.json".to_string()
+        })
+    );
+    assert_eq!(
+        marker(&storage).map(|found| found.revision),
+        Some(receipt.revision)
+    );
+    assert!(receipt.comparison.expect("comparison").is_clean());
+    let recorded = lines(&fs::read(f.backup().join("import.receipt")).expect("receipt"));
+    assert!(recorded
+        .iter()
+        .any(|words| words.starts_with(&line(&["archive", "backup-tampered"]))));
+    close(storage);
+}
+
+#[test]
 fn storage_migration_live_root_is_never_a_source() {
     let f = Fixture::new();
     let storage = f.open();
