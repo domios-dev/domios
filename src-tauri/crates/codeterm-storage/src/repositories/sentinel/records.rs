@@ -5,6 +5,10 @@ use std::collections::HashSet;
 /// Repository bounds protect the mailbox and reads; domain rules stay in the domain.
 pub const MAX_SENTINEL_RECORDS: usize = 1024;
 pub const MAX_SENTINEL_BATCH: usize = 1024;
+/// Newest amended versions carried by one aggregate; `history` still returns every version.
+pub const MAX_SENTINEL_LINEAGE: usize = 16;
+/// Reserved bucket holding the handlers that run when no declared bucket matches.
+pub const OTHER_BUCKET: &str = "other";
 const MAX_BUCKETS: usize = 64;
 const MAX_HANDLERS_PER_BUCKET: usize = 64;
 const MAX_TRANSITIONS: usize = 1024;
@@ -56,6 +60,22 @@ pub struct CommandParameters {
     pub timeout_ms: u64,
 }
 
+/// Prompt class a respond-prompt handler may request an answer for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SafeKind {
+    DirectoryTrust,
+    Onboarding,
+    Update,
+    Permission,
+    Structured,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EscalateTarget {
+    Creator,
+    Agent(String),
+}
+
 /// Stored command definitions are data only; the repository never executes anything.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HandlerAction {
@@ -65,6 +85,21 @@ pub enum HandlerAction {
     Sentinel(String),
     Stop,
     Command(CommandParameters),
+    RespondPrompt(SafeKind),
+    Escalate(EscalateTarget),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ObserveKind {
+    Tab,
+    CronRun,
+}
+
+/// A tab-scoped observation source; a stage has either this or a shell probe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObserveSource {
+    pub kind: ObserveKind,
+    pub reference: String,
 }
 
 /// Exact historical target identity; it never implies a live tab, cron or Team exists.
@@ -96,12 +131,16 @@ pub struct BucketDefinition {
 pub struct StageDefinition {
     pub name: Option<String>,
     pub probe: String,
+    pub observe: Option<ObserveSource>,
     pub question: String,
     pub interval_ms: u64,
     pub until: Option<String>,
+    pub escalation_timeout_ms: Option<u64>,
     pub max_transitions: u16,
     pub max_actions: u16,
     pub buckets: Vec<BucketDefinition>,
+    /// Handlers of the reserved `other` bucket.
+    pub on_other: Vec<HandlerDefinition>,
 }
 
 /// `Imported` versions were observed at import; any earlier history is unavailable.
@@ -111,12 +150,40 @@ pub enum DefinitionProvenance {
     Imported,
 }
 
+/// Lineage of one amended version: which head it replaced, who authored it and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AmendmentRecord {
+    pub version: u64,
+    pub replaced_version: u64,
+    pub author_tab_id: String,
+    pub cause_transition_id: Option<String>,
+    pub authored_at: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredDefinition {
     pub version: u64,
     pub provenance: DefinitionProvenance,
     pub created_revision: Revision,
+    pub amendment: Option<AmendmentRecord>,
     pub definition: StageDefinition,
+}
+
+/// One authored replacement of the head version.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DefinitionUpdate {
+    pub definition: StageDefinition,
+    pub author_tab_id: String,
+    pub cause_transition_id: Option<String>,
+    pub authored_at: u64,
+}
+
+/// The cron run whose tab a stage currently observes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RunRecord {
+    pub run_id: String,
+    pub tab_id: String,
+    pub bound_at: u64,
 }
 
 /// Mutable stage state. `generation` is the domain lease fence, distinct from the
@@ -131,6 +198,9 @@ pub struct StageRuntime {
     pub last_hash: Option<String>,
     pub last_bucket: Option<String>,
     pub last_reason: Option<String>,
+    /// The `other` transition whose escalation holds the stage.
+    pub held: Option<String>,
+    pub run: Option<RunRecord>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -196,11 +266,13 @@ pub struct TransitionRecord {
 }
 
 /// One coherent committed aggregate: current definition version plus runtime and results.
+/// `amendments` are the newest amended versions up to the head, oldest first.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SentinelRecord {
     pub identity: SentinelIdentity,
     pub scenario_id: Option<SentinelId>,
     pub definition: StoredDefinition,
+    pub amendments: Vec<AmendmentRecord>,
     pub runtime: StageRuntime,
     pub transitions: Vec<TransitionRecord>,
 }
@@ -222,11 +294,14 @@ pub struct SentinelCreate {
     pub associate: Vec<SentinelId>,
 }
 
-/// Exact existing state from an immutable interchange source.
+/// Exact existing state from an immutable interchange source; `version` is the observed head
+/// and `amendment` its own lineage, since earlier definitions are unavailable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SentinelImport {
     pub identity: SentinelIdentity,
     pub scenario_id: Option<SentinelId>,
+    pub version: u64,
+    pub amendment: Option<AmendmentRecord>,
     pub definition: StageDefinition,
     pub runtime: StageRuntime,
     pub transitions: Vec<TransitionRecord>,
@@ -406,7 +481,13 @@ impl HandlerDefinition {
                 text("command label", &parameters.label)?;
                 integer("command timeout", parameters.timeout_ms)?;
             }
-            HandlerAction::Notify | HandlerAction::Stop => {}
+            HandlerAction::Escalate(EscalateTarget::Agent(tab)) => {
+                identifier("escalation target", tab)?
+            }
+            HandlerAction::Notify
+            | HandlerAction::Stop
+            | HandlerAction::RespondPrompt(_)
+            | HandlerAction::Escalate(EscalateTarget::Creator) => {}
         }
         self.target
             .as_ref()
@@ -419,7 +500,11 @@ impl HandlerDefinition {
             | HandlerAction::Cron(target)
             | HandlerAction::Sentinel(target) => target.len(),
             HandlerAction::Command(parameters) => parameters.command.len() + parameters.label.len(),
-            HandlerAction::Notify | HandlerAction::Stop => 0,
+            HandlerAction::Escalate(EscalateTarget::Agent(tab)) => tab.len(),
+            HandlerAction::Notify
+            | HandlerAction::Stop
+            | HandlerAction::RespondPrompt(_)
+            | HandlerAction::Escalate(EscalateTarget::Creator) => 0,
         };
         RECORD_OVERHEAD
             + self.id.len()
@@ -432,19 +517,52 @@ impl StageDefinition {
     pub(super) fn validate(&self) -> Result<(), StorageError> {
         optional_text("sentinel name", &self.name)?;
         text("sentinel probe", &self.probe)?;
+        if let Some(observe) = &self.observe {
+            identifier("observe source", &observe.reference)?;
+        }
+        if self.observe.is_some() != self.probe.is_empty() {
+            return Err(StorageError::invalid(
+                "sentinel source",
+                "requires exactly one of a probe or an observe source",
+            ));
+        }
         text("sentinel question", &self.question)?;
         integer("sentinel interval", self.interval_ms)?;
-        if self.interval_ms == 0 || self.max_transitions == 0 || self.max_actions == 0 {
+        if let Some(timeout) = self.escalation_timeout_ms {
+            integer("escalation timeout", timeout)?;
+        }
+        if self.interval_ms == 0
+            || self.max_transitions == 0
+            || self.max_actions == 0
+            || self.escalation_timeout_ms == Some(0)
+        {
             return Err(StorageError::invalid(
                 "sentinel definition",
-                "interval and budgets must be positive",
+                "interval, escalation timeout and budgets must be positive",
             ));
         }
         count("sentinel buckets", self.buckets.len(), MAX_BUCKETS)?;
+        count(
+            "other handlers",
+            self.on_other.len(),
+            MAX_HANDLERS_PER_BUCKET,
+        )?;
         let mut buckets = HashSet::new();
         let mut handlers = HashSet::new();
+        for handler in &self.on_other {
+            handler.validate()?;
+            if !handlers.insert(handler.id.as_str()) {
+                return Err(StorageError::invalid(
+                    "sentinel handlers",
+                    "repeat a handler id",
+                ));
+            }
+        }
         for bucket in &self.buckets {
             identifier("bucket", &bucket.name)?;
+            if bucket.name == OTHER_BUCKET {
+                return Err(StorageError::invalid("bucket", "other is reserved"));
+            }
             optional_text("bucket match", &bucket.match_pattern)?;
             count(
                 "bucket handlers",
@@ -490,9 +608,52 @@ impl StageDefinition {
         RECORD_OVERHEAD
             + optional_len(&self.name)
             + self.probe.len()
+            + self
+                .observe
+                .as_ref()
+                .map_or(0, |observe| observe.reference.len())
             + self.question.len()
             + optional_len(&self.until)
             + buckets
+            + self
+                .on_other
+                .iter()
+                .map(HandlerDefinition::cost)
+                .sum::<usize>()
+    }
+}
+
+impl AmendmentRecord {
+    pub(super) fn validate(&self) -> Result<(), StorageError> {
+        integer("definition version", self.version)?;
+        integer("replaced version", self.replaced_version)?;
+        identifier("amendment author", &self.author_tab_id)?;
+        optional_identifier("amendment cause", &self.cause_transition_id)?;
+        integer("amendment time", self.authored_at)?;
+        if self.replaced_version == 0 || self.replaced_version >= self.version {
+            return Err(StorageError::invalid(
+                "amendment",
+                "must replace an earlier version",
+            ));
+        }
+        Ok(())
+    }
+
+    fn cost(&self) -> usize {
+        RECORD_OVERHEAD + self.author_tab_id.len() + optional_len(&self.cause_transition_id)
+    }
+}
+
+impl DefinitionUpdate {
+    pub(super) fn validate(&self) -> Result<(), StorageError> {
+        self.definition.validate()?;
+        identifier("amendment author", &self.author_tab_id)?;
+        optional_identifier("amendment cause", &self.cause_transition_id)?;
+        integer("amendment time", self.authored_at)
+    }
+
+    pub(super) fn cost(&self) -> usize {
+        self.definition.cost() + self.author_tab_id.len() + optional_len(&self.cause_transition_id)
     }
 }
 
@@ -505,7 +666,14 @@ impl StageRuntime {
         }
         optional_text("runtime hash", &self.last_hash)?;
         optional_text("runtime bucket", &self.last_bucket)?;
-        optional_text("runtime reason", &self.last_reason)
+        optional_text("runtime reason", &self.last_reason)?;
+        optional_identifier("held transition", &self.held)?;
+        if let Some(run) = &self.run {
+            identifier("run id", &run.run_id)?;
+            identifier("run tab", &run.tab_id)?;
+            integer("run bound time", run.bound_at)?;
+        }
+        Ok(())
     }
 
     fn cost(&self) -> usize {
@@ -513,6 +681,11 @@ impl StageRuntime {
             + optional_len(&self.last_hash)
             + optional_len(&self.last_bucket)
             + optional_len(&self.last_reason)
+            + optional_len(&self.held)
+            + self
+                .run
+                .as_ref()
+                .map_or(0, |run| run.run_id.len() + run.tab_id.len())
     }
 }
 
@@ -679,6 +852,25 @@ impl SentinelImport {
         self.identity.validate()?;
         self.definition.validate()?;
         self.runtime.validate()?;
+        integer("definition version", self.version)?;
+        match &self.amendment {
+            Some(amendment) => {
+                amendment.validate()?;
+                if amendment.version != self.version {
+                    return Err(StorageError::invalid(
+                        "imported amendment",
+                        "must describe the imported version",
+                    ));
+                }
+            }
+            None if self.version != 1 => {
+                return Err(StorageError::invalid(
+                    "imported definition",
+                    "a later version requires its amendment lineage",
+                ));
+            }
+            None => {}
+        }
         count("transitions", self.transitions.len(), MAX_TRANSITIONS)?;
         let mut ids = HashSet::new();
         for transition in &self.transitions {
@@ -704,6 +896,7 @@ impl SentinelImport {
             + self.identity.cost()
             + self.definition.cost()
             + self.runtime.cost()
+            + self.amendment.as_ref().map_or(0, AmendmentRecord::cost)
             + self
                 .transitions
                 .iter()

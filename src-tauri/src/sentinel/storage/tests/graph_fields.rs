@@ -1,0 +1,395 @@
+//! Schema v4 graph fields: the guarded in-place upgrade, lossless round trips on both
+//! backends, versioned lineage and the creation refusal of not-yet-executable kinds.
+
+use std::collections::BTreeSet;
+
+use super::*;
+use crate::sentinel::amend::{Amendment, MAX_AMENDMENTS};
+use crate::sentinel::machine::{EscalateTarget, SafeKind};
+use crate::sentinel::source::TabBinding;
+use crate::storage::{SentinelId, StorageError, MAX_SENTINEL_LINEAGE};
+
+/// Every graph field at once: cron-run source with a bound run, prompt answers, `other`
+/// handlers with an exact escalation target, a hold and an imported amended head.
+const GRAPH: &str = r#"{"id":"sentinel_graph","team_id":"team","creator_tab_id":"creator",
+ "workspace_id":"workspace","cwd":"/projects/one","probe":"","question":"Which launch state?",
+ "buckets":["trust","working"],"interval_ms":10000,
+ "routes":{
+  "trust":[{"id":"answer","action":{"kind":"respond_prompt","target":"directory_trust"},"target":null}],
+  "working":[{"id":"permit","action":{"kind":"respond_prompt","target":"permission"},"target":null}]},
+ "matches":{},"until":null,"expires_at":9000000,"next_run":21000,
+ "machine":{"last_hash":"abc123","last_bucket":"trust","stopped":false,"paused":false,
+  "held":"eval-other"},
+ "last_reason":"other","revision":4,"agent_authored":true,"name":"Launch gate",
+ "scenario_id":null,"max_transitions":64,"max_actions":256,
+ "transitions":[{"id":"eval-other","bucket":"other","accepted_at":1500,"terminal":false,
+  "handlers":[{"handler_id":"ask","status":"unconfirmed","claim_id":"claim-1",
+   "execution_id":null,"accepted_at":1501,"reason":null}]}],
+ "observe":{"kind":"cron_run","id":"nightly"},
+ "run":{"run_id":"run-7","tab_id":"run-tab","bound_at":1400},
+ "on_other":[
+  {"id":"ask","action":{"kind":"escalate","target":{"agent":"helper-tab"}},
+   "target":{"kind":"worker","id":"helper-tab","workspace_id":"workspace","team_id":"team",
+    "owner_tab_id":null}},
+  {"id":"tell","action":{"kind":"escalate","target":"creator"},"target":null},
+  {"id":"note","action":{"kind":"notify"},"target":null}],
+ "escalation_timeout_ms":1800000,"definition_version":3,
+ "amendments":[{"version":3,"replaced_version":2,"author_tab_id":"helper-tab",
+  "cause_transition_id":"eval-other","at":1450}]}"#;
+
+/// A creation-shaped graph stage: tab source, one prompt answer and one escalation.
+const FRESH: &str = r#"{"id":"sentinel_fresh","team_id":"team","creator_tab_id":"creator",
+ "workspace_id":"workspace","cwd":"/projects/one","probe":"","question":"Which prompt?",
+ "buckets":["trust"],"interval_ms":10000,
+ "routes":{"trust":[{"id":"answer","action":{"kind":"respond_prompt","target":"onboarding"},
+  "target":null}]},
+ "matches":{},"until":null,"expires_at":null,"next_run":1000,
+ "machine":{"last_hash":null,"last_bucket":null,"stopped":false,"paused":false},
+ "last_reason":null,"revision":0,"agent_authored":true,"name":null,"scenario_id":null,
+ "max_transitions":64,"max_actions":256,"transitions":[],
+ "observe":{"kind":"tab","id":"agent-tab"},
+ "on_other":[{"id":"ask","action":{"kind":"escalate","target":"creator"},"target":null}],
+ "escalation_timeout_ms":600000}"#;
+
+fn fixture(raw: &str) -> Sentinel {
+    serde_json::from_str(raw).expect("graph fixture")
+}
+
+fn read_only(root: &Path) -> rusqlite::Connection {
+    rusqlite::Connection::open_with_flags(
+        Storage::database_path(root),
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .expect("read-only database")
+}
+
+fn user_version(conn: &rusqlite::Connection) -> i64 {
+    conn.pragma_query_value(None, "user_version", |row| row.get(0))
+        .expect("schema version")
+}
+
+fn columns(conn: &rusqlite::Connection, table: &str) -> BTreeSet<String> {
+    let mut statement = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .expect("table info");
+    let rows = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .expect("column rows");
+    rows.map(|row| row.expect("column name")).collect()
+}
+
+#[test]
+fn storage_sentinel_v4_migration_upgrades_an_empty_v3_root_in_place() {
+    let root = temp_root();
+    Storage::create_at_schema_version(root.path(), 3).expect("v3 root");
+    rusqlite::Connection::open(Storage::database_path(root.path()))
+        .and_then(|conn| {
+            conn.execute(
+                "INSERT INTO workspaces (id, ordinal, name, cwd, provisioned_cwd, protected, \
+                 task_key_prefix, task_key_next, revision) \
+                 VALUES ('kept', 0, 'Kept', NULL, NULL, 0, NULL, 0, 1)",
+                [],
+            )
+        })
+        .expect("v3 row");
+
+    let storage = open(root.path());
+    let kept = done(storage.workspaces().list()).value;
+    assert_eq!(kept.workspaces[0].record.name, "Kept");
+    let fresh = fixture(FRESH);
+    let created = done(
+        storage
+            .sentinels()
+            .create(codec::create(&fresh, &[]).expect("create record")),
+    );
+    assert_eq!(created.value.outcome, MutationOutcome::Applied);
+    close(storage);
+
+    let fresh_root = temp_root();
+    close(open(fresh_root.path()));
+    let (upgraded, initialized) = (read_only(root.path()), read_only(fresh_root.path()));
+    assert!(user_version(&upgraded) > 3);
+    assert_eq!(user_version(&upgraded), user_version(&initialized));
+    let expected: [(&str, &[&str]); 3] = [
+        (
+            "sentinel_definitions",
+            &[
+                "observe_kind",
+                "observe_ref",
+                "escalation_timeout_ms",
+                "author_tab_id",
+                "cause_transition_id",
+                "replaced_version",
+            ],
+        ),
+        ("sentinel_handlers", &["safe_kind", "escalate_to"]),
+        (
+            "sentinel_runtime",
+            &["run_id", "run_tab_id", "run_bound_at", "held"],
+        ),
+    ];
+    for (table, added) in expected {
+        let present = columns(&upgraded, table);
+        assert_eq!(present, columns(&initialized, table), "{table}");
+        for column in added {
+            assert!(present.contains(*column), "{table}.{column}");
+        }
+    }
+}
+
+#[test]
+fn storage_sentinel_v4_migration_refuses_a_v3_root_holding_stages() {
+    let root = temp_root();
+    Storage::create_at_schema_version(root.path(), 3).expect("v3 root");
+    rusqlite::Connection::open(Storage::database_path(root.path()))
+        .and_then(|conn| {
+            conn.execute(
+                "INSERT INTO sentinels (id, ordinal, creator_tab_id, workspace_id, team_id, cwd, \
+                 agent_authored, scenario_id, revision) \
+                 VALUES ('sentinel_kept', 0, 'creator', 'workspace', NULL, '/tmp', 0, NULL, 1)",
+                [],
+            )
+        })
+        .expect("v3 stage");
+
+    let refused = Storage::open(root.path(), StorageConfig::default())
+        .err()
+        .expect("the rebuild refuses stored stages");
+    assert!(
+        matches!(
+            refused,
+            StorageError::MigrationRefused {
+                schema_version: 3,
+                ..
+            }
+        ),
+        "{refused:?}"
+    );
+    let conn = read_only(root.path());
+    assert_eq!(user_version(&conn), 3, "nothing was migrated");
+    let kept: i64 = conn
+        .query_row("SELECT COUNT(*) FROM sentinels", [], |row| row.get(0))
+        .expect("stored stages");
+    assert_eq!(kept, 1, "the stored stage survives the refusal");
+}
+
+#[test]
+fn storage_sentinel_v4_graph_fields_round_trip_on_both_backends() {
+    let (fresh, graph) = (fixture(FRESH), fixture(GRAPH));
+    let both = values(&[fresh.clone(), graph.clone()]);
+    let root = temp_root();
+    let storage = open(root.path());
+    let repo = storage.sentinels();
+    let created = done(repo.create(codec::create(&fresh, &[]).expect("create record")));
+    assert_eq!(created.value.outcome, MutationOutcome::Applied);
+    let imported = done(repo.import(vec![codec::import(&graph).expect("import record")]));
+    assert_eq!(imported.value.outcome, MutationOutcome::Applied);
+    for job in [&fresh, &graph] {
+        let decoded = codec::decode(&stored(&storage, &job.id));
+        assert_eq!(values(&[decoded]), values(&[job.clone()]), "{}", job.id);
+    }
+    assert_eq!(
+        values(typed(&storage, &MockClock::starting_at(1000)).lock().list()),
+        both
+    );
+    close(storage);
+    let storage = open(root.path());
+    assert_eq!(
+        values(typed(&storage, &MockClock::starting_at(1000)).lock().list()),
+        both,
+        "the typed load validates and decodes every field after reopen"
+    );
+    close(storage);
+
+    let mut lossy = graph.clone();
+    lossy.amendments.insert(
+        0,
+        Amendment {
+            version: 2,
+            replaced_version: 1,
+            author_tab_id: "creator".into(),
+            cause_transition_id: None,
+            at: 1300,
+        },
+    );
+    assert!(
+        codec::import(&lossy).is_err(),
+        "lineage whose definition is unavailable is refused, never dropped"
+    );
+
+    let path = root.path().join("sentinels.json");
+    std::fs::write(&path, serde_json::to_string(&[&fresh, &graph]).unwrap()).unwrap();
+    let clock = MockClock::starting_at(1000);
+    let mut legacy = Store::new(path.clone(), clock.clone());
+    legacy
+        .ensure_available()
+        .expect("the file store validates graph fields");
+    assert_eq!(values(legacy.list()), both);
+    legacy.stop(&fresh.id, "explicit").expect("saved stop");
+    let mut stopped = fresh.clone();
+    stopped.machine.stopped = true;
+    stopped.revision += 1;
+    stopped.last_reason = Some("explicit".into());
+    assert_eq!(
+        values(Store::new(path, clock).list()),
+        values(&[stopped, graph]),
+        "a save rewrites every graph field unchanged"
+    );
+}
+
+#[test]
+fn storage_sentinel_v4_update_definition_appends_lineage_and_advances_generation_once() {
+    let root = temp_root();
+    let storage = open(root.path());
+    let store = typed(&storage, &MockClock::starting_at(1000));
+    let job = create(&store, None, false, json!({}));
+    let id = SentinelId::new(job.id.clone()).expect("sentinel id");
+    let repo = storage.sentinels();
+    let base = stored(&storage, &job.id).record;
+    let update = |expect: u64, at: u64| {
+        let mut definition = base.definition.definition.clone();
+        definition.question = format!("Revision {at}?");
+        let amendment = DefinitionUpdate {
+            definition,
+            author_tab_id: "author".into(),
+            cause_transition_id: Some(format!("cause-{at}")),
+            authored_at: at,
+        };
+        done(repo.update_definition(id.clone(), expect, amendment))
+            .value
+            .outcome
+    };
+    let window = MAX_SENTINEL_LINEAGE as u64;
+    for expect in 1..=window + 1 {
+        assert_eq!(update(expect, 2000 + expect), MutationOutcome::Applied);
+    }
+    assert_eq!(update(1, 9999), MutationOutcome::Fenced(Fence::Version));
+
+    let head = window + 2;
+    let record = stored(&storage, &job.id).record;
+    assert_eq!(record.definition.version, head);
+    assert_eq!(
+        record.runtime,
+        StageRuntime {
+            generation: base.runtime.generation + head - 1,
+            ..base.runtime.clone()
+        },
+        "each applied version advances the generation once; the fenced one does not"
+    );
+    let versions: Vec<u64> = record.amendments.iter().map(|a| a.version).collect();
+    assert_eq!(
+        versions,
+        (3..=head).collect::<Vec<_>>(),
+        "newest window, oldest first"
+    );
+    assert!(record
+        .amendments
+        .iter()
+        .all(|a| a.replaced_version == a.version - 1 && a.author_tab_id == "author"));
+    assert_eq!(
+        record
+            .amendments
+            .last()
+            .and_then(|a| a.cause_transition_id.clone()),
+        Some(format!("cause-{}", 2000 + head - 1))
+    );
+    let history = done(repo.history(id)).value;
+    assert_eq!(history.len() as u64, head);
+    assert_eq!(
+        history[0], base.definition,
+        "the original version stays immutable"
+    );
+    assert_eq!(history[0].amendment, None);
+
+    let decoded = codec::decode(&stored(&storage, &job.id));
+    assert_eq!(decoded.definition_version, head);
+    assert_eq!(decoded.amendments.len(), MAX_AMENDMENTS);
+    crate::sentinel::store::validate(vec![decoded]).expect("the decoded window is a valid stage");
+    close(storage);
+}
+
+#[test]
+fn storage_sentinel_v4_unexecutable_kinds_are_refused_at_creation_on_both_backends() {
+    let root = temp_root();
+    let clock = MockClock::starting_at(1000);
+    let storage = open(root.path());
+    let typed_store = typed(&storage, &clock);
+    let legacy_path = root.path().join("sentinels.json");
+    let legacy = Arc::new(Mutex::new(Store::new(legacy_path.clone(), clock.clone())));
+    let base = legacy
+        .lock()
+        .prepare(params(false, json!({})), owner(None), false)
+        .expect("admitted definition");
+
+    let mut observed = base.clone();
+    observed.probe.clear();
+    observed.observe = Some(TabBinding::Tab("agent-tab".into()));
+    let mut answering = observed.clone();
+    answering.routes.insert(
+        "done".into(),
+        vec![Handler {
+            id: "answer".into(),
+            action: Route::RespondPrompt(SafeKind::Onboarding),
+            target: None,
+        }],
+    );
+    let mut escalating = base.clone();
+    escalating.on_other = vec![Handler {
+        id: "ask".into(),
+        action: Route::Escalate(EscalateTarget::Creator),
+        target: None,
+    }];
+    escalating.escalation_timeout_ms = Some(60_000);
+    let mut amended = base.clone();
+    amended.definition_version = 2;
+    amended.amendments = vec![Amendment {
+        version: 2,
+        replaced_version: 1,
+        author_tab_id: "creator".into(),
+        cause_transition_id: None,
+        at: 1000,
+    }];
+    let refused = [
+        (observed, "tab observation"),
+        (answering, "tab observation"),
+        (escalating, "escalation"),
+        (amended, "definition amendment"),
+    ];
+    for (job, capability) in refused {
+        assert_eq!(job.pending_capability(), Some(capability));
+        for store in [&legacy, &typed_store] {
+            let before = storage.revision();
+            let error = commit(store, |current| current.stage_insert(job.clone())).unwrap_err();
+            assert!(
+                error.starts_with("sentinel_capability_unavailable"),
+                "{error}"
+            );
+            assert!(store.lock().get(&job.id).is_none());
+            assert_eq!(storage.revision(), before, "nothing was submitted");
+        }
+    }
+    let mut shell_answer = base.clone();
+    shell_answer.routes.insert(
+        "done".into(),
+        vec![Handler {
+            id: "answer".into(),
+            action: Route::RespondPrompt(SafeKind::Permission),
+            target: None,
+        }],
+    );
+    assert_eq!(shell_answer.pending_capability(), Some("respond_prompt"));
+    assert!(!legacy_path.exists(), "the file store saved nothing");
+
+    assert!(Route::parse("respond_prompt:directory_trust").is_err());
+    assert!(Route::parse("escalate:creator").is_err());
+    for kind in ["respond_prompt", "escalate"] {
+        let handlers = json!({"done": [{"id": "graph", "type": kind, "parameters": {}}]});
+        let admitted = legacy
+            .lock()
+            .prepare(params(false, handlers), owner(None), false);
+        assert!(admitted.is_err(), "{kind} has no authoring surface yet");
+    }
+    assert_eq!(base.pending_capability(), None);
+    commit(&typed_store, |current| current.stage_insert(base)).expect("plain stage admitted");
+    close(storage);
+}

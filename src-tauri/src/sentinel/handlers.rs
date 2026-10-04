@@ -130,6 +130,14 @@ pub fn definitions(
     Ok(result)
 }
 
+pub(super) fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+}
+
 pub fn validate(
     buckets: &[String],
     handlers: &BTreeMap<String, Vec<Handler>>,
@@ -149,14 +157,7 @@ pub fn validate(
                 parameters.validate()?;
             }
 
-            if handler.id.is_empty()
-                || handler.id.len() > 64
-                || !handler
-                    .id
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
-                || !ids.insert(&handler.id)
-            {
+            if !valid_id(&handler.id) || !ids.insert(&handler.id) {
                 return Err(
                     "handler IDs must be unique bounded letters, numbers, underscores or dashes"
                         .into(),
@@ -544,5 +545,4 @@ impl Store {
         }
         Staged::ready(Ok(()))
     }
-
 }

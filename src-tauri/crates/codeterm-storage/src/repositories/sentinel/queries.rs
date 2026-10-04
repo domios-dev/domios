@@ -2,9 +2,9 @@
 
 use super::definitions;
 use super::records::{
-    CaptureRecord, CommandResultRecord, HandlerResultRecord, SentinelId, SentinelIdentity,
-    SentinelRecord, SentinelScope, StageRuntime, StoredSentinel, TransitionRecord,
-    MAX_SENTINEL_RECORDS,
+    CaptureRecord, CommandResultRecord, HandlerResultRecord, RunRecord, SentinelId,
+    SentinelIdentity, SentinelRecord, SentinelScope, StageRuntime, StoredSentinel,
+    TransitionRecord, MAX_SENTINEL_RECORDS,
 };
 use super::runtime::{command_status_from, corrupt, handler_status_from};
 use crate::error::{sqlite_error, StorageError};
@@ -30,13 +30,18 @@ struct Header {
     last_hash: Option<String>,
     last_bucket: Option<String>,
     last_reason: Option<String>,
+    held: Option<String>,
+    run_id: Option<String>,
+    run_tab_id: Option<String>,
+    run_bound_at: Option<i64>,
 }
 
 fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
     conn.prepare_cached(
         "SELECT s.ordinal, s.creator_tab_id, s.workspace_id, s.team_id, s.cwd, \
          s.agent_authored, s.scenario_id, s.revision, h.version, r.generation, r.next_run, \
-         r.expires_at, r.paused, r.stopped, r.last_hash, r.last_bucket, r.last_reason \
+         r.expires_at, r.paused, r.stopped, r.last_hash, r.last_bucket, r.last_reason, \
+         r.held, r.run_id, r.run_tab_id, r.run_bound_at \
          FROM sentinels s LEFT JOIN sentinel_heads h ON h.sentinel_id = s.id \
          LEFT JOIN sentinel_runtime r ON r.sentinel_id = s.id WHERE s.id = ?1",
     )
@@ -61,6 +66,10 @@ fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
                     last_hash: row.get(14)?,
                     last_bucket: row.get(15)?,
                     last_reason: row.get(16)?,
+                    held: row.get(17)?,
+                    run_id: row.get(18)?,
+                    run_tab_id: row.get(19)?,
+                    run_bound_at: row.get(20)?,
                 })
             })
             .optional()
@@ -78,6 +87,15 @@ pub(super) fn load_one(
     };
     let missing = || corrupt("stage lacks its head or runtime");
     let version = from_sql_u64("definition version", header.version.ok_or_else(missing)?)?;
+    let run = match (header.run_id, header.run_tab_id, header.run_bound_at) {
+        (None, None, None) => None,
+        (Some(run_id), Some(tab_id), Some(bound_at)) => Some(RunRecord {
+            run_id,
+            tab_id,
+            bound_at: from_sql_u64("run bound time", bound_at)?,
+        }),
+        _ => return Err(corrupt("partial run binding")),
+    };
     let runtime = StageRuntime {
         generation: from_sql_u64("generation", header.generation.ok_or_else(missing)?)?,
         next_run: from_sql_u64("next run", header.next_run.ok_or_else(missing)?)?,
@@ -90,6 +108,8 @@ pub(super) fn load_one(
         last_hash: header.last_hash,
         last_bucket: header.last_bucket,
         last_reason: header.last_reason,
+        held: header.held,
+        run,
     };
     let identity = SentinelIdentity {
         id: SentinelId::trusted(id.to_string()),
@@ -106,6 +126,7 @@ pub(super) fn load_one(
             identity,
             scenario_id: header.scenario_id.map(SentinelId::trusted),
             definition: definitions::load_version(conn, id, version)?,
+            amendments: definitions::load_lineage(conn, id, version)?,
             runtime,
             transitions: load_transitions(conn, id)?,
         },
