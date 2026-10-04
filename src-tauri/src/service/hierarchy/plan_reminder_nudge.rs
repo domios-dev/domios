@@ -63,9 +63,7 @@ fn send_due_plan_time_reminders_with(
     deliver: impl Fn(&str, &PlanReminderTarget, NudgeKind) -> Result<bool, String>,
 ) {
     let targets = timed_plan_reminder_targets(plans);
-    let eligible_tabs: HashSet<String> =
-        targets.iter().map(|target| target.tab_id.clone()).collect();
-    counter.retain_time_reminders(&eligible_tabs);
+    counter.retain_time_reminders(&deadline_tabs(plans, counter));
     let candidates = targets.len();
     let mut due = 0usize;
     for timed in targets {
@@ -338,13 +336,9 @@ impl ServiceContext {
     /// ineligible (paused, complete, parked/closed with no open work, or
     /// archived). Active execution owners keep their original deadline.
     pub(crate) fn reconcile_time_reminder_eligibility(&self) {
-        let targets = timed_plan_reminder_targets(&self.plan_store.list_full_reminder_candidates());
-        self.retain_time_reminder_eligibility(&targets);
-    }
-
-    fn retain_time_reminder_eligibility(&self, targets: &[TimedPlanReminderTarget]) {
-        let eligible_tabs = targets.iter().map(|target| target.tab_id.clone()).collect();
-        self.plan_turn_counter.retain_time_reminders(&eligible_tabs);
+        let plans = self.plan_store.list_full_reminder_candidates();
+        let counter = &self.plan_turn_counter;
+        counter.retain_time_reminders(&deadline_tabs(&plans, counter));
     }
 
     pub(super) fn deliver_plan_reminder_target(
@@ -652,6 +646,21 @@ fn task_status_text(status: &TaskStatus) -> &'static str {
         TaskStatus::Done => "done",
         TaskStatus::Cancelled => "cancelled",
     }
+}
+
+/// Tabs whose scheduler deadline survives a pass: timed targets plus owners of
+/// complete plans still owed their one wrap-up.
+fn deadline_tabs(plans: &[Plan], counter: &TurnCounter) -> HashSet<String> {
+    timed_plan_reminder_targets(plans)
+        .into_iter()
+        .map(|target| target.tab_id)
+        .chain(
+            complete_wrapup_targets(plans)
+                .into_iter()
+                .filter(|(_, plan_id)| counter.complete_wrapup_due(plan_id))
+                .map(|(tab_id, _)| tab_id),
+        )
+        .collect()
 }
 
 fn complete_wrapup_targets(plans: &[Plan]) -> Vec<(String, String)> {
