@@ -11,31 +11,7 @@ fn encoded(value: &impl Serialize) -> String {
 pub(super) fn plan_projection(plan: &Plan) -> BTreeMap<String, String> {
     let mut out = BTreeMap::from([("mode".into(), format!("{:?}:{:?}", plan.mode, plan.status))]);
     for task in &plan.tasks {
-        out.insert(
-            format!("task:{}", task.id),
-            encoded(&(
-                &task.status,
-                &task.status_label,
-                &task.review_stage,
-                &task.qa_state,
-            )),
-        );
-        out.insert(
-            format!("review:{}", task.id),
-            encoded(&task.review_evidence),
-        );
-        for attempt in &task.execution_attempts {
-            out.insert(
-                format!("attempt:{}", attempt.id),
-                encoded(&attempt.interruption),
-            );
-            if let Some(report) = &attempt.report {
-                out.insert(format!("report:{}", report.id), encoded(report));
-            }
-        }
-        for milestone in &task.milestones {
-            out.insert(format!("stride:{}", milestone.id), encoded(milestone));
-        }
+        project_task(task, &mut out);
     }
     for stride in &plan.strides {
         out.insert(format!("stride:{}", stride.id), encoded(stride));
@@ -46,15 +22,38 @@ pub(super) fn plan_projection(plan: &Plan) -> BTreeMap<String, String> {
     out
 }
 
-pub(crate) fn collect(
-    svc: &ServiceContext,
-    plan: &Plan,
-    tab_id: &str,
-    previous: &Observation,
-    now: u64,
-) -> (Snapshot, Observation) {
-    let projection = plan_projection(plan);
-    let baseline = previous.projection.as_ref().unwrap_or(&projection);
+fn project_task(task: &Task, out: &mut BTreeMap<String, String>) {
+    out.insert(
+        format!("task:{}", task.id),
+        encoded(&(
+            &task.status,
+            &task.status_label,
+            &task.review_stage,
+            &task.qa_state,
+        )),
+    );
+    out.insert(
+        format!("review:{}", task.id),
+        encoded(&task.review_evidence),
+    );
+    for attempt in &task.execution_attempts {
+        out.insert(
+            format!("attempt:{}", attempt.id),
+            encoded(&attempt.interruption),
+        );
+        if let Some(report) = &attempt.report {
+            out.insert(format!("report:{}", report.id), encoded(report));
+        }
+    }
+    for milestone in &task.milestones {
+        out.insert(format!("stride:{}", milestone.id), encoded(milestone));
+    }
+}
+
+fn projection_delta(
+    projection: &BTreeMap<String, String>,
+    baseline: &BTreeMap<String, String>,
+) -> BTreeMap<String, String> {
     let mut delta: BTreeMap<_, _> = projection
         .iter()
         .filter(|(k, v)| baseline.get(*k) != Some(*v))
@@ -63,6 +62,74 @@ pub(crate) fn collect(
     for key in baseline.keys().filter(|k| !projection.contains_key(*k)) {
         delta.insert(key.clone(), "removed".into());
     }
+    delta
+}
+
+/// Plan-derived observation for a Worker reminder: its scoped task and attempt
+/// only, never transcripts, screens or lane processes.
+pub(crate) fn collect_worker_scope(
+    plan: &Plan,
+    scope: &Scope,
+    previous: &Observation,
+) -> (Snapshot, Observation) {
+    let task = plan
+        .tasks
+        .iter()
+        .find(|task| scope.task_id.as_deref() == Some(task.id.as_str()));
+    let mut projection =
+        BTreeMap::from([("mode".into(), format!("{:?}:{:?}", plan.mode, plan.status))]);
+    let mut context = BTreeMap::new();
+    if let Some(task) = task {
+        project_task(task, &mut projection);
+        let attempt = task
+            .execution_attempts
+            .iter()
+            .find(|attempt| scope.attempt_id.as_deref() == Some(attempt.id.as_str()));
+        let mut row = task_context(task);
+        row["acknowledged"] = json!(attempt.is_some_and(|a| a.acknowledged_at.is_some()));
+        row["reported"] = json!(attempt.is_some_and(|a| a.report.is_some()));
+        context.insert(format!("task:{}", task.id), row);
+    }
+    let delta = projection_delta(
+        &projection,
+        previous.projection.as_ref().unwrap_or(&projection),
+    );
+    let snapshot = Snapshot {
+        plan_id: plan.id.clone(),
+        projection: projection.clone(),
+        delta,
+        context,
+        ..Default::default()
+    };
+    let observed = Observation {
+        projection: Some(projection),
+        ..previous.clone()
+    };
+    (snapshot, observed)
+}
+
+/// Digest of the tab's own confirmed binding, narrowed to the attempt's
+/// recorded session when given; the raw session key never leaves this module.
+pub(crate) fn binding_digest(tab: &Tab, attempt: Option<&TaskExecutionAttempt>) -> Option<String> {
+    match attempt {
+        Some(attempt) => bound_attempt_session_key(tab, attempt),
+        None => session_key(tab),
+    }
+    .map(|key| crate::service::supporter::criteria_hash(key.as_bytes()))
+}
+
+pub(crate) fn collect(
+    svc: &ServiceContext,
+    plan: &Plan,
+    tab_id: &str,
+    previous: &Observation,
+    now: u64,
+) -> (Snapshot, Observation) {
+    let projection = plan_projection(plan);
+    let delta = projection_delta(
+        &projection,
+        previous.projection.as_ref().unwrap_or(&projection),
+    );
     let mut snapshot = Snapshot {
         plan_id: plan.id.clone(),
         projection: projection.clone(),
@@ -74,11 +141,11 @@ pub(crate) fn collect(
             .rev()
             .filter(|l| !l.text.trim().is_empty())
             .take(12)
-            .map(|l| (l.id.clone(), l.text.clone()))
+            .map(|l| (l.id.clone(), scrubbed(&l.text)))
             .collect(),
         ..Default::default()
     };
-    snapshot.context = delta_context(plan, &snapshot.delta);
+    (snapshot.context, snapshot.truncated) = delta_context(plan, &snapshot.delta);
     snapshot.hard = previous.pending_hard.clone();
     if snapshot.delta.contains_key("mode") {
         snapshot.hard.push(HardWake::ModeChange);
@@ -589,7 +656,7 @@ pub(super) fn is_owner_turn(message: &ChatMsg) -> bool {
         )
 }
 
-fn delta_context(plan: &Plan, delta: &BTreeMap<String, String>) -> BTreeMap<String, Value> {
+fn delta_context(plan: &Plan, delta: &BTreeMap<String, String>) -> (BTreeMap<String, Value>, bool) {
     let mut context = BTreeMap::new();
     if delta.contains_key("mode") {
         context.insert(
@@ -600,18 +667,17 @@ fn delta_context(plan: &Plan, delta: &BTreeMap<String, String>) -> BTreeMap<Stri
     for task in &plan.tasks {
         let key = format!("task:{}", task.id);
         if delta.contains_key(&key) {
-            context.insert(
-                key,
-                json!({"task": task.id, "status": task.status, "status_label": task.status_label,
-                "held": crate::plan::reconcile::active_review_hold_note(task).is_some()}),
-            );
+            context.insert(key, task_context(task));
         }
         for attempt in &task.execution_attempts {
             if let Some(report) = &attempt.report {
                 let key = format!("report:{}", report.id);
                 if delta.contains_key(&key) {
-                    context.insert(key, json!({"task": task.id, "status": report.status, "sha": report.sha,
-                        "test_result": report.test_result.as_ref().map(|s| s.chars().take(512).collect::<String>())}));
+                    context.insert(
+                        key,
+                        json!({"task": task.id, "status": report.status, "sha": report.sha,
+                        "test_result": report.test_result.as_deref().map(scrubbed)}),
+                    );
                 }
             }
         }
@@ -623,14 +689,34 @@ fn delta_context(plan: &Plan, delta: &BTreeMap<String, String>) -> BTreeMap<Stri
     {
         let key = format!("stride:{}", stride.id);
         if delta.contains_key(&key) {
-            context.insert(key, json!({"kind": stride.kind, "text": stride.text.chars().take(512).collect::<String>()}));
+            context.insert(
+                key,
+                json!({"kind": stride.kind, "text": scrubbed(&stride.text)}),
+            );
         }
     }
     for gate in &plan.gates {
         let key = format!("gate:{}", gate.id);
         if delta.contains_key(&key) {
-            context.insert(key, json!({"status": gate.status, "answer": gate.answer.as_ref().map(|a| a.text.chars().take(512).collect::<String>())}));
+            context.insert(key, json!({"status": gate.status, "answer": gate.answer.as_ref().map(|a| scrubbed(&a.text))}));
         }
     }
-    context.into_iter().take(32).collect()
+    let truncated = context.len() > MAX_OBSERVATION_ROWS;
+    (
+        context.into_iter().take(MAX_OBSERVATION_ROWS).collect(),
+        truncated,
+    )
+}
+
+fn task_context(task: &Task) -> Value {
+    json!({"task": task.id, "status": task.status,
+        "status_label": task.status_label.as_deref().map(scrubbed),
+        "held": crate::plan::reconcile::active_review_hold_note(task).is_some()})
+}
+
+fn scrubbed(text: &str) -> String {
+    crate::service::launch_diagnostics::redact_secrets(text)
+        .chars()
+        .take(512)
+        .collect()
 }

@@ -1,43 +1,72 @@
 use super::*;
 use crate::api::mem_routes::decision::SupporterRegistry;
-use crate::plan::Plan;
 use crate::service::{supporter, ServiceContext};
 use codeterm_types::config::SupporterConfig;
 use std::sync::Arc;
 
-pub(crate) fn decide(
-    svc: &ServiceContext,
-    plan: &Plan,
-    tab: &str,
+/// The active Supporter connection as the existing config and token rules see
+/// it; it never selects another adapter or model.
+pub(crate) struct Supporter<'a> {
+    pub(crate) cfg: SupporterConfig,
+    pub(crate) token: supporter::TokenSnapshot,
+    pub(crate) registry: &'a SupporterRegistry,
+    pub(crate) runtime: Arc<supporter::SupporterRuntime>,
+}
+
+impl<'a> Supporter<'a> {
+    pub(crate) fn live(svc: &'a ServiceContext) -> Self {
+        let cfg = crate::config::load_config().supporter;
+        let token = supporter::TokenSnapshot::read(
+            &crate::api::mem_routes::decision::token_store(),
+            cfg.active_id().unwrap_or(""),
+        );
+        Self {
+            cfg,
+            token,
+            registry: &svc.supporter_models,
+            runtime: supporter::runtime_with_notifications(svc),
+        }
+    }
+
+    pub(crate) fn connected(&self, tab: &str) -> Option<Arc<dyn DecisionModel>> {
+        connected_model(
+            &self.cfg,
+            self.registry,
+            &self.token,
+            self.runtime.clone(),
+            tab,
+        )
+    }
+
+    /// Digest of the adapter, its selected model and token usability; None
+    /// whenever no Choice-capable adapter is connected.
+    pub(crate) fn generation(&self) -> Option<String> {
+        if !supporter::supporter_connected(&self.cfg, self.registry, &self.token) {
+            return None;
+        }
+        let model = supporter::configured_model(&self.cfg, self.registry)
+            .filter(|model| model.primitives().choice)?;
+        let identity = json!({ "adapter": model.id(), "model": model.model_id(),
+            "token": self.token.usable });
+        Some(supporter::criteria_hash(identity.to_string().as_bytes()))
+    }
+
+    pub(crate) fn deadline(&self) -> Instant {
+        Instant::now()
+            + Duration::from_millis(self.cfg.deadline_ms.max(1)).min(Duration::from_secs(5))
+    }
+}
+
+pub(crate) fn journal(
+    runtime: &supporter::SupporterRuntime,
+    decision: &Decision,
+    plan: &str,
     now: u64,
-) -> Result<(Snapshot, Decision), String> {
-    let key = format!("{}:{tab}", plan.id);
-    let previous = svc.heartbeat_gate.observation(&key);
-    let (snapshot, observed) = collect(svc, plan, tab, &previous, now);
-    svc.heartbeat_gate.observed(&key, observed);
-    let config = crate::config::load_config();
-    let cfg = config.supporter;
-    let runtime = supporter::runtime_with_notifications(svc);
-    let token = supporter::TokenSnapshot::read(
-        &crate::api::mem_routes::decision::token_store(),
-        cfg.active_id().unwrap_or(""),
-    );
-    let model = connected_model(&cfg, &svc.supporter_models, &token, runtime.clone(), tab);
-    let deadline =
-        Instant::now() + Duration::from_millis(cfg.deadline_ms.max(1)).min(Duration::from_secs(5));
-    let decision = svc.heartbeat_gate.decide_with_interval(
-        &key,
-        &snapshot,
-        now,
-        model.as_deref(),
-        deadline,
-        config.orchestration.nudge_interval_secs,
-    )?;
-    let event = decision.observation_event(&snapshot, tab, &plan.id, now);
+) {
+    let event = decision.journal_event(&decision.scope.tab_id, plan, now);
     if let Err(error) = runtime.heartbeat_event(event) {
         log::warn!("[heartbeat-gate] journal unavailable: {error}");
     }
-    Ok((snapshot, decision))
 }
 
 fn connected_model(
@@ -59,7 +88,7 @@ fn connected_model(
                 cfg.calls_per_hour.unwrap_or(0),
                 supporter::VerdictKind::Heartbeat,
                 Some(tab.into()),
-                None,
+                Some(criteria_version()),
                 None,
             )
         })
