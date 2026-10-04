@@ -1,11 +1,15 @@
 use super::ServiceContext;
 use crate::cron::store::{
-    commit, finish_run, CronCreateParams, CronJob, CronRunInfo, CronRunStatus, CronScope,
-    CronUpdateParams, RunSession,
+    commit, finish_run, CronCommitError, CronCommitted, CronCreateParams, CronJob, CronRunInfo,
+    CronRunStatus, CronScope, CronStore, CronUpdateParams, RunSession,
 };
 use crate::multiplexer::types::TabCloseReason;
 use crate::CronState;
 use crate::CronWake;
+use parking_lot::Mutex;
+use std::collections::HashMap;
+use std::future::Future;
+use std::sync::Arc;
 use tauri::Manager;
 
 fn cron_report_delivery_label(result: Result<(), String>) -> String {
@@ -26,14 +30,124 @@ pub(crate) struct CronRunEnd<'a> {
     pub(crate) summary: &'a str,
 }
 
+/// Newest owner-prompt value per tab while a Storage commit of that tab is settling.
+#[derive(Clone, Default)]
+struct OwnerPromptRequests(Arc<Mutex<HashMap<String, OwnerPromptRequest>>>);
+
+struct OwnerPromptRequest {
+    awaiting: bool,
+    requested: u64,
+    admitted: u64,
+}
+
+impl OwnerPromptRequests {
+    /// Never waits for COMMIT. One change per tab is admitted at a time and each settlement
+    /// admits the tab's newest value, so the latest request always commits last.
+    fn request<R>(&self, cron: &CronState, tab_id: &str, awaiting: bool, report: R)
+    where
+        R: Fn(&str, Result<CronCommitted<bool>, CronCommitError>) + Send + 'static,
+    {
+        {
+            let mut tabs = self.0.lock();
+            if let Some(request) = tabs.get_mut(tab_id) {
+                request.awaiting = awaiting;
+                request.requested += 1;
+                return;
+            }
+            tabs.insert(
+                tab_id.to_string(),
+                OwnerPromptRequest {
+                    awaiting,
+                    requested: 1,
+                    admitted: 0,
+                },
+            );
+        }
+        let Some(first) = self.admit_next(cron, tab_id, &report) else {
+            return;
+        };
+        let (requests, cron, tab_id) = (self.clone(), cron.clone(), tab_id.to_string());
+        tauri::async_runtime::spawn(async move {
+            let mut settling = Some(first);
+            while let Some(commit) = settling.take() {
+                let outcome = commit.await;
+                report(&tab_id, outcome);
+                settling = requests.admit_next(&cron, &tab_id, &report);
+            }
+        });
+    }
+
+    /// Admits the tab's newest unadmitted value; `None` retires the tab once none is left.
+    fn admit_next(
+        &self,
+        cron: &CronState,
+        tab_id: &str,
+        report: &impl Fn(&str, Result<CronCommitted<bool>, CronCommitError>),
+    ) -> Option<impl Future<Output = Result<CronCommitted<bool>, CronCommitError>> + Send + 'static>
+    {
+        loop {
+            let awaiting = {
+                let mut tabs = self.0.lock();
+                let request = tabs.get_mut(tab_id)?;
+                if request.admitted == request.requested {
+                    tabs.remove(tab_id);
+                    return None;
+                }
+                request.admitted = request.requested;
+                request.awaiting
+            };
+            let tab = tab_id.to_string();
+            match CronStore::stage(cron, move |store| {
+                Ok(store.prepare_owner_prompt(&tab, awaiting))
+            }) {
+                Ok(Some(commit)) => return Some(commit),
+                Ok(None) => {}
+                Err(error) => report(tab_id, Err(error)),
+            }
+        }
+    }
+}
+
 impl ServiceContext {
+    /// Under Storage the change is staged and settles on its completion's wake; the legacy
+    /// JSON backend still commits before returning.
     pub(crate) fn set_cron_owner_prompt_waiting(&self, tab_id: &str, awaiting: bool) {
         let Some(cron) = self.app_handle.try_state::<CronState>() else {
             return;
         };
+        let staged = cron.lock().commits_to_storage();
+        if staged {
+            let service = self.clone();
+            self.owner_prompt_requests().request(
+                cron.inner(),
+                tab_id,
+                awaiting,
+                move |tab_id, updated| service.report_owner_prompt(tab_id, updated),
+            );
+            return;
+        }
         let updated = commit(cron.inner(), |store| {
             Ok(store.prepare_owner_prompt(tab_id, awaiting))
         });
+        self.report_owner_prompt(tab_id, updated);
+    }
+
+    fn owner_prompt_requests(&self) -> OwnerPromptRequests {
+        if let Some(requests) = self.app_handle.try_state::<OwnerPromptRequests>() {
+            return requests.inner().clone();
+        }
+        self.app_handle.manage(OwnerPromptRequests::default());
+        self.app_handle
+            .state::<OwnerPromptRequests>()
+            .inner()
+            .clone()
+    }
+
+    fn report_owner_prompt(
+        &self,
+        tab_id: &str,
+        updated: Result<CronCommitted<bool>, CronCommitError>,
+    ) {
         match updated {
             Ok(done) if done.value => self.emit_cron_changed(),
             Ok(_) => {}
@@ -737,3 +851,7 @@ fn record_trigger_run(cron: &CronState, id: &str, run: &CronRunInfo) {
 #[cfg(test)]
 #[path = "cron/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "cron/owner_prompt_tests.rs"]
+mod owner_prompt_tests;
