@@ -210,11 +210,13 @@ impl ReminderHost for FakeHost {
         read(&self.plans.lock())
     }
 
-    fn tab(&self, tab_id: &str) -> Option<crate::multiplexer::types::Tab> {
+    fn recipient(&self, tab_id: &str) -> Option<Recipient> {
         let mux = self.mux.lock();
-        mux.resolve_tab_id(tab_id)
-            .and_then(|resolved| mux.get_tab(&resolved))
-            .cloned()
+        let resolved = mux.resolve_tab_id(tab_id)?;
+        Some(Recipient {
+            tab: mux.get_tab(&resolved)?.clone(),
+            workspace_id: mux.find_workspace_for_tab(&resolved),
+        })
     }
 
     fn observe_owner(
@@ -634,6 +636,9 @@ fn plan_reminder_choice_approve_exact_scope_once() {
         assert_eq!(emits[0].plan_id, PLAN);
         assert_eq!(emits[0].scope.tab_id, f.recipient(kind));
         assert_eq!(emits[0].scope.kind, kind);
+        let workspace = f.host.mux.lock().find_workspace_for_tab(f.recipient(kind));
+        assert!(workspace.is_some());
+        assert_eq!(emits[0].scope.recipient_workspace, workspace);
         assert_eq!(emits[0].emission.text, opaque(kind, PLAN));
         let (role, task, attempt) = if kind == ReminderKind::Worker {
             ("worker", Some("task-a"), Some("attempt-a"))
@@ -788,7 +793,7 @@ fn plan_reminder_choice_unchanged_observation_no_repeat() {
 
 #[test]
 fn plan_reminder_choice_stale_scope_and_disconnect_refuse() {
-    let cases: [(&str, ReminderKind, fn(&Fixture)); 16] = [
+    let cases: [(&str, ReminderKind, fn(&Fixture)); 17] = [
         ("owner_rebound", ReminderKind::Owner, |f| {
             f.edit_tab(&f.owner, |tab| bind(tab, "owner-session", "rotated"));
         }),
@@ -819,6 +824,12 @@ fn plan_reminder_choice_stale_scope_and_disconnect_refuse() {
         }),
         ("scope_cleaned_up", ReminderKind::StalledTeam, |f| {
             f.host.gate.retain(&HashSet::new());
+        }),
+        ("owner_moved_workspace", ReminderKind::Owner, |f| {
+            let mut mux = f.host.mux.lock();
+            let from = mux.find_workspace_for_tab(&f.owner).unwrap();
+            let to = mux.create_workspace("moved".into(), None).id;
+            mux.move_tab(&f.owner, &from, &to).unwrap();
         }),
         ("owner_moved_team", ReminderKind::Owner, |f| {
             f.edit_tab(&f.owner, |tab| tab.team_id = Some("moved-team".into()));
