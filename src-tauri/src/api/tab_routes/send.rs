@@ -27,35 +27,33 @@ pub async fn chat_send_text(
     ) {
         return Err(error.into());
     }
-    if state.svc.tab_chat_backing(&tab_id).is_none()
-        && state.svc.has_public_send_launch_gate(&tab_id)
-    {
-        await_public_send_readiness(&state.svc, &tab_id).await?;
-    }
     let run_stages = crate::chatpipeline::is_user_turn_send(false, false, has_agent_identity);
-    let (text, pad_file) = state
-        .svc
-        .prepare_chat_send_text(&tab_id, body.text.unwrap_or_default(), run_stages)
-        .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
-    let submit_claim = state.svc.claim_chat_submit_cycle(&tab_id);
-    let client_token = body.client_token;
+    let reservation = if state.svc.tab_chat_backing(&tab_id).is_none() {
+        Some(state.svc.reserve_user_send(&tab_id, body.client_token.clone())
+            .map_err(|detail| SendRejection::from(DeliveryError::TabBusyRefused { tab: tab_id.clone(), detail }))?)
+    } else { None };
     let svc = state.svc.clone();
     let send_tab = tab_id.clone();
-    // Anchor capture reads the session file and may enter a plugin VM.
-    let status = tokio::task::spawn_blocking(move || {
-        svc.start_chat_send(&send_tab, text, submit_claim, client_token)
-    })
-    .await
-    .map_err(|_| SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed")))?
-    .map_err(|detail| {
-        SendRejection::from(DeliveryError::TabBusyRefused {
-            tab: tab_id,
-            detail,
-        })
-    })?;
-    Ok(Json(crate::service::agent_pad::ChatSendResult::new(
-        status, pad_file,
-    )))
+    let result = tokio::task::spawn_blocking(move || {
+        if let Some(reservation) = reservation {
+            svc.prepare_and_admit_user_send(reservation, body.text.unwrap_or_default(), run_stages)
+        } else {
+            let (text, pad_file) = svc.prepare_chat_send_text(&send_tab, body.text.unwrap_or_default(), run_stages)?;
+            let status = svc.start_chat_send(&send_tab, text, None, body.client_token)?;
+            Ok(crate::service::agent_pad::ChatSendResult::new(status, pad_file))
+        }
+    }).await.map_err(|_| SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed")))?
+        .map_err(|detail| {
+            if detail.starts_with("admission_unknown:") {
+                SendRejection { status: StatusCode::SERVICE_UNAVAILABLE, body: serde_json::json!({
+                    "ok": false, "admission": "unknown", "safe_to_resend": false,
+                    "error": { "code": "admission_unknown", "tab": tab_id, "message": detail },
+                }) }
+            } else {
+                SendRejection::from(DeliveryError::TabBusyRefused { tab: tab_id, detail })
+            }
+        })?;
+    Ok(Json(result))
 }
 
 fn chat_send_target_refusal(
