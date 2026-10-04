@@ -455,3 +455,23 @@ fn sqlite_backed_session_capabilities() {
         assert_eq!(refused.cursor.as_deref(), Some(malformed));
     }
 }
+
+#[test]
+fn parity_directory_trust_opencode_declares_no_trust_capability() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = opencode();
+    let screen = std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-claude")
+            .join("tests")
+            .join("fixtures")
+            .join("folder-trust")
+            .join("quick-safety-no-first.txt"),
+    )
+    .expect("trust-shaped frame");
+    assert!(!provider.supports_directory_trust_prompt_parsing());
+    assert_eq!(provider.parse_directory_trust_prompt(&screen), None);
+    assert_eq!(provider.directory_trust_prompt_response(&screen), None);
+}

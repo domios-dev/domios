@@ -42,7 +42,7 @@ use super::cancellation::{
     windows::{Events, CANCEL_KEY},
     Cancellation,
 };
-use super::capture::{self, CaptureData, OwnedHandle, WindowsStream as Stream};
+use super::capture::{self, OwnedHandle, WindowsStream as Stream};
 use super::capture::{last_error, resource_name, timeout_ms};
 use super::owner::{mark_close_uncertain, ProbeResourceOwner, Reservation, WindowsPending};
 use super::process::{Deadlines, ProbeFailure, ResourceKind, WindowsLaunchState};
@@ -505,7 +505,7 @@ impl WindowsRun {
                 CREATE_SUSPENDED | CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
                 null(),
                 current_directory.as_mut_ptr(),
-                (&startup.StartupInfo as *const _),
+                &startup.StartupInfo as *const _,
                 &mut information,
             )
         } != 0;

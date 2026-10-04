@@ -62,6 +62,29 @@ pub(crate) fn finish_model_onboarding_step(
     }
 }
 
+/// The model trust step claims the same per-screen frame as the deterministic
+/// responder, so the two can never type twice on one frame.
+pub(crate) fn claim_model_trust_step(tab_id: &str, screen: &str) -> bool {
+    LEDGER.lock().claim(tab_id, frame_id(screen))
+}
+
+pub(crate) fn model_trust_step_revision(screen: &str) -> u64 {
+    super::supporter_tab_state::frame_hash(&format!("{:?}:true", Some(frame_id(screen))))
+}
+
+pub(crate) fn finish_model_trust_step(tab_id: &str, screen: &str, authorized: bool) {
+    let mut ledger = LEDGER.lock();
+    let Some(tab) = ledger.tabs.get_mut(tab_id) else {
+        return;
+    };
+    if tab.answered_frame == Some(frame_id(screen)) {
+        tab.in_flight = false;
+        if !authorized {
+            tab.answered_frame = None;
+        }
+    }
+}
+
 static SHARED_TRUST: LazyLock<parking_lot::Mutex<SharedTrustCache>> =
     LazyLock::new(Default::default);
 
@@ -938,7 +961,8 @@ pub(crate) fn launch_onboarding_check_applies(tab: &Tab, agent_type: &str) -> bo
     tab.agent_type.as_deref() == Some(agent_type)
         && (tab.role == Some(codeterm_types::agent::roles::AgentRole::Worker)
             || (tab.role == Some(codeterm_types::agent::roles::AgentRole::Manager)
-                && tab.role_profile.as_deref() == Some("planner")))
+                && tab.role_profile.as_deref() == Some("planner"))
+            || super::unattended_launch::runs_unattended(tab))
 }
 
 #[cfg(test)]

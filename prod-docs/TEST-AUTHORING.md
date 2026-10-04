@@ -33,7 +33,8 @@ final state. A correct end state reached in the wrong order is a latent bug.
 Prove the test can fail. Run it against sabotaged code (comment out the fix,
 break the layout, skip the phase) and watch it go red for the *right reason*.
 Then restore and watch it go green. A red-green demo belongs in the report of
-every new test. Case study: an ordered-transcript drill was written, never
+every new test. Run it in your lane when the test is an isolated check; when it
+needs a full rebuild, report the sabotage and the exact selector for canonical QA. Case study: an ordered-transcript drill was written, never
 executed, and shipped with a CLI signature error on line one of its setup —
 it could not have run even once. The author believed it worked.
 
@@ -163,4 +164,4 @@ Keeping the repo path in the role_guidance still matters for local contributors;
 the embedded copy gives spawned agents a stable recovery path when they are
 outside this checkout.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

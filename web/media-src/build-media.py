@@ -12,6 +12,8 @@ from media_contract import SOURCES, bounded_process, prepare_output, read_timing
 from media_contract import probe, require, run, write_captions, write_json, write_manifest
 from timeline_audit import timeline_audit
 from narration_proof import sha256
+from ending_memory import (MEMORY_START_FRAME, MEMORY_END_FRAME, MEMORY_SHA256,
+                           MEMORY_SOURCE_START, memory_source, memory_frames)
 from trailer_scenes import (ENDING_END_FRAME, ENDING_START_FRAME, FPS, OPENING_FRAMES, SIZE,
                             ENDING_MESH_PATH, ENDING_MESH_SHA256,
                             load_brand_frames, render_timeline_frame, source_frames, timed_shots)
@@ -49,9 +51,13 @@ def build(source_dir, output_dir, font, preview_dir, brand_directory, review_ran
         prepare_output(preview_dir, [source_dir, output_dir, brand_directory])
     source_paths = {key: source_dir / name for key, name in SOURCES.items()}
     validate_sources(source_paths, shots)
+    memory_path = memory_source(source_dir)
     audit = timeline_audit('222f60c46', review_range, timing)
     audit['timingSha256'] = sha256(timing_path) if timing_path else None
     audit['framing'] = dict(brandSourceSha256=brand_frames['sourceSha256'],
+                            endingMemory=dict(path=str(memory_path), sha256=MEMORY_SHA256,
+                                              outputFrames=[MEMORY_START_FRAME, MEMORY_END_FRAME],
+                                              sourceStart=MEMORY_SOURCE_START, nativeFps=FPS),
                             endingScreenshot=dict(path=str(ENDING_MESH_PATH), sha256=ENDING_MESH_SHA256,
                                                   firstFrame=1140, crop=[334, 50, 3496, 2079]),
                             brandManifestSha256=sha256(brand_directory / 'brand-frames.json'),
@@ -65,17 +71,29 @@ def build(source_dir, output_dir, font, preview_dir, brand_directory, review_ran
             '-s', f'{SIZE[0]}x{SIZE[1]}', '-r', FPS, '-i', '-', '-an',
             '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '16', '-threads', '6',
             '-pix_fmt', 'yuv420p', master], 1800, stdin=subprocess.PIPE) as encoder:
+            memory_sequence = None
             try:
                 for edit in shots:
                     if edit['at'] >= end or edit['at'] + edit['duration'] <= start:
                         continue
                     print(f'Render {edit["at"]:04.1f}s: {edit["name"]}', flush=True)
                     for index, frame in enumerate(source_frames(source_paths, edit)):
-                        if start_frame <= round((edit['at'] + index / FPS) * FPS) < end_frame:
-                            encoder.stdin.write(render_timeline_frame(edit, index / FPS, frame, font, brand_frames).tobytes())
+                        output_frame = round((edit['at'] + index / FPS) * FPS)
+                        if start_frame <= output_frame < end_frame:
+                            memory_frame = None
+                            if MEMORY_START_FRAME <= output_frame < MEMORY_END_FRAME:
+                                if memory_sequence is None:
+                                    memory_sequence = memory_frames(memory_path, output_frame)
+                                memory_frame = next(memory_sequence)
+                            elif memory_sequence is not None:
+                                memory_sequence.close()
+                                memory_sequence = None
+                            encoder.stdin.write(render_timeline_frame(edit, index / FPS, frame, font, brand_frames, memory_frame).tobytes())
                 encoder.stdin.close()
                 require(encoder.wait(timeout=1800) == 0, 'Trailer render failed')
             finally:
+                if memory_sequence is not None:
+                    memory_sequence.close()
                 if not encoder.stdin.closed:
                     encoder.stdin.close()
         mp4, webm = output_dir / 'trailer.mp4', output_dir / 'trailer.webm'

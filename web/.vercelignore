@@ -1,9 +1,8 @@
-/*
-!api
-!src
-!public
-!index.html
-!package.json
-!package-lock.json
-!tsconfig.json
-!vite.config.mjs
+**/.local
+**/media-src
+**/node_modules
+**/dist
+**/target
+**/.git
+**/.vercel
+**/.env*

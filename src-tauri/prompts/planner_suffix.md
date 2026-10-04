@@ -16,7 +16,7 @@ How you work:
 
 Testing and evidence:
 - Start from the oracle. A test plan names exact commands, touched surfaces, steps, and observable pass conditions; if the Worker must invent a selector, value, or step, it is incomplete.
-- Plan the smallest deterministic user-layer oracle and schedule it once at final integration. Workers author coverage and report commands; every gate is Orchestrator-owned canonical QA, and checkout placement is its call.
+- Plan the smallest deterministic user-layer oracle and schedule it once at final integration. Workers author coverage and may run isolated checks; full rebuilds and gates are canonical QA per merged wave, placed by the Orchestrator.
 - Plan a small isolated probe before a costly integration with an uncertain boundary.
 - A task whose primary deliverable is tests (specs, drills, eval harnesses, baselines) uses `executor_role=test-author` and this guidance: {test_author_guidance}
 - Preserve accepted targets and oracles. Diagnose whether a bounce came from the brief, structure, evidence, or routing; never weaken the oracle to make work pass.

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 from media_contract import bounded_process, require
+from ending_memory import MEMORY_END_FRAME
 
 
 FPS = 30
@@ -59,7 +60,10 @@ HARD_CUTS = {4: 'Desktop establishing view to recorded app; same source frame16'
 def timed_shots(timing):
     groups = [[0], [1], [2], [3], [4], [5], [6, 7], [8], [9], [10], [11], [12], [13]]
     edits = []
-    for cue, indices in zip(timing['cues'], groups):
+    cues = timing['cues']
+    require(len(cues) in (13, 14), 'Unsupported picture episode count')
+    indexed_cues = cues if len(cues) == 13 else cues[:12] + cues[13:]
+    for cue, indices in zip(indexed_cues, groups):
         total = cue['visualEnd'] - cue['visualStart']
         for part, index in enumerate(indices):
             edit = SHOTS[index].copy()
@@ -69,6 +73,12 @@ def timed_shots(timing):
             if index in (1, 5, 6, 7):
                 edit['end'] = edit['start'] + min(edit['duration'], 4 if index in (1, 5) else 2)
             edits.append(edit)
+    if len(cues) == 14:
+        cue = cues[12]
+        edits.insert(-1, shot('Shared Memory', cue['visualStart'], cue['visualEnd'] - cue['visualStart'],
+                              'memory', 6.2, 6.2 + cue['visualEnd'] - cue['visualStart'],
+                              (0, 0, 1), (0, 0, 1), scene='memory'))
+        edits[-2]['cueId'] = cue['id']
     board_at = timing['cues'][2]['visualStart']
     board_duration = timing['cues'][3]['visualEnd'] - board_at
     for edit in edits:
@@ -81,7 +91,12 @@ def timed_shots(timing):
 
 def cuts_for(edits):
     reasons = list(HARD_CUTS.values())
-    return {edit['at']: reason for edit, reason in zip([edit for edit in edits[1:] if edit['name'] != 'Across the board'], reasons)}
+    original = [edit for edit in edits[1:] if edit['name'] not in ('Across the board', 'Shared Memory')]
+    cuts = {edit['at']: reason for edit, reason in zip(original, reasons)}
+    for edit in edits:
+        if edit['name'] == 'Shared Memory':
+            cuts[edit['at']] = 'Fleet view to owner-recorded Memory explanation'
+    return cuts
 
 
 def source_time(edit, time):
@@ -355,22 +370,27 @@ def ending_mesh():
         return source.convert('RGB')
 
 
-def agent_ending(global_frame, frame, font, brand_rest):
+def agent_ending(global_frame, frame, font, brand_rest, memory_frame=None):
     image = wallpaper().copy()
-    screen = (window(ending_mesh(), 790, 522, font, (334, 50, 3496, 2079))
+    screen = (window(memory_frame, 790, 522, font) if memory_frame is not None else
+              window(ending_mesh(), 790, 522, font, (334, 50, 3496, 2079))
               if global_frame >= 1140 else window(frame, 790, 522, font))
     image.paste(screen, (64, 112))
     mark = brand_rest.resize((64, 64), Image.Resampling.LANCZOS)
     image.paste(mark, (930, 210), mark)
-    if global_frame < 1140:
+    if memory_frame is not None:
+        heading = 'One memory.\nEvery agent.'
+    elif global_frame < 1140:
         heading = 'Capabilities for\nyour workspace.'
-    elif global_frame < 1230:
+    elif global_frame < MEMORY_END_FRAME:
         heading = 'Agents across\nyour machines.'
     else:
         heading = 'Your next idea.\nA whole team\nbehind you.'
     draw = ImageDraw.Draw(image)
-    draw.multiline_text((930, 292), heading, font=face(font, 34 if global_frame >= 1230 else 32),
+    draw.multiline_text((930, 292), heading, font=face(font, 34 if global_frame >= MEMORY_END_FRAME else 32),
                         fill=WHITE, spacing=4, align='left')
+    if memory_frame is not None:
+        draw.text((930, 448), 'Shared on this machine.', font=face(font, 14), fill=WHITE)
     draw.text((930, 514), 'domios.dev', font=face(font, 20), fill=BLUE, anchor='lm')
     return image
 
@@ -396,7 +416,7 @@ def render(edit, time, frame, font):
     return image
 
 
-def render_timeline_frame(edit, time, frame, font, brand_frames):
+def render_timeline_frame(edit, time, frame, font, brand_frames, memory_frame=None):
     frame_number = round((edit['at'] + time) * FPS)
     if 0 <= frame_number < OPENING_FRAMES:
         image = render(edit, time, frame, font)
@@ -406,5 +426,5 @@ def render_timeline_frame(edit, time, frame, font, brand_frames):
         image.paste(mark, (92, 276), mark)
         return image
     if ENDING_START_FRAME <= frame_number < ENDING_END_FRAME:
-        return agent_ending(frame_number, frame, font, brand_frames['images'][-1])
+        return agent_ending(frame_number, frame, font, brand_frames['images'][-1], memory_frame)
     return render(edit, time, frame, font)

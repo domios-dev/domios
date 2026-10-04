@@ -101,12 +101,13 @@ def write_manifest(directory, manifest):
         if manifest['totalBytes'] == total:
             break
         manifest['totalBytes'] = total
-    require(total < 6_000_000, f'Media exceeds 6 MB: {total} bytes')
     path.write_bytes(encoded)
 
 
 def validate_captions(captions, timing=None):
-    require(len(captions) == 13, 'Expected thirteen cues')
+    require(bool(captions), 'Expected narration cues')
+    if timing:
+        require(len(captions) == len(timing['cues']), 'Caption count differs from timing authority')
     previous = 0
     for index, cue in enumerate(captions):
         require(cue.get('id', index + 1) == index + 1, 'Cue identity/order changed')

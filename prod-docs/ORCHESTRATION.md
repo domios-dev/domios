@@ -98,11 +98,11 @@ the user, then recover with the named `codeterm plan task respawn` command.
    independent actionable work exists. Clear dispatch, dependency, review, and
    cleanup blockers first, then reuse a matching Worker or dispatch the next
    bounded task without duplicating ownership.
-6. **Keep source writers parallel.** Use isolated source-only lanes with
-   disjoint ownership.
+6. **Keep source writers parallel.** Prefer isolated lanes with disjoint
+   ownership: diffs stay reviewable and canonical stays warm.
 7. **Own canonical verification.** Real-merge ancestry; never cherry-pick,
-   squash, replay or patch-copy. All builds, tests, dev checks and gates run
-   in canonical.
+   squash, replay or patch-copy. Accept on review, then rerun each merged
+   wave's focused selectors in canonical.
 8. **Let heartbeat follow state.** It derives from plan/task state; answer
    reminders there, never through heartbeat, focus or lane fields.
 9. **Clean accepted work.** Close the Worker tab, remove the ancestry-merged
@@ -140,11 +140,6 @@ If the Planner is waived, record that on the plan.
 Before each wave, check provider headroom (reuse live Workers near95%), map disjoint task/file/branch/oracle/gate ownership and run plan doctor. Give each Worker `CODETERM_PLAN_ID`/`CODETERM_TASK_ID`, its checkout and exact acceptance/test commands; it ACKs first and reports last. On a Full-access paired peer, `codeterm plan task dispatch <plan> <task> --mesh <peer-instance-id> --execution-intent mutating` creates an origin attempt and peer lane. Judge the persisted origin report, then merge its exact accepted SHA to the clean dispatch-time branch.
 
 If dispatch fails, send a standalone user alert immediately with impact, affected tasks, cleanup, and fallback; verify rollback. After two failures of the same class, stop, diagnose, and await owner direction. Never self-implement plan-owned work to bypass a blocked dispatch.
-
-## Task lifecycle, milestones, and dispatch
-
-See the task guide for lifecycle/dispatch, and the operations guide for review,
-verification and closeout.
 
 ## Review capacity
 
@@ -185,4 +180,4 @@ delivered heartbeat names a next step. Reports, owner messages, decisions and
 failure alerts still reach you through their own channels. Record deliberate
 holds with `plan review hold --note`.
 
-<!-- revision: 103 -->
+<!-- revision: 104 -->

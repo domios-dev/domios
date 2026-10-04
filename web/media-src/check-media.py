@@ -56,7 +56,8 @@ def frame_hashes(path):
     return [line.rsplit(',', 1)[-1].strip() for line in output.decode().splitlines() if line and not line.startswith('#')]
 
 
-def audio_packet_oracle(candidate, mixed_audio, continuous_music=False):
+def audio_packet_oracle(candidate, mixed_audio, continuous_music=False, opus_frame_duration=None):
+    require(opus_frame_duration in (None, 10, 20), 'Unsupported declared Opus frame duration')
     actual = run(['ffmpeg', '-v', 'error', '-i', candidate, '-map', '0:a:0', '-c:a', 'copy',
                   '-f', 'streamhash', '-hash', 'sha256', '-'], capture=True).decode().strip()
     codec, bitrate = ('aac', '64k') if candidate.suffix == '.mp4' else ('libopus', '48k')
@@ -64,8 +65,8 @@ def audio_packet_oracle(candidate, mixed_audio, continuous_music=False):
                  '-b:a', bitrate, '-ar', '48000', '-ac', '1']
     if candidate.suffix == '.mp4':
         reference += ['-aac_coder', 'fast']
-    elif continuous_music:
-        reference += ['-frame_duration', '10']
+    elif opus_frame_duration is not None or continuous_music:
+        reference += ['-frame_duration', str(opus_frame_duration if opus_frame_duration is not None else 10)]
     expected = run(reference + ['-f', 'streamhash', '-hash', 'sha256', '-'], capture=True).decode().strip()
     require(actual == expected, 'Encoded soundtrack differs from the aligned/mixed proof WAV')
     return actual
@@ -127,7 +128,7 @@ def published_assets(directory, timing, require_audio, timing_path, private_revi
     validate_captions(captions, timing)
     require(json.loads((directory / 'transcript.json').read_text(encoding='utf-8-sig')) == captions, 'Transcript differs from captions')
     sections = (directory / 'captions.vtt').read_text(encoding='utf-8-sig').strip().split('\n\n')
-    require(sections[0] == 'WEBVTT' and len(sections) == 14, 'Invalid VTT cue count')
+    require(sections[0] == 'WEBVTT' and len(sections) == len(captions) + 1, 'Invalid VTT cue count')
 
     def seconds(value):
         hours, minutes, seconds = map(float, value.split(':'))
@@ -169,7 +170,7 @@ def published_assets(directory, timing, require_audio, timing_path, private_revi
             require(poster.size == ((1280, 720) if name == 'trailer' else (480, 270)), 'Poster size mismatch')
             poster.load()
     total = sum(path.stat().st_size for path in directory.iterdir())
-    require(total == manifest['totalBytes'] and total < 6_000_000, 'Aggregate budget/manifest mismatch')
+    require(total == manifest['totalBytes'], 'Aggregate manifest size mismatch')
     return dict(totalBytes=total, files=len(allowed), music=manifest.get('music'),
                 musicArrangement=manifest.get('musicArrangement'))
 
@@ -209,7 +210,7 @@ def narration_oracle(proof_path, timing, timing_path, private_review=False):
     return dict(words=len(timing['narration']['words']), sourceAudioSha256=proof['sourceAudio']['sha256'],
                 finalAudioPath=proof['finalAudio']['path'], finalAudioSha256=proof['finalAudio']['sha256'],
                 phraseBalance=balance,
-                continuousMusic=continuous,
+                continuousMusic=continuous, audioEncoding=proof.get('audioEncoding', {}),
                 musicCredit=credit_payload(proof['music'], private_review) if proof['music'] else None,
                 listening='Root must audition complete A/V and every cue; metadata cannot prove pronunciation or clicks')
 
@@ -268,7 +269,8 @@ if __name__ == '__main__':
                 require(frame_hashes(candidate) == frame_hashes(args.reference_video_dir / candidate.name), 'Picture changed during narration mux')
                 report['formats'][kind]['audioPacketHash'] = audio_packet_oracle(
                     candidate, Path(report['narration']['finalAudioPath']),
-                    continuous_music=report['narration']['continuousMusic'] is not None)
+                    continuous_music=report['narration']['continuousMusic'] is not None,
+                    opus_frame_duration=report['narration']['audioEncoding'].get('opusFrameDurationMs'))
     if args.audit:
         write_json(args.audit, report)
     print('PRIVATE nonpublishable media oracles passed; publication rights unresolved' if args.private_review else

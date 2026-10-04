@@ -196,3 +196,79 @@ fn numbered_trust_prompt_and_response_native_js_parity() {
     assert_eq!(native_steps, js_steps);
     assert_eq!(native_steps, vec![b"\r".to_vec()]);
 }
+
+type DeclaredTrustOption = (Vec<String>, Vec<u8>, Vec<Option<Vec<u8>>>);
+
+fn declared_trust_option(
+    provider: &dyn AgentProvider,
+    screen: &str,
+) -> Option<DeclaredTrustOption> {
+    let prompt = provider.parse_directory_trust_prompt(screen)?;
+    let Some(DirectoryTrustPromptResponse::Answer { step }) =
+        provider.directory_trust_prompt_response(screen)
+    else {
+        return None;
+    };
+    let first_keys = (0..prompt.options.len())
+        .map(|index| {
+            provider
+                .live_prompt_response(index, screen)
+                .and_then(|steps| steps.into_iter().next())
+        })
+        .collect();
+    Some((
+        prompt
+            .options
+            .into_iter()
+            .map(|option| option.value)
+            .collect(),
+        step,
+        first_keys,
+    ))
+}
+
+#[test]
+fn parity_directory_trust_claude_declared_option_matches_native() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let cases: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(fixtures_dir().join("cases.json")).expect("cases.json"),
+    )
+    .expect("cases.json parses");
+    let mut declared = 0;
+    for case in cases.as_array().expect("case list") {
+        let file = case["file"].as_str().expect("file");
+        let screen = std::fs::read_to_string(fixtures_dir().join(file)).expect("fixture");
+        let native_option = declared_trust_option(&native, &screen);
+        assert_eq!(
+            native_option,
+            declared_trust_option(&js, &screen),
+            "declared trust option {file}"
+        );
+        let Some((_, step, first_keys)) = native_option else {
+            continue;
+        };
+        let advanced = first_keys
+            .iter()
+            .enumerate()
+            .filter(|(_, first)| first.as_deref() == Some(step.as_slice()))
+            .map(|(index, _)| index)
+            .collect::<Vec<_>>();
+        assert_eq!(advanced.len(), 1, "one option per trust key {file}");
+        let prompt = native.parse_directory_trust_prompt(&screen).unwrap();
+        assert!(
+            prompt.options[advanced[0]]
+                .label
+                .to_ascii_lowercase()
+                .starts_with("yes"),
+            "the trust key advances toward the affirmative option {file}"
+        );
+        declared += 1;
+    }
+    assert!(
+        declared >= 3,
+        "several captured trust frames declare an option"
+    );
+}

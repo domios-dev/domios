@@ -1,8 +1,5 @@
 .hero > .provider-strip.section-wrap { max-width: 100%; padding-inline: 0; }
 .provider-strip { padding-block: 56px 0; min-width: 0; }
-.provider-plugin-note { max-width: 620px; margin: 24px auto 0; padding: 14px 22px; border-radius: 22px; background: var(--ct-surface); color: var(--ct-muted-fg); font-size: 13px; line-height: 1.6; text-wrap: balance; }
-.provider-plugin-note > span { display: block; color: var(--ct-heading); font-weight: 500; }
-.hero > .hero-capabilities { margin-top: 48px; margin-bottom: 24px; }
 .provider-viewport { overflow: clip; padding: 12px; border: 1px solid transparent; background: var(--ct-bg); --provider-fade: clamp(18px, 4vw, 48px); mask-image: linear-gradient(to right, transparent, #000 var(--provider-fade), #000 calc(100% - var(--provider-fade)), transparent); }
 .provider-track { display: flex; width: max-content; animation: provider-flow 42s linear infinite; animation-play-state: paused; }
 .provider-strip[data-provider-motion="running"] .provider-track { animation-play-state: running; }

@@ -8,9 +8,9 @@ export function useMediaLibrary() {
     const controller = new AbortController();
     const read = (path: string) => fetch(path, { signal: controller.signal })
       .then((response) => response.ok ? response.json() as Promise<unknown> : null).catch(() => null);
-    void Promise.all([read('/media/manifest.json'), read('/media/captions.json')])
-      .then(([manifest, captions]) => {
-        if (!controller.signal.aborted) setLibrary(parseMedia(manifest, captions));
+    void Promise.all([read('/media/manifest.json'), read('/media/captions.json'), read('/captions/words.json')])
+      .then(([manifest, captions, words]) => {
+        if (!controller.signal.aborted) setLibrary(parseMedia(manifest, captions, words));
       });
     return () => controller.abort();
   }, []);
@@ -29,19 +29,27 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
   const [playing, setPlaying] = useState(false);
   const [failed, setFailed] = useState(false);
   const [time, setTime] = useState(0);
-  const [soundEnabled, setSoundEnabled] = useState(false);
-  const soundChoice = useRef(false);
+  const [soundLevel, setSoundLevel] = useState(0);
+  const [loopEnabled, setLoopEnabled] = useState(true);
+  const soundEnabled = soundLevel > 0;
+  const soundChoice = useRef(0);
+  const explicitSound = useRef(false);
+  const mutedByUser = useRef(false);
+  const ambientAttempted = useRef(false);
   const playAttempt = useRef(0);
   const inViewNow = useRef(false);
   const observedInView = useRef(false);
   const policy = useRef({ loaded, pausedByUser, reducedMotion, requestedByUser });
   policy.current = { loaded, pausedByUser, reducedMotion, requestedByUser };
-  const mute = () => {
-    soundChoice.current = false;
-    setSoundEnabled(false);
+  const applySound = (level: number, explicit = false) => {
+    soundChoice.current = level;
+    explicitSound.current = level > 0 && explicit;
+    setSoundLevel(level);
+    setLoopEnabled(!explicitSound.current);
     const video = videoRef.current;
-    if (video) { video.muted = true; video.loop = true; }
+    if (video) { video.volume = level || .1; video.muted = level === 0; video.loop = !explicitSound.current; }
   };
+  const mute = () => applySound(0);
   const canPlay = () => inViewNow.current && !document.hidden && !policy.current.pausedByUser
     && (!policy.current.reducedMotion || policy.current.requestedByUser);
   const syncViewportVisibility = (observed = observedInView.current) => {
@@ -52,6 +60,7 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
     setInView(shown);
     if (shown && !reducedMotion) setLoaded(true);
     if (!shown) {
+      ambientAttempted.current = false;
       ++playAttempt.current;
       videoRef.current?.pause();
       mute();
@@ -60,17 +69,28 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
   const attemptPlay = () => {
     const video = videoRef.current;
     if (!video || !canPlay()) return;
+    if (clip.hasNarration && !mutedByUser.current && !ambientAttempted.current && soundChoice.current === 0) {
+      ambientAttempted.current = true;
+      applySound(.1);
+    }
     const attempt = ++playAttempt.current;
-    video.muted = !soundChoice.current;
-    video.loop = !soundChoice.current;
+    const ambient = soundChoice.current === .1 && !explicitSound.current;
+    video.muted = soundChoice.current === 0;
+    video.loop = !explicitSound.current;
+    const rejected = () => {
+      if (playAttempt.current !== attempt) return;
+      setPlaying(false);
+      setPausedByUser(true);
+      policy.current.pausedByUser = true;
+    };
     void video.play().then(() => {
       if (!canPlay()) video.pause();
     }).catch(() => {
-      if (playAttempt.current === attempt) {
-        setPlaying(false);
-        setPausedByUser(true);
-        policy.current.pausedByUser = true;
-      }
+      if (playAttempt.current !== attempt) return;
+      if (ambient && canPlay()) {
+        mute();
+        void video.play().then(() => { if (!canPlay()) video.pause(); }).catch(rejected);
+      } else rejected();
     });
   };
   useEffect(() => {
@@ -93,6 +113,7 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
     const update = () => {
       setVisible(!document.hidden);
       if (document.hidden) {
+        ambientAttempted.current = false;
         ++playAttempt.current;
         videoRef.current?.pause();
         mute();
@@ -107,7 +128,7 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
     if (loaded && inView && visible && !pausedByUser && (!reducedMotion || requestedByUser)) {
       attemptPlay();
     } else { ++playAttempt.current; video.pause(); }
-  }, [loaded, inView, visible, pausedByUser, reducedMotion, requestedByUser]);
+  }, [loaded, inView, visible, pausedByUser, reducedMotion, requestedByUser, clip.hasNarration]);
   useEffect(() => {
     if (reducedMotion) {
       setRequestedByUser(false);
@@ -164,7 +185,7 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
   const onLoadedMetadata = () => {
     const video = videoRef.current;
     if (video) {
-      video.muted = !soundChoice.current;
+      video.muted = soundChoice.current === 0;
       for (const track of Array.from(video.textTracks)) track.mode = 'hidden';
     }
     if (pendingSeek.current !== null && videoRef.current) {
@@ -178,15 +199,21 @@ export function useVideo(clip: Trailer, reducedMotion: boolean) {
     }
   };
   return {
-    containerRef, videoRef, loaded, playing, failed, time, soundEnabled, seek, togglePlayback, onLoadedMetadata, onLoadedData,
+    containerRef, videoRef, loaded, playing, failed, time, soundEnabled, soundAtFullVolume: soundLevel === 1,
+    volume: soundLevel, loopEnabled, seek, togglePlayback, onLoadedMetadata, onLoadedData,
+    setVolume: (percentage: number) => {
+      const level = Math.max(0, Math.min(1, percentage / 100));
+      mutedByUser.current = level === 0;
+      ambientAttempted.current = true;
+      applySound(level, true);
+    },
     toggleSound: () => {
       if (!clip.hasNarration) return;
-      if (soundChoice.current) mute();
+      if (soundChoice.current === 1) { mutedByUser.current = true; mute(); }
       else {
-        soundChoice.current = true;
-        setSoundEnabled(true);
-        const video = videoRef.current;
-        if (video) { video.muted = false; video.loop = false; }
+        mutedByUser.current = false;
+        ambientAttempted.current = true;
+        applySound(1, true);
         play();
       }
     },

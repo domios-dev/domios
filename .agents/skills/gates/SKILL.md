@@ -45,6 +45,11 @@ bash scripts/check-file-sizes.sh --fail
 
 Run these from the PowerShell tool directly. They are short enough to read.
 
+In a Worker lane only the isolated ones run: `tsc`, a single node test file,
+`test-one plan`, `test-one pty` and the file-size script. `check`, `check-tests`
+and `test-one app` compile the app crate, a full rebuild; report them as
+deferred selectors for the Orchestrator's canonical wave batch.
+
 ## Broad, delegate
 
 The broad gate is `.\build.ps1 release-preflight`: fmt, size, bundles,

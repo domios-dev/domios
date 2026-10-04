@@ -230,3 +230,23 @@ fn cursor_tui_usage_screen_is_skip_not_error() {
         crate::usage_parser::UsageParseOutcome::Skip(_)
     ));
 }
+
+#[test]
+fn parity_directory_trust_cursor_declares_no_trust_capability() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let provider = cursor();
+    let screen = std::fs::read_to_string(
+        workspace_plugins_root()
+            .join("provider-claude")
+            .join("tests")
+            .join("fixtures")
+            .join("folder-trust")
+            .join("quick-safety-no-first.txt"),
+    )
+    .expect("trust-shaped frame");
+    assert!(!provider.supports_directory_trust_prompt_parsing());
+    assert_eq!(provider.parse_directory_trust_prompt(&screen), None);
+    assert_eq!(provider.directory_trust_prompt_response(&screen), None);
+}
