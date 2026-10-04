@@ -8,6 +8,7 @@ use crate::sentinel::{
     graph::{self, ConnectedCron, Identity, Snapshot},
     machine::Route,
     scheduler::Handle,
+    storage::{self, Staged},
     store::{Sentinel, Store},
 };
 use crate::service::ServiceContext;
@@ -20,6 +21,7 @@ pub fn explicit_team(value: &Value) -> Result<Option<String>, String> {
     }
 }
 
+#[cfg(test)]
 pub fn host_stop(
     store: &mut Store,
     mux: &MultiplexerState,
@@ -27,6 +29,29 @@ pub fn host_stop(
     team: Option<&str>,
     id: &str,
 ) -> Result<Sentinel, String> {
+    host_stop_gate(store, mux, workspace, team, id)?;
+    store.stop(id, "stopped_by_host")
+}
+
+/// Authorizes the host stop under the mux and store locks; settle it after both drop.
+pub fn host_stop_staged(
+    store: &mut Store,
+    mux: &MultiplexerState,
+    workspace: &str,
+    team: Option<&str>,
+    id: &str,
+) -> Result<Staged<Sentinel>, String> {
+    host_stop_gate(store, mux, workspace, team, id)?;
+    Ok(store.stage_stop(id, "stopped_by_host"))
+}
+
+fn host_stop_gate(
+    store: &Store,
+    mux: &MultiplexerState,
+    workspace: &str,
+    team: Option<&str>,
+    id: &str,
+) -> Result<(), String> {
     graph::validate_scope(mux, workspace, team)?;
     store.ensure_available()?;
     let job = store.get(id).ok_or("Sentinel not found")?;
@@ -39,7 +64,7 @@ pub fn host_stop(
     {
         return Err("Sentinel is unavailable in this automation scope".into());
     }
-    store.stop(id, "stopped_by_host")
+    Ok(())
 }
 
 pub fn target_identity(
@@ -173,14 +198,8 @@ impl ServiceContext {
             .app_handle
             .try_state::<Handle>()
             .ok_or("sentinels not initialized")?;
-        let (jobs, live_leases) = {
-            let mux = self.mux.read();
-            let store = handle.store.lock();
-            (
-                graph::scoped_inventory(&store, &mux, workspace, team)?,
-                store.live_leases(),
-            )
-        };
+        graph::validate_scope(&self.mux.read(), workspace, team)?;
+        let (jobs, live_leases) = storage::committed_scope(&handle.store, workspace, team)?;
         let crons = self
             .app_handle
             .try_state::<crate::CronState>()
@@ -242,10 +261,11 @@ impl ServiceContext {
             .app_handle
             .try_state::<Handle>()
             .ok_or("sentinels not initialized")?;
-        let result = {
+        let staged = {
             let mux = self.mux.read();
-            host_stop(&mut handle.store.lock(), &mux, workspace, team, id)
+            host_stop_staged(&mut handle.store.lock(), &mux, workspace, team, id)
         };
+        let result = staged.and_then(|staged| staged.settle(&handle.store));
         handle.notify();
         result
     }

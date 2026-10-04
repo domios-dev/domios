@@ -7,6 +7,7 @@ pub(crate) mod probe;
 pub(crate) mod provenance;
 pub(crate) mod routes;
 pub(crate) mod scheduler;
+pub(crate) mod storage;
 pub(crate) mod store;
 #[cfg(test)]
 mod tests;
