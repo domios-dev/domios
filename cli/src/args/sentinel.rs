@@ -47,6 +47,18 @@ pub enum SentinelAction {
     Show { id: String },
     /// Stop one sentinel
     Stop { id: String },
+    /// Replace one definition at the expected version
+    Update {
+        id: String,
+        #[arg(long)]
+        expect_version: u64,
+        #[arg(long)]
+        from_file: std::path::PathBuf,
+        #[arg(long)]
+        cause: Option<String>,
+    },
+    /// Show immutable definition versions
+    History { id: String },
 }
 
 fn parse_assignment(value: &str) -> Result<String, String> {
@@ -127,9 +139,45 @@ mod tests {
             vec!["codeterm", "sentinel", "list", "--json"],
             vec!["codeterm", "sentinel", "show", "id", "--json"],
             vec!["codeterm", "sentinel", "stop", "id", "--json"],
+            vec!["codeterm", "sentinel", "history", "id", "--json"],
         ] {
             assert!(Cli::try_parse_from(args).unwrap().json);
         }
+    }
+
+    #[test]
+    fn sentinel_update_parse_requires_expect_version_and_file() {
+        let cli = Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "update",
+            "sentinel_a",
+            "--expect-version",
+            "4",
+            "--from-file",
+            "definition.json",
+            "--cause",
+            "transition_9",
+            "--json",
+        ])
+        .unwrap();
+        let Commands::Sentinel {
+            action:
+                SentinelAction::Update {
+                    id,
+                    expect_version,
+                    from_file,
+                    cause,
+                },
+        } = cli.command
+        else {
+            panic!("wrong command")
+        };
+        assert_eq!(id, "sentinel_a");
+        assert_eq!(expect_version, 4);
+        assert_eq!(from_file, std::path::PathBuf::from("definition.json"));
+        assert_eq!(cause.as_deref(), Some("transition_9"));
+        assert!(Cli::try_parse_from(["codeterm", "sentinel", "update", "id"]).is_err());
     }
 
     #[test]

@@ -165,6 +165,8 @@ pub(super) fn dispatch(
                 "sentinel.list",
                 "sentinel.show",
                 "sentinel.stop",
+                "sentinel.update",
+                "sentinel.history",
                 "cron.list",
                 "cron.get",
                 "cron.create",
