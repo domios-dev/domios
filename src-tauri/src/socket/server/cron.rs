@@ -364,7 +364,13 @@ pub(super) fn dispatch(
             })
         }
 
-        "cron.complete" => dispatch_complete(params, app, svc).map(|(result, _)| result),
+        "cron.complete" => {
+            let (result, after_response) = dispatch_complete(params, app, svc)?;
+            if let Some(after_response) = after_response {
+                after_response();
+            }
+            Ok(result)
+        }
 
         _ => Err(JsonRpcError {
             code: -32601,
