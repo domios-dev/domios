@@ -1,0 +1,212 @@
+//! Sentinel scenarios: stable identity, immutable definition versions behind a mutable head,
+//! mutable stage runtime, accepted transitions and independent handler claims/results.
+
+// Every relationship is an immediate NO ACTION foreign key; deletions are explicit and ordered.
+// Target identities are historical references, never keys into live tabs, crons or Teams.
+pub(super) const SCHEMA: &str = r#"
+CREATE TABLE sentinels (
+    id TEXT PRIMARY KEY NOT NULL CHECK (length(id) > 0),
+    ordinal INTEGER NOT NULL UNIQUE CHECK (ordinal >= 0),
+    creator_tab_id TEXT NOT NULL CHECK (length(creator_tab_id) > 0),
+    workspace_id TEXT NOT NULL CHECK (length(workspace_id) > 0),
+    team_id TEXT CHECK (team_id IS NULL OR length(team_id) > 0),
+    cwd TEXT NOT NULL CHECK (length(cwd) > 0),
+    agent_authored INTEGER NOT NULL CHECK (agent_authored IN (0, 1)),
+    scenario_id TEXT REFERENCES sentinels(id),
+    revision INTEGER NOT NULL CHECK (revision > 0)
+) STRICT;
+CREATE INDEX sentinels_by_scope ON sentinels(workspace_id, team_id);
+CREATE INDEX sentinels_by_team ON sentinels(team_id);
+CREATE INDEX sentinels_by_scenario ON sentinels(scenario_id);
+CREATE TABLE sentinel_definitions (
+    sentinel_id TEXT NOT NULL REFERENCES sentinels(id),
+    version INTEGER NOT NULL CHECK (version > 0),
+    provenance TEXT NOT NULL CHECK (provenance IN ('authored', 'imported')),
+    name TEXT,
+    probe TEXT NOT NULL,
+    question TEXT NOT NULL,
+    interval_ms INTEGER NOT NULL CHECK (interval_ms > 0),
+    until_bucket TEXT,
+    max_transitions INTEGER NOT NULL CHECK (max_transitions BETWEEN 1 AND 65535),
+    max_actions INTEGER NOT NULL CHECK (max_actions BETWEEN 1 AND 65535),
+    created_revision INTEGER NOT NULL CHECK (created_revision > 0),
+    PRIMARY KEY (sentinel_id, version)
+) STRICT;
+CREATE TABLE sentinel_heads (
+    sentinel_id TEXT PRIMARY KEY NOT NULL REFERENCES sentinels(id),
+    version INTEGER NOT NULL,
+    FOREIGN KEY (sentinel_id, version) REFERENCES sentinel_definitions(sentinel_id, version)
+) STRICT;
+CREATE TABLE sentinel_buckets (
+    sentinel_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    bucket TEXT NOT NULL CHECK (length(bucket) > 0),
+    match_pattern TEXT,
+    PRIMARY KEY (sentinel_id, version, ordinal),
+    UNIQUE (sentinel_id, version, bucket),
+    FOREIGN KEY (sentinel_id, version) REFERENCES sentinel_definitions(sentinel_id, version)
+) STRICT;
+CREATE TABLE sentinel_handlers (
+    sentinel_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    bucket TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    handler_id TEXT NOT NULL CHECK (length(handler_id) > 0),
+    kind TEXT NOT NULL CHECK (kind IN ('notify', 'send', 'cron', 'sentinel', 'stop', 'command')),
+    target_ref TEXT,
+    command TEXT,
+    label TEXT,
+    timeout_ms INTEGER,
+    PRIMARY KEY (sentinel_id, version, bucket, ordinal),
+    UNIQUE (sentinel_id, version, handler_id),
+    FOREIGN KEY (sentinel_id, version, bucket)
+        REFERENCES sentinel_buckets(sentinel_id, version, bucket),
+    CHECK ((kind IN ('send', 'cron', 'sentinel')) = (target_ref IS NOT NULL)),
+    CHECK ((kind = 'command') = (command IS NOT NULL)),
+    CHECK ((command IS NULL) = (label IS NULL) AND (command IS NULL) = (timeout_ms IS NULL))
+) STRICT;
+CREATE TABLE sentinel_handler_targets (
+    sentinel_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    handler_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (length(kind) > 0),
+    target_id TEXT NOT NULL CHECK (length(target_id) > 0),
+    workspace_id TEXT NOT NULL,
+    team_id TEXT,
+    owner_tab_id TEXT,
+    PRIMARY KEY (sentinel_id, version, handler_id),
+    FOREIGN KEY (sentinel_id, version, handler_id)
+        REFERENCES sentinel_handlers(sentinel_id, version, handler_id)
+) STRICT;
+CREATE TABLE sentinel_runtime (
+    sentinel_id TEXT PRIMARY KEY NOT NULL REFERENCES sentinels(id),
+    generation INTEGER NOT NULL CHECK (generation >= 0),
+    next_run INTEGER NOT NULL CHECK (next_run >= 0),
+    expires_at INTEGER CHECK (expires_at IS NULL OR expires_at >= 0),
+    paused INTEGER NOT NULL CHECK (paused IN (0, 1)),
+    stopped INTEGER NOT NULL CHECK (stopped IN (0, 1)),
+    last_hash TEXT,
+    last_bucket TEXT,
+    last_reason TEXT
+) STRICT;
+CREATE TABLE sentinel_transitions (
+    sentinel_id TEXT NOT NULL REFERENCES sentinels(id),
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    transition_id TEXT NOT NULL CHECK (length(transition_id) > 0),
+    bucket TEXT NOT NULL,
+    accepted_at INTEGER NOT NULL CHECK (accepted_at >= 0),
+    terminal INTEGER NOT NULL CHECK (terminal IN (0, 1)),
+    definition_version INTEGER,
+    PRIMARY KEY (sentinel_id, ordinal),
+    UNIQUE (sentinel_id, transition_id),
+    FOREIGN KEY (sentinel_id, definition_version)
+        REFERENCES sentinel_definitions(sentinel_id, version)
+) STRICT;
+CREATE TABLE sentinel_handler_results (
+    sentinel_id TEXT NOT NULL,
+    transition_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    handler_id TEXT NOT NULL CHECK (length(handler_id) > 0),
+    status TEXT NOT NULL
+        CHECK (status IN ('unconfirmed', 'completed', 'failed', 'noop', 'skipped')),
+    claim_id TEXT,
+    execution_id TEXT,
+    accepted_at INTEGER,
+    reason TEXT,
+    PRIMARY KEY (sentinel_id, transition_id, ordinal),
+    UNIQUE (sentinel_id, transition_id, handler_id),
+    FOREIGN KEY (sentinel_id, transition_id)
+        REFERENCES sentinel_transitions(sentinel_id, transition_id),
+    CHECK ((claim_id IS NULL) = (accepted_at IS NULL)),
+    CHECK ((status = 'skipped') = (claim_id IS NULL)),
+    CHECK (status <> 'skipped' OR execution_id IS NULL)
+) STRICT;
+CREATE TABLE sentinel_command_results (
+    sentinel_id TEXT NOT NULL,
+    transition_id TEXT NOT NULL,
+    handler_id TEXT NOT NULL,
+    status TEXT NOT NULL
+        CHECK (status IN ('success', 'nonzero', 'error', 'cancelled', 'deadline', 'unconfirmed')),
+    exit_code INTEGER,
+    resources_confirmed INTEGER NOT NULL CHECK (resources_confirmed IN (0, 1)),
+    stdout_total INTEGER,
+    stdout_retained INTEGER,
+    stdout_truncated INTEGER,
+    stderr_total INTEGER,
+    stderr_retained INTEGER,
+    stderr_truncated INTEGER,
+    started_at INTEGER NOT NULL,
+    finished_at INTEGER NOT NULL,
+    primary_failure TEXT,
+    PRIMARY KEY (sentinel_id, transition_id, handler_id),
+    FOREIGN KEY (sentinel_id, transition_id, handler_id)
+        REFERENCES sentinel_handler_results(sentinel_id, transition_id, handler_id),
+    CHECK ((stdout_total IS NULL) = (stdout_retained IS NULL)
+        AND (stdout_total IS NULL) = (stdout_truncated IS NULL)),
+    CHECK ((stderr_total IS NULL) = (stderr_retained IS NULL)
+        AND (stderr_total IS NULL) = (stderr_truncated IS NULL))
+) STRICT;
+CREATE TABLE sentinel_command_cleanup (
+    sentinel_id TEXT NOT NULL,
+    transition_id TEXT NOT NULL,
+    handler_id TEXT NOT NULL,
+    ordinal INTEGER NOT NULL CHECK (ordinal >= 0),
+    error TEXT NOT NULL,
+    PRIMARY KEY (sentinel_id, transition_id, handler_id, ordinal),
+    FOREIGN KEY (sentinel_id, transition_id, handler_id)
+        REFERENCES sentinel_command_results(sentinel_id, transition_id, handler_id)
+) STRICT;
+"#;
+
+#[cfg(feature = "test-support")]
+mod support {
+    use crate::assets::{self, Layout};
+    use crate::error::{io_error, sqlite_error, StorageError};
+    use crate::owner::Storage;
+    use rusqlite::OpenFlags;
+    use std::path::Path;
+
+    impl Storage {
+        /// Creates a root whose database stops at an earlier schema version, so contract
+        /// tests can prove the registered migrations upgrade it in place.
+        pub fn create_at_schema_version(root: &Path, version: i32) -> Result<(), StorageError> {
+            let migrations = super::super::MIGRATIONS;
+            let count = usize::try_from(version)
+                .ok()
+                .filter(|count| (1..migrations.len()).contains(count))
+                .ok_or_else(|| {
+                    StorageError::invalid("schema version", "must name an earlier migration")
+                })?;
+            std::fs::create_dir_all(root).map_err(|e| io_error("create instance root", e))?;
+            let layout = Layout::of_root(&assets::canonical_dir(root)?);
+            layout.create_dirs(true)?;
+            if assets::entry_exists(&layout.database)? {
+                return Err(StorageError::InconsistentRoot {
+                    root: root.to_path_buf(),
+                    reason: "database already exists",
+                });
+            }
+            let flags = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_CREATE;
+            let conn = super::super::open_existing(&layout.database, flags)?;
+            let mode: String = conn
+                .pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get(0))
+                .map_err(|e| sqlite_error("enable wal", e))?;
+            if !mode.eq_ignore_ascii_case("wal") {
+                return Err(StorageError::Settings {
+                    setting: "journal_mode",
+                    expected: "wal".to_string(),
+                    actual: mode,
+                });
+            }
+            conn.execute_batch(&migrations[..count].concat())
+                .map_err(|e| sqlite_error("apply migration", e))?;
+            conn.pragma_update(None, "application_id", super::super::APPLICATION_ID)
+                .map_err(|e| sqlite_error("stamp application id", e))?;
+            conn.pragma_update(None, "user_version", version)
+                .map_err(|e| sqlite_error("stamp schema version", e))?;
+            conn.close()
+                .map_err(|(_, e)| sqlite_error("close database", e))
+        }
+    }
+}

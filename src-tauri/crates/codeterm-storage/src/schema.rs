@@ -6,11 +6,13 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use std::path::Path;
 use std::time::Duration;
 
+mod sentinel;
+
 /// `PRAGMA application_id` of every Storage database ("CTST").
 pub(crate) const APPLICATION_ID: i32 = 0x4354_5354;
 
 /// Index `n` upgrades schema `n` to `n + 1`; follow-up domain migrations append here.
-const MIGRATIONS: &[&str] = &[SCHEMA_V1, cron::SCHEMA];
+const MIGRATIONS: &[&str] = &[SCHEMA_V1, cron::SCHEMA, sentinel::SCHEMA];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 
 /// Every table holding `asset_id` references; an asset is released only when none refers to it.

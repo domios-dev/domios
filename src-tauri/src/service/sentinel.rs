@@ -103,7 +103,7 @@ impl ServiceContext {
             resolved.insert(bucket.clone(), admitted);
         }
         job.routes = resolved;
-        {
+        let staged = {
             let mux = self.mux.read();
             let live = mux.get_tab(&caller.tab).is_some_and(|tab| {
                 tab.team_id == caller.team && tab.session_binding_nonce == caller.nonce
@@ -129,8 +129,9 @@ impl ServiceContext {
             }
             let tab = mux.get_tab(&caller.tab).ok_or("sentinel creator gone")?;
             job.agent_authored = tab.agent_type.is_some() && tab.session_binding_nonce.is_some();
-            handle.store.lock().insert(job.clone())?;
-        }
+            handle.store.lock().stage_insert(job.clone())
+        };
+        staged.settle(&handle.store)?;
         handle.notify();
         Ok(job)
     }
@@ -179,7 +180,7 @@ impl ServiceContext {
             .app_handle
             .try_state::<Handle>()
             .ok_or("sentinels not initialized")?;
-        let result = {
+        let staged = {
             let mux = self.mux.read();
             let live = mux.get_tab(&caller.tab).is_some_and(|tab| {
                 tab.team_id == caller.team && tab.session_binding_nonce == caller.nonce
@@ -198,8 +199,9 @@ impl ServiceContext {
             if !store.get(id).is_some_and(|job| caller.owns(job)) {
                 return Err("sentinel not found for this creator and Team".into());
             }
-            store.stop(id, "stopped_by_creator")
+            store.stage_stop(id, "stopped_by_creator")
         };
+        let result = staged.settle(&handle.store);
         handle.notify();
         result
     }
