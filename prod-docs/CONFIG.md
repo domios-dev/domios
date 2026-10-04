@@ -231,10 +231,10 @@ General Agent recovery, its thresholds and owner-notification rules, and provide
 
 ## Worker lane provisioning
 
-Worker lanes are source-only. Provisioning creates an isolated git worktree and launches the agent there; it installs no dependencies and links nothing from the canonical checkout (`node_modules` is never shared by symlink or junction, and no package-manager command precedes the agent command). Source-only workers do not build or test in their lane.
+Provisioning creates an isolated git worktree and launches the agent there; it installs no dependencies and links nothing from the canonical checkout (`node_modules` is never shared by symlink or junction, and no package-manager command precedes the agent command). An isolated check that needs dependencies installs them inside its own lane; full rebuilds stay in canonical.
 
 ## Related documents
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
 
-<!-- revision: 88 -->
+<!-- revision: 89 -->

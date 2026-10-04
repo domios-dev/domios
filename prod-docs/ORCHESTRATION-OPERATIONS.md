@@ -19,15 +19,19 @@ checks are polling.
 ## Verification and acceptance
 
 Choose the canonical checkout or an isolated lane by concurrency and file
-ownership. Workers use isolated lanes for source changes; cold compiled builds or suites
-run only after integration in canonical unless the Orchestrator gives
-explicit command-scoped permission to a canonical Worker.
+ownership. This is recommended practice, not a refusal you enforce: lanes keep
+parallel writers apart and diffs reviewable, while canonical stays warm for the
+runs that rebuild everything.
 
-Workers in isolated lanes implement source, author coverage, and report exact
-oracle commands without executing project verification. They do not build,
-run tests, start dev services, or execute gates, even when a command is focused
-or cheap. A Worker in canonical still requires explicit Orchestrator permission
-for each authorized command.
+Workers in lanes implement source, author coverage, and may run isolated checks
+that do not rebuild the whole project: a type check, a single test file, a
+linter, or the focused tests of a small standalone package, through the
+project's build queue when it has one. A check that needs the whole project or
+its main application unit built is a full rebuild and is left to canonical. The
+Worker judges this per project, names each check's category, and reports exact
+commands, counts and raw exits plus the exact selectors it deferred. Lanes do
+not start dev servers, run full suites, package, or self-install. A Worker in
+canonical runs only the commands its dispatch authorizes.
 
 A mutating canonical Worker exists only through the explicit dispatch opt-in:
 
@@ -46,9 +50,11 @@ the SHA against canonical for this placement, and any dirty report is refused,
 even with `--acknowledge-dirty`; that is a bounce. Accept or bounce it before
 merging any lane.
 
-After integrating a lane candidate, run its focused oracle through a canonical
-verification Worker. If it fails, bounce the task with the exact command and
-failure evidence. Run broad suites only once for the compatible group.
+Judge the report and the diff, accept on review, and real-merge. Then rerun the
+deferred and focused selectors of the whole merged wave as one canonical QA
+batch, yourself or through a canonical verification Worker: several merged
+lanes, one batch. A canonical failure becomes a bounce or fix task with the
+exact command and failure evidence; it does not hold an acceptance already made.
 
 A verification Worker is spawned read-only and owns no task:
 
@@ -78,16 +84,16 @@ Design the smallest deterministic user-layer oracle before implementation so
 unit-green changes cannot silently break the real workflow. Keep that oracle
 fast, reusable, and event-driven.
 
-During lane iteration, use source inspection and non-executable static review.
-After real merge, run focused checks in canonical, then run the actual user-layer
+During lane iteration, use source review and isolated checks. After real
+merge, run the wave's focused checks in canonical, then the actual user-layer
 oracle once at final integration or release verification.
 
 The two tiers are not interchangeable, and the cheap one is mandatory:
 
 - A **focused check** proves one change. Every accepted lane and every repair
   gets one, scoped to what it actually touched — one test module, one type
-  check, one file's lint. It is the first executable thing that runs after a
-  merge, and it is never skipped on the grounds that a broader gate is coming.
+  check, one file's lint. It reruns in canonical in the merged wave's batch,
+  and it is never skipped on the grounds that a broader gate is coming.
 - A **broad or canonical gate** proves a release. It runs on the release SHA,
   once, immediately before cutting. It is not a per-merge step, and it is never
   a repair's first executable check: re-running a fifteen-minute matrix to prove
@@ -116,7 +122,7 @@ The final verification covers the layer where the user experienced the defect:
 Unit-green alone does not close a user-visible defect. Deferred final
 user-layer evidence remains explicit open risk.
 
-Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit, serialized in the warm checkout); per-release = the farm matrix across every platform.
+Testing ladder — per task = isolated lane checks; per merged wave = one canonical batch of its focused selectors, recorded as the group regression run at group close; per release = the broad gate once on the release SHA, then the platform matrix.
 
 Repository-specific restrictions override generic gate suggestions.
 
@@ -225,4 +231,4 @@ advises only `codeterm team adopt-plan <team-id> <plan>`, which clears the flag.
 A workspace close passes its `force` through as `force_busy`. A workspace with
 no tabs and no Teams closes for any caller, even without tab identity.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

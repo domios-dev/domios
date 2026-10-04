@@ -50,14 +50,18 @@ command short unless the continuation itself must be customized.
 
 ## Choose one operation
 
-These flows are deliberately separate. Run every build, test, dev instance, and
-executable gate from the warm canonical checkout under Orchestrator authority.
-Isolated Worker lanes are source-only.
+These flows are deliberately separate. Full rebuilds, dev instances, full
+suites and gates run from the warm canonical checkout under Orchestrator
+authority. A Worker lane may run isolated checks only; in this repository that
+means `tsc --noEmit`, a single node test file, `cargo fmt --check`, and
+`./build.sh test-one plan|pty <NAME>`. `check`, `check-tests` and
+`test-one app` compile the app crate, so they are full rebuilds and are
+deferred to the Orchestrator's canonical wave batch.
 
 | Goal | Entry point | Touches production? | Read first |
 |---|---|---:|---|
 | Develop and inspect changes | `./build.sh dev` / `.\build.ps1 dev` | No; port 7686 only | `.agents/skills/dev-run/SKILL.md` |
-| Compile both Rust test profiles for one source-only lane (isolated per-task test-profile gate) | `./build.sh check-tests` / `.\build.ps1 check-tests` | No; isolated target, never the build gateway | `.agents/skills/gates/SKILL.md` |
+| Compile both Rust test profiles (a full rebuild, run in canonical) | `./build.sh check-tests` / `.\build.ps1 check-tests` | No; isolated target, never the build gateway | `.agents/skills/gates/SKILL.md` |
 | Build and test a local production installer | `./build.sh release-preflight`, then `./build.sh build` | Only the explicit self-install step | this section |
 | Publish to all users | PR to `master`, then `release-X.Y.Z` tag | Yes; CI and public updater mirror | `.agents/skills/github-release/SKILL.md` |
 
@@ -84,10 +88,10 @@ the source change before handoff, so no consumer ever sees a stale artifact.
 | Registered public routes in `src-tauri/src/api/routes.rs` | `prod-docs/API.md` | edit the API index by hand | `bash scripts/check-api-docs.sh` |
 | A `prod-docs/<NAME>.md` document | its embedded copy, through the docs registry in `cli/src/cmd/docs.rs` | register the document in `DOCS`, or exclude it with a reason | `./build.sh test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary` |
 
-An isolated Worker lane is source-only: it does not run a build or a gate. When
-the generator needs the checkout's built CLI or any verification, the lane
+A Worker lane runs isolated checks only. When the generator needs the
+checkout's built CLI (`essence-map` also refuses a linked worktree), the lane
 reports the exact command under GATES REQUESTED and the Orchestrator regenerates
-and verifies it in canonical before the merge. Never hand-edit a generated
+and verifies it in canonical in the merged wave's QA batch. Never hand-edit a generated
 artifact, and never regenerate one with the installed `codeterm` on `PATH`.
 
 ## Local production build and self-install
@@ -356,7 +360,7 @@ in-app update, or `install-local`.
 | `essences/capabilities.md` and `essences/core.md` | `essences/map.jsonl` | `codeterm essence-map generate --root .` | `codeterm essence-map validate --root .` and `essence_map_contract_committed_artifacts_are_fresh` |
 | `prod-docs/*.md` and `cli/src/cmd/docs.rs` | The embedded `codeterm docs` set | Update the source and registry; there is no separate document generator. | `registered_documents_have_one_title_and_fit_the_reading_boundary` and `codeterm docs <NAME>` from the built checkout |
 
-Regenerate each committed artifact in the same lane and commit as its source change, before handoff. A source-only Worker must not run build or validation commands; list the exact regeneration and verification commands under `GATES REQUESTED` for the canonical Orchestrator to run.
+Regenerate each committed artifact in the same lane and commit as its source change, before handoff. A lane Worker runs isolated checks only; list the exact regeneration and full-rebuild verification commands under `GATES REQUESTED` for the Orchestrator's canonical wave batch.
 
 ### Crash symbols for dev builds
 
@@ -404,11 +408,11 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | `check` passes but `check-tests` reports E0433 for `mpsc` in shared-state tests | Parent import cleanup removed the module alias inherited by child tests through `super::*` | Import `std::sync::mpsc` explicitly in the owning test module, then rerun `check-tests`. |
 | `check-tests` reports E0046 for `NativeUpdateFixture`, missing `detect_session_id` | The provider-update parity fixture omitted a required `AgentProvider` method | Implement the fixture's unused session detector with `None`, then rerun `check-tests` and the focused `parity_update` filter. |
 | Courier integration reports E0603 for `build_prompt` and E0599 for `tab_is_idle` | App tests called a plugin-private fixture helper; the update refactor removed an idle helper still used by restart and model switching | Construct `PendingPrompt` from its public fields in the test and restore the unchanged pre-merge `tab_is_idle` helper, then rerun `check-tests` and the provider-update and restart filters. |
-| `check-tests` reports E0609 `no field workspace_id on type Tab` in plan reminder approval | A source-only lane trusted a grep hit for `workspace_id` that belongs to `ClosedTab`; a live `Tab` has no workspace field, and membership lives in the multiplexer's workspaces | Resolve the workspace under the same mux read with `MultiplexerState::find_workspace_for_tab(&resolved_id)`, then rerun `check-tests`. Before claiming a field in a lane that cannot compile, read the owning struct definition, not a matching line number. |
+| `check-tests` reports E0609 `no field workspace_id on type Tab` in plan reminder approval | A lane that could not compile the app crate trusted a grep hit for `workspace_id` that belongs to `ClosedTab`; a live `Tab` has no workspace field, and membership lives in the multiplexer's workspaces | Resolve the workspace under the same mux read with `MultiplexerState::find_workspace_for_tab(&resolved_id)`, then rerun `check-tests`. Before claiming a field in a lane that cannot compile, read the owning struct definition, not a matching line number. |
 | `test-one cli cmd::docs` reports `CONFIG repeats a whole-document reference to TAB-LIFECYCLE` | Moving provider update documentation added a second pointer to the existing recovery reference | Combine the section pointers into one whole-document reference, bump CONFIG's revision, and rerun the docs filter. |
 | Windows `npm run test:plugins` says `node` is not recognized before any suite starts | npm's command shell lost the Node executable directory although the parent PowerShell resolves it | Run `node scripts/run-plugin-tests.mjs provider-codex` from canonical; this repository runner pins its own Node directory for child suites. This launcher refusal is not a passing test result. |
 | A TS test runs in Node but verification reports TS2550 for `Array.at` | Node supports a newer library than the project's TypeScript target | Use indexed access in the test; keep the project target unchanged and rerun verification. |
-| Linux CI reaches `cargo fmt --check` and prints formatting diffs across otherwise green Rust changes | An integration wave merged source-only lanes without applying the repository rustfmt version before push | Run the two manifest-scoped `cargo fmt` commands from canonical, inspect the resulting file list, then rerun both checks before pushing. |
+| Linux CI reaches `cargo fmt --check` and prints formatting diffs across otherwise green Rust changes | An integration wave merged lanes without applying the repository rustfmt version before push | Run the two manifest-scoped `cargo fmt` commands from canonical, inspect the resulting file list, then rerun both checks before pushing. |
 | `pnpm exec tsc --noEmit` reports TS2367 after a test first asserts two literal provider ids and then compares them | The assertion function narrowed both values to disjoint literals, making the later boolean expression statically unconditional even though it documents invalidation | Use `assert.notEqual` for the cross-snapshot comparison so the mechanism remains checked without constructing an always-true expression. |
 | `npm run test:unit` terminates healthy workers at the same elapsed time while files are still passing | The TypeScript scheduler applied an implicit suite deadline, so repository growth was misclassified as a hang | Use the current uncapped default and let the suite finish. Set `TS_UNIT_TIMEOUT_SECONDS` or `TS_UNIT_SUITE_TIMEOUT_SECONDS` only for a targeted diagnostic. |
 | `bash scripts/test-capped.test.sh` exits 141 before printing an assertion | Its host-triple probe closed the `rustc -vV` pipe early under `pipefail`, so rustc received SIGPIPE | Keep the probe consuming the complete rustc output; then rerun the shell contract. |
