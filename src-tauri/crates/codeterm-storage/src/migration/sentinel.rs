@@ -34,8 +34,8 @@ fn invalid(detail: String) -> ImportRefusal {
     }
 }
 
-/// Stage count, batch, identity and scenario closure; per-field limits stay with the
-/// repository's `SentinelImport::validate`, which is not reachable from this module.
+/// The repository's own record validation (every field and count limit), then stage
+/// count, batch, identity and scenario closure.
 pub(super) fn preflight(
     records: &[SentinelImport],
     facts: &mut Facts,
@@ -44,6 +44,9 @@ pub(super) fn preflight(
     bound("import-batch", MAX_SENTINEL_BATCH, records.len())?;
     let mut ids = HashSet::new();
     for record in records {
+        record
+            .validate()
+            .map_err(|error| invalid(format!("stage {}: {error}", record.identity.id.as_str())))?;
         if !ids.insert(record.identity.id.as_str()) {
             return Err(invalid(format!(
                 "repeats stage {}",
@@ -87,7 +90,7 @@ pub(super) fn preflight(
         MAX_SENTINEL_BATCH as u64,
         records.len() as u64,
     );
-    facts.rule(DOMAIN, "fields", "repository-validation-unreachable");
+    facts.rule(DOMAIN, "fields", "repository-validated");
     facts.count(DOMAIN, "stages", records.len() as u64);
     facts.count(DOMAIN, "transitions", transitions);
     facts.count(DOMAIN, "handler-results", handled);

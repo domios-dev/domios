@@ -178,9 +178,22 @@ impl DecodeFailure {
     }
 }
 
+/// Keys of an original that the typed decoder read past; the backup copy keeps them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IgnoredKeys {
+    /// The owning entity, such as a cron job id; empty for the file itself.
+    pub owner: String,
+    pub keys: Vec<String>,
+}
+
 /// Pure decoding of captured original bytes; it must not read files or construct effects.
 pub trait LegacyDecoder {
     fn decode(&self, domain: ImportDomain, bytes: &[u8]) -> Result<DomainImport, DecodeFailure>;
+
+    /// Keys `decode` accepted without keeping, recorded in the manifest, never refused.
+    fn ignored_keys(&self, _domain: ImportDomain, _bytes: &[u8]) -> Vec<IgnoredKeys> {
+        Vec::new()
+    }
 }
 
 /// Where one domain's imported state came from.
@@ -268,8 +281,11 @@ impl Draft {
                 .get(&domain)
                 .cloned()
                 .unwrap_or(SourceSelection::Current);
-            let (origin, import) =
+            let (origin, import, ignored) =
                 select(capture, decoder, domain, &selection, &mut self.statuses)?;
+            for keys in &ignored {
+                self.facts.ignored(domain, keys);
+            }
             self.provenance.push((domain, origin));
             self.domains.push(import);
         }
@@ -406,6 +422,8 @@ fn selected_bytes(
 }
 
 type Statuses = Vec<(ImportDomain, String, SourceStatus)>;
+type Decoded = (DomainImport, Vec<IgnoredKeys>);
+type Selected = (ImportProvenance, DomainImport, Vec<IgnoredKeys>);
 
 fn select(
     capture: &SourceCapture,
@@ -413,13 +431,14 @@ fn select(
     domain: ImportDomain,
     selection: &SourceSelection,
     statuses: &mut Statuses,
-) -> Result<(ImportProvenance, DomainImport), ImportRefusal> {
+) -> Result<Selected, ImportRefusal> {
     let current = capture.file(domain, SourceRole::Current);
     match selection {
         SourceSelection::Current => {
             let Some(file) = current else {
                 if !capture.files().iter().any(|file| file.domain == domain) {
-                    return Ok((ImportProvenance::FirstInstall, DomainImport::empty(domain)));
+                    let empty = DomainImport::empty(domain);
+                    return Ok((ImportProvenance::FirstInstall, empty, Vec::new()));
                 }
                 return Err(ImportRefusal::RecoveryRequired {
                     domain,
@@ -428,7 +447,11 @@ fn select(
                 });
             };
             match decode(capture, decoder, domain, file, statuses)? {
-                Ok(import) => Ok((ImportProvenance::Current(file.relative.clone()), import)),
+                Ok((import, ignored)) => Ok((
+                    ImportProvenance::Current(file.relative.clone()),
+                    import,
+                    ignored,
+                )),
                 Err(status) if status.recoverable() => Err(ImportRefusal::RecoveryRequired {
                     domain,
                     current: status,
@@ -458,7 +481,11 @@ fn select(
                 let _status_recorded = decode(capture, decoder, domain, current, statuses)?;
             }
             match decode(capture, decoder, domain, file, statuses)? {
-                Ok(import) => Ok((ImportProvenance::Backup(file.relative.clone()), import)),
+                Ok((import, ignored)) => Ok((
+                    ImportProvenance::Backup(file.relative.clone()),
+                    import,
+                    ignored,
+                )),
                 Err(status) => Err(ImportRefusal::Decode {
                     domain,
                     relative: file.relative.clone(),
@@ -476,6 +503,7 @@ fn select(
             Ok((
                 ImportProvenance::AcknowledgedAbsent,
                 DomainImport::empty(domain),
+                Vec::new(),
             ))
         }
     }
@@ -489,13 +517,15 @@ fn decode(
     domain: ImportDomain,
     file: &SourceFile,
     statuses: &mut Statuses,
-) -> Result<Result<DomainImport, SourceStatus>, ImportRefusal> {
+) -> Result<Result<Decoded, SourceStatus>, ImportRefusal> {
     let outcome = match &file.captured {
         Captured::Unreadable { detail } => Err(SourceStatus::Unreadable(detail.clone())),
         Captured::Bytes { .. } => {
             let bytes = capture.read(file)?;
             match decoder.decode(domain, &bytes) {
-                Ok(import) if import.domain() == domain => Ok(import),
+                Ok(import) if import.domain() == domain => {
+                    Ok((import, decoder.ignored_keys(domain, &bytes)))
+                }
                 Ok(other) => {
                     return Err(ImportRefusal::WrongDomain {
                         expected: domain,
