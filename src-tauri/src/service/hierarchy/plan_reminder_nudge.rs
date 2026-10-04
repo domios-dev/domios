@@ -1,4 +1,3 @@
-use crate::multiplexer::types::Tab;
 use crate::plan::{Plan, PlanMode, PlanStatus, Task, TaskStatus};
 use crate::service::hierarchy::heartbeat_gate::{
     self, Decision, Gate, HardWake, Observation, ReminderKind, Scope, Snapshot, Supporter,
@@ -16,7 +15,7 @@ mod approval;
 #[cfg(test)]
 mod approval_tests;
 
-use approval::{Emission, ReminderHost, ReminderRequest, Transport};
+use approval::{Emission, Recipient, ReminderHost, ReminderRequest, Transport};
 
 const MAX_PLAN_REMINDER_POLL_SECS: u64 = 60;
 
@@ -201,8 +200,8 @@ fn deliver_reminder(
 
 fn ensure_routable(host: &impl ReminderHost, tab_id: &str) -> Result<(), String> {
     if host
-        .tab(tab_id)
-        .is_some_and(|tab| crate::service::plan_reconcile::tab_has_live_agent(&tab))
+        .recipient(tab_id)
+        .is_some_and(|recipient| crate::service::plan_reconcile::tab_has_live_agent(&recipient.tab))
     {
         Ok(())
     } else {
@@ -252,11 +251,13 @@ impl ReminderHost for LiveHost<'_> {
         }
     }
 
-    fn tab(&self, tab_id: &str) -> Option<Tab> {
+    fn recipient(&self, tab_id: &str) -> Option<Recipient> {
         let mux = self.svc.mux.read();
-        mux.resolve_tab_id(tab_id)
-            .and_then(|resolved| mux.get_tab(&resolved))
-            .cloned()
+        let resolved = mux.resolve_tab_id(tab_id)?;
+        Some(Recipient {
+            tab: mux.get_tab(&resolved)?.clone(),
+            workspace_id: mux.find_workspace_for_tab(&resolved),
+        })
     }
 
     fn observe_owner(

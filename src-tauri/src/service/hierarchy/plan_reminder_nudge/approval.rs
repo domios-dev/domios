@@ -68,6 +68,13 @@ pub(crate) struct Emission {
     pub(crate) transport: Transport,
 }
 
+/// A live tab together with the workspace whose membership currently holds it,
+/// read under one multiplexer view.
+pub(crate) struct Recipient {
+    pub(crate) tab: Tab,
+    pub(crate) workspace_id: Option<String>,
+}
+
 /// What admission reads or writes outside the gate. The daemon and the tests
 /// each supply one, so the approval policy itself has a single implementation.
 pub(crate) trait ReminderHost {
@@ -76,7 +83,7 @@ pub(crate) trait ReminderHost {
     fn interval(&self) -> u64;
     fn plan(&self, plan_id: &str) -> Option<Plan>;
     fn with_plans<R>(&self, read: impl FnOnce(&[Plan]) -> R) -> R;
-    fn tab(&self, tab_id: &str) -> Option<Tab>;
+    fn recipient(&self, tab_id: &str) -> Option<Recipient>;
     fn observe_owner(
         &self,
         plan: &Plan,
@@ -254,12 +261,15 @@ fn resolve(
     request: &ReminderRequest,
     known_plan: Option<&str>,
 ) -> Result<(Plan, Scope), &'static str> {
-    let tab = host
-        .tab(&request.tab_id)
-        .filter(crate::service::plan_reconcile::tab_has_live_agent)
+    let recipient = host
+        .recipient(&request.tab_id)
+        .filter(|recipient| {
+            crate::service::plan_reconcile::tab_has_live_agent(&recipient.tab)
+                && recipient.workspace_id.is_some()
+        })
         .ok_or("recipient_unavailable")?;
     if request.kind == ReminderKind::Worker {
-        return resolve_worker(host, &tab, request, known_plan);
+        return resolve_worker(host, &recipient, request, known_plan);
     }
     let plan = request
         .plan_id
@@ -271,11 +281,11 @@ fn resolve(
     {
         return Err("ineligible");
     }
-    let binding = heartbeat_gate::binding_digest(&tab, None).ok_or("binding_missing")?;
+    let binding = heartbeat_gate::binding_digest(&recipient.tab, None).ok_or("binding_missing")?;
     let lifecycle = format!("{:?}:{:?}", plan.status, plan.mode);
     let scope = scope(
         &plan,
-        &tab,
+        &recipient,
         request,
         "orchestrator",
         binding,
@@ -289,7 +299,7 @@ fn resolve(
 /// attempt bound to the tab's current session; anything else suppresses.
 fn resolve_worker(
     host: &impl ReminderHost,
-    tab: &Tab,
+    recipient: &Recipient,
     request: &ReminderRequest,
     known_plan: Option<&str>,
 ) -> Result<(Plan, Scope), &'static str> {
@@ -319,12 +329,13 @@ fn resolve_worker(
         (None, _) => return Err("binding_missing"),
         _ => return Err("binding_ambiguous"),
     };
-    let binding = heartbeat_gate::binding_digest(tab, Some(attempt)).ok_or("binding_missing")?;
+    let binding =
+        heartbeat_gate::binding_digest(&recipient.tab, Some(attempt)).ok_or("binding_missing")?;
     let lifecycle = format!("{:?}:{:?}:{:?}", plan.status, plan.mode, task.status);
     let attempt_scope = Some((task.id.as_str(), attempt.id.as_str()));
     let scope = scope(
         &plan,
-        tab,
+        recipient,
         request,
         "worker",
         binding,
@@ -373,13 +384,14 @@ fn owner_eligible(plan: &Plan, kind: ReminderKind) -> bool {
 /// scope; a recipient outside the plan's Team never receives its reminder.
 fn scope(
     plan: &Plan,
-    tab: &Tab,
+    recipient: &Recipient,
     request: &ReminderRequest,
     role: &str,
     binding: String,
     attempt: Option<(&str, &str)>,
     lifecycle: String,
 ) -> Result<Scope, &'static str> {
+    let tab = &recipient.tab;
     if plan.team_id.is_some() && tab.team_id != plan.team_id {
         return Err("recipient_scope_mismatch");
     }
@@ -390,7 +402,7 @@ fn scope(
         team_id: plan.team_id.clone(),
         tab_id: request.tab_id.clone(),
         recipient_team: tab.team_id.clone(),
-        recipient_workspace: tab.workspace_id.clone(),
+        recipient_workspace: recipient.workspace_id.clone(),
         recipient_role: format!("{:?}:{}", tab.role, tab.role_kind_id().unwrap_or("")),
         binding,
         task_id: attempt.map(|(task, _)| task.into()),
