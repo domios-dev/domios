@@ -30,7 +30,10 @@ well-meaning "one more heuristic" changes. Read this before touching
    originals: 32 unsettled records and 4 MiB prepared/body bytes per tab, with
    original storage separately bounded. Sends are held only until the current
    launch's exact PTY generation reaches `AgentReady`, then queued sends flush in
-   admission order. If exact session binding is missing before that readiness,
+   admission order. Admission order applies only to sends held before readiness.
+   Every later send is written immediately while the agent is working or an
+   earlier cycle is unsettled, cancelling that cycle's remaining keys. If exact
+   session binding is missing before that readiness,
    the owner-approved adapter fallback may release a restored head only after two
    distinct same-launch, same-generation ready-idle verdicts at least 0.90, with
    composer readiness at least 0.90 and prompt probability at most 0.10, followed
@@ -69,11 +72,13 @@ preparation, or persistence before acceptance; preserve draft and attachments,
 including newer edits and ambiguous RPC completion, without automatic resubmit.
 Acceptance requires payload and index durability off the UI/runtime and outside
 mux/ledger locks. This user backlog is separate from launch/bootstrap replacement.
-The prewrite owner holds sends until the current launch's readiness latch or the
-owner-approved restored-session adapter fallback, then writes them in admission
-order. Proven zero-write refusal retains that send as held; possible handoff
-becomes `submit_unconfirmed` and never replays. Programmatic agent/mesh/CLI sends
-keep the existing honest typed split.
+The prewrite owner holds only sends accepted before the current launch's readiness
+latch or owner-approved restored-session adapter fallback, then writes those held
+sends in admission order. A post-latch Chat UI send proceeds directly to its PTY
+write even when the provider is busy or another submit cycle is unsettled. Proven
+zero-write refusal retains that send as held; possible handoff becomes
+`submit_unconfirmed` and never replays. Programmatic agent/mesh/CLI sends keep the
+existing honest typed split.
 
 ## The Chat send ledger reconciles by exact evidence
 
