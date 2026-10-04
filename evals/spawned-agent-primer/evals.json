@@ -120,6 +120,19 @@
         "The real codeterm sentinel create family with --probe, --question, --buckets, --every, --timeout, --until and --route is allowed. Routes use bucket=send:tab or bucket=cron:name syntax. Does not invent a shell command, another route type or recipient. A send or cron route does not automatically stop the watch; only explicit timeout, --until or stop does. Classification uses the connected Choice model, not implicit JSON parsing. The scenario explicitly supplies existing cron review_pr and agent tab repair_worker; using those exact names is required and is not inventing recipients. --until accepts one bucket only, never passed,failed. Automatic other is always available in addition to the declared buckets; it must NOT be included in --buckets, and describing this automatic option is valid."
       ],
       "response_mode": "text"
+    },
+    {
+      "id": 11,
+      "name": "observes-each-cron-run-agent-tab",
+      "prompt": "The existing nightly cron starts an agent tab for each run. I want a bounded Sentinel that classifies whether that run's tab is waiting or working, and notifies me when it is waiting. Show the setup command without executing it.",
+      "expected_output": "Uses the CronRun observation source so each run is observed through the exact tab it launched.",
+      "expectations": [
+        "Uses codeterm sentinel create with --observe cron-run:nightly, not --probe or a hardcoded tab id",
+        "Provides a question and declared buckets for waiting and working, with a notify route for waiting",
+        "Bounds observation with --every of at least 10s and --timeout or --until",
+        "Does not invent a shell probe or a separate tab target for the cron run"
+      ],
+      "response_mode": "text"
     }
   ]
 }

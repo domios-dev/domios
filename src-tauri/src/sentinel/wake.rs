@@ -1,11 +1,13 @@
 use serde_json::Value;
-use tauri::{AppHandle, Listener};
+use tauri::Listener;
 
 use super::{scheduler::Handle, source};
+use crate::service::ServiceState;
 
 const WAKE_EVENTS: [&str; 2] = ["prompt-state-changed", "tab-status-changed"];
 
-pub(super) fn listen_any(app: &AppHandle, handle: Handle) {
+pub(super) fn listen_any(svc: ServiceState, handle: Handle) {
+    let app = svc.app_handle.clone();
     for event_name in WAKE_EVENTS {
         let handle = handle.clone();
         app.listen_any(event_name, move |event| {
@@ -13,6 +15,17 @@ pub(super) fn listen_any(app: &AppHandle, handle: Handle) {
                 handle.wake_tab(&tab_id);
             }
         });
+    }
+    let event_handle = handle.clone();
+    let event_svc = svc.clone();
+    app.listen_any("cron-fired", move |event| {
+        if super::run_binding::queue_fired_event(&event_svc, &event_handle, event.payload()) {
+            event_handle.notify();
+        }
+    });
+    for event_name in ["cron-run-finished", "mux-state-changed"] {
+        let handle = handle.clone();
+        app.listen_any(event_name, move |_| handle.notify());
     }
 }
 
@@ -28,11 +41,11 @@ fn event_tab_id(payload: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cron::clock::{Clock, MockClock};
     use crate::sentinel::{
         source::TabBinding,
         store::{Create, Owner, Store},
     };
-    use crate::cron::clock::{Clock, MockClock};
     use std::collections::{BTreeMap, BTreeSet};
     use std::sync::Arc;
 
@@ -41,12 +54,7 @@ mod tests {
         assert_eq!(WAKE_EVENTS, ["prompt-state-changed", "tab-status-changed"]);
     }
 
-    fn observing_store() -> (
-        tempfile::TempDir,
-        Store,
-        Arc<MockClock>,
-        String,
-    ) {
+    fn observing_store() -> (tempfile::TempDir, Store, Arc<MockClock>, String) {
         let dir = tempfile::tempdir().unwrap();
         let clock = crate::cron::clock::MockClock::starting_at(1_000);
         let mut store = Store::new(dir.path().join("sentinels.json"), clock.clone());

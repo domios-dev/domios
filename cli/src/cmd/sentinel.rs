@@ -186,11 +186,17 @@ fn request(
 }
 
 fn observation_binding(source: &str) -> Result<Value, String> {
-    let tab_id = source.strip_prefix("tab:").ok_or("use tab:<id>")?;
-    if tab_id.trim().is_empty() || tab_id.len() > 256 || tab_id.chars().any(char::is_control) {
-        return Err("--observe: tab id must be nonempty and bounded".into());
+    let (kind, target) = if let Some(tab_id) = source.strip_prefix("tab:") {
+        ("tab", tab_id)
+    } else if let Some(cron_id) = source.strip_prefix("cron-run:") {
+        ("cron_run", cron_id)
+    } else {
+        return Err("use tab:<id> or cron-run:<id>".into());
+    };
+    if target.trim().is_empty() || target.len() > 256 || target.chars().any(char::is_control) {
+        return Err("--observe target must be nonempty and bounded".into());
     }
-    Ok(json!({"kind":"tab", "id":tab_id}))
+    Ok(json!({"kind":kind, "id":target}))
 }
 
 fn read_update(path: &std::path::Path, cause: Option<&str>) -> Result<Value, String> {
@@ -514,36 +520,41 @@ mod command_tests {
     use clap::Parser;
 
     #[test]
-    fn sentinel_observe_request_roundtrips_tab_binding_json() {
-        let cli = crate::args::cli::Cli::try_parse_from([
-            "codeterm",
-            "sentinel",
-            "create",
-            "--observe",
-            "tab:bound-agent",
-            "--question",
-            "tab state?",
-            "--buckets",
-            "waiting",
-            "--match",
-            "waiting=.*",
-            "--json",
-        ])
-        .unwrap();
-        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
-            panic!("wrong command")
-        };
-        let (method, params) =
-            request(action, Some("creator".into()), Some("nonce".into())).unwrap();
-        assert_eq!(method, "sentinel.create");
-        assert_eq!(params["create"]["probe"], Value::Null);
-        assert_eq!(
-            params["create"]["observe"],
-            json!({"kind":"tab", "id":"bound-agent"})
-        );
-        let encoded = serde_json::to_string(&params["create"]).unwrap();
-        let decoded: Value = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(decoded, params["create"]);
+    fn sentinel_observe_request_roundtrips_tab_and_cron_run_bindings() {
+        for (source, expected) in [
+            ("tab:bound-agent", json!({"kind":"tab", "id":"bound-agent"})),
+            (
+                "cron-run:nightly",
+                json!({"kind":"cron_run", "id":"nightly"}),
+            ),
+        ] {
+            let cli = crate::args::cli::Cli::try_parse_from([
+                "codeterm",
+                "sentinel",
+                "create",
+                "--observe",
+                source,
+                "--question",
+                "tab state?",
+                "--buckets",
+                "waiting",
+                "--match",
+                "waiting=.*",
+                "--json",
+            ])
+            .unwrap();
+            let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+                panic!("wrong command")
+            };
+            let (method, params) =
+                request(action, Some("creator".into()), Some("nonce".into())).unwrap();
+            assert_eq!(method, "sentinel.create");
+            assert_eq!(params["create"]["probe"], Value::Null);
+            assert_eq!(params["create"]["observe"], expected);
+            let encoded = serde_json::to_string(&params["create"]).unwrap();
+            let decoded: Value = serde_json::from_str(&encoded).unwrap();
+            assert_eq!(decoded, params["create"]);
+        }
     }
 
     #[test]

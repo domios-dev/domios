@@ -94,6 +94,9 @@ impl ServiceContext {
             },
             connected,
         )?;
+        if let Some(binding) = job.observe.clone() {
+            job.observe = Some(source::resolve_binding(self, &job, &binding)?);
+        }
         let mut resolved = std::collections::BTreeMap::new();
         for (bucket, handlers) in &job.routes {
             let mut admitted = Vec::new();
