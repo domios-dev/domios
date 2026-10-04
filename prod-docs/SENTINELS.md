@@ -5,6 +5,25 @@ It runs a bounded shell probe at the requested cadence, hashes the captured
 result, and classifies only changed output. Use it to wait for CI or build
 completion instead of repeatedly asking an agent to run the same status check.
 
+## Model recurring actions as graphs
+
+When you would repeat an action (check, decide, act), describe it once as a
+Sentinel graph instead of spending your own turns on it:
+
+- Put routine observation and action in deterministic steps: bounded probes
+  and the handlers below.
+- At each decision, declare a finite set of buckets, each with an exact
+  handler you authored. The model only chooses a bucket; it never writes a
+  command, target or reply.
+- Offer only actions you are entitled to authorize. A model choice never
+  grants folder trust or command permission.
+- `other` means the graph cannot handle the case. Today it is journaled and
+  takes no route. Escalating `other` to an attached agent and amending the
+  graph so it handles that case next time are planned, not available.
+- Until then, improve a graph yourself: read the last decision reason with
+  `sentinel show`, then stop it and create a replacement that declares the new
+  bucket and its handler. There is no update or rearm command.
+
 ## Create a watch
 
 ```bash
@@ -193,4 +212,4 @@ Cancellation remains in memory; durability is unconfirmed until a valid store
 reload. Repair the filesystem before loading the store again. No stop success
 or claimed-handler replay is inferred from a failed write.
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->

@@ -53,11 +53,7 @@ Spend is estimated from response usage and adapter-declared prices. Missing usag
 
 ## Sentinels
 
-Sentinels are planned for 1.12.4: cheap watchers and routers that agents create to replace LLM polling. A creator defines a deterministic probe, a classification question, a finite set of buckets and permitted routes. The probe has bounded runtime and output. Its schedule is explicitly requested work, not a sleep loop coordinating internal readiness. An unchanged output makes no model call; changed output receives one bucket classification through the shared Supporter accounting, with `other` as an exit.
-
-Routes form a closed set: notify the creator, send a message to a named tab through the existing delivery surface, trigger a named cron, or stop. A model route requires a bucket transition at confidence of at least 0.80 and runs once for that transition. It never executes a command invented by the model. `other`, low confidence and an exhausted explicit cap produce a journal entry without routing. Without an adapter, creator-declared deterministic match rules may route; creation without either an adapter or match rules is refused.
-
-Sentinels belong to their creator and Team, stop on their declared completion or timeout, and are removed when their Team closes. Shared agent guidance teaches every agent to use a Sentinel for watching and routing instead of spending task-model turns on repeated status checks. This contract does not grant Sentinels task, permission or delivery authority.
+[Sentinel graphs](sentinels.md) use the Supporter at their decision points. A changed observation receives one choice over the options its author offered, with `other` always available, through the shared request accounting; an unchanged observation makes no call. A model choice acts only at confidence of at least 0.80, once per transition, and selects an offered option without constructing a command, target or response. The [Sentinel contract](sentinels.md) owns graph shape, authority, escalation, improvement and lifetime.
 
 ## Data and visibility
 
