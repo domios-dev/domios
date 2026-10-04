@@ -218,7 +218,7 @@ impl ChatSendLedger {
 
     fn wake_owner(&self, tab_id: &str) {
         let owner = self.owner.lock().as_ref().and_then(Weak::upgrade);
-        if let Some(owner) = owner { owner.wake_parked_user_send(tab_id); }
+        if let Some(owner) = owner { owner.wake_user_owner(tab_id, super::parked_user_delivery::UserWake::Housekeeping); }
     }
 
     #[cfg(test)]
@@ -784,7 +784,7 @@ impl crate::service::ServiceContext {
             *self.chat_send_ledger.owner.lock() = Some(weak.clone());
             let tab = tab_id.to_string();
             self.pending_delivery_payloads.user_sends.set_admission_wake(tab_id, Arc::new(move || {
-                if let Some(service) = weak.upgrade() { service.wake_parked_user_send(&tab); }
+                if let Some(service) = weak.upgrade() { service.wake_user_owner(&tab, super::parked_user_delivery::UserWake::Housekeeping); }
             }));
         }
         // This short reservation is the service ordering point, before asynchronous preparation.
@@ -849,7 +849,7 @@ impl crate::service::ServiceContext {
         crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
         let tab = record.authority.tab_id.clone();
         drop(reservation);
-        self.wake_parked_user_send(&tab);
+        self.wake_user_owner(&tab, super::parked_user_delivery::UserWake::Admission);
         Ok((status, path))
     }
 

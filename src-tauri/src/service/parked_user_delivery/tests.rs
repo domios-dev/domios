@@ -299,6 +299,29 @@ pub(super) fn bootstrap_boundary(tab_id: &str) -> Option<BootstrapBoundary> {
     BOOTSTRAP_BOUNDARIES.get_or_init(Default::default).lock().get(tab_id).cloned()
 }
 
+type OwnerIdle = Arc<dyn Fn() + Send + Sync>;
+static OWNER_IDLE_BOUNDARIES: std::sync::OnceLock<Mutex<std::collections::HashMap<String, OwnerIdle>>> = std::sync::OnceLock::new();
+
+struct OwnerIdleBoundary(String);
+
+impl OwnerIdleBoundary {
+    fn install(tab_id: &str, boundary: OwnerIdle) -> Self {
+        OWNER_IDLE_BOUNDARIES.get_or_init(Default::default).lock().insert(tab_id.to_string(), boundary);
+        Self(tab_id.to_string())
+    }
+}
+
+impl Drop for OwnerIdleBoundary {
+    fn drop(&mut self) {
+        OWNER_IDLE_BOUNDARIES.get_or_init(Default::default).lock().remove(&self.0);
+    }
+}
+
+pub(super) fn notify_owner_idle(tab_id: &str) {
+    let boundary = OWNER_IDLE_BOUNDARIES.get_or_init(Default::default).lock().get(tab_id).cloned();
+    if let Some(boundary) = boundary { boundary(); }
+}
+
 struct QueueProvider {
     root: Option<std::path::PathBuf>,
     paste_limit: Option<usize>,
@@ -812,5 +835,73 @@ fn full_user_owner_refuses_new_admission_without_consuming_backend_ledger_capaci
     assert_eq!(reopened.records(&tab).unwrap().len(), accepted.len());
     for status in accepted {
         assert_eq!(reopened.original(&tab, &status.send_id).unwrap(), FIRST_PAYLOAD);
+    }
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
+fn zero_write_refusal_keeps_new_readiness_or_admission_wakes_and_consumes_only_housekeeping() {
+    for reason in [UserWake::Housekeeping, UserWake::Readiness, UserWake::Admission] {
+        let (fixture, tab) = queue_fixture(false, None);
+        let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
+        let second = start_current_chat_send(&fixture, &tab, SECOND_PAYLOAD, "client-b");
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let count = attempts.clone();
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let release_rx = Arc::new(Mutex::new(release_rx));
+        let _submit = UserSubmitBoundary::install(&tab, Arc::new(move |record, _| {
+            let attempt = count.fetch_add(1, Ordering::AcqRel);
+            entered_tx.send((attempt, record.send_id.clone())).unwrap();
+            if attempt == 0 {
+                release_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
+                Err(DeliveryError::TabBusyRefused { tab: record.authority.tab_id.clone(), detail: "opaque-zero-write".into() })
+            } else {
+                Err(DeliveryError::SubmitUnconfirmed { tab: record.authority.tab_id.clone(), detail: "opaque-postwrite".into() })
+            }
+        }));
+        let (idle_tx, idle_rx) = mpsc::sync_channel(1);
+        let count = attempts.clone();
+        let _idle = OwnerIdleBoundary::install(&tab, Arc::new(move || {
+            if count.load(Ordering::Acquire) > 0 { let _ = idle_tx.try_send(()); }
+        }));
+        mark_ready(&fixture, &tab);
+        fixture.service.wake_parked_user_send(&tab);
+        assert_eq!(entered_rx.recv_timeout(TEST_DEADLINE).unwrap(), (0, first.send_id.clone()));
+        let additional = if reason == UserWake::Admission {
+            let ticket = fixture.service.reserve_user_send(&tab, Some("client-c".into())).unwrap();
+            Some(fixture.service.prepare_and_admit_user_send(ticket, SECOND_PAYLOAD.into(), false).unwrap().status)
+        } else {
+            fixture.service.wake_user_owner(&tab, reason);
+            None
+        };
+        release_tx.send(()).unwrap();
+        idle_rx.recv_timeout(TEST_DEADLINE).unwrap();
+        let expected = if reason == UserWake::Housekeeping { 1 } else { 2 };
+        assert_eq!(attempts.load(Ordering::Acquire), expected);
+        if expected == 2 {
+            assert_eq!(entered_rx.recv_timeout(TEST_DEADLINE).unwrap(), (1, first.send_id.clone()));
+            fixture.service.wake_parked_user_send(&tab);
+            idle_rx.recv_timeout(TEST_DEADLINE).unwrap();
+            assert_eq!(attempts.load(Ordering::Acquire), expected);
+        }
+        let records = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
+        assert_eq!(records[0].state, if expected == 1 { UserSendState::Queued } else { UserSendState::Uncertain });
+        assert_eq!(records[1].send_id, second.send_id);
+        assert_eq!(records[1].state, UserSendState::Queued);
+        if let Some(additional) = additional {
+            let reopened = UserSendStore::open(fixture.temp.path()).unwrap();
+            let retained = reopened.records(&tab).unwrap();
+            assert_eq!(retained.len(), 3);
+            assert_eq!(retained[0].send_id, first.send_id);
+            assert_eq!(retained[1].send_id, second.send_id);
+            assert_eq!(retained[2].send_id, additional.send_id);
+            assert_eq!(reopened.original(&tab, &first.send_id).unwrap(), FIRST_PAYLOAD);
+            assert_eq!(reopened.original(&tab, &second.send_id).unwrap(), SECOND_PAYLOAD);
+            assert_eq!(reopened.original(&tab, &additional.send_id).unwrap(), SECOND_PAYLOAD);
+            assert_eq!(retained[2].state, UserSendState::Queued);
+        } else {
+            assert_reopened_originals(&fixture, &[first, second]);
+        }
     }
 }

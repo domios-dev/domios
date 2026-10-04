@@ -89,6 +89,7 @@ pub(crate) struct UserTab {
     pub(crate) failed: AtomicBool,
     pub(crate) running: AtomicBool,
     pub(crate) wake_generation: AtomicU64,
+    pub(crate) dispatch_generation: AtomicU64,
     admission_wake: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
 
@@ -147,6 +148,7 @@ impl UserSendStore {
             failed: AtomicBool::new(false),
             running: AtomicBool::new(false),
             wake_generation: AtomicU64::new(0),
+            dispatch_generation: AtomicU64::new(0),
             admission_wake: Mutex::new(None),
         })).clone()
     }
@@ -576,22 +578,39 @@ pub(crate) fn read_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>, String>
     Ok(bytes)
 }
 
+fn validate_owner_directory(metadata: &fs::Metadata) -> Result<(), String> {
+    if !metadata.file_type().is_dir() {
+        return Err("user owner directory is not an owned regular directory".into());
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        if metadata.file_attributes() & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return Err("user owner directory is a reparse point".into());
+        }
+    }
+    Ok(())
+}
+
 fn owner_directory(path: &Path) -> Result<(), String> {
     let existed = match fs::symlink_metadata(path) {
-        Ok(metadata) if metadata.file_type().is_dir() => true,
-        Ok(_) => return Err("user owner directory is not an owned regular directory".into()),
+        Ok(metadata) => { validate_owner_directory(&metadata)?; true },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
         Err(error) => return Err(io_error(error)),
     };
     fs::create_dir_all(path).map_err(io_error)?;
+    validate_owner_directory(&fs::symlink_metadata(path).map_err(io_error)?)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(path, fs::Permissions::from_mode(0o700)).map_err(io_error)?;
     }
     #[cfg(windows)]
-    super::restrict_windows_acl(path).map_err(io_error)?;
-    let _ = existed;
+    {
+        let tool_path = path.to_str().ok_or("user owner directory is not Unicode")?;
+        let tool_path = codeterm_paths::strip_verbatim_prefix(tool_path);
+        super::restrict_windows_acl(Path::new(&tool_path)).map_err(io_error)?;
+    }
     if !existed {
         if let Some(parent) = path.parent() { sync_directory(parent)?; }
     }

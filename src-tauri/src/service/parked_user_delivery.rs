@@ -40,7 +40,14 @@ use super::delivery_error::DeliveryError;
 
 pub(crate) enum UserDrain {
     Idle,
-    ZeroWriteRefusal,
+    ZeroWriteRefusal { dispatch_generation: u64 },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UserWake {
+    Readiness,
+    Admission,
+    Housekeeping,
 }
 
 impl super::ServiceContext {
@@ -90,7 +97,12 @@ impl super::ServiceContext {
     }
 
     pub(crate) fn wake_parked_user_send(&self, tab_id: &str) {
+        self.wake_user_owner(tab_id, UserWake::Readiness);
+    }
+
+    pub(crate) fn wake_user_owner(&self, tab_id: &str, reason: UserWake) {
         let owner = self.pending_delivery_payloads.user_sends.tab(tab_id);
+        if reason != UserWake::Housekeeping { owner.dispatch_generation.fetch_add(1, Ordering::AcqRel); }
         owner.wake_generation.fetch_add(1, Ordering::AcqRel);
         if owner.revoked.load(Ordering::Acquire)
             || owner.running.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
@@ -100,21 +112,28 @@ impl super::ServiceContext {
         let tab_id = tab_id.to_string();
         tauri::async_runtime::spawn_blocking(move || {
             loop {
-                let mut generation = owner.wake_generation.load(Ordering::Acquire);
-                match service.drain_user_owner(&tab_id) {
-                    Ok(UserDrain::ZeroWriteRefusal) => generation = owner.wake_generation.load(Ordering::Acquire),
-                    Ok(UserDrain::Idle) => {},
-                    Err(error) => log::warn!("[chat-send] tab={tab_id} owner held: {error}"),
-                }
-                if !owner.revoked.load(Ordering::Acquire)
-                    && owner.wake_generation.load(Ordering::Acquire) != generation { continue; }
+                let generation = owner.wake_generation.load(Ordering::Acquire);
+                let refusal_generation = match service.drain_user_owner(&tab_id) {
+                    Ok(UserDrain::ZeroWriteRefusal { dispatch_generation }) => Some(dispatch_generation),
+                    Ok(UserDrain::Idle) => None,
+                    Err(error) => {
+                        log::warn!("[chat-send] tab={tab_id} owner held: {error}");
+                        None
+                    },
+                };
+                let changed = || match refusal_generation {
+                    Some(refused_at) => owner.dispatch_generation.load(Ordering::Acquire) != refused_at,
+                    None => owner.wake_generation.load(Ordering::Acquire) != generation,
+                };
+                if !owner.revoked.load(Ordering::Acquire) && changed() { continue; }
                 owner.running.store(false, Ordering::Release);
-                if owner.revoked.load(Ordering::Acquire)
-                    || owner.wake_generation.load(Ordering::Acquire) == generation
+                if owner.revoked.load(Ordering::Acquire) || !changed()
                     || owner.running.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() {
                     break;
                 }
             }
+            #[cfg(test)]
+            tests::notify_owner_idle(&tab_id);
         });
     }
 
@@ -167,6 +186,7 @@ impl super::ServiceContext {
                 return Err("persisted handoff has no joined ledger admission; held uncertainty".into());
             }
             let claimed = store.head(tab_id)?.ok_or("durable user claim disappeared")?;
+            let dispatch_generation = store.tab(tab_id).dispatch_generation.load(Ordering::Acquire);
             let outcome = if self.user_authority_is_ready(&claimed.authority) {
                 submit(&claimed, &text)
             } else {
@@ -179,12 +199,14 @@ impl super::ServiceContext {
             if let Some(status) = self.chat_send_ledger.finish(&head.send_id, outcome.map_err(|error| error.ledger_message())) {
                 crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
             }
-            if zero_write { return Ok(UserDrain::ZeroWriteRefusal); }
+            if zero_write { return Ok(UserDrain::ZeroWriteRefusal { dispatch_generation }); }
         }
         Ok(UserDrain::Idle)
     }
 
     fn deliver_parked_bootstrap_record(&self, tab_id: &str) -> Result<(), UserDrain> {
+        let dispatch_generation = self.pending_delivery_payloads.user_sends.tab(tab_id)
+            .dispatch_generation.load(Ordering::Acquire);
         let ready = self.mux.read().get_tab(tab_id)
             .is_some_and(|tab| tab.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady));
         if !ready { return Ok(()); }
@@ -219,7 +241,7 @@ impl super::ServiceContext {
                     "[chat-send] parked send {} payload could not be resolved: {error}",
                     delivery_id
                 );
-                return Err(UserDrain::ZeroWriteRefusal);
+                return Err(UserDrain::ZeroWriteRefusal { dispatch_generation });
             }
         };
         let record = {
@@ -250,8 +272,10 @@ impl super::ServiceContext {
                 "[chat-send] parked send {} claim was not persisted: {message}",
                 delivery_id
             );
-            return Err(UserDrain::ZeroWriteRefusal);
+            return Err(UserDrain::ZeroWriteRefusal { dispatch_generation });
         }
+        let dispatch_generation = self.pending_delivery_payloads.user_sends.tab(tab_id)
+            .dispatch_generation.load(Ordering::Acquire);
         let outcome = if self.pending_delivery_payloads.user_sends.tab(tab_id).revoked.load(Ordering::Acquire) {
             Err(DeliveryError::TabBusyRefused { tab: tab_id.into(), detail: "bootstrap owner revoked before handoff".into() })
         } else {
@@ -291,7 +315,7 @@ impl super::ServiceContext {
                         delivery_id
                     );
                 }
-                return Err(UserDrain::ZeroWriteRefusal);
+                return Err(UserDrain::ZeroWriteRefusal { dispatch_generation });
             }
         }
         let digest_is_live =
