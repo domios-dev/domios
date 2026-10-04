@@ -167,7 +167,7 @@ pub(super) fn load(conn: &Connection) -> Result<DeskState, StorageError> {
                     roots.len()
                 )));
             }
-            let layout = build_layout(roots[0], &layouts, &mut visited_layouts, 0)?;
+            let layout = build_layout(&roots[0], &layouts, &mut visited_layouts, 0)?;
             workspace_tabs.push(DeskTab {
                 id: tab.id.clone(),
                 title: tab.title.clone(),
@@ -375,9 +375,9 @@ fn build_layout(
                 .clone()
                 .ok_or_else(|| corrupt("split has no orientation"))?;
             let ratio = row.ratio.ok_or_else(|| corrupt("split has no ratio"))?;
-            let mut children = by_parent
+            let mut children: Vec<&LayoutRow> = by_parent
                 .get(&(row.group_id.clone(), Some(row.id)))
-                .cloned()
+                .map(|rows| rows.iter().collect())
                 .unwrap_or_default();
             children.sort_by_key(|child| child.ordinal);
             let children = children

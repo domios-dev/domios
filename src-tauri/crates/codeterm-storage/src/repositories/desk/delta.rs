@@ -152,7 +152,7 @@ fn preserve_missing(current: &DeskSnapshot, submitted: DeskSnapshot) -> DeskSnap
         .collect();
     let incoming_workspaces =
         preserve_order(&current.workspaces, &incoming_workspaces, |workspace| {
-            &workspace.record.id
+            workspace.record.id.as_str()
         });
     let mut workspaces = Vec::with_capacity(incoming_workspaces.len());
     for mut workspace in incoming_workspaces {
@@ -192,22 +192,22 @@ fn preserve_missing(current: &DeskSnapshot, submitted: DeskSnapshot) -> DeskSnap
 
 fn preserve_order<T: Clone, F>(current: &[T], incoming: &[T], id: F) -> Vec<T>
 where
-    F: for<'a> Fn(&'a T) -> &'a String,
+    F: for<'a> Fn(&'a T) -> &'a str,
 {
-    let current_ids: HashSet<&str> = current.iter().map(|item| id(item).as_str()).collect();
+    let current_ids: HashSet<&str> = current.iter().map(|item| id(item)).collect();
     let incoming_by_id: HashMap<&str, &T> = incoming
         .iter()
-        .map(|item| (id(item).as_str(), item))
+        .map(|item| (id(item), item))
         .collect();
     let slots: Vec<usize> = current
         .iter()
         .enumerate()
-        .filter(|(_, item)| incoming_by_id.contains_key(id(item).as_str()))
+        .filter(|(_, item)| incoming_by_id.contains_key(id(item)))
         .map(|(index, _)| index)
         .collect();
     let replacements: Vec<&T> = incoming
         .iter()
-        .filter(|item| current_ids.contains(id(item).as_str()))
+        .filter(|item| current_ids.contains(id(item)))
         .collect();
     let mut merged = current.to_vec();
     for (slot, replacement) in slots.into_iter().zip(replacements) {
@@ -216,7 +216,7 @@ where
     merged.extend(
         incoming
             .iter()
-            .filter(|item| !current_ids.contains(id(item).as_str()))
+            .filter(|item| !current_ids.contains(id(item)))
             .cloned(),
     );
     merged
@@ -603,13 +603,13 @@ fn apply_workspaces(
     for (ordinal, workspace) in target.workspaces.iter().enumerate() {
         let id = workspace.record.id.as_str();
         let Some(previous) = current_workspaces.get(id) else {
-            if moved.contains(&workspace.record.id) {
+            if moved.contains(workspace.record.id.as_str()) {
                 update_new_workspace_ordinal(cx, id, ordinal as i64)?;
             }
             continue;
         };
         let record_changed = previous.record != workspace.record;
-        let moved_workspace = moved.contains(&workspace.record.id);
+        let moved_workspace = moved.contains(workspace.record.id.as_str());
         let tab_order_changed = tab_ids(previous) != tab_ids(workspace);
         let state_changed = record_changed
             || previous.sort_order != workspace.sort_order

@@ -1354,6 +1354,7 @@ version = "1.6.2"
 dependencies = [
  "base64 0.22.1",
  "codeterm-paths",
+ "codeterm-storage",
  "codeterm-types",
  "codeterm-util",
  "libc",
@@ -1380,6 +1381,7 @@ version = "0.1.0"
 dependencies = [
  "codeterm-paths",
  "rusqlite",
+ "serde_json",
  "windows-sys 0.61.2",
 ]
 

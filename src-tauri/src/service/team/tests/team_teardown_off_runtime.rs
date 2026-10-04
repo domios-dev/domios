@@ -27,7 +27,8 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
         .create(
             Create {
                 name: Some("Team teardown barrier".into()),
-                probe: "status".into(),
+                probe: Some("status".into()),
+                observe: None,
                 question: "Did the state change?".into(),
                 buckets: vec!["waiting".into(), "passed".into(), "failed".into()],
                 every: "20s".into(),

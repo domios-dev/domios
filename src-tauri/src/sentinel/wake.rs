@@ -32,7 +32,9 @@ mod tests {
         source::TabBinding,
         store::{Create, Owner, Store},
     };
+    use crate::cron::clock::{Clock, MockClock};
     use std::collections::{BTreeMap, BTreeSet};
+    use std::sync::Arc;
 
     #[test]
     fn sentinel_observe_wake_events_cover_prompt_and_tab_status() {
@@ -42,7 +44,7 @@ mod tests {
     fn observing_store() -> (
         tempfile::TempDir,
         Store,
-        crate::cron::clock::MockClock,
+        Arc<MockClock>,
         String,
     ) {
         let dir = tempfile::tempdir().unwrap();
