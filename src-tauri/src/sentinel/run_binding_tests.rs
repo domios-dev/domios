@@ -48,6 +48,7 @@ fn insert(store: &Mutex<Store>) -> Sentinel {
                 handlers: None,
                 max_transitions: None,
                 max_actions: None,
+                escalation_timeout_ms: None,
             },
             Owner {
                 creator_tab_id: "creator-tab".into(),

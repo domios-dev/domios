@@ -39,7 +39,8 @@ pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Ro
                 .app_handle
                 .try_state::<crate::CronState>()
                 .ok_or("cron not initialized")?;
-            Ok(Route::Cron(resolve_cron_target(&cron.lock(), job, target)?))
+            let resolved = resolve_cron_target(&cron.lock(), job, target);
+            Ok(Route::Cron(resolved?))
         }
         Route::Escalate(EscalateTarget::Creator) => Ok(route.clone()),
         Route::Escalate(EscalateTarget::Agent(target)) => {

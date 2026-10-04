@@ -1,3 +1,4 @@
+use tauri::Manager;
 use super::source::{self, RunBinding, TabBinding};
 use super::storage::Staged;
 use super::store::{Sentinel, Store};
@@ -73,7 +74,8 @@ pub(super) fn cron_fired_event(payload: &str) -> Option<CronFiredEvent> {
 
 fn cron_identity(svc: &ServiceContext, cron_id: &str) -> Option<CronJob> {
     let state = svc.app_handle.try_state::<crate::CronState>()?;
-    state.lock().get(cron_id).cloned()
+    let job = state.lock().get(cron_id).cloned();
+    job
 }
 
 fn verified_event(svc: &ServiceContext, event: CronFiredEvent) -> Option<PendingRunBinding> {

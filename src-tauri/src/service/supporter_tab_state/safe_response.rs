@@ -1,4 +1,5 @@
 use super::*;
+use crate::agent::prompt::parse_prompt_safely;
 use codeterm_plugin::provider::AgentProvider;
 use codeterm_types::pty::PendingPrompt;
 use parking_lot::Mutex;
