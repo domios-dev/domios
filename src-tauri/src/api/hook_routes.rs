@@ -988,7 +988,22 @@ pub(crate) async fn finish_session_binding(
         svc.retire_provisional_launch(tab_id, evidence);
     }
     // while it runs — not only after completion.
-    run_session::propagate(svc, tab_id, sid);
+    let service = std::sync::Arc::new(svc.clone());
+    let tab = tab_id.to_string();
+    let session = sid.to_string();
+    tokio::task::spawn_blocking(move || run_session::propagate(&service, &tab, &session))
+        .await
+        .map_err(|error| {
+            log::error!(
+                "[hook_session_start] tab={} run-session propagation failed: {}",
+                tab_id,
+                error
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to propagate session to cron run".to_string(),
+            )
+        })?;
     if let (true, Some(model)) = (claim.nonce_verified, session_start_string(body, &["model"])) {
         let (service, tab, provider) = (svc.clone(), tab_id.to_string(), provider_id.to_string());
         let session = sid.to_string();
