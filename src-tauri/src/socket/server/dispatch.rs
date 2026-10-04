@@ -469,7 +469,7 @@ mod tests {
                 "summary": "service-rpc-summary",
                 "human_confirmed": true
             })),
-            &fixture.service,
+            &Arc::new(fixture.service.clone()),
         )
         .unwrap();
 

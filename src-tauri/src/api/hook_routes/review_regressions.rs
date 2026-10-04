@@ -120,6 +120,7 @@ fn hook_session_offruntime_keeps_runtime_responsive_while_cron_writer_is_held() 
     let runtime = tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap();
+    let empty_payload = serde_json::json!({});
     let response = runtime.block_on(async {
         let mut finish = Box::pin(finish_session_binding(
             &fixture.service,
@@ -129,7 +130,7 @@ fn hook_session_offruntime_keeps_runtime_responsive_while_cron_writer_is_held() 
             None,
             None,
             "session-start",
-            &serde_json::json!({}),
+            &empty_payload,
             claim,
             crate::session::lifecycle::BindingSource::Hook,
             true,
