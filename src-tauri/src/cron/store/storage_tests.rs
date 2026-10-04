@@ -817,6 +817,8 @@ fn storage_cron_legacy_and_storage_backends_never_cross() {
 #[test]
 fn storage_cron_previous_schema_upgrades_in_place() {
     let temp = tempfile::tempdir().expect("temp root");
+    // An earlier install already owns its instance root; the seed only adds `storage/`.
+    std::fs::create_dir_all(instance(&temp)).expect("existing instance root");
     let seeded = Storage::seed_before_cron_schema(&instance(&temp)).expect("seed");
     assert!(seeded > 0, "the seed carries the earlier schema");
     let storage = Storage::open(instance(&temp), StorageConfig::default()).expect("upgrade");
