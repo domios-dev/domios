@@ -835,3 +835,31 @@ fn trust_notes_are_logged_once_per_outcome_within_a_budget() {
     );
     assert!(ledger.note("other", "no trust dialog recognized", 1));
 }
+
+#[test]
+fn unattended_launch_prompt_model_trust_step_shares_the_deterministic_frame() {
+    let tab = uuid::Uuid::new_v4().to_string();
+    let screen = "opaque trust frame";
+    assert!(super::claim_model_trust_step(&tab, screen));
+    assert_eq!(
+        super::observation_revision(&tab),
+        super::model_trust_step_revision(screen)
+    );
+    assert_eq!(
+        decide(true, &tab, screen, &super::LEDGER, |_| answer(b"\r")),
+        TrustDecision::Waiting,
+        "the deterministic responder never types while the model step is in flight"
+    );
+    super::finish_model_trust_step(&tab, screen, true);
+    assert_eq!(
+        decide(true, &tab, screen, &super::LEDGER, |_| answer(b"\r")),
+        TrustDecision::Waiting,
+        "an answered frame is never answered twice"
+    );
+    assert!(!super::claim_model_trust_step(&tab, screen));
+    assert!(super::claim_model_trust_step(&tab, "next trust frame"));
+    super::finish_model_trust_step(&tab, "next trust frame", false);
+    assert!(super::claim_model_trust_step(&tab, "next trust frame"));
+    super::finish_model_trust_step(&tab, "next trust frame", true);
+    super::LEDGER.lock().forget(&tab);
+}
