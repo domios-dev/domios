@@ -877,6 +877,10 @@ fn parse_tab_record(
 }
 
 mod retention;
+mod legacy_decode;
+mod storage_adapter;
+
+pub use storage_adapter::StorageDeskAdapter;
 
 #[cfg(test)]
 mod tests;
