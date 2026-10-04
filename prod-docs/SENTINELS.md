@@ -15,11 +15,11 @@ Sentinel graph instead of spending your own turns on it:
 - At each decision, declare a finite set of buckets, each with an exact
   handler you authored. The model only chooses a bucket; it never writes a
   command, target or reply.
-- Offer only actions you are entitled to authorize. A model choice never
-  grants folder trust or command permission.
+- A graph acts with your authority and never beyond it. The model only
+  selects among the actions you offered.
 - `other` means the graph cannot handle the case. Today it is journaled and
-  takes no route. Escalating `other` to an attached agent and amending the
-  graph so it handles that case next time are planned, not available.
+  takes no route. Escalating `other` to you and versioned graph rewrites, so
+  the graph handles that case next time, are planned, not available.
 - Until then, improve a graph yourself: read the last decision reason with
   `sentinel show`, then stop it and create a replacement that declares the new
   bucket and its handler. There is no update or rearm command.
@@ -212,4 +212,4 @@ Cancellation remains in memory; durability is unconfirmed until a valid store
 reload. Repair the filesystem before loading the store again. No stop success
 or claimed-handler replay is inferred from a failed write.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
