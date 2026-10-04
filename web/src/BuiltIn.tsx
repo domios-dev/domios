@@ -4,7 +4,7 @@ import './built-in.css';
 
 const features: { icon: IconName; title: string; text: string }[] = [
   { icon: 'clock', title: 'Scheduled work', text: 'Run agent tasks later or on a schedule.' },
-  { icon: 'browser', title: 'Browser access', text: 'Open the full interface over your private Tailnet.' },
+  { icon: 'browser', title: 'Desktop to phone', text: 'Start on your computer. Continue on your phone with any connected agent, over your private Tailnet.' },
   { icon: 'microphone', title: 'Voice messages', text: 'Speak to agents through a transcription plugin.' },
   { icon: 'lock', title: 'Local secrets', text: 'Keep credentials in the local secret store.' },
 ];
