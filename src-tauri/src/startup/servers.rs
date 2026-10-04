@@ -163,6 +163,10 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
 
     app.manage(cron_state.clone());
     app.manage(cron_wake.clone());
+    let fence_wake = cron_wake.clone();
+    cron_state
+        .lock()
+        .set_fence_notifier(move || fence_wake.notify_all());
     cron::scheduler::start(cron_state.clone(), cron_wake.clone(), service_state.clone());
     let sentinel_clock: cron::clock::SharedClock = test_clock
         .clone()
