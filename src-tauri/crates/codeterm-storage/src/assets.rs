@@ -82,17 +82,56 @@ pub(crate) struct RootClaim {
     pub(crate) layout: Layout,
 }
 
-pub(crate) fn claim_root(requested: &Path) -> Result<RootClaim, StorageError> {
-    std::fs::create_dir_all(requested).map_err(|e| io_error("create instance root", e))?;
-    let canonical =
-        std::fs::canonicalize(requested).map_err(|e| io_error("resolve instance root", e))?;
+/// Absolute, link-resolved spelling without the Windows verbatim prefix; that prefix is
+/// added back only by `native_path` for the Win32 and SQLite calls Storage makes itself.
+pub(crate) fn canonical_dir(path: &Path) -> Result<PathBuf, StorageError> {
+    let canonical = fs::canonicalize(path).map_err(|e| io_error("resolve storage path", e))?;
     let text = canonical
         .to_str()
         .ok_or_else(|| StorageError::RootInvalid {
-            root: requested.to_path_buf(),
+            root: path.to_path_buf(),
             reason: "path is not valid UTF-8".to_string(),
         })?;
-    let root = PathBuf::from(codeterm_paths::strip_verbatim_prefix(text));
+    Ok(PathBuf::from(codeterm_paths::strip_verbatim_prefix(text)))
+}
+
+/// Extended-length (`\\?\`) form of an absolute normalized path for direct Win32 and
+/// SQLite calls; std adds its own prefix. Anything else is returned unchanged.
+#[cfg(windows)]
+pub(crate) fn native_path(path: &Path) -> PathBuf {
+    use std::ffi::OsString;
+    use std::path::{Component, Prefix};
+    let mut components = path.components();
+    let mut native = match components.next() {
+        Some(Component::Prefix(prefix)) => match prefix.kind() {
+            Prefix::Disk(drive) => OsString::from(format!(r"\\?\{}:", drive as char)),
+            Prefix::UNC(server, share) => {
+                let mut unc = OsString::from(r"\\?\UNC\");
+                unc.push(server);
+                unc.push(r"\");
+                unc.push(share);
+                unc
+            }
+            _ => return path.to_path_buf(),
+        },
+        _ => return path.to_path_buf(),
+    };
+    if components.next() != Some(Component::RootDir) {
+        return path.to_path_buf();
+    }
+    for component in components {
+        let Component::Normal(name) = component else {
+            return path.to_path_buf();
+        };
+        native.push(r"\");
+        native.push(name);
+    }
+    native.into()
+}
+
+pub(crate) fn claim_root(requested: &Path) -> Result<RootClaim, StorageError> {
+    fs::create_dir_all(requested).map_err(|e| io_error("create instance root", e))?;
+    let root = canonical_dir(requested)?;
     let spelling = root.to_string_lossy();
     let key = if cfg!(windows) {
         spelling.to_lowercase()
@@ -377,7 +416,7 @@ fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
     use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_WRITE_THROUGH};
     let wide =
         |path: &Path| -> Vec<u16> { path.as_os_str().encode_wide().chain(Some(0)).collect() };
-    let (from, to) = (wide(from), wide(to));
+    let (from, to) = (wide(&native_path(from)), wide(&native_path(to)));
     // SAFETY: both buffers are NUL-terminated UTF-16 paths that outlive the call.
     let moved = unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_WRITE_THROUGH) };
     if moved == 0 {

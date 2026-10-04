@@ -17,6 +17,8 @@ pub(crate) const ASSET_REFERENCE_TABLES: &[&str] = &["workspace_assets"];
 pub(crate) const COMMIT_REVISION: &str = "commit_revision";
 pub(crate) const WORKSPACE_ORDER_REVISION: &str = "workspaces.order_revision";
 
+// Foreign keys use immediate NO ACTION: checked at statement end and reported as
+// SQLITE_CONSTRAINT_FOREIGNKEY. RESTRICT runs as a RAISE trigger (SQLITE_CONSTRAINT_TRIGGER).
 const SCHEMA_V1: &str = r#"
 CREATE TABLE storage_meta (
     key TEXT PRIMARY KEY NOT NULL,
@@ -41,9 +43,9 @@ CREATE TABLE assets (
     created_revision INTEGER NOT NULL
 ) STRICT;
 CREATE TABLE workspace_assets (
-    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE RESTRICT,
+    workspace_id TEXT NOT NULL REFERENCES workspaces(id),
     role TEXT NOT NULL,
-    asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE RESTRICT,
+    asset_id TEXT NOT NULL REFERENCES assets(id),
     PRIMARY KEY (workspace_id, role)
 ) STRICT;
 CREATE INDEX workspace_assets_by_asset ON workspace_assets(asset_id);
@@ -111,10 +113,16 @@ pub(crate) fn open_reader(
     Ok((conn, settings))
 }
 
-/// Opens an existing database without ever creating one.
+/// Opens an existing database without ever creating one. On Windows the bundled
+/// `win32-longpath` VFS takes the extended path; the default VFS caps names at MAX_PATH.
 pub(crate) fn open_existing(path: &Path, access: OpenFlags) -> Result<Connection, StorageError> {
-    Connection::open_with_flags(path, access | OpenFlags::SQLITE_OPEN_NO_MUTEX)
-        .map_err(|error| sqlite_error("open database", error))
+    let flags = access | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    #[cfg(windows)]
+    let opened =
+        Connection::open_with_flags_and_vfs(assets::native_path(path), flags, "win32-longpath");
+    #[cfg(not(windows))]
+    let opened = Connection::open_with_flags(path, flags);
+    opened.map_err(|error| sqlite_error("open database", error))
 }
 
 /// A missing database is fresh only when no sidecar or asset survives it.
