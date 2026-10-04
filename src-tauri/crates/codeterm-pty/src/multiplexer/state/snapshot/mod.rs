@@ -190,38 +190,41 @@ impl MultiplexerState {
             .live_workspace_tabs()
             .iter()
             .map(|ws| {
+                let tabs: Vec<TabSnapshot> = ws
+                    .tabs
+                    .iter()
+                    .filter(|tab_id| {
+                        let tab = self.tabs.get(*tab_id);
+                        !tab.map(|tab| tab.hidden || tab.skip_snapshot)
+                            .unwrap_or(false)
+                    })
+                    .map(|tab_id| TabSnapshot {
+                        id: tab_id.clone(),
+                        title: self.display_label_for_tab(tab_id),
+                        description: self
+                            .tabs
+                            .get(tab_id)
+                            .and_then(|tab| tab.description.clone()),
+                        split_tree: tab_to_leaf_snapshot(tab_id, &self.tabs),
+                        sort_order: self.tabs.get(tab_id).map(|tab| tab.sort_order).unwrap_or(0),
+                    })
+                    .collect();
+                let active_tab_id = ws
+                    .active_tab_id
+                    .as_ref()
+                    .filter(|active| tabs.iter().any(|tab| &tab.id == *active))
+                    .cloned()
+                    .or_else(|| tabs.first().map(|tab| tab.id.clone()));
                 WorkspaceSnapshot {
                     task_keys: ws.task_keys.clone(),
                     id: ws.id.clone(),
                     name: ws.name.clone(),
-                    active_tab_id: ws.active_tab_id.clone(),
+                    active_tab_id,
                     cwd: normalized_snapshot_cwd(ws.cwd.as_deref()),
                     provisioned_cwd: normalized_snapshot_cwd(ws.provisioned_cwd.as_deref()),
                     protected: ws.protected,
                     sort_order: ws.sort_order,
-                    tabs: ws
-                        .tabs
-                        .iter()
-                        .filter(|tab_id| {
-                            // Exclude hidden worker tabs and ephemeral picker tabs from persisting across restarts.
-                            let tab = self.tabs.get(*tab_id);
-                            !tab.map(|p| p.hidden || p.skip_snapshot).unwrap_or(false)
-                        })
-                        .map(|tab_id| TabSnapshot {
-                            id: tab_id.clone(),
-                            title: self.display_label_for_tab(tab_id),
-                            description: self
-                                .tabs
-                                .get(tab_id)
-                                .and_then(|tab| tab.description.clone()),
-                            split_tree: tab_to_leaf_snapshot(tab_id, &self.tabs),
-                            sort_order: self
-                                .tabs
-                                .get(tab_id)
-                                .map(|tab| tab.sort_order)
-                                .unwrap_or(0),
-                        })
-                        .collect(),
+                    tabs,
                 }
             })
             .collect();
