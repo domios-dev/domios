@@ -38,16 +38,18 @@ impl<'a> Supporter<'a> {
         )
     }
 
-    /// Digest of the adapter, its selected model and token usability; None
-    /// whenever no Choice-capable adapter is connected.
+    /// Connection fingerprint, not a monotonic generation: adapter id, selected
+    /// model, token usability and the registered instance; None when disconnected.
     pub(crate) fn generation(&self) -> Option<String> {
         if !supporter::supporter_connected(&self.cfg, self.registry, &self.token) {
             return None;
         }
         let model = supporter::configured_model(&self.cfg, self.registry)
             .filter(|model| model.primitives().choice)?;
+        // An in-flight decision holds this instance, so its address cannot be reused meanwhile.
+        let instance = Arc::as_ptr(&model) as *const () as usize;
         let identity = json!({ "adapter": model.id(), "model": model.model_id(),
-            "token": self.token.usable });
+            "token": self.token.usable, "instance": instance });
         Some(supporter::criteria_hash(identity.to_string().as_bytes()))
     }
 

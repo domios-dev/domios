@@ -168,10 +168,7 @@ fn admit_claimed(
     };
     let key = claim.key();
     let previous = gate.observation(key);
-    let (mut snapshot, observed) = match scope.kind {
-        ReminderKind::Worker => heartbeat_gate::collect_worker_scope(&plan, &scope, &previous),
-        _ => host.observe_owner(&plan, &scope.tab_id, &previous, now),
-    };
+    let (mut snapshot, observed) = observe(host, &plan, &scope, &previous, now);
     gate.observed(key, observed);
     snapshot.scope = Scope {
         adapter: adapter.clone(),
@@ -204,6 +201,12 @@ fn admit_claimed(
         }
         _ => return suppress(gate, claim, "stale_scope"),
     };
+    // The approved identity must still describe the plan the text is built from.
+    let (mut fresh, _) = observe(host, &plan, &scope, &previous, now);
+    fresh.scope = snapshot.scope.clone();
+    if fresh.hash() != decision.snapshot_hash {
+        return suppress(gate, claim, "stale_observation");
+    }
     let emission = host.compose(&plan, &scope, &snapshot, &decision);
     if !gate.attempt(claim, &decision) {
         return suppress(gate, claim, "stale_scope");
@@ -217,6 +220,19 @@ fn admit_claimed(
             gate.failed(key);
             ReminderOutcome::Failed(error)
         }
+    }
+}
+
+fn observe(
+    host: &impl ReminderHost,
+    plan: &Plan,
+    scope: &Scope,
+    previous: &Observation,
+    now: u64,
+) -> (Snapshot, Observation) {
+    match scope.kind {
+        ReminderKind::Worker => heartbeat_gate::collect_worker_scope(plan, scope, previous),
+        _ => host.observe_owner(plan, &scope.tab_id, previous, now),
     }
 }
 
@@ -249,7 +265,15 @@ fn resolve(
     }
     let binding = heartbeat_gate::binding_digest(&tab, None).ok_or("binding_missing")?;
     let lifecycle = format!("{:?}:{:?}", plan.status, plan.mode);
-    let scope = scope(&plan, request, "orchestrator", binding, None, lifecycle);
+    let scope = scope(
+        &plan,
+        &tab,
+        request,
+        "orchestrator",
+        binding,
+        None,
+        lifecycle,
+    )?;
     Ok((plan, scope))
 }
 
@@ -290,7 +314,15 @@ fn resolve_worker(
     let binding = heartbeat_gate::binding_digest(tab, Some(attempt)).ok_or("binding_missing")?;
     let lifecycle = format!("{:?}:{:?}:{:?}", plan.status, plan.mode, task.status);
     let attempt_scope = Some((task.id.as_str(), attempt.id.as_str()));
-    let scope = scope(&plan, request, "worker", binding, attempt_scope, lifecycle);
+    let scope = scope(
+        &plan,
+        tab,
+        request,
+        "worker",
+        binding,
+        attempt_scope,
+        lifecycle,
+    )?;
     Ok((plan, scope))
 }
 
@@ -329,24 +361,33 @@ fn owner_eligible(plan: &Plan, kind: ReminderKind) -> bool {
     }
 }
 
+/// The authenticated recipient's own Team, workspace and role are part of the
+/// scope; a recipient outside the plan's Team never receives its reminder.
 fn scope(
     plan: &Plan,
+    tab: &Tab,
     request: &ReminderRequest,
     role: &str,
     binding: String,
     attempt: Option<(&str, &str)>,
     lifecycle: String,
-) -> Scope {
-    Scope {
+) -> Result<Scope, &'static str> {
+    if plan.team_id.is_some() && tab.team_id.is_some() && plan.team_id != tab.team_id {
+        return Err("recipient_scope_mismatch");
+    }
+    Ok(Scope {
         kind: request.kind,
         role: role.into(),
         workspace: plan.project_path.clone(),
         team_id: plan.team_id.clone(),
         tab_id: request.tab_id.clone(),
+        recipient_team: tab.team_id.clone(),
+        recipient_workspace: tab.workspace_id.clone(),
+        recipient_role: format!("{:?}:{}", tab.role, tab.role_kind_id().unwrap_or("")),
         binding,
         task_id: attempt.map(|(task, _)| task.into()),
         attempt_id: attempt.map(|(_, attempt)| attempt.into()),
         lifecycle,
         ..Default::default()
-    }
+    })
 }
