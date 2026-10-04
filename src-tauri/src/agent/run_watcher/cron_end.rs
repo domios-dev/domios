@@ -2,7 +2,7 @@ use std::thread::JoinHandle;
 
 use tauri::Manager;
 
-use crate::cron::store::CronRunStatus;
+use crate::cron::store::{finish_run, write_log, CronRunStatus, RunSession};
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::cron::CronRunEnd;
 use crate::service::ServiceContext;
@@ -44,18 +44,17 @@ where
         "--- SUMMARY ---\n{}\n\n--- RAW OUTPUT ---\n{}",
         run.summary, run.raw_output
     );
-    let fresh_transition = {
-        let mut store = cron.lock();
-        let _ = store.save_log(run.job_id, run.run_id, &log_text);
-        if let Some(session_id) = run.session_id {
-            store.set_run_session(run.job_id, run.run_id, session_id, run.cwd);
-        }
-        let fresh = store
-            .update_run_status(run.job_id, run.run_id, status.clone())
-            .unwrap_or(false);
-        store.unregister_tab(run.tab_id);
-        fresh
-    };
+    let log_file = cron.lock().log_file(run.job_id, run.run_id);
+    if let Err(error) = log_file.and_then(|path| write_log(&path, &log_text)) {
+        log::error!("Failed to save cron log: {error}");
+    }
+    let session = run.session_id.map(|session_id| RunSession {
+        session_id,
+        cwd: run.cwd,
+    });
+    let fresh_transition =
+        finish_run(&cron, run.job_id, run.run_id, status.clone(), session).unwrap_or(false);
+    cron.lock().unregister_tab(run.tab_id);
     if fresh_transition {
         crate::cron::notify::notify_on_consecutive_failure(svc, &cron, run.job_id);
     }
