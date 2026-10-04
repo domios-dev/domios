@@ -6,6 +6,9 @@ use crate::schema::{self, WORKSPACE_ORDER_REVISION};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
 
+#[path = "delta.rs"]
+mod delta;
+
 pub(super) fn import(cx: &mut WriteCx<'_>, snapshot: DeskSnapshot) -> Result<(), StorageError> {
     import_empty(cx, snapshot)
 }
