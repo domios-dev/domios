@@ -5,7 +5,7 @@ edition = "2021"
 default-run = "codeterm"
 
 [workspace]
-members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins"]
+members = [".", "crates/codeterm-types", "crates/codeterm-util", "crates/codeterm-mesh", "crates/codeterm-mem", "crates/codeterm-plan", "crates/codeterm-bridge", "crates/codeterm-pty", "crates/codeterm-plugin", "crates/codeterm-plugins", "crates/codeterm-storage"]
 exclude = ["pty-fork"]
 resolver = "2"
 
@@ -36,6 +36,7 @@ codeterm-plan = { path = "crates/codeterm-plan" }
 codeterm-bridge = { path = "crates/codeterm-bridge" }
 codeterm-pty = { path = "crates/codeterm-pty" }
 codeterm-plugin = { path = "crates/codeterm-plugin" }
+codeterm-storage = { path = "crates/codeterm-storage" }
 log = "0.4"
 fern = "0.7"
 parking_lot = "0.12"
@@ -131,6 +132,8 @@ filetime = "0.2.29"
 vt100 = "0.16"
 # Enables PlanStore::new_for_test + TestSearchPort in the app's test build only.
 codeterm-plan = { path = "crates/codeterm-plan", features = ["test-support"] }
+# Writer hold gates and fault injection for the storage_contract_ tests only.
+codeterm-storage = { path = "crates/codeterm-storage", features = ["test-support"] }
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
