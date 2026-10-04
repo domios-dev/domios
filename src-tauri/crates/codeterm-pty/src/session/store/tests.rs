@@ -638,6 +638,9 @@ fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_value
                             "claude_session_id":"session-unverified",
                             "agent_identity":{"session_binding_nonce":"nonce-unverified"},
                             "role":"Worker",
+                            "role_profile":null,
+                            "agent_session_model":null,
+                            "auto_approve":false,
                             "permission_auto_confirm":true
                         },
                         {
@@ -665,10 +668,26 @@ fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_value
 
     adapter.import_legacy(snapshot, Some(identities)).unwrap();
     let restored = adapter.snapshot().unwrap();
+    let normalized = adapter.normalized_snapshot().unwrap();
     let identity = adapter.identity_catalog().unwrap();
 
     assert_eq!(restored.workspaces[0].tabs[0].id, "group-a");
     assert_eq!(restored.workspaces[0].tabs[0].sort_order, 3);
+    assert_eq!(normalized.workspaces[0].tabs.len(), 1);
+    match &normalized.workspaces[0].tabs[0].layout {
+        codeterm_storage::DeskLayoutNode::Split { children, .. } => match &children[0] {
+            codeterm_storage::DeskLayoutNode::Leaf { fields, .. } => {
+                assert_eq!(fields.values["role_profile"], serde_json::Value::Null);
+                assert_eq!(
+                    fields.values["agent_session_model"],
+                    serde_json::Value::Null
+                );
+                assert_eq!(fields.values["auto_approve"], serde_json::json!(false));
+            }
+            codeterm_storage::DeskLayoutNode::Split { .. } => panic!("first node must stay a leaf"),
+        },
+        codeterm_storage::DeskLayoutNode::Leaf { .. } => panic!("root split must not be flattened"),
+    }
     match &restored.workspaces[0].tabs[0].split_tree {
         SplitNodeSnapshot::Split { children, .. } => {
             assert_eq!(children.len(), 2);
@@ -709,4 +728,26 @@ fn storage_desk_legacy_decoder_preserves_nested_layout_and_opaque_identity_value
     assert_eq!(identity[0].record_provider, "stored-provider-value");
     assert_eq!(identity[0].session_id, "session-a");
     assert_eq!(identity[0].parent_tab_id.as_deref(), Some("missing-parent"));
+}
+
+#[test]
+fn storage_desk_snapshot_does_not_persist_ephemeral_active_tab() {
+    let mut mux = crate::multiplexer::state::MultiplexerState::empty();
+    let workspace_id = mux.create_workspace("Desk".into(), None).id;
+    let durable_tab = mux.create_tab(&workspace_id).unwrap();
+    let hidden_tab = mux.create_tab(&workspace_id).unwrap();
+    let skipped_tab = mux.create_tab(&workspace_id).unwrap();
+    mux.get_tab_mut(&hidden_tab).unwrap().hidden = true;
+    mux.get_tab_mut(&skipped_tab).unwrap().skip_snapshot = true;
+    mux.set_active_tab(&workspace_id, &skipped_tab).unwrap();
+
+    let snapshot = mux.to_session_snapshot();
+    let workspace = &snapshot.workspaces[0];
+
+    assert_eq!(workspace.tabs.len(), 1);
+    assert_eq!(workspace.tabs[0].id, durable_tab);
+    assert_eq!(
+        workspace.active_tab_id.as_deref(),
+        Some(durable_tab.as_str())
+    );
 }

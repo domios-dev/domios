@@ -24,6 +24,12 @@ pub use repositories::cron::{
     CronRepository, CronRunField, CronRunId, CronRunRecord, CronRunState, CronScope, CronSnapshot,
     CronWrite, StoredCronJob, MAX_CRON_BATCH, MAX_CRON_HISTORY, MAX_CRON_JOBS,
 };
+pub use repositories::desk::{
+    DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields, DeskRepository, DeskSnapshot,
+    DeskState, DeskTab, DeskTeam, DeskTeamLifecycle, DeskWorkspace, MAX_DESK_CATALOGUE,
+    MAX_DESK_LAYOUT_DEPTH, MAX_DESK_LAYOUT_NODES, MAX_DESK_LEAF_BYTES, MAX_DESK_TABS,
+    MAX_DESK_TEAMS, MAX_DESK_WORKSPACES,
+};
 pub use repositories::sentinel::{
     BatchFence, BucketDefinition, CaptureRecord, CommandParameters, CommandResultRecord,
     CommandStatus, DefinitionProvenance, Fence, HandlerAction, HandlerDefinition,

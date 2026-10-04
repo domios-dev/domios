@@ -126,7 +126,91 @@ fn storage_desk_import_round_trips_normalized_layout_and_identity_rows() {
 }
 
 #[test]
+fn storage_desk_empty_inventory_round_trips_without_fabricating_workspace() {
+    let (_root, storage) = storage();
+    let empty = DeskSnapshot {
+        version: "1.12.4".into(),
+        timestamp: 0,
+        active_workspace_id: None,
+        workspaces: vec![],
+        teams: vec![],
+        agent_session_identities: vec![],
+    };
+
+    storage
+        .desk()
+        .import(empty.clone())
+        .wait(Duration::from_secs(5))
+        .unwrap();
+
+    assert_eq!(
+        storage
+            .desk()
+            .snapshot()
+            .wait(Duration::from_secs(5))
+            .unwrap()
+            .value
+            .snapshot,
+        empty
+    );
+}
+
+#[test]
 fn storage_desk_rename_is_revision_fenced_and_keeps_unrelated_entities() {
+    let (_root, storage) = storage();
+    let mut source = desk();
+    for index in 0..128 {
+        source.workspaces.push(DeskWorkspace {
+            record: WorkspaceRecord::new(
+                WorkspaceId::new(format!("ws-extra-{index}")).unwrap(),
+                format!("Workspace {index}"),
+            ),
+            sort_order: index,
+            active_tab_id: None,
+            tabs: vec![],
+        });
+    }
+    storage
+        .desk()
+        .import(source)
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let before = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let workspace_revision = before.value.workspace_revisions["ws-a"];
+    let tab_revision = before.value.tab_revisions["tab-a"];
+    let unrelated_revision = before.value.workspace_revisions["ws-extra-127"];
+
+    let renamed = storage
+        .desk()
+        .rename_workspace("ws-a".into(), workspace_revision, "Renamed".into())
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(renamed.receipt.rows_written, 3);
+    let after = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+
+    assert_eq!(after.value.snapshot.workspaces[0].record.name, "Renamed");
+    assert_eq!(after.value.tab_revisions["tab-a"], tab_revision);
+    assert_eq!(
+        after.value.workspace_revisions["ws-extra-127"],
+        unrelated_revision
+    );
+    assert!(storage
+        .desk()
+        .rename_workspace("ws-a".into(), workspace_revision, "Stale".into())
+        .wait(Duration::from_secs(5))
+        .is_err());
+}
+
+#[test]
+fn storage_desk_team_rename_is_revision_fenced() {
     let (_root, storage) = storage();
     storage
         .desk()
@@ -138,12 +222,25 @@ fn storage_desk_rename_is_revision_fenced_and_keeps_unrelated_entities() {
         .snapshot()
         .wait(Duration::from_secs(5))
         .unwrap();
-    let workspace_revision = before.value.workspace_revisions["ws-a"];
-    let tab_revision = before.value.tab_revisions["tab-a"];
+    let team_revision = before.value.team_revisions["team-a"];
 
+    let renamed = storage
+        .desk()
+        .rename_team("team-a".into(), team_revision, "Renamed".into())
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    assert!(storage
+        .desk()
+        .rename_team("team-a".into(), team_revision, "Stale".into())
+        .wait(Duration::from_secs(5))
+        .is_err());
     storage
         .desk()
-        .rename_workspace("ws-a".into(), workspace_revision, "Renamed".into())
+        .set_team_lifecycle(
+            "team-a".into(),
+            renamed.receipt.revision,
+            DeskTeamLifecycle::Active,
+        )
         .wait(Duration::from_secs(5))
         .unwrap();
     let after = storage
@@ -152,13 +249,60 @@ fn storage_desk_rename_is_revision_fenced_and_keeps_unrelated_entities() {
         .wait(Duration::from_secs(5))
         .unwrap();
 
-    assert_eq!(after.value.snapshot.workspaces[0].record.name, "Renamed");
-    assert_eq!(after.value.tab_revisions["tab-a"], tab_revision);
+    assert_eq!(
+        after.value.snapshot.teams[0].name.as_deref(),
+        Some("Renamed")
+    );
+    assert_eq!(
+        after.value.snapshot.teams[0].lifecycle,
+        DeskTeamLifecycle::Active
+    );
+}
+
+#[test]
+fn storage_desk_workspace_scalar_update_preserves_task_key_and_path_fields() {
+    let (_root, storage) = storage();
+    storage
+        .desk()
+        .import(desk())
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let before = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let mut record = before.value.snapshot.workspaces[0].record.clone();
+    record.cwd = Some("C:/next-project".into());
+    record.provisioned_cwd = Some("C:/provisioned".into());
+    record.protected = false;
+    record.task_key_prefix = Some("issue".into());
+    record.task_key_next = 42;
+    let revision = before.value.workspace_revisions["ws-a"];
+    let stale_record = record.clone();
+
+    storage
+        .desk()
+        .update_workspace(record, revision)
+        .wait(Duration::from_secs(5))
+        .unwrap();
     assert!(storage
         .desk()
-        .rename_workspace("ws-a".into(), workspace_revision, "Stale".into())
+        .update_workspace(stale_record, revision)
         .wait(Duration::from_secs(5))
         .is_err());
+    let after = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let updated = &after.value.snapshot.workspaces[0].record;
+
+    assert_eq!(updated.cwd.as_deref(), Some("C:/next-project"));
+    assert_eq!(updated.provisioned_cwd.as_deref(), Some("C:/provisioned"));
+    assert!(!updated.protected);
+    assert_eq!(updated.task_key_prefix.as_deref(), Some("issue"));
+    assert_eq!(updated.task_key_next, 42);
 }
 
 #[test]
@@ -218,6 +362,10 @@ fn storage_desk_reorder_close_and_flush_commit_incrementally() {
         .unwrap();
     assert_eq!(after.value.snapshot.workspaces[0].tabs.len(), 1);
     assert_eq!(after.value.snapshot.workspaces[0].tabs[0].id, "tab-b");
+    assert_eq!(
+        after.value.snapshot.workspaces[0].active_tab_id.as_deref(),
+        Some("tab-b")
+    );
 }
 
 #[test]
@@ -262,11 +410,23 @@ fn storage_desk_commit_failure_keeps_the_published_snapshot_unchanged() {
 
 #[test]
 #[cfg(feature = "test-support")]
-fn storage_desk_concurrent_rename_close_and_flush_respect_writer_order() {
+fn storage_desk_concurrent_rename_reorder_close_and_flush_respect_writer_order() {
     let (_root, storage) = storage();
+    let mut source = desk();
+    source.workspaces[0].tabs.push(DeskTab {
+        id: "tab-b".into(),
+        title: "B".into(),
+        description: None,
+        sort_order: 9,
+        layout: DeskLayoutNode::Leaf {
+            tab_id: "tab-b".into(),
+            cwd: None,
+            fields: DeskLeafFields::default(),
+        },
+    });
     storage
         .desk()
-        .import(desk())
+        .import(source)
         .wait(Duration::from_secs(5))
         .unwrap();
     let before = storage
@@ -274,25 +434,77 @@ fn storage_desk_concurrent_rename_close_and_flush_respect_writer_order() {
         .snapshot()
         .wait(Duration::from_secs(5))
         .unwrap();
-    let old_revision = before.value.tab_revisions["tab-a"];
+    let tab_revision = before.value.tab_revisions["tab-a"];
+    let close_revision = before.value.tab_revisions["tab-b"];
+    let order_revision = before.value.workspace_order_revisions["ws-a"];
     let hold = storage.hold_writer().unwrap();
     hold.wait_held(Duration::from_secs(5)).unwrap();
     let rename = storage
         .desk()
-        .rename_tab("tab-a".into(), old_revision, "renamed".into());
-    let close = storage.desk().close_tab("tab-a".into(), old_revision);
+        .rename_tab("tab-a".into(), tab_revision, "renamed".into());
+    let reorder = storage.desk().reorder_tabs(
+        "ws-a".into(),
+        order_revision,
+        vec!["tab-b".into(), "tab-a".into()],
+    );
+    let close = storage.desk().close_tab("tab-b".into(), close_revision);
     let flush = storage.desk().flush();
     hold.release();
 
     rename.wait(Duration::from_secs(5)).unwrap();
-    assert!(close.wait(Duration::from_secs(5)).is_err());
+    reorder.wait(Duration::from_secs(5)).unwrap();
+    close.wait(Duration::from_secs(5)).unwrap();
     flush.wait(Duration::from_secs(5)).unwrap();
     let after = storage
         .desk()
         .snapshot()
         .wait(Duration::from_secs(5))
         .unwrap();
+    assert_eq!(after.value.snapshot.workspaces[0].tabs[0].id, "tab-a");
     assert_eq!(after.value.snapshot.workspaces[0].tabs[0].title, "renamed");
+    assert_eq!(
+        after.value.snapshot.workspaces[0].active_tab_id.as_deref(),
+        Some("tab-a")
+    );
+}
+
+#[test]
+fn storage_desk_close_active_workspace_selects_the_next_durable_workspace() {
+    let (_root, storage) = storage();
+    let mut source = desk();
+    source.workspaces.push(DeskWorkspace {
+        record: WorkspaceRecord::new(WorkspaceId::new("ws-b").unwrap(), "Beta"),
+        sort_order: 12,
+        active_tab_id: None,
+        tabs: vec![],
+    });
+    storage
+        .desk()
+        .import(source)
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let before = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+
+    storage
+        .desk()
+        .close_workspace("ws-a".into(), before.value.workspace_revisions["ws-a"])
+        .wait(Duration::from_secs(5))
+        .unwrap();
+
+    let after = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        after.value.snapshot.active_workspace_id.as_deref(),
+        Some("ws-b")
+    );
+    assert_eq!(after.value.snapshot.workspaces.len(), 1);
 }
 
 #[test]

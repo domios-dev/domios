@@ -14,6 +14,7 @@ pub use records::{
 };
 
 use crate::owner::Storage;
+use crate::repositories::workspaces::WorkspaceRecord;
 use crate::repositories::{Committed, Completion, Read, Revision};
 
 impl Storage {
@@ -69,6 +70,17 @@ impl DeskRepository {
         })
     }
 
+    pub fn update_workspace(
+        &self,
+        record: WorkspaceRecord,
+        expect: Revision,
+    ) -> Completion<Committed<()>> {
+        let cost = record.cost();
+        self.storage.submit_mutation(cost, move |cx| {
+            mutations::update_workspace(cx, record, expect)
+        })
+    }
+
     pub fn rename_tab(
         &self,
         id: String,
@@ -78,6 +90,30 @@ impl DeskRepository {
         let cost = id.len() + title.len();
         self.storage.submit_mutation(cost, move |cx| {
             mutations::rename_tab(cx, &id, expect, title)
+        })
+    }
+
+    pub fn rename_team(
+        &self,
+        id: String,
+        expect: Revision,
+        name: String,
+    ) -> Completion<Committed<()>> {
+        let cost = id.len() + name.len();
+        self.storage.submit_mutation(cost, move |cx| {
+            mutations::rename_team(cx, &id, expect, name)
+        })
+    }
+
+    pub fn set_team_lifecycle(
+        &self,
+        id: String,
+        expect: Revision,
+        lifecycle: DeskTeamLifecycle,
+    ) -> Completion<Committed<()>> {
+        let cost = id.len();
+        self.storage.submit_mutation(cost, move |cx| {
+            mutations::set_team_lifecycle(cx, &id, expect, lifecycle)
         })
     }
 
