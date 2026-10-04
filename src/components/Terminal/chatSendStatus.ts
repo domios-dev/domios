@@ -3,12 +3,13 @@ import { invoke } from "../../lib/bridge";
 export type ChatSendStatus = {
   send_id: string;
   tab_id: string;
-  state: "accepted" | "unknown" | "confirmed" | "failed";
+  state: "held" | "written" | "submit_unconfirmed" | "delivered" | "failed";
   error: string | null;
   ledger_id: string;
   sequence: number;
   retained_from: number;
   correlationId?: string;
+  pending_reason?: string;
   pad_file?: string;
 };
 

@@ -46,12 +46,22 @@ fn storage_migration_first_install_absence_commits_empty_domains() {
     let manifest = import_manifest(&f);
     assert!(manifest.contains(&line(&["provenance", "cron", "first-install"])));
     assert!(manifest.contains(&line(&["provenance", "sentinel", "first-install"])));
+    assert!(manifest.contains(&line(&["provenance", "desk", "first-install"])));
     assert_eq!(
         marker(&storage).map(|found| found.revision),
         Some(receipt.revision)
     );
     assert!(cron_snapshot(&storage).states.is_empty());
     assert!(sentinel_inventory(&storage).is_empty());
+    assert!(storage
+        .desk()
+        .snapshot()
+        .wait(DEADLINE)
+        .unwrap()
+        .value
+        .snapshot
+        .workspaces
+        .is_empty());
     assert!(receipt.comparison.expect("comparison").is_clean());
     close(storage);
 }

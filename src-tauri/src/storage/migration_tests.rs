@@ -12,6 +12,7 @@ use std::time::{Duration, SystemTime};
 mod bounds;
 mod capture;
 mod conservation;
+mod desk;
 mod live_root;
 mod selection;
 mod transaction;
@@ -119,6 +120,45 @@ const SENTINELS: &str = r#"[
 
 const EMPTY_CRONS: &str = r#"{"version": "1", "jobs": [], "history": {}}"#;
 
+const DESK_SOURCE: &str = r#"{
+  "version":"legacy",
+  "timestamp":91,
+  "active_workspace_id":"ws-a",
+  "teams":[
+    {"id":"team-a","name":"Alpha","lifecycle":"active","created_at":11,"workspace_id":"ws-a"},
+    {"id":"team-historical","name":null,"lifecycle":"closing","created_at":12,"workspace_id":"deleted-workspace"}
+  ],
+  "workspaces":[
+    {"id":"ws-a","name":"Alpha","tabs":[
+      {"id":"group-a","title":"Group","description":null,"sort_order":3,
+       "split_tree":{"type":"Split","orientation":"horizontal","ratio":0.4,
+        "future_split_state":{"flag":true,"nullable":null},"children":[
+         {"type":"Leaf","tab_id":"tab-a","cwd":"C:/projects/a","title":null,
+          "agent_type":"provider-unverified","claude_session_id":"session-unverified",
+          "agent_identity":{"session_binding_nonce":"nonce-unverified"},"role":"Worker",
+          "role_profile":null,"agent_session_model":null,"can_spawn":true},
+         {"type":"Split","orientation":"vertical","ratio":0.7,
+          "future_split_ratio":null,"children":[
+           {"type":"Leaf","tab_id":"missing-tab","agent_type":"unknown-provider","role":"Manager"}
+         ]}
+       ]}},
+      {"id":"tab-a","title":"Second","description":"kept","sort_order":7,
+       "split_tree":{"type":"Leaf","tab_id":"tab-a","cwd":null,"title":"Second"}}
+    ],"active_tab_id":"group-a","cwd":"C:/projects/a","provisioned_cwd":null,
+       "protected":true,"sort_order":8,"task_keys":{"prefix":"COD","next":4}},
+    {"id":"ws-b","name":"Beta","tabs":[
+      {"id":"tab-b","title":"Beta tab","sort_order":1,
+       "split_tree":{"type":"Leaf","tab_id":"tab-b","cwd":null}}
+    ],"active_tab_id":null,"cwd":null,"provisioned_cwd":"C:/projects/b",
+       "protected":false,"sort_order":2,"task_keys":{"prefix":null,"next":0}}
+  ]
+}"#;
+
+const IDENTITY_SOURCE: &str = r#"{"sessions":{"6:claudehistory-session":{"provider":"codex","role":"Worker","role_profile":null,"parent_tab_id":"deleted-tab","can_spawn":false}}}"#;
+const IDENTITY_BACKUP: &str = r#"{"sessions":{"6:claudeold-session":{"provider":"claude","role":"Planner","role_profile":"planner","parent_tab_id":null,"can_spawn":true}}}"#;
+const NAMED_DESK: &str =
+    r#"{"version":"saved","timestamp":9,"active_workspace_id":null,"teams":[],"workspaces":[]}"#;
+
 /// A temporary tree holding an inert source copy, its backup and a separate instance root.
 struct Fixture {
     temp: tempfile::TempDir,
@@ -136,6 +176,29 @@ impl Fixture {
         let fixture = Fixture::new();
         fixture.put("crons.json", CRONS.as_bytes());
         fixture.put("sentinels.json", SENTINELS.as_bytes());
+        fixture
+    }
+
+    fn seeded_with_desk() -> Self {
+        let fixture = Self::seeded();
+        fixture.put("sessions/last.json", DESK_SOURCE.as_bytes());
+        fixture.put(
+            "sessions/agent-session-identities.json",
+            IDENTITY_SOURCE.as_bytes(),
+        );
+        fixture.put(
+            "sessions/agent-session-identities.json.bak",
+            IDENTITY_BACKUP.as_bytes(),
+        );
+        fixture.put("sessions/named.json", NAMED_DESK.as_bytes());
+        fixture.put("sessions/backups/1730000000.json", NAMED_DESK.as_bytes());
+        fixture.put("sessions/last.json.tmp", b"interrupted");
+        fixture.put("sessions/last.json.corrupt-1730000000", b"corrupt evidence");
+        fixture.put("sessions/last.json.reduced-1730000000", b"reduced evidence");
+        fixture.put(
+            "sessions/agent-session-identities.json.tmp",
+            b"interrupted identities",
+        );
         fixture
     }
 
@@ -229,11 +292,29 @@ fn sentinel_inventory(storage: &Storage) -> Vec<StoredSentinel> {
         .value
 }
 
-/// Nothing committed: no marker and empty cron and Sentinel domains.
+/// Nothing committed: no marker and empty domain repositories.
 fn assert_untouched(storage: &Storage) {
     assert_eq!(marker(storage), None, "no completion marker");
     assert!(cron_snapshot(storage).states.is_empty(), "no cron rows");
     assert!(sentinel_inventory(storage).is_empty(), "no Sentinel rows");
+    assert!(
+        storage
+            .workspaces()
+            .list()
+            .wait(DEADLINE)
+            .expect("workspace inventory")
+            .value
+            .workspaces
+            .is_empty(),
+        "no workspace rows"
+    );
+    assert!(
+        matches!(
+            storage.desk().snapshot().wait(DEADLINE),
+            Err(StorageError::NotFound { .. })
+        ),
+        "no desk metadata"
+    );
 }
 
 fn decoded_cron() -> CronImport {

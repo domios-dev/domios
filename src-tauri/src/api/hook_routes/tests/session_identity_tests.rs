@@ -303,6 +303,7 @@ fn an_unproven_report_leaves_a_spawn_failure_latched() {
 fn queued_user_head_releases_through_actual_current_nonce_acknowledgment() {
     use crate::service::parked_user_delivery::tests::{queue_fixture, UserSubmitBoundary};
     let (fixture, tab_id) = queue_fixture(false, None);
+    crate::service::parked_user_delivery::tests::attach_fixture_pty(&fixture, &tab_id);
     let first = fixture.service.start_chat_send(&tab_id, "opaque-hook-first".into(), None, Some("client-a".into())).unwrap();
     let second = fixture.service.start_chat_send(&tab_id, "opaque-hook-second".into(), None, Some("client-b".into())).unwrap();
     let (write_tx, write_rx) = std::sync::mpsc::channel();

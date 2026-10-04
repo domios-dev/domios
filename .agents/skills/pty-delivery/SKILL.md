@@ -24,17 +24,28 @@ well-meaning "one more heuristic" changes. Read this before touching
    triggers an attempt and never claims readiness. After a key, exact normalized
    user-turn evidence in this tab's bound-session append window stops remaining
    keys. Never use screen/composer text as acknowledgement or branch on provider
-   identity. Each PTY owns one active submit cycle. The explicit user-send
-   exception is a bounded durable queue of never-written originals: 32 unsettled
-   records and 4 MiB prepared/body bytes per tab, with original storage separately
-   bounded. Enqueuing does not claim or cancel a cycle. Only the eligible head
-   claims after exact same-launch readiness; the tail advances after cycle
-   settlement plus exact own-session turn evidence. Possible handoffs and crashed
-   claims remain held uncertainty; no postwrite replay, reopen adoption, or rebind.
+   identity. Each PTY owns one resettable submit cycle; a newer send cancels the
+   previous cycle's remaining keys while preserving its already-queued payload.
+   The explicit user-send exception is a bounded durable queue of never-written
+   originals: 32 unsettled records and 4 MiB prepared/body bytes per tab, with
+   original storage separately bounded. Sends are held only until the current
+   launch's exact PTY generation reaches `AgentReady`, then queued sends flush in
+   admission order. If exact session binding is missing before that readiness,
+   the owner-approved adapter fallback may release a restored head only after two
+   distinct same-launch, same-generation ready-idle verdicts at least 0.90, with
+   composer readiness at least 0.90 and prompt probability at most 0.10, followed
+   by immediate prewrite revalidation. Without an adapter or qualifying evidence,
+   the head stays held with a logged pending reason. Readiness latches for an `AgentReady`
+   launch; later busy state, missing turn evidence, or unsettled recovery never
+   gates another write. Possible handoffs and crashed claims remain held
+   uncertainty; no postwrite replay, reopen adoption, or rebind.
 3. **Exact turn evidence confirms delivery.** Missing evidence remains
    uncertainty, never a fabricated success or a zero-write claim. Once a paste
-   reaches the write queue, an unconfirmed send is `submit_unconfirmed` with
-   `bytes_written = true`.
+   reaches the write queue, its status becomes `written` immediately. Later
+   status is `delivered` only on exact own-session user-turn evidence, or
+   `submit_unconfirmed` when evidence is absent. Late evidence may upgrade an
+   unconfirmed send. Cancelling the remaining submit keys never fails a queued
+   payload.
 
 ## Classification invariants (`DeliveryError`)
 
@@ -52,25 +63,28 @@ well-meaning "one more heuristic" changes. Read this before touching
 
 ## Durable user admission conserves accepted sends
 
-An accepted USER-initiated send (chat UI, via `start_chat_send`) remains
-conserved or honestly unknown. Bounded durable admission can refuse capacity,
+An admitted USER-initiated send (chat UI, via `start_chat_send`) remains
+conserved or honestly classified. Bounded durable admission can refuse capacity,
 preparation, or persistence before acceptance; preserve draft and attachments,
 including newer edits and ambiguous RPC completion, without automatic resubmit.
 Acceptance requires payload and index durability off the UI/runtime and outside
 mux/ledger locks. This user backlog is separate from launch/bootstrap replacement.
-The prewrite owner dispatches on authoritative readiness events. Proven zero-write
-refusal retains the admitted head; possible handoff stays unknown and never
-replays. Programmatic agent/mesh/CLI sends keep the existing honest typed split.
+The prewrite owner holds sends until the current launch's readiness latch or the
+owner-approved restored-session adapter fallback, then writes them in admission
+order. Proven zero-write refusal retains that send as held; possible handoff
+becomes `submit_unconfirmed` and never replays. Programmatic agent/mesh/CLI sends
+keep the existing honest typed split.
 
 ## The Chat send ledger reconciles by exact evidence
 
 `ChatSendLedger` is the authority the UI renders. Its rules:
 
-- The serialized states are `accepted`, `unknown`, `confirmed`, and `failed`.
-  Transport uncertainty is `unknown` with no user-facing error. A user send never
+- The serialized states are `held`, `written`, `submit_unconfirmed`, `delivered`,
+  and `failed`. Transport uncertainty is `submit_unconfirmed` with no user-facing
+  error. A user send never
   resolves to `failed`; only a programmatic send's proven pre-write refusal is
   `failed`.
-- `accepted/unknown → confirmed` only happens
+- `written/submit_unconfirmed → delivered` only happens
   when the tab's **own bound session transcript** appends a user turn whose
   normalized content equals the send's payload
   (`confirm_delivered_user_turn`). One turn confirms at most one send,
@@ -105,7 +119,7 @@ replays. Programmatic agent/mesh/CLI sends keep the existing honest typed split.
   the remaining truth).
 - Evidence wins races: once a send is `sent` by turn evidence, a late
   transport classification must not downgrade it (`finish` guard).
-- A send with no evidence after the recovery deadline remains `unknown`.
+- A send with no evidence after the recovery deadline remains `submit_unconfirmed`.
   Anchored sends can still reconcile from later transcript evidence; a send
   whose session or bounded window cannot be identified remains honestly
   live-evidence-only. Chat UI never renders delivery banners, failure cards,
@@ -117,8 +131,9 @@ replays. Programmatic agent/mesh/CLI sends keep the existing honest typed split.
   path — deadlines are failure bounds around event waits only.
 - No provider-id branches; capability descriptors only.
 - Do not add screen/composer acknowledgement, guessed readiness, payload
-  retries, or provider-id branches. Use exact claimed-session transcript
-  evidence to stop recovery and to reconcile later sends.
+  retries, or provider-id branches. Exact claimed-session transcript evidence
+  classifies a send and may stop its current key schedule; it never gates the
+  next post-ready send.
 - Do not "fix" a delivery bug by adding a retry that re-writes the payload.
 - Launch/bootstrap input never routes through the public post-ready send gate
   (see AGENTS.md "Agent launch delivery").

@@ -3198,6 +3198,58 @@ button,
   animation: ct-chat-empty-settle var(--ct-duration-dramatic) var(--ct-ease-liquid-settle) both;
 }
 
+.ct-chat-surface {
+  container-name: ct-chat-surface;
+  container-type: inline-size;
+}
+
+.ct-chat-message-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  position: relative;
+}
+
+.ct-chat-message-column {
+  grid-column: 1;
+  min-width: 0;
+}
+
+.ct-chat-message-time--hidden-when-narrow {
+  display: none;
+}
+
+@container ct-chat-surface (min-width: 68rem) {
+  .ct-chat-message-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 56rem) minmax(0, 1fr);
+  }
+
+  .ct-chat-message-column {
+    grid-column: 2;
+  }
+
+  .ct-chat-message-time--hidden-when-narrow {
+    display: block;
+  }
+}
+
+.ct-chat-message-time {
+  color: var(--ct-muted-fg);
+  font-size: 10px;
+  line-height: 1.25;
+  position: absolute;
+  white-space: nowrap;
+}
+
+.ct-chat-message-time--left {
+  right: calc(50% + 28rem + 0.75rem);
+  top: 0.2rem;
+}
+
+.ct-chat-message-time--right {
+  left: calc(50% + 28rem + 0.75rem);
+  top: 0.6rem;
+}
+
 .chat-empty-mark {
   align-items: center;
   display: flex;
