@@ -146,10 +146,6 @@ impl super::ServiceContext {
             return Ok(UserDrain::Idle);
         }
         if let Err(outcome) = self.deliver_parked_bootstrap_record(tab_id) { return Ok(outcome); }
-        #[cfg(test)]
-        if let Some(boundary) = tests::submit_boundary(tab_id) {
-            return self.drain_user_owner_with(tab_id, |record, text| boundary(record, text));
-        }
         self.drain_user_owner_with(tab_id, |record, text| self.submit_owned_user(record, text))
     }
 
@@ -343,6 +339,9 @@ impl super::ServiceContext {
     }
 
     fn submit_owned_user(&self, record: &UserSendRecord, text: &str) -> Result<(), DeliveryError> {
+        // Resolved after readiness was observed, so a hook installed before readiness is never missed.
+        #[cfg(test)]
+        if let Some(boundary) = tests::submit_boundary(&record.authority.tab_id) { return boundary(record, text); }
         let authority = &record.authority;
         let tab_id = authority.tab_id.as_str();
         if !self.user_authority_is_ready(authority) {
