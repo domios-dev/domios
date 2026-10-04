@@ -13,6 +13,11 @@ use crate::storage::{
     DecodeFailure, DecodeFailureKind, DomainImport, IgnoredKeys, ImportDomain, ImportOutcome,
     ImportRequest, LegacyDecoder, MigrationError, Storage,
 };
+use codeterm_pty::session::store::legacy_decode;
+use codeterm_storage::{
+    DeskAgentSessionIdentity, DeskLayoutNode, DeskSnapshot, DeskTab, DeskTeam, DeskTeamLifecycle,
+    DeskWorkspace, WorkspaceId, WorkspaceRecord,
+};
 
 const CRON_FILE_KEYS: [&str; 3] = ["version", "jobs", "history"];
 
@@ -34,6 +39,10 @@ impl LegacyDecoder for LegacyCodecs {
                     .map(DomainImport::Sentinel)
                     .map_err(sentinel_failure)
             }
+            ImportDomain::Desk => Err(DecodeFailure::new(
+                DecodeFailureKind::Unsupported,
+                "desk sources require their snapshot and identity catalogue",
+            )),
             _ => Err(DecodeFailure::new(
                 DecodeFailureKind::Unsupported,
                 "no legacy decoder for this domain",
@@ -47,6 +56,106 @@ impl LegacyDecoder for LegacyCodecs {
             _ => Vec::new(),
         }
     }
+
+    fn decode_desk_snapshot(&self, bytes: &[u8]) -> Result<DeskSnapshot, DecodeFailure> {
+        json_shape(bytes)?;
+        let text = std::str::from_utf8(bytes)
+            .map_err(|error| DecodeFailure::new(DecodeFailureKind::Malformed, error.to_string()))?;
+        let decoded = legacy_decode::decode_snapshot(text)
+            .map_err(|detail| DecodeFailure::new(DecodeFailureKind::Malformed, detail))?;
+        map_desk_snapshot(&decoded.snapshot, decoded.layouts)
+    }
+
+    fn decode_desk_identities(
+        &self,
+        bytes: &[u8],
+    ) -> Result<Vec<DeskAgentSessionIdentity>, DecodeFailure> {
+        json_shape(bytes)?;
+        let text = std::str::from_utf8(bytes)
+            .map_err(|error| DecodeFailure::new(DecodeFailureKind::Malformed, error.to_string()))?;
+        let mut identities = legacy_decode::decode_identity_catalog(Some(text))
+            .map_err(|detail| DecodeFailure::new(DecodeFailureKind::Malformed, detail))?;
+        identities.sort_by(|left, right| {
+            (&left.provider, &left.session_id).cmp(&(&right.provider, &right.session_id))
+        });
+        Ok(identities)
+    }
+}
+
+fn map_desk_snapshot(
+    snapshot: &codeterm_pty::session::store::SessionSnapshot,
+    layouts: Vec<Vec<DeskLayoutNode>>,
+) -> Result<DeskSnapshot, DecodeFailure> {
+    if snapshot.workspaces.len() != layouts.len() {
+        return Err(DecodeFailure::new(
+            DecodeFailureKind::Conflict,
+            "desk layout count does not match workspaces",
+        ));
+    }
+    let workspaces = snapshot
+        .workspaces
+        .iter()
+        .zip(layouts)
+        .map(|(workspace, layouts)| {
+            if workspace.tabs.len() != layouts.len() {
+                return Err(DecodeFailure::new(
+                    DecodeFailureKind::Conflict,
+                    "desk layout count does not match tabs",
+                ));
+            }
+            let mut record = WorkspaceRecord::new(
+                WorkspaceId::new(workspace.id.clone()).map_err(|error| {
+                    DecodeFailure::new(DecodeFailureKind::Conflict, error.to_string())
+                })?,
+                workspace.name.clone(),
+            );
+            record.cwd = workspace.cwd.clone();
+            record.provisioned_cwd = workspace.provisioned_cwd.clone();
+            record.protected = workspace.protected;
+            record.task_key_prefix = workspace.task_keys.prefix.clone();
+            record.task_key_next = workspace.task_keys.next;
+            let tabs = workspace
+                .tabs
+                .iter()
+                .zip(layouts)
+                .map(|(tab, layout)| DeskTab {
+                    id: tab.id.clone(),
+                    title: tab.title.clone(),
+                    description: tab.description.clone(),
+                    sort_order: tab.sort_order,
+                    layout,
+                })
+                .collect();
+            Ok(DeskWorkspace {
+                record,
+                sort_order: workspace.sort_order,
+                active_tab_id: workspace.active_tab_id.clone(),
+                tabs,
+            })
+        })
+        .collect::<Result<Vec<_>, DecodeFailure>>()?;
+    Ok(DeskSnapshot {
+        version: snapshot.version.clone(),
+        timestamp: snapshot.timestamp,
+        active_workspace_id: snapshot.active_workspace_id.clone(),
+        workspaces,
+        teams: snapshot
+            .teams
+            .iter()
+            .map(|team| DeskTeam {
+                id: team.id.clone(),
+                name: team.name.clone(),
+                lifecycle: match team.lifecycle {
+                    codeterm_types::team::TeamLifecycle::Forming => DeskTeamLifecycle::Forming,
+                    codeterm_types::team::TeamLifecycle::Active => DeskTeamLifecycle::Active,
+                    codeterm_types::team::TeamLifecycle::Closing => DeskTeamLifecycle::Closing,
+                },
+                created_at: team.created_at,
+                workspace_id: team.workspace_id.clone(),
+            })
+            .collect(),
+        agent_session_identities: Vec::new(),
+    })
 }
 
 /// A run with every optional field present, so its serialized form names every kept key.

@@ -45,11 +45,11 @@ CREATE TABLE desk_layout_nodes (
     ratio REAL,
     tab_id TEXT,
     cwd TEXT,
-    leaf_fields_json TEXT,
+    fields_json TEXT,
     CHECK ((kind = 'split' AND orientation IS NOT NULL AND ratio IS NOT NULL
-            AND tab_id IS NULL AND leaf_fields_json IS NULL)
+            AND tab_id IS NULL AND fields_json IS NOT NULL)
         OR (kind = 'leaf' AND orientation IS NULL AND ratio IS NULL
-            AND tab_id IS NOT NULL AND leaf_fields_json IS NOT NULL)),
+            AND tab_id IS NOT NULL AND fields_json IS NOT NULL)),
     UNIQUE (id, group_id),
     FOREIGN KEY (parent_id, group_id)
         REFERENCES desk_layout_nodes(id, group_id) ON DELETE CASCADE

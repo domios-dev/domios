@@ -82,8 +82,7 @@ impl ServiceContext {
                     cron_logs.push(logs);
                 }
             }
-            let sentinel_store = sentinel.store.lock();
-            sentinel_store.ensure_external_commit_ready()?;
+            sentinel.store.lock().ensure_external_commit_ready()?;
             (
                 prepared,
                 PreparedStorageTeamTeardown {

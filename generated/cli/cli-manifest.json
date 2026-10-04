@@ -12928,7 +12928,7 @@
       "subcommands": [
         {
           "name": "create",
-          "about": "Watch a bounded shell probe, classifying only changed output",
+          "about": "Classify a bounded probe or same-Team agent tab observation",
           "aliases": [],
           "args": [
             {
@@ -13002,6 +13002,16 @@
               "aliases": []
             },
             {
+              "name": "observe",
+              "positional": false,
+              "required": false,
+              "value_name": "OBSERVE",
+              "possible_values": [],
+              "default": null,
+              "help": "Observe a same-Team agent tab and wake on prompt or status changes",
+              "aliases": []
+            },
+            {
               "name": "paused",
               "positional": false,
               "required": false,
@@ -13014,7 +13024,7 @@
             {
               "name": "probe",
               "positional": false,
-              "required": true,
+              "required": false,
               "value_name": "PROBE",
               "possible_values": [],
               "default": null,
@@ -13065,6 +13075,24 @@
           "subcommands": []
         },
         {
+          "name": "history",
+          "about": "Show immutable definition versions",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "list",
           "about": "List sentinels scoped to the calling tab and its Team",
           "aliases": [],
@@ -13094,6 +13122,54 @@
           "about": "Stop one sentinel",
           "aliases": [],
           "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "update",
+          "about": "Replace one definition at the expected version",
+          "aliases": [],
+          "args": [
+            {
+              "name": "cause",
+              "positional": false,
+              "required": false,
+              "value_name": "CAUSE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "expect-version",
+              "positional": false,
+              "required": true,
+              "value_name": "EXPECT_VERSION",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "from-file",
+              "positional": false,
+              "required": true,
+              "value_name": "FROM_FILE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
             {
               "name": "id",
               "positional": true,

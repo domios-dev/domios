@@ -15,9 +15,24 @@ pub use records::{
     MAX_DESK_LAYOUT_NODES, MAX_DESK_LEAF_BYTES, MAX_DESK_TABS, MAX_DESK_TEAMS, MAX_DESK_WORKSPACES,
 };
 
+use crate::error::StorageError;
 use crate::owner::Storage;
+use crate::owner::WriteCx;
 use crate::repositories::workspaces::WorkspaceRecord;
 use crate::repositories::{Committed, Completion, Read, Revision};
+use rusqlite::Connection;
+
+pub(crate) fn write_import(
+    cx: &mut WriteCx<'_>,
+    snapshot: DeskSnapshot,
+) -> Result<(), StorageError> {
+    snapshot.validate()?;
+    mutations::import(cx, snapshot)
+}
+
+pub(crate) fn import_projection(conn: &Connection) -> Result<DeskSnapshot, StorageError> {
+    queries::load(conn).map(|state| state.snapshot)
+}
 
 impl Storage {
     pub fn desk(&self) -> DeskRepository {

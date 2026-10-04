@@ -96,6 +96,10 @@ impl EventTransport {
 
     fn connect_submit_cycle(&self, pty_id: &str) {
         let claim = claim_submit_cycle(pty_id);
+        self.connect_submit_cycle_claim(claim);
+    }
+
+    fn connect_submit_cycle_claim(&self, claim: SubmitCycleClaim) {
         let (sender, receiver) = mpsc::sync_channel(1);
         claim.cycle.install_waiter(claim.generation, sender);
         *self.cycle_events.lock().unwrap() = Some((claim, receiver));
@@ -232,6 +236,14 @@ impl SubmitTransport for EventTransport {
         state.turn_generation += 1;
         state.exact_turn_seen = true;
         Ok(())
+    }
+
+    fn retry_active(&self) -> bool {
+        self.cycle_events
+            .lock()
+            .unwrap()
+            .as_ref()
+            .is_none_or(|(claim, _)| claim.is_current())
     }
 }
 
@@ -492,55 +504,82 @@ fn start_claimed_send(
         if let Some(started_tx) = started_tx {
             let _ = started_tx.send(());
         }
-        claim.wait_until_active(Instant::now() + Duration::from_secs(2));
+        let _ = claim.is_current();
         let result = run_with_readiness_guard(&transport, text);
         drop(claim);
         result
     })
 }
 
+fn start_claimed_send_with_recovery_window(
+    claim: SubmitCycleClaim,
+    transport: Arc<EventTransport>,
+    text: &'static str,
+) -> std::thread::JoinHandle<Result<InjectionResult, InjectionError>> {
+    std::thread::spawn(move || {
+        let mut options = opts();
+        options.submit_timeout = Duration::from_secs(2);
+        let result = run_with_submit_key_and_follow_up(
+            transport.as_ref(),
+            text,
+            true,
+            b"\r",
+            None,
+            VerifySubmitStrategy::TuiInputDrained {
+                initial_key_delay: Duration::ZERO,
+                retry_offsets: [Duration::from_secs(1); 6],
+            },
+            options,
+            |_initial_key, turn_was_started| {
+                let state = transport.state.lock().unwrap();
+                if state.dialog {
+                    return Err(InjectionError::AgentTuiPresent { pty_id: "test-pty".into() });
+                }
+                if !submit_key_readiness(turn_was_started, state.turn_started, state.composer_ready) {
+                    return Err(InjectionError::AgentInputUnavailable { pty_id: "test-pty".into() });
+                }
+                Ok(())
+            },
+        );
+        drop(claim);
+        result
+    })
+}
+
 #[test]
-fn a_second_message_waits_for_the_open_cycle_and_keeps_its_own_turn() {
+fn a_new_send_cancels_remaining_keys_and_writes_while_the_prior_cycle_is_open() {
     let pty_id = "two-messages-one-pty-cycle";
     let first_claim = claim_submit_cycle(pty_id);
-    let second_claim = claim_submit_cycle(pty_id);
     assert!(first_claim.is_current());
-    assert!(!second_claim.is_current());
 
-    let (first, first_paste_rx, first_deferred_rx, _) =
-        EventTransport::new(false, MAX_SUBMIT_KEY_WRITES);
-    let (second, second_paste_rx, _, _) = EventTransport::new(false, 0);
-    let first_send = start_claimed_send(first_claim, Arc::clone(&first), "first", None);
+    let (first, first_paste_rx, _, first_wait_rx) =
+        EventTransport::new(true, MAX_SUBMIT_KEY_WRITES);
+    first.state.lock().unwrap().composer_ready = true;
+    first.connect_submit_cycle_claim(first_claim.clone());
+    let (second, second_paste_rx, _, _) = EventTransport::new(true, 0);
+    second.state.lock().unwrap().composer_ready = true;
+    let first_send = start_claimed_send_with_recovery_window(
+        first_claim.clone(), Arc::clone(&first), "first",
+    );
     first_paste_rx
         .recv_timeout(Duration::from_secs(2))
         .expect("first payload is written once");
-
-    let (second_started_tx, second_started_rx) = mpsc::channel();
-    let second_send = start_claimed_send(
-        second_claim,
-        Arc::clone(&second),
-        "second",
-        Some(second_started_tx),
-    );
-    second_started_rx
+    first_wait_rx
         .recv_timeout(Duration::from_secs(2))
-        .expect("the second send is waiting for the active PTY cycle");
-    assert!(second_paste_rx.try_recv().is_err());
-    first_deferred_rx
+        .expect("the first cycle reaches its remaining-key wait");
+    let second_claim = claim_submit_cycle(pty_id);
+    assert!(!first_claim.is_current());
+    assert!(second_claim.is_current());
+    second.connect_submit_cycle_claim(second_claim.clone());
+    let second_send = start_claimed_send(second_claim, Arc::clone(&second), "second", None);
+    second_paste_rx
         .recv_timeout(Duration::from_secs(2))
-        .expect("the first send exhausts its bounded schedule");
-    first.state.lock().unwrap().composer_ready = true;
-    first.signal();
-
-    assert!(
-        join(first_send, "first active cycle send")
-            .unwrap()
-            .unwrap()
-            .submit_observed
-    );
+        .expect("the second payload writes without waiting for the first cycle");
+    let first_result = join(first_send, "cancelled prior cycle send").unwrap().unwrap();
+    assert!(!first_result.submit_observed);
     {
         let state = first.state.lock().unwrap();
-        assert_eq!(state.turn_generation, 1);
+        assert_eq!(state.turn_generation, 0);
         assert_eq!(
             state
                 .writes
@@ -549,10 +588,11 @@ fn a_second_message_waits_for_the_open_cycle_and_keeps_its_own_turn() {
                 .count(),
             1
         );
+        assert_eq!(
+            state.writes.iter().filter(|write| write.as_str() == "enter").count(),
+            1,
+        );
     }
-    second_paste_rx
-        .recv_timeout(Duration::from_secs(2))
-        .expect("second payload starts only after the first cycle finishes");
     assert!(
         join(second_send, "second active cycle send")
             .unwrap()
