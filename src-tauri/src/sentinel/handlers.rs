@@ -545,13 +545,4 @@ impl Store {
         Staged::ready(Ok(()))
     }
 
-    #[cfg(test)]
-    pub fn skip_remaining(
-        &mut self,
-        source: &str,
-        transition_id: &str,
-        handlers: &[Handler],
-    ) -> Result<(), String> {
-        self.locked(|store| store.stage_skip_remaining(source, transition_id, handlers))
-    }
 }
