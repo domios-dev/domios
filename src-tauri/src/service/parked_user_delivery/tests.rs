@@ -622,7 +622,7 @@ fn production_preparation_archives_exact_owned_body_and_preserves_it_after_pad_r
     let record = reopened.records(&tab).unwrap().remove(0);
     assert_eq!(reopened.original(&tab, &result.status.send_id).unwrap(), FIRST_PAYLOAD);
     assert_eq!(std::fs::read(reopened.body_path(&record).unwrap().unwrap()).unwrap(), FIRST_PAYLOAD.as_bytes());
-    assert!(reopened.prepared(&record).unwrap().ends_with(codeterm_paths::strip_verbatim_prefix(body_path.to_str().unwrap())));
+    assert!(reopened.prepared(&record).unwrap().ends_with(&codeterm_paths::strip_verbatim_prefix(body_path.to_str().unwrap())));
 }
 
 #[test]
