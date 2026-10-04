@@ -36,8 +36,10 @@ incidents. Automatic reminders need a connected Supporter's approving choice;
 hard incidents are observation input and never force a wake. The expectation is
 derived from that policy and the snapshot identity, not from the gate's verdict:
 the `no-model` arm wakes no tick, and the `fixture` arm (an approving fixture)
-wakes once for each tick whose observation differs from the previous tick and
-never for an unchanged one. A miss is an approved new observation that did not
+wakes once for each tick whose observation differs from the last decided one
+and never for an unchanged one. A tick with an empty delta, the same plan
+projection, worker health and learnings, and no new hard event is unchanged:
+an accepted reminder only moved its baseline. A miss is an approved new observation that did not
 wake. These counts are **not measured savings**, and this replay does not prove
 historical signal capture, incident onset timing or model judgment quality.
 Denial, uncertainty and identical-snapshot suppression are covered by the

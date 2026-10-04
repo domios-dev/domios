@@ -212,6 +212,15 @@ impl Snapshot {
         crate::service::supporter::criteria_hash(&serde_json::to_vec(&state).unwrap_or_default())
     }
 
+    /// Absolute state without the delivery-relative delta and hard events.
+    fn state_hash(&self) -> String {
+        let health: Vec<_> = self.workers.iter().map(Worker::health).collect();
+        let state = json!({ "plan": self.plan_id, "projection": self.projection,
+            "health": health, "learnings": self.learnings, "scope": self.scope,
+            "truncated": self.truncated });
+        crate::service::supporter::criteria_hash(&serde_json::to_vec(&state).unwrap_or_default())
+    }
+
     fn healthy_and_unchanged(&self) -> bool {
         self.hard.is_empty()
             && self.delta.is_empty()
