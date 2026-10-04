@@ -104,6 +104,7 @@ impl Store {
         Self {
             jobs,
             active: HashMap::new(),
+            wake_pending: BTreeSet::new(),
             backend: Backend::Json(file),
             clock,
             unavailable,
@@ -363,7 +364,12 @@ impl Store {
 
     /// Adopts post-commit aggregates newer than the cache, then emits scoped invalidations.
     fn publish(&mut self, committed: &Committed<SentinelCommit>) -> Result<(), String> {
-        let Store { jobs, backend, .. } = self;
+        let Store {
+            jobs,
+            backend,
+            wake_pending,
+            ..
+        } = self;
         let Backend::Sqlite(backend) = backend else {
             return Err(GUARD_FREE_REQUIRED.into());
         };
@@ -376,6 +382,7 @@ impl Store {
                 let job = jobs.remove(position);
                 scopes.insert((job.workspace_id, job.team_id));
             }
+            wake_pending.remove(id);
         }
         for stored in &committed.value.sentinels {
             let id = stored.record.identity.id.as_str();
@@ -409,6 +416,13 @@ impl Store {
                         .unwrap_or(jobs.len());
                     jobs.insert(position, job);
                 }
+            }
+            if jobs
+                .iter()
+                .find(|current| current.id == id)
+                .is_none_or(|current| current.machine.stopped || current.machine.paused)
+            {
+                wake_pending.remove(id);
             }
             backend.known.insert(
                 id.to_string(),
@@ -487,6 +501,7 @@ impl Store {
         let mut store = Store {
             jobs: Vec::new(),
             active: HashMap::new(),
+            wake_pending: BTreeSet::new(),
             backend: Backend::Sqlite(SqliteBackend {
                 repo,
                 known: HashMap::new(),

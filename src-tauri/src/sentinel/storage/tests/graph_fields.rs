@@ -324,7 +324,7 @@ fn sentinel_schema_v4_unexecutable_kinds_are_refused_at_creation_on_both_backend
 
     let mut observed = base.clone();
     observed.probe.clear();
-    observed.observe = Some(TabBinding::Tab("agent-tab".into()));
+    observed.observe = Some(TabBinding::CronRun("cron-check".into()));
     let mut answering = observed.clone();
     answering.routes.insert(
         "done".into(),
