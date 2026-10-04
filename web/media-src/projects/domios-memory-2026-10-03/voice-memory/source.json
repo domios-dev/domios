@@ -1,0 +1,11 @@
+{
+  "text": "Every agent on this machine shares one memory. Facts, decisions, and skills stay with Domios, so the next agent can pick up where you left off.",
+  "voice": "Chris - Charming, Down-to-Earth",
+  "voiceId": "iP95p4xoKVk53GoZ742B",
+  "model": "eleven_multilingual_v2",
+  "duration": 9.012245,
+  "sha256": "a102507ed26573d9a5eb93e5df28c4762cb310f0379ceb91b2f169d02d250cc0",
+  "characters": 143,
+  "requests": 1,
+  "alignmentSha256": "d918f452bc3389409da11a7bcd34cdc55d7a20b6d97c23ef1fae7972774da7e3"
+}

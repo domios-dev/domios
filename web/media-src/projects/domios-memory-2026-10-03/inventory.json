@@ -1,0 +1,912 @@
+{
+  "schemaVersion": 1,
+  "duration": 54.333333333333336,
+  "fps": 30,
+  "cues": 14,
+  "sourceCommit": "fde01c873",
+  "files": [
+    {
+      "path": "prepared/alignment.json",
+      "bytes": 32733,
+      "sha256": "52f161edc9f780a28e02a133f7dea63edc6cad1d03fc68b64ea558ba174de96f",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-extension-3\\alignment.json"
+    },
+    {
+      "path": "prepared/computer-finale.png",
+      "bytes": 153917,
+      "sha256": "68172a3fae4dc40ba94ef19bffde3d72689f21d01c7c969d0863032c85bd28a2",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-extension-3\\computer-finale.png"
+    },
+    {
+      "path": "prepared/memory-decoded.wav",
+      "bytes": 1720972,
+      "sha256": "7c04870133fdd5a0cf1bdcced54ece469628be07b838c76802370bfe0326b4cf",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-extension-3\\memory-decoded.wav"
+    },
+    {
+      "path": "prepared/music-extension.json",
+      "bytes": 654,
+      "sha256": "4b7ee47a5695cf875a12fc28147fa99016d9dda58204c7fdcb5374f7660bba86",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-extension-3\\music-extension.json"
+    },
+    {
+      "path": "prepared/narration-extended.wav",
+      "bytes": 9861444,
+      "sha256": "80b6b8b8cbb214a30381fca1e02c16094494d11df69274eb2437f81e7fe82e8b",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-extension-3\\narration-extended.wav"
+    },
+    {
+      "path": "prepared/original-decoded.wav",
+      "bytes": 8069492,
+      "sha256": "35bfbeffcf939d2dcc488fdd0f78b3d7bd06d3a4e56e20ebb484b4c487cd410c",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-extension-3\\original-decoded.wav"
+    },
+    {
+      "path": "prepared/picture-extension.json",
+      "bytes": 1279,
+      "sha256": "d2d1abc9afd97463f6cbc3a6b94960336564e5b0b291948898680f5670ad48db",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-extension-3\\picture-extension.json"
+    },
+    {
+      "path": "prepared/prepared-music.wav",
+      "bytes": 10432044,
+      "sha256": "612898c1f54071fcb5073a159b76024e0d400d2d7337298a22309d81680f38ac",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-extension-3\\prepared-music.wav"
+    },
+    {
+      "path": "prepared/provenance.json",
+      "bytes": 2241,
+      "sha256": "c27c6a1197372756ad7118fe10ec8c28fd182710c83735ade981728b674dbd67",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-extension-3\\provenance.json"
+    },
+    {
+      "path": "prepared/timing.json",
+      "bytes": 32138,
+      "sha256": "360d76a8ef6b49f475e1391e07e0ee0de0b2eee9a016931a2cb5a24db628d1f3",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-extension-3\\timing.json"
+    },
+    {
+      "path": "prepared/voice-assembly.json",
+      "bytes": 1075,
+      "sha256": "32368618e18b4b11b41300361e283207bd821c6c2a7bd658280f61d6f2838b1d",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-extension-3\\voice-assembly.json"
+    },
+    {
+      "path": "picture/agents-poster.webp",
+      "bytes": 5858,
+      "sha256": "852e544edd31f3410717c66075d91325bc0107a32157e5baee5086b979f9ca8c",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\silent\\agents-poster.webp"
+    },
+    {
+      "path": "picture/board-poster.webp",
+      "bytes": 21952,
+      "sha256": "5983cd98f4adbef60600a0749e4c3b5fc99ba64b8d5cff8de15dd325e80d4277",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\silent\\board-poster.webp"
+    },
+    {
+      "path": "picture/captions.json",
+      "bytes": 1873,
+      "sha256": "e949633a6c71f3c5be591ce9711e2f32df693b3bd2f3e4dd2a2efcf7d4e13894",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\silent\\captions.json"
+    },
+    {
+      "path": "picture/captions.vtt",
+      "bytes": 1166,
+      "sha256": "a0943a4fa7e2baf97b589c6098b1d65b01db097d4b3a223b4c71bb89b46408e0",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\silent\\captions.vtt"
+    },
+    {
+      "path": "picture/manifest.json",
+      "bytes": 962,
+      "sha256": "582437f237196448a1c741de994575d4482950849e14d447d2439968589c185f",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\silent\\manifest.json"
+    },
+    {
+      "path": "picture/mesh-poster.webp",
+      "bytes": 6926,
+      "sha256": "fd1cf0d7c8a8f4f2833332e4e1ec81ac162d2b53c95a36da4d5c9a245170d839",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\silent\\mesh-poster.webp"
+    },
+    {
+      "path": "picture/plugins-poster.webp",
+      "bytes": 8234,
+      "sha256": "6931ac80ad0a3f47051dd69c8e1e4ec1ce625c96a6eba070d54b23baece24dab",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\silent\\plugins-poster.webp"
+    },
+    {
+      "path": "picture/trailer-poster.webp",
+      "bytes": 25502,
+      "sha256": "857ba413cfb574b2064ba2c86b91fef31e3af6e4c2473f5cd0bc9a982e306a4e",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\silent\\trailer-poster.webp"
+    },
+    {
+      "path": "picture/trailer.mp4",
+      "bytes": 2799830,
+      "sha256": "49b03f514c52a62aac9c334d9e309700be6fd7d0b3d32c14dfb0eda6ca3a4f07",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\silent\\trailer.mp4"
+    },
+    {
+      "path": "picture/trailer.webm",
+      "bytes": 3137253,
+      "sha256": "6df82c01cba3f3abf32b42a5858f3e116be1754bc883549b3101bc9ac3209e7d",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\silent\\trailer.webm"
+    },
+    {
+      "path": "picture/transcript.json",
+      "bytes": 1873,
+      "sha256": "e949633a6c71f3c5be591ce9711e2f32df693b3bd2f3e4dd2a2efcf7d4e13894",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\silent\\transcript.json"
+    },
+    {
+      "path": "stems/music-final-stem.wav",
+      "bytes": 10432092,
+      "sha256": "eeaa8345916c402c129ab9decbd5408510d9d1764f527ea6fe7697260d254951",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\sound-proof\\music-final-stem.wav"
+    },
+    {
+      "path": "stems/music-post-duck.wav",
+      "bytes": 10432092,
+      "sha256": "a0cc63974bf32363d88c46cef14a7807f27655b4b94d130603afdbf2b30668b9",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\sound-proof\\music-post-duck.wav"
+    },
+    {
+      "path": "stems/narration-aligned.wav",
+      "bytes": 5216078,
+      "sha256": "0a59843e68e8dcfb285be07624bc7c77ce31c555c04315c4b1f51f5244459cb6",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\sound-proof\\narration-aligned.wav"
+    },
+    {
+      "path": "stems/narration-alignment.json",
+      "bytes": 42655,
+      "sha256": "fdd64a0e45e3aacef0d5ee95cdcae9fd3afb957abf0b969c86df8066ee50080d",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\sound-proof\\narration-alignment.json"
+    },
+    {
+      "path": "stems/narration-mastered.wav",
+      "bytes": 5216078,
+      "sha256": "ed89a9f8c05d1c6f702661d46eef0be61248879208b191abdf9a28adbd21fdc1",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\sound-proof\\narration-mastered.wav"
+    },
+    {
+      "path": "stems/soundtrack-balance.json",
+      "bytes": 10049,
+      "sha256": "dea49775bde7da53752d47a0f04334c0bcc736d1a462929f4381123e76bb95ef",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\sound-proof\\soundtrack-balance.json"
+    },
+    {
+      "path": "stems/soundtrack-unmastered.wav",
+      "bytes": 10432092,
+      "sha256": "b3355cf6710562103bb60af7521efe076386f2200505d4ec895b2d6f5f343f97",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\sound-proof\\soundtrack-unmastered.wav"
+    },
+    {
+      "path": "stems/soundtrack.wav",
+      "bytes": 5216078,
+      "sha256": "a3d6b170760cc4fbbe706f3a49a783d483525077e28b0516e4c33de0d3b9393b",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\sound-proof\\soundtrack.wav"
+    },
+    {
+      "path": "stems/voice-final-stem.wav",
+      "bytes": 10432092,
+      "sha256": "5e614dfd803207d8f405c2a488da341c9570a37e13c27da11b4d5d6029a34ce5",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\sound-proof\\voice-final-stem.wav"
+    },
+    {
+      "path": "stems/voice-post-duck.wav",
+      "bytes": 10432092,
+      "sha256": "72e6a18f4c1354a52fdd4270f1759644781e60c0fb96dbe57ce81e8f5aea94ad",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-film-1\\sound-proof\\voice-post-duck.wav"
+    },
+    {
+      "path": "selected/agents-poster.webp",
+      "bytes": 5858,
+      "sha256": "852e544edd31f3410717c66075d91325bc0107a32157e5baee5086b979f9ca8c",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narrated\\agents-poster.webp"
+    },
+    {
+      "path": "selected/board-poster.webp",
+      "bytes": 21952,
+      "sha256": "5983cd98f4adbef60600a0749e4c3b5fc99ba64b8d5cff8de15dd325e80d4277",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narrated\\board-poster.webp"
+    },
+    {
+      "path": "selected/captions.json",
+      "bytes": 1873,
+      "sha256": "e949633a6c71f3c5be591ce9711e2f32df693b3bd2f3e4dd2a2efcf7d4e13894",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narrated\\captions.json"
+    },
+    {
+      "path": "selected/captions.vtt",
+      "bytes": 1166,
+      "sha256": "a0943a4fa7e2baf97b589c6098b1d65b01db097d4b3a223b4c71bb89b46408e0",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narrated\\captions.vtt"
+    },
+    {
+      "path": "selected/credits.json",
+      "bytes": 359,
+      "sha256": "f3566e12e34be275863859f3ffa810f6be1ed9817dfdd5d6b36dc237042d4dcc",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narrated\\credits.json"
+    },
+    {
+      "path": "selected/credits.txt",
+      "bytes": 139,
+      "sha256": "7174ff14d29865e278e8907605a43568c0666ce95b8b245effaf18e45feadf0e",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narrated\\credits.txt"
+    },
+    {
+      "path": "selected/manifest.json",
+      "bytes": 1445,
+      "sha256": "245af81a0527edd3acaefadb40445675cb5bce182086434f9a3870673b660a2a",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narrated\\manifest.json"
+    },
+    {
+      "path": "selected/mesh-poster.webp",
+      "bytes": 6926,
+      "sha256": "fd1cf0d7c8a8f4f2833332e4e1ec81ac162d2b53c95a36da4d5c9a245170d839",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narrated\\mesh-poster.webp"
+    },
+    {
+      "path": "selected/plugins-poster.webp",
+      "bytes": 8234,
+      "sha256": "6931ac80ad0a3f47051dd69c8e1e4ec1ce625c96a6eba070d54b23baece24dab",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narrated\\plugins-poster.webp"
+    },
+    {
+      "path": "selected/trailer-poster.webp",
+      "bytes": 25502,
+      "sha256": "857ba413cfb574b2064ba2c86b91fef31e3af6e4c2473f5cd0bc9a982e306a4e",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narrated\\trailer-poster.webp"
+    },
+    {
+      "path": "selected/trailer.mp4",
+      "bytes": 3278874,
+      "sha256": "88229a76f049d333a8b747676f07205aac405126a7f7554a49eef7a6cbdb3876",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narrated\\trailer.mp4"
+    },
+    {
+      "path": "selected/trailer.webm",
+      "bytes": 3514033,
+      "sha256": "db1f9caf03ad935c6b2428a5c4b994b7a7b5faeae80256f3356ff6c8ff3cbfe7",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narrated\\trailer.webm"
+    },
+    {
+      "path": "selected/transcript.json",
+      "bytes": 1873,
+      "sha256": "e949633a6c71f3c5be591ce9711e2f32df693b3bd2f3e4dd2a2efcf7d4e13894",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narrated\\transcript.json"
+    },
+    {
+      "path": "baseline-picture/agents-poster.webp",
+      "bytes": 5858,
+      "sha256": "852e544edd31f3410717c66075d91325bc0107a32157e5baee5086b979f9ca8c",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\owner-memory-full-1\\silent\\agents-poster.webp"
+    },
+    {
+      "path": "baseline-picture/board-poster.webp",
+      "bytes": 21952,
+      "sha256": "5983cd98f4adbef60600a0749e4c3b5fc99ba64b8d5cff8de15dd325e80d4277",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\owner-memory-full-1\\silent\\board-poster.webp"
+    },
+    {
+      "path": "baseline-picture/captions.json",
+      "bytes": 1607,
+      "sha256": "86eae70ae0490a1bd1aa501067fdc7e5a1a11685c31e4d8e9114aa77c23bc6b2",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\owner-memory-full-1\\silent\\captions.json"
+    },
+    {
+      "path": "baseline-picture/captions.vtt",
+      "bytes": 988,
+      "sha256": "9fac404f8304ca143cdb7997fc7d39c9815b48563185a641e3f1a17f819f1ff2",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\owner-memory-full-1\\silent\\captions.vtt"
+    },
+    {
+      "path": "baseline-picture/manifest.json",
+      "bytes": 1833,
+      "sha256": "9e67f645c32d8f0497e720cb428a4ee7e31e40e248f96a7aa248f9cd4a56e3c1",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\owner-memory-full-1\\silent\\manifest.json"
+    },
+    {
+      "path": "baseline-picture/mesh-poster.webp",
+      "bytes": 6926,
+      "sha256": "fd1cf0d7c8a8f4f2833332e4e1ec81ac162d2b53c95a36da4d5c9a245170d839",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\owner-memory-full-1\\silent\\mesh-poster.webp"
+    },
+    {
+      "path": "baseline-picture/plugins-poster.webp",
+      "bytes": 8234,
+      "sha256": "6931ac80ad0a3f47051dd69c8e1e4ec1ce625c96a6eba070d54b23baece24dab",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\owner-memory-full-1\\silent\\plugins-poster.webp"
+    },
+    {
+      "path": "baseline-picture/trailer-poster.webp",
+      "bytes": 25502,
+      "sha256": "857ba413cfb574b2064ba2c86b91fef31e3af6e4c2473f5cd0bc9a982e306a4e",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\owner-memory-full-1\\silent\\trailer-poster.webp"
+    },
+    {
+      "path": "baseline-picture/trailer.mp4",
+      "bytes": 2768401,
+      "sha256": "e29e6c9fb4e9d1c7b36cd055cade06b9601fa8eefe4340357e090c8f6a4fdc87",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\owner-memory-full-1\\silent\\trailer.mp4"
+    },
+    {
+      "path": "baseline-picture/trailer.webm",
+      "bytes": 2865967,
+      "sha256": "1ad88b4bdbbe01f3e6b0ad500df106a11b54f7705bbe95c644a9905bd9b7e31f",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\owner-memory-full-1\\silent\\trailer.webm"
+    },
+    {
+      "path": "baseline-picture/transcript.json",
+      "bytes": 1607,
+      "sha256": "86eae70ae0490a1bd1aa501067fdc7e5a1a11685c31e4d8e9114aa77c23bc6b2",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\owner-memory-full-1\\silent\\transcript.json"
+    },
+    {
+      "path": "brand/brand-frames.json",
+      "bytes": 29367,
+      "sha256": "71fe615327f40eb77cd3bce8a876a8eff97fb188d865a540eca8f3ce42392e86",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\brand-frames.json"
+    },
+    {
+      "path": "brand/frame-0000.png",
+      "bytes": 3488,
+      "sha256": "318e2c6f42f422a910aa4394f915786a50a149ffac37bb80ec57b99f99231fec",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0000.png"
+    },
+    {
+      "path": "brand/frame-0001.png",
+      "bytes": 4006,
+      "sha256": "568a6ee9264fe2b718d5937b8ad480a2083515e383ed81b6ef90a7302bc5e9d1",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0001.png"
+    },
+    {
+      "path": "brand/frame-0002.png",
+      "bytes": 4017,
+      "sha256": "f51e5910bd7b22a67d3c18db6fc4cccc9067a658439944b3538e7d9846f9a930",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0002.png"
+    },
+    {
+      "path": "brand/frame-0003.png",
+      "bytes": 4065,
+      "sha256": "6a43bc6fdece8c7d1a4ebc4a89bd91d7722386d5a7dc4b2a61900fa9e760a657",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0003.png"
+    },
+    {
+      "path": "brand/frame-0004.png",
+      "bytes": 4059,
+      "sha256": "f12e0c9a2b82334b974852cff2a0bad915e2dad8636a0f9ad62916564d03c5a3",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0004.png"
+    },
+    {
+      "path": "brand/frame-0005.png",
+      "bytes": 4056,
+      "sha256": "03774a72f8bcc0745a37ca6a0d9d47e4964520c792064b0192a74416c807b4d5",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0005.png"
+    },
+    {
+      "path": "brand/frame-0006.png",
+      "bytes": 4022,
+      "sha256": "e0bd1e10659fd792484a69cae6db7094e66bb946a39378e9d227f25ec6d6a77e",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0006.png"
+    },
+    {
+      "path": "brand/frame-0007.png",
+      "bytes": 3965,
+      "sha256": "39242d5a20ce1f856b4a9d8e536b64741ca1c78af5a687361aac4dbdd552ce6c",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0007.png"
+    },
+    {
+      "path": "brand/frame-0008.png",
+      "bytes": 3866,
+      "sha256": "fb053e6922261e7d33b67ea70001287e3a822dfb143b20b7d96dc1385095613b",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0008.png"
+    },
+    {
+      "path": "brand/frame-0009.png",
+      "bytes": 3795,
+      "sha256": "8d70769fa5a8eba7045ee2593dbf46097240edfbe4258825527333cf43a597e4",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0009.png"
+    },
+    {
+      "path": "brand/frame-0010.png",
+      "bytes": 3838,
+      "sha256": "25141664229f3f2eefb7eddbe114a0b05b538850d2dd2701593ba717229f96f3",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0010.png"
+    },
+    {
+      "path": "brand/frame-0011.png",
+      "bytes": 3943,
+      "sha256": "976803f045019fc38edc7e7d6c33106313974ec35151fd6fe75e78ac0068d947",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0011.png"
+    },
+    {
+      "path": "brand/frame-0012.png",
+      "bytes": 4097,
+      "sha256": "17641ac7b5ecc0dff0acdefbb90287d0ac04d14da0b7a2afbbba980a05f17212",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0012.png"
+    },
+    {
+      "path": "brand/frame-0013.png",
+      "bytes": 3877,
+      "sha256": "ef6d0c0b8261de737443ff0aecb541acb80ac425f6db1866ccc5af0078f2af91",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0013.png"
+    },
+    {
+      "path": "brand/frame-0014.png",
+      "bytes": 4029,
+      "sha256": "bf82e6f5a5031a786afbee9dd19937499590f42dd12b96235e9c45baf39b71e7",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0014.png"
+    },
+    {
+      "path": "brand/frame-0015.png",
+      "bytes": 3824,
+      "sha256": "e32baf06544ce70b4bcaab8af0c044a34d479f753b6bd0f7cd60bb6f8baefd57",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0015.png"
+    },
+    {
+      "path": "brand/frame-0016.png",
+      "bytes": 3848,
+      "sha256": "e89b7c84ed7ed1360b35a15c8af88e312cf4dd87bd8d5538fdc1bdf479646f0f",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0016.png"
+    },
+    {
+      "path": "brand/frame-0017.png",
+      "bytes": 3545,
+      "sha256": "23b7b66b2356677ff717ff821693b107e91030a491503af12bd7a8ce4650185f",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0017.png"
+    },
+    {
+      "path": "brand/frame-0018.png",
+      "bytes": 3598,
+      "sha256": "564bdd83f25a84f7ffb564037e227ee0c008eefc4e144b964510c49d3c41c09b",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0018.png"
+    },
+    {
+      "path": "brand/frame-0019.png",
+      "bytes": 3862,
+      "sha256": "fd1f0ed7a85b2d7fc61af779c2dbc8d0e76863005df8f85a7d1bc9e8a40fdfb4",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0019.png"
+    },
+    {
+      "path": "brand/frame-0020.png",
+      "bytes": 3951,
+      "sha256": "ec280de7c0eddd4ce9032a2da2ae403d8a19007177c12b56581a742e683f1fe3",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0020.png"
+    },
+    {
+      "path": "brand/frame-0021.png",
+      "bytes": 3885,
+      "sha256": "09436681d470e2accf58d29e901589e21bfe11f9a53bf8af3daa111957a9ebf6",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0021.png"
+    },
+    {
+      "path": "brand/frame-0022.png",
+      "bytes": 3807,
+      "sha256": "a0dfc4c0dba4a1a5324ae38c481182bf277db1699ccccd63e87c184505672c43",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0022.png"
+    },
+    {
+      "path": "brand/frame-0023.png",
+      "bytes": 3686,
+      "sha256": "c9b1bebade1d1f6e52500183e1cede2eb4e65939f001e9ed45415d338fbe30fb",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0023.png"
+    },
+    {
+      "path": "brand/frame-0024.png",
+      "bytes": 3730,
+      "sha256": "bad020451121d69e3332c1ff0dee6b5c0c600167f01427e76043c18fa83224df",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0024.png"
+    },
+    {
+      "path": "brand/frame-0025.png",
+      "bytes": 3582,
+      "sha256": "af27f067948da6a04a78d9f9b390682c482932884ccf3af93652a055123603ca",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0025.png"
+    },
+    {
+      "path": "brand/frame-0026.png",
+      "bytes": 3453,
+      "sha256": "959439f21915aad49b9cd374850bc71f05c2491dc89b9094a65c2e578c28cd53",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0026.png"
+    },
+    {
+      "path": "brand/frame-0027.png",
+      "bytes": 3310,
+      "sha256": "125474a55d172bb0416df4c9da6da76ff51f0718833e6e03e0c9f7f41b77ae0d",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0027.png"
+    },
+    {
+      "path": "brand/frame-0028.png",
+      "bytes": 3480,
+      "sha256": "49c135dc41e501233993e3a66558e5e43f2bebb874124fabdba5fa1e466d9649",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0028.png"
+    },
+    {
+      "path": "brand/frame-0029.png",
+      "bytes": 3464,
+      "sha256": "61551b7d2820f54f765e1281a9ce8b6a075ade821d031d3e0511c63f875fe369",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0029.png"
+    },
+    {
+      "path": "brand/frame-0030.png",
+      "bytes": 3409,
+      "sha256": "ded8d09e716c2715894559580b06bf8f02abcbe2c84f2b6ce1f33ac06f94ba8b",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0030.png"
+    },
+    {
+      "path": "brand/frame-0031.png",
+      "bytes": 3460,
+      "sha256": "6ba476a8e2065d529cfe08ec3843b70bedd84528493cb535707e140113f3a688",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0031.png"
+    },
+    {
+      "path": "brand/frame-0032.png",
+      "bytes": 3442,
+      "sha256": "39dcc9712ddcd036c0b4c8aacfc42b83b37dcd8510d124fdd02688fed7c21416",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0032.png"
+    },
+    {
+      "path": "brand/frame-0033.png",
+      "bytes": 3405,
+      "sha256": "521dfb291d23e4222ffb19da0214c449fe82130287aa2d7854213f16b55f6db3",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0033.png"
+    },
+    {
+      "path": "brand/frame-0034.png",
+      "bytes": 3525,
+      "sha256": "95db81ea28bd2cdb595c5e4d5f3e77782397155022ec7bbf0cc08eae49b1fd5e",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0034.png"
+    },
+    {
+      "path": "brand/frame-0035.png",
+      "bytes": 3559,
+      "sha256": "be068f262e53639beca28442feb4da9d5506a139c2c94d1826a88d5cfeb7d4c0",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0035.png"
+    },
+    {
+      "path": "brand/frame-0036.png",
+      "bytes": 3422,
+      "sha256": "1590b701672aaf14649ed429b1af85db027c42ae1110b8bfacab7421e68cef36",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0036.png"
+    },
+    {
+      "path": "brand/frame-0037.png",
+      "bytes": 3422,
+      "sha256": "1590b701672aaf14649ed429b1af85db027c42ae1110b8bfacab7421e68cef36",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0037.png"
+    },
+    {
+      "path": "brand/frame-0038.png",
+      "bytes": 3422,
+      "sha256": "1590b701672aaf14649ed429b1af85db027c42ae1110b8bfacab7421e68cef36",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0038.png"
+    },
+    {
+      "path": "brand/frame-0039.png",
+      "bytes": 3422,
+      "sha256": "1590b701672aaf14649ed429b1af85db027c42ae1110b8bfacab7421e68cef36",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0039.png"
+    },
+    {
+      "path": "brand/frame-0040.png",
+      "bytes": 3559,
+      "sha256": "be068f262e53639beca28442feb4da9d5506a139c2c94d1826a88d5cfeb7d4c0",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0040.png"
+    },
+    {
+      "path": "brand/frame-0041.png",
+      "bytes": 3559,
+      "sha256": "be068f262e53639beca28442feb4da9d5506a139c2c94d1826a88d5cfeb7d4c0",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0041.png"
+    },
+    {
+      "path": "brand/frame-0042.png",
+      "bytes": 3488,
+      "sha256": "f58b918f89dc026bbfbe637da153fd63fcaa0e63dbc6b2178188b514f493aceb",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0042.png"
+    },
+    {
+      "path": "brand/frame-0043.png",
+      "bytes": 3476,
+      "sha256": "161f4f38b5c27e87a7d7362250fb8ad8f30af98359645efde787bd24a325a08d",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0043.png"
+    },
+    {
+      "path": "brand/frame-0044.png",
+      "bytes": 3478,
+      "sha256": "e8d85c70acec58b707ec95c3d2c634928c81cadc49536eca0b911f1b978d0f12",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0044.png"
+    },
+    {
+      "path": "brand/frame-0045.png",
+      "bytes": 3525,
+      "sha256": "95db81ea28bd2cdb595c5e4d5f3e77782397155022ec7bbf0cc08eae49b1fd5e",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0045.png"
+    },
+    {
+      "path": "brand/frame-0046.png",
+      "bytes": 3525,
+      "sha256": "95db81ea28bd2cdb595c5e4d5f3e77782397155022ec7bbf0cc08eae49b1fd5e",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0046.png"
+    },
+    {
+      "path": "brand/frame-0047.png",
+      "bytes": 3525,
+      "sha256": "95db81ea28bd2cdb595c5e4d5f3e77782397155022ec7bbf0cc08eae49b1fd5e",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0047.png"
+    },
+    {
+      "path": "brand/frame-0048.png",
+      "bytes": 3461,
+      "sha256": "ccf1eb70b8af9bf90b5eb3ff85f599576fc322591909515cb381d37ae255539d",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-review-1\\brand\\frame-0048.png"
+    },
+    {
+      "path": "voice-original/narration-full.mp3",
+      "bytes": 673376,
+      "sha256": "1e3907b14cf06ba091b65880501774208f72c8acd7e381b1d4a4f34d63ff437d",
+      "originalLocation": "D:\\Developer\\codeterm\\web\\.local\\trailer-audio-source\\narration-full.mp3"
+    },
+    {
+      "path": "voice-original/alignment.json",
+      "bytes": 42715,
+      "sha256": "d809179fb01a4091af9f07c43921683da1ae86001d395d36b891ac3ad7c609d4",
+      "originalLocation": "D:\\Developer\\codeterm\\web\\.local\\trailer-audio-source\\alignment.json"
+    },
+    {
+      "path": "voice-original/narration-source.json",
+      "bytes": 2608,
+      "sha256": "0261af7434a02cbe172d9e59407e7b74a189646f042d9d3a947874ff7219232b",
+      "originalLocation": "D:\\Developer\\codeterm\\web\\.local\\trailer-audio-source\\narration-source.json"
+    },
+    {
+      "path": "voice-memory/memory.mp3",
+      "bytes": 144657,
+      "sha256": "a102507ed26573d9a5eb93e5df28c4762cb310f0379ceb91b2f169d02d250cc0",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-narration-1\\memory.mp3"
+    },
+    {
+      "path": "voice-memory/alignment.json",
+      "bytes": 10851,
+      "sha256": "d918f452bc3389409da11a7bcd34cdc55d7a20b6d97c23ef1fae7972774da7e3",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-narration-1\\alignment.json"
+    },
+    {
+      "path": "voice-memory/source.json",
+      "bytes": 510,
+      "sha256": "1a4cf74fb20ad242185d48f42aa7697358c87c7a6e814a9b249d6f6299fbcf70",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-narration-1\\source.json"
+    },
+    {
+      "path": "music-original/prepared-music.wav",
+      "bytes": 8640044,
+      "sha256": "fc6a5a97f77f5e2e152b720dbefd77aa930cd0d4e195ed4e2ec683d5cbe9be57",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\continuous-film-1\\audio\\prepared-music.wav"
+    },
+    {
+      "path": "music-original/provenance.json",
+      "bytes": 2524,
+      "sha256": "e6b809f2657a47941735c35ab8699eb34e56f9e1443f4e94a054b2366255d785",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\continuous-film-1\\audio\\provenance.json"
+    },
+    {
+      "path": "music-original/continuous-proof.json",
+      "bytes": 89471,
+      "sha256": "e63c354f239a87a8eec3b1c8daae6c9774fabd31ffc19c1a95822a4dd51c82d6",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\continuous-film-1\\audio\\continuous-proof.json"
+    },
+    {
+      "path": "music-original/grok-sound-sample.m4a",
+      "bytes": 189606,
+      "sha256": "389ef2c7fa857bfa3556122ffa754d48a2e94a3a16b808df1220533617e61612",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-script-sample\\grok-sound-sample.m4a"
+    },
+    {
+      "path": "receipts/publication-decision.md",
+      "bytes": 2293,
+      "sha256": "776eabe2429575810775b1d8fab796a6e027eba55e52301acb2ee0976396d4d8",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\publication-decision.md"
+    },
+    {
+      "path": "receipts/media.json",
+      "bytes": 868361,
+      "sha256": "c3b4ccf2ed865815695c708da6e9bbcd0418e134c677a84097cc2379a2439cd3",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\media.json"
+    },
+    {
+      "path": "receipts/narration-alignment.json",
+      "bytes": 42932,
+      "sha256": "bc9feeca5b2ce063e2310b35bbede1f2f162e481188a17dcd89ae00da92f56fb",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-spoken-ready-1\\narration-alignment.json"
+    },
+    {
+      "path": "receipts/opus-qualification.json",
+      "bytes": 47259,
+      "sha256": "22ed3b5d7e8c0ae790da6bc7bdaf4f582090a613f03c2ceafb797627b8543809",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\memory-opus-probe-1\\result.json"
+    },
+    {
+      "path": "voice-original/timing.json",
+      "bytes": 23787,
+      "sha256": "7cf3286126b446e58596064e0656602364af406afdefbfc14300551350f0829f",
+      "originalLocation": "D:\\Developer\\codeterm\\web\\.local\\trailer-phrase-review-3\\timing.json"
+    },
+    {
+      "path": "recordings/memory.mp4",
+      "bytes": 23805187,
+      "sha256": "b99f5e730a844ef2d7d69f2f5f0acb54b9be2ec212c22d220af7f729c25f4393",
+      "originalLocation": "C:\\Users\\dev\\Desktop\\memory.mp4"
+    },
+    {
+      "path": "recordings/Запись 2026-08-29 084517.mp4",
+      "bytes": 5376285,
+      "sha256": "1a3c85e7c732edda82c122922e9ba2cd5de15dc70009e6fa58aa5e7f1f2204e9",
+      "originalLocation": "C:\\Users\\dev\\Desktop\\Запись 2026-08-29 084517.mp4"
+    },
+    {
+      "path": "recordings/Запись 2026-08-29 084919.mp4",
+      "bytes": 19063209,
+      "sha256": "7f19b528fd009010364d4f85c117bd165818f1398e97bc36d267e9512603bb76",
+      "originalLocation": "C:\\Users\\dev\\Desktop\\Запись 2026-08-29 084919.mp4"
+    },
+    {
+      "path": "recordings/Запись 2026-08-29 085206.mp4",
+      "bytes": 10528037,
+      "sha256": "f4b580cc8b6eb2dcba956f6a1f4e4c60d91c26e886c33231af08555dba6b17c3",
+      "originalLocation": "C:\\Users\\dev\\Desktop\\Запись 2026-08-29 085206.mp4"
+    },
+    {
+      "path": "recordings/Запись 2026-08-29 085542.mp4",
+      "bytes": 67845818,
+      "sha256": "c003a5657ff6be368ce362fb279d07048d3d576a92aa2b0b40790753a2647e89",
+      "originalLocation": "C:\\Users\\dev\\Desktop\\Запись 2026-08-29 085542.mp4"
+    },
+    {
+      "path": "lineage/f629730a57fd-arrangement.json",
+      "bytes": 2665,
+      "sha256": "f629730a57fdb40bdf9c6c9e67d91cdd8e063ec40b1d7d0d9cf429daf394bcad",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-full-preview-2\\arrangement.json"
+    },
+    {
+      "path": "lineage/33cb0ad53e12-grok-arranged.wav",
+      "bytes": 17280092,
+      "sha256": "33cb0ad53e12804b763889a139ba877d8334085b9293cc3ff788e76a1502d411",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-full-preview-2\\grok-arranged.wav"
+    },
+    {
+      "path": "lineage/7af8db23e4e1-envelope.json",
+      "bytes": 231540,
+      "sha256": "7af8db23e4e1b69669fbf0b7ca34da867192d3c5b49f387b7bbedafa098b0b8c",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\music-continuity-scout-1\\envelope.json"
+    },
+    {
+      "path": "lineage/a6ebc9e5a264-edit-map.json",
+      "bytes": 5672,
+      "sha256": "a6ebc9e5a2641d6abeae5a8be03b226077f0c2be8c1ec4138cb58d0b2bdd7fed",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\continuous-film-1\\edit-map.json"
+    },
+    {
+      "path": "lineage/74e85f93caaa-narration-alignment.json",
+      "bytes": 36114,
+      "sha256": "74e85f93caaa155f6bd1f8e17c2bc3fa8f1378badb492bf3f8d8edf7229151e9",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-final-1\\sound-proof\\narration-alignment.json"
+    },
+    {
+      "path": "lineage/9948224e0844-voice-post-duck.wav",
+      "bytes": 8640092,
+      "sha256": "9948224e0844f85a208630ee060fde68d7250bdd8eec9061e508fd502818ba8a",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-final-1\\sound-proof\\voice-post-duck.wav"
+    },
+    {
+      "path": "lineage/bc354e3ba073-voice-final-stem.wav",
+      "bytes": 8640092,
+      "sha256": "bc354e3ba0735bc0e3e348cd6d4bf58374c65e5ae879260c00a7ebc447ee6cf1",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-final-1\\sound-proof\\voice-final-stem.wav"
+    },
+    {
+      "path": "lineage/7dd5fc6e2a80-narration-aligned.wav",
+      "bytes": 4320078,
+      "sha256": "7dd5fc6e2a805463172abbf68ae3b65644054bd8ae0b3ec18c0d4e4b61bc4a5e",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-full-preview-2\\audio-proof\\narration-aligned.wav"
+    },
+    {
+      "path": "lineage/d4ce13598b1e-soundtrack.wav",
+      "bytes": 4320044,
+      "sha256": "d4ce13598b1e9ee35eebca4f70e4bbd72da40ca8a999822ccb8098562aa37b35",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-final-1\\sound-proof\\soundtrack.wav"
+    },
+    {
+      "path": "lineage/0ad1e1601241-music-post-duck.wav",
+      "bytes": 8640044,
+      "sha256": "0ad1e16012414652fc2b2e052f1f6c4f522702d0c45966d7505b7c25a4641796",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-final-1\\sound-proof\\music-post-duck.wav"
+    },
+    {
+      "path": "lineage/be054afd0084-music-final-stem.wav",
+      "bytes": 8640044,
+      "sha256": "be054afd0084f1fa18c4933cef59f5de53e4f1523d7f9e44f648f59e45bec7ac",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-final-1\\sound-proof\\music-final-stem.wav"
+    },
+    {
+      "path": "lineage/50e2d7496426-soundtrack-unmastered.wav",
+      "bytes": 8640044,
+      "sha256": "50e2d7496426c2fe3c51d96884a8aeae4910a215b620cd5c621fac03e963acc7",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-final-1\\sound-proof\\soundtrack-unmastered.wav"
+    },
+    {
+      "path": "lineage/c48a8dba9afe-narration-alignment.json",
+      "bytes": 33066,
+      "sha256": "c48a8dba9afe88bd92bf344037f4d813cc573346226ba7c6b154a0c3a1dd8d41",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-publication-1\\narration-alignment.json"
+    },
+    {
+      "path": "lineage/0feaafc9adc7-soundtrack.wav",
+      "bytes": 4320078,
+      "sha256": "0feaafc9adc7db7f8341172e990a68f376f7f6b3d7880b99c749fb22a02f1c71",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-full-preview-2\\audio-proof\\soundtrack.wav"
+    },
+    {
+      "path": "lineage/c6161a79237a-music-final-stem.wav",
+      "bytes": 8640092,
+      "sha256": "c6161a79237a1e9b5fdd407774e762f506e86b70cac33214e7d3b3a819bc06d0",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-full-preview-2\\audio-proof\\music-final-stem.wav"
+    },
+    {
+      "path": "lineage/bc354e3ba073-voice-final-stem.wav",
+      "bytes": 8640092,
+      "sha256": "bc354e3ba0735bc0e3e348cd6d4bf58374c65e5ae879260c00a7ebc447ee6cf1",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-full-preview-2\\audio-proof\\voice-final-stem.wav"
+    },
+    {
+      "path": "lineage/1a018b9c567f-trailer.mp4",
+      "bytes": 2587243,
+      "sha256": "1a018b9c567fe24e2256c2ca1b7f8541bd059b24832dc12acc8b4fc7ea9126cb",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-final-1\\silent\\trailer.mp4"
+    },
+    {
+      "path": "lineage/b029551e945b-trailer.webm",
+      "bytes": 2623400,
+      "sha256": "b029551e945b4de55cce43fb429fe5ad281f1edae3f666ccff48503710f1b34f",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-final-1\\silent\\trailer.webm"
+    },
+    {
+      "path": "lineage/9948224e0844-voice-post-duck.wav",
+      "bytes": 8640092,
+      "sha256": "9948224e0844f85a208630ee060fde68d7250bdd8eec9061e508fd502818ba8a",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-full-preview-2\\audio-proof\\voice-post-duck.wav"
+    },
+    {
+      "path": "lineage/3a7987f93191-music-post-duck.wav",
+      "bytes": 8640092,
+      "sha256": "3a7987f93191b86932c4bdbec3b1ed8baeb5ac7d29be587674f7f3ea16f3038f",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-full-preview-2\\audio-proof\\music-post-duck.wav"
+    },
+    {
+      "path": "lineage/7bb8c26be469-soundtrack-unmastered.wav",
+      "bytes": 8640092,
+      "sha256": "7bb8c26be469006ec6b042cab463966688d90decaa2db388168b5361da1f33ec",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-full-preview-2\\audio-proof\\soundtrack-unmastered.wav"
+    },
+    {
+      "path": "lineage/5ecdbdd1ae85-narration-alignment.json",
+      "bytes": 32614,
+      "sha256": "5ecdbdd1ae8598984dd077131476cbe5661b18bf4e880ca422099ee9af5af26b",
+      "originalLocation": "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\grok-full-preview-2\\audio-proof\\narration-alignment.json"
+    },
+    {
+      "path": "lineage/d36e00f5c6f4-motion.ts",
+      "bytes": 2272,
+      "sha256": "d36e00f5c6f45cac5f286f064611a7803c17115a7e5cca0306bd299f1fd007c3",
+      "originalLocation": "D:\\Developer\\codeterm\\web\\src\\brand\\motion.ts"
+    },
+    {
+      "path": "lineage/204446b6fd91-owner-mesh.png",
+      "bytes": 1063265,
+      "sha256": "204446b6fd91bfa1925f4c0f4df09a10b994c46393b82e0f3b6f1ae016d82871",
+      "originalLocation": "D:\\Developer\\codeterm\\web\\media-src\\assets\\owner-mesh.png"
+    }
+  ],
+  "unavailableHistoricalLocations": [
+    "C:\\Users\\dev\\.codeterm\\runtime\\agent-pads\\2652c9dc\\framing-final-1\\silent"
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "schemaVersion": 2,
+  "duration": 45.0,
+  "fps": 30,
+  "width": 1280,
+  "height": 720,
+  "chapters": [
+    {
+      "id": "agents",
+      "start": 0,
+      "end": 7.2,
+      "posterTime": 3.066666666666667
+    },
+    {
+      "id": "board",
+      "start": 7.2,
+      "end": 13.633333333333333,
+      "posterTime": 9.146666666666667
+    },
+    {
+      "id": "mesh",
+      "start": 13.633333333333333,
+      "end": 25.133333333333333,
+      "posterTime": 16.46
+    },
+    {
+      "id": "plugins",
+      "start": 25.133333333333333,
+      "end": 45.0,
+      "posterTime": 27.453333333333333
+    }
+  ],
+  "framing": {
+    "brandSourceSha256": "d36e00f5c6f45cac5f286f064611a7803c17115a7e5cca0306bd299f1fd007c3",
+    "endingMemory": {
+      "path": "C:\\Users\\dev\\Desktop\\memory.mp4",
+      "sha256": "b99f5e730a844ef2d7d69f2f5f0acb54b9be2ec212c22d220af7f729c25f4393",
+      "outputFrames": [
+        1112,
+        1216
+      ],
+      "sourceStart": 6.2,
+      "nativeFps": 30
+    },
+    "endingScreenshot": {
+      "path": "D:\\Developer\\codeterm\\web\\media-src\\assets\\owner-mesh.png",
+      "sha256": "204446b6fd91bfa1925f4c0f4df09a10b994c46393b82e0f3b6f1ae016d82871",
+      "firstFrame": 1140,
+      "crop": [
+        334,
+        50,
+        3496,
+        2079
+      ]
+    },
+    "brandManifestSha256": "71fe615327f40eb77cd3bce8a876a8eff97fb188d865a540eca8f3ce42392e86",
+    "changedFrameRanges": [
+      [
+        0,
+        48
+      ],
+      [
+        1112,
+        1350
+      ]
+    ]
+  },
+  "timingSha256": "7cf3286126b446e58596064e0656602364af406afdefbfc14300551350f0829f",
+  "mp4": {
+    "src": "/media/trailer.mp4",
+    "bytes": 2768401
+  },
+  "webm": {
+    "src": "/media/trailer.webm",
+    "bytes": 2865967
+  },
+  "poster": {
+    "src": "/media/trailer-poster.webp",
+    "bytes": 25502
+  },
+  "totalBytes": 5708875
+}

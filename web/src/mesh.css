@@ -1,7 +1,4 @@
-.agent-network { position: relative; max-width: 1000px; margin: 20px auto; text-align: left; }
-.mesh-register { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding-block: 8px; color: var(--ct-muted-fg); font: 9px var(--ct-font-mono); letter-spacing: 1.4px; }
-.mesh-register > span:last-child { display: flex; align-items: center; gap: 8px; color: var(--ct-accent); }
-.mesh-register i { width: 5px; height: 5px; border-radius: 50%; background: var(--ct-green); }
+.agent-network { position: relative; max-width: 1000px; margin: 97px auto 20px; text-align: left; }
 .mesh-desk { position: relative; height: 590px; isolation: isolate; contain: layout style; }
 .mesh-desk::before { content: ''; position: absolute; inset: 4% 0; pointer-events: none; background: radial-gradient(ellipse at 48% 48%, color-mix(in srgb, var(--ct-accent) 5%, transparent), transparent 64%); }
 .mesh-routes, .mesh-liquid { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
@@ -65,14 +62,20 @@
 .agent-name { display: flex; align-items: center; gap: 5px; font-size: 11px; }
 .agent-name i { width: 4px; height: 4px; border-radius: 50%; background: var(--ct-accent); }
 .agent-provider { display: flex; align-items: center; gap: 4px; color: var(--ct-muted-fg); font-size: 9px; white-space: nowrap; }
-.agent-provider svg { flex-shrink: 0; }
+.agent-logo { display: flex; align-items: center; justify-content: center; flex: 0 0 16px; height: 16px; }
+.agent-logo .provider-logo { display: block; width: 16px; height: 16px; object-fit: contain; flex: none; }
+.agent-logo .provider-logo[data-provider-logo="codex"] { width: 16px; height: 16px; padding: 2px; border-radius: 3px; background: #000; box-sizing: border-box; }
+.agent-logo .provider-logo[data-provider-logo="opencode"], .agent-logo .provider-logo[data-provider-logo="lmstudio"] { width: 100%; height: auto; max-height: 16px; }
+.agent-logo-dark { display: flex; }
+.agent-logo-light { display: none; }
+[data-theme="light"] .agent-logo-dark { display: none; }
+[data-theme="light"] .agent-logo-light { display: flex; }
+.agent-provider-name { min-width: 0; }
+.agent-provider:has([data-provider-logo="opencode"]) .agent-logo, .agent-provider:has([data-provider-logo="lmstudio"]) .agent-logo { flex-basis: 62px; }
+.agent-provider:has([data-provider-logo="opencode"]) .agent-provider-name, .agent-provider:has([data-provider-logo="lmstudio"]) .agent-provider-name { display: none; }
 .machine-agent:first-child { position: relative; }
 .machine-agent:first-child::after { content: ''; position: absolute; inset: -1px; border: 1px solid var(--ct-accent); border-radius: inherit; background: color-mix(in srgb, var(--ct-accent) 12%, transparent); opacity: var(--agent-energy, 0); pointer-events: none; }
 .machine-task { font-size: 10px; color: var(--ct-muted-fg); margin-top: 11px; }
-.hero-capabilities { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; max-width: 760px; margin: 0 auto; padding: 0; color: var(--ct-heading); list-style: none; }
-.hero-capabilities > li { display: grid; grid-template-rows: auto 1fr; align-content: start; gap: 5px; min-width: 0; padding: 12px 10px; border-radius: 10px; background: color-mix(in srgb, var(--ct-surface) 45%, var(--ct-bg)); font-size: 14px; line-height: 1.4; }
-.hero-capabilities > li > span { font-weight: 500; }
-.hero-capabilities small { color: var(--ct-muted-fg); font-size: 12px; font-weight: 400; line-height: 1.5; }
 .liquid-transfer { color: var(--ct-accent); }
 .liquid-transfer[data-kind="report"] { color: var(--ct-magenta); }
 .liquid-neck, .liquid-drop > path, .liquid-satellite { fill: currentColor; }
@@ -81,6 +84,7 @@
 .liquid-label rect { fill: var(--ct-bg); stroke: currentColor; stroke-opacity: .22; }
 .liquid-label text { fill: currentColor; font: 10px var(--ct-font-mono); }
 @media (min-width: 651px) and (max-width: 900px) {
+  .agent-network { margin-top: 100px; }
   .machine-home { width: 32%; }
   .machine-laptop { left: 3%; }
   .machine-workstation { left: 55%; }
@@ -96,9 +100,7 @@
   .liquid-label text { font-size: 10px; }
 }
 @media (max-width: 650px) {
-  .agent-network { margin-top: 20px; }
-  .mesh-register { font-size: 8px; letter-spacing: .3px; }
-  .mesh-register > span:last-child { font-size: 7px; gap: 5px; }
+  .agent-network { margin-top: 90px; }
   .mesh-desk { height: 760px; }
   .machine-home { width: min(76%, 290px); left: calc((100% - min(76%, 290px)) / 2); right: auto; }
   .machine-body { padding-bottom: 12px; }
@@ -111,8 +113,4 @@
   .machine-agents { margin-top: 11px; }
   .machine-task { display: none; }
   .liquid-label text { font-size: 10px; }
-  .hero-capabilities { gap: 6px; }
-  .hero-capabilities > li { padding: 10px 6px; font-size: 12px; }
-  .hero-capabilities > li > span { display: flex; align-items: center; justify-content: center; min-height: 2.8em; }
-  .hero-capabilities small { font-size: 11px; }
 }

@@ -918,9 +918,12 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
   const workspaceTarget = useCanvasWorkspaceTarget();
   const requestedPlanId = planId ?? (mode === "workspace" ? workspaceTarget?.planId : undefined);
   const teamId = mode === "workspace" ? workspaceTarget?.teamId : undefined;
+  const scopeWorkspaceId =
+    mode === "workspace" ? workspaceId ?? state.active_workspace_id ?? undefined : undefined;
   const { plans: livePlans, loading, reconnecting, error, refetch } = useCanvasPlans(
     mode,
     projectPath,
+    { workspaceId: scopeWorkspaceId, workspaces: state.workspaces, teams: state.teams },
   );
   // Dev harness: real exported plan, or a synthetic N-task plan, when flagged.
   const perfN = perfFixtureCount();
@@ -960,8 +963,6 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
             : buildPerfFixtureTabs(plans);
     return { ...state.tabs, ...fixtureTabs };
   }, [perfN, useReal, perfProfile, plans, state.tabs]);
-  const scopeWorkspaceId =
-    mode === "workspace" ? workspaceId ?? state.active_workspace_id ?? undefined : undefined;
   const shownFixtureOwnerTabIds = useMemo(
     () => fixtureOwnerTabIds(fixturePlans, plans),
     [fixturePlans, plans],
