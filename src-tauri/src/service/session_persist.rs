@@ -36,12 +36,7 @@ pub(crate) fn write_session_snapshot_with_intent(
         .ok_or_else(|| "SessionState not registered".to_string())?
         .inner()
         .clone();
-    let snapshot = mux.read().to_session_snapshot();
-    let save_result = {
-        let store = session.lock();
-        store.save_with_intent(&snapshot, intent)
-    };
-    let outcome = save_result.map_err(|e| format!("save session: {}", e))?;
+    let outcome = crate::session::save_current_snapshot(&session, mux, intent)?;
     crate::session::scrollback_sync::sync_scrollback_sidecars_after_save(app, &outcome);
     Ok(outcome)
 }

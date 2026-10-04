@@ -46,7 +46,7 @@ pub async fn graceful_shutdown(
     let (desk, reaped) = capture_desk_before(&svc, reap_owned_ptys(&svc)).await?;
     let conpty_hosts = super::conpty_cleanup::cleanup_before_installer().await?;
 
-    persist_desk_off_runtime(app, desk).await?;
+    persist_desk_off_runtime(app, &svc.mux, desk).await?;
 
     let mem_owner = svc.clone();
     let checkpoint = tokio::task::spawn_blocking(move || mem_owner.mem.checkpoint_and_close())
@@ -161,10 +161,11 @@ async fn capture_desk_before<T>(
     Ok((desk, result))
 }
 
-/// Writes the pre-teardown capture verbatim — never re-reads the live mux. The
-/// store write is disk IO, so it runs off the async runtime.
+/// Saves the pre-teardown desk and refreshes live tab identities under the
+/// session-store lock so a concurrent claim cannot be overwritten.
 async fn persist_desk_off_runtime(
     app: &tauri::AppHandle,
+    mux: &crate::MuxState,
     desk: crate::session::SessionSnapshot,
 ) -> Result<(), String> {
     let session = app
@@ -172,7 +173,22 @@ async fn persist_desk_off_runtime(
         .ok_or_else(|| "SessionState not registered".to_string())?
         .inner()
         .clone();
-    tokio::task::spawn_blocking(move || persist_desk_into(&session.lock(), &desk))
+    let mux = mux.clone();
+    tokio::task::spawn_blocking(move || {
+        let result = crate::session::save_captured_snapshot_with_live_identities(
+            &session,
+            &mux,
+            &desk,
+            crate::session::store::SaveIntent::PreserveDesk,
+        );
+        if matches!(result, Ok(crate::session::store::SaveOutcome::Saved)) {
+            log::info!(
+                "[updater] pre-teardown desk snapshot saved ({} workspaces)",
+                desk.workspaces.len()
+            );
+        }
+        shutdown_save_disposition(result)
+    })
         .await
         .map_err(|error| format!("desk persist task failed: {error}"))?
 }
@@ -257,7 +273,11 @@ mod tests {
             "teardown must have removed the worker tab from the live desk"
         );
 
-        rt.block_on(persist_desk_off_runtime(fixture._app.handle(), desk))
+        rt.block_on(persist_desk_off_runtime(
+            fixture._app.handle(),
+            &fixture.service.mux,
+            desk,
+        ))
             .unwrap();
         let recorded = session.lock().load_last().unwrap().expect("desk on disk");
         assert!(

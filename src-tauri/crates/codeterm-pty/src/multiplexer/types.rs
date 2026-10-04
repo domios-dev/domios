@@ -10,8 +10,9 @@ pub use model_identity::{
 };
 pub use restorable_launch::{ReasoningEffortIdentity, RestorableLaunchParameters};
 pub use turn_resume::{
-    observe_turn, request_continue, settle_turn_resume, withdraw_sent_claim, TurnResumeMark,
-    TurnResumeOutcome, TurnResumeSettlement,
+    observe_turn, request_continue, request_continue_for_restored_start, request_continue_from,
+    settle_turn_resume, suppress_continue, withdraw_sent_claim, TurnResumeMark,
+    TurnResumeOutcome, TurnResumeSender, TurnResumeSettlement,
 };
 
 pub use codeterm_types::pty::{AgentRole, PendingPrompt, PromptOption, PromptSection};

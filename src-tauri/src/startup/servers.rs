@@ -364,8 +364,6 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         super::bridge::spawn_telegram_bridge(service_state.clone());
     }
 
-    // If the previous instance was killed by `update --apply --after-update`, pick up the queued message and inject it into the general tab once the agent is ready.
-    update::post_update::spawn(service_state.clone());
 }
 
 /// Locate the built React bundle for the browser mirror.

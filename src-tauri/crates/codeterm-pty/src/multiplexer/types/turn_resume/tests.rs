@@ -155,6 +155,38 @@ fn request_on_an_idle_tab_is_owed_by_the_next_start() {
 }
 
 #[test]
+fn no_continue_suppresses_the_callers_mark_for_this_start() {
+    let mut mark = working("session-a", FIRST);
+
+    assert!(suppress_continue(&mut mark, "session-a", FIRST));
+    assert!(!observe_turn(&mut mark, Some("session-a"), FIRST));
+    assert!(!mark.as_ref().unwrap().owed_in(SECOND));
+    assert_eq!(
+        mark.as_ref().unwrap().settled.as_ref().unwrap().outcome,
+        TurnResumeOutcome::Skipped("not_requested".into())
+    );
+}
+
+#[test]
+fn no_continue_replaces_a_prior_settlement_for_a_current_working_turn() {
+    let mut mark = working("session-a", FIRST);
+    assert!(settle_turn_resume(
+        &mut mark,
+        SECOND,
+        TurnResumeOutcome::Sent
+    ));
+
+    assert!(suppress_continue(&mut mark, "session-a", SECOND));
+    assert!(!observe_turn(&mut mark, Some("session-a"), SECOND));
+    let suppressed = mark.as_ref().unwrap();
+    assert_eq!(
+        suppressed.settled.as_ref().unwrap().outcome,
+        TurnResumeOutcome::Skipped("not_requested".into())
+    );
+    assert!(!suppressed.owed_in(THIRD));
+}
+
+#[test]
 fn withdrawn_claim_records_the_reason_without_reopening_the_mark() {
     let mut mark = working("session-a", FIRST);
     assert!(settle_turn_resume(
