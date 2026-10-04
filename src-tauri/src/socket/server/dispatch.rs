@@ -419,7 +419,7 @@ mod tests {
                 workspace_id: "workspace".into(),
                 team_id: None,
                 detach_from_team: false,
-                schedule: "in 1h".into(),
+                schedule: "0 * * * *".into(),
                 task: "complete run".into(),
                 description: None,
                 agent: None,
