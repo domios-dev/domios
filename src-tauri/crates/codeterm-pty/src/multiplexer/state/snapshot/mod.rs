@@ -147,6 +147,7 @@ impl MultiplexerState {
                     session_binding_nonce: p.session_binding_nonce.clone(),
                     reported_session_binding_nonce: p.reported_session_binding_nonce.clone(),
                     agent_state: p.agent_state.clone(),
+                    turn_resume: p.turn_resume.clone(),
                     boot_stage: p.boot_stage,
                     reasoning_effort: p.reasoning_effort_identity.clone(),
                     restorable_launch: p.restorable_launch.clone(),
@@ -620,6 +621,9 @@ fn install_leaf(
             pending_prompt: None,
             pending_prompt_kind: None,
             agent_state: restored_identity.and_then(|identity| identity.agent_state.clone()),
+            turn_resume: agent_identity
+                .as_ref()
+                .and_then(|identity| identity.turn_resume.clone()),
             auto_approve: false,
             permission_auto_confirm: *permission_auto_confirm,
             permission_auto_confirmations: Vec::new(),

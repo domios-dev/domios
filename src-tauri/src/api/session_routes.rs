@@ -11,18 +11,41 @@ use crate::api::{
     routes::{check_auth, AppState},
 };
 
+#[derive(Deserialize)]
+pub struct SaveSessionBody {
+    pub continue_tab: Option<String>,
+    pub continue_prompt: Option<String>,
+}
+
 /// Snapshot the multiplexer into the session store NOW. Durability is
 /// otherwise the 30s auto-save timer plus the close-to-tray hook — a
 /// force-killed daemon (taskkill, crash, e2e harness) loses anything
 /// younger than the last tick. Restart-persistence tests call this first.
+/// A `continue_tab` asks the next start to deliver one continue to that tab.
 pub async fn save_session_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    OptionalJson(body): OptionalJson<SaveSessionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let continuation = body
+        .and_then(|body| Some((body.continue_tab?, body.continue_prompt)))
+        .map(|(tab_id, prompt)| {
+            let prompt = prompt
+                .filter(|prompt| !prompt.trim().is_empty())
+                .unwrap_or_else(|| crate::service::turn_resume::DEFAULT_CONTINUE.to_string());
+            match state.svc.request_turn_resume(&tab_id, &prompt) {
+                Ok(()) => serde_json::json!({"tab_id": tab_id, "registered": true}),
+                Err(reason) => {
+                    serde_json::json!({"tab_id": tab_id, "registered": false, "reason": reason})
+                }
+            }
+        });
     crate::update::shutdown::persist_session(&state.svc.app_handle, &state.svc)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    Ok(Json(
+        serde_json::json!({"ok": true, "continuation": continuation}),
+    ))
 }
 
 /// Rotated full-desk snapshots under `sessions/backups/`, newest first.

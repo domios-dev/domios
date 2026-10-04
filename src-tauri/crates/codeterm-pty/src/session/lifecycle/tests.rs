@@ -77,6 +77,7 @@ fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapsho
         session_binding_nonce: Some("nonce-1".into()),
         reported_session_binding_nonce: Some("nonce-1".into()),
         agent_state: None,
+        turn_resume: None,
         boot_stage: None,
         reasoning_effort: Default::default(),
         restorable_launch: Default::default(),
