@@ -8,6 +8,7 @@ const MAX_REASON_BYTES: usize = 240;
 #[cfg(any(unix, test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum LeaderOwnership {
+    #[cfg(unix)]
     Unspawned,
     Retained(u32),
     Retired(u32),

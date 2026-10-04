@@ -233,7 +233,7 @@ fn no_window(command: &mut Command) {
 #[cfg(not(windows))]
 fn no_window(_command: &mut Command) {}
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod tests;
 
 pub(super) fn system_channel_url() -> String {
