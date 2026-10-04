@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use codeterm_types::decision::{
@@ -19,16 +19,20 @@ mod state;
 #[cfg(test)]
 mod tests;
 
-use decision::{classify, fallback};
+pub(crate) use decision::criteria_version;
+use decision::{bounded_questions, classify, error_reason, suppressed};
 #[cfg(test)]
 use decision::{questions, selected_learnings};
-pub(crate) use runtime::decide;
-pub(crate) use snapshot::collect;
-pub(crate) use state::{Gate, Observation};
+pub(crate) use runtime::{journal, Supporter};
+pub(crate) use snapshot::{binding_digest, collect, collect_worker_scope};
+#[cfg(test)]
+pub(crate) use state::Telemetry;
+pub(crate) use state::{Claim, Gate, Observation};
 
-pub(crate) const SAFETY_STATUS_SECS: u64 = 2 * 60 * 60;
 pub(crate) const IDLE_NO_REPORT_SECS: u64 = 30 * 60;
 const MIN_CONFIDENCE: f64 = 0.80;
+const MAX_OBSERVATION_BYTES: usize = 32 * 1024;
+const MAX_OBSERVATION_ROWS: usize = 32;
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
@@ -81,6 +85,18 @@ impl Worker {
         }
     }
 
+    /// The only Worker evidence that reaches the model or the identity hash:
+    /// derived health, never session keys, turn ids or commit hashes.
+    fn health(&self) -> Value {
+        json!({
+            "task": self.task_id, "tab": self.tab_id, "ack": self.ack_received,
+            "bound": self.session_key.is_some(), "process": self.process, "activity": self.activity,
+            "prompt": self.prompt, "idle": self.idle_overdue && !self.reported && !self.held,
+            "looping": self.repeating && !self.held, "reported": self.reported,
+            "held": self.held, "unknown": self.evidence_unavailable,
+        })
+    }
+
     fn next_step(&self, label: &str) -> String {
         let action = match label {
             "waiting_on_prompt" => match &self.safe_choice {
@@ -126,6 +142,50 @@ impl HardWake {
     }
 }
 
+/// Automatic plan reminder producers; each one needs its own Choice approval.
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ReminderKind {
+    #[default]
+    Owner,
+    ModeChange,
+    StalledTeam,
+    CompleteWrapup,
+    Worker,
+}
+
+impl ReminderKind {
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Owner => "owner",
+            Self::ModeChange => "mode_change",
+            Self::StalledTeam => "stalled_team",
+            Self::CompleteWrapup => "complete_wrapup",
+            Self::Worker => "worker",
+        }
+    }
+}
+
+/// Observation identity beyond plan state. Bindings and adapters are digests,
+/// so neither the model nor the journal sees a raw session nonce.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub(crate) struct Scope {
+    pub kind: ReminderKind,
+    pub role: String,
+    pub workspace: String,
+    pub team_id: Option<String>,
+    pub tab_id: String,
+    pub binding: String,
+    pub task_id: Option<String>,
+    pub attempt_id: Option<String>,
+    pub lifecycle: String,
+    pub adapter: String,
+    pub criteria: String,
+}
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub(crate) struct Snapshot {
@@ -136,27 +196,29 @@ pub(crate) struct Snapshot {
     pub workers: Vec<Worker>,
     pub hard: Vec<HardWake>,
     pub learnings: BTreeMap<String, String>,
+    pub scope: Scope,
+    pub truncated: bool,
 }
 
 impl Snapshot {
     fn hash(&self) -> String {
-        let health: Vec<_> = self.workers.iter().map(|worker| json!({
-            "task": worker.task_id, "tab": worker.tab_id, "ack": worker.ack_received,
-            "bound": worker.session_key.is_some(), "process": worker.process, "activity": worker.activity,
-            "prompt": worker.prompt, "idle": worker.idle_overdue && !worker.reported && !worker.held,
-            "looping": worker.repeating && !worker.held, "reported": worker.reported,
-            "held": worker.held, "unknown": worker.evidence_unavailable,
-        })).collect();
+        let health: Vec<_> = self.workers.iter().map(Worker::health).collect();
         let state = json!({ "plan": self.plan_id, "projection": self.projection,
-            "delta": self.delta, "hard": self.hard, "health": health, "learnings": self.learnings });
+            "delta": self.delta, "hard": self.hard, "health": health, "learnings": self.learnings,
+            "scope": self.scope, "truncated": self.truncated });
         crate::service::supporter::criteria_hash(&serde_json::to_vec(&state).unwrap_or_default())
+    }
+
+    fn healthy_and_unchanged(&self) -> bool {
+        self.hard.is_empty()
+            && self.delta.is_empty()
+            && self.workers.iter().all(|worker| !worker.unhealthy())
     }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct Decision {
     pub wake: bool,
-    pub safety: bool,
     pub tick_label: String,
     pub decided_by: String,
     pub reason: &'static str,
@@ -165,42 +227,31 @@ pub(crate) struct Decision {
     pub next_steps: Vec<String>,
     pub worker_labels: BTreeMap<String, String>,
     pub learning_ids: Option<Vec<String>>,
+    pub scope: Scope,
+    pub adapter: Option<String>,
+    pub model: Option<String>,
 }
 
 impl Decision {
     fn soft_class(&self) -> String {
-        json!({ "tick": self.tick_label, "workers": self.worker_labels,
-            "uncertain": self.reason == "low_confidence" })
-        .to_string()
+        json!({ "tick": self.tick_label, "workers": self.worker_labels }).to_string()
     }
 
+    /// Bounded diagnostics only: reason enums, hashes, scoped ids and adapter
+    /// metadata; never the observation, next-step text or a binding.
     pub(crate) fn journal_event(&self, tab: &str, plan: &str, now: u64) -> Value {
         json!({ "time": now, "kind": crate::service::supporter::VerdictKind::Heartbeat,
-            "tab": tab, "plan_id": plan, "label": if self.safety { "status_only" } else if self.wake { "action_needed" } else { "nothing_changed" },
+            "tab": tab, "plan_id": plan, "label": self.tick_label,
             "action": if self.wake { "wake" } else { "suppress" }, "reason": self.reason,
             "decided_by": self.decided_by, "observation_id": self.observation_id,
-            "state_hash": self.snapshot_hash, "safety": self.safety,
+            "state_hash": self.snapshot_hash, "reminder": self.scope.kind,
+            "task_id": self.scope.task_id, "attempt_id": self.scope.attempt_id,
+            "adapter": self.adapter, "model_id": self.model, "criteria_version": self.scope.criteria,
             "tick_class": self.tick_label, "worker_classes": self.worker_labels,
-            "next_steps": self.next_steps, "learning_ids": self.learning_ids, "asked": null })
-    }
-
-    pub(crate) fn observation_event(
-        &self,
-        snapshot: &Snapshot,
-        tab: &str,
-        plan: &str,
-        now: u64,
-    ) -> Value {
-        let mut event = self.journal_event(tab, plan, now);
-        event["observation"] = serde_json::to_value(snapshot).unwrap_or(Value::Null);
-        event
+            "learning_ids": self.learning_ids, "asked": null })
     }
 
     pub(crate) fn next_step_text(&self) -> String {
-        if self.safety {
-            "Heartbeat safety status: scheduler is active. Next step: inspect the plan when useful; no new incident was observed.".into()
-        } else {
-            format!("Next step:\n{}", self.next_steps.join("\n"))
-        }
+        format!("Next step:\n{}", self.next_steps.join("\n"))
     }
 }

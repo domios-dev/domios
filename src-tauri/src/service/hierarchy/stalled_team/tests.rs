@@ -77,7 +77,7 @@ fn nudge(
 ) {
     let _ = maybe_nudge_stalled_team(plan, live_worker_tabs, orchestrator_idle, tracker, |key| {
         deliveries.push(key.clone());
-        Ok(())
+        Ok(true)
     });
 }
 

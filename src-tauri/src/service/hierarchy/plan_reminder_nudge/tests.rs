@@ -10,7 +10,7 @@ fn reminder_test_tab() -> (MultiplexerState, String) {
     (mux, tab_id)
 }
 
-fn plan(id: &str, owner: &str, mode: PlanMode, tasks: Vec<Task>) -> Plan {
+pub(super) fn plan(id: &str, owner: &str, mode: PlanMode, tasks: Vec<Task>) -> Plan {
     let mut plan = Plan::new(
         "Reminder".into(),
         "/tmp/project".into(),
@@ -22,7 +22,7 @@ fn plan(id: &str, owner: &str, mode: PlanMode, tasks: Vec<Task>) -> Plan {
     plan
 }
 
-fn task(id: &str, status: TaskStatus, tab_id: Option<&str>) -> Task {
+pub(super) fn task(id: &str, status: TaskStatus, tab_id: Option<&str>) -> Task {
     Task {
         id: id.into(),
         name: id.into(),
@@ -471,6 +471,7 @@ fn scheduler_gates_each_owner_tick_and_marks_only_delivered_wakes() {
     }
     let writes = RefCell::new(Vec::new());
     let gate = crate::service::hierarchy::heartbeat_gate::Gate::default();
+    let model = super::approval_tests::FakeChoice::new(super::approval_tests::approve());
     assert!(!counter.time_nudge_due(&tab_id, 0, interval));
 
     for (now, expected_deliveries) in [(interval - 1, 0), (interval, 1), (interval, 1)] {
@@ -484,8 +485,9 @@ fn scheduler_gates_each_owner_tick_and_marks_only_delivered_wakes() {
                     .delta
                     .insert("stride:fixture".into(), "opaque evidence".into());
             }
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
             let decision = gate
-                .decide(id, &snapshot, now, None, std::time::Instant::now())
+                .decide(id, &snapshot, now, Some(model.as_ref()), deadline)
                 .unwrap();
             if decision.wake {
                 writes.borrow_mut().push(id.to_string());
