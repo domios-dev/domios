@@ -180,6 +180,24 @@ impl ChatSendLedger {
         Self::with_retention_window(&state, status)
     }
 
+    pub(crate) fn bind_user_pty_session_generation(
+        &self,
+        send_id: &str,
+        authority: &UserSendAuthority,
+    ) -> bool {
+        let Some(generation) = authority.pty_session_generation else { return false; };
+        let mut state = self.state.lock();
+        let Some((current, _)) = state.owned.get_mut(send_id) else { return false; };
+        let mut unbound = authority.clone();
+        unbound.pty_session_generation = None;
+        if *current == unbound {
+            current.pty_session_generation = Some(generation);
+            true
+        } else {
+            current == authority
+        }
+    }
+
     pub(crate) fn begin_user_handoff(
         &self,
         record: &UserSendRecord,

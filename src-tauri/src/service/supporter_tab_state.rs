@@ -276,6 +276,52 @@ pub(crate) trait ShadowHost: Clone + Send + 'static {
 }
 
 impl ShadowHost for ServiceContext {
+    fn observation_is_current(&self, tab: &str, metadata: &TabStateMetadata) -> bool {
+        let Some(envelope) = metadata.envelope.as_ref() else {
+            return false;
+        };
+        if envelope.policy_hash.as_ref().is_some_and(|expected| {
+            identity::supporter_policy(&self.supporter_decision_config()) != *expected
+        }) {
+            return false;
+        }
+        let Some(local) = envelope.local.as_ref() else {
+            return false;
+        };
+        if !self.observation_identity_is_current(tab, local) {
+            return false;
+        }
+        if envelope.pty_session_generation.is_some_and(|generation| {
+            metadata
+                .tab_snapshot
+                .as_ref()
+                .and_then(|snapshot| snapshot.pty_id.as_deref())
+                .is_none_or(|pty_id| !self.pty.lock().session_generation_matches(pty_id, generation))
+        }) {
+            return false;
+        }
+        if metadata
+            .tab_snapshot
+            .as_ref()
+            .and_then(|tab| tab.pty_id.as_deref())
+            .is_some_and(|pty| self.pty.lock().get_session(pty).is_none())
+        {
+            return false;
+        }
+        let frame = self
+            .tab_transport(tab)
+            .and_then(|transport| transport.read_screen(false));
+        frame.is_ok_and(|frame| frame_hash(&frame.to_string()) == envelope.frame_hash)
+            && self.observation_identity_is_current(tab, local)
+            && envelope.pty_session_generation.is_none_or(|generation| {
+                metadata
+                    .tab_snapshot
+                    .as_ref()
+                    .and_then(|snapshot| snapshot.pty_id.as_deref())
+                    .is_some_and(|pty_id| self.pty.lock().session_generation_matches(pty_id, generation))
+            })
+    }
+
     fn local_identity(&self, tab: &str) -> Option<identity::LocalIdentity> {
         self.mux
             .read()
@@ -294,36 +340,6 @@ impl ShadowHost for ServiceContext {
                 &TokenSnapshot::read(&crate::api::mem_routes::decision::token_store(), adapter),
             )
     }
-    fn observation_is_current(&self, tab: &str, metadata: &TabStateMetadata) -> bool {
-        let Some(envelope) = metadata.envelope.as_ref() else {
-            return false;
-        };
-        if envelope.policy_hash.as_ref().is_some_and(|expected| {
-            identity::supporter_policy(&self.supporter_decision_config()) != *expected
-        }) {
-            return false;
-        }
-        let Some(local) = envelope.local.as_ref() else {
-            return false;
-        };
-        if !self.observation_identity_is_current(tab, local) {
-            return false;
-        }
-        if metadata
-            .tab_snapshot
-            .as_ref()
-            .and_then(|tab| tab.pty_id.as_deref())
-            .is_some_and(|pty| self.pty.lock().get_session(pty).is_none())
-        {
-            return false;
-        }
-        let frame = self
-            .tab_transport(tab)
-            .and_then(|transport| transport.read_screen(false));
-        frame.is_ok_and(|frame| frame_hash(&frame.to_string()) == envelope.frame_hash)
-            && self.observation_identity_is_current(tab, local)
-    }
-
     fn supporter_runtime(&self) -> Arc<SupporterRuntime> {
         #[cfg(test)]
         if let Some((_, runtime)) = TEST_SUPPORTER_OVERRIDES
@@ -547,6 +563,20 @@ impl ShadowHost for ServiceContext {
 }
 
 impl ServiceContext {
+    pub(crate) fn user_delivery_pty_session_generation(&self, tab_id: &str) -> Result<u64, String> {
+        let pty_id = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.pty_id.clone())
+            .ok_or_else(|| "user delivery PTY identity unavailable".to_string())?;
+        self.pty
+            .lock()
+            .get_session(&pty_id)
+            .map(|session| session.generation)
+            .ok_or_else(|| "user delivery PTY session generation unavailable".to_string())
+    }
+
     pub(crate) fn supporter_decision_config(&self) -> SupporterConfig {
         #[cfg(test)]
         if let Some((config, _)) = TEST_SUPPORTER_OVERRIDES
@@ -638,6 +668,14 @@ impl ServiceContext {
                 .get(&observation.adapter_id)
                 .is_some_and(|current| Arc::ptr_eq(&current, &observation.adapter))
             && self.observation_is_current(&observation.tab_id, &observation.metadata)
+            && observation
+                .metadata
+                .envelope
+                .as_ref()
+                .and_then(|envelope| envelope.pty_session_generation)
+                == Some(observation.pty_session_generation)
+            && self.user_delivery_pty_session_generation(&observation.tab_id)
+                == Ok(observation.pty_session_generation)
     }
 
     pub(crate) fn capture_exit_tab_observation(
@@ -751,6 +789,7 @@ pub(crate) struct UserDeliveryObservation {
     pub(crate) adapter_id: String,
     adapter: Arc<dyn DecisionModel>,
     pub(crate) observation_id: u64,
+    pub(super) pty_session_generation: u64,
     pub(crate) decided_by: identity::DecisionSource,
     pub(crate) metadata: TabStateMetadata,
     pub(crate) verdict: ShadowVerdict,
@@ -777,6 +816,8 @@ impl UserDeliveryReadiness {
             || !user_delivery_pair_has_same_generation(
                 first.observation_id,
                 second.observation_id,
+                first.pty_session_generation,
+                second.pty_session_generation,
                 first_local,
                 second_local,
             )
@@ -800,10 +841,14 @@ impl UserDeliveryReadiness {
 fn user_delivery_pair_has_same_generation(
     first_id: u64,
     second_id: u64,
+    first_pty_session_generation: u64,
+    second_pty_session_generation: u64,
     first: Option<&identity::LocalIdentity>,
     second: Option<&identity::LocalIdentity>,
 ) -> bool {
-    first_id != second_id && first.zip(second).is_some_and(|(first, second)| first == second)
+    first_id != second_id
+        && first_pty_session_generation == second_pty_session_generation
+        && first.zip(second).is_some_and(|(first, second)| first == second)
 }
 
 impl UserDeliveryObservation {

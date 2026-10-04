@@ -277,6 +277,30 @@ pub(super) fn submit_boundary(tab_id: &str) -> Option<SubmitBoundary> {
     SUBMIT_BOUNDARIES.get_or_init(Default::default).lock().get(tab_id).cloned()
 }
 
+type BeforeSubmit = Arc<dyn Fn() + Send + Sync>;
+static BEFORE_SUBMIT_BOUNDARIES: std::sync::OnceLock<Mutex<std::collections::HashMap<String, BeforeSubmit>>> = std::sync::OnceLock::new();
+
+pub(crate) struct BeforeUserSubmitBoundary(String);
+
+impl BeforeUserSubmitBoundary {
+    pub(crate) fn install(tab_id: &str, before_submit: BeforeSubmit) -> Self {
+        BEFORE_SUBMIT_BOUNDARIES.get_or_init(Default::default).lock().insert(tab_id.into(), before_submit);
+        Self(tab_id.into())
+    }
+}
+
+impl Drop for BeforeUserSubmitBoundary {
+    fn drop(&mut self) {
+        BEFORE_SUBMIT_BOUNDARIES.get_or_init(Default::default).lock().remove(&self.0);
+    }
+}
+
+pub(super) fn run_before_submit(tab_id: &str) {
+    if let Some(before_submit) = BEFORE_SUBMIT_BOUNDARIES.get_or_init(Default::default).lock().get(tab_id).cloned() {
+        before_submit();
+    }
+}
+
 type BootstrapBoundary = Arc<dyn Fn(&str) -> Result<(), DeliveryError> + Send + Sync>;
 static BOOTSTRAP_BOUNDARIES: std::sync::OnceLock<Mutex<std::collections::HashMap<String, BootstrapBoundary>>> = std::sync::OnceLock::new();
 
@@ -379,6 +403,7 @@ pub(crate) fn queue_fixture(anchor: bool, paste_limit: Option<usize>) -> (Servic
 }
 
 pub(crate) fn mark_ready(fixture: &ServiceFixture, tab_id: &str) {
+    attach_fixture_pty(fixture, tab_id);
     let mut mux = fixture.service.mux.write();
     let tab = mux.get_tab_mut(tab_id).unwrap();
     tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
@@ -418,6 +443,22 @@ fn settled_listener(fixture: &ServiceFixture, tab: &str) -> (tauri::EventId, mps
     });
     (listener, rx)
 }
+
+fn attach_fixture_pty(fixture: &ServiceFixture, tab_id: &str) -> u64 {
+    let pty_id = fixture.service.mux.read().get_tab(tab_id).unwrap().pty_id.clone().unwrap();
+    if let Some(session) = fixture.service.pty.lock().get_session(&pty_id) {
+        return session.generation;
+    }
+    let (_, session) = fixture.service.pty.lock()
+        .spawn_with_id(Some(pty_id.clone()), None, None, 120, 40, Default::default())
+        .expect("spawn the isolated ServiceContext PTY fixture");
+    let generation = session.generation;
+    assert!(fixture.service.screen_state.lock().bind_pty_generation(&pty_id, generation));
+    generation
+}
+
+#[path = "tests/owner_jev.rs"]
+mod owner_jev;
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
