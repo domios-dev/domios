@@ -4,10 +4,10 @@
 use super::definitions;
 use super::queries;
 use super::records::{
-    BatchFence, CommandResultRecord, CommandStatus, DefinitionProvenance, Fence,
-    HandlerResultRecord, HandlerStatus, MutationOutcome, NewTransition, RuntimeOutcome,
-    ScheduleUpdate, SentinelCommit, SentinelCreate, SentinelId, SentinelIdentity, SentinelImport,
-    StageDefinition, StageRuntime, TransitionRecord, MAX_SENTINEL_RECORDS,
+    AmendmentRecord, BatchFence, CommandResultRecord, CommandStatus, DefinitionProvenance,
+    DefinitionUpdate, Fence, HandlerResultRecord, HandlerStatus, MutationOutcome, NewTransition,
+    RuntimeOutcome, ScheduleUpdate, SentinelCommit, SentinelCreate, SentinelId, SentinelIdentity,
+    SentinelImport, StageRuntime, TransitionRecord, MAX_SENTINEL_RECORDS,
 };
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
@@ -268,10 +268,14 @@ fn insert_runtime(
         .expires_at
         .map(|at| to_sql_u64("runtime expiry", at))
         .transpose()?;
+    let run = runtime.run.as_ref();
+    let bound_at = run
+        .map(|run| to_sql_u64("run bound time", run.bound_at))
+        .transpose()?;
     cx.write(
         "INSERT INTO sentinel_runtime (sentinel_id, generation, next_run, expires_at, paused, \
-         stopped, last_hash, last_bucket, last_reason) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+         stopped, last_hash, last_bucket, last_reason, held, run_id, run_tab_id, run_bound_at) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
         params![
             id,
             to_sql_u64("generation", runtime.generation)?,
@@ -281,7 +285,11 @@ fn insert_runtime(
             runtime.stopped,
             runtime.last_hash,
             runtime.last_bucket,
-            runtime.last_reason
+            runtime.last_reason,
+            runtime.held,
+            run.map(|run| run.run_id.as_str()),
+            run.map(|run| run.tab_id.as_str()),
+            bound_at
         ],
     )?;
     Ok(())
@@ -492,6 +500,7 @@ pub(super) fn create(
         &id,
         1,
         DefinitionProvenance::Authored,
+        None,
         &create.definition,
     )?;
     definitions::insert_head(cx, &id, 1)?;
@@ -522,7 +531,7 @@ pub(super) fn create(
     finished(cx.conn, MutationOutcome::Applied, &touched)
 }
 
-/// Transaction join for the all-domain importer: exact existing stages as `Imported` v1.
+/// Transaction join for the all-domain importer: each stage's observed head as `Imported`.
 pub(crate) fn import(
     cx: &mut WriteCx<'_>,
     records: Vec<SentinelImport>,
@@ -541,11 +550,12 @@ pub(crate) fn import(
         definitions::insert_version(
             cx,
             id,
-            1,
+            record.version,
             DefinitionProvenance::Imported,
+            record.amendment.as_ref(),
             &record.definition,
         )?;
-        definitions::insert_head(cx, id, 1)?;
+        definitions::insert_head(cx, id, record.version)?;
         insert_runtime(cx, id, &record.runtime)?;
         for (ordinal, transition) in (0_i64..).zip(&record.transitions) {
             import_transition(cx, id, ordinal, transition)?;
@@ -586,12 +596,13 @@ fn import_transition(
     Ok(())
 }
 
-/// Appends an immutable version and moves the head; runtime and results stay untouched.
+/// Appends an immutable version with its lineage, moves the head and advances the generation,
+/// so a lease taken under the replaced version can no longer act; nothing else changes.
 pub(super) fn update_definition(
     cx: &mut WriteCx<'_>,
     id: &SentinelId,
     expect_version: u64,
-    definition: StageDefinition,
+    update: DefinitionUpdate,
 ) -> Result<SentinelCommit, StorageError> {
     let id = id.as_str();
     let Some(head) = definitions::head_version(cx.conn, id)? else {
@@ -601,8 +612,29 @@ pub(super) fn update_definition(
         return fenced(cx.conn, Fence::Version, id);
     }
     let next = definitions::latest_version(cx.conn, id)? + 1;
-    definitions::insert_version(cx, id, next, DefinitionProvenance::Authored, &definition)?;
+    let amendment = AmendmentRecord {
+        version: next,
+        replaced_version: head,
+        author_tab_id: update.author_tab_id,
+        cause_transition_id: update.cause_transition_id,
+        authored_at: update.authored_at,
+    };
+    definitions::insert_version(
+        cx,
+        id,
+        next,
+        DefinitionProvenance::Authored,
+        Some(&amendment),
+        &update.definition,
+    )?;
     definitions::move_head(cx, id, next)?;
+    let advanced = cx.write(
+        "UPDATE sentinel_runtime SET generation = generation + 1 WHERE sentinel_id = ?1",
+        [id],
+    )?;
+    if advanced != 1 {
+        return Err(corrupt("stage has no runtime"));
+    }
     touch(cx, id)?;
     finished(cx.conn, MutationOutcome::Applied, &[id.to_string()])
 }

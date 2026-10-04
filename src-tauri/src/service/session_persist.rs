@@ -218,4 +218,154 @@ mod tests {
         assert_eq!(restored.workspaces.len(), 2);
         assert_eq!(restored.workspaces[1].name, "Restored");
     }
+
+    fn desk_delta_snapshot(workspace_count: usize) -> crate::session::store::SessionSnapshot {
+        crate::session::store::SessionSnapshot {
+            version: "test".into(),
+            timestamp: 17,
+            active_workspace_id: None,
+            teams: vec![],
+            workspaces: (0..workspace_count)
+                .map(|index| crate::session::store::WorkspaceSnapshot {
+                    id: format!("ws-{index}"),
+                    name: format!("Workspace {index}"),
+                    tabs: vec![],
+                    active_tab_id: None,
+                    cwd: None,
+                    provisioned_cwd: None,
+                    protected: false,
+                    sort_order: index as i32,
+                    task_keys: Default::default(),
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn desk_delta_rename_touches_three_rows_in_a_large_inventory() {
+        let root = tempfile::tempdir().unwrap();
+        let adapter = crate::session::store::StorageDeskAdapter::open(root.path()).unwrap();
+        let mut snapshot = desk_delta_snapshot(512);
+        adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
+        let initial = adapter.state().unwrap();
+        snapshot.workspaces[255].name = "Renamed".into();
+
+        let committed = adapter
+            .delta_snapshot(
+                &snapshot,
+                Vec::new(),
+                initial.revision,
+                crate::session::store::SaveIntent::PreserveDesk,
+            )
+            .unwrap()
+            .wait(std::time::Duration::from_secs(30))
+            .unwrap();
+
+        assert_eq!(committed.receipt.rows_written, 3);
+        let saved = adapter.state().unwrap();
+        assert_eq!(saved.snapshot.workspaces.len(), 512);
+        assert_eq!(saved.snapshot.workspaces[255].record.name, "Renamed");
+    }
+
+    #[test]
+    fn desk_delta_adjacent_reorder_touches_constant_rows_in_a_large_inventory() {
+        let root = tempfile::tempdir().unwrap();
+        let adapter = crate::session::store::StorageDeskAdapter::open(root.path()).unwrap();
+        let mut snapshot = desk_delta_snapshot(512);
+        adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
+        let initial = adapter.state().unwrap();
+        snapshot.workspaces.swap(255, 256);
+        snapshot.workspaces[255].sort_order = 255;
+        snapshot.workspaces[256].sort_order = 256;
+
+        let committed = adapter
+            .delta_snapshot(
+                &snapshot,
+                Vec::new(),
+                initial.revision,
+                crate::session::store::SaveIntent::PreserveDesk,
+            )
+            .unwrap()
+            .wait(std::time::Duration::from_secs(30))
+            .unwrap();
+
+        assert_eq!(committed.receipt.rows_written, 7);
+        let saved = adapter.state().unwrap();
+        assert_eq!(saved.snapshot.workspaces[255].record.id.as_str(), "ws-256");
+        assert_eq!(saved.snapshot.workspaces[256].record.id.as_str(), "ws-255");
+    }
+
+    #[test]
+    fn desk_delta_preserves_omissions_and_rejects_stale_reduction() {
+        let root = tempfile::tempdir().unwrap();
+        let adapter = crate::session::store::StorageDeskAdapter::open(root.path()).unwrap();
+        let mut snapshot = desk_delta_snapshot(2);
+        adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
+        let initial = adapter.state().unwrap();
+        snapshot.workspaces.pop();
+
+        adapter
+            .delta_snapshot(
+                &snapshot,
+                Vec::new(),
+                initial.revision,
+                crate::session::store::SaveIntent::PreserveDesk,
+            )
+            .unwrap()
+            .wait(std::time::Duration::from_secs(30))
+            .unwrap();
+        assert_eq!(adapter.state().unwrap().snapshot.workspaces.len(), 2);
+
+        let mut newer = desk_delta_snapshot(2);
+        newer.workspaces[0].name = "Current".into();
+        adapter
+            .delta_snapshot(
+                &newer,
+                Vec::new(),
+                initial.revision,
+                crate::session::store::SaveIntent::PreserveDesk,
+            )
+            .unwrap()
+            .wait(std::time::Duration::from_secs(30))
+            .unwrap();
+        let stale = adapter
+            .delta_snapshot(
+                &snapshot,
+                Vec::new(),
+                initial.revision,
+                crate::session::store::SaveIntent::PreserveDesk,
+            )
+            .unwrap()
+            .wait(std::time::Duration::from_secs(30));
+
+        assert!(stale.is_err());
+        let saved = adapter.state().unwrap();
+        assert_eq!(saved.snapshot.workspaces.len(), 2);
+        assert_eq!(saved.snapshot.workspaces[0].record.name, "Current");
+    }
+
+    #[test]
+    fn desk_delta_authorized_reduction_applies_a_workspace_close() {
+        let root = tempfile::tempdir().unwrap();
+        let adapter = crate::session::store::StorageDeskAdapter::open(root.path()).unwrap();
+        let mut snapshot = desk_delta_snapshot(2);
+        adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
+        let initial = adapter.state().unwrap();
+        snapshot.workspaces.pop();
+
+        adapter
+            .delta_snapshot(
+                &snapshot,
+                Vec::new(),
+                initial.revision,
+                crate::session::store::SaveIntent::AuthorizedReduction,
+            )
+            .unwrap()
+            .wait(std::time::Duration::from_secs(30))
+            .unwrap();
+
+        let saved = adapter.state().unwrap();
+        assert_eq!(saved.snapshot.workspaces.len(), 1);
+        assert_eq!(saved.snapshot.workspaces[0].record.id.as_str(), "ws-0");
+    }
 }

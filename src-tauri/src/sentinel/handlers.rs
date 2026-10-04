@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use super::machine::Route;
+use super::machine::{Route, SafeKind};
 use super::storage::Staged;
 use super::store::{Sentinel, Store};
 
@@ -130,6 +130,14 @@ pub fn definitions(
     Ok(result)
 }
 
+pub(super) fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
+}
+
 pub fn validate(
     buckets: &[String],
     handlers: &BTreeMap<String, Vec<Handler>>,
@@ -148,15 +156,14 @@ pub fn validate(
             if let Route::Command(parameters) = &handler.action {
                 parameters.validate()?;
             }
+            if let Route::RespondPrompt(SafeKind::Other(kind)) = &handler.action {
+                if kind.trim().is_empty() || kind.len() > 256 || kind.chars().any(char::is_control)
+                {
+                    return Err("respond-prompt kind must be nonempty and bounded".into());
+                }
+            }
 
-            if handler.id.is_empty()
-                || handler.id.len() > 64
-                || !handler
-                    .id
-                    .chars()
-                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-'))
-                || !ids.insert(&handler.id)
-            {
+            if !valid_id(&handler.id) || !ids.insert(&handler.id) {
                 return Err(
                     "handler IDs must be unique bounded letters, numbers, underscores or dashes"
                         .into(),
@@ -544,5 +551,4 @@ impl Store {
         }
         Staged::ready(Ok(()))
     }
-
 }

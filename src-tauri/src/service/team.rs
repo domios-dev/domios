@@ -442,17 +442,7 @@ impl ServiceContext {
         for tab_id in &cleanup.member_tab_ids {
             self.revoke_agent_pad(tab_id)?;
         }
-        self.delete_team_crons(team_id);
-        if let Some(sentinels) = self
-            .app_handle
-            .try_state::<crate::sentinel::scheduler::Handle>()
-        {
-            sentinels.remove_team(team_id)?;
-        }
-        if let Err(error) = crate::delayed_send::delete_team_series(self, team_id) {
-            log::error!("Failed to delete Team delayed series {team_id}: {error}");
-        }
-        self.emit_state_changed_after_bus_publish();
+        self.finish_team_teardown(team_id).await?;
         let inventory = lane_cleanup?;
         if !busy.is_empty() {
             log::warn!(
@@ -488,6 +478,27 @@ impl ServiceContext {
                 log::error!("Failed to delete Team cron {job_id}: {error}");
             }
         }
+    }
+
+    async fn finish_team_teardown(&self, team_id: &str) -> Result<(), String> {
+        let service = self.clone();
+        let team_id = team_id.to_string();
+        tokio::task::spawn_blocking(move || {
+            service.delete_team_crons(&team_id);
+            if let Some(sentinels) = service
+                .app_handle
+                .try_state::<crate::sentinel::scheduler::Handle>()
+            {
+                sentinels.remove_team(&team_id)?;
+            }
+            if let Err(error) = crate::delayed_send::delete_team_series(&service, &team_id) {
+                log::error!("Failed to delete Team delayed series {team_id}: {error}");
+            }
+            service.emit_state_changed_after_bus_publish();
+            Ok(())
+        })
+        .await
+        .map_err(|error| format!("Team cron and Sentinel teardown task failed: {error}"))?
     }
 
     pub(crate) fn adopt_plan_for_team(
