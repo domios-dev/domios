@@ -11,7 +11,6 @@ fn supporter_first_opinion_passive_observer_retains_original_capture_without_ext
         ObservationTrigger::WorkerIdle,
         ObservationTrigger::BusyNoOutput,
         ObservationTrigger::TabExit,
-        ObservationTrigger::UserDeliveryReadiness,
     ] {
         let (host, calls, _) = StubHost::new(
             "fixture-frame",

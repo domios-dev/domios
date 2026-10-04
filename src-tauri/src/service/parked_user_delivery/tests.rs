@@ -277,30 +277,6 @@ pub(super) fn submit_boundary(tab_id: &str) -> Option<SubmitBoundary> {
     SUBMIT_BOUNDARIES.get_or_init(Default::default).lock().get(tab_id).cloned()
 }
 
-type BeforeSubmit = Arc<dyn Fn() + Send + Sync>;
-static BEFORE_SUBMIT_BOUNDARIES: std::sync::OnceLock<Mutex<std::collections::HashMap<String, BeforeSubmit>>> = std::sync::OnceLock::new();
-
-pub(crate) struct BeforeUserSubmitBoundary(String);
-
-impl BeforeUserSubmitBoundary {
-    pub(crate) fn install(tab_id: &str, before_submit: BeforeSubmit) -> Self {
-        BEFORE_SUBMIT_BOUNDARIES.get_or_init(Default::default).lock().insert(tab_id.into(), before_submit);
-        Self(tab_id.into())
-    }
-}
-
-impl Drop for BeforeUserSubmitBoundary {
-    fn drop(&mut self) {
-        BEFORE_SUBMIT_BOUNDARIES.get_or_init(Default::default).lock().remove(&self.0);
-    }
-}
-
-pub(super) fn run_before_submit(tab_id: &str) {
-    if let Some(before_submit) = BEFORE_SUBMIT_BOUNDARIES.get_or_init(Default::default).lock().get(tab_id).cloned() {
-        before_submit();
-    }
-}
-
 type BootstrapBoundary = Arc<dyn Fn(&str) -> Result<(), DeliveryError> + Send + Sync>;
 static BOOTSTRAP_BOUNDARIES: std::sync::OnceLock<Mutex<std::collections::HashMap<String, BootstrapBoundary>>> = std::sync::OnceLock::new();
 
@@ -403,7 +379,6 @@ pub(crate) fn queue_fixture(anchor: bool, paste_limit: Option<usize>) -> (Servic
 }
 
 pub(crate) fn mark_ready(fixture: &ServiceFixture, tab_id: &str) {
-    attach_fixture_pty(fixture, tab_id);
     let mut mux = fixture.service.mux.write();
     let tab = mux.get_tab_mut(tab_id).unwrap();
     tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
@@ -513,62 +488,6 @@ fn settled_listener(fixture: &ServiceFixture, tab: &str) -> (tauri::EventId, mps
         if value["tab_id"] == tab && value["state"] != "accepted" { let _ = tx.send(value); }
     });
     (listener, rx)
-}
-
-fn attach_fixture_pty(fixture: &ServiceFixture, tab_id: &str) -> u64 {
-    let pty_id = fixture.service.mux.read().get_tab(tab_id).unwrap().pty_id.clone().unwrap();
-    if let Some(session) = fixture.service.pty.lock().get_session(&pty_id) {
-        return session.generation;
-    }
-    let (_, session) = fixture.service.pty.lock()
-        .spawn_with_id(Some(pty_id.clone()), None, None, 120, 40, Default::default())
-        .expect("spawn the isolated ServiceContext PTY fixture");
-    let generation = session.generation;
-    assert!(fixture.service.screen_state.lock().bind_pty_generation(&pty_id, generation));
-    generation
-}
-
-#[path = "tests/owner_jev.rs"]
-mod owner_jev;
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
-fn restored_head_waits_with_reason_then_writes_once_after_current_nonce_binding() {
-    let (fixture, tab) = queue_fixture(true, None);
-    {
-        let mut mux = fixture.service.mux.write();
-        let restored = mux.get_tab_mut(&tab).unwrap();
-        restored.boot_stage = Some(codeterm_types::pty::BootStage::LaunchWritten);
-        restored.session_binding_nonce = Some("nonce-restored-current".into());
-        restored.reported_session_binding_nonce = Some("nonce-before-restore".into());
-        restored.agent_session_id = Some("opaque-session".into());
-    }
-    let accepted = admit_current_ledger(&fixture.service, &tab, FIRST_PAYLOAD, "restored-client");
-    refuse_and_park_current_send(&fixture.service, accepted.clone(), FIRST_PAYLOAD);
-    let writes = Arc::new(AtomicUsize::new(0));
-    let count = writes.clone();
-    let _submit = UserSubmitBoundary::install(&tab, Arc::new(move |_, _| {
-        count.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }));
-
-    fixture.service.drain_user_owner(&tab).unwrap();
-    let pending = fixture.service.chat_send_ledger.status(&accepted.send_id).unwrap();
-    assert_eq!(pending.state, ChatSendState::Unknown);
-    assert!(pending.pending_reason.is_some());
-    assert_eq!(writes.load(Ordering::SeqCst), 0);
-
-    mark_ready(&fixture, &tab);
-    fixture.service.drain_user_owner(&tab).unwrap();
-    fixture.service.drain_user_owner(&tab).unwrap();
-
-    assert_eq!(writes.load(Ordering::SeqCst), 1);
-    let settled = fixture.service.chat_send_ledger.status(&accepted.send_id).unwrap();
-    assert_eq!(settled.state, ChatSendState::Unknown);
-    assert_eq!(settled.pending_reason, None);
-    let record = fixture.service.pending_delivery_payloads.user_sends.head(&tab).unwrap().unwrap();
-    assert_eq!(record.state, UserSendState::Uncertain);
-    assert!(record.cycle_settled);
 }
 
 #[test]

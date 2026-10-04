@@ -9,7 +9,6 @@ export type ChatSendStatus = {
   sequence: number;
   retained_from: number;
   correlationId?: string;
-  pending_reason?: string;
   pad_file?: string;
 };
 

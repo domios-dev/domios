@@ -14,7 +14,6 @@ pub(crate) struct EnvelopeContext {
     pub(super) observation_id: u64,
     pub(crate) adapter: Option<Arc<dyn DecisionModel>>,
     pub(crate) policy_hash: Option<String>,
-    pub(super) pty_session_generation: Option<u64>,
 }
 
 impl std::fmt::Debug for EnvelopeContext {
@@ -102,30 +101,6 @@ pub(crate) fn enqueue_prepared<H: ShadowHost>(
     structural_verdict: &str,
     prepared: (DecisionQuestionsRequest, TabStateMetadata),
 ) -> Option<scheduler::ObservationHandle> {
-    enqueue_prepared_with_completion(
-        host,
-        config,
-        adapter_id,
-        configured_deadline_ms,
-        tab_id,
-        trigger,
-        structural_verdict,
-        prepared,
-        None,
-    )
-}
-
-fn enqueue_prepared_with_completion<H: ShadowHost>(
-    host: &H,
-    config: &SupporterConfig,
-    adapter_id: &str,
-    configured_deadline_ms: u64,
-    tab_id: &str,
-    trigger: ObservationTrigger,
-    structural_verdict: &str,
-    prepared: (DecisionQuestionsRequest, TabStateMetadata),
-    completion: Option<scheduler::Completion>,
-) -> Option<scheduler::ObservationHandle> {
     if !connected(host, config, adapter_id) {
         if let Some(envelope) = prepared.1.envelope.as_ref() {
             record(
@@ -160,7 +135,7 @@ fn enqueue_prepared_with_completion<H: ShadowHost>(
         pending: true,
         source: identity::DecisionSource::Budget,
     };
-    scheduler::global().submit_with_completion(
+    scheduler::global().submit(
         tab.clone(),
         matches!(trigger, ObservationTrigger::TabExit),
         questions,
@@ -181,88 +156,7 @@ fn enqueue_prepared_with_completion<H: ShadowHost>(
             queued.pending = false;
             result
         },
-        completion,
     )
-}
-
-pub(super) fn observe_user_delivery_readiness(
-    host: &super::ServiceContext,
-    tab_id: &str,
-    expected_local: Option<&identity::LocalIdentity>,
-) -> Result<super::UserDeliveryObservation, String> {
-    let pty_session_generation = host.user_delivery_pty_session_generation(tab_id)?;
-    let config = host.supporter_decision_config();
-    let adapter_id = config
-        .active_id()
-        .filter(|adapter| !adapter.trim().is_empty())
-        .ok_or_else(|| "supporter_adapter_unavailable".to_string())?
-        .to_string();
-    let prepared = prepare_observation_with_parent_and_identity(
-        host,
-        tab_id,
-        ObservationTrigger::UserDeliveryReadiness,
-        "user_delivery_pending_binding",
-        None,
-        expected_local,
-    )?;
-    if host.user_delivery_pty_session_generation(tab_id)? != pty_session_generation {
-        return Err("supporter_pty_generation_changed_during_capture".into());
-    }
-    let adapter = host
-        .supporter_models()
-        .get(&adapter_id)
-        .ok_or_else(|| "supporter_adapter_unavailable".to_string())?;
-    let mut prepared = prepared;
-    let envelope = prepared.1.envelope.as_mut().ok_or("supporter_observation_invalid")?;
-    envelope.adapter = Some(adapter.clone());
-    envelope.pty_session_generation = Some(pty_session_generation);
-    let metadata = prepared.1.clone();
-    let callback_metadata = metadata.clone();
-    let callback_tab = tab_id.to_string();
-    let callback_adapter = adapter_id.clone();
-    let callback_model = adapter;
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    let completion: scheduler::Completion = Box::new(move |verdict| {
-        let observation_id = callback_metadata
-            .envelope
-            .as_ref()
-            .map_or(0, |envelope| envelope.observation_id);
-        let Some(verdict) = verdict else {
-            let _ = sender.send(Err("supporter_observation_unavailable".to_string()));
-            return;
-        };
-        let decided_by = identity::DecisionSource::verdict(&verdict);
-        let _ = sender.send(Ok(super::UserDeliveryObservation {
-            tab_id: callback_tab,
-            adapter_id: callback_adapter,
-            adapter: callback_model,
-            observation_id,
-            pty_session_generation,
-            decided_by,
-            metadata: callback_metadata,
-            verdict,
-        }));
-    });
-    let queued = enqueue_prepared_with_completion(
-        host,
-        &config,
-        &adapter_id,
-        config.deadline_ms,
-        tab_id,
-        ObservationTrigger::UserDeliveryReadiness,
-        "user_delivery_pending_binding",
-        prepared,
-        Some(completion),
-    );
-    if queued.is_none() {
-        return Err("supporter_observation_not_queued".into());
-    }
-    receiver
-        .recv_timeout(super::DEADLINE + Duration::from_secs(1))
-        .map_err(|error| match error {
-            std::sync::mpsc::RecvTimeoutError::Timeout => "supporter_observation_deadline".to_string(),
-            std::sync::mpsc::RecvTimeoutError::Disconnected => "supporter_observation_cancelled".to_string(),
-        })?
 }
 
 pub(super) fn connected<H: ShadowHost>(host: &H, config: &SupporterConfig, adapter: &str) -> bool {
@@ -577,10 +471,6 @@ fn observe<H: ShadowHost>(
                 Some(verdict.confidence),
                 &title,
             );
-            if trigger == ObservationTrigger::UserDeliveryReadiness {
-                verdict.action = SignalAction::None;
-                return Some(verdict);
-            }
             if matches!(trigger, ObservationTrigger::TabExit)
                 && metadata
                     .tab_snapshot
@@ -820,7 +710,6 @@ pub(crate) fn prepare_observation_with_parent_and_identity<H: ShadowHost>(
         observation_id: capture.observation_id,
         adapter: None,
         policy_hash: None,
-        pty_session_generation: None,
     });
     metadata.context = privacy::value(&metadata.context);
     let safe_screen = privacy::screen(text);
@@ -873,9 +762,8 @@ pub(super) fn observation_answers(response: DecisionResponse) -> Result<ShadowVe
     if !prompt_visible.is_finite() || !(0.0..=1.0).contains(&prompt_visible) {
         return Err("decision model gave invalid prompt_visible".into());
     }
-    let reported_prompt_visible = prompt_visible;
-    let input_area = match answers.remove("input_area") {
-        None => None,
+    let prompt_visible = match answers.remove("input_area") {
+        None => prompt_visible,
         Some(DecisionAnswer::Choice {
             choice,
             probabilities,
@@ -885,19 +773,13 @@ pub(super) fn observation_answers(response: DecisionResponse) -> Result<ShadowVe
                 .or_else(|| probabilities.get(&choice).copied())
                 .filter(|value| value.is_finite() && (0.0..=1.0).contains(value))
                 .ok_or("decision model gave invalid input_area confidence")?;
-            if !matches!(choice.as_str(), "active_modal" | "composer" | "historical_or_draft_text" | OTHER) {
-                return Err("decision model gave unknown input_area".into());
+            match choice.as_str() {
+                "active_modal" if confidence >= 0.60 => prompt_visible.min(confidence),
+                "active_modal" | "composer" | "historical_or_draft_text" | OTHER => 0.0,
+                _ => return Err("decision model gave unknown input_area".into()),
             }
-            Some((choice, confidence))
         }
         Some(_) => return Err("decision model gave invalid input_area".into()),
-    };
-    let prompt_visible = match input_area.as_ref() {
-        Some((area, confidence)) if area == "active_modal" && *confidence >= 0.60 => {
-            prompt_visible.min(*confidence)
-        }
-        Some(_) => 0.0,
-        None => prompt_visible,
     };
     let safe_choice = answers.remove("safe_choice").and_then(|answer| {
         let DecisionAnswer::Choice {
@@ -916,8 +798,6 @@ pub(super) fn observation_answers(response: DecisionResponse) -> Result<ShadowVe
         label,
         confidence,
         prompt_visible,
-        reported_prompt_visible,
-        input_area,
         safe_choice,
         action: SignalAction::None,
         classified_frame_hash: 0,

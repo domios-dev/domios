@@ -224,12 +224,3 @@ impl ServiceFixture {
         }
     }
 }
-
-impl Drop for ServiceFixture {
-    fn drop(&mut self) {
-        let reapers = self.service.pty.lock().begin_shutdown().unwrap_or_default();
-        for reaper in reapers {
-            reaper.reap_in_background();
-        }
-    }
-}
