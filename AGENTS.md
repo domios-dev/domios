@@ -154,11 +154,10 @@ for a mechanism must exercise that mechanism — two prompt tests were named for
 primer and the worker context while asserting phrases in a third constant neither
 of them composed, so both stayed green through a real delivery bug.
 
-**Playwright is suspended.** Agents must not run, repair, migrate, or add
-Playwright tests, and no local or CI gate may invoke them. Keep the existing
-suite and manual commands intact. A Playwright run is allowed only when Andrey
-explicitly requests that run in the current conversation; never infer permission
-from a task, gate, changed UI file, prior request, or release workflow.
+**Playwright needs heightened attention.** It is slow and flaky, so it is not a
+default gate: no local or CI gate invokes it automatically. Run, repair or extend
+it only when it is the right oracle for a UI change, keep the existing suite and
+manual commands intact, and report flaky results as such rather than as passes.
 UI changes still require accessible roles, names, focus order, and screen-reader
 semantics; verify behavior with focused unit/API tests and manual dev inspection.
 
