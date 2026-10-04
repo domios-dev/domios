@@ -375,6 +375,7 @@ impl UserSendStore {
         Ok(true)
     }
 
+    #[cfg(test)]
     pub(crate) fn original(&self, tab_id: &str, send_id: &str) -> Result<String, String> {
         let record = self.records(tab_id)?.into_iter().find(|record| record.send_id == send_id)
             .ok_or("user send is not indexed")?;
