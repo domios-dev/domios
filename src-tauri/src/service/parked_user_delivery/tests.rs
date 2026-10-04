@@ -905,3 +905,46 @@ fn zero_write_refusal_keeps_new_readiness_or_admission_wakes_and_consumes_only_h
         }
     }
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
+fn unmatched_live_turn_bound_cannot_starve_next_anchorless_head_or_reuse_previous_equal_turn() {
+    let (fixture, tab) = queue_fixture(false, None);
+    let first = start_current_chat_send(&fixture, &tab, "opaque-equal", "client-a");
+    let second = start_current_chat_send(&fixture, &tab, "opaque-equal", "client-b");
+    let (writes_tx, writes_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let first_id = first.send_id.clone();
+    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |record, _| {
+        writes_tx.send(record.send_id.clone()).unwrap();
+        if record.send_id == first_id {
+            release_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
+            Ok(())
+        } else {
+            Err(DeliveryError::SubmitUnconfirmed { tab: record.authority.tab_id.clone(), detail: "opaque-postwrite".into() })
+        }
+    }));
+    mark_ready(&fixture, &tab);
+    fixture.service.wake_parked_user_send(&tab);
+    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), first.send_id);
+    let confirmed = live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal");
+    assert_eq!(confirmed.len(), 1);
+    assert_eq!(confirmed[0].send_id, first.send_id);
+    for index in 0..256 {
+        assert!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce",
+            &format!("opaque-unmatched-{index}"), "opaque-unrelated").is_empty());
+    }
+    assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    release_tx.send(()).unwrap();
+    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), second.send_id);
+    assert!(fixture.service.chat_send_anchor(&tab).anchor.is_none());
+    assert!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal").is_empty());
+    assert!(!fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
+    assert!(live_turn(&fixture, &tab, "opaque-session", "old-nonce", "turn-b", "opaque-equal").is_empty());
+    assert!(live_turn(&fixture, &tab, "other-session", "opaque-current-nonce", "turn-b", "opaque-equal").is_empty());
+    let confirmed = live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-b", "opaque-equal");
+    assert_eq!(confirmed.len(), 1, "unmatched earlier deltas must not permanently consume the next head's proof capacity");
+    assert_eq!(confirmed[0].send_id, second.send_id);
+    assert!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-b", "opaque-equal").is_empty());
+}
