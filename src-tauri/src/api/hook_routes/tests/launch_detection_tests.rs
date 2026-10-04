@@ -30,6 +30,36 @@ fn detected_session_binds_the_launch_it_names() {
 }
 
 #[test]
+fn detected_current_process_record_reauthenticates_a_restored_session() {
+    let (mux, tab_id) = launched_tab("claude", Some("nonce-restored"));
+    {
+        let mut state = mux.write();
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.agent_session_id = Some("sid-restored".into());
+        tab.reported_session_binding_nonce = Some("nonce-before-restore".into());
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::LaunchWritten);
+    }
+
+    let claim = bind_detected_session(
+        &mux,
+        &registry(&["claude"]),
+        &tab_id,
+        "claude",
+        "sid-restored",
+        "nonce-restored",
+    )
+    .unwrap();
+
+    let tab = mux.read();
+    let tab = tab.get_tab(&tab_id).unwrap();
+    assert!(claim.nonce_verified);
+    assert!(!claim.changed);
+    assert_eq!(tab.agent_session_id.as_deref(), Some("sid-restored"));
+    assert_eq!(tab.reported_session_binding_nonce.as_deref(), Some("nonce-restored"));
+    assert!(tab.launch_session_authenticated());
+}
+
+#[test]
 fn detection_for_a_rotated_launch_is_refused() {
     let (mux, tab_id) = launched_tab("claude", Some("nonce-2"));
 
