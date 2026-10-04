@@ -154,6 +154,89 @@ fn after_update_prompt_replaces_the_owed_general_agent_prompt_once() {
 }
 
 #[test]
+fn pending_after_update_is_armed_and_sent_once_instead_of_the_owed_prompt() {
+    use std::cell::RefCell;
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("post-update-message.txt");
+    let sender = crate::multiplexer::types::TurnResumeSender {
+        tab_id: "requester".into(),
+        label: "Requester".into(),
+        from_agent: Some(true),
+        from_model: None,
+    };
+    let message = crate::update::post_update::PendingMessage {
+        text: "opaque-after-update".into(),
+        sender: Some(sender.clone()),
+    };
+    std::fs::write(&path, serde_json::to_vec(&message).unwrap()).unwrap();
+    let pending = crate::update::post_update::pending_at(&path).expect("stashed request");
+
+    let (mut state, tab_id) = agent_tab(TimelineState::Working);
+    assert!(set_state(&mut state, &tab_id, TimelineState::Working));
+    let mut restored = restart(&state);
+    restored.register_alias(crate::service::general_agent::GENERAL_ALIAS, &tab_id);
+    let mux = shared(restored);
+    let events = RefCell::new(Vec::new());
+    let armed = arm_after_update_message(
+        &mux,
+        SECOND,
+        Some(&pending),
+        || {
+            assert_eq!(
+                mark(&mux, &tab_id).and_then(|mark| mark.prompt),
+                Some("opaque-after-update".into())
+            );
+            events.borrow_mut().push("arm_persist");
+            true
+        },
+        || {
+            events.borrow_mut().push("consume");
+            true
+        },
+    )
+    .expect("after-update request is durable")
+    .expect("General Agent tab was armed");
+    assert_eq!(armed, tab_id);
+    {
+        let mut mux = mux.write();
+        resumed_ready(&mut mux, &tab_id, "session-a");
+    }
+
+    let wave = Wave::new(SECOND, owed_tab_ids(&mux, SECOND));
+    let claim = match advance_consider(&mux, &tab_id, &wave, false) {
+        Some(Step::Claimed(claim)) => claim,
+        other => panic!("expected one claim, got {other:?}"),
+    };
+    let mut sends = Vec::new();
+    deliver_claim(
+        &claim,
+        || {
+            events.borrow_mut().push("claim_persist");
+            true
+        },
+        || {
+            events.borrow_mut().push("binding");
+            true
+        },
+        |body, _claim| {
+            events.borrow_mut().push("send");
+            sends.push(body.to_string());
+            Ok(())
+        },
+    )
+    .expect("one claimed delivery");
+
+    assert_eq!(
+        *events.borrow(),
+        ["arm_persist", "consume", "claim_persist", "binding", "send"]
+    );
+    assert_eq!(sends, ["opaque-after-update"]);
+    assert!(advance_consider(&mux, &tab_id, &wave, false).is_none());
+    assert_eq!(step(&mux, &tab_id, SECOND), Step::Settled);
+}
+
+#[test]
 fn stale_previous_edge_records_the_current_idle_state_change() {
     let (mut mux, tab_id) = agent_tab(TimelineState::Working);
     let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -174,7 +257,10 @@ fn stale_previous_edge_records_the_current_idle_state_change() {
 fn explicit_resume_requires_enabled_setting_and_the_callers_own_tab() {
     assert_eq!(request_enabled(false), Err(DISABLED));
     assert!(request_enabled(true).is_ok());
-    assert_eq!(request_targets_caller("tab-a", "tab-b"), Err(NOT_CALLER_TAB));
+    assert_eq!(
+        request_targets_caller("tab-a", "tab-b"),
+        Err(NOT_CALLER_TAB)
+    );
     assert!(request_targets_caller("tab-a", "tab-a").is_ok());
 }
 
@@ -210,10 +296,14 @@ fn delivery_refuses_without_send_when_claim_persistence_fails() {
     use std::cell::Cell;
 
     let sent = Cell::new(false);
-    let result = persist_then_send(|| false, || true, || {
-        sent.set(true);
-        Ok(())
-    });
+    let result = persist_then_send(
+        || false,
+        || true,
+        || {
+            sent.set(true);
+            Ok(())
+        },
+    );
 
     assert_eq!(result, Err(DeliveryFailure::ClaimNotPersisted));
     assert!(!sent.get());

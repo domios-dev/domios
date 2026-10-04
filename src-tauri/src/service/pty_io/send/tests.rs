@@ -216,6 +216,43 @@ fn authenticated_resume_refuses_a_rotated_pty_or_binding_nonce() {
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the ServiceFixture requires an interactive desktop runtime"
+)]
+fn pinned_resume_send_writes_no_payload_when_the_pty_changed() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::Pty;
+    tab.pty_id = Some("pty-current".into());
+    tab.agent_type = Some("opaque-provider".into());
+    tab.agent_session_id = Some("session-a".into());
+    tab.session_binding_nonce = Some("nonce-a".into());
+    tab.reported_session_binding_nonce = Some("nonce-a".into());
+    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let payload = "opaque resume payload";
+    let mut written = Vec::new();
+
+    let result = fixture
+        .service
+        .send_to_authenticated_agent_session_pinned_with(
+            &tab_id,
+            "pty-previous",
+            "session-a",
+            "nonce-a",
+            payload,
+            |_, text| {
+                written.extend_from_slice(text.as_bytes());
+                Ok(())
+            },
+        );
+
+    assert!(result.is_err());
+    assert!(written.is_empty());
+}
+
+#[test]
 fn provider_readiness_overrides_generic_tui_glyphs() {
     assert!(!provider_or_generic_tui(Some(false), true));
     assert!(provider_or_generic_tui(Some(true), false));

@@ -67,6 +67,27 @@ static AGENT_STOP_SUPPRESS_UNTIL: LazyLock<StdMutex<HashMap<String, Instant>>> =
 
 const AGENT_STOP_SUPPRESS_MS: u64 = 1_500;
 
+fn store_agent_state_and_record_turn_resume_edge(
+    tab: &mut crate::multiplexer::types::Tab,
+    new_state: crate::agent::offline_state_classifier::AgentLiveState,
+    start_epoch: Option<&str>,
+    shutting_down: bool,
+) -> (bool, bool) {
+    if tab.agent_state.as_ref() == Some(&new_state) {
+        return (false, false);
+    }
+    tab.agent_state = Some(new_state);
+    let mark_changed = start_epoch.is_some_and(|start_epoch| {
+        crate::service::turn_resume::record_turn_resume_edge_if_active(
+            tab,
+            start_epoch,
+            shutting_down,
+            true,
+        )
+    });
+    (true, mark_changed)
+}
+
 impl ServiceContext {
     pub(crate) fn arm_agent_stop_suppression(&self, pty_id: &str) {
         AGENT_STOP_SUPPRESS_UNTIL.lock().unwrap().insert(
@@ -621,20 +642,24 @@ impl ServiceContext {
         }
 
         // mux (1): store if changed.
-        let changed = {
+        let (changed, resume_mark_changed) = {
             let mut mux = self.mux.write();
             match mux.get_tab_mut(&tab_id) {
-                Some(tab) if tab.agent_state.as_ref() != Some(&new_state) => {
-                    tab.agent_state = Some(new_state);
-                    true
-                }
-                _ => false,
+                Some(tab) => store_agent_state_and_record_turn_resume_edge(
+                    tab,
+                    new_state,
+                    crate::crash::lifecycle::current_start_epoch(),
+                    crate::crash::shutdown::is_shutting_down(),
+                ),
+                None => (false, false),
             }
         };
         if changed {
             self.emit_state_changed();
             self.schedule_planner_replay(&tab_id);
-            self.record_turn_resume_edge(&tab_id);
+            if resume_mark_changed {
+                self.schedule_session_persist_debounced();
+            }
             if became_idle {
                 // The turn boundary, not a status value: the pass itself runs on the
                 // ledger thread, never here.
