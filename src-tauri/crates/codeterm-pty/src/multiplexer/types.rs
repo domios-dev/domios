@@ -3,11 +3,16 @@ use std::sync::Arc;
 
 mod model_identity;
 mod restorable_launch;
+mod turn_resume;
 pub use model_identity::{
     LaunchModelReport, ModelFallbackNotice, ModelIdentityMismatch, PendingModelSwitchObservation,
     SessionModelIdentity,
 };
 pub use restorable_launch::{ReasoningEffortIdentity, RestorableLaunchParameters};
+pub use turn_resume::{
+    observe_turn, request_continue, settle_turn_resume, withdraw_sent_claim, TurnResumeMark,
+    TurnResumeOutcome, TurnResumeSettlement,
+};
 
 pub use codeterm_types::pty::{AgentRole, PendingPrompt, PromptOption, PromptSection};
 
@@ -656,6 +661,8 @@ pub struct Tab {
     /// the chat view. Persisted only with the tab-owned session identity.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_state: Option<codeterm_types::pty::AgentLiveState>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub turn_resume: Option<TurnResumeMark>,
     /// Auto-approve prompts (set when spawned with skip_permissions).
     /// When true, detected prompts are answered automatically instead of shown to user.
     #[serde(default)]
@@ -937,6 +944,7 @@ mod tests {
             pending_prompt: None,
             pending_prompt_kind: None,
             agent_state: None,
+            turn_resume: None,
             auto_approve: false,
             permission_auto_confirm: false,
             permission_auto_confirmations: Vec::new(),

@@ -124,6 +124,7 @@ pub(crate) mod startup_lease;
 pub(crate) mod startup_nudge;
 mod status_reconciliation;
 pub(crate) mod tab_stop;
+pub(crate) mod turn_resume;
 #[cfg(test)]
 pub(crate) use status_reconciliation::try_snapshot_with_reconciled_status;
 pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;

@@ -121,10 +121,12 @@ does not publish a release or alter GitHub assets.
    This route is Windows-only, requires the clean canonical checkout, reuses a
    persistent release target with sccache, rebuilds only changed Cargo units,
    recreates the NSIS bundle, verifies source provenance, and installs that
-   exact artifact. When invoked inside Domios, it saves the session and sends
-   a continuation intent to the calling Tab after the new daemon is healthy.
-   The default intent verifies the installed SHA and resumes the interrupted
-   work. Override or disable it when needed:
+   exact artifact. When invoked inside Domios, it saves the session with a
+   continuation for the calling Tab; the relaunched daemon delivers it once,
+   after that Tab's own resumed session is agent-ready, and every other agent
+   that was mid-turn receives one default continue. The default intent
+   verifies the installed SHA and resumes the interrupted work. Override or
+   disable it when needed:
 
    ```powershell
    .\build.ps1 install-local --continue-prompt "Verify the installed build, then resume release QA."
