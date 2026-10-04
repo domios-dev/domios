@@ -40,8 +40,21 @@ pub(crate) struct Telemetry {
 
 struct Slot {
     identity: String,
+    state: String,
+    hard: Vec<HardWake>,
     decision: Decision,
     attempted: bool,
+}
+
+impl Slot {
+    /// An accepted reminder moves the delta baseline; the same plan state with an
+    /// empty delta and no new hard event is still the same observation.
+    fn same(&self, hash: &str, state: &str, snapshot: &Snapshot) -> bool {
+        self.identity == hash
+            || (snapshot.delta.is_empty()
+                && self.state == state
+                && snapshot.hard.iter().all(|hard| self.hard.contains(hard)))
+    }
 }
 
 #[derive(Default)]
@@ -182,6 +195,7 @@ impl Gate {
         interval: u64,
     ) -> Result<Decision, String> {
         let hash = snapshot.hash();
+        let state_hash = snapshot.state_hash();
         let kind = snapshot.scope.kind;
         let state = {
             let mut entries = self.entries.lock();
@@ -190,7 +204,7 @@ impl Gate {
                     entry
                         .slots
                         .get(&kind)
-                        .filter(|slot| slot.identity == hash)
+                        .filter(|slot| slot.same(&hash, &state_hash, snapshot))
                         .map(|slot| slot.decision.clone()),
                     entry.last_soft_class.clone(),
                     entry.last_soft_delivery,
@@ -240,6 +254,8 @@ impl Gate {
                 kind,
                 Slot {
                     identity: hash,
+                    state: state_hash,
+                    hard: snapshot.hard.clone(),
                     decision: decision.clone(),
                     attempted: false,
                 },
