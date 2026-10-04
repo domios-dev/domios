@@ -6,6 +6,8 @@ A Sentinel graph is an agent's recurring action written once as a program. It ru
 
 A graph is made of deterministic steps and decision points. A decision point offers a finite set of options, each defined in code before the graph runs. The connected decision model chooses one, and code executes exactly the chosen option. The model never constructs an option, command, target, key sequence or text, and observed output never becomes one. Without a connected adapter, author-declared match rules choose; a graph with neither is refused.
 
+A stage may observe bounded probe output or an agent tab. A `cron-run:<id-or-name>` stage waits for a run, then binds to the exact tab recorded for that run. Run replacement starts a fresh episode; run completion or tab removal unbinds the stage.
+
 Probes have bounded runtime and output, and their cadence is requested work, not a sleep coordinating readiness. An unchanged observation never calls the model; a changed one costs one choice in the shared Supporter accounting. A transition acts once.
 
 ## What a graph may do
