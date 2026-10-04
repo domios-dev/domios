@@ -112,18 +112,17 @@ Effort lineage links use `codeterm effort link --from <plan> --to <plan> --rel
 
 ## Milestones & regression boundaries
 
-Tasks are not a flat list — group them into **milestones** and gate each
-boundary with one centralized regression run. Isolated implementation lanes do
-not repeat cold compiled builds.
+Tasks are not a flat list — group them into **milestones** and close each
+boundary with one centralized regression run. Lanes run only isolated checks.
 
 ```bash
 codeterm plan kinds set <plan> --kinds "build,integration,release"   # milestone-kind columns
 codeterm plan milestone add <plan> <task> --kind <kind> --text "<what shipped>"
 ```
 
-At each milestone boundary the Orchestrator runs the broad gate in one warm
-integration checkout before opening the next milestone. A milestone with no
-regression gate is a milestone in name only.
+At each boundary the Orchestrator reruns the merged wave's focused selectors as
+one canonical batch; the broad gate waits for the release SHA. A milestone with
+no regression run is a milestone in name only.
 
 Give each task its group with `--group` and sequence with `depends_on`, never by
 pausing tasks. When every task in a group is terminal, no further task
@@ -200,4 +199,4 @@ Never require a lane in a task; checkout placement is the Orchestrator's call.
 When blocked or unclear on intent, ask the Orchestrator with what you already
 tried; uncertainty routed early is planning working.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->
