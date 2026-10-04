@@ -252,8 +252,13 @@ from screen output. Submit recovery writes the payload once and issues only the
 bounded submit-key schedule. A capability-declared first-key offset schedules an
 attempt; elapsed time never means ready or delivered. After a key, an exact user
 turn in the tab's bound-session append window stops the remaining keys. One
-resettable cycle exists per PTY; a new send cancels the old cycle instead of
-queueing messages.
+active submit cycle exists per PTY. The explicit user-send exception is a
+bounded durable queue of never-written originals (32 unsettled records and
+4 MiB prepared/body bytes per tab, with separately bounded original storage).
+Enqueuing does not claim or cancel a submit cycle. Only the eligible head may
+claim one after exact same-launch readiness; tail advancement requires cycle
+settlement and exact own-session turn evidence. A possible handoff or crashed
+claim is held uncertainty and must never replay after write, reopen, or rebind.
 Delivery state is internal telemetry: Chat UI never renders
 delivery banners, failure cards, Retry actions, or notifications. Do not add
 screen/composer acknowledgement, guessed readiness, payload retries, sleeps,

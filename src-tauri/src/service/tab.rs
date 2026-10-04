@@ -116,6 +116,8 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
+        self.pending_delivery_payloads.user_sends.tab(tab_id).revoked.store(true, std::sync::atomic::Ordering::Release);
+        self.invalidate_guarded_agent_input(tab_id);
         self.chat_registry.shutdown_tab(tab_id);
         self.deferred_session_bindings.clear(tab_id);
 
@@ -132,7 +134,6 @@ impl ServiceContext {
         );
         self.discard_pending_delivery(tab_id)
             .map_err(|error| format!("pending delivery discard failed: {error}"))?;
-        self.invalidate_guarded_agent_input(tab_id);
         self.release_worker_persona_for_tab(tab_id);
         Ok(())
     }
