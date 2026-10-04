@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::api::events::SystemEvent;
 use crate::cron::clock::MockClock;
-use crate::cron::scheduler::{CronState, CronWake};
+use crate::cron::scheduler::CronState;
 use crate::cron::store::{CronStorageOptions, CronStore};
 use crate::sentinel::scheduler::{self, Handle};
 use crate::sentinel::store::{Create, Owner, Store};
@@ -35,6 +35,8 @@ fn team_storage_fixture() -> TeamStorageFixture {
     let (mux, team_id, orchestrator, _, _) = super::team_members();
     let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
     let service = ServiceFixture::new(mux);
+    let events: crate::api::events::EventBroadcasterState = service.service.events.clone();
+    assert!(service._app.manage(events));
     let storage = Storage::open(
         service.temp.path().join("instance"),
         StorageConfig::default(),
