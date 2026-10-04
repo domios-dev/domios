@@ -121,29 +121,35 @@ fn merge_live_agent_identities(snapshot: &mut SessionSnapshot, live: &SessionSna
 }
 
 #[tauri::command]
-pub fn save_session(
+pub async fn save_session(
     app: tauri::AppHandle,
     mux: tauri::State<'_, MuxState>,
-    session: tauri::State<'_, SessionState>,
+    _session: tauri::State<'_, SessionState>,
 ) -> Result<(), String> {
-    // A refused reduction is the guard working (logged by the store), not a
-    // command failure — the sidecar gate decides whether it may prune.
-    let outcome = save_current_snapshot(
-        session.inner(),
-        mux.inner(),
-        store::SaveIntent::PreserveDesk,
-    )?;
-    scrollback_sync::sync_scrollback_sidecars_after_save(&app, &outcome);
+    let app = app.clone();
+    let mux = mux.inner().clone();
+    let outcome = tokio::task::spawn_blocking(move || {
+        crate::service::session_persist::write_session_snapshot(&app, &mux)
+    })
+    .await
+    .map_err(|error| format!("session persistence task failed: {error}"))??;
+    if let store::SaveOutcome::RefusedReduction(refusal) = outcome {
+        log::error!("[session] explicit save preserved the fuller desk: {refusal}");
+    }
     Ok(())
 }
 
 #[tauri::command]
-pub fn save_session_named(
+pub async fn save_session_named(
     mux: tauri::State<'_, MuxState>,
     session: tauri::State<'_, SessionState>,
     name: String,
 ) -> Result<(), String> {
-    save_current_snapshot_named(session.inner(), mux.inner(), &name)
+    let mux = mux.inner().clone();
+    let session = session.inner().clone();
+    tokio::task::spawn_blocking(move || save_current_snapshot_named(&session, &mux, &name))
+        .await
+        .map_err(|error| format!("named session save task failed: {error}"))?
 }
 
 #[tauri::command]
