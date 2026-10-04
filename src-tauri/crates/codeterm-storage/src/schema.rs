@@ -16,6 +16,7 @@ const MIGRATIONS: &[&str] = &[
     SCHEMA_V1,
     cron::SCHEMA,
     sentinel::SCHEMA,
+    // Task yfh89f owns the preceding migration slot; keep Sentinel graph v4 after it.
     sentinel::GRAPH_SCHEMA,
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
