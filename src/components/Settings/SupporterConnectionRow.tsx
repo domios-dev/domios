@@ -157,8 +157,12 @@ export function SupporterConnectionRow({ row, controls, stale, unavailableReason
           {stale && !failure ? "Last-known status; refresh to verify." : failureReason}
         </p>
       )}
-      {controls.saved[row.adapter] && !row.active && !failure && (
-        <p role="status" className="text-xs text-[var(--ct-muted-fg)]">Saved, not active</p>
+      {!row.active && (controls.saved[row.adapter] || row.token.present) && (
+        <p role="status" className="text-xs text-[var(--ct-muted-fg)]">
+          {[controls.saved[row.adapter] ? "Saved, not active" : null, row.token.present ? "Token saved, hidden" : null]
+            .filter(Boolean)
+            .join(" · ")}
+        </p>
       )}
       {row.active && (
         <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--ct-muted-fg)]">
