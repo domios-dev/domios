@@ -14,7 +14,8 @@ struct Tick {
     incidents: Vec<String>,
 }
 
-struct FixtureModel;
+/// Answers every question with one label; the tick label is the arm's verdict.
+struct FixtureModel(&'static str);
 
 impl DecisionModel for FixtureModel {
     fn id(&self) -> &str {
@@ -44,7 +45,7 @@ impl DecisionModel for FixtureModel {
                 .keys()
                 .map(|key| {
                     let label = if key == "tick" {
-                        "nothing_changed"
+                        self.0
                     } else if key.starts_with("learning:") {
                         "irrelevant"
                     } else {
@@ -64,7 +65,9 @@ impl DecisionModel for FixtureModel {
     }
 }
 
-fn run(arm: &str, model: Option<&dyn DecisionModel>) {
+/// The policy oracle is independent of the gate's verdict: only an approving
+/// adapter emits, once per new observation; hard incidents never force a wake.
+fn run(arm: &str, model: Option<&dyn DecisionModel>, approving: bool) {
     let source = std::env::var("CODETERM_HEARTBEAT_REPLAY_INPUT")
         .ok()
         .map(|path| std::fs::read_to_string(path).unwrap())
@@ -78,10 +81,13 @@ fn run(arm: &str, model: Option<&dyn DecisionModel>) {
     let replay: Replay = serde_json::from_str(&source).unwrap();
     assert!(!replay.ticks.is_empty());
     let gate = Gate::default();
-    let mut woken = 0;
-    let mut suppressed = 0;
-    let mut missed = Vec::new();
+    let (mut woken, mut suppressed) = (0, 0);
+    let (mut missed, mut unexpected) = (Vec::new(), Vec::new());
+    let mut previous: Option<String> = None;
     for tick in &replay.ticks {
+        let identity = tick.snapshot.hash();
+        let expected = approving && previous.as_deref() != Some(identity.as_str());
+        previous = Some(identity);
         let decision = gate
             .decide(
                 "owner",
@@ -93,35 +99,42 @@ fn run(arm: &str, model: Option<&dyn DecisionModel>) {
             .unwrap();
         if decision.wake {
             woken += 1;
-            assert!(!decision.next_steps.is_empty() || decision.safety);
+            assert!(!decision.next_steps.is_empty());
             gate.delivered("owner", &tick.snapshot, &decision, tick.at);
         } else {
             suppressed += 1;
-            if !tick.incidents.is_empty() {
-                missed.push(json!({"at": tick.at, "incidents": tick.incidents}));
-            }
+        }
+        if expected && !decision.wake && !tick.incidents.is_empty() {
+            missed.push(json!({"at": tick.at, "incidents": tick.incidents}));
+        }
+        if decision.wake && !expected {
+            unexpected.push(json!({"at": tick.at, "reason": decision.reason}));
         }
         println!(
             "HEARTBEAT_REPLAY_TICK={}",
-            json!({"at": tick.at, "wake": decision.wake, "reason": decision.reason, "observation_id": decision.observation_id, "incidents": tick.incidents})
+            json!({"at": tick.at, "wake": decision.wake, "expected": expected, "reason": decision.reason, "observation_id": decision.observation_id, "incidents": tick.incidents})
         );
     }
     println!(
         "HEARTBEAT_REPLAY_RESULT={}",
-        json!({"plan_id": replay.plan_id, "arm": arm, "ticks": replay.ticks.len(), "woken": woken, "suppressed": suppressed, "missed_incidents": missed.len(), "misses": missed})
+        json!({"plan_id": replay.plan_id, "arm": arm, "policy": "choice_approval_required", "ticks": replay.ticks.len(), "woken": woken, "suppressed": suppressed, "missed_incidents": missed.len(), "misses": missed, "unexpected_wakes": unexpected.len(), "unexpected": unexpected})
     );
     assert!(
         missed.is_empty(),
-        "the production gate missed a labeled incident"
+        "an approved new observation did not wake"
+    );
+    assert!(
+        unexpected.is_empty(),
+        "the gate woke without a new approval"
     );
 }
 
 #[test]
 fn heartbeat_gate_replay_fixture() {
-    run("fixture", Some(&FixtureModel));
+    run("fixture", Some(&FixtureModel("action_needed")), true);
 }
 
 #[test]
 fn heartbeat_gate_replay_no_model() {
-    run("no-model", None);
+    run("no-model", None, false);
 }
