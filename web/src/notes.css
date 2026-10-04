@@ -16,6 +16,7 @@
 .note-author { display: flex; align-items: center; gap: 9px; }
 .note-avatar { display: grid; place-items: center; flex: 0 0 29px; height: 29px; border: 1px solid var(--ct-border); border-radius: 50%; color: var(--ct-fg); background: var(--ct-bg); font: 10px var(--ct-font-mono); }
 .note-byline { display: flex; align-items: baseline; gap: 7px; font-size: 12px; white-space: nowrap; }
+.note-byline:hover > span { text-decoration: underline; text-underline-offset: 3px; }
 .note-byline > span:first-child { color: var(--ct-heading); font-weight: 600; }
 .note-byline > span:last-child, .note-author time { color: var(--ct-muted-fg); font-size: 11px; }
 .note-author time { margin-left: auto; white-space: nowrap; }
