@@ -523,3 +523,31 @@ fn cron_complete_requires_run_owner() {
         .expect("owner-completed run remains recorded");
     assert_eq!(run.status, CronRunStatus::Success);
 }
+
+#[test]
+fn cron_settle_refused_trigger_record_never_dispatches() {
+    let temp = tempfile::tempdir().unwrap();
+    let cron = Arc::new(Mutex::new(CronStore::new_with_path(
+        temp.path().join("crons.json"),
+    )));
+    let run = CronRunInfo {
+        run_id: "refused-trigger-run".into(),
+        started_at: 1,
+        finished_at: None,
+        status: CronRunStatus::Running,
+        tab_id: None,
+        session_id: None,
+        cwd: None,
+        summary: None,
+        report_delivery: None,
+    };
+    let mut dispatched = false;
+
+    let result = super::dispatch_after_trigger_record(&cron, "missing-job", &run, || {
+        dispatched = true;
+    });
+
+    assert!(result.is_err());
+    assert!(!dispatched, "refused run record never dispatches an agent");
+    assert!(cron.lock().get_history("missing-job").is_empty());
+}
