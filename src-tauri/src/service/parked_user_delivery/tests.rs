@@ -459,11 +459,81 @@ pub(crate) fn mark_ready(fixture: &ServiceFixture, tab_id: &str) {
     assert!(fixture.service.latch_user_authority_ready(&authority));
 }
 
-pub(crate) fn live_turn(fixture: &ServiceFixture, tab: &str, session: &str, nonce: &str, id: &str, text: &str) -> Vec<ChatSendStatus> {
+#[derive(Clone)]
+struct ObservedTurn {
+    message: crate::agent::chat_types::ChatMsg,
+    provenance: crate::service::chat_send_transaction::LiveProvenance,
+}
+
+fn observed_turn(fixture: &ServiceFixture, tab: &str, id: &str, text: &str) -> ObservedTurn {
+    let path = fixture.temp.path().join("transcripts").join("opaque-session.jsonl");
+    let bytes = std::fs::read(&path).unwrap();
+    let content_end = bytes.iter().rposition(|byte| *byte != b'\n').map_or(0, |index| index + 1);
+    let record_start = bytes[..content_end].iter().rposition(|byte| *byte == b'\n')
+        .map_or(0, |index| index + 1) as u64;
+    let source = fixture.service.chat_registry.jsonl_source(tab);
+    let crate::service::tab_chat::registry::SourceObservation::Present {
+        incarnation: Some(incarnation),
+        ..
+    } = source.observe("opaque-session", &path, None, record_start)
+    else {
+        panic!("the transcript must have a sourced incarnation");
+    };
+    let nonce = fixture.service.mux.read().get_tab(tab)
+        .and_then(|tab| tab.session_binding_nonce.clone()).unwrap();
+    ObservedTurn {
+        message: crate::agent::chat_types::ChatMsg {
+            id: id.into(),
+            kind: "user".into(),
+            content: text.into(),
+            ..Default::default()
+        },
+        provenance: crate::service::chat_send_transaction::LiveProvenance {
+            source_session_id: "opaque-session".into(),
+            source_binding_nonce: Some(nonce),
+            range: crate::service::tab_chat::tailer::SourceRange {
+                start_offset: record_start,
+                offset: bytes.len() as u64,
+                incarnation: Some(incarnation),
+            },
+            positions: vec![crate::service::chat_send_transaction::TurnPosition {
+                record_start: Some(record_start),
+                record_row: 0,
+            }],
+        },
+    }
+}
+
+fn deliver_turn(
+    fixture: &ServiceFixture,
+    tab: &str,
+    session: &str,
+    nonce: &str,
+    turn: &ObservedTurn,
+) -> Vec<ChatSendStatus> {
     crate::service::tab_chat::structured_sink::current_binding_turn_confirmations(
-        &fixture.service.mux, Some(&fixture.service.chat_send_ledger), tab, Some(session), Some(nonce),
-        &[crate::agent::chat_types::ChatMsg { id: id.into(), kind: "user".into(), content: text.into(), ..Default::default() }],
+        &fixture.service.mux,
+        Some(&fixture.service.chat_send_ledger),
+        tab,
+        Some(session),
+        Some(nonce),
+        &[turn.message.clone()],
+        Some(&turn.provenance),
     )
+}
+
+pub(crate) fn live_turn(
+    fixture: &ServiceFixture,
+    tab: &str,
+    session: &str,
+    nonce: &str,
+    id: &str,
+    text: &str,
+) -> Vec<ChatSendStatus> {
+    let path = fixture.temp.path().join("transcripts").join("opaque-session.jsonl");
+    if !path.exists() { return Vec::new(); }
+    let turn = observed_turn(fixture, tab, id, text);
+    deliver_turn(fixture, tab, session, nonce, &turn)
 }
 
 fn append_turn(fixture: &ServiceFixture, text: &str) {
@@ -529,6 +599,7 @@ pub(crate) fn attach_fixture_pty(fixture: &ServiceFixture, tab_id: &str) -> u64 
 
 #[path = "tests/owner_jev.rs"]
 mod owner_jev;
+mod evidence;
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
@@ -690,46 +761,11 @@ fn ready_busy_owner_writes_each_send_without_waiting_for_prior_turn_evidence() {
     assert!(!fixture.service.chat_send_ledger.user_confirmed(&first.send_id));
     append_turn(&fixture, "opaque-equal");
     assert_eq!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal")[0].send_id, first.send_id);
+    append_turn(&fixture, "opaque-equal");
     assert_eq!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-b", "opaque-equal")[0].send_id, second.send_id);
     assert!(fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
     assert_eq!(fixture.service.chat_send_ledger.status(&first.send_id).unwrap().state, ChatSendState::Sent);
     assert_eq!(fixture.service.chat_send_ledger.status(&second.send_id).unwrap().state, ChatSendState::Sent);
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
-fn lazy_session_start_writes_first_send_without_a_session_id_then_classifies_exact_turn() {
-    let (fixture, tab) = queue_fixture_with_session_mode(false, None, true);
-    {
-        let mut mux = fixture.service.mux.write();
-        let tab = mux.get_tab_mut(&tab).unwrap();
-        tab.agent_session_id = None;
-        tab.reported_session_binding_nonce = None;
-    }
-    let first = start_current_chat_send(&fixture, &tab, "opaque-lazy-first", "client-a");
-    assert!(fixture.service.chat_send_anchor(&tab).anchor.is_none());
-    let writes = Arc::new(AtomicUsize::new(0));
-    let count = writes.clone();
-    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |_record, _| {
-        count.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }));
-    mark_ready(&fixture, &tab);
-    fixture.service.wake_parked_user_send(&tab);
-    await_owner_idle(&fixture, &tab);
-    assert_eq!(writes.load(Ordering::SeqCst), 1, "status={:?} owner={}", fixture.service.chat_send_ledger.status(&first.send_id), owner_state(&fixture, &tab));
-    assert_eq!(fixture.service.chat_send_ledger.status(&first.send_id).unwrap().state, ChatSendState::Unknown);
-    {
-        let mut mux = fixture.service.mux.write();
-        let tab = mux.get_tab_mut(&tab).unwrap();
-        tab.agent_session_id = Some("opaque-session".into());
-        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
-    }
-    let delivered = live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "lazy-turn-a", "opaque-lazy-first");
-    assert_eq!(delivered.len(), 1);
-    assert_eq!(delivered[0].send_id, first.send_id);
-    assert_eq!(fixture.service.chat_send_ledger.status(&first.send_id).unwrap().state, ChatSendState::Sent);
-    assert_eq!(writes.load(Ordering::SeqCst), 1);
 }
 
 #[test]
@@ -751,10 +787,9 @@ fn postwrite_uncertainty_does_not_block_later_send_and_rebind_never_replays() {
     fixture._app.unlisten(listener);
     await_owner_idle(&fixture, &tab);
     assert_eq!(writes.load(Ordering::SeqCst), 2);
-    let delivered_first = live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", FIRST_PAYLOAD);
-    let delivered_second = live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-b", SECOND_PAYLOAD);
-    assert_eq!(delivered_first[0].send_id, first.send_id);
-    assert_eq!(delivered_second[0].send_id, second.send_id);
+    append_turn(&fixture, FIRST_PAYLOAD);
+    append_turn(&fixture, SECOND_PAYLOAD);
+    fixture.service.reconcile_chat_send_evidence(&tab);
     assert_eq!(fixture.service.chat_send_ledger.status(&first.send_id).unwrap().state, ChatSendState::Sent);
     assert_eq!(fixture.service.chat_send_ledger.status(&second.send_id).unwrap().state, ChatSendState::Sent);
     fixture.service.mux.write().get_tab_mut(&tab).unwrap().pty_id = Some("other-pty".into());
@@ -887,40 +922,6 @@ fn reversed_service_preparation_keeps_intake_order_before_first_handoff() {
     assert!(fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap().is_empty());
     assert_eq!(fixture.service.chat_send_ledger.status(&a.status.send_id).unwrap().state, ChatSendState::Unknown);
     assert_eq!(fixture.service.chat_send_ledger.status(&b.status.send_id).unwrap().state, ChatSendState::Unknown);
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
-fn anchorless_equal_text_requires_two_distinct_live_turn_ids() {
-    let (fixture, tab) = queue_fixture(false, None);
-    let first = start_current_chat_send(&fixture, &tab, "opaque-equal", "client-a");
-    let second = start_current_chat_send(&fixture, &tab, "opaque-equal", "client-b");
-    let (writes_tx, writes_rx) = mpsc::channel();
-    let (release_tx, release_rx) = mpsc::channel();
-    let release_rx = Arc::new(Mutex::new(release_rx));
-    let write_ledger = fixture.service.chat_send_ledger.clone();
-    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |record, _| {
-        write_ledger.mark_user_written(&record.send_id);
-        writes_tx.send(record.send_id.clone()).unwrap();
-        release_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
-        Ok(())
-    }));
-    mark_ready(&fixture, &tab);
-    fixture.service.wake_parked_user_send(&tab);
-    let handoff = writes_rx.recv_timeout(TEST_DEADLINE).ok();
-    assert_eq!(handoff.as_ref(), Some(&first.send_id), "{}", owner_state(&fixture, &tab));
-    assert_eq!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal")[0].send_id, first.send_id);
-    release_tx.send(()).unwrap();
-    let handoff = writes_rx.recv_timeout(TEST_DEADLINE).ok();
-    assert_eq!(handoff.as_ref(), Some(&second.send_id), "{}", owner_state(&fixture, &tab));
-    assert!(fixture.service.chat_send_anchor(&tab).anchor.is_none());
-    assert!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal").is_empty());
-    assert!(!fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
-    assert_eq!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-b", "opaque-equal")[0].send_id, second.send_id);
-    let (listener, settled) = settled_listener(&fixture, &tab, &second.send_id);
-    release_tx.send(()).unwrap();
-    assert_eq!(settled.recv_timeout(TEST_DEADLINE).unwrap()["send_id"], second.send_id);
-    fixture._app.unlisten(listener);
 }
 
 #[test]

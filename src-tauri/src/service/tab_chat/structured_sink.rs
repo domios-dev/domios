@@ -516,6 +516,19 @@ mod tests {
             tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
         }
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        fixture
+            .service
+            .pty
+            .lock()
+            .spawn_with_id(
+                Some("pty-current".into()),
+                None,
+                None,
+                120,
+                40,
+                Default::default(),
+            )
+            .expect("the exact PTY session must be attached before admission");
         let service_state = Arc::new(fixture.service.clone()) as crate::service::ServiceState;
         assert!(fixture._app.manage(service_state));
         fixture
@@ -564,6 +577,11 @@ mod tests {
             .service
             .chat_send_ledger
             .begin_user_handoff(&record, PAYLOAD, captured));
+        assert!(fixture
+            .service
+            .chat_send_ledger
+            .mark_user_written(&accepted.send_id)
+            .is_some());
         assert_eq!(
             fixture
                 .service

@@ -8,13 +8,7 @@ import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
 import type { ChatSendStatus } from "./chatSendStatus";
-
-type TestFn = () => void | Promise<void>;
-const tests: Array<[string, TestFn]> = [];
-
-function test(name: string, fn: TestFn) {
-  tests.push([name, fn]);
-}
+import { test } from "vitest";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -357,7 +351,6 @@ test("Escape-cancel: a canceled composition emits nothing", async () => {
     await teardown(h);
   }
 });
-
 test("ASCII negative control: plain typing is byte-identical through the same handlers", async () => {
   const h = await renderComposer("tab-ascii-control");
   try {
@@ -536,29 +529,3 @@ test("admission preserves a draft edited away and back to the same text", async 
     await teardown(h);
   }
 });
-
-async function main() {
-  let failures = 0;
-  try {
-    for (const [name, fn] of tests) {
-      try {
-        await fn();
-        console.log(`✓ ${name}`);
-      } catch (error) {
-        failures++;
-        console.error(`✗ ${name}`);
-        console.error(error);
-      }
-    }
-  } finally {
-    await (window as unknown as { happyDOM: { abort(): Promise<void> } }).happyDOM.abort();
-  }
-  if (failures > 0) {
-    console.error(`ChatComposer composition tests: ${failures} failed`);
-    process.exit(1);
-  }
-  console.log("ChatComposer composition tests: all passed");
-  process.exit(0);
-}
-
-void main();
