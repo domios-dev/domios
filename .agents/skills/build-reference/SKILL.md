@@ -123,13 +123,14 @@ release use `./build.sh build`, above.
 
 ## Icons
 
-Icon source files: `src-tauri/icons/`
+Native app source: `src-tauri/icons/app-icon.svg`. Tray assets are independent.
 
 | File | Size | Usage |
 |------|------|-------|
 | `icon.png` | 512x512 | Window icon, installer |
 | `256x256.png` | 256x256 | High-DPI displays |
-| `32x32.png` | 32x32 | System tray (Windows/Linux) |
+| `app-32x32.png` | 32x32 | Application bundle |
+| `32x32.png` | 32x32 | System tray (Windows/Linux), preserve independently |
 | `tray-template.png` | — | macOS tray (template image, auto light/dark) |
 | `icon.ico` | 256x256 | Windows executable |
 
@@ -141,10 +142,10 @@ Icon source files: `src-tauri/icons/`
 
 ### Regenerating icons
 
-1. Edit SVG source or create new design
-2. Render to PNG at multiple sizes using `sharp` (Node.js) or ImageMagick
-3. Replace files in `src-tauri/icons/`
-4. Rebuild — icons are embedded at compile time via `include_bytes!()`
+1. Edit `src-tauri/icons/app-icon.svg`; `assets/icon.svg` is not the native app source.
+2. In canonical, run `pnpm exec tauri icon src-tauri/icons/app-icon.svg --output <temp>/native`, then repeat with `--output <temp>/png --png 32 --png 512`.
+3. Verify outputs and copy only the generated ICNS/ICO, 32px PNG as `app-32x32.png`, and 512px PNG as `icon.png`. Preserve tray assets, `32x32.png`, and website/in-app logos.
+4. Review at actual display sizes before rebuilding; icons are embedded at compile time via `include_bytes!()`.
 
 ### Windows icon cache
 
