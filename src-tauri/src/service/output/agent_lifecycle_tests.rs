@@ -59,6 +59,53 @@ fn planner_probe(tab: &crate::multiplexer::types::Tab) -> TabProbe {
     }
 }
 
+#[test]
+fn output_records_the_work_mark_when_the_classifier_previous_is_stale() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("opaque-provider".into());
+    tab.agent_session_id = Some("session-a".into());
+    tab.agent_state = Some(
+        TabVerdict {
+            state: TimelineState::Idle,
+            subtype: None,
+        }
+        .into(),
+    );
+    let stale_previous = TimelineState::Working;
+    let new_state: crate::agent::offline_state_classifier::AgentLiveState = TabVerdict {
+        state: TimelineState::Working,
+        subtype: None,
+    }
+    .into();
+    assert_eq!(stale_previous, new_state.state);
+
+    let (state_changed, mark_changed) = super::store_agent_state_and_record_turn_resume_edge(
+        tab,
+        new_state.clone(),
+        Some("start-a"),
+        false,
+    );
+
+    assert!(state_changed);
+    assert!(mark_changed);
+    assert_eq!(
+        tab.turn_resume
+            .as_ref()
+            .map(|mark| mark.session_id.as_str()),
+        Some("session-a")
+    );
+    assert_eq!(
+        super::store_agent_state_and_record_turn_resume_edge(
+            tab,
+            new_state,
+            Some("start-a"),
+            false,
+        ),
+        (false, false)
+    );
+}
+
 fn seed_live_planner() -> (
     MultiplexerState,
     String,

@@ -130,7 +130,7 @@ does not publish a release or alter GitHub assets.
 
    ```powershell
    .\build.ps1 install-local --continue-prompt "Verify the installed build, then resume release QA."
-   .\build.ps1 install-local --continue-tab "<tab-id>" --continue-prompt "Continue the interrupted task."
+   .\build.ps1 install-local --continue-tab "$env:CODETERM_TAB_ID" --continue-prompt "Continue the interrupted task."
    .\build.ps1 install-local --no-continue
    ```
 
@@ -145,8 +145,10 @@ does not publish a release or alter GitHub assets.
    resolving `codeterm` from `PATH` may silently run the previously installed
    helper and is forbidden in this flow.
    Direct `update install --from-file` calls default to a short continuation
-   when `CODETERM_TAB_ID` is present; use `--no-continue` only when interruption
-   is intentional.
+   when `CODETERM_TAB_ID` is present. `--continue-tab` must name that same
+   caller tab. `--no-continue` durably settles the caller's mark as skipped
+   for the next start. Explicit continuation requests are refused with
+   `disabled` when `agent.continue_after_restart` is false.
    A successful self-install is proven by `self-install.log` reaching
    `installer exited 0` and `launched`, followed by port 7685 health reporting
    the installed source SHA. The build gateway records the verified artifact as
