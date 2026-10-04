@@ -31,7 +31,11 @@ pub(crate) fn runs_unattended(tab: &Tab) -> bool {
 }
 
 pub(crate) fn owns_prompt_answers(tab: &Tab) -> bool {
-    tab.role.is_some()
+    tab.role.is_some_and(|role| role != AgentRole::Manager)
+        || tab
+            .role_profile
+            .as_deref()
+            .is_some_and(|profile| profile != ORCHESTRATOR)
         || tab.roleless_tracked
         || tab.team_id.is_some()
         || tab.parent_tab_id.is_some()
