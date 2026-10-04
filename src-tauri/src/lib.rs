@@ -1140,20 +1140,18 @@ pub fn run() {
                 if window.label() != "main" { return; }
 
                 let app = window.app_handle();
-                if let (Some(mux), Some(session)) = (
+                if let (Some(mux), Some(_session)) = (
                     app.try_state::<MuxState>(),
                     app.try_state::<SessionState>(),
                 ) {
-                    let saved = session::save_current_snapshot(
-                        session.inner(),
+                    if let Err(error) = crate::service::session_persist::submit_session_snapshot_with_intent(
+                        &app,
                         mux.inner(),
                         session::store::SaveIntent::PreserveDesk,
-                    );
-                    if let Err(e) = saved {
-                        log::error!("Failed to save session: {}", e);
+                    ) {
+                        log::error!("Failed to submit close-to-tray session snapshot: {error}");
                     } else {
-                        session::scrollback_sync::sync_scrollback_sidecars(&app);
-                        log::info!("Session saved (close-to-tray)");
+                        log::info!("Session snapshot submitted (close-to-tray)");
                     }
                 }
 

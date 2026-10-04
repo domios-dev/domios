@@ -1,38 +1,17 @@
-//! Background tasks: auto-save, mesh health, update check, agent idle poll.
+//! Background tasks: mesh health, update check, agent idle poll.
 
 use tauri::Manager;
 
-use crate::multiplexer::commands::MuxState;
-use crate::session::SessionState;
 use crate::{keepawake, mesh, update};
 
 use super::states::AppStates;
 
-/// Start background threads: auto-save, update check, agent idle monitoring.
+/// Start the persistence worker and background monitoring threads.
 pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &AppStates) {
-    keepawake::start_supervisor(states.keepawake.clone(), app_handle.clone());
-
-    {
-        let app_handle = app_handle.clone();
-        std::thread::spawn(move || loop {
-            std::thread::sleep(std::time::Duration::from_secs(30));
-            if let (Some(mux), Some(session)) = (
-                app_handle.try_state::<MuxState>(),
-                app_handle.try_state::<SessionState>(),
-            ) {
-                let saved = crate::session::save_current_snapshot(
-                    session.inner(),
-                    mux.inner(),
-                    crate::session::store::SaveIntent::PreserveDesk,
-                );
-                if let Err(e) = saved {
-                    log::warn!("Auto-save failed: {}", e);
-                } else {
-                    crate::session::scrollback_sync::sync_scrollback_sidecars(&app_handle);
-                }
-            }
-        });
+    if let Err(error) = crate::service::session_persist::start_worker(app_handle) {
+        log::error!("[session-persist] worker startup failed: {error}");
     }
+    keepawake::start_supervisor(states.keepawake.clone(), app_handle.clone());
 
     // Mesh loop runs continuously; `mesh.enabled` is re-read each tick.
     {
