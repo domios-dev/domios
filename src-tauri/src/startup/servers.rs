@@ -7,7 +7,7 @@ use tauri::Manager;
 
 use crate::multiplexer::types::TabBacking;
 use crate::service::ServiceState;
-use crate::{api, cron, mem, mesh, service, socket, update, CronState, CronWake};
+use crate::{api, cron, mem, mesh, service, socket, CronState, CronWake};
 
 use super::states::AppStates;
 
