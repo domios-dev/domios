@@ -81,8 +81,8 @@ pub struct InstallUpdateQuery {
     /// at the manifest fetch layer (rejected in release builds for non-https
     /// schemes). Used by local end-to-end tests.
     pub manifest_url: Option<String>,
-    /// Message to inject into the General Agent tab after the new daemon
-    /// boots. Persisted to disk before restart so the next boot picks it up.
+    /// Message to continue through the General Agent's restart-resume claim.
+    /// Persisted before restart so the next boot folds it into that one claim.
     pub after_update: Option<String>,
     /// Tab that initiated the update — excluded from the shutdown sweep so the
     /// caller survives to hand off / relaunch (Defect 3).
@@ -96,9 +96,26 @@ pub async fn install_update(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
 
-    // Persist before restart — the new daemon picks this up on boot and injects into the General Agent tab.
+    // Persist before restart — the next boot folds it into the General Agent's resume claim.
     if let Some(text) = q.after_update.as_deref() {
-        if let Err(e) = crate::update::post_update::stash(text) {
+        let tab_id = crate::api::tab_routes::caller_tab_header(&headers).ok_or((
+            StatusCode::BAD_REQUEST,
+            crate::service::turn_resume::CALLER_TAB_REQUIRED,
+        ))?;
+        let sender = {
+            let mux = state.svc.mux.read();
+            let tab = mux.get_tab(&tab_id).ok_or((
+                StatusCode::BAD_REQUEST,
+                "caller_tab_not_found",
+            ))?;
+            crate::multiplexer::types::TurnResumeSender {
+                tab_id,
+                label: tab.title.clone(),
+                from_agent: Some(tab.agent_type.is_some()),
+                from_model: tab.agent_session_model.clone(),
+            }
+        };
+        if let Err(e) = crate::update::post_update::stash(text, Some(sender)) {
             log::warn!("[updater] failed to stash after_update message: {}", e);
         }
     }

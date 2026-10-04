@@ -84,6 +84,160 @@ fn working_state_persists_through_the_session_snapshot() {
 }
 
 #[test]
+fn shutdown_freeze_keeps_the_working_mark_when_idle_edge_arrives() {
+    let (mut mux, tab_id) = agent_tab(TimelineState::Working);
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    assert!(record_turn_resume_edge_if_active(tab, FIRST, false, true));
+    let marked = tab.turn_resume.clone();
+    tab.agent_state = Some(
+        TabVerdict {
+            state: TimelineState::Idle,
+            subtype: None,
+        }
+        .into(),
+    );
+
+    assert!(!record_turn_resume_edge_if_active(tab, FIRST, true, true));
+    assert_eq!(tab.turn_resume, marked);
+}
+
+#[test]
+fn disabled_resume_settles_owed_mark_without_claiming_it() {
+    let (mut state, tab_id) = agent_tab(TimelineState::Working);
+    assert!(set_state(&mut state, &tab_id, TimelineState::Working));
+    let mux = shared(restart(&state));
+    let owed = owed_tab_ids(&mux, SECOND);
+
+    assert_eq!(settle_disabled_marks(&mux, &owed, SECOND), 1);
+    assert_eq!(
+        mark(&mux, &tab_id)
+            .and_then(|mark| mark.settled)
+            .map(|settlement| settlement.outcome),
+        Some(TurnResumeOutcome::Skipped(DISABLED.into()))
+    );
+    assert_eq!(step(&mux, &tab_id, SECOND), Step::Settled);
+}
+
+#[test]
+fn after_update_prompt_replaces_the_owed_general_agent_prompt_once() {
+    let (mut state, tab_id) = agent_tab(TimelineState::Idle);
+    assert!(set_state(&mut state, &tab_id, TimelineState::Working));
+    let mut restored = restart(&state);
+    let tab = restored.get_tab_mut(&tab_id).unwrap();
+    let sender = crate::multiplexer::types::TurnResumeSender {
+        tab_id: "requester".into(),
+        label: "Requester".into(),
+        from_agent: Some(true),
+        from_model: None,
+    };
+    crate::multiplexer::types::request_continue_for_restored_start(
+        &mut tab.turn_resume,
+        "session-a",
+        SECOND,
+        "opaque-after-update".into(),
+        Some(sender.clone()),
+    );
+    resumed_ready(&mut restored, &tab_id, "session-a");
+    let mux = shared(restored);
+
+    assert_eq!(
+        step(&mux, &tab_id, SECOND),
+        Step::Claimed(Claim {
+            session_id: "session-a".into(),
+            prompt: Some("opaque-after-update".into()),
+            sender: Some(sender),
+            pty_id: "pty-2".into(),
+            binding_nonce: "nonce-2".into(),
+        })
+    );
+    assert_eq!(step(&mux, &tab_id, SECOND), Step::Settled);
+}
+
+#[test]
+fn stale_previous_edge_records_the_current_idle_state_change() {
+    let (mut mux, tab_id) = agent_tab(TimelineState::Working);
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    assert!(record_turn_resume_edge_if_active(tab, FIRST, false, true));
+    tab.agent_state = Some(
+        TabVerdict {
+            state: TimelineState::Idle,
+            subtype: None,
+        }
+        .into(),
+    );
+
+    assert!(record_turn_resume_edge_if_active(tab, FIRST, false, true));
+    assert!(tab.turn_resume.is_none());
+}
+
+#[test]
+fn explicit_resume_requires_enabled_setting_and_the_callers_own_tab() {
+    assert_eq!(request_enabled(false), Err(DISABLED));
+    assert!(request_enabled(true).is_ok());
+    assert_eq!(request_targets_caller("tab-a", "tab-b"), Err(NOT_CALLER_TAB));
+    assert!(request_targets_caller("tab-a", "tab-a").is_ok());
+}
+
+#[test]
+fn delivery_persists_and_pins_the_binding_before_one_send() {
+    use std::cell::RefCell;
+
+    let events = RefCell::new(Vec::new());
+    let mut sends = 0;
+    let result = persist_then_send(
+        || {
+            events.borrow_mut().push("persist");
+            true
+        },
+        || {
+            events.borrow_mut().push("binding");
+            true
+        },
+        || {
+            events.borrow_mut().push("send");
+            sends += 1;
+            Ok(())
+        },
+    );
+
+    assert_eq!(result, Ok(()));
+    assert_eq!(*events.borrow(), ["persist", "binding", "send"]);
+    assert_eq!(sends, 1);
+}
+
+#[test]
+fn delivery_refuses_without_send_when_claim_persistence_fails() {
+    use std::cell::Cell;
+
+    let sent = Cell::new(false);
+    let result = persist_then_send(|| false, || true, || {
+        sent.set(true);
+        Ok(())
+    });
+
+    assert_eq!(result, Err(DeliveryFailure::ClaimNotPersisted));
+    assert!(!sent.get());
+}
+
+#[test]
+fn delivery_refuses_without_send_when_the_pinned_session_changes() {
+    use std::cell::Cell;
+
+    let sent = Cell::new(false);
+    let result = persist_then_send(
+        || true,
+        || false,
+        || {
+            sent.set(true);
+            Ok(())
+        },
+    );
+
+    assert_eq!(result, Err(DeliveryFailure::SessionChanged));
+    assert!(!sent.get());
+}
+
+#[test]
 fn idle_tab_owes_nothing_after_restart() {
     let (mut mux, tab_id) = agent_tab(TimelineState::Idle);
     assert!(!set_state(&mut mux, &tab_id, TimelineState::Idle));
@@ -130,6 +284,9 @@ fn continue_is_claimed_once_across_two_starts() {
     let claim = Claim {
         session_id: "session-a".into(),
         prompt: None,
+        sender: None,
+        pty_id: "pty-2".into(),
+        binding_nonce: "nonce-2".into(),
     };
     assert_eq!(step(&second, &tab_id, SECOND), Step::Claimed(claim));
     assert_eq!(step(&second, &tab_id, SECOND), Step::Settled);
@@ -146,6 +303,28 @@ fn continue_is_claimed_once_across_two_starts() {
     let third = shared(third);
     assert!(owed_tab_ids(&third, THIRD).is_empty());
     assert_eq!(step(&third, &tab_id, THIRD), Step::Settled);
+}
+
+#[test]
+fn consideration_drains_one_tab_after_its_single_resume_claim() {
+    let (mut state, tab_id) = agent_tab(TimelineState::Working);
+    assert!(set_state(&mut state, &tab_id, TimelineState::Working));
+    let mut restored = restart(&state);
+    resumed_ready(&mut restored, &tab_id, "session-a");
+    let mux = shared(restored);
+    let wave = Wave::new(SECOND, owed_tab_ids(&mux, SECOND));
+
+    assert!(matches!(
+        advance_consider(&mux, &tab_id, &wave, false),
+        Some(Step::Claimed(Claim {
+            session_id,
+            pty_id,
+            binding_nonce,
+            ..
+        })) if session_id == "session-a" && pty_id == "pty-2" && binding_nonce == "nonce-2"
+    ));
+    assert!(wave.pending_ids().is_empty());
+    assert!(advance_consider(&mux, &tab_id, &wave, false).is_none());
 }
 
 #[test]
@@ -273,6 +452,9 @@ fn caller_request_and_working_mark_yield_one_continue() {
         vec![Step::Claimed(Claim {
             session_id: "session-a".into(),
             prompt: Some("opaque-request".into()),
+            sender: None,
+            pty_id: "pty-2".into(),
+            binding_nonce: "nonce-2".into(),
         })]
     );
 }

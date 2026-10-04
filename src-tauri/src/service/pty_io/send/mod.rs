@@ -182,6 +182,19 @@ pub(super) fn authenticated_pty_target(
     Ok(target)
 }
 
+fn authenticated_pty_target_pinned(
+    tab: &crate::multiplexer::types::Tab,
+    expected_pty_id: &str,
+    expected_session_id: &str,
+    expected_binding_nonce: &str,
+) -> Result<(String, String), String> {
+    let target = authenticated_pty_target(tab, expected_session_id, expected_binding_nonce)?;
+    if target.0 != expected_pty_id {
+        return Err("agent_unavailable: recipient PTY changed".into());
+    }
+    Ok(target)
+}
+
 pub(super) fn optimistic_agent_pty_target(
     tab: &crate::multiplexer::types::Tab,
 ) -> Result<(String, String), String> {
@@ -204,7 +217,7 @@ pub(super) fn optimistic_agent_pty_target(
     }
 }
 
-fn delivery_is_unknown(error: &str) -> bool {
+pub(crate) fn delivery_is_unknown(error: &str) -> bool {
     error.starts_with("submit_unconfirmed:")
 }
 
@@ -285,6 +298,7 @@ impl ServiceContext {
     fn authenticated_pty_delivery(
         &self,
         tab_id: &str,
+        expected_pty_id: Option<&str>,
         expected_session_id: &str,
         expected_binding_nonce: &str,
     ) -> Result<AuthenticatedPtyDelivery, String> {
@@ -296,7 +310,15 @@ impl ServiceContext {
             let tab = mux
                 .get_tab(&resolved)
                 .ok_or_else(|| "agent_unavailable: planner Tab missing".to_string())?;
-            authenticated_pty_target(tab, expected_session_id, expected_binding_nonce)?
+            match expected_pty_id {
+                Some(expected) => authenticated_pty_target_pinned(
+                    tab,
+                    expected,
+                    expected_session_id,
+                    expected_binding_nonce,
+                )?,
+                None => authenticated_pty_target(tab, expected_session_id, expected_binding_nonce)?,
+            }
         };
         let permit = self.pty.lock().issue_guarded_input_permit(&pty_id)?;
         Ok(AuthenticatedPtyDelivery {
@@ -354,13 +376,43 @@ impl ServiceContext {
         text: &str,
     ) -> Result<(), String> {
         let delivery =
-            self.authenticated_pty_delivery(tab_id, expected_session_id, expected_binding_nonce)?;
+            self.authenticated_pty_delivery(
+                tab_id,
+                None,
+                expected_session_id,
+                expected_binding_nonce,
+            )?;
         self.send_authenticated_delivery_with_options(
             delivery,
             text,
             super::submit_transaction::PtySubmitEntry::Planner,
             true,
         )
+    }
+
+    pub(crate) fn send_to_authenticated_agent_session_pinned(
+        &self,
+        tab_id: &str,
+        expected_pty_id: &str,
+        expected_session_id: &str,
+        expected_binding_nonce: &str,
+        text: &str,
+    ) -> Result<(), String> {
+        let pty_claim = self.pty_ownership.acquire(tab_id);
+        let delivery = self.authenticated_pty_delivery(
+            tab_id,
+            Some(expected_pty_id),
+            expected_session_id,
+            expected_binding_nonce,
+        )?;
+        let result = self.send_authenticated_delivery_with_options(
+            delivery,
+            text,
+            super::submit_transaction::PtySubmitEntry::Messenger,
+            true,
+        );
+        drop(pty_claim);
+        result
     }
 
     fn send_authenticated_delivery_with_options(
