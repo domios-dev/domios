@@ -9,7 +9,7 @@ use std::time::Duration;
 use parking_lot::Mutex;
 use tauri::Emitter;
 
-use super::store::{CronJob, CronRunInfo, CronRunStatus, CronStore};
+use super::store::{commit, finish_run, CronJob, CronRunInfo, CronRunStatus, CronStore};
 use crate::service::ServiceState;
 
 pub type CronState = Arc<Mutex<CronStore>>;
@@ -143,23 +143,8 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
 
     let run_id = uuid::Uuid::new_v4().to_string();
     log::info!("Cron fired: job={}, run={}", job_id, run_id);
-
-    let run_info = CronRunInfo {
-        run_id: run_id.clone(),
-        started_at: cron_state.lock().now_ms(),
-        finished_at: None,
-        status: CronRunStatus::Running,
-        tab_id: None,
-        session_id: None,
-        cwd: None,
-        summary: None,
-        report_delivery: None,
-    };
-    {
-        let mut store = cron_state.lock();
-        if let Err(e) = store.record_run(job_id, run_info) {
-            log::error!("Failed to record cron run: {}", e);
-        }
+    if !record_fire_start(cron_state, job_id, &run_id) {
+        return;
     }
 
     // Spawn agent via the unified spawn_tab surface.
@@ -227,24 +212,13 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
                 handle.tab_id
             );
 
-            {
-                let mut store = cron_state.lock();
-                store.register_tab(&handle.tab_id, job_id, &run_id);
-                if let Some(history) = store.get_history_mut(job_id) {
-                    if let Some(run) = history.iter_mut().find(|r| r.run_id == run_id) {
-                        run.tab_id = Some(handle.tab_id.clone());
-                        run.tab_id = Some(handle.tab_id.clone());
-                    }
-                }
-                if let Some(job) = store.get_mut(job_id) {
-                    if let Some(ref mut lr) = job.last_run {
-                        if lr.run_id == run_id {
-                            lr.tab_id = Some(handle.tab_id.clone());
-                            lr.tab_id = Some(handle.tab_id.clone());
-                        }
-                    }
-                }
-                let _ = store.save();
+            cron_state
+                .lock()
+                .register_tab(&handle.tab_id, job_id, &run_id);
+            if let Err(error) = commit(cron_state, |store| {
+                Ok(store.prepare_set_run_tab(job_id, &run_id, &handle.tab_id))
+            }) {
+                log::error!("Failed to record cron run tab: job={job_id} run={run_id}: {error}");
             }
             service.sync_cron_owner_prompt_state(&handle.tab_id);
 
@@ -291,17 +265,39 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
         Err(e) => {
             log::error!("Cron agent spawn failed: job={}, error={}", job_id, e);
 
-            let fresh_transition = {
-                let mut store = cron_state.lock();
-                store
-                    .update_run_status(job_id, &run_id, CronRunStatus::Failed)
-                    .unwrap_or(false)
-            };
+            let fresh_transition =
+                finish_run(cron_state, job_id, &run_id, CronRunStatus::Failed, None)
+                    .unwrap_or(false);
 
             service.create_notification(format!("Cron failed: {}", job_id), Some(e), Some("error"));
             if fresh_transition {
                 crate::cron::notify::notify_on_consecutive_failure(service, cron_state, job_id);
             }
+        }
+    }
+}
+
+/// Records the run start before any dispatch. Only a recorded start dispatches: a
+/// refused or unconfirmed record is never promoted to a launched run.
+pub(crate) fn record_fire_start(cron_state: &CronState, job_id: &str, run_id: &str) -> bool {
+    let run = CronRunInfo {
+        run_id: run_id.to_string(),
+        started_at: cron_state.lock().now_ms(),
+        finished_at: None,
+        status: CronRunStatus::Running,
+        tab_id: None,
+        session_id: None,
+        cwd: None,
+        summary: None,
+        report_delivery: None,
+    };
+    match commit(cron_state, |store| {
+        store.prepare_record_run(job_id, run.clone())
+    }) {
+        Ok(_) => true,
+        Err(error) => {
+            log::error!("Failed to record cron run: {}", error);
+            error.applied()
         }
     }
 }
