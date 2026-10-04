@@ -43,7 +43,7 @@ pub(crate) fn preflight(snapshot: &DeskSnapshot, facts: &mut Facts) -> Result<()
         .iter()
         .map(|workspace| workspace.tabs.len())
         .sum();
-    let (nodes, depth, leaf_bytes) = snapshot
+    let (nodes, depth, fields_bytes) = snapshot
         .workspaces
         .iter()
         .flat_map(|workspace| &workspace.tabs)
@@ -86,9 +86,9 @@ pub(crate) fn preflight(snapshot: &DeskSnapshot, facts: &mut Facts) -> Result<()
     );
     facts.bound(
         ImportDomain::Desk,
-        "largest-leaf-fields-bytes",
+        "largest-node-fields-bytes",
         crate::repositories::desk::MAX_DESK_LEAF_BYTES as u64,
-        leaf_bytes as u64,
+        fields_bytes as u64,
     );
     facts.bound(
         ImportDomain::Desk,
@@ -118,7 +118,12 @@ fn layout_stats(
                 .2
                 .max(serde_json::to_vec(&fields.values).map_or(usize::MAX, |bytes| bytes.len()));
         }
-        DeskLayoutNode::Split { children, .. } => {
+        DeskLayoutNode::Split {
+            children, fields, ..
+        } => {
+            stats.2 = stats
+                .2
+                .max(serde_json::to_vec(fields).map_or(usize::MAX, |bytes| bytes.len()));
             for child in children {
                 stats = layout_stats(child, depth + 1, stats);
             }

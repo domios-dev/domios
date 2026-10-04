@@ -131,13 +131,15 @@ const DESK_SOURCE: &str = r#"{
   "workspaces":[
     {"id":"ws-a","name":"Alpha","tabs":[
       {"id":"group-a","title":"Group","description":null,"sort_order":3,
-       "split_tree":{"type":"Split","orientation":"horizontal","ratio":0.4,"children":[
+       "split_tree":{"type":"Split","orientation":"horizontal","ratio":0.4,
+        "future_split_state":{"flag":true,"nullable":null},"children":[
          {"type":"Leaf","tab_id":"tab-a","cwd":"C:/projects/a","title":null,
           "agent_type":"provider-unverified","claude_session_id":"session-unverified",
           "agent_identity":{"session_binding_nonce":"nonce-unverified"},"role":"Worker",
           "role_profile":null,"agent_session_model":null,"can_spawn":true},
-         {"type":"Split","orientation":"vertical","ratio":0.7,"children":[
-           {"type":"Leaf","tab_id":"missing-tab","cwd":null,"agent_type":"unknown-provider","role":"Manager"}
+         {"type":"Split","orientation":"vertical","ratio":0.7,
+          "future_split_ratio":null,"children":[
+           {"type":"Leaf","tab_id":"missing-tab","agent_type":"unknown-provider","role":"Manager"}
          ]}
        ]}},
       {"id":"tab-a","title":"Second","description":"kept","sort_order":7,

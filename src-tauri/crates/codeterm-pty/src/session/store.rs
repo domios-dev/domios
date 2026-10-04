@@ -231,6 +231,8 @@ pub enum SplitNodeSnapshot {
         orientation: String,
         ratio: f64,
         children: Vec<SplitNodeSnapshot>,
+        #[serde(default, flatten)]
+        extra_fields: serde_json::Map<String, serde_json::Value>,
     },
 }
 

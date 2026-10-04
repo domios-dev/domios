@@ -79,12 +79,18 @@ fn storage_migration_desk_import_preserves_snapshot_catalogue_and_archived_sourc
         orientation,
         ratio,
         children,
+        fields: split_fields,
     } = &snapshot.workspaces[0].tabs[0].layout
     else {
         panic!("outer split stays nested")
     };
     assert_eq!(orientation, "horizontal");
     assert_eq!(*ratio, 0.4);
+    assert_eq!(split_fields["future_split_state"]["flag"], true);
+    assert_eq!(
+        split_fields["future_split_state"]["nullable"],
+        serde_json::Value::Null
+    );
     assert_eq!(children.len(), 2);
     let DeskLayoutNode::Leaf { tab_id, fields, .. } = &children[0] else {
         panic!("first child remains a leaf")
@@ -95,13 +101,27 @@ fn storage_migration_desk_import_preserves_snapshot_catalogue_and_archived_sourc
         fields.values["agent_session_model"],
         serde_json::Value::Null
     );
-    let DeskLayoutNode::Split { children, .. } = &children[1] else {
+    let DeskLayoutNode::Split {
+        children,
+        fields: nested_fields,
+        ..
+    } = &children[1]
+    else {
         panic!("second child remains a split")
     };
+    assert_eq!(nested_fields["future_split_ratio"], serde_json::Value::Null);
     let DeskLayoutNode::Leaf { tab_id, .. } = &children[0] else {
         panic!("historical leaf stays in the layout")
     };
     assert_eq!(tab_id, "missing-tab");
+    let DeskLayoutNode::Leaf { fields, .. } = &children[0] else {
+        panic!("historical leaf stays a leaf")
+    };
+    assert!(!fields.values.as_object().unwrap().contains_key("cwd"));
+    let DeskLayoutNode::Leaf { fields, .. } = &snapshot.workspaces[0].tabs[1].layout else {
+        panic!("second tab stays a leaf")
+    };
+    assert_eq!(fields.values["cwd"], serde_json::Value::Null);
     assert_eq!(
         snapshot.workspaces[0].record.task_key_prefix.as_deref(),
         Some("COD")
@@ -149,6 +169,29 @@ fn storage_migration_desk_import_preserves_snapshot_catalogue_and_archived_sourc
     assert_eq!(tree(&fixture.source()), originals);
     assert_eq!(receipt.archive, Ok(()));
     close(storage);
+}
+
+#[test]
+fn storage_migration_desk_close_reopen_restart_preserves_nonempty_import() {
+    let fixture = Fixture::seeded_with_desk();
+    let storage = fixture.open();
+
+    let receipt = committed(import_copied_root(&storage, &fixture.request()));
+    let imported = desk_snapshot(&storage);
+    assert_eq!(imported.workspaces.len(), 2);
+    assert_eq!(receipt.comparison.expect("comparison").is_clean(), true);
+    close(storage);
+
+    let reopened = fixture.open();
+    assert_eq!(desk_snapshot(&reopened), imported);
+    let replay = import_copied_root(&reopened, &fixture.request()).expect("reopened replay");
+    assert!(matches!(replay, ImportOutcome::AlreadyCommitted(_)));
+    assert_eq!(desk_snapshot(&reopened), imported);
+    assert_eq!(
+        marker(&reopened).map(|marker| marker.revision),
+        Some(receipt.revision)
+    );
+    close(reopened);
 }
 
 #[test]
