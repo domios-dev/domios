@@ -226,7 +226,11 @@ fn target(
         Route::Sentinel(id) => ("sentinel", id, Some(source.creator_tab_id.clone())),
         Route::Send(id) => ("worker", id, None),
         Route::Cron(id) => ("cron", id, None),
-        Route::Notify | Route::Stop | Route::Command(_) => return None,
+        Route::Notify
+        | Route::Stop
+        | Route::Command(_)
+        | Route::RespondPrompt(_)
+        | Route::Escalate(_) => return None,
     };
     let unknown = Identity {
         kind: kind.into(),

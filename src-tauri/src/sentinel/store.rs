@@ -3,9 +3,12 @@ use std::sync::{atomic::Ordering, Arc};
 
 use serde::{Deserialize, Serialize};
 
+use super::amend::{self, Amendment};
+use super::escalation;
 use super::handlers::{self, Definition, Handler, Transition};
 use super::machine::{self, Machine, Route};
 use super::probe::cancellation::Cancellation;
+use super::source::{self, RunBinding, TabBinding};
 use super::storage::{Backend, LoadFailure, Staged};
 use crate::cron::clock::SharedClock;
 
@@ -73,6 +76,21 @@ pub struct Sentinel {
     pub max_actions: u16,
     #[serde(default)]
     pub transitions: Vec<Transition>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observe: Option<TabBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run: Option<RunBinding>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub on_other: Vec<Handler>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub escalation_timeout_ms: Option<u64>,
+    #[serde(
+        default = "amend::initial_version",
+        skip_serializing_if = "amend::is_initial_version"
+    )]
+    pub definition_version: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub amendments: Vec<Amendment>,
 }
 
 #[derive(Clone)]
@@ -177,6 +195,9 @@ pub(super) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
     for job in &jobs {
         machine::validate(&job.buckets, &job.matches, true, job.interval_ms)?;
         handlers::validate(&job.buckets, &job.routes)?;
+        source::validate(job)?;
+        escalation::validate(job)?;
+        amend::validate(job)?;
         if job.max_transitions == 0
             || job.max_transitions > 256
             || job.max_actions == 0
@@ -195,8 +216,7 @@ pub(super) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
         let mut transitions = std::collections::BTreeSet::new();
         for transition in &job.transitions {
             let declared = job
-                .routes
-                .get(&transition.bucket)
+                .declared_handlers(&transition.bucket)
                 .ok_or("stored transition has an undeclared bucket")?;
             if transition.id.is_empty()
                 || transition.id.len() > 128
@@ -243,7 +263,11 @@ pub(super) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
                 Route::Sentinel(id) => Some(("sentinel", id)),
                 Route::Send(id) => Some(("worker", id)),
                 Route::Cron(id) => Some(("cron", id)),
-                Route::Notify | Route::Stop | Route::Command(_) => None,
+                Route::Notify
+                | Route::Stop
+                | Route::Command(_)
+                | Route::RespondPrompt(_)
+                | Route::Escalate(_) => None,
             };
             if let Some((kind, id)) = expected_kind_id {
                 Route::parse(&format!(
@@ -269,7 +293,7 @@ pub(super) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
         {
             return Err("invalid sentinel identity or scope".into());
         }
-        if job.probe.trim().is_empty()
+        if (job.observe.is_none() && job.probe.trim().is_empty())
             || job.probe.len() > 8192
             || job.question.trim().is_empty()
             || job.question.len() > 4096
@@ -431,6 +455,12 @@ impl Store {
             max_transitions,
             max_actions,
             transitions: Vec::new(),
+            observe: None,
+            run: None,
+            on_other: Vec::new(),
+            escalation_timeout_ms: None,
+            definition_version: amend::initial_version(),
+            amendments: Vec::new(),
         };
         Ok(job)
     }
@@ -438,6 +468,11 @@ impl Store {
     pub(crate) fn stage_insert(&mut self, job: Sentinel) -> Staged<Sentinel> {
         if let Err(error) = self.ensure_available() {
             return Staged::ready(Err(error));
+        }
+        if let Some(capability) = job.pending_capability() {
+            return Staged::ready(Err(format!(
+                "sentinel_capability_unavailable: {capability} is not executable yet"
+            )));
         }
         if self.jobs.len() >= MAX_SENTINELS
             || (!job.machine.paused && self.active_count() >= MAX_ACTIVE)
@@ -843,6 +878,33 @@ impl Sentinel {
         self.creator_tab_id == other.creator_tab_id
             && self.team_id == other.team_id
             && self.workspace_id == other.workspace_id
+    }
+
+    /// The first stored graph capability this build cannot execute; such a stage is never
+    /// created and never probed.
+    pub(super) fn pending_capability(&self) -> Option<&'static str> {
+        let actions = || {
+            self.routes
+                .values()
+                .flatten()
+                .chain(&self.on_other)
+                .map(|handler| &handler.action)
+        };
+        if self.observe.is_some() || self.run.is_some() {
+            Some("tab observation")
+        } else if actions().any(|action| matches!(action, Route::RespondPrompt(_))) {
+            Some("respond_prompt")
+        } else if !self.on_other.is_empty()
+            || self.escalation_timeout_ms.is_some()
+            || self.machine.held.is_some()
+            || actions().any(|action| matches!(action, Route::Escalate(_)))
+        {
+            Some("escalation")
+        } else if self.definition_version != 1 || !self.amendments.is_empty() {
+            Some("definition amendment")
+        } else {
+            None
+        }
     }
 }
 

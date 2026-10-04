@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
 
 use super::handlers::Handler;
@@ -9,6 +9,64 @@ use super::provenance::{Classification, Evidence, Scope};
 pub const MIN_INTERVAL_MS: u64 = 10_000;
 pub const ROUTE_CONFIDENCE: f64 = 0.80;
 pub const MAX_BUCKETS: usize = 16;
+
+/// Prompt class a respond-prompt handler requests an answer for; the answer path alone
+/// chooses among the provider-declared options.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SafeKind {
+    DirectoryTrust,
+    Onboarding,
+    Update,
+    Permission,
+    Structured,
+    Other(String),
+}
+
+impl SafeKind {
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::DirectoryTrust => "directory_trust",
+            Self::Onboarding => "onboarding",
+            Self::Update => "update",
+            Self::Permission => "permission",
+            Self::Structured => "structured",
+            Self::Other(kind) => kind,
+        }
+    }
+}
+
+impl Serialize for SafeKind {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for SafeKind {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let kind = String::deserialize(deserializer)?;
+        Ok(match kind.as_str() {
+            "directory_trust" => Self::DirectoryTrust,
+            "onboarding" => Self::Onboarding,
+            "update" => Self::Update,
+            "permission" => Self::Permission,
+            "structured" => Self::Structured,
+            _ => Self::Other(kind),
+        })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EscalateTarget {
+    Creator,
+    Agent(String),
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
@@ -24,6 +82,8 @@ pub enum Route {
     Sentinel(String),
     Stop,
     Command(super::command::Parameters),
+    RespondPrompt(SafeKind),
+    Escalate(EscalateTarget),
 }
 
 impl Route {
@@ -72,6 +132,9 @@ pub struct Machine {
     pub stopped: bool,
     #[serde(default)]
     pub paused: bool,
+    /// The `other` transition whose escalation holds the stage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
