@@ -14,6 +14,7 @@ pub(crate) mod storage;
 pub(crate) mod store;
 #[cfg(test)]
 mod tests;
+pub(crate) mod wake;
 
 #[cfg(test)]
 mod connected_tests;

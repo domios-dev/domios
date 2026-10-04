@@ -81,9 +81,16 @@ impl Store {
             finishing(move |store, outcome| match outcome {
                 Ok(_) => Ok(()),
                 Err(Failure::Failed(message)) => {
+                    let removed: std::collections::BTreeSet<_> = store
+                        .jobs
+                        .iter()
+                        .filter(|job| job.team_id.as_deref() == Some(team.as_str()))
+                        .map(|job| job.id.clone())
+                        .collect();
                     store
                         .jobs
                         .retain(|job| job.team_id.as_deref() != Some(team.as_str()));
+                    store.wake_pending.retain(|id| !removed.contains(id));
                     Err(message)
                 }
                 Err(Failure::Refused(message)) => Err(message),
@@ -96,6 +103,7 @@ impl Store {
         &mut self,
         leases: Vec<Lease>,
         changes: Vec<ScheduleChange>,
+        consumed_wakes: Vec<String>,
     ) -> Staged<Vec<Lease>> {
         if changes.is_empty() {
             return Staged::ready(Ok(leases));
@@ -115,7 +123,10 @@ impl Store {
             };
             match update {
                 Ok(update) => updates.push(update),
-                Err(error) => return revoke(self, leases, error),
+                Err(error) => {
+                    self.wake_pending.extend(consumed_wakes);
+                    return revoke(self, leases, error);
+                }
             }
         }
         self.submit(
@@ -123,6 +134,7 @@ impl Store {
             finishing(move |store, outcome| match outcome {
                 Ok(_) => Ok(leases),
                 Err(failure) => {
+                    store.wake_pending.extend(consumed_wakes);
                     for lease in &leases {
                         lease.cancelled.cancel();
                         store.active.remove(&lease.job.id);

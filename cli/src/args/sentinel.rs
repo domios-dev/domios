@@ -2,13 +2,16 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum SentinelAction {
-    /// Watch a bounded shell probe, classifying only changed output
+    /// Classify a bounded probe or same-Team agent tab observation
     Create {
         /// Display name of the Sentinel scenario or stage
         #[arg(long)]
         name: Option<String>,
-        #[arg(long)]
-        probe: String,
+        #[arg(long, conflicts_with = "observe", required_unless_present = "observe")]
+        probe: Option<String>,
+        /// Observe a same-Team agent tab and wake on prompt or status changes
+        #[arg(long, conflicts_with = "probe", required_unless_present = "probe", value_parser = parse_observe)]
+        observe: Option<String>,
         #[arg(long)]
         question: String,
         #[arg(long, value_delimiter = ',', required = true)]
@@ -53,6 +56,14 @@ fn parse_assignment(value: &str) -> Result<String, String> {
     let (bucket, rhs) = value.split_once('=').ok_or("use bucket=value")?;
     if bucket.is_empty() || rhs.is_empty() {
         return Err("bucket and value must be nonempty".into());
+    }
+    Ok(value.into())
+}
+
+fn parse_observe(value: &str) -> Result<String, String> {
+    let tab_id = value.strip_prefix("tab:").ok_or("use tab:<id>")?;
+    if tab_id.trim().is_empty() || tab_id.len() > 256 || tab_id.chars().any(char::is_control) {
+        return Err("--observe: tab id must be nonempty and bounded".into());
     }
     Ok(value.into())
 }
@@ -129,6 +140,49 @@ mod tests {
             vec!["codeterm", "sentinel", "stop", "id", "--json"],
         ] {
             assert!(Cli::try_parse_from(args).unwrap().json);
+        }
+    }
+
+    #[test]
+    fn sentinel_observe_parse_and_probe_conflict() {
+        let cli = Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "create",
+            "--observe",
+            "tab:bound-agent",
+            "--question",
+            "tab state?",
+            "--buckets",
+            "waiting",
+            "--match",
+            "waiting=.*",
+        ])
+        .unwrap();
+        let Commands::Sentinel {
+            action: SentinelAction::Create { probe, observe, .. },
+        } = cli.command
+        else {
+            panic!("wrong command")
+        };
+        assert_eq!(probe, None);
+        assert_eq!(observe.as_deref(), Some("tab:bound-agent"));
+        assert!(Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "create",
+            "--probe",
+            "check",
+            "--observe",
+            "tab:bound-agent",
+            "--question",
+            "state?",
+            "--buckets",
+            "waiting",
+        ])
+        .is_err());
+        for invalid in ["cron:check", "tab:", "tab:bad\nname"] {
+            assert!(parse_observe(invalid).is_err());
         }
     }
 
