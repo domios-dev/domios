@@ -35,6 +35,8 @@ pub enum CronCommitError {
     Refused(String),
     /// Storage refused or failed the commit; neither the database nor the cache changed.
     NotApplied(String),
+    /// Never submitted: an earlier outcome is unresolved, so admission stays closed.
+    Fenced(String),
     /// Legacy JSON authority: the in-memory change stands but saving the file failed.
     Unsaved(String),
     /// The outcome is unknown; cron changes stay fenced until committed state is reread.
@@ -56,6 +58,9 @@ impl fmt::Display for CronCommitError {
             }
             CronCommitError::NotApplied(message) => {
                 write!(f, "cron storage did not apply the change: {message}")
+            }
+            CronCommitError::Fenced(message) => {
+                write!(f, "cron storage admission is fenced: {message}")
             }
             CronCommitError::Unconfirmed(message) => {
                 write!(f, "cron storage outcome unconfirmed: {message}")
@@ -252,6 +257,14 @@ impl CronStore {
             Backend::Storage(storage) => Some(storage),
             Backend::Legacy(_) => None,
         }
+    }
+
+    /// No earlier outcome is unresolved and no caller is settling one.
+    fn fence_clear(&self) -> bool {
+        self.storage().is_some_and(|storage| {
+            let fence = &storage.fence;
+            fence.in_flight.is_empty() && !fence.reread && !fence.resolving
+        })
     }
 
     fn cached_revision(&self, id: &str) -> Option<Revision> {
@@ -551,13 +564,20 @@ impl CronStore {
         Ok(())
     }
 
+    /// A draft applies while every definition it edits or removes is still at the revision
+    /// it read; definitions it left untouched may move.
+    fn draft_applies(&self, draft: &PortDraft) -> bool {
+        self.storage().is_some_and(|storage| {
+            draft
+                .original
+                .iter()
+                .filter(|job| draft.jobs.iter().find(|next| next.id == job.id) != Some(*job))
+                .all(|job| storage.revisions.get(&job.id) == draft.bases.get(&job.id))
+        })
+    }
+
     fn prepare_draft(&self, draft: &PortDraft) -> Result<Prepared<()>, String> {
-        let storage = self.storage().ok_or_else(|| STAGED_ONLY.to_string())?;
-        let moved = draft
-            .original
-            .iter()
-            .any(|job| storage.revisions.get(&job.id) != draft.bases.get(&job.id));
-        if moved {
+        if !self.draft_applies(draft) {
             return Err("cron jobs changed while the scheduler port draft was open".to_string());
         }
         let mut changes = Vec::new();
@@ -633,7 +653,23 @@ pub(crate) fn commit<T>(
         };
         probe.hit(CronStage::Prepared);
         let Plan { writes, bases } = plan;
-        let completion = repo.apply(writes);
+        let completion = {
+            let store = cron.lock();
+            if !store.fence_clear() {
+                return Err(CronCommitError::Fenced(
+                    "an earlier cron outcome became unresolved".to_string(),
+                ));
+            }
+            if bases
+                .iter()
+                .any(|(id, base)| store.cached_revision(id) != *base)
+            {
+                continue;
+            }
+            // Admission is a bounded non-blocking enqueue; under the cron lock it is atomic
+            // with every fence installation, which also takes this lock.
+            repo.apply(writes)
+        };
         probe.hit(CronStage::Submitted);
         match wait_retaining(completion, deadline) {
             Waited::Settled(Ok(committed)) => {
@@ -726,7 +762,7 @@ fn settle_fence(cron: &CronState) -> Result<(), CronCommitError> {
         };
         let fence = &mut storage.fence;
         if fence.resolving {
-            return Err(CronCommitError::Unconfirmed(
+            return Err(CronCommitError::Fenced(
                 "another caller is reconciling cron storage".to_string(),
             ));
         }
@@ -775,11 +811,15 @@ fn settle_fence(cron: &CronState) -> Result<(), CronCommitError> {
         fence.reread |= reread_error.is_some();
     });
     if still_unresolved {
-        return Err(CronCommitError::Unconfirmed(
+        return Err(CronCommitError::Fenced(
             "an earlier cron commit is still unresolved".to_string(),
         ));
     }
-    reread_error.map_or(Ok(()), Err)
+    reread_error.map_or(Ok(()), |error| {
+        Err(CronCommitError::Fenced(format!(
+            "committed state was not reread: {error}"
+        )))
+    })
 }
 
 /// Rereads every committed identity and merges it under the revision fence.
@@ -816,17 +856,48 @@ pub(crate) fn finish_run(
     Ok(finished.fresh)
 }
 
+/// What became of the scheduler-port draft at `settle_port`; only `Retained` keeps it.
+#[must_use]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PortSettlement {
+    /// No draft was open.
+    Empty,
+    /// Committed in one transaction and published.
+    Committed,
+    /// Nothing was written; the draft is kept unchanged for an explicit later settle.
+    Retained(CronCommitError),
+    /// Nothing was written and the draft no longer applies to committed state.
+    Discarded(CronCommitError),
+    /// Admitted with an unknown outcome: never replayed, the fence publishes what committed.
+    Unconfirmed(CronCommitError),
+}
+
 /// Commits the mem scheduler port's draft in one transaction. Call after the lock that
 /// held the port was released.
-pub fn settle_port(cron: &CronState) -> Result<(), CronCommitError> {
+pub fn settle_port(cron: &CronState) -> PortSettlement {
     let draft = cron
         .lock()
         .storage_mut()
         .and_then(|storage| storage.draft.take());
     let Some(draft) = draft else {
-        return Ok(());
+        return PortSettlement::Empty;
     };
-    commit(cron, |store| store.prepare_draft(&draft)).map(|_| ())
+    let error = match commit(cron, |store| store.prepare_draft(&draft)) {
+        Ok(_) => return PortSettlement::Committed,
+        Err(error @ CronCommitError::Unconfirmed(_)) => return PortSettlement::Unconfirmed(error),
+        Err(error) => error,
+    };
+    let mut store = cron.lock();
+    if store.draft_applies(&draft) {
+        if let Some(storage) = store
+            .storage_mut()
+            .filter(|storage| storage.draft.is_none())
+        {
+            storage.draft = Some(draft);
+            return PortSettlement::Retained(error);
+        }
+    }
+    PortSettlement::Discarded(error)
 }
 
 enum Waited<T> {
