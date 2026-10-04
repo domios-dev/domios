@@ -45,6 +45,7 @@ const LEAF_FIELDS: &[&str] = &[
     "chatbackend_session_id",
     "watcher",
     "pending_delivery",
+    "cwd",
 ];
 
 #[derive(Debug, Clone, PartialEq)]
@@ -122,7 +123,8 @@ fn valid_leaf_value(field: &str, value: &Value) -> bool {
         | "agent_requested_model"
         | "agent_provider_resolved_model"
         | "chatbackend_plugin_id"
-        | "chatbackend_session_id" => value.is_string() || value.is_null(),
+        | "chatbackend_session_id"
+        | "cwd" => value.is_string() || value.is_null(),
         "agent_identity"
         | "ownership"
         | "model_fallback"
@@ -144,6 +146,7 @@ pub enum DeskLayoutNode {
         orientation: String,
         ratio: f64,
         children: Vec<DeskLayoutNode>,
+        fields: serde_json::Map<String, Value>,
     },
 }
 
@@ -343,6 +346,7 @@ fn count_layout(
             orientation,
             ratio,
             children,
+            fields,
         } => {
             if orientation.is_empty() || orientation.len() > 32 || !ratio.is_finite() {
                 return Err(StorageError::invalid(
@@ -351,6 +355,16 @@ fn count_layout(
                 ));
             }
             *cost = cost.saturating_add(orientation.len());
+            let fields_cost = serde_json::to_vec(fields)
+                .map_err(|error| StorageError::invalid("desk split fields", error.to_string()))?
+                .len();
+            if fields_cost > MAX_DESK_LEAF_BYTES {
+                return Err(StorageError::invalid(
+                    "desk split fields",
+                    format!("exceeds {MAX_DESK_LEAF_BYTES} bytes"),
+                ));
+            }
+            *cost = cost.saturating_add(fields_cost);
             for child in children {
                 count_layout(child, depth + 1, count, cost)?;
             }

@@ -356,7 +356,6 @@ fn to_layout(node: &SplitNodeSnapshot) -> Result<DeskLayoutNode, String> {
                 .ok_or_else(|| "serialized leaf is not an object".to_string())?;
             object.remove("type");
             object.remove("tab_id");
-            object.remove("cwd");
             Ok(DeskLayoutNode::Leaf {
                 tab_id: tab_id.clone(),
                 cwd: cwd.clone(),
@@ -367,9 +366,11 @@ fn to_layout(node: &SplitNodeSnapshot) -> Result<DeskLayoutNode, String> {
             orientation,
             ratio,
             children,
+            extra_fields,
         } => Ok(DeskLayoutNode::Split {
             orientation: orientation.clone(),
             ratio: *ratio,
+            fields: extra_fields.clone(),
             children: children
                 .iter()
                 .map(to_layout)
@@ -447,16 +448,18 @@ fn from_layout(node: DeskLayoutNode) -> Result<SplitNodeSnapshot, String> {
                 .ok_or_else(|| "stored leaf fields are not an object".to_string())?;
             object.insert("type".into(), serde_json::Value::String("Leaf".into()));
             object.insert("tab_id".into(), serde_json::Value::String(tab_id));
-            object.insert(
-                "cwd".into(),
-                cwd.map_or(serde_json::Value::Null, serde_json::Value::String),
-            );
+            if !object.contains_key("cwd") {
+                if let Some(cwd) = cwd {
+                    object.insert("cwd".into(), serde_json::Value::String(cwd));
+                }
+            }
             serde_json::from_value(value).map_err(|error| error.to_string())
         }
         DeskLayoutNode::Split {
             orientation,
             ratio,
             children,
+            fields,
         } => Ok(SplitNodeSnapshot::Split {
             orientation,
             ratio,
@@ -464,6 +467,7 @@ fn from_layout(node: DeskLayoutNode) -> Result<SplitNodeSnapshot, String> {
                 .into_iter()
                 .map(from_layout)
                 .collect::<Result<Vec<_>, _>>()?,
+            extra_fields: fields,
         }),
     }
 }

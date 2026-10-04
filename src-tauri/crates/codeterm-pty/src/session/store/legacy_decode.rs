@@ -59,7 +59,6 @@ fn decode_layout(value: &serde_json::Value) -> Result<DeskLayoutNode, String> {
             let mut fields = object.clone();
             fields.remove("type");
             fields.remove("tab_id");
-            fields.remove("cwd");
             Ok(DeskLayoutNode::Leaf {
                 tab_id,
                 cwd,
@@ -85,10 +84,16 @@ fn decode_layout(value: &serde_json::Value) -> Result<DeskLayoutNode, String> {
                 .iter()
                 .map(decode_layout)
                 .collect::<Result<Vec<_>, _>>()?;
+            let mut fields = object.clone();
+            fields.remove("type");
+            fields.remove("orientation");
+            fields.remove("ratio");
+            fields.remove("children");
             Ok(DeskLayoutNode::Split {
                 orientation,
                 ratio,
                 children,
+                fields,
             })
         }
         _ => Err("legacy layout node has an unknown type".to_string()),
