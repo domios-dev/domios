@@ -22,13 +22,14 @@ pub(super) fn id(id: &str) -> Result<SentinelId, String> {
     SentinelId::new(id).map_err(|error| format!("invalid sentinel identity: {error}"))
 }
 
-fn safe_kind(kind: SafeKind) -> StoredSafeKind {
+fn safe_kind(kind: &SafeKind) -> StoredSafeKind {
     match kind {
         SafeKind::DirectoryTrust => StoredSafeKind::DirectoryTrust,
         SafeKind::Onboarding => StoredSafeKind::Onboarding,
         SafeKind::Update => StoredSafeKind::Update,
         SafeKind::Permission => StoredSafeKind::Permission,
         SafeKind::Structured => StoredSafeKind::Structured,
+        SafeKind::Other(kind) => StoredSafeKind::Other(kind.clone()),
     }
 }
 
@@ -39,6 +40,7 @@ fn domain_safe_kind(kind: StoredSafeKind) -> SafeKind {
         StoredSafeKind::Update => SafeKind::Update,
         StoredSafeKind::Permission => SafeKind::Permission,
         StoredSafeKind::Structured => SafeKind::Structured,
+        StoredSafeKind::Other(kind) => SafeKind::Other(kind),
     }
 }
 
@@ -54,7 +56,7 @@ fn action(route: &Route) -> HandlerAction {
             label: parameters.label.clone(),
             timeout_ms: parameters.timeout_ms,
         }),
-        Route::RespondPrompt(kind) => HandlerAction::RespondPrompt(safe_kind(*kind)),
+        Route::RespondPrompt(kind) => HandlerAction::RespondPrompt(safe_kind(kind)),
         Route::Escalate(EscalateTarget::Creator) => {
             HandlerAction::Escalate(StoredEscalateTarget::Creator)
         }

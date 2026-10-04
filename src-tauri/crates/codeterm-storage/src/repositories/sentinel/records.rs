@@ -61,13 +61,14 @@ pub struct CommandParameters {
 }
 
 /// Prompt class a respond-prompt handler may request an answer for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SafeKind {
     DirectoryTrust,
     Onboarding,
     Update,
     Permission,
     Structured,
+    Other(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -483,6 +484,15 @@ impl HandlerDefinition {
             }
             HandlerAction::Escalate(EscalateTarget::Agent(tab)) => {
                 identifier("escalation target", tab)?
+            }
+            HandlerAction::RespondPrompt(SafeKind::Other(kind)) => {
+                if kind.trim().is_empty() {
+                    return Err(StorageError::invalid(
+                        "safe prompt kind",
+                        "must be nonempty",
+                    ));
+                }
+                identifier("safe prompt kind", kind)?
             }
             HandlerAction::Notify
             | HandlerAction::Stop

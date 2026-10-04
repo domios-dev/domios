@@ -52,13 +52,14 @@ fn observe_from(
     Ok(reference.map(|reference| ObserveSource { kind, reference }))
 }
 
-fn safe_kind_text(kind: SafeKind) -> &'static str {
+fn safe_kind_text(kind: &SafeKind) -> &str {
     match kind {
         SafeKind::DirectoryTrust => "directory_trust",
         SafeKind::Onboarding => "onboarding",
         SafeKind::Update => "update",
         SafeKind::Permission => "permission",
         SafeKind::Structured => "structured",
+        SafeKind::Other(kind) => kind,
     }
 }
 
@@ -69,7 +70,7 @@ fn safe_kind_from(text: &str) -> Result<SafeKind, StorageError> {
         "update" => SafeKind::Update,
         "permission" => SafeKind::Permission,
         "structured" => SafeKind::Structured,
-        _ => return Err(corrupt("unknown safe prompt kind")),
+        other => SafeKind::Other(other.to_string()),
     })
 }
 
@@ -112,7 +113,7 @@ fn action_columns(action: &HandlerAction) -> Result<ActionColumns<'_>, StorageEr
             ..ActionColumns::plain("command", None)
         },
         HandlerAction::RespondPrompt(kind) => ActionColumns {
-            safe_kind: Some(safe_kind_text(*kind)),
+            safe_kind: Some(safe_kind_text(kind)),
             ..ActionColumns::plain("respond_prompt", None)
         },
         HandlerAction::Escalate(EscalateTarget::Creator) => ActionColumns {
