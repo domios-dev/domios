@@ -12,7 +12,7 @@ use super::source::{self, RunBinding, TabBinding};
 use super::storage::{Backend, LoadFailure, Staged};
 use crate::cron::clock::SharedClock;
 
-const MAX_SENTINELS: usize = 256;
+pub(super) const MAX_SENTINELS: usize = 256;
 pub(super) const MAX_ACTIVE: usize = 64;
 
 pub(super) type ScopeKey = (String, Option<String>);
@@ -384,12 +384,14 @@ impl Store {
             (Some(_), None) => {
                 return Err("--probe must be nonempty and bounded to 8192 bytes".into());
             }
-            (None, Some(binding @ TabBinding::Tab(_))) if source::bounded_id(binding.id()) => {
+            (None, Some(binding)) if source::bounded_id(binding.id()) => {
                 (String::new(), Some(binding))
             }
             (Some(_), Some(_)) => return Err("--probe conflicts with --observe".into()),
-            (None, Some(_)) => return Err("--observe: use tab:<id>".into()),
-            _ => return Err("provide exactly one of --probe or --observe tab:<id>".into()),
+            (None, Some(_)) => {
+                return Err("--observe: use tab:<id> or cron-run:<id>".into());
+            }
+            _ => return Err("provide exactly one of --probe or --observe".into()),
         };
         let interval_ms = duration_ms(&params.every)?;
         machine::validate(&params.buckets, &params.matches, connected, interval_ms)?;
@@ -892,7 +894,9 @@ impl Store {
                 !job.machine.stopped
                     && !job.machine.paused
                     && !job.expires_at.is_some_and(|at| now >= at)
-                    && matches!(job.observe.as_ref(), Some(TabBinding::Tab(id)) if id == tab_id)
+                    && (matches!(job.observe.as_ref(), Some(TabBinding::Tab(id)) if id == tab_id)
+                        || matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_))
+                            if job.run.as_ref().is_some_and(|run| run.tab_id == tab_id)))
             })
             .map(|job| job.id.clone())
             .collect();
@@ -910,7 +914,9 @@ impl Store {
             .filter(|job| !job.machine.stopped)
             .flat_map(|job| {
                 let active = self.active.contains_key(&job.id);
-                let next = if job.machine.paused || active {
+                let waiting_for_run = matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
+                    && job.run.is_none();
+                let next = if job.machine.paused || active || waiting_for_run {
                     None
                 } else if self.wake_pending.contains(&job.id) {
                     Some(now)
@@ -943,14 +949,7 @@ impl Sentinel {
                 .chain(&self.on_other)
                 .map(|handler| &handler.action)
         };
-        if self
-            .observe
-            .as_ref()
-            .is_some_and(|binding| !matches!(binding, TabBinding::Tab(_)))
-            || self.run.is_some()
-        {
-            Some("tab observation")
-        } else if actions().any(|action| matches!(action, Route::RespondPrompt(_))) {
+        if actions().any(|action| matches!(action, Route::RespondPrompt(_))) {
             Some("respond_prompt")
         } else if !self.on_other.is_empty()
             || self.escalation_timeout_ms.is_some()
@@ -1039,6 +1038,9 @@ fn plan_due(
             continue;
         }
         if job.machine.paused {
+            continue;
+        }
+        if matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_))) && job.run.is_none() {
             continue;
         }
         if (job.next_run <= now || wake_pending.contains(&job.id)) && !active.contains_key(&job.id)

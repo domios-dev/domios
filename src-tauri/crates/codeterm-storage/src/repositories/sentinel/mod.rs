@@ -9,7 +9,7 @@ pub(crate) mod runtime;
 
 use crate::error::StorageError;
 use crate::owner::Storage;
-use crate::repositories::{Committed, Completion, Read};
+use crate::repositories::{to_sql_u64, Committed, Completion, Read};
 use records::{identifier, overhead, text};
 use std::collections::HashSet;
 
@@ -140,6 +140,57 @@ impl SentinelRepository {
         let cost = overhead() + id.as_str().len() + update.cost();
         self.storage.submit_mutation(cost, move |cx| {
             runtime::update_definition(cx, &id, expect_version, update)
+        })
+    }
+
+    pub fn set_run_binding(
+        &self,
+        id: SentinelId,
+        expected_generation: u64,
+        cron_id: String,
+        expected_run: Option<RunRecord>,
+        run: Option<RunRecord>,
+        next_run: u64,
+        last_reason: Option<String>,
+    ) -> Mutation {
+        let validate_run = |run: &RunRecord| {
+            records::identifier("run id", &run.run_id)
+                .and_then(|()| records::identifier("run tab id", &run.tab_id))
+                .and_then(|()| to_sql_u64("run bound time", run.bound_at).map(|_| ()))
+        };
+        let validated = records::identifier("cron id", &cron_id)
+            .and_then(|()| to_sql_u64("run generation", expected_generation).map(|_| ()))
+            .and_then(|()| to_sql_u64("next run", next_run).map(|_| ()))
+            .and_then(|()| expected_run.as_ref().map_or(Ok(()), validate_run))
+            .and_then(|()| run.as_ref().map_or(Ok(()), validate_run))
+            .and_then(|()| {
+                last_reason
+                    .as_deref()
+                    .map_or(Ok(()), |reason| records::text("run reason", reason))
+            });
+        if let Err(error) = validated {
+            return refused(error);
+        }
+        let cost = id.as_str().len()
+            + cron_id.len()
+            + expected_run
+                .as_ref()
+                .map_or(0, |run| run.run_id.len() + run.tab_id.len())
+            + run
+                .as_ref()
+                .map_or(0, |run| run.run_id.len() + run.tab_id.len())
+            + last_reason.as_ref().map_or(0, String::len);
+        self.storage.submit_mutation(cost, move |cx| {
+            runtime::set_run_binding(
+                cx,
+                &id,
+                expected_generation,
+                &cron_id,
+                expected_run.as_ref(),
+                run.as_ref(),
+                next_run,
+                last_reason.as_deref(),
+            )
         })
     }
 

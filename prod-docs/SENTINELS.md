@@ -50,6 +50,18 @@ has a three-second runtime limit (ten seconds on Windows, where PowerShell start
 Capture retains up to 32 KiB each of stdout and stderr. The exit status is part
 of the hashed result. A probe timeout or spawn failure records a skip.
 
+Use `--observe` to watch an agent tab or a cron run instead of running a shell
+probe:
+
+```bash
+codeterm sentinel create --observe cron-run:nightly --question "identify the current run state" --buckets waiting,finished --every 20s --timeout 1h
+```
+
+The observed tab must be an agent in the creator's Team and workspace. A
+`cron-run:<id-or-name>` stage waits for a run, then observes the exact tab
+recorded for that run. A finished run or removed tab unbinds the stage; a
+replacement run starts a fresh observation episode.
+
 ## Classification and transitions
 
 A connected Supporter adapter with Choice capability gets one question over
@@ -212,4 +224,4 @@ Cancellation remains in memory; durability is unconfirmed until a valid store
 reload. Repair the filesystem before loading the store again. No stop success
 or claimed-handler replay is inferred from a failed write.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

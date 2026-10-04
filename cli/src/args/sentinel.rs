@@ -2,14 +2,14 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum SentinelAction {
-    /// Classify a bounded probe or same-Team agent tab observation
+    /// Classify a bounded probe or same-Team agent observation
     Create {
         /// Display name of the Sentinel scenario or stage
         #[arg(long)]
         name: Option<String>,
         #[arg(long, conflicts_with = "observe", required_unless_present = "observe")]
         probe: Option<String>,
-        /// Observe a same-Team agent tab and wake on prompt or status changes
+        /// Observe a same-Team agent tab or cron run
         #[arg(long, conflicts_with = "probe", required_unless_present = "probe", value_parser = parse_observe)]
         observe: Option<String>,
         #[arg(long)]
@@ -73,9 +73,12 @@ fn parse_assignment(value: &str) -> Result<String, String> {
 }
 
 fn parse_observe(value: &str) -> Result<String, String> {
-    let tab_id = value.strip_prefix("tab:").ok_or("use tab:<id>")?;
-    if tab_id.trim().is_empty() || tab_id.len() > 256 || tab_id.chars().any(char::is_control) {
-        return Err("--observe: tab id must be nonempty and bounded".into());
+    let target = value
+        .strip_prefix("tab:")
+        .or_else(|| value.strip_prefix("cron-run:"))
+        .ok_or("use tab:<id> or cron-run:<id>")?;
+    if target.trim().is_empty() || target.len() > 256 || target.chars().any(char::is_control) {
+        return Err("--observe target must be nonempty and bounded".into());
     }
     Ok(value.into())
 }
@@ -194,9 +197,13 @@ mod tests {
             "waiting",
         ])
         .is_err());
-        for invalid in ["cron:check", "tab:", "tab:bad\nname"] {
+        for invalid in ["cron:check", "cron-run:", "tab:", "tab:bad\nname"] {
             assert!(parse_observe(invalid).is_err());
         }
+        assert_eq!(
+            parse_observe("cron-run:nightly"),
+            Ok("cron-run:nightly".into())
+        );
     }
 
     #[test]
