@@ -1,4 +1,5 @@
 use super::records::{DeskLayoutNode, DeskSnapshot, DeskTeam, DeskTeamLifecycle, DeskWorkspace};
+use crate::WorkspaceRecord;
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
 use crate::repositories::{expect_matches, from_sql_u64, to_sql_u64, Expect, Revision};
@@ -722,22 +723,24 @@ fn workspace_order(conn: &Connection) -> Result<Vec<String>, StorageError> {
     let mut statement = conn
         .prepare("SELECT w.id FROM workspaces w JOIN desk_workspace_state d ON d.workspace_id = w.id ORDER BY w.ordinal")
         .map_err(|error| sqlite_error("prepare workspace order", error))?;
-    statement
+    let ids = statement
         .query_map([], |row| row.get(0))
         .map_err(|error| sqlite_error("query workspace order", error))?
         .map(|row| row.map_err(|error| sqlite_error("read workspace order", error)))
-        .collect()
+        .collect();
+    ids
 }
 
 fn ordered_ids(conn: &Connection, sql: &str, scope: &str) -> Result<Vec<String>, StorageError> {
     let mut statement = conn
         .prepare(sql)
         .map_err(|error| sqlite_error("prepare desk order", error))?;
-    statement
+    let ids = statement
         .query_map([scope], |row| row.get(0))
         .map_err(|error| sqlite_error("query desk order", error))?
         .map(|row| row.map_err(|error| sqlite_error("read desk order", error)))
-        .collect()
+        .collect();
+    ids
 }
 
 fn exact_permutation(
