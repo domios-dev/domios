@@ -15,6 +15,18 @@ Domios keeps one append-only journal of every authoritative tab lifecycle transi
 7. A team member whose provider exited to its shell before shutdown restores as that shell and is not relaunched. The report names it `agent_exited_before_shutdown` with `exited_session_id`; `agent restart` recovers it.
 8. A restored agent whose saved cwd is no longer a directory is not relaunched anywhere else: the Tab keeps its session and cwd, shows `spawn_failed` naming the missing directory, and raises a notification. Restore the directory, then `codeterm agent restart --tab ID`.
 
+## Resume after restart
+
+An agent tab that was mid-turn when Domios stopped continues its work after the next start. The stop can be a quit, an update, a self-install, a crash or a kill; no shutdown hook is involved.
+
+- **The working mark is persisted continuously.** Each live turn edge of a PTY agent tab (working, or idle/question) updates the tab's `turn_resume` mark in `last.json`: the tab's own `session_id` and the `start_epoch` that observed it. A turn that ended before the stop clears the mark. Once a graceful shutdown is armed the mark is frozen, so teardown never erases the turn it interrupted.
+- **One continue per tab per start.** At start, a mark recorded by an earlier start and not yet settled is owed. The tab receives one system message from Domios through the post-ready send path, only when it is `agent_ready` with a nonce-verified binding on the same session the mark recorded. The claim (`settled: {start_epoch, outcome: "sent"}`) is saved before the payload is written, so a later crash never produces a second continue for the same turn. Work the agent resumes after that continue records a fresh mark for the following start.
+- **Skips are recorded, never retried.** A tab that resumes on another session, comes back as a shell, has no PTY agent session, or is not agent-ready within the 300-second failure deadline is settled with `outcome: {"skipped": "<reason>"}` (`session_not_resumed`, `no_agent_session`, `no_pty_agent_session`, `spawn_failed`, `session_unverified`, `agent_not_ready`, `claim_not_persisted`, `session_changed_before_send`, `send_refused`, `disabled`). Idle tabs carry no mark and receive nothing. Owner messages are never replayed.
+- **A requested continuation shares the same owner.** `update install --from-file` (and `build.sh install-local`) passes `--continue-tab`/`--continue-prompt` to `/api/session/save`; the tab's mark then carries that prompt, survives the caller's turn ending, and is delivered once in place of the default text. The installer helper itself never writes to a tab.
+- `[agent] continue_after_restart = false` (`codeterm docs CONFIG`) disables delivery; owed marks settle as `disabled`.
+
+The mark is visible in the tab JSON as `turn_resume`. The first start of a build that introduced it has no marks from the previous build to resume.
+
 ## Restore reporting and observed liveness
 
 `state/recovery/last_restore_report.json` is written when the wave is armed and whenever lifecycle evidence changes. A dropped or unobserved pane remains eligible for reconciliation, so a later live observation corrects an earlier absence in the report. The daemon logs one pane line per tab for the wave. The report also records `previous_epoch_end` — `clean_shutdown:<reason>` or `crash:<classification>` — so a restore that lost every agent to a planned update reads as that, and an unexplained one cannot hide behind a plausible story.
@@ -189,4 +201,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 37 -->
+<!-- revision: 38 -->

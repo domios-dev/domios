@@ -22,6 +22,79 @@ fn resolve_local_install_continuation(
     (prompt, tab)
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum ContinuationRegistration {
+    NotRequested,
+    Registered,
+    Refused(String),
+    /// The running daemon predates the restart-continuation owner.
+    Unsupported,
+}
+
+fn classify_continuation(
+    tab: Option<&str>,
+    continuation: &serde_json::Value,
+) -> ContinuationRegistration {
+    if tab.is_none() {
+        return ContinuationRegistration::NotRequested;
+    }
+    match continuation["registered"].as_bool() {
+        Some(true) => ContinuationRegistration::Registered,
+        Some(false) => ContinuationRegistration::Refused(
+            continuation["reason"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string(),
+        ),
+        None => ContinuationRegistration::Unsupported,
+    }
+}
+
+/// Persist the desk and hand the calling tab's continuation to the daemon that
+/// restarts; the next start delivers it once that tab's session is agent-ready.
+fn save_session_with_continuation(
+    http: &crate::local_api::LocalApiClient,
+    base_url: &str,
+    prompt: Option<&str>,
+    tab: Option<&str>,
+) {
+    let save_url = format!("{}/api/session/save", base_url);
+    let request = http.post(&save_url);
+    let request = match tab {
+        Some(tab) => request.json(&serde_json::json!({
+            "continue_tab": tab,
+            "continue_prompt": prompt,
+        })),
+        None => request,
+    };
+    let saved = request
+        .send()
+        .and_then(|response| response.error_for_status())
+        .and_then(|response| response.json::<serde_json::Value>());
+    let saved = match saved {
+        Ok(saved) => saved,
+        Err(e) => {
+            eprintln!("[install --from-file] WARN: session save failed ({e}) — Tab id may rotate");
+            return;
+        }
+    };
+    match classify_continuation(tab, &saved["continuation"]) {
+        ContinuationRegistration::NotRequested => {}
+        ContinuationRegistration::Registered => eprintln!(
+            "[install --from-file] Continue: Domios continues tab {} once its session is ready after restart",
+            tab.unwrap_or("?")
+        ),
+        ContinuationRegistration::Refused(reason) => eprintln!(
+            "[install --from-file] WARN: continuation for tab {} refused: {reason}",
+            tab.unwrap_or("?")
+        ),
+        ContinuationRegistration::Unsupported => eprintln!(
+            "[install --from-file] WARN: running Domios predates restart continuation; tab {} is not continued",
+            tab.unwrap_or("?")
+        ),
+    }
+}
+
 fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
     let status_url = format!("{}/api/update/status", base_url);
     let started = Instant::now();
@@ -88,7 +161,34 @@ fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve_local_install_continuation, DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT};
+    use super::{
+        classify_continuation, resolve_local_install_continuation, ContinuationRegistration,
+        DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT,
+    };
+
+    #[test]
+    fn continuation_registration_reads_the_daemon_answer() {
+        let registered = serde_json::json!({"tab_id": "tab-1", "registered": true});
+        let refused =
+            serde_json::json!({"tab_id": "tab-1", "registered": false, "reason": "opaque"});
+
+        assert_eq!(
+            classify_continuation(Some("tab-1"), &registered),
+            ContinuationRegistration::Registered
+        );
+        assert_eq!(
+            classify_continuation(Some("tab-1"), &refused),
+            ContinuationRegistration::Refused("opaque".into())
+        );
+        assert_eq!(
+            classify_continuation(Some("tab-1"), &serde_json::Value::Null),
+            ContinuationRegistration::Unsupported
+        );
+        assert_eq!(
+            classify_continuation(None, &serde_json::Value::Null),
+            ContinuationRegistration::NotRequested
+        );
+    }
 
     #[test]
     fn local_install_defaults_to_resuming_the_calling_tab() {
@@ -212,19 +312,13 @@ pub fn handle_update(
                     continue_tab,
                     std::env::var("CODETERM_TAB_ID").ok(),
                 );
-                // Persist current tab ids so the continuation target survives restart.
-                let save_url = format!("{}/api/session/save", base_url);
-                if let Err(e) = http.post(&save_url).send() {
-                    eprintln!(
-                        "[install --from-file] WARN: session save failed ({e}) — Tab id may rotate"
-                    );
-                }
-                crate::cmd::install::run_install_from_file(
-                    &path,
-                    json,
+                save_session_with_continuation(
+                    &http,
+                    &base_url,
                     continue_prompt.as_deref(),
                     tab.as_deref(),
                 );
+                crate::cmd::install::run_install_from_file(&path, json);
                 return;
             }
             let mut params: Vec<(&str, String)> = Vec::new();
