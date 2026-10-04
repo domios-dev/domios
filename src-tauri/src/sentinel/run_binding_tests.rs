@@ -41,7 +41,7 @@ fn insert(store: &Mutex<Store>) -> Sentinel {
                 buckets: vec!["waiting".into()],
                 every: "10s".into(),
                 routes: Default::default(),
-                matches: Default::default(),
+                matches: [("waiting".to_string(), ".*".to_string())].into_iter().collect(),
                 until: None,
                 timeout: None,
                 paused: false,
