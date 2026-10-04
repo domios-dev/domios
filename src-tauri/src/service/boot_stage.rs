@@ -501,9 +501,7 @@ impl ServiceContext {
     /// void. `AgentReady` is the only precise point at which input is known to
     /// be accepted, so it is the only place the parked text is delivered.
     fn schedule_parked_user_send(&self, tab_id: &str) {
-        let svc = self.clone();
-        let tab_id = tab_id.to_string();
-        std::thread::spawn(move || svc.deliver_parked_user_send(&tab_id));
+        self.deliver_parked_user_send(tab_id);
     }
 
     /// Proven health for the recovery record: every exact role binding has a

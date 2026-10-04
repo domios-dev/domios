@@ -1,4 +1,10 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::{Arc, Weak};
+use tauri::Manager;
+
+use super::pending_delivery_payloads::user_sends::{
+    PreparedUserBody, UserReservation, UserSendAuthority, UserSendRecord, MAX_PREPARED_BYTES,
+};
 
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -84,6 +90,8 @@ struct ChatSendLedgerState {
     latest_by_tab: HashMap<String, String>,
     latest_failure_by_tab: HashMap<String, String>,
     order: VecDeque<String>,
+    owned: HashMap<String, (UserSendAuthority, bool)>,
+    owned_live_turns: HashMap<String, HashSet<(String, String, String)>>,
 }
 
 impl Default for ChatSendLedgerState {
@@ -100,6 +108,8 @@ impl Default for ChatSendLedgerState {
             latest_by_tab: HashMap::new(),
             latest_failure_by_tab: HashMap::new(),
             order: VecDeque::new(),
+            owned: HashMap::new(),
+            owned_live_turns: HashMap::new(),
         }
     }
 }
@@ -117,9 +127,100 @@ pub(crate) fn normalize_turn_evidence_with(
 #[derive(Default)]
 pub(crate) struct ChatSendLedger {
     state: Mutex<ChatSendLedgerState>,
+    owner: Mutex<Option<Weak<super::ServiceContext>>>,
 }
 
 impl ChatSendLedger {
+    pub(crate) fn status(&self, send_id: &str) -> Option<ChatSendStatus> {
+        let state = self.state.lock();
+        state.by_id.get(send_id).cloned().map(|status| Self::with_retention_window(&state, status))
+    }
+
+    pub(crate) fn reserve_identity(&self) -> (String, u64) {
+        let mut state = self.state.lock();
+        let sequence = state.next_sequence;
+        state.next_sequence += 1;
+        (uuid::Uuid::new_v4().to_string(), sequence)
+    }
+
+    pub(crate) fn admit_user(&self, record: &UserSendRecord) -> ChatSendStatus {
+        let mut state = self.state.lock();
+        let status = ChatSendStatus {
+            send_id: record.send_id.clone(),
+            tab_id: record.authority.tab_id.clone(),
+            state: ChatSendState::Pending,
+            error: None,
+            ledger_id: state.ledger_id.clone(),
+            sequence: record.ledger_sequence,
+            retained_from: record.ledger_sequence,
+            correlation_id: record.client_token.clone(),
+        };
+        state.owned.insert(record.send_id.clone(), (record.authority.clone(), false));
+        let latest_sequence = state.latest_by_tab.get(&status.tab_id)
+            .and_then(|id| state.by_id.get(id)).map_or(0, |latest| latest.sequence);
+        if status.sequence >= latest_sequence {
+            state.latest_by_tab.insert(status.tab_id.clone(), status.send_id.clone());
+        }
+        if !state.by_id.contains_key(&status.send_id) {
+            let position = state.order.iter().position(|id| state.by_id.get(id).is_some_and(|prior| prior.sequence > status.sequence));
+            if let Some(position) = position { state.order.insert(position, status.send_id.clone()); }
+            else { state.order.push_back(status.send_id.clone()); }
+        }
+        state.anchor_by_id.remove(&status.send_id);
+        state.live_binding_by_id.remove(&status.send_id);
+        state.payload_by_id.remove(&status.send_id);
+        state.by_id.insert(status.send_id.clone(), status.clone());
+        if let Some(token) = &record.client_token {
+            state.token_by_id.insert(status.send_id.clone(), token.clone());
+        }
+        Self::prune_terminal(&mut state);
+        Self::with_retention_window(&state, status)
+    }
+
+    pub(crate) fn begin_user_handoff(
+        &self,
+        record: &UserSendRecord,
+        text: &str,
+        evidence: super::chat_send_evidence::CapturedSendEvidence,
+    ) -> bool {
+        let Some(binding) = evidence.live_binding else { return false; };
+        if binding.session_id.is_none() || binding.binding_nonce.as_deref() != Some(record.authority.binding_nonce.as_str()) {
+            return false;
+        }
+        let payload = normalize_turn_evidence_with(text, evidence.turn_normalization);
+        let mut state = self.state.lock();
+        let Some((authority, active)) = state.owned.get_mut(&record.send_id) else { return false; };
+        if authority != &record.authority || *active { return false; }
+        *active = true;
+        state.live_binding_by_id.insert(record.send_id.clone(), binding);
+        state.turn_normalization_by_id.insert(record.send_id.clone(), evidence.turn_normalization);
+        state.payload_by_id.insert(record.send_id.clone(), payload);
+        if let Some(anchor) = evidence.anchor { state.anchor_by_id.insert(record.send_id.clone(), anchor); }
+        true
+    }
+
+    pub(crate) fn zero_write_user_handoff(&self, send_id: &str) {
+        let mut state = self.state.lock();
+        if let Some((_, active)) = state.owned.get_mut(send_id) { *active = false; }
+        state.anchor_by_id.remove(send_id);
+        state.live_binding_by_id.remove(send_id);
+    }
+
+    pub(crate) fn user_confirmed(&self, send_id: &str) -> bool {
+        self.state.lock().by_id.get(send_id).is_some_and(|status| status.state == ChatSendState::Sent)
+    }
+
+    pub(crate) fn release_user(&self, send_id: &str) {
+        let mut state = self.state.lock();
+        state.owned.remove(send_id);
+        Self::prune_terminal(&mut state);
+    }
+
+    fn wake_owner(&self, tab_id: &str) {
+        let owner = self.owner.lock().as_ref().and_then(Weak::upgrade);
+        if let Some(owner) = owner { owner.wake_parked_user_send(tab_id); }
+    }
+
     #[cfg(test)]
     pub(crate) fn try_start(
         &self,
@@ -168,7 +269,7 @@ impl ChatSendLedger {
         let in_flight = state
             .by_id
             .values()
-            .filter(|status| status.state == ChatSendState::Pending)
+            .filter(|status| status.state == ChatSendState::Pending && !state.owned.contains_key(&status.send_id))
             .count();
         if in_flight >= MAX_IN_FLIGHT {
             return Err(format!(
@@ -206,30 +307,7 @@ impl ChatSendLedger {
                 .live_binding_by_id
                 .insert(status.send_id.clone(), binding);
         }
-        while state.order.len() > MAX_RESULTS {
-            let Some(position) = state.order.iter().position(|send_id| {
-                state
-                    .by_id
-                    .get(send_id)
-                    .is_some_and(|status| status.state != ChatSendState::Pending)
-            }) else {
-                break;
-            };
-            let expired = state
-                .order
-                .remove(position)
-                .expect("the selected terminal result exists");
-            state.by_id.remove(&expired);
-            state.payload_by_id.remove(&expired);
-            state.turn_normalization_by_id.remove(&expired);
-            state.token_by_id.remove(&expired);
-            state.anchor_by_id.remove(&expired);
-            state.live_binding_by_id.remove(&expired);
-            state.latest_by_tab.retain(|_, send_id| send_id != &expired);
-            state
-                .latest_failure_by_tab
-                .retain(|_, send_id| send_id != &expired);
-        }
+        Self::prune_terminal(&mut state);
         Ok(Self::with_retention_window(&state, status))
     }
 
@@ -257,6 +335,7 @@ impl ChatSendLedger {
         result: Result<(), String>,
     ) -> Option<ChatSendStatus> {
         let mut state = self.state.lock();
+        let result = if state.owned.contains_key(send_id) { Ok(()) } else { result };
         let failed_tab = {
             let status = state.by_id.get_mut(send_id)?;
             // Exact turn evidence already proved delivery — a late transport
@@ -310,6 +389,15 @@ impl ChatSendLedger {
         source_binding_nonce: Option<&str>,
         turn_text: &str,
     ) -> Option<ChatSendStatus> {
+        let owned_wake = {
+            let state = self.state.lock();
+            state.owned.iter().any(|(id, (_, active))| *active
+                && state.by_id.get(id).is_some_and(|status| status.tab_id == tab_id)
+                && state.live_binding_by_id.get(id).is_some_and(|binding|
+                    binding.session_id.as_deref() == Some(source_session_id)
+                    && binding.binding_nonce.as_deref() == source_binding_nonce))
+        };
+        if owned_wake { self.wake_owner(tab_id); }
         let candidates = {
             let state = self.state.lock();
             state
@@ -328,7 +416,7 @@ impl ChatSendLedger {
                                     .as_deref()
                                     .is_none_or(|nonce| Some(nonce) == source_binding_nonce)
                         });
-                    if status.tab_id != tab_id
+                    if state.owned.contains_key(send_id) || status.tab_id != tab_id
                         || status.state == ChatSendState::Sent
                         || !binding_matches
                     {
@@ -362,6 +450,7 @@ impl ChatSendLedger {
             .iter()
             .find(|send_id| {
                 matching_ids.contains(*send_id)
+                    && !state.owned.contains_key(*send_id)
                     && state.by_id.get(*send_id).is_some_and(|status| {
                         status.tab_id == tab_id && status.state != ChatSendState::Sent
                     })
@@ -384,6 +473,40 @@ impl ChatSendLedger {
         Some(Self::with_retention_window(&state, status))
     }
 
+    fn confirm_owned_live_turn(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        nonce: Option<&str>,
+        message: &crate::agent::chat_types::ChatMsg,
+    ) -> Option<ChatSendStatus> {
+        let nonce = nonce?;
+        if message.id.is_empty() { return None; }
+        let candidate = {
+            let mut state = self.state.lock();
+            if !state.owned.values().any(|(authority, _)| authority.tab_id == tab_id) { return None; }
+            let seen = state.owned_live_turns.entry(tab_id.to_string()).or_default();
+            if seen.len() >= MAX_RESULTS || !seen.insert((session_id.to_string(), nonce.to_string(), message.id.clone())) {
+                return None;
+            }
+            state.order.iter().find_map(|id| {
+                let (authority, active) = state.owned.get(id)?;
+                let status = state.by_id.get(id)?;
+                let binding = state.live_binding_by_id.get(id)?;
+                (*active && authority.tab_id == tab_id && authority.binding_nonce == nonce
+                    && status.state != ChatSendState::Sent && !state.anchor_by_id.contains_key(id)
+                    && binding.session_id.as_deref() == Some(session_id)).then(|| (
+                        id.clone(), state.payload_by_id.get(id).cloned(),
+                        state.turn_normalization_by_id.get(id).copied(),
+                    ))
+            })
+        }?;
+        let (send_id, expected, normalization) = candidate;
+        let text = normalize_turn_evidence_with(&message.content, normalization?);
+        if text.is_empty() || expected.as_deref() != Some(text.as_str()) { return None; }
+        self.confirm_send(&send_id)
+    }
+
     fn mark_sent(state: &mut ChatSendLedgerState, send_id: &str) -> Option<ChatSendStatus> {
         {
             let status = state.by_id.get_mut(send_id)?;
@@ -402,9 +525,24 @@ impl ChatSendLedger {
     /// Confirm one send by id after exact append-window evidence was found in
     /// its own recorded session transcript. No-op if already sent.
     pub(crate) fn confirm_send(&self, send_id: &str) -> Option<ChatSendStatus> {
+        let owned = {
+            let state = self.state.lock();
+            state.owned.get(send_id).cloned().map(|value| (value, state.live_binding_by_id.get(send_id).cloned()))
+        };
+        if let Some(((authority, active), binding)) = owned {
+            let owner = self.owner.lock().as_ref().and_then(Weak::upgrade)?;
+            let session = binding?.session_id?;
+            if !active || !owner.user_authority_is_ready(&authority)
+                || owner.mux.read().get_tab(&authority.tab_id).and_then(|tab| tab.agent_session_id.as_deref()) != Some(session.as_str()) {
+                return None;
+            }
+        }
         let mut state = self.state.lock();
         let status = Self::mark_sent(&mut state, send_id)?;
-        Some(Self::with_retention_window(&state, status))
+        let status = Self::with_retention_window(&state, status);
+        drop(state);
+        self.wake_owner(&status.tab_id);
+        Some(status)
     }
 
     /// Unconfirmed sends (oldest first) that carry an evidence anchor and a
@@ -416,7 +554,8 @@ impl ChatSendLedger {
             .iter()
             .filter_map(|send_id| {
                 let status = state.by_id.get(send_id)?;
-                if status.tab_id != tab_id || status.state == ChatSendState::Sent {
+                if status.tab_id != tab_id || status.state == ChatSendState::Sent
+                    || state.owned.get(send_id).is_some_and(|(_, active)| !active) {
                     return None;
                 }
                 let payload = state.payload_by_id.get(send_id).cloned()?;
@@ -443,6 +582,13 @@ impl ChatSendLedger {
         payload: &str,
     ) -> usize {
         let state = self.state.lock();
+        // The sole owned handoff captures a fresh window after every earlier cycle settled.
+        if state.owned.iter().any(|(id, (_, active))| *active
+            && state.by_id.get(id).is_some_and(|status| status.tab_id == tab_id && status.state != ChatSendState::Sent)
+            && state.payload_by_id.get(id).map(String::as_str) == Some(payload)
+            && state.anchor_by_id.get(id).is_some_and(|anchor| anchor.session_id == session_id)) {
+            return 0;
+        }
         state
             .by_id
             .values()
@@ -467,7 +613,8 @@ impl ChatSendLedger {
             .filter_map(|send_id| state.by_id.get(send_id))
             .filter(|status| {
                 status.tab_id == tab_id
-                    && matches!(status.state, ChatSendState::Unknown | ChatSendState::Failed)
+                    && (matches!(status.state, ChatSendState::Unknown | ChatSendState::Failed)
+                        || (status.state == ChatSendState::Pending && state.owned.contains_key(&status.send_id)))
             })
             .cloned()
             .map(|status| Self::with_retention_window(&state, status))
@@ -483,6 +630,34 @@ impl ChatSendLedger {
             .map(|status| Self::with_retention_window(&state, status))
             .into_iter()
             .collect()
+    }
+
+    fn prune_terminal(state: &mut ChatSendLedgerState) {
+        while state.order.len() > MAX_RESULTS {
+            let Some(position) = state.order.iter().position(|send_id| {
+                state
+                    .by_id
+                    .get(send_id)
+                    .is_some_and(|status| status.state != ChatSendState::Pending)
+                    && !state.owned.contains_key(send_id)
+            }) else {
+                break;
+            };
+            let expired = state
+                .order
+                .remove(position)
+                .expect("the selected terminal result exists");
+            state.by_id.remove(&expired);
+            state.payload_by_id.remove(&expired);
+            state.turn_normalization_by_id.remove(&expired);
+            state.token_by_id.remove(&expired);
+            state.anchor_by_id.remove(&expired);
+            state.live_binding_by_id.remove(&expired);
+            state.latest_by_tab.retain(|_, send_id| send_id != &expired);
+            state
+                .latest_failure_by_tab
+                .retain(|_, send_id| send_id != &expired);
+        }
     }
 
     fn with_retention_window(
@@ -525,12 +700,10 @@ pub(crate) fn delivered_turn_confirmations(
 ) -> Vec<ChatSendStatus> {
     let mut confirmed = Vec::new();
     for msg in messages.iter().filter(|msg| msg.kind == "user") {
-        let Some(status) = ledger.confirm_delivered_user_turn_scoped(
-            tab_id,
-            source_session_id,
-            source_binding_nonce,
-            &msg.content,
-        ) else {
+        let Some(status) = ledger.confirm_owned_live_turn(tab_id, source_session_id, source_binding_nonce, msg)
+            .or_else(|| ledger.confirm_delivered_user_turn_scoped(
+                tab_id, source_session_id, source_binding_nonce, &msg.content,
+            )) else {
             continue;
         };
         log::info!(
@@ -552,6 +725,11 @@ impl crate::service::ServiceContext {
         submit_claim: Option<crate::service::pty_io::submit_transaction::SubmitCycleClaim>,
         client_token: Option<String>,
     ) -> Result<ChatSendStatus, String> {
+        if self.tab_chat_backing(tab_id).is_none() {
+            drop(submit_claim);
+            let reservation = self.reserve_user_send(tab_id, client_token)?;
+            return self.admit_prepared_user_send(reservation, &text, &text, None).map(|(status, _)| status);
+        }
         let evidence = self.chat_send_anchor(tab_id);
         let turn_evidence_text = self.chat_send_turn_evidence(tab_id, &text);
         let pending = self.chat_send_ledger.try_start_scoped_with_normalization(
@@ -599,7 +777,83 @@ impl crate::service::ServiceContext {
         Ok(response)
     }
 
-    fn chat_send_turn_evidence(&self, tab_id: &str, text: &str) -> String {
+    pub(crate) fn reserve_user_send(&self, tab_id: &str, client_token: Option<String>) -> Result<UserReservation, String> {
+        let authority = self.user_send_authority(tab_id)?;
+        if let Some(service) = self.app_handle.try_state::<super::ServiceState>() {
+            let weak = Arc::downgrade(service.inner());
+            *self.chat_send_ledger.owner.lock() = Some(weak.clone());
+            let tab = tab_id.to_string();
+            self.pending_delivery_payloads.user_sends.set_admission_wake(tab_id, Arc::new(move || {
+                if let Some(service) = weak.upgrade() { service.wake_parked_user_send(&tab); }
+            }));
+        }
+        // This short reservation is the service ordering point, before asynchronous preparation.
+        self.pending_delivery_payloads.user_sends.reserve(authority, client_token,
+            || self.chat_send_ledger.reserve_identity())
+    }
+
+    pub(crate) fn prepare_and_admit_user_send(
+        &self,
+        reservation: UserReservation,
+        original: String,
+        run_stages: bool,
+    ) -> Result<super::agent_pad::ChatSendResult, String> {
+        if original.len() > MAX_PREPARED_BYTES { return Err("user original exceeds 4 MiB storage bound".into()); }
+        let (prepared, returned) = self.prepare_chat_send_text(&reservation.authority.tab_id, original.clone(), run_stages)?;
+        let body = returned.as_ref().map(|path| self.capture_prepared_user_body(&reservation.authority.tab_id, path)).transpose()?;
+        let (status, owned) = self.admit_prepared_user_send(reservation, &original, &prepared, body)?;
+        Ok(super::agent_pad::ChatSendResult::new(status, owned))
+    }
+
+    fn capture_prepared_user_body(&self, tab_id: &str, returned: &std::path::Path) -> Result<PreparedUserBody, String> {
+        let pad_root = self.agent_pad_data_dir.join("runtime").join("agent-pads");
+        let pad = pad_root.join(tab_id);
+        let inbox = pad.join("inbox");
+        if returned.parent() != Some(inbox.as_path())
+            || !std::fs::symlink_metadata(&pad).map_err(|_| "prepared tab scope unavailable")?.file_type().is_dir()
+            || !std::fs::symlink_metadata(&inbox).map_err(|_| "prepared inbox scope unavailable")?.file_type().is_dir() {
+            return Err("prepared body does not belong to the exact returned tab inbox".into());
+        }
+        let root = pad_root.canonicalize().map_err(|_| "prepared root scope unavailable")?;
+        let canonical_pad = pad.canonicalize().map_err(|_| "prepared tab scope unavailable")?;
+        if canonical_pad.parent() != Some(root.as_path()) { return Err("prepared tab escaped its owner scope".into()); }
+        let expected = inbox.canonicalize().map_err(|_| "prepared inbox scope unavailable")?;
+        if expected.parent() != Some(canonical_pad.as_path()) { return Err("prepared inbox escaped its tab scope".into()); }
+        if !std::fs::symlink_metadata(returned).map_err(|_| "prepared body unavailable")?.file_type().is_file() {
+            return Err("prepared body is not an owned regular file".into());
+        }
+        let actual = returned.canonicalize().map_err(|_| "prepared body scope unavailable")?;
+        if actual.parent() != Some(expected.as_path()) { return Err("prepared body escaped the returned inbox scope".into()); }
+        let bytes = super::pending_delivery_payloads::user_sends::read_bounded(&actual, MAX_PREPARED_BYTES as u64)?;
+        Ok(PreparedUserBody { returned_path: returned.to_path_buf(), bytes })
+    }
+
+    fn admit_prepared_user_send(
+        &self,
+        reservation: UserReservation,
+        original: &str,
+        prepared: &str,
+        body: Option<PreparedUserBody>,
+    ) -> Result<(ChatSendStatus, Option<std::path::PathBuf>), String> {
+        let store = &self.pending_delivery_payloads.user_sends;
+        let final_transport = store.final_transport(&reservation, prepared, body.as_ref())?;
+        let follow_up = self.agent_registry.with_provider(&reservation.authority.provider_id, |provider| {
+            provider.paste_capability().and_then(|capability| capability.typed_follow_up_for(&final_transport).map(str::to_string))
+        }).flatten();
+        let record = store.admit_with_follow_up(&reservation, original, prepared, body, follow_up)?;
+        let status = self.chat_send_ledger.admit_user(&record);
+        let path = store.body_path(&record)?.map(|path| {
+            path.to_str().map(|text| std::path::PathBuf::from(codeterm_paths::strip_verbatim_prefix(text)))
+                .ok_or_else(|| "admission_unknown: durable body path cannot be represented".to_string())
+        }).transpose()?;
+        crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+        let tab = record.authority.tab_id.clone();
+        drop(reservation);
+        self.wake_parked_user_send(&tab);
+        Ok((status, path))
+    }
+
+    pub(crate) fn chat_send_turn_evidence(&self, tab_id: &str, text: &str) -> String {
         let provider_id = self.mux.read().get_tab(tab_id).and_then(|tab| {
             matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty)
                 .then(|| tab.agent_type.clone())
