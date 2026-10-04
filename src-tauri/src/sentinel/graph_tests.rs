@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use serde_json::{json, Value};
 
 use super::{
+    amend::Amendment,
     graph,
     machine::Route,
     store::{Owner, Sentinel, Store},
@@ -80,7 +81,49 @@ fn sentinel_graph_named_scenario_has_one_root_and_reachable_internal_stage() {
             .iter()
             .find(|n| n["identity"]["id"] == root.id)
             .unwrap()["sentinel_definition"],
-        json!({"source":"stored_agent_definition","definition_id":root.id,"creator_tab_id":owner.creator_tab_id})
+        json!({"source":"stored_agent_definition","definition_id":root.id,"creator_tab_id":owner.creator_tab_id,"definition_version":1,"lineage":[]})
+    );
+}
+
+#[test]
+fn sentinel_update_snapshot_exposes_read_only_definition_version_and_lineage() {
+    let (_dir, mut store, mux, owner) = setup();
+    let root = create(&mut store, &owner, false, json!({}));
+    let mut jobs = store.list().to_vec();
+    jobs[0].definition_version = 2;
+    jobs[0].amendments = vec![Amendment {
+        version: 2,
+        replaced_version: 1,
+        author_tab_id: "editor".into(),
+        cause_transition_id: Some("transition_1".into()),
+        at: 2000,
+        previous_definition: None,
+    }];
+
+    let graph = graph::project(
+        &owner.workspace_id,
+        None,
+        &jobs,
+        &mux,
+        &BTreeMap::new(),
+        Value::Null,
+        1000,
+        &Default::default(),
+    )
+    .unwrap();
+
+    let definition = graph
+        .nodes
+        .iter()
+        .find(|node| node["identity"]["id"] == root.id)
+        .unwrap()["sentinel_definition"]
+        .clone();
+    assert_eq!(definition["definition_version"], 2);
+    assert_eq!(definition["lineage"][0]["replaced_version"], 1);
+    assert_eq!(definition["lineage"][0]["author_tab_id"], "editor");
+    assert_eq!(
+        definition["lineage"][0]["cause_transition_id"],
+        "transition_1"
     );
 }
 
