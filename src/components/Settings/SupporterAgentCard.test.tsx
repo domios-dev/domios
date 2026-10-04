@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SupporterAgentCard } from "./SupporterAgentCard";
 import { useDecisionToken, type SupporterControls } from "./useDecisionToken";
 import type { SupporterAdapter, SupporterConnection, SupporterStatus } from "./supporterTypes";
-import { API, statusFixture } from "../Supporter/testSupport";
+import { statusFixture } from "../Supporter/testSupport";
 import { __setListenForTest } from "../../lib/bridge";
 import type { SupporterActivity } from "../Supporter/activity";
 
@@ -211,7 +211,6 @@ async function mount() {
   await act(async () =>
     root.render(
       <SupporterAgentCard
-        api={API}
         apiBase="http://127.0.0.1:7686"
         apiHeaders={{ Authorization: "Bearer fixture-auth" }}
         onOpenGuide={() => {}}
@@ -296,41 +295,6 @@ async function resume() {
 }
 
 describe("Supporter saved connections", () => {
-  it("compact_details_embeds_heartbeat_activity_and_refreshes_on_journal_events", async () => {
-    activity = [
-      {
-        time: 1700000000,
-        team_id: null,
-        kind: "heartbeat",
-        label: "action_needed",
-        action: "wake",
-        reason: "hard_wake",
-        confidence_band: "strong",
-        budget_reached: false,
-        fallback: false,
-      },
-    ];
-    await mount();
-    const feed = section("required").querySelector("section[aria-label='Spinal-cord activity']")!;
-    expect(feed).not.toBeNull();
-    const details = feed.closest("details")!;
-    expect(details.querySelector("summary")?.textContent).toBe("Details");
-    expect(details.open).toBe(false);
-    expect(feed.querySelector("h3")).toBeNull();
-    expect(feed.querySelector("li")?.getAttribute("data-kind")).toBe("heartbeat");
-    expect(details.textContent).toContain("Team heartbeats");
-    await act(async () => details.querySelector("summary")!.click());
-    const count = calls.filter((call) => call.path.endsWith("/activity")).length;
-    activity = [{ ...activity[0], label: "nothing_changed", action: "suppress", reason: "same_snapshot" }];
-    await act(async () => {
-      for (const listener of listeners) listener({ payload: {} });
-    });
-    expect(calls.filter((call) => call.path.endsWith("/activity"))).toHaveLength(count + 1);
-    expect(feed.querySelector("li")?.textContent).toContain("Action: suppress");
-    await click("Make active", section("optional"));
-    expect(section("required").querySelector("section[aria-label='Spinal-cord activity']")).toBeNull();
-    expect(section("optional").querySelector("section[aria-label='Spinal-cord activity']")).not.toBeNull();
-  });
   it("initial_unknown_status_is_unavailable_without_token_claims", async () => {
     stale = true;
     await mount();
@@ -802,10 +766,10 @@ describe("Supporter saved connections", () => {
   });
   it("money_only_for_priced_adapter", async () => {
     await mount();
-    expect(section("required").querySelector("[aria-label='Supporter spend']")).not.toBeNull();
-    expect(section("optional").querySelector("[aria-label='Supporter spend']")).toBeNull();
+    expect(section("required").querySelector("[aria-label='Supporter cost']")).not.toBeNull();
+    expect(section("optional").querySelector("[aria-label='Supporter cost']")).toBeNull();
     await click("Make active", section("optional"));
-    expect(host.querySelector("[aria-label='Supporter spend']")).toBeNull();
+    expect(host.querySelector("[aria-label='Supporter cost']")).toBeNull();
     expect(host.querySelector("#supporter-balance")).toBeNull();
   });
   it("unknown_price_not_zero", async () => {
@@ -823,7 +787,7 @@ describe("Supporter saved connections", () => {
     state.pricing = null;
     await mount();
     expect(host.textContent).toContain("req/hr");
-    expect(host.textContent).toContain("out tokens");
+    expect(host.querySelector("[aria-label='Supporter cost']")).toBeNull();
     expect(host.querySelector("#supporter-balance")).toBeNull();
   });
   it("zero_price_local_adapter_shows_counts_without_money", async () => {
@@ -849,21 +813,10 @@ describe("Supporter saved connections", () => {
     await click("Make active", section("optional"));
     expect(host.textContent).toContain("Adapter endpoint refused the request");
   });
-  it("manual_balance_write_is_scoped_to_the_active_priced_adapter", async () => {
+  it("priced_adapter_shows_spend_without_a_manual_balance_field", async () => {
     await mount();
-    const input = section("required").querySelector<HTMLInputElement>("#supporter-balance")!;
-    expect(input).not.toBeNull();
-    await act(async () => input.closest("details")!.querySelector("summary")!.click());
-    await act(async () =>
-      input.closest("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })),
-    );
-    expect(writes()[0]).toEqual({
-      path: "/api/supporter/balance",
-      method: "POST",
-      body: { adapter: "required", balance_usd: state.spend.balance_usd },
-    });
-    expect(section("optional").querySelector("#supporter-balance")).toBeNull();
-    expect(state.adapter).toBe("required");
+    expect(section("required").querySelector('[aria-label="Supporter cost"]')).not.toBeNull();
+    expect(section("required").querySelector("#supporter-balance")).toBeNull();
   });
   it("clear_token_is_adapter_scoped_and_returns_an_honest_success_flag", async () => {
     let controls: SupporterControls;

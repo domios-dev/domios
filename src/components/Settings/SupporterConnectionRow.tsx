@@ -243,7 +243,7 @@ export function SupporterConnectionRow({ row, controls, stale, unavailableReason
           </Button>
         </div>
       )}
-      {(server || settings || help) && (
+      {!row.active && (server || settings || help) && (
         <details className="text-xs text-[var(--ct-muted-fg)]">
           <summary className="w-fit cursor-pointer">Connection info</summary>
           <div className="flex flex-wrap items-center gap-3 pt-1">
