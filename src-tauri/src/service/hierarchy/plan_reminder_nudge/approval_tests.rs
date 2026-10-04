@@ -814,10 +814,11 @@ fn plan_reminder_choice_producer_paths_and_excluded_notices() {
     ] {
         let (mut mux, owner) = MultiplexerState::new();
         let workspace = mux.list_workspaces()[0].id.clone();
-        let tabs: Vec<String> = (0..3)
+        let tabs: Vec<String> = (0..5)
             .map(|_| mux.create_tab(&workspace).unwrap())
             .collect();
         let (worker, mode_owner, wrap_owner) = (&tabs[0], &tabs[1], &tabs[2]);
+        let (paused_owner, archived_owner) = (&tabs[3], &tabs[4]);
         bind(
             mux.get_tab_mut(&owner).unwrap(),
             "owner-session",
@@ -838,10 +839,26 @@ fn plan_reminder_choice_producer_paths_and_excluded_notices() {
             "wrap-session",
             "wrap-n",
         );
+        bind(
+            mux.get_tab_mut(paused_owner).unwrap(),
+            "paused-session",
+            "paused-n",
+        );
+        bind(
+            mux.get_tab_mut(archived_owner).unwrap(),
+            "archived-session",
+            "archived-n",
+        );
+        let mut paused = kind_plan(ReminderKind::CompleteWrapup, "plan-p", paused_owner, "x");
+        paused.mode = PlanMode::Paused;
+        let mut archived = kind_plan(ReminderKind::CompleteWrapup, "plan-x", archived_owner, "x");
+        archived.status = PlanStatus::Archived;
         let plans = vec![
             kind_plan(ReminderKind::Owner, PLAN, &owner, worker),
             kind_plan(ReminderKind::ModeChange, "plan-m", mode_owner, "nobody"),
             kind_plan(ReminderKind::CompleteWrapup, "plan-w", wrap_owner, "nobody"),
+            paused,
+            archived,
         ];
         let (host, model) = host(plans.clone(), mux, reply);
         let baseline = BTreeMap::from([("mode".to_string(), "Execution:Active".to_string())]);
@@ -853,10 +870,9 @@ fn plan_reminder_choice_producer_paths_and_excluded_notices() {
             },
         );
         let counter = TurnCounter::new();
-        run_reminder_tick(&host, &plans, &counter, 0, 1800);
-        run_reminder_tick(&host, &plans, &counter, 1800, 1800);
-        // The timed pass drops non-target deadlines, so drive wrap-up's own producer.
-        send_due_complete_wrapup_reminders(&host, &plans, &counter, 3600, 1800);
+        for now in [0, 1800, 3600] {
+            run_reminder_tick(&host, &plans, &counter, now, 1800);
+        }
         let tracker = StallEpisodeTracker::default();
         let stalled = PlanReminderTarget::Owner {
             plan_id: PLAN.into(),
@@ -876,6 +892,7 @@ fn plan_reminder_choice_producer_paths_and_excluded_notices() {
             })
             .collect();
         assert_eq!(nudges, vec![Ok(emitted), Ok(false)]);
+        run_reminder_tick(&host, &plans, &counter, 5400, 1800);
         let mut kinds: Vec<_> = host
             .emits
             .lock()
@@ -903,6 +920,7 @@ fn plan_reminder_choice_producer_paths_and_excluded_notices() {
             assert_eq!(delivered.is_some(), emitted, "{tab}");
         }
         assert_eq!(counter.complete_wrapup_due("plan-w"), !emitted);
+        assert!(counter.complete_wrapup_due("plan-p") && counter.complete_wrapup_due("plan-x"));
     }
     let excluded = [
         ("planner gate delivery", include_str!("../gate_delivery.rs")),
