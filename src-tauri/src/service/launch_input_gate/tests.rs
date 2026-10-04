@@ -240,17 +240,26 @@ fn launch_gate_waits_for_trust_dialog_when_composer_frame_precedes_it_in_untrust
     assert!(directory_trust_blocks_input(
         DirectoryTrustState::Untrusted,
         false,
-        false
+        false,
+        false,
     ));
     assert!(directory_trust_blocks_input(
         DirectoryTrustState::Untrusted,
         true,
-        true
+        true,
+        true,
     ));
     assert!(!directory_trust_blocks_input(
         DirectoryTrustState::Untrusted,
         false,
-        true
+        true,
+        false,
+    ));
+    assert!(directory_trust_blocks_input(
+        DirectoryTrustState::Untrusted,
+        true,
+        false,
+        true,
     ));
     assert_eq!(
         decide_launch_input(
@@ -269,9 +278,75 @@ fn launch_gate_waits_for_trust_dialog_when_composer_frame_precedes_it_in_untrust
 }
 
 #[test]
+fn lazy_structural_composer_resolves_absent_trust_prompt_without_clearing_unknown_prompts() {
+    use codeterm_plugin::provider::DirectoryTrustState;
+
+    let checkpoint = directory_trust_checkpoint_reached(
+        LaunchInputMode::LazySessionStart,
+        true,
+        true,
+        false,
+        false,
+    );
+    assert!(checkpoint);
+    assert!(!directory_trust_blocks_input(
+        DirectoryTrustState::Untrusted,
+        false,
+        false,
+        checkpoint,
+    ));
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                directory_trust_pending: false,
+                ..input_observation()
+            },
+            LaunchInputMode::LazySessionStart,
+        ),
+        Ok(Some(LaunchInputEvidence::ProviderComposer)),
+        "composer readiness lets launch continue to first-turn session binding",
+    );
+
+    assert!(!directory_trust_checkpoint_reached(
+        LaunchInputMode::LazySessionStart,
+        true,
+        true,
+        true,
+        false,
+    ));
+    assert!(!directory_trust_checkpoint_reached(
+        LaunchInputMode::LazySessionStart,
+        true,
+        true,
+        false,
+        true,
+    ));
+    assert!(!directory_trust_checkpoint_reached(
+        LaunchInputMode::Standard,
+        true,
+        true,
+        false,
+        false,
+    ));
+    assert_eq!(
+        decide_launch_input(
+            LaunchInputObservation {
+                pending_prompt: true,
+                directory_trust_pending: false,
+                ..input_observation()
+            },
+            LaunchInputMode::LazySessionStart,
+        ),
+        Ok(None),
+        "an unclassified pending prompt still holds lazy readiness",
+    );
+}
+
+#[test]
 fn launch_gate_trusted_folder_stays_first_frame_ready() {
     assert!(!directory_trust_blocks_input(
         codeterm_plugin::provider::DirectoryTrustState::Trusted,
+        false,
         false,
         false,
     ));
@@ -287,7 +362,7 @@ fn launch_gate_does_not_stall_when_predicted_dialog_never_appears() {
         codeterm_plugin::provider::DirectoryTrustState::Trusted,
         codeterm_plugin::provider::DirectoryTrustState::Unknown,
     ] {
-        assert!(!directory_trust_blocks_input(state, false, false));
+        assert!(!directory_trust_blocks_input(state, false, false, false));
     }
     assert_eq!(
         decide_launch_input(input_observation(), LaunchInputMode::Standard),
