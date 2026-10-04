@@ -12,9 +12,192 @@
 
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{self, Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use super::tailer::TailerHandle;
+
+const SOURCE_IDENTITY_SAMPLE_BYTES: u64 = 64;
+
+/// One materialization of a tab's JSONL transcript as observed by its reader.
+/// `absence_witness` names the send capture that saw the exact path absent
+/// before this file existed, so every row read from it postdates that capture.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceIncarnation {
+    pub id: Arc<str>,
+    pub absence_witness: Option<Arc<str>>,
+}
+
+pub enum SourceCapture {
+    Present { len: u64 },
+    Absent { witness: Arc<str> },
+    Unreadable,
+}
+
+pub enum SourceObservation {
+    Absent,
+    Present {
+        incarnation: Option<SourceIncarnation>,
+        restart: bool,
+    },
+}
+
+#[derive(Default)]
+struct SourceState {
+    bound: Option<(String, PathBuf)>,
+    current: Option<SourceIncarnation>,
+    current_identity: Option<SourceFileIdentity>,
+    pending_absence: Option<Arc<str>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SourceFileIdentity {
+    created: Option<SystemTime>,
+    held_offset: u64,
+    prefix: Vec<u8>,
+    held_window: Vec<u8>,
+}
+
+fn source_file_identity(
+    path: &Path,
+    len: u64,
+    created: Option<SystemTime>,
+    held_offset: u64,
+) -> io::Result<SourceFileIdentity> {
+    let mut file = File::open(path)?;
+    let prefix = read_identity_window(&mut file, 0, len.min(SOURCE_IDENTITY_SAMPLE_BYTES))?;
+    let held_end = held_offset.min(len);
+    let held_start = held_end.saturating_sub(SOURCE_IDENTITY_SAMPLE_BYTES);
+    let held_window = read_identity_window(&mut file, held_start, held_end - held_start)?;
+    Ok(SourceFileIdentity {
+        created,
+        held_offset,
+        prefix,
+        held_window,
+    })
+}
+
+fn read_identity_window(file: &mut File, start: u64, len: u64) -> io::Result<Vec<u8>> {
+    let mut bytes = vec![0; len as usize];
+    if len > 0 {
+        file.seek(SeekFrom::Start(start))?;
+        file.read_exact(&mut bytes)?;
+    }
+    Ok(bytes)
+}
+
+/// Send captures and transcript readers stat the exact path under one lock, so
+/// an absence a capture saw always precedes the presence a reader later sees.
+#[derive(Default)]
+pub struct JsonlSource {
+    state: Mutex<SourceState>,
+}
+
+fn opaque_id() -> Arc<str> {
+    uuid::Uuid::new_v4().to_string().into()
+}
+
+impl SourceState {
+    fn binds(&self, session_id: &str, path: &Path) -> Option<bool> {
+        self.bound.as_ref().map(|(session, bound)| session == session_id && bound == path)
+    }
+}
+
+impl JsonlSource {
+    pub fn capture(&self, session_id: &str, path: &Path) -> SourceCapture {
+        let mut guard = self.state.lock();
+        let state = &mut *guard;
+        if state.binds(session_id, path) != Some(true) {
+            *state = SourceState {
+                bound: Some((session_id.to_string(), path.to_path_buf())),
+                ..SourceState::default()
+            };
+        }
+        match std::fs::metadata(path) {
+            Ok(metadata) => SourceCapture::Present { len: metadata.len() },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => SourceCapture::Absent {
+                witness: state.pending_absence.get_or_insert_with(opaque_id).clone(),
+            },
+            Err(_) => SourceCapture::Unreadable,
+        }
+    }
+
+    /// A reader holding `held` at byte `offset` restarts at zero whenever the
+    /// file it was reading is no longer the observed incarnation.
+    pub fn observe(
+        &self,
+        session_id: &str,
+        path: &Path,
+        held: Option<&SourceIncarnation>,
+        offset: u64,
+    ) -> SourceObservation {
+        let mut guard = self.state.lock();
+        let state = &mut *guard;
+        let binds = state.binds(session_id, path);
+        let metadata = match std::fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                if error.kind() == std::io::ErrorKind::NotFound && binds == Some(true) {
+                    state.current = None;
+                    state.current_identity = None;
+                }
+                return SourceObservation::Absent;
+            }
+        };
+        let len = metadata.len();
+        let created = metadata.created().ok();
+        match binds {
+            Some(false) => return SourceObservation::Present { incarnation: None, restart: false },
+            Some(true) => {}
+            None => {
+                *state = SourceState {
+                    bound: Some((session_id.to_string(), path.to_path_buf())),
+                    ..SourceState::default()
+                };
+            }
+        }
+        let held_is_current = held.is_some() && held == state.current.as_ref();
+        let truncated = held_is_current && offset > len;
+        let observed_identity = source_file_identity(path, len, created.clone(), offset);
+        let Some(observed_identity) = observed_identity.ok() else {
+            state.current = None;
+            state.current_identity = None;
+            return SourceObservation::Present {
+                incarnation: None,
+                restart: true,
+            };
+        };
+        let identity_changed = state.current.is_some()
+            && state.current_identity.as_ref().is_some_and(|identity| {
+                source_file_identity(path, len, created, identity.held_offset)
+                    .map_or(true, |observed| observed != *identity)
+            });
+        if state.pending_absence.is_some()
+            || state.current.is_none()
+            || truncated
+            || identity_changed
+        {
+            let absence_witness = state.pending_absence.take();
+            state.current = Some(SourceIncarnation { id: opaque_id(), absence_witness });
+        }
+        if state
+            .current_identity
+            .as_ref()
+            .is_none_or(|identity| identity.held_offset <= observed_identity.held_offset)
+        {
+            state.current_identity = Some(observed_identity);
+        }
+        let current = state.current.clone();
+        let restart = match held {
+            Some(held) => Some(held) != current.as_ref(),
+            None => offset > len,
+        };
+        SourceObservation::Present { incarnation: current, restart }
+    }
+}
 
 struct Entry {
     handle: TailerHandle,
@@ -35,11 +218,16 @@ impl Entry {
 #[derive(Default)]
 pub struct ChatRegistry {
     inner: Mutex<HashMap<String, Entry>>,
+    sources: Mutex<HashMap<String, Arc<JsonlSource>>>,
 }
 
 impl ChatRegistry {
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    pub fn jsonl_source(&self, tab_id: &str) -> Arc<JsonlSource> {
+        self.sources.lock().entry(tab_id.to_string()).or_default().clone()
     }
 
     /// Attach `subscriber_id` to a live tailer bound to `session_id`.
@@ -161,6 +349,7 @@ impl ChatRegistry {
     }
 
     pub fn shutdown_tab(&self, tab_id: &str) {
+        self.sources.lock().remove(tab_id);
         let h = self.inner.lock().remove(tab_id).map(|entry| entry.handle);
         if let Some(handle) = h {
             handle.shutdown();
@@ -187,6 +376,50 @@ mod tests {
     use std::time::Duration;
 
     const SID: &str = "sid-A";
+
+    #[test]
+    fn truncate_and_regrow_past_held_offset_starts_a_new_incarnation() {
+        use std::io::Write;
+
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("session.jsonl");
+        let original = b"0123456789-original-turn\n";
+        std::fs::write(&path, original).unwrap();
+        let source = JsonlSource::default();
+        let SourceObservation::Present {
+            incarnation: Some(first),
+            ..
+        } = source.observe(SID, &path, None, 0)
+        else {
+            panic!("initial file observation must establish an incarnation");
+        };
+        let held_offset = original.len() as u64;
+        assert!(matches!(
+            source.observe(SID, &path, Some(&first), held_offset),
+            SourceObservation::Present { restart: false, .. }
+        ));
+
+        let replacement = b"abcdefghij-replaced-turn\n";
+        assert_eq!(replacement.len(), original.len());
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(replacement).unwrap();
+        file.sync_all().unwrap();
+
+        let SourceObservation::Present {
+            incarnation: Some(second),
+            restart,
+        } = source.observe(SID, &path, Some(&first), held_offset)
+        else {
+            panic!("regrown file observation must carry a fresh incarnation");
+        };
+        assert!(restart, "changed sampled bytes invalidate the held position");
+        assert_ne!(first.id, second.id);
+        assert_eq!(second.absence_witness, None);
+    }
 
     fn handle_at(offset: u64) -> TailerHandle {
         let stop = Arc::new(AtomicBool::new(false));

@@ -95,6 +95,7 @@ close_tab = "Ctrl+Shift+W"
 poll_interval_ms = 500
 idle_timeout_s = 2
 resume_sessions = true
+continue_after_restart = true
 
 [api]
 enabled = true

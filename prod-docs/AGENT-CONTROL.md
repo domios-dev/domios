@@ -143,6 +143,8 @@ There are at most two automatic restarts per General Agent episode (the configur
 
 Trust, permission and login notifications are suppressed for tabs the owner opened directly from the UI; the journal still records the condition. The General Agent, agent-spawned, Team, cron and hidden-worker tabs keep their notifications. After a Domios restart, restored tabs with the same condition produce one grouped notification per condition at restore completion. A durable key for tab, condition and launch prevents reporting the same condition twice across restarts.
 
+Unattended tabs (hidden tabs outside the owner's audience, such as cron runs and hidden Workers) handle launch onboarding and pre-authentication folder-trust prompts without the owner. A connected, qualified Supporter model may choose only a provider-declared answer, at 0.90 or above with two agreeing observations, and Domios writes exactly that declared step. Otherwise the deterministic responder answers under its usual provenance rules. An undeclared or refusing choice is never written; it and any prompt nobody will answer produce one owner notice. Visible tabs are unchanged. Details: `codeterm docs TAB-LIFECYCLE`.
+
 ## Command Palette
 
 `Cmd+K` (macOS) / `Ctrl+K` (Windows/Linux) opens the command palette for quick access to tabs, workspaces, settings, and theme switching.
@@ -158,4 +160,4 @@ Domios tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

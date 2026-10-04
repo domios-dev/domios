@@ -7,7 +7,7 @@ use tauri::Manager;
 
 use crate::multiplexer::types::TabBacking;
 use crate::service::ServiceState;
-use crate::{api, cron, mem, mesh, service, socket, update, CronState, CronWake};
+use crate::{api, cron, mem, mesh, service, socket, CronState, CronWake};
 
 use super::states::AppStates;
 
@@ -163,6 +163,10 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
 
     app.manage(cron_state.clone());
     app.manage(cron_wake.clone());
+    let fence_wake = cron_wake.clone();
+    cron_state
+        .lock()
+        .set_fence_notifier(move || fence_wake.notify_all());
     cron::scheduler::start(cron_state.clone(), cron_wake.clone(), service_state.clone());
     let sentinel_clock: cron::clock::SharedClock = test_clock
         .clone()
@@ -339,6 +343,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             });
         }
     }
+    service::turn_resume::arm(&service_state);
     start_restored_pty_backends(service_state.clone(), frontend_readiness_generation);
 
     // Start mesh listeners if enabled (no broadcasting — user triggers that manually)
@@ -359,8 +364,6 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         super::bridge::spawn_telegram_bridge(service_state.clone());
     }
 
-    // If the previous instance was killed by `update --apply --after-update`, pick up the queued message and inject it into the general tab once the agent is ready.
-    update::post_update::spawn(service_state.clone());
 }
 
 /// Locate the built React bundle for the browser mirror.

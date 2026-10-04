@@ -29,9 +29,9 @@ export function SupporterConnectPanel({ adapters, busy, connect, finish }: Props
     <form
       onSubmit={(event) => void submit(event)}
       aria-label="Connect another adapter"
-      className="flex flex-col gap-2 rounded-md border border-[var(--ct-border)] p-3"
+      className="flex flex-col gap-1.5 rounded-md border border-[var(--ct-border)] p-2"
     >
-      <label htmlFor="supporter-connect-adapter">Adapter</label>
+      <label className="text-xs text-[var(--ct-muted-fg)]" htmlFor="supporter-connect-adapter">Adapter</label>
       <select
         id="supporter-connect-adapter"
         value={adapterId}
@@ -56,7 +56,7 @@ export function SupporterConnectPanel({ adapters, busy, connect, finish }: Props
       </select>
       {adapter && (
         <>
-          <label htmlFor="supporter-connect-model">Model</label>
+          <label className="text-xs text-[var(--ct-muted-fg)]" htmlFor="supporter-connect-model">Model</label>
           <select
             id="supporter-connect-model"
             value={model}
@@ -76,7 +76,7 @@ export function SupporterConnectPanel({ adapters, busy, connect, finish }: Props
           </select>
           {adapter.token_mode !== "none" && (
             <>
-              <label htmlFor="supporter-connect-token">
+              <label className="text-xs text-[var(--ct-muted-fg)]" htmlFor="supporter-connect-token">
                 {adapter.token_mode === "required" ? "API token" : "API token (optional)"}
               </label>
               <input
