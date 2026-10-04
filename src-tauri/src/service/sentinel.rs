@@ -234,7 +234,7 @@ impl ServiceContext {
                 "note": note
             }))
         {
-            tracing::error!("sentinel definition update journal failed: {error}");
+            log::error!("sentinel definition update journal failed: {error}");
         }
         Ok(updated)
     }

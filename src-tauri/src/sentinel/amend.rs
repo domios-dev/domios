@@ -322,9 +322,10 @@ impl Store {
             return Staged::ready(Err(format!("sentinel not found: {}", current.id)));
         };
         jobs[position] = next.clone();
-        if let Err(error) = super::store::validate(jobs) {
-            return Staged::ready(Err(error));
-        }
+        let jobs = match super::store::validate(jobs) {
+            Ok(jobs) => jobs,
+            Err(error) => return Staged::ready(Err(error)),
+        };
         if let Some(capability) = next.pending_capability() {
             return Staged::ready(Err(format!(
                 "sentinel_capability_unavailable: {capability} is not executable yet"
