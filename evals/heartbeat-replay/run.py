@@ -32,7 +32,7 @@ def main():
         return 1
     summary = summaries[0]
     summary["evidence"] = fixture["evidence"]
-    summary["qualification"] = "conservative reconstruction; unknown historical health wakes; no measured savings"
+    summary["qualification"] = "conservative reconstruction; Choice approval required, hard incidents never force a wake; no measured savings or model quality"
     print(json.dumps(summary, indent=2))
     return 1 if summary["missed_incidents"] else 0
 
