@@ -162,6 +162,19 @@ Automatic model recovery remains disabled until a separate human-labelled held-o
 
 UI-created tabs suppress trust, permission and login owner notifications unless parent/spawner, team, cron, hidden-worker or General Agent ownership applies. The journal still records observations. Restored-tab notices are held for restore-wave settlement and grouped by state. Durable tab/state/launch keys prevent repeated notices across application restarts; a new launch can notify again.
 
+## Unattended launch prompts
+
+A hidden tab outside the owner's audience, such as a cron run or a hidden Worker, runs unattended: nobody is watching to answer a launch gate. Two gates are handled this way: the provider's launch onboarding prompt, and a folder-trust prompt shown before the provider authenticated the tab's launch session.
+
+- With a connected Supporter model, the model may only choose among the answers the provider declares for that prompt. For folder trust the sole candidate is the option the provider's own trust key advances toward, offered only when the tab runs in its provisioned directory; for onboarding it is the provider-declared safe option. A qualified, agreeing choice at 0.90 or above passes the usual two-observation authorization, and Domios then writes exactly that provider-declared step, never model-authored text.
+- Without a connected or qualified model, or when the model abstains, falls below 0.90, has no candidate, or its observation goes unanswered or cannot be queued, the deterministic responder decides under its existing provenance rules. The model and the responder claim the same screen frame, so one prompt is never answered twice.
+- A choice outside the declared answers, or a declared refusal, is never written and blocks the fallback for that prompt. That case, a confident (0.80+) verdict that the screen is not the gate, and any prompt the responder will not answer send the owner one notice.
+- Each routing decision enters the Supporter journal as `unattended_launch_prompt` with `decided_by` set to `adapter` or `fallback(<reason>)`.
+
+Visible tabs are unchanged and keep the folder-trust and notification rules above.
+
+Hidden agent PTYs launch at 120x40, and their screen parser is sized to that PTY geometry, so a launch prompt is recognized from the screen the provider actually drew.
+
 ## Provider updates
 
 The production instance automatically coordinates provider updates. This replaces
@@ -189,4 +202,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 37 -->
+<!-- revision: 38 -->
