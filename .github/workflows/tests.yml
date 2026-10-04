@@ -18,7 +18,7 @@ on:
       evaluator_scope:
         description: Focused evaluator/task qualification or the existing full matrix
         type: choice
-        options: [full, jev-linux, jev-windows, jev-windows-inventory, rust-windows-task-local, sentinel-linux-task-local, sentinel-command-linux, windows-sccache-maintenance]
+        options: [full, jev-linux, jev-windows, jev-windows-inventory, rust-windows-task-local, sentinel-linux-task-local, sentinel-command-linux, storage-foundation-linux, windows-sccache-maintenance]
         default: full
         required: true
       expected_source_sha:
@@ -1889,6 +1889,491 @@ jobs:
         with:
           name: sentinel-linux-task-local-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
           path: ${{ runner.temp }}/sentinel-linux-task-local-${{ github.run_id }}-${{ github.run_attempt }}/
+          if-no-files-found: error
+
+  # Linux proof of the dormant Storage foundation reviewed at dbc17edee; Sentinel scopes never count toward it.
+  storage-foundation-linux:
+    name: Storage foundation fixed qualification (Linux)
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.evaluator_scope == 'storage-foundation-linux' }}
+    runs-on: [self-hosted, linux-build]
+    timeout-minutes: 30
+    env:
+      EXPECTED_SOURCE_SHA: ${{ inputs.expected_source_sha }}
+      WORKFLOW_SOURCE_SHA: ${{ github.workflow_sha }}
+      EVENT_SOURCE_SHA: ${{ github.sha }}
+      REVIEWED_STORAGE_SHA: dbc17edee5c1c9032c1498caa0f04b00eb3468ad
+      TEST_CAP_SECS: '600'
+      CARGO_TERM_COLOR: never
+      RUST_TEST_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Create fresh qualification receipt directory
+        id: task_boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          receipt_dir="${RUNNER_TEMP}/storage-foundation-linux-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if [[ -e "$receipt_dir" ]]; then
+            echo 'receipt_directory_already_exists' >&2
+            exit 1
+          fi
+          mkdir -- "$receipt_dir"
+          printf '%s\n' '{"schema":"storage-foundation-linux-v1","outcome":"unqualified","errors":["qualification_step_not_completed"]}' > "$receipt_dir/receipt.json"
+          printf '%s\n' 'fresh_receipt_directory=true' >> "$GITHUB_OUTPUT"
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          package-manager-cache: false
+          node-version: '22.22.0'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Ensure Rust toolchain on PATH
+        shell: bash
+        run: |
+          if command -v rustc >/dev/null 2>&1; then rustc -vV; exit 0; fi
+          for dir in "$CARGO_HOME/bin" "$HOME/.cargo/bin" /home/*/.cargo/bin; do
+            if [ -x "$dir/rustc" ]; then
+              echo "$dir" >> "$GITHUB_PATH"
+              "$dir/rustc" -vV
+              exit 0
+            fi
+          done
+          echo "rustc not found; restore Rust on the runner" >&2
+          exit 1
+      - name: Run fixed Storage contract cases and retain raw outcome
+        shell: bash
+        run: |
+          set +e
+          set -u -o pipefail
+          receipt_dir="${RUNNER_TEMP}/storage-foundation-linux-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          if [[ ! -d "$receipt_dir" || ! -f "$receipt_dir/receipt.json" ]]; then
+            echo 'fresh_receipt_directory_missing' >&2
+            exit 1
+          fi
+          contract_log="$receipt_dir/storage-contract.log"
+          : > "$contract_log"
+          : > "$receipt_dir/stub-cleanup.list"
+          preflight_ready=true
+          source_before_clean=true
+          preflight_errors=()
+          refuse_preflight() {
+            preflight_ready=false
+            preflight_errors+=("$1")
+          }
+          checkout_sha="$(git rev-parse HEAD 2>/dev/null)"
+          checkout_status=$?
+          if (( checkout_status != 0 )); then refuse_preflight checkout_identity_unavailable; fi
+          if [[ ! "$EXPECTED_SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]; then refuse_preflight expected_source_sha_invalid; fi
+          if [[ "$EXPECTED_SOURCE_SHA" != "$WORKFLOW_SOURCE_SHA" || "$EXPECTED_SOURCE_SHA" != "$EVENT_SOURCE_SHA" || "$EXPECTED_SOURCE_SHA" != "$checkout_sha" ]]; then
+            refuse_preflight source_identity_mismatch
+          fi
+          if [[ "${RUNNER_OS:-}" != Linux ]]; then refuse_preflight runner_platform_not_linux; fi
+          source_before="$(git status --porcelain --untracked-files=all 2>&1)"
+          source_before_status=$?
+          printf '%s\n' "$source_before" > "$receipt_dir/source-before.status"
+          if (( source_before_status != 0 )) || [[ -n "$source_before" ]]; then
+            source_before_clean=false
+            refuse_preflight dirty_checkout_before
+          fi
+          if [[ -e .env ]]; then refuse_preflight ambient_dotenv_refused; fi
+          if [[ -n "${CARGO_TARGET_DIR:-}" || -n "${CARGO_TEST_CMD:-}" || -n "${CARGO_TEST_BUILD_CMD:-}" ]]; then refuse_preflight ambient_test_override_refused; fi
+          while IFS= read -r name; do
+            case "$name" in
+              CODETERM_EMBED_CACHE_DIR) ;;
+              CODETERM_*)
+                if [[ -n "${!name}" ]]; then refuse_preflight ambient_codeterm_binding_refused; fi
+                ;;
+            esac
+          done < <(compgen -e | LC_ALL=C grep '^CODETERM_')
+          for tool in bash cargo git node rustc sha256sum; do
+            if ! command -v "$tool" >/dev/null 2>&1; then refuse_preflight "${tool}_missing"; fi
+          done
+          rustc_identity=''
+          cargo_identity=''
+          node_identity=''
+          if command -v rustc >/dev/null 2>&1; then
+            rustc_identity="$(rustc -vV 2>&1)"
+            if (( $? != 0 )); then refuse_preflight rustc_identity_failed; fi
+          fi
+          if command -v cargo >/dev/null 2>&1; then
+            cargo_identity="$(cargo --version 2>&1)"
+            if (( $? != 0 )); then refuse_preflight cargo_identity_failed; fi
+          fi
+          if command -v node >/dev/null 2>&1; then
+            node_identity="$(node --version 2>&1)"
+            if (( $? != 0 )); then refuse_preflight node_identity_failed; fi
+          fi
+          account_identity="$(id -un 2>/dev/null)"
+          kernel_identity="$(uname -srm 2>/dev/null)"
+          # The reviewed foundation is the facade, both owning test files and every tracked crate file.
+          storage_paths=('src-tauri/src/storage.rs' 'src-tauri/src/storage' 'src-tauri/crates/codeterm-storage')
+          storage_ancestor=false
+          storage_inventory_equal=false
+          if git cat-file -e "${REVIEWED_STORAGE_SHA}^{commit}" 2>/dev/null; then
+            if git merge-base --is-ancestor "$REVIEWED_STORAGE_SHA" HEAD 2>/dev/null; then
+              storage_ancestor=true
+            else
+              refuse_preflight reviewed_storage_not_ancestor
+            fi
+            git ls-tree -r "$REVIEWED_STORAGE_SHA" -- "${storage_paths[@]}" > "$receipt_dir/reviewed-storage.tree"
+            reviewed_tree_status=$?
+            git ls-tree -r HEAD -- "${storage_paths[@]}" > "$receipt_dir/source-storage.tree"
+            source_tree_status=$?
+            git diff --quiet --no-ext-diff "$REVIEWED_STORAGE_SHA" HEAD -- "${storage_paths[@]}"
+            storage_diff_status=$?
+            if (( reviewed_tree_status == 0 && source_tree_status == 0 && storage_diff_status == 0 )) && [[ -s "$receipt_dir/reviewed-storage.tree" ]]; then
+              storage_inventory_equal=true
+            else
+              refuse_preflight storage_inventory_differs_from_reviewed
+            fi
+          else
+            refuse_preflight reviewed_storage_commit_unavailable
+          fi
+          input_paths=(
+            '.github/workflows/tests.yml'
+            'build.sh'
+            'scripts/test-capped.sh'
+            'src-tauri/Cargo.toml'
+            'src-tauri/Cargo.lock'
+            'src-tauri/src/storage.rs'
+            'src-tauri/src/storage/tests.rs'
+            'src-tauri/src/storage/tests/assets.rs'
+          )
+          crate_listing="$(git ls-files -- src-tauri/crates/codeterm-storage 2>/dev/null)"
+          crate_listing_status=$?
+          if (( crate_listing_status != 0 )) || [[ -z "$crate_listing" ]]; then
+            refuse_preflight storage_crate_listing_failed
+          else
+            while IFS= read -r path; do input_paths+=("$path"); done <<< "$crate_listing"
+          fi
+          : > "$receipt_dir/source-hashes.tsv"
+          for path in "${input_paths[@]}"; do
+            if [[ ! -f "$path" ]]; then
+              refuse_preflight source_input_missing
+              continue
+            fi
+            hash_line="$(sha256sum -- "$path" 2>&1)"
+            hash_status=$?
+            if (( hash_status != 0 )); then
+              refuse_preflight source_hash_failed
+              continue
+            fi
+            printf '%s\t%s\n' "${hash_line%% *}" "$path" >> "$receipt_dir/source-hashes.tsv"
+          done
+          command_exit=''
+          command_wall=''
+          command_started=''
+          command_finished=''
+          stub_cleanup_status=''
+          if [[ "$preflight_ready" == true ]]; then
+            command_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            SECONDS=0
+            TEST_CAP_SECS=600 RUST_TEST_THREADS=1 CARGO_TERM_COLOR=never ./build.sh test-one app storage_contract_ > "$contract_log" 2>&1
+            command_exit=$?
+            command_wall=$SECONDS
+            command_finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            cat "$contract_log"
+            stub_cleanup_status=0
+            stub_dirs=()
+            [[ -d src-tauri/bundled-cli ]] && stub_dirs+=(src-tauri/bundled-cli)
+            [[ -d src-tauri/bundled-embed ]] && stub_dirs+=(src-tauri/bundled-embed)
+            if (( ${#stub_dirs[@]} > 0 )); then
+              find "${stub_dirs[@]}" -maxdepth 1 -type f -size 0 -print -delete > "$receipt_dir/stub-cleanup.list" 2> "$receipt_dir/stub-cleanup.stderr"
+              stub_cleanup_status=$?
+            fi
+          fi
+          source_after="$(git status --porcelain --untracked-files=all 2>&1)"
+          source_after_status=$?
+          printf '%s\n' "$source_after" > "$receipt_dir/source-after.status"
+          git diff HEAD -- > "$receipt_dir/source-after.diff"
+          source_diff_status=$?
+          source_after_head="$(git rev-parse HEAD 2>/dev/null)"
+          source_after_head_status=$?
+          source_after_clean=true
+          if (( source_after_status != 0 || source_diff_status != 0 || source_after_head_status != 0 )) || [[ -n "$source_after" || "$source_after_head" != "$checkout_sha" ]]; then
+            source_after_clean=false
+          fi
+          export STORAGE_RECEIPT_DIR="$receipt_dir"
+          export STORAGE_CHECKOUT_SHA="$checkout_sha"
+          export STORAGE_AFTER_HEAD_SHA="$source_after_head"
+          export STORAGE_SOURCE_BEFORE_CLEAN="$source_before_clean"
+          export STORAGE_SOURCE_AFTER_CLEAN="$source_after_clean"
+          export STORAGE_PREFLIGHT_READY="$preflight_ready"
+          export STORAGE_PREFLIGHT_ERRORS="$(IFS=,; printf '%s' "${preflight_errors[*]}")"
+          export STORAGE_REVIEWED_ANCESTOR="$storage_ancestor"
+          export STORAGE_INVENTORY_EQUAL="$storage_inventory_equal"
+          export STORAGE_COMMAND_EXIT="$command_exit"
+          export STORAGE_COMMAND_WALL="$command_wall"
+          export STORAGE_COMMAND_STARTED="$command_started"
+          export STORAGE_COMMAND_FINISHED="$command_finished"
+          export STORAGE_STUB_CLEANUP_STATUS="$stub_cleanup_status"
+          export STORAGE_RUSTC_IDENTITY="$rustc_identity"
+          export STORAGE_CARGO_IDENTITY="$cargo_identity"
+          export STORAGE_NODE_IDENTITY="$node_identity"
+          export STORAGE_BASH_IDENTITY="$BASH_VERSION"
+          export STORAGE_ACCOUNT_IDENTITY="$account_identity"
+          export STORAGE_KERNEL_IDENTITY="$kernel_identity"
+          node <<'NODE'
+          const crypto = require('node:crypto');
+          const fs = require('node:fs');
+          const path = require('node:path');
+          const readline = require('node:readline');
+
+          const schema = 'storage-foundation-linux-v1';
+          const selector = 'storage_contract_';
+          const command = 'TEST_CAP_SECS=600 RUST_TEST_THREADS=1 CARGO_TERM_COLOR=never ./build.sh test-one app storage_contract_';
+          const expectedNames = [
+            'storage::tests::storage_contract_config_bounds_are_explicit',
+            'storage::tests::storage_contract_effective_pragmas_are_verified',
+            'storage::tests::storage_contract_workspace_rows_are_incremental_and_ordered',
+            'storage::tests::storage_contract_stale_revision_conserves_entire_prior_set',
+            'storage::tests::storage_contract_foreign_key_failure_rolls_back_only_its_operation',
+            'storage::tests::storage_contract_injected_commit_failure_conserves_state',
+            'storage::tests::storage_contract_database_full_rolls_back_batch',
+            'storage::tests::storage_contract_held_writer_serves_committed_reads_and_bounds_admission',
+            'storage::tests::storage_contract_mailbox_byte_bound_refuses_without_discard',
+            'storage::tests::storage_contract_owner_alias_and_instance_isolation',
+            'storage::tests::storage_contract_malformed_and_incompatible_databases_are_refused',
+            'storage::tests::storage_contract_backup_while_wal_active_restores_consistently',
+            'storage::tests::storage_contract_shutdown_drains_accepted_and_releases_handles',
+            'storage::tests::storage_contract_shutdown_admission_race_settles_every_submission',
+            'storage::tests::storage_contract_owner_threads_refuse_reentrant_calls',
+            'storage::tests::storage_contract_completion_resolves_on_async_runtime',
+            'storage::tests::storage_contract_identifiers_are_confined',
+            'storage::tests::storage_contract_linked_storage_directories_are_refused',
+            'storage::tests::assets::storage_contract_asset_publication_and_rollback_orphans',
+            'storage::tests::assets::storage_contract_asset_detach_cleanup_failure_is_retained',
+            'storage::tests::assets::storage_contract_asset_read_survives_concurrent_detach',
+            'storage::tests::assets::storage_contract_asset_publication_never_replaces_existing_blob',
+            'storage::tests::assets::storage_contract_deep_root_publishes_restores_and_reopens',
+          ];
+          const fixedHashPaths = [
+            '.github/workflows/tests.yml', 'build.sh', 'scripts/test-capped.sh',
+            'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'src-tauri/src/storage.rs',
+            'src-tauri/src/storage/tests.rs', 'src-tauri/src/storage/tests/assets.rs',
+          ];
+          const storageFacadePaths = ['src-tauri/src/storage.rs', 'src-tauri/src/storage/tests.rs', 'src-tauri/src/storage/tests/assets.rs'];
+          const storageCratePrefix = 'src-tauri/crates/codeterm-storage/';
+          const dir = process.env.STORAGE_RECEIPT_DIR;
+          const logName = 'storage-contract.log';
+          const receiptLimit = 65536;
+          const actualRowCap = 64;
+          const summaryPattern = /^test result: (ok|FAILED)\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out; finished in ([0-9.]+)s$/;
+          const resultPattern = /^test ([A-Za-z0-9_:]+) \.\.\. (ok|FAILED|ignored)(?:, (.+))?$/;
+          const slowPattern = /^test [A-Za-z0-9_:]+ has been running for over \d+ seconds$/;
+          const runningPattern = /^running (\d+) tests?$/;
+          const compileStartLine = '[test-capped] compiling test targets before the execution cap.';
+          const compileFailedPattern = /^\[test-capped\] test target compilation failed with exit (\d+)\.$/;
+          const shaPattern = /^[0-9a-f]{40}$/;
+
+          const envNumber = name => (process.env[name] === undefined || process.env[name] === '' ? null : Number(process.env[name]));
+          const readBytes = file => { try { return fs.readFileSync(file); } catch (_) { return null; } };
+          const treePaths = bytes => (bytes ? bytes.toString('utf8').split('\n').filter(Boolean).map(line => line.split('\t').slice(1).join('\t')) : []);
+
+          async function digestFile(file) {
+            const digest = crypto.createHash('sha256');
+            for await (const chunk of fs.createReadStream(file)) digest.update(chunk);
+            return digest.digest('hex');
+          }
+
+          async function parseLog(record) {
+            const parsed = { actual: [], summaries: [], running: [], resultLines: 0, summaryLines: 0, runningLines: 0, compileStarted: false, compileFailedExit: null };
+            const lines = readline.createInterface({ input: fs.createReadStream(path.join(dir, logName)), crlfDelay: Infinity });
+            for await (const line of lines) {
+              if (line === compileStartLine) parsed.compileStarted = true;
+              const compileFailed = compileFailedPattern.exec(line);
+              if (compileFailed) parsed.compileFailedExit = Number(compileFailed[1]);
+              const running = runningPattern.exec(line);
+              if (running) {
+                parsed.runningLines += 1;
+                if (parsed.running.length < 4) parsed.running.push(Number(running[1]));
+              }
+              if (/^test result(?:\s|:)/.test(line)) {
+                parsed.summaryLines += 1;
+                const match = summaryPattern.exec(line);
+                if (!match) record('malformed_summary_line');
+                else if (parsed.summaries.length < 2) parsed.summaries.push({
+                  status: match[1], passed: Number(match[2]), failed: Number(match[3]), ignored: Number(match[4]),
+                  measured: Number(match[5]), filtered_out: Number(match[6]), libtest_seconds: Number(match[7]),
+                });
+              } else if (slowPattern.test(line)) {
+                record('test_running_warning_line');
+              } else if (/^test(?:\s|$)/.test(line)) {
+                parsed.resultLines += 1;
+                const match = resultPattern.exec(line);
+                if (!match) record('malformed_test_result_line');
+                else if (parsed.actual.length < actualRowCap) parsed.actual.push({ full_name: match[1], status: match[2], ignore_reason: match[3] || null });
+                else record('result_capture_overflow');
+              }
+            }
+            return parsed;
+          }
+
+          function commandPhase(commandRan, rawExit, parsed) {
+            if (!commandRan) return 'command_not_run';
+            if (parsed.compileFailedExit !== null) return 'compile_failed';
+            if (parsed.runningLines === 0) {
+              if (rawExit === 0) return 'no_test_execution_observed';
+              return parsed.compileStarted ? 'failed_before_test_execution' : 'prerequisite_failed';
+            }
+            if (rawExit === 124) return 'execution_deadline';
+            if (rawExit !== 0) return 'execution_failed';
+            return 'executed';
+          }
+
+          (async () => {
+            const errors = new Set();
+            const record = error => { if (errors.size < 48) errors.add(error); else errors.add('error_overflow'); };
+            if (process.env.GITHUB_EVENT_NAME !== 'workflow_dispatch') record('event_not_workflow_dispatch');
+            if (process.env.STORAGE_PREFLIGHT_READY !== 'true') {
+              record('preflight_refused');
+              for (const error of (process.env.STORAGE_PREFLIGHT_ERRORS || '').split(',').filter(Boolean)) record(error);
+            }
+            const source = {
+              expected_sha: process.env.EXPECTED_SOURCE_SHA || '',
+              workflow_sha: process.env.WORKFLOW_SOURCE_SHA || '',
+              event_sha: process.env.EVENT_SOURCE_SHA || '',
+              checkout_sha: process.env.STORAGE_CHECKOUT_SHA || '',
+              after_head_sha: process.env.STORAGE_AFTER_HEAD_SHA || '',
+            };
+            if (!shaPattern.test(source.expected_sha) || [source.workflow_sha, source.event_sha, source.checkout_sha, source.after_head_sha].some(sha => sha !== source.expected_sha)) record('source_identity_mismatch');
+            if (process.env.STORAGE_SOURCE_BEFORE_CLEAN !== 'true') record('source_not_clean_before');
+            if (process.env.STORAGE_SOURCE_AFTER_CLEAN !== 'true') record('source_not_clean_after');
+
+            const reviewedTree = readBytes(path.join(dir, 'reviewed-storage.tree'));
+            const sourceTree = readBytes(path.join(dir, 'source-storage.tree'));
+            const reviewedPaths = treePaths(reviewedTree);
+            const reviewedCratePaths = reviewedPaths.filter(entry => entry.startsWith(storageCratePrefix));
+            const inventoryEqual = process.env.STORAGE_INVENTORY_EQUAL === 'true' && reviewedTree !== null && sourceTree !== null && reviewedTree.length > 0 && reviewedTree.equals(sourceTree);
+            if (process.env.STORAGE_REVIEWED_ANCESTOR !== 'true') record('reviewed_storage_not_ancestor');
+            if (!inventoryEqual) record('storage_inventory_not_reviewed');
+            if (reviewedCratePaths.length === 0 || storageFacadePaths.some(entry => !reviewedPaths.includes(entry))) record('storage_inventory_incomplete');
+
+            const hashRows = (readBytes(path.join(dir, 'source-hashes.tsv')) || Buffer.alloc(0)).toString('utf8').split('\n').filter(Boolean).map(line => {
+              const [sha256, ...parts] = line.split('\t');
+              return { path: parts.join('\t'), sha256 };
+            });
+            const expectedHashPaths = [...fixedHashPaths, ...reviewedCratePaths];
+            const hashedPaths = hashRows.map(row => row.path);
+            if (hashRows.length !== expectedHashPaths.length || new Set(hashedPaths).size !== hashRows.length || expectedHashPaths.some(entry => !hashedPaths.includes(entry)) || hashRows.some(row => !/^[0-9a-f]{64}$/.test(row.sha256))) record('source_hash_inventory_invalid');
+
+            const rawExit = envNumber('STORAGE_COMMAND_EXIT');
+            const wall = envNumber('STORAGE_COMMAND_WALL');
+            const commandRan = rawExit !== null;
+            let parsed = { actual: [], summaries: [], running: [], resultLines: 0, summaryLines: 0, runningLines: 0, compileStarted: false, compileFailedExit: null };
+            try { parsed = await parseLog(record); } catch (_) { record('log_read_failed'); }
+            const logSha = await digestFile(path.join(dir, logName)).catch(() => null);
+            if (logSha === null) record('log_hash_failed');
+            const phase = commandPhase(commandRan, rawExit, parsed);
+            if (phase !== 'executed') record(phase);
+            if (commandRan && rawExit !== 0) record('raw_exit_not_zero');
+            if (commandRan && (!Number.isInteger(wall) || wall < 0)) record('wall_time_invalid');
+            if (commandRan && (!process.env.STORAGE_COMMAND_STARTED || !process.env.STORAGE_COMMAND_FINISHED)) record('command_time_missing');
+            if (commandRan && process.env.STORAGE_STUB_CLEANUP_STATUS !== '0') record('stub_cleanup_failed');
+
+            const expectedSet = new Set(expectedNames);
+            const counts = new Map();
+            for (const row of parsed.actual) counts.set(row.full_name, (counts.get(row.full_name) || 0) + 1);
+            if (parsed.resultLines !== expectedNames.length) record('test_result_count_mismatch');
+            if ([...counts.values()].some(count => count > 1)) record('duplicate_test_name');
+            for (const row of parsed.actual) {
+              if (!expectedSet.has(row.full_name)) record('unknown_test_name');
+              if (row.status === 'FAILED') record('test_failed');
+              if (row.status === 'ignored') record('test_ignored');
+              if (row.status === 'ok' && row.ignore_reason !== null) record('unexpected_test_result_suffix');
+            }
+            if (expectedNames.some(name => counts.get(name) !== 1)) record('missing_or_duplicate_expected_test');
+            if (parsed.runningLines !== 1 || parsed.running[0] !== expectedNames.length) record('running_count_mismatch');
+            if (parsed.summaryLines !== 1 || parsed.summaries.length !== 1) record('summary_count_mismatch');
+            const summary = parsed.summaryLines === 1 && parsed.summaries.length === 1 ? parsed.summaries[0] : null;
+            if (summary && (summary.status !== 'ok' || summary.passed !== expectedNames.length || summary.failed !== 0 || summary.ignored !== 0 || summary.measured !== 0 || !Number.isFinite(summary.libtest_seconds) || summary.libtest_seconds < 0)) record('summary_counts_mismatch');
+
+            const stubRemoved = (readBytes(path.join(dir, 'stub-cleanup.list')) || Buffer.alloc(0)).toString('utf8').split('\n').filter(Boolean);
+            const outcome = errors.size === 0 ? 'qualified' : 'unqualified';
+            const receipt = {
+              schema,
+              outcome,
+              errors: [...errors],
+              run: {
+                id: process.env.GITHUB_RUN_ID || '', attempt: process.env.GITHUB_RUN_ATTEMPT || '',
+                url: `${process.env.GITHUB_SERVER_URL || ''}/${process.env.GITHUB_REPOSITORY || ''}/actions/runs/${process.env.GITHUB_RUN_ID || ''}`,
+                event: process.env.GITHUB_EVENT_NAME || '', ref: process.env.GITHUB_REF || '', workflow_ref: process.env.GITHUB_WORKFLOW_REF || '',
+              },
+              source: {
+                ...source,
+                clean_before: process.env.STORAGE_SOURCE_BEFORE_CLEAN === 'true',
+                clean_after: process.env.STORAGE_SOURCE_AFTER_CLEAN === 'true',
+                stub_cleanup: { attempted: commandRan, exit: envNumber('STORAGE_STUB_CLEANUP_STATUS'), removed_count: stubRemoved.length, removed: stubRemoved.slice(0, 16) },
+                reviewed_storage: {
+                  sha: process.env.REVIEWED_STORAGE_SHA || '', ancestor: process.env.STORAGE_REVIEWED_ANCESTOR === 'true',
+                  inventory_equal: inventoryEqual, entries: reviewedPaths.length,
+                  reviewed_tree_sha256: reviewedTree ? crypto.createHash('sha256').update(reviewedTree).digest('hex') : null,
+                  source_tree_sha256: sourceTree ? crypto.createHash('sha256').update(sourceTree).digest('hex') : null,
+                },
+                hashes: hashRows,
+              },
+              runner: {
+                name: process.env.RUNNER_NAME || '', os: process.env.RUNNER_OS || '', arch: process.env.RUNNER_ARCH || '',
+                account: process.env.STORAGE_ACCOUNT_IDENTITY || '', kernel: process.env.STORAGE_KERNEL_IDENTITY || '',
+                rustc: process.env.STORAGE_RUSTC_IDENTITY || '', cargo: process.env.STORAGE_CARGO_IDENTITY || '',
+                node: process.env.STORAGE_NODE_IDENTITY || '', bash: process.env.STORAGE_BASH_IDENTITY || '',
+              },
+              command: {
+                selector, command, phase, streams: 'stdout_and_stderr_merged',
+                started_utc: process.env.STORAGE_COMMAND_STARTED || null, finished_utc: process.env.STORAGE_COMMAND_FINISHED || null,
+                wall_seconds: Number.isInteger(wall) ? wall : null, raw_exit: Number.isInteger(rawExit) ? rawExit : null,
+                compile_failed_exit: parsed.compileFailedExit, log: logName, log_sha256: logSha,
+              },
+              tests: {
+                expected: expectedNames.map(full_name => ({ full_name, status: 'ok' })),
+                actual: parsed.actual,
+                result_lines: parsed.resultLines,
+                running: parsed.running,
+                summary,
+                filtered_out_not_executed: summary ? summary.filtered_out : null,
+              },
+            };
+            let body = JSON.stringify(receipt, null, 2) + '\n';
+            const receiptOverflow = Buffer.byteLength(body, 'utf8') > receiptLimit;
+            if (receiptOverflow) {
+              body = JSON.stringify({
+                schema, outcome: 'unqualified', errors: ['receipt_overflow', ...errors],
+                run: receipt.run, source: { ...source, reviewed_storage_sha: process.env.REVIEWED_STORAGE_SHA || '' },
+                command: receipt.command, tests: { result_lines: parsed.resultLines, running: parsed.running, summary },
+              }, null, 2) + '\n';
+            }
+            fs.writeFileSync(path.join(dir, 'receipt.json'), body, { flag: 'w' });
+            if (outcome !== 'qualified' || receiptOverflow) process.exitCode = 1;
+          })().catch(() => {
+            console.error('receipt_generation_failed');
+            const fallback = {
+              schema, outcome: 'unqualified', errors: ['receipt_generation_failed'],
+              source: {
+                expected_sha: process.env.EXPECTED_SOURCE_SHA || '', workflow_sha: process.env.WORKFLOW_SOURCE_SHA || '',
+                event_sha: process.env.EVENT_SOURCE_SHA || '', checkout_sha: process.env.STORAGE_CHECKOUT_SHA || '',
+                reviewed_storage_sha: process.env.REVIEWED_STORAGE_SHA || '',
+              },
+              command: { selector, command, raw_exit: envNumber('STORAGE_COMMAND_EXIT'), wall_seconds: envNumber('STORAGE_COMMAND_WALL'), log: logName },
+              tests: { expected: expectedNames.map(full_name => ({ full_name, status: 'ok' })), actual: [] },
+            };
+            try { fs.writeFileSync(path.join(dir, 'receipt.json'), JSON.stringify(fallback, null, 2) + '\n', { flag: 'w' }); } catch (_) { console.error('fallback_receipt_write_failed'); }
+            process.exitCode = 1;
+          });
+          NODE
+          node_status=$?
+          if [[ -n "$command_exit" && "$command_exit" != 0 ]]; then
+            exit "$command_exit"
+          fi
+          exit "$node_status"
+      - name: Retain complete Linux Storage qualification evidence
+        if: ${{ always() && steps.task_boundary.outputs.fresh_receipt_directory == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: storage-foundation-linux-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.sha }}
+          path: ${{ runner.temp }}/storage-foundation-linux-${{ github.run_id }}-${{ github.run_attempt }}/
           if-no-files-found: error
 
   windows-sccache-maintenance:
