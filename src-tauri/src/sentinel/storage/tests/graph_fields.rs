@@ -16,7 +16,8 @@ const GRAPH: &str = r#"{"id":"sentinel_graph","team_id":"team","creator_tab_id":
  "buckets":["trust","working"],"interval_ms":10000,
  "routes":{
   "trust":[{"id":"answer","action":{"kind":"respond_prompt","target":"directory_trust"},"target":null}],
-  "working":[{"id":"permit","action":{"kind":"respond_prompt","target":"permission"},"target":null}]},
+  "working":[{"id":"permit","action":{"kind":"respond_prompt","target":"permission"},"target":null},
+   {"id":"tool-permit","action":{"kind":"respond_prompt","target":"tool_permission_special"},"target":null}]},
  "matches":{},"until":null,"expires_at":9000000,"next_run":21000,
  "machine":{"last_hash":"abc123","last_bucket":"trust","stopped":false,"paused":false,
   "held":"eval-other"},
@@ -79,9 +80,9 @@ fn columns(conn: &rusqlite::Connection, table: &str) -> BTreeSet<String> {
 }
 
 #[test]
-fn storage_sentinel_v4_migration_upgrades_an_empty_v3_root_in_place() {
+fn sentinel_schema_v4_migration_upgrades_an_empty_previous_schema_root_in_place() {
     let root = temp_root();
-    Storage::create_at_schema_version(root.path(), 3).expect("v3 root");
+    Storage::create_at_schema_version(root.path(), 4).expect("schema before Sentinel graph v4");
     rusqlite::Connection::open(Storage::database_path(root.path()))
         .and_then(|conn| {
             conn.execute(
@@ -108,7 +109,7 @@ fn storage_sentinel_v4_migration_upgrades_an_empty_v3_root_in_place() {
     let fresh_root = temp_root();
     close(open(fresh_root.path()));
     let (upgraded, initialized) = (read_only(root.path()), read_only(fresh_root.path()));
-    assert!(user_version(&upgraded) > 3);
+    assert!(user_version(&upgraded) > 4);
     assert_eq!(user_version(&upgraded), user_version(&initialized));
     let expected: [(&str, &[&str]); 3] = [
         (
@@ -138,9 +139,9 @@ fn storage_sentinel_v4_migration_upgrades_an_empty_v3_root_in_place() {
 }
 
 #[test]
-fn storage_sentinel_v4_migration_refuses_a_v3_root_holding_stages() {
+fn sentinel_schema_v4_migration_refuses_a_previous_schema_root_holding_stages() {
     let root = temp_root();
-    Storage::create_at_schema_version(root.path(), 3).expect("v3 root");
+    Storage::create_at_schema_version(root.path(), 4).expect("schema before Sentinel graph v4");
     rusqlite::Connection::open(Storage::database_path(root.path()))
         .and_then(|conn| {
             conn.execute(
@@ -159,14 +160,14 @@ fn storage_sentinel_v4_migration_refuses_a_v3_root_holding_stages() {
         matches!(
             refused,
             StorageError::MigrationRefused {
-                schema_version: 3,
+                schema_version: 4,
                 ..
             }
         ),
         "{refused:?}"
     );
     let conn = read_only(root.path());
-    assert_eq!(user_version(&conn), 3, "nothing was migrated");
+    assert_eq!(user_version(&conn), 4, "nothing was migrated");
     let kept: i64 = conn
         .query_row("SELECT COUNT(*) FROM sentinels", [], |row| row.get(0))
         .expect("stored stages");
@@ -174,7 +175,7 @@ fn storage_sentinel_v4_migration_refuses_a_v3_root_holding_stages() {
 }
 
 #[test]
-fn storage_sentinel_v4_graph_fields_round_trip_on_both_backends() {
+fn sentinel_schema_v4_graph_fields_round_trip_on_both_backends() {
     let (fresh, graph) = (fixture(FRESH), fixture(GRAPH));
     let both = values(&[fresh.clone(), graph.clone()]);
     let root = temp_root();
@@ -238,7 +239,7 @@ fn storage_sentinel_v4_graph_fields_round_trip_on_both_backends() {
 }
 
 #[test]
-fn storage_sentinel_v4_update_definition_appends_lineage_and_advances_generation_once() {
+fn sentinel_schema_v4_update_definition_appends_lineage_and_advances_generation_once() {
     let root = temp_root();
     let storage = open(root.path());
     let store = typed(&storage, &MockClock::starting_at(1000));
@@ -309,7 +310,7 @@ fn storage_sentinel_v4_update_definition_appends_lineage_and_advances_generation
 }
 
 #[test]
-fn storage_sentinel_v4_unexecutable_kinds_are_refused_at_creation_on_both_backends() {
+fn sentinel_schema_v4_unexecutable_kinds_are_refused_at_creation_on_both_backends() {
     let root = temp_root();
     let clock = MockClock::starting_at(1000);
     let storage = open(root.path());

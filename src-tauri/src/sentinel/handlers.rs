@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use super::machine::Route;
+use super::machine::{Route, SafeKind};
 use super::storage::Staged;
 use super::store::{Sentinel, Store};
 
@@ -155,6 +155,12 @@ pub fn validate(
         for handler in handlers {
             if let Route::Command(parameters) = &handler.action {
                 parameters.validate()?;
+            }
+            if let Route::RespondPrompt(SafeKind::Other(kind)) = &handler.action {
+                if kind.trim().is_empty() || kind.len() > 256 || kind.chars().any(char::is_control)
+                {
+                    return Err("respond-prompt kind must be nonempty and bounded".into());
+                }
             }
 
             if !valid_id(&handler.id) || !ids.insert(&handler.id) {
