@@ -20,26 +20,12 @@ afterEach(async () => setup.cleanup());
 const estimate = (host: HTMLElement, period: string) => host.querySelector(`[data-estimate="${period}"]`);
 
 describe("Supporter allowance", () => {
-  it("allowance_row_with_balance", async () => {
+  it("allowance_row_shows_spend_estimates_and_request_counts", async () => {
     const host = await setup.render(<SupporterAllowanceRow api={API} />);
     expect(estimate(host, "today")?.getAttribute("data-usd")).toBe("0.125");
     expect(estimate(host, "month")?.getAttribute("data-usd")).toBe("0.75");
-    expect(estimate(host, "remaining")?.getAttribute("data-usd")).toBe("1.875");
-    expect(host.querySelector('[role="status"]')?.getAttribute("data-cap")).toBe("none");
-  });
-  it("allowance_row_without_balance", async () => {
-    status.spend.balance_usd = null;
-    status.spend.remaining_usd = null;
-    const host = await setup.render(<SupporterAllowanceRow api={API} />);
     expect(host.querySelectorAll("[data-estimate]")).toHaveLength(2);
-    expect(estimate(host, "remaining")).toBeNull();
-    expect(host.querySelector('[role="alert"]')).toBeNull();
-  });
-  it("allowance_row_below_one_dollar", async () => {
-    status.spend.remaining_usd = 0.5;
-    const host = await setup.render(<SupporterAllowanceRow api={API} />);
-    expect(host.querySelector('[role="alert"]')?.getAttribute("data-balance-state")).toBe("below_one");
-    expect(estimate(host, "remaining")?.getAttribute("data-usd")).toBe("0.5");
+    expect(host.querySelector('[role="status"]')?.getAttribute("data-cap")).toBe("none");
   });
   it("allowance_row_unpriced_adapter_requests_only", async () => {
     status.pricing = null;

@@ -31,6 +31,9 @@ impl ServiceContext {
     }
 
     pub(crate) fn resolve_scrape_candidate_heuristically(&self, snapshot: &TabStateSnapshot) {
+        if self.preserve_owner_prompt(snapshot) {
+            return;
+        }
         let onboarding = {
             let mux = self.mux.read();
             mux.get_tab(&snapshot.tab_id)
@@ -88,7 +91,7 @@ impl ServiceContext {
                 })
                 .flatten()
             {
-                resolve_classified_manual_update_prompt(self, snapshot, prompt, safe_choice);
+                resolve_classified_manual_update_prompt_fallback(self, snapshot, prompt, safe_choice);
             }
             return;
         }
@@ -120,6 +123,66 @@ impl ServiceContext {
             }),
         );
         self.apply_prompt_decision_with_kind(&decision, Some(&snapshot.screen_text), kind, false);
+    }
+
+    fn preserve_owner_prompt(&self, snapshot: &TabStateSnapshot) -> bool {
+        let tab = self.mux.read().get_tab(&snapshot.tab_id).cloned();
+        let Some(tab) = tab.filter(|tab| {
+            !crate::service::unattended_launch::owns_prompt_answers(tab)
+        }) else {
+            return false;
+        };
+        let Some(provider) = self.agent_registry.provider_arc(&snapshot.agent_type) else {
+            return false;
+        };
+        let parsed = crate::agent::prompt::parse_prompt_safely(|| {
+            provider.parse_prompt(&snapshot.screen_text)
+        });
+        let update = crate::service::output::manual_update_prompt_candidate(&snapshot.screen_text)
+            && parsed.as_ref().is_some_and(|prompt| {
+                provider.update_prompt_safe_choice(prompt).is_some()
+            });
+        let trust = provider
+            .parse_directory_trust_prompt(&snapshot.screen_text)
+            .is_some();
+        let permission = self
+            .prompt_detector
+            .lock()
+            .pending_permission_request(&snapshot.tab_id)
+            .is_some_and(|(_, signal)| {
+                parsed.as_ref().is_some_and(|prompt| {
+                    provider
+                        .permission_prompt_response(
+                            &signal.tool_name,
+                            prompt,
+                            &snapshot.screen_text,
+                        )
+                        .is_some()
+                })
+            });
+        let Some(prompt) = parsed else {
+            return false;
+        };
+        let kind = if update {
+            PromptKind::ManualUpdate
+        } else if trust {
+            PromptKind::DirectoryTrust
+        } else if permission {
+            PromptKind::Provider
+        } else {
+            return false;
+        };
+        let decision = self.prompt_detector.lock().evaluate_pty_output_parsed(
+            &snapshot.tab_id,
+            true,
+            true,
+            Some(crate::agent::prompt::ResolvedPrompt {
+                prompt,
+                explicit: false,
+            }),
+        );
+        self.apply_prompt_decision_with_kind(&decision, Some(&snapshot.screen_text), kind, true);
+        true
     }
 
     pub(crate) fn publish_model_scrape_candidate(
@@ -207,6 +270,9 @@ impl ServiceContext {
     ) {
         let svc = self.clone();
         std::thread::spawn(move || {
+            if svc.preserve_owner_prompt(&snapshot) {
+                return;
+            }
             let classified = svc
                 .agent_registry
                 .with_provider(&snapshot.agent_type, |provider| {
