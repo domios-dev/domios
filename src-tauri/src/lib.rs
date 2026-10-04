@@ -50,6 +50,7 @@ pub mod session;
 pub mod shell;
 mod socket;
 mod startup;
+pub mod storage;
 #[cfg(test)]
 mod telegram269_wire_contract;
 pub mod transcribe;
