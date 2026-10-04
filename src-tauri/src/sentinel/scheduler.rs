@@ -436,6 +436,12 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         });
         return;
     }
+    if lease.job.pending_capability().is_some() {
+        let _ = storage::commit(&handle.store, |store| {
+            store.stage_stop(&lease.job.id, "capability_unavailable")
+        });
+        return;
+    }
     let remaining = {
         let now = handle.store.lock().clock.now_ms();
         lease
