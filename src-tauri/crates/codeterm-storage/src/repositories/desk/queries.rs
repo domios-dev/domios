@@ -212,6 +212,64 @@ pub(super) fn load(conn: &Connection) -> Result<DeskState, StorageError> {
     })
 }
 
+pub(super) fn load_workspace_record_revisions(
+    conn: &Connection,
+) -> Result<HashMap<String, Revision>, StorageError> {
+    load_revisions(
+        conn,
+        "SELECT id, revision FROM workspaces",
+        "workspace record revision",
+    )
+}
+
+pub(super) fn load_identity_revisions(
+    conn: &Connection,
+) -> Result<HashMap<(String, String), Revision>, StorageError> {
+    let mut statement = conn
+        .prepare("SELECT provider, session_id, revision FROM agent_session_identities")
+        .map_err(|error| sqlite_error("prepare agent identity revisions", error))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .map_err(|error| sqlite_error("query agent identity revisions", error))?;
+    let mut revisions = HashMap::new();
+    for row in rows {
+        let (provider, session_id, revision) =
+            row.map_err(|error| sqlite_error("read agent identity revision", error))?;
+        revisions.insert(
+            (provider, session_id),
+            Revision(from_sql_u64("agent identity revision", revision)?),
+        );
+    }
+    Ok(revisions)
+}
+
+fn load_revisions(
+    conn: &Connection,
+    sql: &str,
+    field: &'static str,
+) -> Result<HashMap<String, Revision>, StorageError> {
+    let mut statement = conn
+        .prepare(sql)
+        .map_err(|error| sqlite_error("prepare desk revisions", error))?;
+    let rows = statement
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .map_err(|error| sqlite_error("query desk revisions", error))?;
+    let mut revisions = HashMap::new();
+    for row in rows {
+        let (id, revision) = row.map_err(|error| sqlite_error("read desk revision", error))?;
+        revisions.insert(id, Revision(from_sql_u64(field, revision)?));
+    }
+    Ok(revisions)
+}
+
 fn load_tabs(conn: &Connection) -> Result<Vec<TabRow>, StorageError> {
     let mut statement = conn
         .prepare(
