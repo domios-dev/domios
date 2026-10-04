@@ -161,7 +161,7 @@ The connected observer ignores confidence below 0.60. Model-only owner notificat
 
 | State | Recovery authority |
 |---|---|
-| Update prompt | The automatic provider coordinator answers classified ManualUpdate prompts through the prompt option API with the declared safe option. Outside that coordinator, model recovery also requires a matching choice at 0.90. See `codeterm docs CONFIG`. |
+| Update prompt | Agent-owned prompts use one calibrated choice at 0.80 or above among provider-declared options. Owner-launched tabs keep the prompt for the owner. See `codeterm docs CONFIG`. |
 | Crashed to shell | Confirmed provider exit event, provider absent from this tab's process tree and live shell PTY; resume a verified recovery session, otherwise launch fresh. Jev is audit-only. |
 | Starting past deadline | One restart, with provider absence or a dead PTY. |
 | Error loop | One restart, then notify; provider absence or a dead PTY is required. |
@@ -176,14 +176,14 @@ UI-created tabs suppress trust, permission and login owner notifications unless 
 
 ## Unattended launch prompts
 
-A hidden tab outside the owner's audience, such as a cron run or a hidden Worker, runs unattended: nobody is watching to answer a launch gate. Two gates are handled this way: the provider's launch onboarding prompt, and a folder-trust prompt shown before the provider authenticated the tab's launch session.
+Agent-, Team-, worker- and cron-owned tabs may encounter prompts while visible or hidden. Tabs launched directly by the owner without agent or Team ownership keep owner-facing prompts.
 
-- With a connected Supporter model, the model may only choose among the answers the provider declares for that prompt. For folder trust the sole candidate is the option the provider's own trust key advances toward, offered only when the tab runs in its provisioned directory; for onboarding it is the provider-declared safe option. A qualified, agreeing choice at 0.90 or above passes the usual two-observation authorization, and Domios then writes exactly that provider-declared step, never model-authored text.
-- Without a connected or qualified model, or when the model abstains, falls below 0.90, has no candidate, or its observation goes unanswered or cannot be queued, the deterministic responder decides under its existing provenance rules. The model and the responder claim the same screen frame, so one prompt is never answered twice.
-- A choice outside the declared answers, or a declared refusal, is never written and blocks the fallback for that prompt. That case, a confident (0.80+) verdict that the screen is not the gate, and any prompt the responder will not answer send the owner one notice.
-- Each routing decision enters the Supporter journal as `unattended_launch_prompt` with `decided_by` set to `adapter` or `fallback(<reason>)`.
+- For folder-trust, tool-permission and update prompts, one calibrated Supporter choice at 0.80 or above may select any provider-declared option. Domios submits that option through the prompt response surface; it never sends model-authored text.
+- If the calibrated choice is unavailable, fails, is capped, selects `other`, or is below 0.80, the existing structural responder decides. A prompt it cannot resolve is routed to the owner.
+- Login, authentication, unavailable-model and quota prompts are always routed to the owner. Folder-trust choices at launch or in cron do not require host provenance for the model decision; provenance continues to govern other trust decisions.
+- Each routing decision enters the Supporter journal as `owned_prompt_answer` with `decided_by` set to `adapter` or `fallback(<reason>)`.
 
-Visible tabs are unchanged and keep the folder-trust and notification rules above.
+Prompt choices are journaled without raw screen text or credentials.
 
 Hidden agent PTYs launch at 120x40, and their screen parser is sized to that PTY geometry, so a launch prompt is recognized from the screen the provider actually drew.
 
@@ -214,4 +214,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 39 -->
+<!-- revision: 40 -->

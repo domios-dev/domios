@@ -214,7 +214,7 @@ fn supporter_shared_request_counts_once_and_journals_all_distributions_and_usage
 }
 
 #[test]
-fn supporter_402_exhaustion_alerts_once_blocks_calls_and_new_balance_rearms() {
+fn supporter_402_exhaustion_alerts_once_and_blocks_calls() {
     let dir = tempfile::tempdir().unwrap();
     let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
     let alerts = Arc::new(Mutex::new(Vec::new()));
@@ -247,63 +247,17 @@ fn supporter_402_exhaustion_alerts_once_blocks_calls_and_new_balance_rearms() {
         alerts.lock()[0].level,
         codeterm_types::notification::NotifyLevel::Failure
     );
-    runtime
-        .set_balance("fixture", model.pricing().as_ref(), Some(5.0))
-        .unwrap();
-    assert_eq!(runtime.spend_status("fixture")["exhausted"], false);
     assert_eq!(
         model.decide_questions(&request(2), Instant::now() + Duration::from_secs(2)),
         Err(DecisionError::CreditExhausted)
     );
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
-    assert_eq!(alerts.lock().len(), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(alerts.lock().len(), 1);
     let text = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
     assert_eq!(
         text.lines()
             .map(|line| serde_json::from_str::<Value>(line).unwrap())
             .filter(|line| line["kind"] == "spend_alert")
-            .count(),
-        2
-    );
-}
-
-#[test]
-fn supporter_low_balance_owner_notification_is_journaled_once() {
-    let dir = tempfile::tempdir().unwrap();
-    let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
-    let alerts = Arc::new(Mutex::new(Vec::new()));
-    let captured = alerts.clone();
-    runtime.attach_alert_sink(Arc::new(move |alert| captured.lock().push(alert)));
-    let model = budgeted_model_with_activity(
-        Arc::new(Model {
-            calls: Arc::default(),
-            exhausted: false,
-        }),
-        runtime.clone(),
-        600,
-        VerdictKind::Rerank,
-        None,
-        None,
-        None,
-    );
-    runtime
-        .set_balance("fixture", model.pricing().as_ref(), Some(1.01))
-        .unwrap();
-    for _ in 0..2 {
-        model
-            .decide_questions(&request(36), Instant::now() + Duration::from_secs(2))
-            .unwrap();
-    }
-    assert_eq!(alerts.lock().len(), 1);
-    assert_eq!(
-        alerts.lock()[0].level,
-        codeterm_types::notification::NotifyLevel::ActionNeeded
-    );
-    let text = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
-    assert_eq!(
-        text.lines()
-            .map(|line| serde_json::from_str::<Value>(line).unwrap())
-            .filter(|line| line["reason"] == "action_needed")
             .count(),
         1
     );

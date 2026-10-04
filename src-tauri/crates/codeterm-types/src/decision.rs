@@ -9,6 +9,9 @@ pub mod deadline;
 pub mod physical;
 
 pub trait DecisionModel: Send + Sync {
+    fn supports_calibrated_choice_confidence(&self) -> bool {
+        false
+    }
     /// Batches all named questions into at most one physical request.
     /// Transports account each attempt through `physical::before_request`.
     fn supports_question_batch(&self) -> bool {

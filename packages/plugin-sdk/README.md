@@ -54,6 +54,9 @@ declare batching. The host counts actual `host.fetch` transport attempts,
 including async and stream calls, and enforces the event's request deadline and
 one-request limit. A local decision with no HTTP call spends no request budget.
 
+Decision adapters that provide calibrated choice probabilities may export
+`supportsCalibratedChoiceConfidence() { return true; }`.
+
 Bare `true` means the token is optional and remains readable by older hosts.
 For a required or token-free adapter, use
 `"decisionModel": { "tokenMode": "required" }` or

@@ -27,6 +27,9 @@ impl JsDecisionModel {
 }
 
 impl DecisionModel for JsDecisionModel {
+    fn supports_calibrated_choice_confidence(&self) -> bool {
+        call_json_or_default(&self.vm, &self.id, "supportsCalibratedChoiceConfidence")
+    }
     fn supports_question_batch(&self) -> bool {
         super::vm::has_method(&self.vm, "decideQuestions")
             && call_json_or_default::<bool>(&self.vm, &self.id, "supportsQuestionBatch")

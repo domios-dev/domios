@@ -197,7 +197,7 @@ export const enHelpContent: HelpLocaleContent = {
         { type: "heading", text: "Budget and fallback" },
         {
           type: "paragraph",
-          text: "Model requests have no cap by default. An optional positive supporter.calls_per_hour value sets a shared rolling hourly cap; 0 also means no cap. A search can use more than one request. Jev usage is charged to your TypeSafe account; local models use your machine. Settings > Agents shows recent activity, requests per hour and day, today's and this month's estimated Jev spend, and an optional balance you enter after a top-up. Domios alerts you once when the estimated balance drops below $1, and once if Jev reports the account is out of credit. When an explicit request cap is reached, memory returns its normal results and tab observations pause until capacity is available.",
+          text: "Model requests have no cap by default. An optional positive supporter.calls_per_hour value sets a shared rolling hourly cap; 0 also means no cap. A search can use more than one request. Jev usage is charged to your TypeSafe account; local models use your machine. Settings > Agents shows requests per hour and day and today's and this month's estimated Jev spend. Domios alerts once if Jev reports the account is out of credit. When an explicit request cap is reached, memory returns its normal results and tab observations pause until capacity is available.",
         },
         { type: "heading", text: "Connect an adapter" },
         {
