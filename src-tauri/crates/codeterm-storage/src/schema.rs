@@ -6,6 +6,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use std::path::Path;
 use std::time::Duration;
 
+mod desk;
 mod sentinel;
 
 /// `PRAGMA application_id` of every Storage database ("CTST").
@@ -16,7 +17,8 @@ const MIGRATIONS: &[&str] = &[
     SCHEMA_V1,
     cron::SCHEMA,
     sentinel::SCHEMA,
-    // Task yfh89f owns the preceding migration slot; keep Sentinel graph v4 after it.
+    desk::SCHEMA,
+    // Sentinel graph v4 is the migration immediately after the desk migration.
     sentinel::GRAPH_SCHEMA,
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;

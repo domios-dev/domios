@@ -3,6 +3,9 @@ use crate::agent::tab_state::TabStateSnapshot;
 use crate::service::supporter_tab_state::{CandidateVerdict, PROVIDER_UPDATE_PROMPT};
 use codeterm_types::pty::PromptKind;
 
+#[path = "unattended_prompt.rs"]
+mod unattended_prompt;
+
 impl ServiceContext {
     pub(crate) fn is_scrape_candidate(&self, agent: &str, screen: &str) -> bool {
         manual_update_prompt_candidate(screen)
@@ -15,16 +18,19 @@ impl ServiceContext {
 
     pub(crate) fn observe_output_scrape_candidate(&self, snapshot: TabStateSnapshot) {
         let fallback_snapshot = snapshot.clone();
-        self.observe_scrape_candidate_from(
+        let unobserved = snapshot.clone();
+        if !self.observe_scrape_candidate_from(
             snapshot,
-            move |service| service.resolve_scrape_candidate_heuristically(&fallback_snapshot),
+            move |service| service.resolve_scrape_candidate_fallback(&fallback_snapshot),
             crate::service::supporter_tab_state::ObservationTrigger::OutputCandidate,
             None,
             None,
-        );
+        ) {
+            self.resolve_unobserved_launch_gate(&unobserved);
+        }
     }
 
-    fn resolve_scrape_candidate_heuristically(&self, snapshot: &TabStateSnapshot) {
+    pub(crate) fn resolve_scrape_candidate_heuristically(&self, snapshot: &TabStateSnapshot) {
         let onboarding = {
             let mux = self.mux.read();
             mux.get_tab(&snapshot.tab_id)
@@ -130,6 +136,9 @@ impl ServiceContext {
                 .active_prompt_explicit(&snapshot.tab_id)
                 == Some(true)
         {
+            return;
+        }
+        if self.route_unattended_launch_prompt(snapshot, verdict) {
             return;
         }
         let parsed = if verdict.live_prompt() {

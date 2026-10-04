@@ -15,6 +15,8 @@ use super::{
 use crate::cron::clock::SharedClock;
 use crate::service::{supporter, ServiceState};
 
+const FAILURE_DEADLINE_MS: u64 = 60_000;
+
 #[derive(Clone)]
 pub struct Handle {
     pub store: Arc<Mutex<Store>>,
@@ -95,6 +97,7 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
     drop(handle);
     std::thread::spawn(move || {
         let (generation, wake_condvar) = &*wake;
+        let mut unavailable_incident: Option<String> = None;
         loop {
             if probe_owner.upgrade().is_none_or(|owner| owner.is_closing()) {
                 return;
@@ -103,41 +106,59 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
                 Ok(guard) => *guard,
                 Err(_) => return,
             };
-            if let Err(error) = storage::reconcile(&store) {
-                log::error!("[sentinel] unconfirmed commit reconciliation failed: {error}");
-            }
-            let due = storage::commit(&store, Store::stage_due);
-            match due {
-                Ok(leases) => {
-                    for lease in leases {
-                        let Some(owner) = probe_owner.upgrade() else {
-                            return;
-                        };
-                        let worker_handle = Handle {
-                            store: store.clone(),
-                            wake: wake.clone(),
-                            probe_owner: owner,
-                            app: Some(svc.app_handle.clone()),
-                            _shutdown: None,
-                        };
-                        if worker_handle.probe_owner.is_closing() {
-                            return;
+            let reconciliation = storage::reconcile(&store);
+            let unavailable = store.lock().ensure_available().err();
+            if let Some(error) = &unavailable {
+                if unavailable_incident.as_ref() != Some(error) {
+                    log::error!("[sentinel] scheduler unavailable: {error}");
+                    unavailable_incident = Some(error.clone());
+                }
+            } else {
+                unavailable_incident = None;
+                if let Err(error) = reconciliation {
+                    log::error!("[sentinel] unconfirmed commit reconciliation failed: {error}");
+                }
+                match storage::commit(&store, Store::stage_due) {
+                    Ok(leases) => {
+                        for lease in leases {
+                            let Some(owner) = probe_owner.upgrade() else {
+                                return;
+                            };
+                            let worker_handle = Handle {
+                                store: store.clone(),
+                                wake: wake.clone(),
+                                probe_owner: owner,
+                                app: Some(svc.app_handle.clone()),
+                                _shutdown: None,
+                            };
+                            if worker_handle.probe_owner.is_closing() {
+                                return;
+                            }
+                            let svc = svc.clone();
+                            std::thread::spawn(move || {
+                                tick(&worker_handle, &svc, &lease);
+                                worker_handle.store.lock().release(&lease.job.id);
+                                worker_handle.notify();
+                            });
                         }
-                        let svc = svc.clone();
-                        std::thread::spawn(move || {
-                            tick(&worker_handle, &svc, &lease);
-                            worker_handle.store.lock().release(&lease.job.id);
-                            worker_handle.notify();
-                        });
+                    }
+                    Err(error) => {
+                        if let Some(unavailable) = store.lock().ensure_available().err() {
+                            if unavailable_incident.as_ref() != Some(&unavailable) {
+                                log::error!("[sentinel] scheduler unavailable: {unavailable}");
+                                unavailable_incident = Some(unavailable);
+                            }
+                        } else {
+                            log::error!("[sentinel] schedule persistence failed: {error}");
+                        }
                     }
                 }
-                Err(error) => log::error!("[sentinel] schedule persistence failed: {error}"),
             }
             emit_changes(&store, &svc.app_handle);
             if probe_owner.upgrade().is_none_or(|owner| owner.is_closing()) {
                 return;
             }
-            let wait_ms = store.lock().next_deadline().max(1);
+            let wait_ms = scheduler_wait_ms(&store.lock());
             let guard = match generation.lock() {
                 Ok(guard) => guard,
                 Err(_) => return,
@@ -151,6 +172,55 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
                 });
         }
     });
+}
+
+fn scheduler_wait_ms(store: &Store) -> u64 {
+    if store.ensure_available().is_err() {
+        FAILURE_DEADLINE_MS
+    } else {
+        store.next_deadline().max(1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::sentinel::store::{Create, Owner};
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn sentinel_unavailable_wait_uses_failure_deadline_for_overdue_jobs() {
+        let temp = tempfile::tempdir().unwrap();
+        let clock = crate::cron::clock::MockClock::starting_at(1_000);
+        let mut store = Store::new(temp.path().join("sentinels.json"), clock.clone());
+        let params: Create = serde_json::from_value(json!({
+            "probe": "status",
+            "question": "ready?",
+            "buckets": ["done"],
+            "every": "10s",
+            "timeout": "1h",
+            "matches": {"done": "done"},
+            "handlers": {"done": [{"id": "notice", "type": "notify", "parameters": {}}]}
+        }))
+        .unwrap();
+        let job = store
+            .create(
+                params,
+                Owner {
+                    creator_tab_id: "creator".into(),
+                    team_id: None,
+                    workspace_id: "workspace".into(),
+                    cwd: ".".into(),
+                },
+                false,
+            )
+            .unwrap();
+        clock.set_ms(job.next_run);
+        store.unavailable = Some(storage::LoadFailure::PersistenceFailed);
+
+        assert_eq!(store.next_deadline(), 0);
+        assert_eq!(scheduler_wait_ms(&store), FAILURE_DEADLINE_MS);
+    }
 }
 
 fn shutdown_callback(handle: &Handle) -> impl FnOnce() + Send + 'static {

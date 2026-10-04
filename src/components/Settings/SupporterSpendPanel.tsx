@@ -46,6 +46,15 @@ export function SupporterSpendLine({ spend }: { spend: SupporterSpend }) {
   );
 }
 
+export function SupporterSpendSummary({ spend }: { spend: SupporterSpend }) {
+  return (
+    <span aria-label="Supporter cost">
+      {usd(spend.today)} today · {usd(spend.month)} month
+      {spend.remaining_usd !== null && <> · ${spend.remaining_usd.toFixed(4)} left</>}
+    </span>
+  );
+}
+
 interface BalanceProps {
   adapter: string;
   spend: SupporterSpend;

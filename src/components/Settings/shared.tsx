@@ -266,12 +266,23 @@ export function InfoRow({ label, value, mono }: { label: string; value: string; 
 }
 
 /** An in-app navigation link: a button styled as a link, since it routes rather than loads a URL. */
-export function InlineLinkButton({ label, onClick, testId }: { label: string; onClick: () => void; testId?: string }) {
+export function InlineLinkButton({
+  label,
+  onClick,
+  testId,
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  testId?: string;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="text-[11px] text-[var(--ct-accent)] underline underline-offset-2 hover:text-[var(--ct-fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]"
+      disabled={disabled}
+      className="text-[11px] text-[var(--ct-accent)] underline underline-offset-2 hover:text-[var(--ct-fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)] disabled:cursor-not-allowed disabled:opacity-50"
       data-testid={testId}
     >
       {label}

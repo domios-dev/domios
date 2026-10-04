@@ -30,6 +30,15 @@ pub(crate) struct CronRunEnd<'a> {
     pub(crate) summary: &'a str,
 }
 
+pub(crate) struct CronCompleteAfterResponse {
+    pub(crate) tab_id: String,
+    pub(crate) job_id: String,
+    pub(crate) run_id: String,
+    pub(crate) summary: String,
+    pub(crate) cron: CronState,
+    pub(crate) wake: CronWake,
+}
+
 /// Newest owner-prompt value per tab while a Storage commit of that tab is settling.
 #[derive(Clone, Default)]
 struct OwnerPromptRequests(Arc<Mutex<HashMap<String, OwnerPromptRequest>>>);
@@ -652,11 +661,18 @@ impl ServiceContext {
             },
         );
 
-        match self.spawn_tab(spec) {
+        let spawn = dispatch_after_trigger_record(cron, id, &run_info, || self.spawn_tab(spec))?;
+        match spawn {
             Ok(handle) => {
                 run_info.tab_id = Some(handle.tab_id.clone());
-                run_info.tab_id = Some(handle.tab_id.clone());
                 cron.lock().register_tab(&handle.tab_id, id, &run_id);
+                if let Err(error) = commit(cron, |store| {
+                    Ok(store.prepare_set_run_tab(id, &run_id, &handle.tab_id))
+                }) {
+                    log::error!(
+                        "Failed to record triggered cron Tab: job={id} run={run_id}: {error}"
+                    );
+                }
                 // Register with the auto-complete watcher (cron flavor).
                 if let Some(pty_id) = self.agent_run_pty_map.lock().get(&handle.tab_id).cloned() {
                     let global_timeout = crate::config::memory_config().worker_timeout_seconds;
@@ -683,14 +699,11 @@ impl ServiceContext {
                 }
             }
             Err(e) => {
-                run_info.status = CronRunStatus::Failed;
-                run_info.finished_at = Some(now);
-                record_trigger_run(cron, id, &run_info);
+                let _ = finish_run(cron, id, &run_id, CronRunStatus::Failed, None);
                 return Err(e);
             }
         }
 
-        record_trigger_run(cron, id, &run_info);
         if let Some(tab_id) = run_info.tab_id.as_deref() {
             self.sync_cron_owner_prompt_state(tab_id);
         }
@@ -707,7 +720,7 @@ impl ServiceContext {
         caller_tab_id: Option<&str>,
         binding_nonce: Option<&str>,
         human_confirmed: bool,
-    ) -> Result<(), String> {
+    ) -> Result<Option<CronCompleteAfterResponse>, String> {
         let caller_tab_id = caller_tab_id.filter(|caller| !caller.trim().is_empty());
         if caller_tab_id.is_none() && !human_confirmed {
             return Err("completing a cron run without tab identity requires --yes".into());
@@ -755,7 +768,7 @@ impl ServiceContext {
 
             let log_file = cron.lock().log_file(&job_id, run_id);
             if let Err(e) =
-                log_file.and_then(|path| crate::cron::store::write_log(&path, &log_text))
+                log_file.and_then(|path| CronStore::create_log(&path, &log_text).map(|_| ()))
             {
                 log::error!("Failed to save cron log: {}", e);
             }
@@ -788,36 +801,21 @@ impl ServiceContext {
                 self.run_watcher.mark_completed_externally(pid);
             }
 
-            // Killing it before the caller writes the JSON-RPC response would break the pipe mid-write, which interprocess escalates to std::process::abort().
-            let svc = self.clone();
-            let cron = cron.clone();
-            let wake = wake.clone();
-            let tab_id = tab_id.clone();
-            let job_id = job_id.clone();
-            let run_id = run_id.to_string();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(250));
-                let _ = svc.close_tab_with_reason(&tab_id, TabCloseReason::AgentRunEnded);
-                svc.cron_settle_run_end(
-                    &cron,
-                    Some(&wake),
-                    CronRunEnd {
-                        job_id: &job_id,
-                        run_id: &run_id,
-                        status: CronRunStatus::Success,
-                        summary: &summary_text,
-                    },
-                );
-                svc.emit_cron_changed();
-            });
-            Ok(())
+            Ok(Some(CronCompleteAfterResponse {
+                tab_id,
+                job_id,
+                run_id: run_id.to_string(),
+                summary: summary_text,
+                cron: cron.clone(),
+                wake: wake.clone(),
+            }))
         } else if let Some((job_id, run)) = cron.lock().find_run_by_id(run_id) {
             // The terminal status already recorded stands (first terminal wins); log it so the race stays observable instead of surfacing as an opaque "not found".
             log::warn!(
                 "[cron] cron.complete for run={} (job={}) arrived after the run was already finalized as {:?} — treating as idempotent no-op",
                 run_id, job_id, run.status
             );
-            Ok(())
+            Ok(None)
         } else {
             Err(format!("No cron run found for run_id: {}", run_id))
         }
@@ -840,11 +838,27 @@ impl ServiceContext {
     }
 }
 
-/// A manually triggered run is recorded after its spawn; a refused record is logged and
-/// the spawned run itself stands.
-fn record_trigger_run(cron: &CronState, id: &str, run: &CronRunInfo) {
-    if let Err(error) = commit(cron, |store| store.prepare_record_run(id, run.clone())) {
-        log::error!("Failed to record triggered cron run: job={id}: {error}");
+fn dispatch_after_trigger_record<T>(
+    cron: &CronState,
+    id: &str,
+    run: &CronRunInfo,
+    dispatch: impl FnOnce() -> T,
+) -> Result<T, String> {
+    record_trigger_run(cron, id, run)?;
+    Ok(dispatch())
+}
+
+fn record_trigger_run(cron: &CronState, id: &str, run: &CronRunInfo) -> Result<(), String> {
+    match commit(cron, |store| store.prepare_record_run(id, run.clone())) {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            log::error!("Failed to record triggered cron run: job={id}: {error}");
+            if error.applied() {
+                Ok(())
+            } else {
+                Err(error.to_string())
+            }
+        }
     }
 }
 

@@ -15649,7 +15649,7 @@
               "value_name": "TEXT",
               "possible_values": [],
               "default": null,
-              "help": "Optional prompt to send to the calling tab once the new daemon is up — lets a session continue work post-restart",
+              "help": "Optional prompt to send to the calling tab's own session after restart",
               "aliases": []
             },
             {
@@ -15659,7 +15659,7 @@
               "value_name": "ID",
               "possible_values": [],
               "default": null,
-              "help": "Tab to deliver `--continue-prompt` to. Defaults to `$CODETERM_TAB_ID`",
+              "help": "Calling tab to continue. Must match `$CODETERM_TAB_ID`",
               "aliases": []
             },
             {
@@ -15689,7 +15689,7 @@
               "value_name": "NO_CONTINUE",
               "possible_values": [],
               "default": null,
-              "help": "Disable the default continuation sent back to the calling tab",
+              "help": "Suppress the calling tab's continuation for the next start",
               "aliases": []
             }
           ],

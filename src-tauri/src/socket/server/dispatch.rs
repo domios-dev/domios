@@ -337,6 +337,22 @@ pub(super) fn dispatch(
     }
 }
 
+pub(super) fn dispatch_with_post_response(
+    method: &str,
+    params: Option<serde_json::Value>,
+    mux: &MuxState,
+    pty: &PtyState,
+    notif: &NotifState,
+    app: &AppHandle,
+    output_buf: &OutputBufferState,
+    svc: &ServiceState,
+) -> Result<(serde_json::Value, Option<super::PostResponseAction>), JsonRpcError> {
+    if method == "cron.complete" {
+        return cron::dispatch_complete(&params, app, svc);
+    }
+    dispatch(method, params, mux, pty, notif, app, output_buf, svc).map(|result| (result, None))
+}
+
 pub(crate) fn dispatch_service_rpc(
     method: &str,
     mut params: Option<serde_json::Value>,
@@ -378,4 +394,86 @@ fn dispatch_service_rpc_inner(
         &svc.output_buf,
         svc,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::dispatch_service_rpc;
+    use crate::cron::store::{CronCreateParams, CronRunInfo, CronRunStatus, CronStore};
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+    use std::sync::Arc;
+    use tauri::Manager;
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    fn cron_settle_service_rpc_closes_completed_tab() {
+        let (mut mux, initial_tab) = MultiplexerState::new();
+        let workspace = mux.find_workspace_for_tab(&initial_tab).unwrap();
+        let tab_id = mux.create_tab(&workspace).unwrap();
+        let fixture = ServiceFixture::new(mux);
+        let mut store = CronStore::new_with_path(fixture.temp.path().join("crons.json"));
+        let job_id = store
+            .create(CronCreateParams {
+                name: "rpc completion".into(),
+                workspace_id: "workspace".into(),
+                team_id: None,
+                detach_from_team: false,
+                schedule: "0 * * * *".into(),
+                task: "complete run".into(),
+                description: None,
+                agent: None,
+                model: None,
+                reasoning_effort: None,
+                cwd: None,
+                role: None,
+                skill: None,
+                creator_tab_id: None,
+                report_target_tab_id: None,
+                enabled: Some(false),
+                max_history: None,
+                oneshot: Some(false),
+                jitter_max_ms: Some(0),
+                tz: None,
+                timeout_seconds: None,
+            })
+            .unwrap()
+            .id;
+        store
+            .record_run(
+                &job_id,
+                CronRunInfo {
+                    run_id: "service-rpc-complete-run".into(),
+                    started_at: 1,
+                    finished_at: None,
+                    status: CronRunStatus::Running,
+                    tab_id: Some(tab_id.clone()),
+                    session_id: None,
+                    cwd: None,
+                    summary: None,
+                    report_delivery: None,
+                },
+            )
+            .unwrap();
+        store.register_tab(&tab_id, &job_id, "service-rpc-complete-run");
+        let cron: crate::CronState = Arc::new(parking_lot::Mutex::new(store));
+        fixture._app.manage(cron);
+        fixture
+            ._app
+            .manage::<crate::CronWake>(Arc::new(std::sync::Condvar::new()));
+
+        let response = dispatch_service_rpc(
+            "cron.complete",
+            Some(serde_json::json!({
+                "run_id": "service-rpc-complete-run",
+                "summary": "service-rpc-summary",
+                "human_confirmed": true
+            })),
+            &Arc::new(fixture.service.clone()),
+        )
+        .unwrap();
+
+        assert_eq!(response["ok"], true);
+        assert!(fixture.service.mux.read().get_tab(&tab_id).is_none());
+    }
 }

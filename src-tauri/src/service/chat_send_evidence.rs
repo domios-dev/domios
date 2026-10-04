@@ -11,7 +11,9 @@ use crate::service::chat_send_transaction::{
     normalize_turn_evidence_with, ChatSendLedger, ChatSendStatus, EvidenceWindow,
     SendEvidenceAnchor, SendLiveBinding,
 };
+use crate::service::tab_chat::registry::{JsonlSource, SourceCapture};
 use crate::service::ServiceContext;
+use std::sync::Arc;
 
 fn window_user_turns(registry: &AgentRegistry, anchor: &SendEvidenceAnchor) -> Vec<String> {
     match &anchor.window {
@@ -156,9 +158,24 @@ pub(crate) fn structured_boundary(
     })
 }
 
-fn jsonl_boundary(path: Option<std::path::PathBuf>) -> Option<EvidenceWindow> {
-    let transcript_offset = std::fs::metadata(path?).ok()?.len();
-    Some(EvidenceWindow::Jsonl { transcript_offset })
+fn jsonl_boundary(
+    path: Option<std::path::PathBuf>,
+    source: &JsonlSource,
+    session_id: &str,
+) -> (Option<EvidenceWindow>, Option<Arc<str>>) {
+    let Some(path) = path else {
+        return (None, None);
+    };
+    match source.capture(session_id, &path) {
+        SourceCapture::Present { len } => (
+            Some(EvidenceWindow::Jsonl {
+                transcript_offset: len,
+            }),
+            None,
+        ),
+        SourceCapture::Absent { witness } => (None, Some(witness)),
+        SourceCapture::Unreadable => (None, None),
+    }
 }
 
 #[derive(Clone, Default)]
@@ -166,6 +183,7 @@ pub(crate) struct CapturedSendEvidence {
     pub(crate) anchor: Option<SendEvidenceAnchor>,
     pub(crate) live_binding: Option<SendLiveBinding>,
     pub(crate) turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
+    pub(crate) absence_witness: Option<Arc<str>>,
 }
 
 /// One turn instance confirms at most one send: a scan may only confirm when
@@ -231,20 +249,24 @@ impl ServiceContext {
                 anchor: None,
                 live_binding,
                 turn_normalization,
+                absence_witness: None,
             };
         };
         let structured = self
             .agent_registry
             .with_provider(&provider_id, |provider| provider.uses_structured_chat())
             .unwrap_or(false);
-        let window = if structured {
+        let (window, absence_witness) = if structured {
             let chat = self
                 .agent_registry
                 .with_provider(&provider_id, |provider| {
                     provider.read_structured_chat(&cwd, &session_id, None)
                 })
                 .unwrap_or_default();
-            structured_boundary(&chat)
+            (
+                chat.cursor.as_ref().and_then(|_| structured_boundary(&chat)),
+                None,
+            )
         } else {
             let path = self
                 .agent_registry
@@ -252,7 +274,8 @@ impl ServiceContext {
                     provider.session_jsonl_path(&cwd, &session_id)
                 })
                 .flatten();
-            jsonl_boundary(path)
+            let source = self.chat_registry.jsonl_source(tab_id);
+            jsonl_boundary(path, &source, &session_id)
         };
         let anchor = window.map(|window| SendEvidenceAnchor {
             provider_id,
@@ -265,6 +288,7 @@ impl ServiceContext {
             anchor,
             live_binding,
             turn_normalization,
+            absence_witness,
         }
     }
 
@@ -455,15 +479,16 @@ mod tests {
     fn missing_jsonl_store_has_no_unbounded_evidence_window() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("not-materialized.jsonl");
+        let source = JsonlSource::default();
 
-        assert_eq!(jsonl_boundary(Some(path.clone())), None);
+        let (anchor, witness) = jsonl_boundary(Some(path.clone()), &source, "sess-a");
+        assert!(anchor.is_none());
+        assert!(witness.is_some());
 
         std::fs::write(&path, b"existing-history").unwrap();
         assert_eq!(
-            jsonl_boundary(Some(path)),
-            Some(EvidenceWindow::Jsonl {
-                transcript_offset: 16
-            })
+            jsonl_boundary(Some(path), &source, "sess-a").0,
+            Some(EvidenceWindow::Jsonl { transcript_offset: 16 })
         );
     }
 

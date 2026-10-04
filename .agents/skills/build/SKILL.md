@@ -121,14 +121,16 @@ does not publish a release or alter GitHub assets.
    This route is Windows-only, requires the clean canonical checkout, reuses a
    persistent release target with sccache, rebuilds only changed Cargo units,
    recreates the NSIS bundle, verifies source provenance, and installs that
-   exact artifact. When invoked inside Domios, it saves the session and sends
-   a continuation intent to the calling Tab after the new daemon is healthy.
-   The default intent verifies the installed SHA and resumes the interrupted
-   work. Override or disable it when needed:
+   exact artifact. When invoked inside Domios, it saves the session with a
+   continuation for the calling Tab; the relaunched daemon delivers it once,
+   after that Tab's own resumed session is agent-ready, and every other agent
+   that was mid-turn receives one default continue. The default intent
+   verifies the installed SHA and resumes the interrupted work. Override or
+   disable it when needed:
 
    ```powershell
    .\build.ps1 install-local --continue-prompt "Verify the installed build, then resume release QA."
-   .\build.ps1 install-local --continue-tab "<tab-id>" --continue-prompt "Continue the interrupted task."
+   .\build.ps1 install-local --continue-tab "$env:CODETERM_TAB_ID" --continue-prompt "Continue the interrupted task."
    .\build.ps1 install-local --no-continue
    ```
 
@@ -143,8 +145,10 @@ does not publish a release or alter GitHub assets.
    resolving `codeterm` from `PATH` may silently run the previously installed
    helper and is forbidden in this flow.
    Direct `update install --from-file` calls default to a short continuation
-   when `CODETERM_TAB_ID` is present; use `--no-continue` only when interruption
-   is intentional.
+   when `CODETERM_TAB_ID` is present. `--continue-tab` must name that same
+   caller tab. `--no-continue` durably settles the caller's mark as skipped
+   for the next start. Explicit continuation requests are refused with
+   `disabled` when `agent.continue_after_restart` is false.
    A successful self-install is proven by `self-install.log` reaching
    `installer exited 0` and `launched`, followed by port 7685 health reporting
    the installed source SHA. The build gateway records the verified artifact as
