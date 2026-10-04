@@ -49,7 +49,7 @@ mod notification_desktop;
 pub(crate) mod notification_push;
 mod orchestration_pair;
 mod orchestrator;
-mod parked_user_delivery;
+pub(crate) mod parked_user_delivery;
 pub(crate) mod process_tree;
 mod prompt_resolution;
 pub(crate) mod provider_update;
