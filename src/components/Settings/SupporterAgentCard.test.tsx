@@ -770,17 +770,15 @@ describe("Supporter saved connections", () => {
     expect(section("optional").querySelector("[aria-label='Supporter cost']")).toBeNull();
     await click("Make active", section("optional"));
     expect(host.querySelector("[aria-label='Supporter cost']")).toBeNull();
-    expect(host.querySelector("#supporter-balance")).toBeNull();
   });
   it("unknown_price_not_zero", async () => {
     state.spend.today.estimated_usd = null;
     state.spend.month.estimated_usd = null;
-    state.spend.remaining_usd = null;
     await mount();
     expect(host.textContent).toContain("price not reported");
     expect(host.textContent).not.toContain("$0.0000");
   });
-  it("unpriced_shows_counts_no_balance", async () => {
+  it("unpriced_shows_counts_without_cost", async () => {
     state.connections = [row("none", true)];
     state.adapter = "none";
     state.model = "none-one";
@@ -788,7 +786,6 @@ describe("Supporter saved connections", () => {
     await mount();
     expect(host.textContent).toContain("req/hr");
     expect(host.querySelector("[aria-label='Supporter cost']")).toBeNull();
-    expect(host.querySelector("#supporter-balance")).toBeNull();
   });
   it("zero_price_local_adapter_shows_counts_without_money", async () => {
     state.connections = [
@@ -805,7 +802,6 @@ describe("Supporter saved connections", () => {
     state.model = "none-one";
     await mount();
     expect(host.querySelector("[aria-label='Supporter spend']")).toBeNull();
-    expect(host.querySelector("#supporter-balance")).toBeNull();
   });
   it("write_surfaces_plain_text_errors", async () => {
     await mount();
@@ -813,10 +809,9 @@ describe("Supporter saved connections", () => {
     await click("Make active", section("optional"));
     expect(host.textContent).toContain("Adapter endpoint refused the request");
   });
-  it("priced_adapter_shows_spend_without_a_manual_balance_field", async () => {
+  it("priced_adapter_shows_estimated_spend", async () => {
     await mount();
     expect(section("required").querySelector('[aria-label="Supporter cost"]')).not.toBeNull();
-    expect(section("required").querySelector("#supporter-balance")).toBeNull();
   });
   it("clear_token_is_adapter_scoped_and_returns_an_honest_success_flag", async () => {
     let controls: SupporterControls;

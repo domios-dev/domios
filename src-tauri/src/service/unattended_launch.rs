@@ -30,9 +30,24 @@ pub(crate) fn runs_unattended(tab: &Tab) -> bool {
     tab.hidden && tab.audience != TabAudience::User
 }
 
+pub(crate) fn owns_prompt_answers(tab: &Tab) -> bool {
+    tab.role.is_some()
+        || tab.roleless_tracked
+        || tab.team_id.is_some()
+        || tab.parent_tab_id.is_some()
+        || tab.spawned_by_tab_id.is_some()
+        || tab.task_binding.is_some()
+        || tab.worker_id.is_some()
+        || tab.audience != TabAudience::User
+}
+
 /// Unattended and still launching: the provider has not authenticated this tab's session.
 pub(crate) fn at_unattended_launch(tab: &Tab) -> bool {
     runs_unattended(tab) && tab.agent_type.is_some() && !tab.launch_session_authenticated()
+}
+
+pub(crate) fn at_owned_launch_prompt(tab: &Tab) -> bool {
+    owns_prompt_answers(tab) && tab.agent_type.is_some() && !tab.launch_session_authenticated()
 }
 
 #[derive(Debug, Clone, Copy, Default)]

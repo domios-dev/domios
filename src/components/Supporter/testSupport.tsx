@@ -19,8 +19,7 @@ export function statusFixture(): SupporterStatus {
     spend: {
       today: { input_tokens: 10, output_tokens: 5, estimated_usd: 0.125 },
       month: { input_tokens: 100, output_tokens: 50, estimated_usd: 0.75 },
-      since_balance: { input_tokens: 10, output_tokens: 5, estimated_usd: 0.125 },
-      balance_usd: 2, remaining_usd: 1.875, balance_set_at: 1700000000, exhausted: false, next_probe_at: null, storage_ready: true,
+      exhausted: false, next_probe_at: null, storage_ready: true,
     },
   };
 }

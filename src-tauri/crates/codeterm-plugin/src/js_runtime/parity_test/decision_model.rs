@@ -14,6 +14,9 @@ use crate::js_runtime::{JsDecisionModel, PluginVm};
 struct NativeDecisionModel(TokenMode);
 
 impl DecisionModel for NativeDecisionModel {
+    fn supports_calibrated_choice_confidence(&self) -> bool {
+        true
+    }
     fn id(&self) -> &str {
         "native-fixture"
     }
@@ -101,6 +104,7 @@ fn shared_fixtures() -> Vec<DecisionRequest> {
 #[test]
 fn parity_decision_model_matches_shared_fixtures() {
     let source = r#"module.exports.default = {
+        supportsCalibratedChoiceConfidence() { return true; },
         modelId() { return "fixture-model"; },
         selectModel(id) { return id === "fixture-model"; },
         metadata() { return {}; },
@@ -130,6 +134,10 @@ fn parity_decision_model_matches_shared_fixtures() {
         let javascript =
             JsDecisionModel::new(vm.clone(), "js-fixture", caps.decision_model.token_mode);
         assert_eq!(native.token_mode(), expected);
+        assert_eq!(
+            native.supports_calibrated_choice_confidence(),
+            javascript.supports_calibrated_choice_confidence()
+        );
         assert_eq!(native.token_mode(), javascript.token_mode());
         assert_eq!(native.primitives(), javascript.primitives());
         assert_eq!(native.models(), javascript.models());
@@ -153,6 +161,22 @@ fn parity_decision_model_matches_shared_fixtures() {
             );
         }
     }
+}
+
+#[test]
+fn js_decision_model_defaults_calibrated_choice_capability_to_false() {
+    let model = JsDecisionModel::new(
+        Arc::new(
+            PluginVm::from_source(
+                "decision-default-capability",
+                "module.exports.default = {};".into(),
+            )
+            .unwrap(),
+        ),
+        "decision-default-capability",
+        TokenMode::None,
+    );
+    assert!(!model.supports_calibrated_choice_confidence());
 }
 
 #[test]

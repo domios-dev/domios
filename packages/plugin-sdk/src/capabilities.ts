@@ -451,6 +451,8 @@ export type DecisionAnswer =
     };
 
 export interface DecisionModelCapability {
+  /** Declares that choice confidence is calibrated for single-decision authorization. */
+  supportsCalibratedChoiceConfidence?(): boolean;
   /** Declares that decideQuestions sends at most one physical request. */
   supportsQuestionBatch?(): boolean;
   modelId?(): string | null;

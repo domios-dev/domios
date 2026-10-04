@@ -232,6 +232,9 @@ fn probabilities(answer: &Value) -> Result<BTreeMap<String, f64>, DecisionError>
 }
 
 impl DecisionModel for TypeSafeAdapter {
+    fn supports_calibrated_choice_confidence(&self) -> bool {
+        true
+    }
     fn supports_question_batch(&self) -> bool {
         true
     }

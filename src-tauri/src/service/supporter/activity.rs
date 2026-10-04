@@ -193,26 +193,6 @@ impl SupporterRuntime {
         self.connection_epoch.load(Ordering::Acquire)
     }
 
-    pub(crate) fn set_balance(
-        &self,
-        adapter: &str,
-        price: Option<&DecisionPricing>,
-        balance: Option<f64>,
-    ) -> Result<(), DecisionError> {
-        let name = price.map_or(adapter, |price| price.display_name.as_str());
-        let alerts = self.spend.set_balance(
-            adapter,
-            name,
-            price,
-            balance,
-            chrono::Utc::now().timestamp_millis(),
-        )?;
-        let _ = self.append(json!({ "time": chrono::Utc::now().timestamp(), "kind": "balance",
-            "adapter": adapter, "action": "balance_set", "reason": "owner_value", "balance_usd": balance }));
-        self.alerts(adapter, alerts);
-        Ok(())
-    }
-
     pub(crate) fn spend_status(&self, adapter: &str) -> Value {
         self.spend
             .status(adapter, chrono::Utc::now().timestamp_millis())

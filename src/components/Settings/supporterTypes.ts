@@ -25,10 +25,6 @@ export interface SupporterSpendTotals {
 export interface SupporterSpend {
   today: SupporterSpendTotals;
   month: SupporterSpendTotals;
-  since_balance: SupporterSpendTotals;
-  balance_usd: number | null;
-  balance_set_at: number | null;
-  remaining_usd: number | null;
   exhausted: boolean;
   next_probe_at: number | null;
   storage_ready: boolean;
