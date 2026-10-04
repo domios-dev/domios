@@ -2,12 +2,12 @@ use super::{PersistedAgentSessionIdentity, SessionSnapshot};
 use codeterm_storage::{DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields};
 use std::collections::HashMap;
 
-pub(super) struct DecodedSnapshot {
+pub struct DecodedSnapshot {
     pub snapshot: SessionSnapshot,
     pub layouts: Vec<Vec<DeskLayoutNode>>,
 }
 
-pub(super) fn decode_snapshot(json: &str) -> Result<DecodedSnapshot, String> {
+pub fn decode_snapshot(json: &str) -> Result<DecodedSnapshot, String> {
     let mut value: serde_json::Value =
         serde_json::from_str(json).map_err(|error| error.to_string())?;
     codeterm_types::startup_records::normalize_pane_id_fields(&mut value)
@@ -59,7 +59,6 @@ fn decode_layout(value: &serde_json::Value) -> Result<DeskLayoutNode, String> {
             let mut fields = object.clone();
             fields.remove("type");
             fields.remove("tab_id");
-            fields.remove("cwd");
             Ok(DeskLayoutNode::Leaf {
                 tab_id,
                 cwd,
@@ -85,17 +84,23 @@ fn decode_layout(value: &serde_json::Value) -> Result<DeskLayoutNode, String> {
                 .iter()
                 .map(decode_layout)
                 .collect::<Result<Vec<_>, _>>()?;
+            let mut fields = object.clone();
+            fields.remove("type");
+            fields.remove("orientation");
+            fields.remove("ratio");
+            fields.remove("children");
             Ok(DeskLayoutNode::Split {
                 orientation,
                 ratio,
                 children,
+                fields,
             })
         }
         _ => Err("legacy layout node has an unknown type".to_string()),
     }
 }
 
-pub(super) fn decode_identity_catalog(
+pub fn decode_identity_catalog(
     json: Option<&str>,
 ) -> Result<Vec<DeskAgentSessionIdentity>, String> {
     let Some(json) = json else {

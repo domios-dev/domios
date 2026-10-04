@@ -143,7 +143,11 @@ fn storage_migration_one_transaction_conserves_cron_and_sentinel_exactly() {
         .collect();
     assert_eq!(
         counts,
-        [(ImportDomain::Cron, 4, 4), (ImportDomain::Sentinel, 3, 3)]
+        [
+            (ImportDomain::Cron, 4, 4),
+            (ImportDomain::Sentinel, 3, 3),
+            (ImportDomain::Desk, 0, 0)
+        ]
     );
     assert_eq!(receipt.archive, Ok(()));
     assert!(matches!(receipt.recorded, RecordedManifest::File(_)));
