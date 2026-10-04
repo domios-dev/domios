@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use crate::agent::registry::AgentRegistry;
 
-use super::{spawn_tailer, ChatRegistry, DeltaSink, TailConfig, TailerHandle};
+use super::{ChatRegistry, DeltaSink, TailConfig, TailerHandle};
 
 pub const PENDING_STORE_WATCH_POLL_INTERVAL: Duration = Duration::from_millis(250);
 
@@ -94,7 +94,7 @@ fn spawn_store_watch_inner(
                     thread::sleep(cfg.poll_interval);
                     continue;
                 }
-                let tailer = spawn_tailer(
+                let tailer = super::tailer::spawn_sourced_tailer(
                     TailConfig {
                         tab_id: cfg.tab_id.clone(),
                         provider_id: cfg.provider_id.clone(),
@@ -103,6 +103,7 @@ fn spawn_store_watch_inner(
                         start_offset: 0,
                         poll_interval: super::live_chat_poll_interval(),
                     },
+                    Some(chat_registry.jsonl_source(&cfg.tab_id)),
                     agent_registry.clone(),
                     sink.clone(),
                 );
