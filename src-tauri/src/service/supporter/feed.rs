@@ -98,6 +98,7 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
             "healthy_snapshot",
             "soft_cooldown",
             "safety_status",
+            "observation_bounds",
         ],
         "redacted",
     );
