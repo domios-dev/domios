@@ -158,7 +158,7 @@ fn pointer_body_outlives_old_pad_submission_settlement_and_reopen() {
         assert!(!store.prepared(&record).unwrap().contains(r"\\?\"));
     }
     assert_eq!(fs::read(&owned).unwrap(), bytes);
-    assert!(store.prepared(&record).unwrap().ends_with(codeterm_paths::strip_verbatim_prefix(owned.to_str().unwrap())));
+    assert!(store.prepared(&record).unwrap().ends_with(&codeterm_paths::strip_verbatim_prefix(owned.to_str().unwrap())));
     assert!(store.claim(&record, "opaque-session").unwrap());
     store.settle_cycle(&record, false).unwrap();
     assert!(store.complete(&record).unwrap());
