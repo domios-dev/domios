@@ -10,9 +10,9 @@ use parking_lot::Mutex;
 
 use super::storage::{CronStage, StageProbe};
 use super::{
-    commit, decode_legacy_cron_file, finish_run, read_legacy_cron_file, settle_port, write_log,
-    CronCommitError, CronCommitted, CronCreateParams, CronJob, CronRunInfo, CronRunStatus,
-    CronScope, CronStorageOptions, CronStore, CronUpdateParams, LegacyCronError, RunSession,
+    commit, decode_legacy_cron_file, finish_run, read_legacy_cron_file, write_log, CronCommitError,
+    CronCommitted, CronCreateParams, CronJob, CronRunInfo, CronRunStatus, CronScope,
+    CronStorageOptions, CronStore, CronUpdateParams, LegacyCronError, RunSession,
     MAX_CONSECUTIVE_FAILURES,
 };
 use crate::cron::clock::MockClock;
@@ -22,7 +22,9 @@ use crate::storage::{
     Storage, StorageConfig, StorageError,
 };
 
-/// Failure bound around event waits only; elapsed time never signals readiness.
+mod concurrency;
+
+/// Failure bound around event waits only; elapsed time never signals success.
 const DEADLINE: Duration = Duration::from_secs(30);
 const START_MS: u64 = 1_700_000_000_000;
 
@@ -177,21 +179,32 @@ struct Gate {
 }
 
 fn gate(cron: &CronState, stage: CronStage) -> Gate {
-    let (reached_tx, reached) = mpsc::channel();
-    let (release, release_rx) = mpsc::channel::<()>();
-    let armed = Mutex::new(Some((reached_tx, release_rx)));
+    let mut armed = gates(cron, &[stage]);
+    armed.pop().expect("one gate")
+}
+
+/// One gate per stage, each armed for the first commit reaching it.
+fn gates(cron: &CronState, stages: &[CronStage]) -> Vec<Gate> {
+    let mut armed = Vec::new();
+    let mut handles = Vec::new();
+    for stage in stages {
+        let (reached_tx, reached) = mpsc::channel();
+        let (release, release_rx) = mpsc::channel::<()>();
+        armed.push((*stage, Mutex::new(Some((reached_tx, release_rx)))));
+        handles.push(Gate { reached, release });
+    }
     let probe: StageProbe = Arc::new(move |hit: CronStage| {
-        if hit != stage {
-            return;
-        }
-        let taken = armed.lock().take();
+        let taken = armed
+            .iter()
+            .find(|(stage, _)| *stage == hit)
+            .and_then(|(_, slot)| slot.lock().take());
         if let Some((reached, release)) = taken {
             let _ = reached.send(hit);
             let _ = release.recv();
         }
     });
     cron.lock().set_stage_probe(probe);
-    Gate { reached, release }
+    handles
 }
 
 impl Gate {
@@ -769,253 +782,6 @@ fn storage_cron_commit_failure_conserves_cache_and_database_and_never_dispatches
 }
 
 #[test]
-fn storage_cron_held_writer_leaves_cron_lock_and_committed_reads_available() {
-    let f = fixture();
-    let job = f.create(params("held"));
-    let hold = held(&f.storage);
-    let submitted = gate(&f.cron, CronStage::Submitted);
-    let (cron, id) = (f.cron.clone(), job.id.clone());
-    let renamer = std::thread::spawn(move || {
-        commit(&cron, |store| {
-            store.prepare_update(&id, rename("after hold"))
-        })
-        .map(|done| done.value.name)
-    });
-    submitted.wait_reached();
-    submitted.release();
-
-    let guard = f
-        .cron
-        .try_lock()
-        .expect("no cron lock is held while a commit waits");
-    assert_eq!(guard.get(&job.id).unwrap().name, "held");
-    drop(guard);
-    let snapshot = f.snapshot();
-    let stored = state_of(&snapshot, &job.id).job.as_ref().unwrap();
-    assert_eq!(
-        stored.record.name, "held",
-        "committed reads proceed under a held writer"
-    );
-
-    hold.release();
-    assert_eq!(renamer.join().unwrap(), Ok("after hold".to_string()));
-    assert_eq!(f.name_of(&job.id), "after hold");
-    f.assert_cache_is_committed();
-}
-
-#[test]
-fn storage_cron_stale_run_update_rereads_and_reprepares() {
-    let f = fixture();
-    let job = f.create(params("contended"));
-    f.start(&job.id, "r1");
-    let prepared = gate(&f.cron, CronStage::Prepared);
-    let (cron, id) = (f.cron.clone(), job.id.clone());
-    let finisher =
-        std::thread::spawn(move || finish_run(&cron, &id, "r1", CronRunStatus::Failed, None));
-    prepared.wait_reached();
-    commit(&f.cron, |store| store.prepare_delete(&job.id, true))
-        .expect("another owner retires the job meanwhile");
-    prepared.release();
-
-    assert_eq!(
-        finisher.join().unwrap(),
-        Ok(false),
-        "re-prepared against the retired job: no accounting"
-    );
-    let fresh = f.rehydrated();
-    assert!(fresh.get(&job.id).is_none());
-    assert_eq!(fresh.get_history(&job.id)[0].status, CronRunStatus::Failed);
-    f.assert_cache_is_committed();
-}
-
-#[test]
-fn storage_cron_publication_follows_commit() {
-    let f = fixture();
-    let job = f.create(params("ordered"));
-    let committed = gate(&f.cron, CronStage::Committed);
-    let (cron, id) = (f.cron.clone(), job.id.clone());
-    let renamer = std::thread::spawn(move || {
-        commit(&cron, |store| {
-            store.prepare_update(&id, rename("published"))
-        })
-        .map(|_| ())
-    });
-    committed.wait_reached();
-    let snapshot = f.snapshot();
-    let stored = state_of(&snapshot, &job.id).job.as_ref().unwrap();
-    assert_eq!(
-        stored.record.name, "published",
-        "durable before publication"
-    );
-    assert_eq!(
-        f.name_of(&job.id),
-        "ordered",
-        "the cache waits for its publication"
-    );
-    committed.release();
-    renamer.join().unwrap().expect("rename");
-    assert_eq!(f.name_of(&job.id), "published");
-}
-
-#[test]
-fn storage_cron_shutdown_settles_admitted_work_and_refuses_late_work() {
-    let f = fixture();
-    let job = f.create(params("draining"));
-    let hold = held(&f.storage);
-    let submitted = gate(&f.cron, CronStage::Submitted);
-    let (cron, id) = (f.cron.clone(), job.id.clone());
-    let admitted = std::thread::spawn(move || record_fire_start(&cron, &id, "admitted-run"));
-    submitted.wait_reached();
-    let shutdown = f.storage.shutdown();
-    submitted.release();
-
-    assert!(
-        !record_fire_start(&f.cron, &job.id, "late-run"),
-        "a run refused at admission never dispatches"
-    );
-    hold.release();
-    assert!(admitted.join().unwrap(), "admitted work drains and commits");
-    shutdown.wait(DEADLINE).expect("shutdown settles");
-    let last = f
-        .cron
-        .lock()
-        .get(&job.id)
-        .unwrap()
-        .last_run
-        .clone()
-        .unwrap();
-    assert_eq!(last.run_id, "admitted-run");
-
-    let reopened = Storage::open(instance(&f.temp), StorageConfig::default()).expect("reopen");
-    let fresh = hydrate(&reopened, &f.temp, &f.clock);
-    let cache = f.cron.lock();
-    assert_eq!(fresh.file.jobs, cache.file.jobs);
-    assert_eq!(histories(&fresh), histories(&cache));
-}
-
-#[test]
-fn storage_cron_backpressure_refuses_without_claim() {
-    let f = fixture_with(StorageConfig {
-        mailbox_commands: 1,
-        ..StorageConfig::default()
-    });
-    let job = f.create(params("bounded"));
-    let hold = held(&f.storage);
-    let submitted = gate(&f.cron, CronStage::Submitted);
-    let (cron, id) = (f.cron.clone(), job.id.clone());
-    let queued = std::thread::spawn(move || record_fire_start(&cron, &id, "queued-run"));
-    submitted.wait_reached();
-    submitted.release();
-
-    let refused = commit(&f.cron, |store| {
-        store.prepare_record_run(&job.id, running("refused-run"))
-    });
-    assert!(
-        matches!(&refused, Err(CronCommitError::NotApplied(_))),
-        "{refused:?}"
-    );
-    assert!(
-        !refused.unwrap_err().applied(),
-        "a refused admission claims nothing"
-    );
-    hold.release();
-    assert!(queued.join().unwrap());
-    let history = f.cron.lock().get_history(&job.id).len();
-    assert_eq!(history, 1, "only the admitted run was recorded");
-    f.assert_cache_is_committed();
-}
-
-#[test]
-fn storage_cron_unconfirmed_commit_fences_changes_until_reconciled() {
-    let f = fixture();
-    let job = f.create(params("unconfirmed"));
-    let before = f.storage.revision();
-    f.cron.lock().set_storage_deadline(Duration::from_millis(1));
-    let hold = held(&f.storage);
-
-    let outcome = commit(&f.cron, |store| {
-        store.prepare_update(&job.id, rename("pending rename"))
-    });
-    assert!(
-        matches!(outcome, Err(CronCommitError::Unconfirmed(_))),
-        "{outcome:?}"
-    );
-    assert_eq!(
-        f.name_of(&job.id),
-        "unconfirmed",
-        "nothing unconfirmed is published"
-    );
-    let fenced = commit(&f.cron, |store| store.prepare_set_enabled(&job.id, false));
-    assert!(
-        matches!(fenced, Err(CronCommitError::Unconfirmed(_))),
-        "{fenced:?}"
-    );
-
-    f.cron.lock().set_storage_deadline(DEADLINE);
-    hold.release();
-    f.storage
-        .committed_after(before)
-        .wait(DEADLINE)
-        .expect("the earlier submission commits on its own");
-    let disabled = commit(&f.cron, |store| store.prepare_set_enabled(&job.id, false))
-        .expect("the fence settles from the earlier completion")
-        .value;
-    assert_eq!(
-        (disabled.name.as_str(), disabled.enabled),
-        ("pending rename", false)
-    );
-    f.assert_cache_is_committed();
-}
-
-#[test]
-fn storage_cron_scheduler_port_draft_commits_after_lock_release() {
-    use crate::mem::dreaming::{ensure_dreaming_cron, DREAMING_CRON_NAME};
-    use crate::mem_host::CronSchedulerPort;
-    use crate::service::spawn::CatalogBackgroundModelPort;
-
-    let f = fixture();
-    let config = codeterm_types::config::MemoryConfig::default();
-    {
-        let mut store = f.cron.lock();
-        let port = &mut CronSchedulerPort(&mut store);
-        assert!(
-            ensure_dreaming_cron(port, &config, "claude", &CatalogBackgroundModelPort).unwrap()
-        );
-        assert!(
-            store.list().is_empty(),
-            "a draft is not published before it commits"
-        );
-    }
-    assert!(f.snapshot().states.is_empty());
-    settle_port(&f.cron).expect("settle the draft");
-    let job = f
-        .cron
-        .lock()
-        .list()
-        .iter()
-        .find(|job| job.name == DREAMING_CRON_NAME)
-        .cloned()
-        .expect("dreaming cron");
-    assert!(job.protected && job.enabled);
-
-    let revision = f.storage.revision();
-    {
-        let mut store = f.cron.lock();
-        let port = &mut CronSchedulerPort(&mut store);
-        assert!(
-            !ensure_dreaming_cron(port, &config, &job.agent, &CatalogBackgroundModelPort).unwrap()
-        );
-    }
-    settle_port(&f.cron).expect("settle the unchanged draft");
-    assert_eq!(
-        f.storage.revision(),
-        revision,
-        "an unchanged draft writes nothing"
-    );
-    f.assert_cache_is_committed();
-}
-
-#[test]
 fn storage_cron_legacy_and_storage_backends_never_cross() {
     let f = fixture();
     let before = f.storage.revision();
@@ -1146,7 +912,13 @@ fn storage_cron_logs_stay_files_named_by_plain_ids() {
 
 /// Desktop-runtime consumers: these run where ServiceFixture runs, like their siblings.
 mod consumers {
+    use std::sync::Arc;
+
+    use parking_lot::Mutex;
+
     use super::*;
+    use crate::cron::scheduler::CronState;
+    use crate::cron::store::{CronRunStatus, CronStore};
     use crate::service::test_fixture::ServiceFixture;
 
     fn legacy_service() -> (ServiceFixture, CronState, crate::CronWake) {
