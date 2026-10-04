@@ -7,6 +7,8 @@ use std::sync::Arc;
 /// The active Supporter connection as the existing config and token rules see
 /// it; it never selects another adapter or model.
 pub(crate) struct Supporter<'a> {
+    /// Connection epoch read before `cfg` and `token`, so a later mutation is never missed.
+    pub(crate) epoch: u64,
     pub(crate) cfg: SupporterConfig,
     pub(crate) token: supporter::TokenSnapshot,
     pub(crate) registry: &'a SupporterRegistry,
@@ -15,16 +17,19 @@ pub(crate) struct Supporter<'a> {
 
 impl<'a> Supporter<'a> {
     pub(crate) fn live(svc: &'a ServiceContext) -> Self {
+        let runtime = supporter::runtime_with_notifications(svc);
+        let epoch = runtime.connection_epoch();
         let cfg = crate::config::load_config().supporter;
         let token = supporter::TokenSnapshot::read(
             &crate::api::mem_routes::decision::token_store(),
             cfg.active_id().unwrap_or(""),
         );
         Self {
+            epoch,
             cfg,
             token,
             registry: &svc.supporter_models,
-            runtime: supporter::runtime_with_notifications(svc),
+            runtime,
         }
     }
 

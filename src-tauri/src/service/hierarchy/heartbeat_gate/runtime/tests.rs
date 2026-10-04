@@ -109,6 +109,27 @@ fn heartbeat_connections_use_only_active_saved_model_and_never_choose_another_ad
     let model = connected_model(&cfg, &registry, &token, runtime.clone(), "owner").unwrap();
     assert_eq!(model.id(), "active");
     assert_eq!(model.model_id().as_deref(), Some("second"));
+    let before = Supporter {
+        epoch: runtime.connection_epoch(),
+        cfg: config(),
+        token: supporter::TokenSnapshot::default(),
+        registry: &registry,
+        runtime: runtime.clone(),
+    };
+    registry.unregister("active");
+    runtime.connection_changed();
+    registry.register("active", active.clone());
+    runtime.connection_changed();
+    let after = Supporter {
+        epoch: runtime.connection_epoch(),
+        cfg: config(),
+        token: supporter::TokenSnapshot::default(),
+        registry: &registry,
+        runtime: runtime.clone(),
+    };
+    assert!(before.generation().is_some());
+    assert_eq!(before.generation(), after.generation());
+    assert_eq!(after.epoch, before.epoch + 2);
     cfg.adapter = Some("saved".into());
     let model = connected_model(&cfg, &registry, &token, runtime.clone(), "owner").unwrap();
     assert_eq!(model.model_id().as_deref(), Some("first"));

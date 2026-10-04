@@ -192,13 +192,11 @@ fn admit_claimed(
     if !decision.wake {
         return suppress(gate, claim, decision.reason);
     }
+    let current = host.supporter();
+    let connection_unchanged = current.epoch == supporter.epoch
+        && current.generation().as_deref() == Some(adapter.as_str());
     let plan = match resolve(host, request, Some(&plan.id)) {
-        Ok((plan, fresh))
-            if fresh == scope
-                && host.supporter().generation().as_deref() == Some(adapter.as_str()) =>
-        {
-            plan
-        }
+        Ok((plan, fresh)) if fresh == scope && connection_unchanged => plan,
         _ => return suppress(gate, claim, "stale_scope"),
     };
     // The approved identity must still describe the plan the text is built from.
@@ -372,7 +370,7 @@ fn scope(
     attempt: Option<(&str, &str)>,
     lifecycle: String,
 ) -> Result<Scope, &'static str> {
-    if plan.team_id.is_some() && tab.team_id.is_some() && plan.team_id != tab.team_id {
+    if plan.team_id.is_some() && tab.team_id != plan.team_id {
         return Err("recipient_scope_mismatch");
     }
     Ok(Scope {
