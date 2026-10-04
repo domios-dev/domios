@@ -5,11 +5,11 @@ import test from "node:test";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { sendTrackedChatMessage, type ChatSendStatus } from "./chatSendStatus";
 
-function acceptedStatus(): ChatSendStatus {
+function heldStatus(): ChatSendStatus {
   return {
     send_id: "send-1",
     tab_id: "tab-1",
-    state: "accepted",
+    state: "held",
     error: null,
     ledger_id: "ledger-1",
     sequence: 1,
@@ -18,9 +18,9 @@ function acceptedStatus(): ChatSendStatus {
   };
 }
 
-test("accepted send enters the backend ledger once", async () => {
+test("held send enters the backend ledger once", async () => {
   const calls: Array<{ command: string; args: unknown }> = [];
-  const accepted = acceptedStatus();
+  const accepted = heldStatus();
   __setInvokeForTest(async <T>(command: string, args?: unknown) => {
     calls.push({ command, args });
     return accepted as T;

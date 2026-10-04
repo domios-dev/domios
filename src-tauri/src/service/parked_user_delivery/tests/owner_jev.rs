@@ -1,5 +1,7 @@
 use super::*;
 
+static SUPPORTER_OVERRIDE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[derive(Clone, Copy)]
 enum DeliveryModelAnswer {
     Ready,
@@ -164,7 +166,6 @@ fn restored_unbound_user_head(
     assert_eq!(authority.pty_session_generation, Some(generation));
 
     let adapter = "owner-delivery-fixture";
-    let model_id = "owner-delivery-model";
     let model = Arc::new(DeliveryDecisionModel {
         answers,
         calls: AtomicUsize::new(0),
@@ -181,7 +182,7 @@ fn restored_unbound_user_head(
         connections: BTreeMap::from([(
             adapter.into(),
             SupporterConnection {
-                model: Some(model_id.into()),
+                model: None,
                 endpoint: None,
             },
         )]),
@@ -199,8 +200,12 @@ fn restored_unbound_user_head(
     ignore = "requires the shared interactive desktop ServiceContext fixture"
 )]
 fn restored_owner_needs_two_adapter_verdicts_for_one_pty_generation_before_one_write() {
+    let _serial = SUPPORTER_OVERRIDE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let (fixture, tab, model, runtime, _config_guard) =
         restored_unbound_user_head(vec![DeliveryModelAnswer::Ready, DeliveryModelAnswer::Ready]);
+    let send_id = fixture.service.pending_delivery_payloads.user_sends.head(&tab).unwrap().unwrap().send_id;
     let writes = Arc::new(AtomicUsize::new(0));
     let count = writes.clone();
     let _submit = UserSubmitBoundary::install(
@@ -213,24 +218,17 @@ fn restored_owner_needs_two_adapter_verdicts_for_one_pty_generation_before_one_w
 
     fixture.service.drain_user_owner(&tab).unwrap();
 
-    assert_eq!(model.calls.load(Ordering::SeqCst), 2);
-    assert_eq!(writes.load(Ordering::SeqCst), 1);
-    let head = fixture
-        .service
-        .pending_delivery_payloads
-        .user_sends
-        .head(&tab)
-        .unwrap()
-        .unwrap();
-    assert_eq!(head.state, UserSendState::Uncertain);
-    assert!(head.cycle_settled);
-    assert!(head.authority.pty_session_generation.is_some());
+    assert_eq!(model.calls.load(Ordering::SeqCst), 2, "head={:?} status={:?}",
+        fixture.service.pending_delivery_payloads.user_sends.head(&tab),
+        fixture.service.chat_send_ledger.status(&send_id));
+    assert_eq!(writes.load(Ordering::SeqCst), 1, "status={:?}", fixture.service.chat_send_ledger.status(&send_id));
+    assert!(fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap().is_empty());
+    assert_eq!(fixture.service.chat_send_ledger.status(&send_id).unwrap().state, crate::service::chat_send_transaction::ChatSendState::Unknown);
     let evidence = runtime.feed(100, None).unwrap();
     let readiness = evidence
         .iter()
         .filter(|entry| {
             entry["kind"] == "tab_state"
-                && entry["action"] == "classification"
                 && entry["correlation"]["decision_point"] == "user_delivery_readiness"
         })
         .collect::<Vec<_>>();
@@ -246,6 +244,9 @@ fn restored_owner_needs_two_adapter_verdicts_for_one_pty_generation_before_one_w
     ignore = "requires the shared interactive desktop ServiceContext fixture"
 )]
 fn restored_owner_with_only_one_adapter_verdict_stays_pending_without_a_write() {
+    let _serial = SUPPORTER_OVERRIDE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let (fixture, tab, model, _, _config_guard) = restored_unbound_user_head(vec![
         DeliveryModelAnswer::Ready,
         DeliveryModelAnswer::Unavailable,
@@ -289,6 +290,9 @@ fn restored_owner_with_only_one_adapter_verdict_stays_pending_without_a_write() 
     ignore = "requires the shared interactive desktop ServiceContext fixture"
 )]
 fn restored_owner_low_confidence_verdict_stays_pending_without_a_write() {
+    let _serial = SUPPORTER_OVERRIDE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let (fixture, tab, model, _, _config_guard) =
         restored_unbound_user_head(vec![DeliveryModelAnswer::LowConfidence]);
     let writes = Arc::new(AtomicUsize::new(0));
@@ -330,6 +334,9 @@ fn restored_owner_low_confidence_verdict_stays_pending_without_a_write() {
     ignore = "requires the shared interactive desktop ServiceContext fixture"
 )]
 fn restored_owner_visible_modal_verdict_stays_pending_without_a_write() {
+    let _serial = SUPPORTER_OVERRIDE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let (fixture, tab, model, _, _config_guard) =
         restored_unbound_user_head(vec![DeliveryModelAnswer::Modal]);
     let writes = Arc::new(AtomicUsize::new(0));
@@ -371,6 +378,9 @@ fn restored_owner_visible_modal_verdict_stays_pending_without_a_write() {
     ignore = "requires the shared interactive desktop ServiceContext fixture"
 )]
 fn restored_owner_rechecks_pty_generation_immediately_before_the_single_write() {
+    let _serial = SUPPORTER_OVERRIDE_TEST_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let (fixture, tab, model, _, _config_guard) =
         restored_unbound_user_head(vec![DeliveryModelAnswer::Ready, DeliveryModelAnswer::Ready]);
     let pty_id = fixture
