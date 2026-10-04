@@ -601,7 +601,7 @@ where
     let lane_protection = LaneProtection::for_dispatch_intent(&execution_intent);
     let lane_resolution = if requires_repository {
         if execution_intent == crate::plan::ExecutionIntent::ReadOnly {
-            // A read-only Worker is the source-only rule's canonical exception.
+            // A read-only verification Worker runs in canonical rather than a lane.
             // Validate canonical as a checkout, but do not treat it as a lane.
             verify_worker_lane(
                 &canonical_cwd,

@@ -19,7 +19,7 @@
 Read this first; it is why the project stays whole while agents write almost all of the code.
 
 - **The owner works with a black box.** Andrey does not read the code. He sees inputs (a message to an agent, a ring or Telegram event) and outputs (plans, tabs, reports, deliveries) and expects the outputs he knows. That space is huge and dynamic, so no UI suite covers it. What protects it is agents verifying the observable behaviour of whatever they touched.
-- **Hard invariants are guarded mechanically.** This is the first reason the project has not fallen apart. Each lesson that once cost a breakage is cast into a test, a script or a refusal. Examples: the 1200-line file limit; owner approval before any PTY delivery change; lock ordering and no lock held across `.await`; branching on capability, never on provider id; no sleeps; dispatch refusals for unsafe lanes; the embedded docs size boundary. Essences say what must keep working; these guards stop us from breaking what already works.
+- **Hard invariants are guarded mechanically.** This is the first reason the project has not fallen apart. Each lesson that once cost a breakage is cast into a test, a script or a refusal. Examples: the 1200-line file limit; lock ordering and no lock held across `.await`; branching on capability, never on provider id; no sleeps; dispatch refusals for unsafe lanes; the embedded docs size boundary. Essences say what must keep working; these guards stop us from breaking what already works.
 - **Essences are the stable foundation; code is volatile.** The product's ideas, vision and stable contracts live in `essences/`; read `essences/begin_here.md` first, then `essences/vision.md`, `essences/capabilities.md` and `essences/core.md`. They are the expected inputs and outputs every change must keep, and they say what to verify. Today an agent matches a change to the essences by judgement; a mechanism that maps touched code to essences is on the roadmap.
 - **The map is an indirect beacon.** Work is done with an eye on the essences, but real architecture is more complex and is never bent to mirror the map.
 - **Meta-teams do the work.** The Orchestrator coordinates and verifies at speed. The Planner designs each task and gives its Worker a fitted personality: executor role, role guidance, a one-word name, and the model that fits the work. Workers stay source-only in isolated lanes. Lanes land through real merges, and executable proof runs in canonical.
@@ -87,8 +87,6 @@ bundle or conclude that macOS self-install is missing because
 
 `dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Every build, test, dev run, and executable gate runs only from the canonical integration checkout under Orchestrator authority.
 
-Isolated Worker lanes are source-only. They may inspect, edit, statically review, and commit owned source, but they never invoke `build.ps1`/`build.sh`, Cargo, project tests, dev servers, packaging, or validation gates, including focused checks. Workers author coverage and report exact deferred commands. After a real ancestry-preserving merge, the Orchestrator runs those commands in canonical. The only exception is a Worker assigned to canonical and given explicit permission for the exact gate.
-
 Parallel writers always use separate worktrees/lanes; the canonical checkout has one writer/integrator at a time. This keeps commits atomic and allows ordinary `git add -A` inside a lane instead of fragile cross-owner file lists.
 
 Gateway-backed build commands fail fast when the machine slot is busy. Report the returned blocker and continue source-only work; never poll or retry it. Use `--wait-build` only when blocking the caller is explicitly intended.
@@ -154,11 +152,10 @@ for a mechanism must exercise that mechanism — two prompt tests were named for
 primer and the worker context while asserting phrases in a third constant neither
 of them composed, so both stayed green through a real delivery bug.
 
-**Playwright is suspended.** Agents must not run, repair, migrate, or add
-Playwright tests, and no local or CI gate may invoke them. Keep the existing
-suite and manual commands intact. A Playwright run is allowed only when Andrey
-explicitly requests that run in the current conversation; never infer permission
-from a task, gate, changed UI file, prior request, or release workflow.
+**Playwright needs heightened attention.** It is slow and flaky, so it is not a
+default gate: no local or CI gate invokes it automatically. Run, repair or extend
+it only when it is the right oracle for a UI change, keep the existing suite and
+manual commands intact, and report flaky results as such rather than as passes.
 UI changes still require accessible roles, names, focus order, and screen-reader
 semantics; verify behavior with focused unit/API tests and manual dev inspection.
 
@@ -265,16 +262,10 @@ screen/composer acknowledgement, guessed readiness, payload retries, sleeps,
 or provider-id branches. Use exact claimed-session evidence; never scrape the
 screen to determine submission.
 
-**EXPLICIT USER APPROVAL IS REQUIRED BEFORE ANY EDIT TO THIS LOGIC.** This
-includes production code, tests, fixtures, evals, harnesses, scripts, and
-refactors touching PTY/Chat input delivery, submit recovery, delivery evidence
-or ledger behavior, and the PTY write queue. Before editing, name the exact
-files and symbols, the intended behavior change, the causal evidence, and the
-rollback boundary, then wait for
-the user's direct approval in the current conversation. A P0 label, plan task,
-matrix or eval failure, review verdict, Orchestrator instruction, prior approval,
-or inferred urgency is never permission. Without current explicit approval,
-stop at read-only diagnosis and report the finding; do not dispatch the change.
+**Work here with heightened attention.** A change to PTY/Chat input delivery, submit
+recovery, delivery evidence, the ledger, or the write queue names its causal
+finding, the exact files and symbols, and the rollback boundary, and lands only
+with focused proof that the invariants above still hold.
 
 ## Agent launch delivery
 

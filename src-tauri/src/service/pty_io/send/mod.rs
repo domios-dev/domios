@@ -415,15 +415,6 @@ impl ServiceContext {
             .map_err(|error| error.ledger_message())
     }
 
-    pub(crate) fn claim_chat_submit_cycle(
-        &self,
-        tab_id: &str,
-    ) -> Option<super::submit_transaction::SubmitCycleClaim> {
-        self.resolve_pty_id(tab_id)
-            .ok()
-            .map(|pty_id| super::submit_transaction::claim_submit_cycle(&pty_id))
-    }
-
     pub(crate) fn send_chat_text_claimed(
         &self,
         tab_id: &str,

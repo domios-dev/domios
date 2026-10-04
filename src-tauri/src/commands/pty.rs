@@ -380,7 +380,6 @@ pub async fn read_pty(
 /// ServiceContext.
 pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>, String> {
     let state = &svc.pty;
-    let output_buf = &svc.output_buf;
     let mux = &svc.mux;
     let tracker = &svc.agent_tracker;
     let app = &svc.app_handle;
@@ -533,40 +532,14 @@ pub async fn read_pty_core(svc: &ServiceState, pty_id: String) -> Result<Vec<u8>
                     crate::agent::status::TabStatus::Dead,
                 );
 
-                // Cron fallback marks failed if agent dies without cron completion.
                 use tauri::Manager;
                 if let Some(cron_state) = app.try_state::<crate::CronState>() {
-                    let owner = cron_state.lock().get_tab_owner(pid).cloned();
-                    if let Some((job_id, run_id)) = owner {
-                        let mut fresh_transition = false;
-                        {
-                            let mut store = cron_state.lock();
-                            // Only save if no log exists yet (don't overwrite clean summary)
-                            if store.read_log(&job_id, &run_id).is_none() {
-                                let text = output_buf.lock().get_text(&pty_id).unwrap_or_default();
-                                let clean = crate::pty::ansi::clean_terminal_output(&text);
-                                let _ = store.save_log(&job_id, &run_id, &clean);
-                                fresh_transition = store
-                                    .update_run_status(
-                                        &job_id,
-                                        &run_id,
-                                        crate::cron::store::CronRunStatus::Failed,
-                                    )
-                                    .unwrap_or(false);
-                            }
-                            store.unregister_tab(pid);
-                        }
-                        // Notify after the store guard drops — it re-locks internally.
-                        if fresh_transition {
-                            crate::cron::notify::notify_on_consecutive_failure(
-                                svc,
-                                &cron_state,
-                                &job_id,
-                            );
-                        }
-                        log::info!("Cron Tab exited: job={}, run={}", job_id, run_id);
-                        crate::api::events::emit_everywhere(&app, "cron-run-finished", ());
-                    }
+                    crate::cron::pty_death_fallback::fail_run_on_pty_death(
+                        svc,
+                        &cron_state,
+                        pid,
+                        &pty_id,
+                    );
                 }
             }
             Err(e)

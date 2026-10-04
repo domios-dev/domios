@@ -938,7 +938,7 @@ mod consumers {
             let job = store.create(params("protected")).unwrap();
             store.record_run(&job.id, running("r1")).unwrap();
             store.save_log(&job.id, "r1", "kept log").unwrap();
-            store.get_mut(&job.id).unwrap().protected = true;
+            store.set_protected(&job.id, true).unwrap();
             job.id
         };
         assert!(fixture.service.cron_delete(&cron, &wake, &id).is_err());

@@ -5,6 +5,7 @@ mod tests {
 
     use crate::cron::store::CronStore;
     use crate::mem::dreaming::{ensure_dreaming_cron, DREAMING_CRON_NAME};
+    use crate::mem::ports::{MemCronJob, MemSchedulerPort};
     use crate::mem_host::CronSchedulerPort;
 
     fn test_mem_cfg() -> MemoryConfig {
@@ -18,6 +19,10 @@ mod tests {
             "claude",
             &crate::service::spawn::CatalogBackgroundModelPort,
         )
+    }
+
+    fn arrange(store: &mut CronStore, id: &str, mut edit: impl FnMut(&mut MemCronJob)) {
+        CronSchedulerPort(store).update_job(id, &mut edit).unwrap();
     }
 
     #[test]
@@ -67,9 +72,9 @@ mod tests {
             .unwrap()
             .id
             .clone();
-        if let Some(j) = store.get_mut(&id) {
+        arrange(&mut store, &id, |j| {
             j.jitter_max_ms = Some(5_400_000);
-        }
+        });
         let _ = store.save();
 
         ensure_dreaming(&mut store).unwrap();
@@ -101,9 +106,9 @@ mod tests {
             .unwrap()
             .id
             .clone();
-        if let Some(j) = store.get_mut(&id) {
+        arrange(&mut store, &id, |j| {
             j.schedule = "0 3 * * *".into();
-        }
+        });
         let _ = store.save();
 
         ensure_dreaming(&mut store).unwrap();
@@ -139,11 +144,11 @@ mod tests {
             crate::cron::store::compute_next_run_jittered_in("0 3 * * *", Some(5_400_000), None)
                 .unwrap()
                 .unwrap();
-        if let Some(j) = store.get_mut(&id) {
+        arrange(&mut store, &id, |j| {
             j.schedule = "0 3 * * *".into();
             j.jitter_max_ms = Some(5_400_000);
             j.next_run = Some(stale_legacy_next);
-        }
+        });
         let _ = store.save();
 
         ensure_dreaming(&mut store).unwrap();
@@ -184,9 +189,9 @@ mod tests {
             .unwrap()
             .id
             .clone();
-        if let Some(j) = store.get_mut(&id) {
+        arrange(&mut store, &id, |j| {
             j.schedule = "30 12 * * *".into();
-        }
+        });
         let _ = store.save();
 
         ensure_dreaming(&mut store).unwrap();
@@ -238,9 +243,9 @@ mod tests {
             .unwrap()
             .id
             .clone();
-        if let Some(j) = store.get_mut(&id) {
+        arrange(&mut store, &id, |j| {
             j.task = "codeterm mem dream && codeterm agent report \"dreaming complete\"\n".into();
-        }
+        });
         let _ = store.save();
 
         let created = ensure_dreaming(&mut store).unwrap();

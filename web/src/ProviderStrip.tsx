@@ -76,6 +76,5 @@ export function ProviderStrip() {
         {!reducedMotion && <div className="provider-cycle provider-copy" aria-hidden="true" inert>{providers.map((provider) => <div className="provider-entry" key={provider.name}><ProviderEntry provider={provider} theme={theme} /></div>)}</div>}
       </div>
     </div>
-    <p className="provider-plugin-note"><span>Build your agent’s plugin with Domios.</span> Ask your agent to write it, publish it from your repository, and share it.</p>
   </section>;
 }

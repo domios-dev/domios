@@ -400,6 +400,15 @@ fn append_turn(fixture: &ServiceFixture, text: &str) {
     writeln!(file, "{}", serde_json::json!({ "content": text })).unwrap();
 }
 
+fn owner_state(fixture: &ServiceFixture, tab: &str) -> String {
+    let store = &fixture.service.pending_delivery_payloads.user_sends;
+    let owner = store.tab(tab);
+    let records = store.records(tab)
+        .map(|records| records.iter().map(|record| (record.state, record.cycle_settled)).collect::<Vec<_>>());
+    format!("failed={} revoked={} running={} records={records:?}", owner.failed.load(Ordering::Acquire),
+        owner.revoked.load(Ordering::Acquire), owner.running.load(Ordering::Acquire))
+}
+
 fn settled_listener(fixture: &ServiceFixture, tab: &str) -> (tauri::EventId, mpsc::Receiver<serde_json::Value>) {
     let (tx, rx) = mpsc::channel();
     let tab = tab.to_string();
@@ -661,10 +670,12 @@ fn anchorless_equal_text_requires_two_distinct_live_turn_ids() {
     }));
     mark_ready(&fixture, &tab);
     fixture.service.wake_parked_user_send(&tab);
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), first.send_id);
+    let handoff = writes_rx.recv_timeout(TEST_DEADLINE).ok();
+    assert_eq!(handoff.as_ref(), Some(&first.send_id), "{}", owner_state(&fixture, &tab));
     assert_eq!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal")[0].send_id, first.send_id);
     release_tx.send(()).unwrap();
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), second.send_id);
+    let handoff = writes_rx.recv_timeout(TEST_DEADLINE).ok();
+    assert_eq!(handoff.as_ref(), Some(&second.send_id), "{}", owner_state(&fixture, &tab));
     assert!(fixture.service.chat_send_anchor(&tab).anchor.is_none());
     assert!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal").is_empty());
     assert!(!fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
