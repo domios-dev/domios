@@ -49,18 +49,19 @@ fn reversed_preparation_retains_original_bytes_and_reserved_order_after_reopen()
 }
 
 #[test]
-fn equal_text_has_distinct_identity_and_single_durable_claim() {
+fn equal_text_has_distinct_identity_and_later_send_does_not_wait_for_evidence() {
     let dir = tempfile::tempdir().unwrap();
     let store = UserSendStore::open(dir.path()).unwrap();
     let first = admit(&store, 1, "opaque-equal");
     let second = admit(&store, 2, "opaque-equal");
     assert_ne!(first.send_id, second.send_id);
-    assert!(!store.claim(&second, "opaque-session").unwrap());
+    assert!(store.claim(&second, "opaque-session").unwrap());
+    store.finish_handoff(&second, false).unwrap();
     assert!(!store.claim(&first, "other-session").unwrap());
     assert!(store.claim(&first, "opaque-session").unwrap());
     assert!(!store.claim(&first, "opaque-session").unwrap());
     assert!(!store.complete(&first).unwrap());
-    store.settle_cycle(&first, false).unwrap();
+    store.finish_handoff(&first, false).unwrap();
     assert_eq!(store.head("opaque-tab").unwrap().unwrap().state, UserSendState::Uncertain);
     assert!(!store.claim(&first, "opaque-session").unwrap());
     assert_eq!(store.original("opaque-tab", &second.send_id).unwrap(), "opaque-equal");
@@ -80,22 +81,25 @@ fn crash_in_claim_gap_and_revoked_owner_never_replay_or_remove_tail() {
     assert!(!reopened.complete(&head).unwrap());
     assert_eq!(reopened.original("opaque-tab", &first.send_id).unwrap(), "opaque-first");
     assert_eq!(reopened.original("opaque-tab", &second.send_id).unwrap(), "opaque-second");
+    assert!(store.claim(&second, "opaque-session").unwrap());
+    store.finish_handoff(&second, false).unwrap();
     store.tab("opaque-tab").revoked.store(true, Ordering::Release);
-    store.settle_cycle(&first, false).unwrap();
+    store.finish_handoff(&first, false).unwrap();
     assert!(!store.complete(&first).unwrap());
     assert!(store.reserve(authority(), None, || (uuid::Uuid::new_v4().to_string(), 3)).is_err());
 }
 
 #[test]
-fn proven_zero_write_returns_only_head_to_queued() {
+fn proven_zero_write_returns_send_to_queued_without_settlement_state() {
     let dir = tempfile::tempdir().unwrap();
     let store = UserSendStore::open(dir.path()).unwrap();
     let first = admit(&store, 1, "opaque-first");
     let second = admit(&store, 2, "opaque-second");
     assert!(store.claim(&first, "opaque-session").unwrap());
-    store.settle_cycle(&first, true).unwrap();
+    store.finish_handoff(&first, true).unwrap();
     assert_eq!(store.head("opaque-tab").unwrap().unwrap().state, UserSendState::Queued);
-    assert!(!store.claim(&second, "opaque-session").unwrap());
+    assert!(store.claim(&second, "opaque-session").unwrap());
+    store.finish_handoff(&second, false).unwrap();
     assert!(store.claim(&first, "opaque-session").unwrap());
 }
 
@@ -161,7 +165,7 @@ fn pointer_body_outlives_old_pad_submission_settlement_and_reopen() {
     assert_eq!(fs::read(&owned).unwrap(), bytes);
     assert!(store.prepared(&record).unwrap().ends_with(&codeterm_paths::strip_verbatim_prefix(owned.to_str().unwrap())));
     assert!(store.claim(&record, "opaque-session").unwrap());
-    store.settle_cycle(&record, false).unwrap();
+    store.finish_handoff(&record, false).unwrap();
     assert!(store.complete(&record).unwrap());
     store.tab("opaque-tab").revoked.store(true, Ordering::Release);
     let reopened = UserSendStore::open(&data_dir).unwrap();
@@ -180,7 +184,7 @@ fn actual_body_bytes_and_retained_leases_count_toward_capacity() {
     let returned = dir.path().join("opaque.md");
     let record = body_admission(&store, 1, &returned, vec![b'x'; MAX_PREPARED_BYTES - 2048]).unwrap();
     assert!(store.claim(&record, "opaque-session").unwrap());
-    store.settle_cycle(&record, false).unwrap();
+    store.finish_handoff(&record, false).unwrap();
     assert!(store.complete(&record).unwrap());
     assert!(body_admission(&store, 2, &returned, vec![b'y'; 2048]).is_err());
     assert_eq!(store.records("opaque-tab").unwrap().len(), 1);
@@ -266,7 +270,7 @@ fn body_owner_count_remains_bounded_after_confirmed_pointer_submissions() {
     for sequence in 1..=MAX_BODY_LEASES as u64 {
         let record = body_admission(&store, sequence, &returned, b"opaque-body".to_vec()).unwrap();
         assert!(store.claim(&record, "opaque-session").unwrap());
-        store.settle_cycle(&record, false).unwrap();
+        store.finish_handoff(&record, false).unwrap();
         assert!(store.complete(&record).unwrap());
         retained.push(record);
     }

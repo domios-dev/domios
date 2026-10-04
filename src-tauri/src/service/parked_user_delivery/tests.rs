@@ -99,7 +99,7 @@ use crate::service::delivery_error::{DeliveryError, SendOrigin};
 use crate::service::pending_delivery_payloads::user_sends::UserSendStore;
 use crate::service::test_fixture::ServiceFixture;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tauri::{Listener, Manager};
 
 const FIRST_PAYLOAD: &str = " \topaque-a-41c9\r\n\u{03bb}\t ";
@@ -151,13 +151,13 @@ fn refuse_and_park_current_send(
     let send_id = accepted.send_id.clone();
     let status = run_chat_send(&svc.chat_send_ledger, accepted, payload, |text| {
         let error = svc.send_chat_text_claimed(&tab_id, text, None).unwrap_err();
-        assert!(matches!(&error, DeliveryError::TabBusyRefused { detail, .. } if detail == REFUSAL));
+        assert!(matches!(&error, DeliveryError::TabBusyRefused { .. }), "error={error:?}");
         assert!(!error.bytes_written());
         assert!(svc.pty.lock().get_session("opaque-pty").is_none());
         svc.park_refused_user_send(&tab_id, &send_id, text, &error);
         error.into_surfaced(SendOrigin::User)
     });
-    assert_eq!(status.state, ChatSendState::Unknown);
+    assert_eq!(status.state, ChatSendState::Pending);
     assert_eq!(status.error, None);
 }
 
@@ -191,25 +191,26 @@ fn start_current_chat_send(
     payload: &str,
     client_token: &str,
 ) -> ChatSendStatus {
-    let (tx, rx) = mpsc::sync_channel(1);
+    let (tx, rx) = mpsc::channel();
     let expected_tab = tab_id.to_string();
     let listener = fixture._app.listen("chat-send-status", move |event| {
         let value: serde_json::Value = serde_json::from_str(event.payload()).unwrap();
         if value["tab_id"] == expected_tab {
-            let _ = tx.try_send(value);
+            let _ = tx.send(value);
         }
     });
     let accepted = fixture
         .service
         .start_chat_send(tab_id, payload.into(), None, Some(client_token.into()))
         .unwrap();
-    let published = rx.recv_timeout(TEST_DEADLINE);
+    let published = receive_send_status(&rx, &accepted.send_id);
     fixture._app.unlisten(listener);
     let published = published.expect("the current service completed admission and parking");
     assert_eq!(published["send_id"], accepted.send_id);
-    assert!(matches!(published["state"].as_str(), Some("accepted" | "unknown")));
+    assert!(matches!(published["state"].as_str(), Some("held" | "submit_unconfirmed")));
     assert!(published["error"].is_null());
     assert_eq!(accepted.correlation_id.as_deref(), Some(client_token));
+    await_owner_idle(fixture, tab_id);
     assert!(fixture.service.pty.lock().get_session("opaque-pty").is_none());
     assert_eq!(fixture.service.mux.read().get_tab(tab_id).unwrap().boot_stage,
         Some(codeterm_types::pty::BootStage::SpawnFailed));
@@ -275,6 +276,39 @@ impl Drop for UserSubmitBoundary {
 
 pub(super) fn submit_boundary(tab_id: &str) -> Option<SubmitBoundary> {
     SUBMIT_BOUNDARIES.get_or_init(Default::default).lock().get(tab_id).cloned()
+}
+
+fn receive_send_status(
+    receiver: &mpsc::Receiver<serde_json::Value>,
+    send_id: &str,
+) -> Result<serde_json::Value, mpsc::RecvTimeoutError> {
+    let deadline = Instant::now() + TEST_DEADLINE;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(mpsc::RecvTimeoutError::Timeout);
+        }
+        let status = receiver.recv_timeout(remaining)?;
+        if status["send_id"].as_str() == Some(send_id) {
+            return Ok(status);
+        }
+    }
+}
+
+fn receive_resolved_status(
+    receiver: &mpsc::Receiver<serde_json::Value>,
+) -> Result<serde_json::Value, mpsc::RecvTimeoutError> {
+    let deadline = Instant::now() + TEST_DEADLINE;
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return Err(mpsc::RecvTimeoutError::Timeout);
+        }
+        let status = receiver.recv_timeout(remaining)?;
+        if status["state"].as_str() != Some("held") {
+            return Ok(status);
+        }
+    }
 }
 
 type BeforeSubmit = Arc<dyn Fn() + Send + Sync>;
@@ -349,6 +383,7 @@ pub(super) fn notify_owner_idle(tab_id: &str) {
 struct QueueProvider {
     root: Option<std::path::PathBuf>,
     paste_limit: Option<usize>,
+    lazy_session_start: bool,
 }
 
 impl crate::agent::provider::AgentProvider for QueueProvider {
@@ -359,6 +394,7 @@ impl crate::agent::provider::AgentProvider for QueueProvider {
         crate::agent::provider::ReadinessStrategy::FixedDelay { duration: Duration::ZERO }
     }
     fn task_delivery(&self) -> crate::agent::provider::TaskDelivery { crate::agent::provider::TaskDelivery::PtyInput }
+    fn session_starts_on_first_user_turn(&self) -> bool { self.lazy_session_start }
     fn detect_from_title(&self, _: &str) -> bool { false }
     fn detect_from_output(&self, _: &str) -> bool { false }
     fn session_file_path(&self, _: &str, session: &str) -> Option<std::path::PathBuf> {
@@ -392,23 +428,35 @@ impl crate::agent::provider::AgentProvider for QueueProvider {
 }
 
 pub(crate) fn queue_fixture(anchor: bool, paste_limit: Option<usize>) -> (ServiceFixture, String) {
+    queue_fixture_with_session_mode(anchor, paste_limit, false)
+}
+
+fn queue_fixture_with_session_mode(
+    anchor: bool,
+    paste_limit: Option<usize>,
+    lazy_session_start: bool,
+) -> (ServiceFixture, String) {
     let (fixture, tab) = failed_launch_fixture();
     let root = fixture.temp.path().join("transcripts");
     std::fs::create_dir(&root).unwrap();
     if anchor { std::fs::write(root.join("opaque-session.jsonl"), b"").unwrap(); }
     fixture.service.agent_registry.register_provider(Box::new(QueueProvider {
-        root: Some(root), paste_limit,
+        root: Some(root), paste_limit, lazy_session_start,
     }));
     (fixture, tab)
 }
 
 pub(crate) fn mark_ready(fixture: &ServiceFixture, tab_id: &str) {
     attach_fixture_pty(fixture, tab_id);
-    let mut mux = fixture.service.mux.write();
-    let tab = mux.get_tab_mut(tab_id).unwrap();
-    tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
-    tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
-    tab.boot_failure_reason = None;
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(tab_id).unwrap();
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+        tab.boot_failure_reason = None;
+    }
+    let authority = fixture.service.user_send_authority(tab_id).unwrap();
+    assert!(fixture.service.latch_user_authority_ready(&authority));
 }
 
 pub(crate) fn live_turn(fixture: &ServiceFixture, tab: &str, session: &str, nonce: &str, id: &str, text: &str) -> Vec<ChatSendStatus> {
@@ -429,22 +477,44 @@ fn owner_state(fixture: &ServiceFixture, tab: &str) -> String {
     let store = &fixture.service.pending_delivery_payloads.user_sends;
     let owner = store.tab(tab);
     let records = store.records(tab)
-        .map(|records| records.iter().map(|record| (record.state, record.cycle_settled)).collect::<Vec<_>>());
+        .map(|records| records.iter().map(|record| record.state).collect::<Vec<_>>());
     format!("failed={} revoked={} running={} records={records:?}", owner.failed.load(Ordering::Acquire),
         owner.revoked.load(Ordering::Acquire), owner.running.load(Ordering::Acquire))
 }
 
-fn settled_listener(fixture: &ServiceFixture, tab: &str) -> (tauri::EventId, mpsc::Receiver<serde_json::Value>) {
+fn settled_listener(
+    fixture: &ServiceFixture,
+    tab: &str,
+    send_id: &str,
+) -> (tauri::EventId, mpsc::Receiver<serde_json::Value>) {
     let (tx, rx) = mpsc::channel();
     let tab = tab.to_string();
+    let send_id = send_id.to_string();
     let listener = fixture._app.listen("chat-send-status", move |event| {
         let value: serde_json::Value = serde_json::from_str(event.payload()).unwrap();
-        if value["tab_id"] == tab && value["state"] != "accepted" { let _ = tx.send(value); }
+        if value["tab_id"] == tab && value["send_id"] == send_id
+            && value["state"].as_str() != Some("written") {
+            let _ = tx.send(value);
+        }
     });
     (listener, rx)
 }
 
-fn attach_fixture_pty(fixture: &ServiceFixture, tab_id: &str) -> u64 {
+fn await_owner_idle(fixture: &ServiceFixture, tab_id: &str) {
+    let owner = fixture.service.pending_delivery_payloads.user_sends.tab(tab_id);
+    let (idle_tx, idle_rx) = mpsc::sync_channel(1);
+    let callback_tx = idle_tx.clone();
+    let _boundary = OwnerIdleBoundary::install(tab_id, Arc::new(move || {
+        let _ = callback_tx.try_send(());
+    }));
+    fixture.service.wake_user_owner(tab_id, super::UserWake::Housekeeping);
+    loop {
+        idle_rx.recv_timeout(TEST_DEADLINE).expect("user owner reaches its idle boundary");
+        if !owner.running.load(Ordering::Acquire) { return; }
+    }
+}
+
+pub(crate) fn attach_fixture_pty(fixture: &ServiceFixture, tab_id: &str) -> u64 {
     let pty_id = fixture.service.mux.read().get_tab(tab_id).unwrap().pty_id.clone().unwrap();
     if let Some(session) = fixture.service.pty.lock().get_session(&pty_id) {
         return session.generation;
@@ -483,7 +553,7 @@ fn restored_head_waits_with_reason_then_writes_once_after_current_nonce_binding(
 
     fixture.service.drain_user_owner(&tab).unwrap();
     let pending = fixture.service.chat_send_ledger.status(&accepted.send_id).unwrap();
-    assert_eq!(pending.state, ChatSendState::Unknown);
+    assert_eq!(pending.state, ChatSendState::Pending);
     assert!(pending.pending_reason.is_some());
     assert_eq!(writes.load(Ordering::SeqCst), 0);
 
@@ -495,97 +565,176 @@ fn restored_head_waits_with_reason_then_writes_once_after_current_nonce_binding(
     let settled = fixture.service.chat_send_ledger.status(&accepted.send_id).unwrap();
     assert_eq!(settled.state, ChatSendState::Unknown);
     assert_eq!(settled.pending_reason, None);
-    let record = fixture.service.pending_delivery_payloads.user_sends.head(&tab).unwrap().unwrap();
-    assert_eq!(record.state, UserSendState::Uncertain);
-    assert!(record.cycle_settled);
+    assert!(fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap().is_empty());
 }
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
-fn ordered_owner_joins_exact_append_evidence_and_cycle_settlement_before_tail() {
+fn pre_ready_user_sends_are_held_then_flushed_in_admission_order() {
     let (fixture, tab) = queue_fixture(true, None);
-    append_turn(&fixture, "opaque-equal");
-    let first = start_current_chat_send(&fixture, &tab, "opaque-equal", "client-a");
-    let second = start_current_chat_send(&fixture, &tab, "opaque-equal", "client-b");
+    let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
+    let second = start_current_chat_send(&fixture, &tab, SECOND_PAYLOAD, "client-b");
     let (writes_tx, writes_rx) = mpsc::channel();
-    let (release_tx, release_rx) = mpsc::channel();
-    let release_rx = Arc::new(Mutex::new(release_rx));
-    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |record, text| {
-        writes_tx.send((record.send_id.clone(), text.to_string())).unwrap();
-        release_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
+    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |record, _| {
+        writes_tx.send(record.send_id.clone()).unwrap();
         Ok(())
     }));
+
+    fixture.service.drain_user_owner(&tab).unwrap();
+    await_owner_idle(&fixture, &tab);
+    assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    for accepted in [&first, &second] {
+        let status = fixture.service.chat_send_ledger.status(&accepted.send_id).unwrap();
+        assert_eq!(status.state, ChatSendState::Pending);
+        assert!(status.pending_reason.is_some(), "status={status:?} owner={}", owner_state(&fixture, &tab));
+    }
+
     mark_ready(&fixture, &tab);
     fixture.service.wake_parked_user_send(&tab);
-    fixture.service.wake_parked_user_send(&tab);
+    await_owner_idle(&fixture, &tab);
+    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), first.send_id);
+    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), second.send_id);
+    assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    assert_eq!(fixture.service.chat_send_ledger.status(&first.send_id).unwrap().state, ChatSendState::Unknown);
+    assert_eq!(fixture.service.chat_send_ledger.status(&second.send_id).unwrap().state, ChatSendState::Unknown);
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
+fn agent_ready_snapshot_without_its_transition_does_not_release_user_sends() {
+    let (fixture, tab) = queue_fixture(true, None);
+    attach_fixture_pty(&fixture, &tab);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab).unwrap();
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+        tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+    }
+    let authority = fixture.service.user_send_authority(&tab).unwrap();
+
+    assert!(!fixture.service.user_authority_is_ready(&authority));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
+fn agent_ready_transition_latches_the_current_pty_generation() {
+    let (fixture, tab) = queue_fixture(true, None);
+    attach_fixture_pty(&fixture, &tab);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab).unwrap();
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+    }
+    let authority = fixture.service.user_send_authority(&tab).unwrap();
+
+    fixture.service.emit_boot_stage(&tab, codeterm_types::pty::BootStage::AgentReady, None);
+
+    assert!(fixture.service.user_authority_is_ready(&authority));
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
+fn readiness_latches_for_the_current_pty_generation() {
+    let (fixture, tab) = queue_fixture(true, None);
+    mark_ready(&fixture, &tab);
+    let authority = fixture.service.user_send_authority(&tab).unwrap();
+    fixture.service.emit_boot_stage(&tab, codeterm_types::pty::BootStage::AgentReady, None);
+    let mut rotated = authority.clone();
+    rotated.pty_session_generation = authority.pty_session_generation.map(|generation| generation.wrapping_add(1));
+    assert!(!fixture.service.pending_delivery_payloads.user_sends.ready_launch_is_latched(&rotated));
+    fixture.service.mux.write().get_tab_mut(&tab).unwrap().boot_stage =
+        Some(codeterm_types::pty::BootStage::SpawnFailed);
+    assert!(fixture.service.user_authority_is_ready(&authority));
+
+    let (writes_tx, writes_rx) = mpsc::channel();
+    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |record, _| {
+        writes_tx.send(record.send_id.clone()).unwrap();
+        Ok(())
+    }));
+    let reservation = fixture.service.reserve_user_send(&tab, Some("client-b".into())).unwrap();
+    let send_id = reservation.send_id.clone();
+    let (listener, settled) = settled_listener(&fixture, &tab, &send_id);
+    let accepted = fixture.service.prepare_and_admit_user_send(reservation, SECOND_PAYLOAD.into(), false).unwrap().status;
+    let write_id = writes_rx.recv_timeout(TEST_DEADLINE).unwrap();
+    assert_eq!(write_id, accepted.send_id);
+    assert_eq!(receive_resolved_status(&settled).unwrap()["state"], "submit_unconfirmed");
+    fixture._app.unlisten(listener);
+    assert_eq!(fixture.service.chat_send_ledger.status(&accepted.send_id).unwrap().state, ChatSendState::Unknown);
+    assert!(fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap().is_empty());
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
+fn ready_busy_owner_writes_each_send_without_waiting_for_prior_turn_evidence() {
+    let (fixture, tab) = queue_fixture(true, None);
+    append_turn(&fixture, "opaque-equal");
+    mark_ready(&fixture, &tab);
+    fixture.service.agent_tracker.lock().set_working("opaque-pty");
+    let (writes_tx, writes_rx) = mpsc::channel();
+    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |record, text| {
+        writes_tx.send((record.send_id.clone(), text.to_string())).unwrap();
+        Ok(())
+    }));
+
+    let first = fixture.service.start_chat_send(&tab, "opaque-equal".into(), None, Some("client-a".into())).unwrap();
+    let second = fixture.service.start_chat_send(&tab, "opaque-equal".into(), None, Some("client-b".into())).unwrap();
+    await_owner_idle(&fixture, &tab);
     assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), (first.send_id.clone(), "opaque-equal".into()));
+    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), (second.send_id.clone(), "opaque-equal".into()));
+    assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    assert!(!fixture.service.chat_send_ledger.user_confirmed(&first.send_id));
+    assert!(!fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
     assert!(live_turn(&fixture, &tab, "other-session", "opaque-current-nonce", "wrong-session", "opaque-equal").is_empty());
     assert!(live_turn(&fixture, &tab, "opaque-session", "old-nonce", "wrong-nonce", "opaque-equal").is_empty());
     fixture.service.reconcile_chat_send_evidence(&tab);
     assert!(!fixture.service.chat_send_ledger.user_confirmed(&first.send_id));
-    assert!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "historical-turn", "opaque-equal").is_empty());
     append_turn(&fixture, "opaque-equal");
-    fixture.service.reconcile_chat_send_evidence(&tab);
-    assert!(fixture.service.chat_send_ledger.user_confirmed(&first.send_id));
-    let records = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
-    assert_eq!(records[0].state, UserSendState::Claimed);
-    assert!(!records[0].cycle_settled);
-    assert_eq!(records[1].state, UserSendState::Queued);
-    assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
-    release_tx.send(()).unwrap();
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), (second.send_id.clone(), "opaque-equal".into()));
-    fixture.service.reconcile_chat_send_evidence(&tab);
-    assert!(!fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
-    append_turn(&fixture, "opaque-equal");
-    fixture.service.reconcile_chat_send_evidence(&tab);
+    assert_eq!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal")[0].send_id, first.send_id);
+    assert_eq!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-b", "opaque-equal")[0].send_id, second.send_id);
     assert!(fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
-    let (listener, settled) = settled_listener(&fixture, &tab);
-    release_tx.send(()).unwrap();
-    assert_eq!(settled.recv_timeout(TEST_DEADLINE).unwrap()["send_id"], second.send_id);
-    fixture._app.unlisten(listener);
+    assert_eq!(fixture.service.chat_send_ledger.status(&first.send_id).unwrap().state, ChatSendState::Sent);
+    assert_eq!(fixture.service.chat_send_ledger.status(&second.send_id).unwrap().state, ChatSendState::Sent);
 }
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
-fn anchorless_first_send_materializes_history_and_live_turn_waits_for_cycle_settlement() {
-    let (fixture, tab) = queue_fixture(false, None);
-    let first = start_current_chat_send(&fixture, &tab, "opaque-equal", "client-a");
-    let second = start_current_chat_send(&fixture, &tab, "opaque-equal", "client-b");
+fn lazy_session_start_writes_first_send_without_a_session_id_then_classifies_exact_turn() {
+    let (fixture, tab) = queue_fixture_with_session_mode(false, None, true);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab).unwrap();
+        tab.agent_session_id = None;
+        tab.reported_session_binding_nonce = None;
+    }
+    let first = start_current_chat_send(&fixture, &tab, "opaque-lazy-first", "client-a");
     assert!(fixture.service.chat_send_anchor(&tab).anchor.is_none());
-    let (writes_tx, writes_rx) = mpsc::channel();
-    let (release_tx, release_rx) = mpsc::channel();
-    let release_rx = Arc::new(Mutex::new(release_rx));
-    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |record, _| {
-        writes_tx.send(record.send_id.clone()).unwrap();
-        release_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
+    let writes = Arc::new(AtomicUsize::new(0));
+    let count = writes.clone();
+    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |_record, _| {
+        count.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }));
     mark_ready(&fixture, &tab);
     fixture.service.wake_parked_user_send(&tab);
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), first.send_id);
-    append_turn(&fixture, "opaque-equal");
-    let confirmed = live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal");
-    assert_eq!(confirmed.len(), 1);
-    assert_eq!(confirmed[0].send_id, first.send_id);
-    assert!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal").is_empty());
-    assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
-    assert!(!fixture.service.pending_delivery_payloads.user_sends.head(&tab).unwrap().unwrap().cycle_settled);
-    release_tx.send(()).unwrap();
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), second.send_id);
-    assert!(!fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
-    assert!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal").is_empty());
-    assert!(!fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
-    append_turn(&fixture, "opaque-equal");
-    fixture.service.reconcile_chat_send_evidence(&tab);
-    let (listener, settled) = settled_listener(&fixture, &tab);
-    release_tx.send(()).unwrap();
-    assert_eq!(settled.recv_timeout(TEST_DEADLINE).unwrap()["send_id"], second.send_id);
-    fixture._app.unlisten(listener);
+    await_owner_idle(&fixture, &tab);
+    assert_eq!(writes.load(Ordering::SeqCst), 1, "status={:?} owner={}", fixture.service.chat_send_ledger.status(&first.send_id), owner_state(&fixture, &tab));
+    assert_eq!(fixture.service.chat_send_ledger.status(&first.send_id).unwrap().state, ChatSendState::Unknown);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab).unwrap();
+        tab.agent_session_id = Some("opaque-session".into());
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
+    }
+    let delivered = live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "lazy-turn-a", "opaque-lazy-first");
+    assert_eq!(delivered.len(), 1);
+    assert_eq!(delivered[0].send_id, first.send_id);
+    assert_eq!(fixture.service.chat_send_ledger.status(&first.send_id).unwrap().state, ChatSendState::Sent);
+    assert_eq!(writes.load(Ordering::SeqCst), 1);
 }
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
-fn postwrite_uncertainty_duplicate_wakes_and_rebind_preserve_tail_without_replay() {
+fn postwrite_uncertainty_does_not_block_later_send_and_rebind_never_replays() {
     let (fixture, tab) = queue_fixture(true, None);
     let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
     let second = start_current_chat_send(&fixture, &tab, SECOND_PAYLOAD, "client-b");
@@ -595,24 +744,25 @@ fn postwrite_uncertainty_duplicate_wakes_and_rebind_preserve_tail_without_replay
         count.fetch_add(1, Ordering::SeqCst);
         Err(DeliveryError::SubmitUnconfirmed { tab: "opaque-tab".into(), detail: "opaque-uncertainty".into() })
     }));
-    let (listener, settled) = settled_listener(&fixture, &tab);
+    let (listener, settled) = settled_listener(&fixture, &tab, &first.send_id);
     mark_ready(&fixture, &tab);
     fixture.service.wake_parked_user_send(&tab);
-    assert_eq!(settled.recv_timeout(TEST_DEADLINE).unwrap()["state"], "unknown");
+    assert_eq!(receive_resolved_status(&settled).unwrap()["state"], "submit_unconfirmed");
     fixture._app.unlisten(listener);
-    fixture.service.drain_user_owner(&tab).unwrap();
-    assert_eq!(writes.load(Ordering::SeqCst), 1);
+    await_owner_idle(&fixture, &tab);
+    assert_eq!(writes.load(Ordering::SeqCst), 2);
+    let delivered_first = live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", FIRST_PAYLOAD);
+    let delivered_second = live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-b", SECOND_PAYLOAD);
+    assert_eq!(delivered_first[0].send_id, first.send_id);
+    assert_eq!(delivered_second[0].send_id, second.send_id);
+    assert_eq!(fixture.service.chat_send_ledger.status(&first.send_id).unwrap().state, ChatSendState::Sent);
+    assert_eq!(fixture.service.chat_send_ledger.status(&second.send_id).unwrap().state, ChatSendState::Sent);
     fixture.service.mux.write().get_tab_mut(&tab).unwrap().pty_id = Some("other-pty".into());
     append_turn(&fixture, FIRST_PAYLOAD);
     fixture.service.reconcile_chat_send_evidence(&tab);
-    assert!(!fixture.service.chat_send_ledger.user_confirmed(&first.send_id));
     fixture.service.drain_user_owner(&tab).unwrap();
-    assert_eq!(writes.load(Ordering::SeqCst), 1);
-    let reopened = UserSendStore::open(fixture.temp.path()).unwrap();
-    let records = reopened.records(&tab).unwrap();
-    assert_eq!(records[0].state, UserSendState::Uncertain);
-    assert_eq!(records[1].send_id, second.send_id);
-    assert_reopened_originals(&fixture, &[first, second]);
+    assert_eq!(writes.load(Ordering::SeqCst), 2);
+    assert!(UserSendStore::open(fixture.temp.path()).unwrap().records(&tab).unwrap().is_empty());
 }
 
 #[test]
@@ -687,7 +837,7 @@ fn close_during_durable_claim_revokes_before_any_writer_handoff_and_preserves_bo
     held_rx.recv_timeout(TEST_DEADLINE).unwrap();
     fixture.service.prepare_tab_close(&tab, crate::multiplexer::types::TabCloseReason::User).unwrap();
     assert!(fixture.service.pending_delivery_payloads.user_sends.tab(&tab).revoked.load(Ordering::Acquire));
-    let (listener, settled) = settled_listener(&fixture, &tab);
+    let (listener, settled) = settled_listener(&fixture, &tab, &first.send_id);
     release_tx.send(()).unwrap();
     assert_eq!(settled.recv_timeout(TEST_DEADLINE).unwrap()["send_id"], first.send_id);
     fixture._app.unlisten(listener);
@@ -728,11 +878,15 @@ fn reversed_service_preparation_keeps_intake_order_before_first_handoff() {
     }));
     mark_ready(&fixture, &tab);
     let b = fixture.service.prepare_and_admit_user_send(second, SECOND_PAYLOAD.into(), false).unwrap();
-    fixture.service.drain_user_owner(&tab).unwrap();
+    await_owner_idle(&fixture, &tab);
     assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
     let a = fixture.service.prepare_and_admit_user_send(first, FIRST_PAYLOAD.into(), false).unwrap();
     assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), a.status.send_id);
-    assert_reopened_originals(&fixture, &[a.status, b.status]);
+    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), b.status.send_id);
+    await_owner_idle(&fixture, &tab);
+    assert!(fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap().is_empty());
+    assert_eq!(fixture.service.chat_send_ledger.status(&a.status.send_id).unwrap().state, ChatSendState::Unknown);
+    assert_eq!(fixture.service.chat_send_ledger.status(&b.status.send_id).unwrap().state, ChatSendState::Unknown);
 }
 
 #[test]
@@ -744,7 +898,9 @@ fn anchorless_equal_text_requires_two_distinct_live_turn_ids() {
     let (writes_tx, writes_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     let release_rx = Arc::new(Mutex::new(release_rx));
+    let write_ledger = fixture.service.chat_send_ledger.clone();
     let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |record, _| {
+        write_ledger.mark_user_written(&record.send_id);
         writes_tx.send(record.send_id.clone()).unwrap();
         release_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
         Ok(())
@@ -761,7 +917,7 @@ fn anchorless_equal_text_requires_two_distinct_live_turn_ids() {
     assert!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal").is_empty());
     assert!(!fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
     assert_eq!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-b", "opaque-equal")[0].send_id, second.send_id);
-    let (listener, settled) = settled_listener(&fixture, &tab);
+    let (listener, settled) = settled_listener(&fixture, &tab, &second.send_id);
     release_tx.send(()).unwrap();
     assert_eq!(settled.recv_timeout(TEST_DEADLINE).unwrap()["send_id"], second.send_id);
     fixture._app.unlisten(listener);
@@ -797,15 +953,15 @@ fn zero_write_owner_refusal_retains_head_and_disarms_turn_confirmation() {
         written_tx.send(record.send_id.clone()).unwrap();
         Err(DeliveryError::TabBusyRefused { tab: record.authority.tab_id.clone(), detail: "opaque-zero-write".into() })
     }));
-    let (listener, settled) = settled_listener(&fixture, &tab);
+    let (listener, settled) = settled_listener(&fixture, &tab, &first.send_id);
     mark_ready(&fixture, &tab);
     fixture.service.wake_parked_user_send(&tab);
     assert_eq!(written_rx.recv_timeout(TEST_DEADLINE).unwrap(), first.send_id);
-    assert_eq!(settled.recv_timeout(TEST_DEADLINE).unwrap()["state"], "unknown");
+    assert_eq!(settled.recv_timeout(TEST_DEADLINE).unwrap()["state"], "held");
     fixture._app.unlisten(listener);
+    await_owner_idle(&fixture, &tab);
     let records = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
     assert_eq!(records[0].state, UserSendState::Queued);
-    assert!(records[0].cycle_settled);
     assert_eq!(records[1].state, UserSendState::Queued);
     assert!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "unwritten-turn", FIRST_PAYLOAD).is_empty());
     assert!(!fixture.service.chat_send_ledger.user_confirmed(&first.send_id));
@@ -830,28 +986,22 @@ fn user_admissions_leave_existing_interactive_bootstrap_record_and_bytes_unchang
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
-fn ready_bootstrap_and_user_handoffs_share_one_coalesced_owner() {
+fn ready_user_send_does_not_wait_for_bootstrap_submit_completion() {
     let (fixture, tab) = queue_fixture(true, None);
     let digest = fixture.service.create_pending_delivery(&tab, PendingDeliveryChannel::InteractiveInput, "opaque-bootstrap").unwrap();
     let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
     let (bootstrap_tx, bootstrap_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     let release_rx = Arc::new(Mutex::new(release_rx));
-    let active = Arc::new(AtomicUsize::new(0));
-    let bootstrap_active = active.clone();
     let _bootstrap = BootstrapSubmitBoundary::install(&tab, Arc::new(move |text| {
         assert_eq!(text, "opaque-bootstrap");
-        assert_eq!(bootstrap_active.fetch_add(1, Ordering::AcqRel), 0);
         bootstrap_tx.send(()).unwrap();
         release_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
-        assert_eq!(bootstrap_active.fetch_sub(1, Ordering::AcqRel), 1);
         Ok(())
     }));
     let (writes_tx, writes_rx) = mpsc::channel();
     let _user = UserSubmitBoundary::install(&tab, Arc::new(move |record, _| {
-        assert_eq!(active.fetch_add(1, Ordering::AcqRel), 0);
         writes_tx.send(record.send_id.clone()).unwrap();
-        assert_eq!(active.fetch_sub(1, Ordering::AcqRel), 1);
         Err(DeliveryError::SubmitUnconfirmed { tab: record.authority.tab_id.clone(), detail: "opaque-uncertainty".into() })
     }));
     fixture.service.wake_parked_user_send(&tab);
@@ -861,10 +1011,11 @@ fn ready_bootstrap_and_user_handoffs_share_one_coalesced_owner() {
     fixture.service.wake_parked_user_send(&tab);
     bootstrap_rx.recv_timeout(TEST_DEADLINE).unwrap();
     fixture.service.wake_parked_user_send(&tab);
-    assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), first.send_id);
     assert!(fixture.service.mux.read().get_tab(&tab).unwrap().pending_delivery.is_none());
     release_tx.send(()).unwrap();
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), first.send_id);
+    await_owner_idle(&fixture, &tab);
+    assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
     assert!(matches!(bootstrap_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
     assert!(fixture.service.pending_delivery_payloads.resolve(&digest).is_err());
 }
@@ -969,31 +1120,51 @@ fn zero_write_refusal_keeps_new_readiness_or_admission_wakes_and_consumes_only_h
         };
         release_tx.send(()).unwrap();
         idle_rx.recv_timeout(TEST_DEADLINE).unwrap();
-        let expected = if reason == UserWake::Housekeeping { 1 } else { 2 };
+        let expected = match reason {
+            UserWake::Housekeeping => 1,
+            UserWake::Readiness => 3,
+            UserWake::Admission => 4,
+        };
         assert_eq!(attempts.load(Ordering::Acquire), expected);
-        if expected == 2 {
-            assert_eq!(entered_rx.recv_timeout(TEST_DEADLINE).unwrap(), (1, first.send_id.clone()));
+        let expected_follow_ups = match (&reason, additional.as_ref()) {
+            (UserWake::Housekeeping, _) => Vec::new(),
+            (UserWake::Readiness, _) => vec![first.send_id.clone(), second.send_id.clone()],
+            (UserWake::Admission, Some(additional)) => vec![
+                first.send_id.clone(),
+                second.send_id.clone(),
+                additional.send_id.clone(),
+            ],
+            (UserWake::Admission, None) => unreachable!(),
+        };
+        for (attempt, send_id) in expected_follow_ups.iter().enumerate() {
+            assert_eq!(entered_rx.recv_timeout(TEST_DEADLINE).unwrap(), (attempt + 1, send_id.clone()));
+        }
+        if expected == 1 {
+            let records = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
+            assert_eq!(records[0].state, UserSendState::Queued);
+            assert_eq!(records[1].state, UserSendState::Queued);
+        } else {
+            assert!(fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap().is_empty());
+        }
+        if expected == 1 {
             fixture.service.wake_parked_user_send(&tab);
             idle_rx.recv_timeout(TEST_DEADLINE).unwrap();
-            assert_eq!(attempts.load(Ordering::Acquire), expected);
+            assert_eq!(attempts.load(Ordering::Acquire), 3);
+            assert_eq!(entered_rx.recv_timeout(TEST_DEADLINE).unwrap(), (1, first.send_id.clone()));
+            assert_eq!(entered_rx.recv_timeout(TEST_DEADLINE).unwrap(), (2, second.send_id.clone()));
+            assert!(fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap().is_empty());
         }
-        let records = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
-        assert_eq!(records[0].state, if expected == 1 { UserSendState::Queued } else { UserSendState::Uncertain });
-        assert_eq!(records[1].send_id, second.send_id);
-        assert_eq!(records[1].state, UserSendState::Queued);
         if let Some(additional) = additional {
             let reopened = UserSendStore::open(fixture.temp.path()).unwrap();
-            let retained = reopened.records(&tab).unwrap();
-            assert_eq!(retained.len(), 3);
-            assert_eq!(retained[0].send_id, first.send_id);
-            assert_eq!(retained[1].send_id, second.send_id);
-            assert_eq!(retained[2].send_id, additional.send_id);
-            assert_eq!(reopened.original(&tab, &first.send_id).unwrap(), FIRST_PAYLOAD);
-            assert_eq!(reopened.original(&tab, &second.send_id).unwrap(), SECOND_PAYLOAD);
-            assert_eq!(reopened.original(&tab, &additional.send_id).unwrap(), SECOND_PAYLOAD);
-            assert_eq!(retained[2].state, UserSendState::Queued);
-        } else {
-            assert_reopened_originals(&fixture, &[first, second]);
+            assert!(reopened.records(&tab).unwrap().is_empty());
+            assert!(reopened.original(&tab, &first.send_id).is_err());
+            assert!(reopened.original(&tab, &second.send_id).is_err());
+            assert!(reopened.original(&tab, &additional.send_id).is_err());
+        } else if expected == 1 {
+            let reopened = UserSendStore::open(fixture.temp.path()).unwrap();
+            assert!(reopened.records(&tab).unwrap().is_empty());
+            assert!(reopened.original(&tab, &first.send_id).is_err());
+            assert!(reopened.original(&tab, &second.send_id).is_err());
         }
     }
 }
