@@ -617,3 +617,128 @@ fn heartbeat_fixture_clock_preserves_budget_and_suppress_after_persistence() {
         }
     }
 }
+
+const DAY: u64 = 24 * 60 * 60;
+
+fn every_hard_wake() -> Vec<HardWake> {
+    vec![
+        HardWake::UndeliveredReport("r".into()),
+        HardWake::NewReport("r".into()),
+        HardWake::TaskState("task".into()),
+        HardWake::FailedGate("g".into()),
+        HardWake::OwnerMessage("m".into()),
+        HardWake::ChoiceAnswer("c".into()),
+        HardWake::Incident("i".into()),
+        HardWake::ModeChange,
+    ]
+}
+
+fn evidence_snapshot(hard: HardWake) -> Snapshot {
+    let mut snapshot = healthy_snapshot();
+    snapshot
+        .delta
+        .insert("report:r".into(), "opaque digest".into());
+    snapshot.workers[0].prompt = Some("manual_update".into());
+    snapshot.hard.push(hard);
+    snapshot
+}
+
+#[test]
+fn heartbeat_gate_unavailable_adapter_suppresses_hard_delta_and_silence() {
+    for hard in every_hard_wake() {
+        let gate = Gate::default();
+        let snapshot = evidence_snapshot(hard.clone());
+        assert!(!tick(&gate, &snapshot, 100, None).wake, "{hard:?}");
+        assert!(!tick(&gate, &snapshot, 100 + DAY, None).wake, "{hard:?}");
+    }
+}
+
+#[test]
+fn heartbeat_gate_model_denial_or_uncertainty_beats_hard_and_silence() {
+    let answers = [
+        ("nothing_changed", "on_track", 0.99),
+        ("status_only", "on_track", 0.99),
+        ("other", "on_track", 0.99),
+        ("action_needed", "on_track", 0.79),
+        ("action_needed", "other", 0.99),
+        ("action_needed", "on_track", f64::NAN),
+    ];
+    for (tick_label, worker, confidence) in answers {
+        for hard in every_hard_wake() {
+            let model = FixtureModel {
+                tick: tick_label,
+                worker,
+                confidence,
+                ..FixtureModel::healthy()
+            };
+            let gate = Gate::default();
+            let snapshot = evidence_snapshot(hard.clone());
+            let case = format!("{tick_label}/{worker}/{confidence}/{hard:?}");
+            assert!(!tick(&gate, &snapshot, 100, Some(&model)).wake, "{case}");
+            assert!(
+                !tick(&gate, &snapshot, 100 + DAY, Some(&model)).wake,
+                "{case}"
+            );
+            assert_eq!(model.calls.load(Ordering::SeqCst), 1, "{case}");
+        }
+    }
+}
+
+#[test]
+fn heartbeat_gate_model_errors_suppress_without_fallback() {
+    for error in [
+        DecisionError::Budget,
+        DecisionError::Deadline,
+        DecisionError::CreditExhausted,
+        DecisionError::Unavailable("opaque".into()),
+        DecisionError::Transport("opaque".into()),
+        DecisionError::Parse("opaque".into()),
+    ] {
+        let model = FixtureModel {
+            error: Some(error.clone()),
+            ..FixtureModel::healthy()
+        };
+        let gate = Gate::default();
+        let snapshot = evidence_snapshot(HardWake::UndeliveredReport("r".into()));
+        assert!(!tick(&gate, &snapshot, 100, Some(&model)).wake, "{error:?}");
+        assert!(
+            !tick(&gate, &snapshot, 100 + DAY, Some(&model)).wake,
+            "{error:?}"
+        );
+        assert_eq!(model.calls.load(Ordering::SeqCst), 1, "{error:?}");
+    }
+}
+
+#[test]
+fn heartbeat_gate_elapsed_silence_alone_never_wakes() {
+    let fixture = FixtureModel::healthy();
+    for model in [Some(&fixture as &dyn DecisionModel), None] {
+        let gate = Gate::default();
+        let snapshot = healthy_snapshot();
+        for now in [100, 100 + DAY, 100 + 2 * DAY] {
+            assert!(!tick(&gate, &snapshot, now, model).wake);
+        }
+    }
+    assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+}
+
+#[test]
+fn heartbeat_gate_valid_approval_wakes_once_per_unchanged_snapshot() {
+    let model = FixtureModel {
+        tick: "action_needed",
+        ..FixtureModel::healthy()
+    };
+    let gate = Gate::default();
+    let mut snapshot = healthy_snapshot();
+    snapshot
+        .delta
+        .insert("stride:a".into(), "opaque first".into());
+    assert!(tick(&gate, &snapshot, 100, Some(&model)).wake);
+    assert!(!tick(&gate, &snapshot, 101, Some(&model)).wake);
+    assert_eq!(model.calls.load(Ordering::SeqCst), 1);
+    snapshot
+        .delta
+        .insert("stride:b".into(), "opaque second".into());
+    assert!(tick(&gate, &snapshot, 102, Some(&model)).wake);
+    assert_eq!(model.calls.load(Ordering::SeqCst), 2);
+}
