@@ -1956,6 +1956,7 @@ jobs:
           contract_log="$receipt_dir/storage-contract.log"
           : > "$contract_log"
           : > "$receipt_dir/stub-cleanup.list"
+          : > "$receipt_dir/stub-unknown.list"
           preflight_ready=true
           source_before_clean=true
           preflight_errors=()
@@ -2008,8 +2009,9 @@ jobs:
           fi
           account_identity="$(id -un 2>/dev/null)"
           kernel_identity="$(uname -srm 2>/dev/null)"
-          # The reviewed foundation is the facade, both owning test files and every tracked crate file.
-          storage_paths=('src-tauri/src/storage.rs' 'src-tauri/src/storage' 'src-tauri/crates/codeterm-storage')
+          # Reviewed foundation: facade, both owning test files, the Storage crate and its
+          # path-confinement dependency (codeterm-storage/Cargo.toml path = "../../../crates/codeterm-paths").
+          storage_paths=('src-tauri/src/storage.rs' 'src-tauri/src/storage' 'src-tauri/crates/codeterm-storage' 'crates/codeterm-paths')
           storage_ancestor=false
           storage_inventory_equal=false
           if git cat-file -e "${REVIEWED_STORAGE_SHA}^{commit}" 2>/dev/null; then
@@ -2042,7 +2044,7 @@ jobs:
             'src-tauri/src/storage/tests.rs'
             'src-tauri/src/storage/tests/assets.rs'
           )
-          crate_listing="$(git ls-files -- src-tauri/crates/codeterm-storage 2>/dev/null)"
+          crate_listing="$(git ls-files -- src-tauri/crates/codeterm-storage crates/codeterm-paths 2>/dev/null)"
           crate_listing_status=$?
           if (( crate_listing_status != 0 )) || [[ -z "$crate_listing" ]]; then
             refuse_preflight storage_crate_listing_failed
@@ -2063,6 +2065,24 @@ jobs:
             fi
             printf '%s\t%s\n' "${hash_line%% *}" "$path" >> "$receipt_dir/source-hashes.tsv"
           done
+          # Build-owned stubs are exactly the Linux paths of scripts/prepare-cli-stub.js and prepare-embed-stub.js.
+          stub_host="$(printf '%s\n' "$rustc_identity" | sed -n 's/^host: //p')"
+          known_stubs=('src-tauri/bundled-cli/codeterm')
+          if [[ "$stub_host" =~ ^[A-Za-z0-9_.-]+$ ]]; then
+            known_stubs+=("src-tauri/bundled-embed/codeterm-embed-$stub_host")
+          else
+            refuse_preflight rust_host_unavailable
+          fi
+          list_stub_entries() {
+            local dir
+            for dir in src-tauri/bundled-cli src-tauri/bundled-embed; do
+              if [[ -L "$dir" || ( -e "$dir" && ! -d "$dir" ) ]]; then return 1; fi
+              if [[ -d "$dir" ]]; then find "$dir" -mindepth 1 -maxdepth 1 -print || return 1; fi
+            done
+          }
+          list_stub_entries > "$receipt_dir/stub-entries-before.list"
+          stub_snapshot_status=$?
+          if (( stub_snapshot_status != 0 )); then refuse_preflight stub_snapshot_failed; fi
           command_exit=''
           command_wall=''
           command_started=''
@@ -2077,13 +2097,24 @@ jobs:
             command_finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
             cat "$contract_log"
             stub_cleanup_status=0
-            stub_dirs=()
-            [[ -d src-tauri/bundled-cli ]] && stub_dirs+=(src-tauri/bundled-cli)
-            [[ -d src-tauri/bundled-embed ]] && stub_dirs+=(src-tauri/bundled-embed)
-            if (( ${#stub_dirs[@]} > 0 )); then
-              find "${stub_dirs[@]}" -maxdepth 1 -type f -size 0 -print -delete > "$receipt_dir/stub-cleanup.list" 2> "$receipt_dir/stub-cleanup.stderr"
-              stub_cleanup_status=$?
-            fi
+            list_stub_entries > "$receipt_dir/stub-entries-after.list"
+            if (( $? != 0 )); then stub_cleanup_status=1; fi
+            while IFS= read -r entry; do
+              if grep -Fxq -- "$entry" "$receipt_dir/stub-entries-before.list"; then continue; fi
+              known_stub=false
+              for stub in "${known_stubs[@]}"; do
+                if [[ "$entry" == "$stub" ]]; then known_stub=true; fi
+              done
+              if [[ "$known_stub" == true && -f "$entry" && ! -L "$entry" && ! -s "$entry" ]]; then
+                if rm -- "$entry" 2>> "$receipt_dir/stub-cleanup.stderr"; then
+                  printf '%s\n' "$entry" >> "$receipt_dir/stub-cleanup.list"
+                else
+                  stub_cleanup_status=1
+                fi
+              else
+                printf '%s\n' "$entry" >> "$receipt_dir/stub-unknown.list"
+              fi
+            done < "$receipt_dir/stub-entries-after.list"
           fi
           source_after="$(git status --porcelain --untracked-files=all 2>&1)"
           source_after_status=$?
@@ -2093,10 +2124,11 @@ jobs:
           source_after_head="$(git rev-parse HEAD 2>/dev/null)"
           source_after_head_status=$?
           source_after_clean=true
-          if (( source_after_status != 0 || source_diff_status != 0 || source_after_head_status != 0 )) || [[ -n "$source_after" || "$source_after_head" != "$checkout_sha" ]]; then
+          if (( source_after_status != 0 || source_diff_status != 0 || source_after_head_status != 0 )) || [[ -n "$source_after" || "$source_after_head" != "$checkout_sha" || -s "$receipt_dir/stub-unknown.list" ]]; then
             source_after_clean=false
           fi
           export STORAGE_RECEIPT_DIR="$receipt_dir"
+          export STORAGE_KNOWN_STUBS="$(IFS=,; printf '%s' "${known_stubs[*]}")"
           export STORAGE_CHECKOUT_SHA="$checkout_sha"
           export STORAGE_AFTER_HEAD_SHA="$source_after_head"
           export STORAGE_SOURCE_BEFORE_CLEAN="$source_before_clean"
@@ -2157,6 +2189,7 @@ jobs:
           ];
           const storageFacadePaths = ['src-tauri/src/storage.rs', 'src-tauri/src/storage/tests.rs', 'src-tauri/src/storage/tests/assets.rs'];
           const storageCratePrefix = 'src-tauri/crates/codeterm-storage/';
+          const pathsCratePrefix = 'crates/codeterm-paths/';
           const dir = process.env.STORAGE_RECEIPT_DIR;
           const logName = 'storage-contract.log';
           const receiptLimit = 65536;
@@ -2246,11 +2279,11 @@ jobs:
             const reviewedTree = readBytes(path.join(dir, 'reviewed-storage.tree'));
             const sourceTree = readBytes(path.join(dir, 'source-storage.tree'));
             const reviewedPaths = treePaths(reviewedTree);
-            const reviewedCratePaths = reviewedPaths.filter(entry => entry.startsWith(storageCratePrefix));
+            const reviewedCratePaths = reviewedPaths.filter(entry => entry.startsWith(storageCratePrefix) || entry.startsWith(pathsCratePrefix));
             const inventoryEqual = process.env.STORAGE_INVENTORY_EQUAL === 'true' && reviewedTree !== null && sourceTree !== null && reviewedTree.length > 0 && reviewedTree.equals(sourceTree);
             if (process.env.STORAGE_REVIEWED_ANCESTOR !== 'true') record('reviewed_storage_not_ancestor');
             if (!inventoryEqual) record('storage_inventory_not_reviewed');
-            if (reviewedCratePaths.length === 0 || storageFacadePaths.some(entry => !reviewedPaths.includes(entry))) record('storage_inventory_incomplete');
+            if (!reviewedCratePaths.some(entry => entry.startsWith(storageCratePrefix)) || !reviewedCratePaths.some(entry => entry.startsWith(pathsCratePrefix)) || storageFacadePaths.some(entry => !reviewedPaths.includes(entry))) record('storage_inventory_incomplete');
 
             const hashRows = (readBytes(path.join(dir, 'source-hashes.tsv')) || Buffer.alloc(0)).toString('utf8').split('\n').filter(Boolean).map(line => {
               const [sha256, ...parts] = line.split('\t');
@@ -2291,7 +2324,10 @@ jobs:
             const summary = parsed.summaryLines === 1 && parsed.summaries.length === 1 ? parsed.summaries[0] : null;
             if (summary && (summary.status !== 'ok' || summary.passed !== expectedNames.length || summary.failed !== 0 || summary.ignored !== 0 || summary.measured !== 0 || !Number.isFinite(summary.libtest_seconds) || summary.libtest_seconds < 0)) record('summary_counts_mismatch');
 
-            const stubRemoved = (readBytes(path.join(dir, 'stub-cleanup.list')) || Buffer.alloc(0)).toString('utf8').split('\n').filter(Boolean);
+            const readList = name => (readBytes(path.join(dir, name)) || Buffer.alloc(0)).toString('utf8').split('\n').filter(Boolean);
+            const stubRemoved = readList('stub-cleanup.list');
+            const stubUnknown = readList('stub-unknown.list');
+            if (stubUnknown.length > 0) record('stub_unknown_artifact');
             const outcome = errors.size === 0 ? 'qualified' : 'unqualified';
             const receipt = {
               schema,
@@ -2306,7 +2342,12 @@ jobs:
                 ...source,
                 clean_before: process.env.STORAGE_SOURCE_BEFORE_CLEAN === 'true',
                 clean_after: process.env.STORAGE_SOURCE_AFTER_CLEAN === 'true',
-                stub_cleanup: { attempted: commandRan, exit: envNumber('STORAGE_STUB_CLEANUP_STATUS'), removed_count: stubRemoved.length, removed: stubRemoved.slice(0, 16) },
+                stub_cleanup: {
+                  attempted: commandRan, exit: envNumber('STORAGE_STUB_CLEANUP_STATUS'),
+                  known_paths: (process.env.STORAGE_KNOWN_STUBS || '').split(',').filter(Boolean),
+                  removed_count: stubRemoved.length, removed: stubRemoved.slice(0, 16),
+                  unknown_count: stubUnknown.length, unknown: stubUnknown.slice(0, 16),
+                },
                 reviewed_storage: {
                   sha: process.env.REVIEWED_STORAGE_SHA || '', ancestor: process.env.STORAGE_REVIEWED_ANCESTOR === 'true',
                   inventory_equal: inventoryEqual, entries: reviewedPaths.length,
