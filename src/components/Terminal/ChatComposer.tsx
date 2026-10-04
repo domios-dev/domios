@@ -332,6 +332,11 @@ function ChatComposerImpl({
   const touchMode = useTouchOptimizedUi();
   const compositionGate = useRef(createCompositionGate()).current;
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const currentDraftRef = useRef({ input, attachments, revision: 0 });
+  const currentDraft = currentDraftRef.current;
+  if (currentDraft.input !== input || currentDraft.attachments !== attachments) {
+    currentDraftRef.current = { input, attachments, revision: currentDraft.revision + 1 };
+  }
   const shellRef = useRef<HTMLDivElement>(null);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const [delayedMessages, setDelayedMessages] = useState<DelayedMessage[]>([]);
@@ -552,6 +557,7 @@ function ChatComposerImpl({
   async function send(extraAttachments: string[] = []) {
     const draft = buildDraft(extraAttachments);
     if (!draft) return;
+    const submittedDraft = currentDraftRef.current;
     const { text, allAttachments, recordedVoiceAttachments } = draft;
     const nowTs = Date.now();
     const dupKey = `${text} ${allAttachments.join("|")}`;
@@ -628,8 +634,6 @@ function ChatComposerImpl({
       optimisticId = addOptimistic(composed);
     }
     setComposerInvalid(false);
-    setInput("");
-    clearAttachments();
     refocusComposer();
     try {
       if (chatBackend) {
@@ -645,6 +649,11 @@ function ChatComposerImpl({
         } else {
           observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed));
         }
+      }
+      if (currentDraftRef.current.revision === submittedDraft.revision
+        && textareaRef.current?.value === submittedDraft.input) {
+        setInput("");
+        clearAttachments();
       }
     } catch (e) {
       console.warn("[chat-send] optimistic delivery failed", {
