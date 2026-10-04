@@ -95,7 +95,7 @@ impl PtyReaper {
             .map_err(|error| format!("PTY {} reap failed: {error}", self.pty_id))
     }
 
-    pub(crate) fn reap_in_background(self) {
+    pub fn reap_in_background(self) {
         self.observe_exit();
     }
 
