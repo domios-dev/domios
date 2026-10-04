@@ -4,7 +4,7 @@ use parking_lot::Mutex;
 use tauri::Manager;
 
 use super::*;
-use crate::cron::store::{CronCreateParams, CronRunInfo, CronStore};
+use crate::cron::store::{commit, CronCreateParams, CronRunInfo, CronStorageOptions, CronStore};
 use crate::service::test_fixture::ServiceFixture;
 
 const RUN_TAB: &str = "cron-run-tab";
@@ -20,61 +20,65 @@ struct OneshotRun {
 }
 
 fn oneshot_run(report_target: Option<&str>) -> OneshotRun {
+    oneshot_run_in(report_target, |fixture| {
+        CronStore::new_with_path(fixture.temp.path().join("crons.json"))
+    })
+}
+
+fn oneshot_run_in(
+    report_target: Option<&str>,
+    store: impl FnOnce(&ServiceFixture) -> CronStore,
+) -> OneshotRun {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
-    let cron: crate::CronState = Arc::new(Mutex::new(CronStore::new_with_path(
-        fixture.temp.path().join("crons.json"),
-    )));
+    let cron: crate::CronState = Arc::new(Mutex::new(store(&fixture)));
     fixture._app.manage(cron.clone());
     fixture
         ._app
         .manage::<crate::CronWake>(Arc::new(std::sync::Condvar::new()));
     let run_id = "oneshot-run".to_string();
-    let job_id = {
-        let mut store = cron.lock();
-        let job = store
-            .create(CronCreateParams {
-                name: "once".into(),
-                workspace_id: "workspace".into(),
-                team_id: None,
-                detach_from_team: false,
-                schedule: "in 1h".into(),
-                task: "run once".into(),
-                description: None,
-                agent: None,
-                model: None,
-                reasoning_effort: None,
-                cwd: None,
-                role: None,
-                skill: None,
-                creator_tab_id: None,
-                report_target_tab_id: report_target.map(str::to_string),
-                enabled: Some(true),
-                max_history: None,
-                oneshot: Some(true),
-                jitter_max_ms: Some(0),
-                tz: None,
-                timeout_seconds: None,
-            })
-            .unwrap();
-        store
-            .record_run(
-                &job.id,
-                CronRunInfo {
-                    run_id: run_id.clone(),
-                    started_at: 1,
-                    finished_at: None,
-                    status: CronRunStatus::Running,
-                    tab_id: Some(RUN_TAB.into()),
-                    session_id: None,
-                    cwd: None,
-                    summary: None,
-                    report_delivery: None,
-                },
-            )
-            .unwrap();
-        job.id
+    let params = CronCreateParams {
+        name: "once".into(),
+        workspace_id: "workspace".into(),
+        team_id: None,
+        detach_from_team: false,
+        schedule: "in 1h".into(),
+        task: "run once".into(),
+        description: None,
+        agent: None,
+        model: None,
+        reasoning_effort: None,
+        cwd: None,
+        role: None,
+        skill: None,
+        creator_tab_id: None,
+        report_target_tab_id: report_target.map(str::to_string),
+        enabled: Some(true),
+        max_history: None,
+        oneshot: Some(true),
+        jitter_max_ms: Some(0),
+        tz: None,
+        timeout_seconds: None,
     };
+    let job_id = commit(&cron, |store| store.prepare_create(params.clone()))
+        .unwrap()
+        .value
+        .id;
+    let run = CronRunInfo {
+        run_id: run_id.clone(),
+        started_at: 1,
+        finished_at: None,
+        status: CronRunStatus::Running,
+        tab_id: Some(RUN_TAB.into()),
+        session_id: None,
+        cwd: None,
+        summary: None,
+        report_delivery: None,
+    };
+    commit(&cron, |store| {
+        store.prepare_record_run(&job_id, run.clone())
+    })
+    .unwrap();
     OneshotRun {
         fixture,
         cron,
@@ -185,5 +189,46 @@ fn oneshot_end_without_report_target_keeps_history() {
     assert_eq!(
         history[0].report_delivery.as_deref(),
         Some("no report target")
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn storage_cron_consumer_run_end_commits_through_storage() {
+    let opened = std::sync::OnceLock::new();
+    let run = oneshot_run_in(Some(REPORT_TAB), |fixture| {
+        let storage = crate::storage::Storage::open(
+            fixture.temp.path().join("instance"),
+            crate::storage::StorageConfig::default(),
+        )
+        .unwrap();
+        let store = CronStore::open_storage(
+            &storage,
+            fixture.temp.path().join("crons"),
+            crate::cron::clock::system_clock(),
+            CronStorageOptions::default(),
+        )
+        .unwrap();
+        let _ = opened.set(storage);
+        store
+    });
+    let deliveries = Deliveries::default();
+    let summary = "storage-summary-token";
+
+    end_run(&run, false, summary, &deliveries);
+
+    assert_retired_with_report(&run, &deliveries, CronRunStatus::Failed, summary);
+    let fresh = CronStore::open_storage(
+        opened.get().unwrap(),
+        run.fixture.temp.path().join("crons"),
+        crate::cron::clock::system_clock(),
+        CronStorageOptions::default(),
+    )
+    .unwrap();
+    let cache = run.cron.lock();
+    assert!(fresh.get(&run.job_id).is_none());
+    assert_eq!(
+        fresh.get_history(&run.job_id),
+        cache.get_history(&run.job_id)
     );
 }

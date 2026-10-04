@@ -166,7 +166,7 @@ fn protected_jobs_cannot_be_deleted() {
     let job = store
         .create(make_params("system job", "workspace", "0 * * * *"))
         .unwrap();
-    store.get_mut(&job.id).unwrap().protected = true;
+    store.set_protected(&job.id, true).unwrap();
 
     let error = store.delete(&job.id).unwrap_err();
 
