@@ -17,11 +17,23 @@ use std::time::Duration;
 
 use crate::agent::chat_types::RichMessage;
 use crate::agent::registry::AgentRegistry;
+use super::registry::{JsonlSource, SourceIncarnation, SourceObservation};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceRange {
+    pub start_offset: u64,
+    pub offset: u64,
+    pub incarnation: Option<SourceIncarnation>,
+}
 
 /// Caller-supplied sink. Real impl emits a Tauri event with the
 /// messages; tests pass a `Vec<RichMessage>` collector.
 pub trait DeltaSink: Send + Sync {
     fn emit(&self, tab_id: &str, messages: Vec<RichMessage>, start_offset: u64, offset: u64);
+
+    fn emit_sourced(&self, tab_id: &str, messages: Vec<RichMessage>, range: SourceRange) {
+        self.emit(tab_id, messages, range.start_offset, range.offset);
+    }
 }
 
 /// Sink for raw JSONL text deltas. The chat UI uses this — frontend
@@ -119,6 +131,15 @@ pub fn spawn_tailer(
     registry: Arc<AgentRegistry>,
     sink: Arc<dyn DeltaSink>,
 ) -> TailerHandle {
+    spawn_sourced_tailer(cfg, None, registry, sink)
+}
+
+pub(crate) fn spawn_sourced_tailer(
+    cfg: TailConfig,
+    source: Option<Arc<JsonlSource>>,
+    registry: Arc<AgentRegistry>,
+    sink: Arc<dyn DeltaSink>,
+) -> TailerHandle {
     let stop_flag = Arc::new(AtomicBool::new(false));
     let offset = Arc::new(AtomicU64::new(cfg.start_offset));
 
@@ -126,6 +147,7 @@ pub fn spawn_tailer(
     let off = offset.clone();
     let join = thread::spawn(move || {
         let mut cached_path: Option<PathBuf> = None;
+        let mut source_incarnation: Option<SourceIncarnation> = None;
         let mut ever_existed = false;
         let mut missing_polls: u32 = 0;
         while !stop.load(Ordering::Acquire) {
@@ -159,7 +181,26 @@ pub fn spawn_tailer(
                 cached_path = Some(path.clone());
                 // tailer. Today the session_id is fixed at spawn.
             }
-            if !path.exists() {
+            let observation = source.as_ref().map(|source| {
+                source.observe(
+                    &cfg.session_id,
+                    &path,
+                    source_incarnation.as_ref(),
+                    off.load(Ordering::Acquire),
+                )
+            });
+            let (exists, restart) = match observation {
+                Some(SourceObservation::Present {
+                    incarnation,
+                    restart,
+                }) => {
+                    source_incarnation = incarnation;
+                    (true, restart)
+                }
+                Some(SourceObservation::Absent) => (false, false),
+                None => (path.exists(), false),
+            };
+            if !exists {
                 if ever_existed {
                     missing_polls += 1;
                     if missing_polls > MAX_CONSECUTIVE_MISSING_POLLS {
@@ -172,6 +213,9 @@ pub fn spawn_tailer(
                 }
                 thread::sleep(cfg.poll_interval);
                 continue;
+            }
+            if restart {
+                off.store(0, Ordering::Release);
             }
             ever_existed = true;
             missing_polls = 0;
@@ -193,7 +237,15 @@ pub fn spawn_tailer(
                 off.store(delta.new_offset, Ordering::Release);
             }
             if !delta.messages.is_empty() {
-                sink.emit(&cfg.tab_id, delta.messages, from, delta.new_offset);
+                sink.emit_sourced(
+                    &cfg.tab_id,
+                    delta.messages,
+                    SourceRange {
+                        start_offset: from,
+                        offset: delta.new_offset,
+                        incarnation: source_incarnation.clone(),
+                    },
+                );
             }
             thread::sleep(cfg.poll_interval);
         }
