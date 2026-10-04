@@ -1,0 +1,91 @@
+{
+  "text": "Meet Domios. A home for your AI agents.\n\nOpen a tab, choose an agent, and get to work.\n\nGive your next task its own team.\n\nThen follow the work across the board, through to a result.\n\nYour own computers, connected in one trusted mesh.\n\nReach a workspace on another machine.\n\nAsk an agent to check in with its peers.\n\nAnd bring their reports back here.\n\nChoose the intelligence that fits your work.\n\nBring your tools along, too.\n\nAdd more capabilities through plugins.\n\nSee your fleet, including who is offline.\n\nYour next idea. A whole team behind it. Domios.",
+  "phrases": [
+    {
+      "id": 1,
+      "text": "Meet Domios. A home for your AI agents.",
+      "start": 0,
+      "end": 3.007
+    },
+    {
+      "id": 2,
+      "text": "Open a tab, choose an agent, and get to work.",
+      "start": 3.332,
+      "end": 6.235
+    },
+    {
+      "id": 3,
+      "text": "Give your next task its own team.",
+      "start": 6.838,
+      "end": 8.754
+    },
+    {
+      "id": 4,
+      "text": "Then follow the work across the board, through to a result.",
+      "start": 9.195,
+      "end": 12.759
+    },
+    {
+      "id": 5,
+      "text": "Your own computers, connected in one trusted mesh.",
+      "start": 13.201,
+      "end": 16.231
+    },
+    {
+      "id": 6,
+      "text": "Reach a workspace on another machine.",
+      "start": 16.834,
+      "end": 18.843
+    },
+    {
+      "id": 7,
+      "text": "Ask an agent to check in with its peers.",
+      "start": 19.656,
+      "end": 21.943
+    },
+    {
+      "id": 8,
+      "text": "And bring their reports back here.",
+      "start": 22.384,
+      "end": 24.125
+    },
+    {
+      "id": 9,
+      "text": "Choose the intelligence that fits your work.",
+      "start": 24.822,
+      "end": 27.144
+    },
+    {
+      "id": 10,
+      "text": "Bring your tools along, too.",
+      "start": 27.655,
+      "end": 29.234
+    },
+    {
+      "id": 11,
+      "text": "Add more capabilities through plugins.",
+      "start": 30.047,
+      "end": 32.333
+    },
+    {
+      "id": 12,
+      "text": "See your fleet, including who is offline.",
+      "start": 33.03,
+      "end": 36.211
+    },
+    {
+      "id": 13,
+      "text": "Your next idea. A whole team behind it. Domios.",
+      "start": 36.652,
+      "end": 42.028
+    }
+  ],
+  "duration": 42.057143,
+  "audio": "narration-full.mp3",
+  "sha256": "1e3907b14cf06ba091b65880501774208f72c8acd7e381b1d4a4f34d63ff437d",
+  "voice": "Chris - Charming, Down-to-Earth",
+  "voiceId": "iP95p4xoKVk53GoZ742B",
+  "model": "eleven_multilingual_v2",
+  "requestsTotal": 2,
+  "charactersTotal": 644
+}

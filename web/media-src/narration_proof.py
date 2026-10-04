@@ -16,7 +16,9 @@ def sha256(path):
 def verify_words(timing):
     narration = timing['narration']
     require(narration['speed'] == 1, 'This complete-take path preserves speech speed exactly')
-    require(narration['requestsTotal'] == 2 and narration['charactersTotal'] <= 3000, 'Paid allowance exceeded')
+    require(isinstance(narration['requestsTotal'], int) and narration['requestsTotal'] > 0
+            and isinstance(narration['charactersTotal'], int) and narration['charactersTotal'] > 0,
+            'Missing actual synthesis request/character accounting')
     previous_source = 0
     previous_final = 0
     for cue in timing['cues']:

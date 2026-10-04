@@ -1,6 +1,10 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  optimizeDeps: { entries: ['index.html'] },
+  server: {
+    watch: { ignored: ['**/.local/**', '**/media-src/**', '**/dist/**', '**/.vercel/**'] },
+  },
   plugins: [{
     name: 'inline-landing-styles',
     apply: 'build',

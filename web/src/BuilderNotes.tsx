@@ -1,6 +1,7 @@
 import { notes } from './notes';
 import type { BuilderNote } from './notes';
 import { useNoteEntrance } from './useNoteEntrance';
+import { siteLinks } from './siteLinks';
 import './notes.css';
 
 const dateFormat = new Intl.DateTimeFormat('en', { day: 'numeric', month: 'short', timeZone: 'UTC' });
@@ -10,7 +11,7 @@ function NoteCard({ note, duplicate }: { note: BuilderNote; duplicate: boolean }
     <article className="builder-note ct-liquid" data-featured={note.featured || undefined} tabIndex={duplicate ? undefined : 0}>
       <header className="note-author">
         <span className="note-avatar" aria-hidden="true">AR</span>
-        <div className="note-byline"><span>Andrey</span><span>@rollacode</span></div>
+        <a className="note-byline" href={siteLinks.author} target="_blank" rel="noopener noreferrer" tabIndex={duplicate ? -1 : undefined}><span>Andrey</span><span>@rollacode</span></a>
         {note.featured && <span className="note-pin">Pinned</span>}
         <time dateTime={note.date}>{dateFormat.format(new Date(`${note.date}T00:00:00Z`))}</time>
       </header>
