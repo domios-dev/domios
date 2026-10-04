@@ -73,9 +73,19 @@ pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: Senti
     } else {
         render(&result);
         if method == "sentinel.show" {
+            let source = result
+                .pointer("/observe/kind")
+                .and_then(Value::as_str)
+                .zip(result.pointer("/observe/id").and_then(Value::as_str))
+                .map(|(kind, id)| format!("Observe: {kind}:{id}"))
+                .or_else(|| {
+                    result["probe"]
+                        .as_str()
+                        .map(|probe| format!("Probe: {probe}"))
+                })
+                .unwrap_or_else(|| "Source: ?".into());
             println!(
-                "Probe: {}\nQuestion: {}\nCreator: {}",
-                result["probe"].as_str().unwrap_or("?"),
+                "{source}\nQuestion: {}\nCreator: {}",
                 result["question"].as_str().unwrap_or("?"),
                 result["creator_tab_id"].as_str().unwrap_or("?")
             );
@@ -93,6 +103,7 @@ fn request(
         SentinelAction::Create {
             name,
             probe,
+            observe,
             question,
             buckets,
             every,
@@ -106,7 +117,10 @@ fn request(
             matches,
         } => {
             let (routes, handlers) = declared_outputs(routes, handlers_file.as_deref())?;
-            params["create"] = json!({ "name": name, "probe": probe, "question": question, "buckets": buckets, "every": every, "routes": routes, "handlers": handlers, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
+            let observe = observe
+                .map(|source| observation_binding(&source))
+                .transpose()?;
+            params["create"] = json!({ "name": name, "probe": probe, "observe": observe, "question": question, "buckets": buckets, "every": every, "routes": routes, "handlers": handlers, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
             "sentinel.create"
         }
         SentinelAction::List => "sentinel.list",
@@ -120,6 +134,14 @@ fn request(
         }
     };
     Ok((method, params))
+}
+
+fn observation_binding(source: &str) -> Result<Value, String> {
+    let tab_id = source.strip_prefix("tab:").ok_or("use tab:<id>")?;
+    if tab_id.trim().is_empty() || tab_id.len() > 256 || tab_id.chars().any(char::is_control) {
+        return Err("--observe: tab id must be nonempty and bounded".into());
+    }
+    Ok(json!({"kind":"tab", "id":tab_id}))
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -359,6 +381,39 @@ mod tests {
 mod command_tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn sentinel_observe_request_roundtrips_tab_binding_json() {
+        let cli = crate::args::cli::Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "create",
+            "--observe",
+            "tab:bound-agent",
+            "--question",
+            "tab state?",
+            "--buckets",
+            "waiting",
+            "--match",
+            "waiting=.*",
+            "--json",
+        ])
+        .unwrap();
+        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+            panic!("wrong command")
+        };
+        let (method, params) =
+            request(action, Some("creator".into()), Some("nonce".into())).unwrap();
+        assert_eq!(method, "sentinel.create");
+        assert_eq!(params["create"]["probe"], Value::Null);
+        assert_eq!(
+            params["create"]["observe"],
+            json!({"kind":"tab", "id":"bound-agent"})
+        );
+        let encoded = serde_json::to_string(&params["create"]).unwrap();
+        let decoded: Value = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded, params["create"]);
+    }
 
     #[test]
     fn sentinel_command_handlers_file_reaches_authenticated_create_request_unchanged() {
