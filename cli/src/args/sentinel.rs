@@ -25,6 +25,9 @@ pub enum SentinelAction {
         /// JSON bucket-to-array of {id,type,parameters} handlers, including fixed local command actions
         #[arg(long, conflicts_with = "routes")]
         handlers_file: Option<std::path::PathBuf>,
+        /// Bound how long an `other` escalation may hold this stage, in milliseconds
+        #[arg(long)]
+        escalation_timeout_ms: Option<u64>,
         /// Create a dormant downstream stage; its lifetime starts now
         #[arg(long)]
         paused: bool,
@@ -62,6 +65,17 @@ pub enum SentinelAction {
     },
     /// Show immutable definition versions
     History { id: String },
+    /// Resolve an open escalation
+    Escalation {
+        #[command(subcommand)]
+        action: SentinelEscalationAction,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SentinelEscalationAction {
+    /// Release a held stage and re-evaluate its observation
+    Resolve { id: String, transition_id: String },
 }
 
 fn parse_assignment(value: &str) -> Result<String, String> {
@@ -120,6 +134,8 @@ mod tests {
             "pending,passed,failed",
             "--every",
             "20s",
+            "--escalation-timeout-ms",
+            "5000",
             "--route",
             "passed=send:Review",
             "--route",
@@ -140,6 +156,7 @@ mod tests {
                     buckets,
                     routes,
                     matches,
+                    escalation_timeout_ms,
                     ..
                 },
         } = cli.command
@@ -149,6 +166,7 @@ mod tests {
         assert_eq!(buckets, ["pending", "passed", "failed"]);
         assert_eq!(routes.len(), 2);
         assert_eq!(matches, ["passed=^success$"]);
+        assert_eq!(escalation_timeout_ms, Some(5000));
         for args in [
             vec!["codeterm", "sentinel", "list", "--json"],
             vec!["codeterm", "sentinel", "show", "id", "--json"],
@@ -239,6 +257,39 @@ mod tests {
         assert_eq!(from_file, std::path::PathBuf::from("definition.json"));
         assert_eq!(cause.as_deref(), Some("transition_9"));
         assert!(Cli::try_parse_from(["codeterm", "sentinel", "update", "id"]).is_err());
+    }
+
+    #[test]
+    fn sentinel_escalate_resolve_parse_requires_stage_and_transition_ids() {
+        let cli = Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "escalation",
+            "resolve",
+            "sentinel_a",
+            "transition_9",
+            "--json",
+        ])
+        .unwrap();
+        let Commands::Sentinel {
+            action:
+                SentinelAction::Escalation {
+                    action: SentinelEscalationAction::Resolve { id, transition_id },
+                },
+        } = cli.command
+        else {
+            panic!("wrong command")
+        };
+        assert_eq!(id, "sentinel_a");
+        assert_eq!(transition_id, "transition_9");
+        assert!(Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "escalation",
+            "resolve",
+            "sentinel_a",
+        ])
+        .is_err());
     }
 
     #[test]

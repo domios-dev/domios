@@ -85,6 +85,7 @@ fn sentinel_observe_source_requires_agent_in_creator_team_workspace() {
                 timeout: None,
                 paused: false,
                 handlers: None,
+                escalation_timeout_ms: None,
                 max_transitions: None,
                 max_actions: None,
             },

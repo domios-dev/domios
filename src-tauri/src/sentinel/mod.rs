@@ -41,3 +41,4 @@ mod command_native_tests;
 #[cfg(test)]
 #[path = "run_binding_tests.rs"]
 mod run_binding_tests;
+mod escalation_tests;
