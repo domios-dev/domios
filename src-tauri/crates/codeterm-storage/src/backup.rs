@@ -39,7 +39,7 @@ impl Storage {
         if on_owner_thread() {
             return Err(StorageError::Reentrant);
         }
-        let image = Layout::in_dir(image.as_ref());
+        let image = Layout::in_dir(&assets::canonical_dir(image.as_ref())?);
         let claim = claim_root(instance_root.as_ref())?;
         let target = &claim.layout;
         if assets::entry_exists(&target.database)? {
@@ -74,7 +74,7 @@ impl Storage {
 
 fn backup(env: &mut WriterEnv<'_>, destination: &Path) -> Result<BackupReceipt, StorageError> {
     prepare_destination(destination)?;
-    let image = Layout::in_dir(destination);
+    let image = Layout::in_dir(&assets::canonical_dir(destination)?);
     image.create_dirs(false)?;
     assets::create_owner_file(&image.database)?;
     let mut target = schema::open_existing(&image.database, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
