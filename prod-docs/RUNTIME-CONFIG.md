@@ -158,7 +158,7 @@ The bundled `mem-dreaming-auto` cron runs the dreamer at `0 6 * * *` (6 AM local
 
 ### Supporter Agent
 
-The Supporter Agent runs memory re-rank and tab-state whenever its selected adapter is connected. Automatic plan reminders are the exception to deterministic fallback: without the connected adapter's approving choice none is sent (`codeterm docs ORCHESTRATION`). Memory search can force re-rank with `supporter=true|false`; adapter failures return plain recall with a `supporter.status = "fallback"` envelope. The shared `codeterm supporter status` and `/api/supporter/status` response reports the selected adapter and model, token status, `connected`, `last_activity`, `calls_last_hour`, `calls_last_day`, `last_verdict`, and `budget` (reached, calls_per_hour, free_at). `spend` holds today/month/since-balance token and estimated USD totals, balance/remaining estimates, exhaustion and next probe time; prices are adapter-declared, never assumed for unpriced adapters. The token is set in Settings > Agents > Supporter Agent or through bearer-only `/api/supporter/token`, and is stored under `<data dir>/supporter/`, never in `config.toml`.
+The Supporter Agent runs memory re-rank and tab-state whenever its selected adapter is connected. Automatic plan reminders are the exception to deterministic fallback: without the connected adapter's approving choice none is sent (`codeterm docs ORCHESTRATION`). Memory search can force re-rank with `supporter=true|false`; adapter failures return plain recall with a `supporter.status = "fallback"` envelope. The shared `codeterm supporter status` and `/api/supporter/status` response reports the selected adapter and model, token status, `connected`, `last_activity`, `calls_last_hour`, `calls_last_day`, `last_verdict`, and `budget` (reached, calls_per_hour, free_at). `spend` holds today/month token and estimated USD totals, exhaustion and next probe time; prices are adapter-declared, never assumed for unpriced adapters. The token is set in Settings > Agents > Supporter Agent or through bearer-only `/api/supporter/token`, and is stored under `<data dir>/supporter/`, never in `config.toml`.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -199,7 +199,7 @@ sessions = 0
 
 ```
 
-Requests are counted without a cap by default. An explicit positive cap counts requests, not questions: batched shared-state searches and multi-question tab observations each count as one physical HTTP request. Sequential adapters may use multiple requests per shared-state search; local decisions cost no request. Status reports a null cap when unlimited and live hourly/daily counts. Settings > Agents accepts an optional balance after a top-up. Usage and spend counters persist across restarts. Below-$1 alerts dedupe per balance entry; HTTP 402 or explicit credit exhaustion enters `credit_exhausted`, writes one failure alert and serves deterministic fallback. A new balance or successful request re-arms it; hourly probes are triggered by normal requests, never a timer.
+Requests are counted without a cap by default. An explicit positive cap counts requests, not questions: batched shared-state searches and multi-question tab observations each count as one physical HTTP request. Sequential adapters may use multiple requests per shared-state search; local decisions cost no request. Status reports a null cap when unlimited and live hourly/daily counts. Usage and spend counters persist across restarts. HTTP 402 or explicit credit exhaustion enters `credit_exhausted`, writes one failure alert and serves deterministic fallback. A later request probe may recover; probes are triggered by normal requests, never a timer.
 
 Saved membership is the union of the connections table, the active adapter and adapters with stored tokens. Switching keeps other tokens and models. `codeterm supporter disconnect <adapter>` removes that connection and token, preserving usage history; removing the active connection stops the Supporter without selecting another.
 
@@ -236,4 +236,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Both builds can run simultaneously.
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->

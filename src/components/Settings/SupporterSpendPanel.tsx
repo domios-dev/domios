@@ -27,11 +27,10 @@ export function SupporterSpendLine({ spend }: { spend: SupporterSpend }) {
       <span>
         <span className="text-[var(--ct-fg)]">{usd(spend.today)}</span> today ·{" "}
         <span className="text-[var(--ct-fg)]">{usd(spend.month)}</span> this month
-        {spend.remaining_usd !== null && <> · estimated remaining ${spend.remaining_usd.toFixed(4)}</>}
       </span>
       {spend.exhausted && (
         <span role="alert" className="text-[var(--ct-yellow,#d97706)]">
-          Balance exhausted. Supporter uses deterministic results until{" "}
+          Credit unavailable. Supporter uses deterministic results until{" "}
           {spend.next_probe_at === null
             ? "the next check"
             : `the next check at ${new Date(spend.next_probe_at * 1000).toLocaleTimeString()}`}
@@ -47,7 +46,6 @@ export function SupporterSpendSummary({ spend }: { spend: SupporterSpend }) {
   return (
     <span aria-label="Supporter cost">
       {usd(spend.today)} today · {usd(spend.month)} month
-      {spend.remaining_usd !== null && <> · ${spend.remaining_usd.toFixed(4)} left</>}
     </span>
   );
 }

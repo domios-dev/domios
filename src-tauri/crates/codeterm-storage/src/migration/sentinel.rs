@@ -115,6 +115,7 @@ pub(super) fn cross_relations(domains: &[DomainImport], facts: &mut Facts) {
                         .map(|history| history.job_id.as_str()),
                 );
             }
+            DomainImport::Desk(_) => {}
             DomainImport::Sentinel(found) => records = found.as_slice(),
         }
     }

@@ -2,7 +2,7 @@ use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::io::Read;
 
-use crate::args::sentinel::SentinelAction;
+use crate::args::sentinel::{SentinelAction, SentinelEscalationAction};
 use crate::client::SocketClient;
 use crate::cmd::print::{fail, print_json};
 
@@ -97,6 +97,14 @@ pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: Senti
         );
         return;
     }
+    if method == "sentinel.escalation.resolve" {
+        println!(
+            "Resolved escalation {} for {}.",
+            result["transition_id"],
+            result["id"].as_str().unwrap_or("?")
+        );
+        return;
+    }
     if let Some(jobs) = result.as_array() {
         if jobs.is_empty() {
             println!("No sentinels.");
@@ -143,6 +151,7 @@ fn request(
             every,
             routes,
             handlers_file,
+            escalation_timeout_ms,
             paused,
             max_transitions,
             max_actions,
@@ -154,7 +163,7 @@ fn request(
             let observe = observe
                 .map(|source| observation_binding(&source))
                 .transpose()?;
-            params["create"] = json!({ "name": name, "probe": probe, "observe": observe, "question": question, "buckets": buckets, "every": every, "routes": routes, "handlers": handlers, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
+            params["create"] = json!({ "name": name, "probe": probe, "observe": observe, "question": question, "buckets": buckets, "every": every, "routes": routes, "handlers": handlers, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
             "sentinel.create"
         }
         SentinelAction::List => "sentinel.list",
@@ -181,6 +190,13 @@ fn request(
             params["id"] = json!(id);
             "sentinel.history"
         }
+        SentinelAction::Escalation { action } => match action {
+            SentinelEscalationAction::Resolve { id, transition_id } => {
+                params["id"] = json!(id);
+                params["transition_id"] = json!(transition_id);
+                "sentinel.escalation.resolve"
+            }
+        },
     };
     Ok((method, params))
 }
@@ -312,7 +328,7 @@ fn declared_outputs(
                     }
                     match (handler.kind.as_str(), parameters.target.as_deref()) {
                         ("notify" | "stop", None) => {}
-                        ("sentinel" | "send" | "cron", Some(target))
+                        ("sentinel" | "send" | "cron" | "escalate", Some(target))
                             if !target.trim().is_empty() => {}
                         _ => return Err("unknown handler type or invalid parameters".into()),
                     }
@@ -398,6 +414,41 @@ mod tests {
             std::fs::write(&path, raw).unwrap();
             assert!(declared_outputs(Vec::new(), Some(&path)).is_err());
         }
+    }
+
+    #[test]
+    fn sentinel_escalate_handlers_file_accepts_reserved_other_handler() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("handlers.json");
+        std::fs::write(
+            &path,
+            r#"{"other":[{"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}}]}"#,
+        )
+        .unwrap();
+
+        let (_, handlers) = declared_outputs(Vec::new(), Some(&path)).unwrap();
+
+        assert_eq!(
+            handlers.unwrap()["other"][0],
+            json!({"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}})
+        );
+    }
+
+    #[test]
+    fn sentinel_escalate_resolve_request_preserves_stage_and_transition_ids() {
+        let action = SentinelAction::Escalation {
+            action: SentinelEscalationAction::Resolve {
+                id: "sentinel_a".into(),
+                transition_id: "transition_9".into(),
+            },
+        };
+
+        let (method, params) =
+            request(action, Some("creator".into()), Some("nonce".into())).unwrap();
+
+        assert_eq!(method, "sentinel.escalation.resolve");
+        assert_eq!(params["id"], "sentinel_a");
+        assert_eq!(params["transition_id"], "transition_9");
     }
     #[test]
     fn sentinel_create_rpc_request_preserves_declared_handlers_and_tab_nonce() {

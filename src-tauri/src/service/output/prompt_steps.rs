@@ -38,13 +38,11 @@ fn dispatch_prompt_steps<F>(
             .or_default() += 1;
     }
     std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(500));
         if !still_bound() {
             return;
         }
         for step in steps {
             let _ = pty.lock().write(&pty_id, &step);
-            std::thread::sleep(std::time::Duration::from_millis(100));
         }
     });
 }

@@ -1,19 +1,12 @@
 use super::*;
 use crate::agent::prompt::parse_prompt_safely;
 use crate::agent::tab_state::TabStateSnapshot;
-use crate::multiplexer::types::Tab;
-use crate::service::general_agent::recovery::{
-    AUTOMATIC_ACTION_CONFIDENCE, OWNER_NOTIFICATION_CONFIDENCE,
-};
-use crate::service::unattended_launch::{at_unattended_launch, runs_unattended};
+use crate::multiplexer::types::{Tab, TabAudience};
+use crate::service::unattended_launch::{at_owned_launch_prompt, owns_prompt_answers};
 use codeterm_plugin::provider::DirectoryTrustPromptResponse;
 use codeterm_types::pty::PromptKind;
 
-const NON_AFFIRMATIVE_CHOICE: &str = "non_affirmative_choice";
-const UNDECLARED_CHOICE: &str = "undeclared_choice";
-
-/// The trust key the provider declares advances toward exactly one of its own options;
-/// that option is the only value the model may confirm.
+/// The trust responder's key identifies the provider-declared option for the structural fallback.
 pub(super) fn provider_target(provider: &dyn AgentProvider, screen: &str) -> Option<Target> {
     let prompt = parse_prompt_safely(|| provider.parse_directory_trust_prompt(screen))?;
     let Some(DirectoryTrustPromptResponse::Answer { step }) =
@@ -46,30 +39,41 @@ pub(super) fn provider_target(provider: &dyn AgentProvider, screen: &str) -> Opt
     })
 }
 
-pub(super) fn target_applies(tab: &Tab) -> bool {
-    at_unattended_launch(tab) && crate::service::directory_trust::directory_trust_check_applies(tab)
+/// Unattended launch gates confirm through the output-candidate producer.
+pub(super) fn confirms_unattended(kind: Kind, tab: Option<&Tab>) -> bool {
+    kind != Kind::Update && tab.is_some_and(target_applies)
 }
 
-/// Unattended launch gates confirm through the output-candidate producer, whose
-/// unanswered observation still reaches the deterministic fallback.
-pub(super) fn confirms_unattended(kind: Kind, tab: Option<&Tab>) -> bool {
-    kind != Kind::Update && tab.is_some_and(runs_unattended)
+pub(super) fn target_applies(tab: &Tab) -> bool {
+    at_owned_launch_prompt(tab) || tab.audience == TabAudience::UserOwnedAutomation
+}
+
+pub(super) fn permission_target(
+    provider: &dyn AgentProvider,
+    screen: &str,
+    prompt: PendingPrompt,
+    tool_name: &str,
+) -> Option<Target> {
+    let response = provider.permission_prompt_response(tool_name, &prompt, screen)?;
+    let choice = prompt.options.get(response.option_index)?.value.clone();
+    let step = response.steps.first()?.clone();
+    let frame_key = format!(
+        "tool-permission:{}",
+        frame_hash(&serde_json::to_string(&(&prompt, &step)).ok()?)
+    );
+    (unique_choice(&prompt, &choice) && !step.is_empty()).then_some(Target {
+        kind: Kind::Permission,
+        prompt,
+        choice,
+        frame_key,
+        step,
+    })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum UnattendedRoute {
     Model,
     Fallback(&'static str),
-    OwnerNotice(&'static str),
-}
-
-impl UnattendedRoute {
-    fn vetoes(self) -> bool {
-        matches!(
-            self,
-            Self::OwnerNotice(NON_AFFIRMATIVE_CHOICE | UNDECLARED_CHOICE)
-        )
-    }
 }
 
 pub(super) struct VerdictView<'a> {
@@ -82,122 +86,93 @@ pub(super) struct VerdictView<'a> {
 pub(super) fn route(
     target: Option<&Target>,
     verdict: &VerdictView<'_>,
-    qualified: bool,
-    vetoed: bool,
+    calibrated: bool,
 ) -> UnattendedRoute {
-    if vetoed {
-        return UnattendedRoute::OwnerNotice("vetoed");
-    }
-    if let (Some(target), Some((choice, _))) = (target, verdict.safe_choice) {
-        if choice != OTHER && choice != target.choice {
-            let declared = target.prompt.options.iter().any(|o| o.value == choice);
-            return UnattendedRoute::OwnerNotice(if declared {
-                NON_AFFIRMATIVE_CHOICE
-            } else {
-                UNDECLARED_CHOICE
-            });
-        }
-    }
     let Some(target) = target else {
         return UnattendedRoute::Fallback("no_candidate");
     };
     if !target.kind.label_matches(verdict.label) || !verdict.live_prompt {
-        return if verdict.confidence >= OWNER_NOTIFICATION_CONFIDENCE {
-            UnattendedRoute::OwnerNotice("model_disagrees")
-        } else {
-            UnattendedRoute::Fallback("low_confidence")
-        };
+        return UnattendedRoute::Fallback("not_prompt");
     }
-    let Some((_, choice_confidence)) = verdict
+    let Some((choice, choice_confidence)) = verdict
         .safe_choice
-        .filter(|(choice, _)| *choice == target.choice)
+        .filter(|(choice, _)| {
+            *choice != OTHER && target.prompt.options.iter().any(|option| option.value == *choice)
+        })
     else {
         return UnattendedRoute::Fallback("abstain");
     };
+    if !target.prompt.options.iter().any(|option| option.value == choice) {
+        return UnattendedRoute::Fallback("undeclared_choice");
+    }
     if ![verdict.confidence, choice_confidence]
         .iter()
-        .all(|confidence| (AUTOMATIC_ACTION_CONFIDENCE..=1.0).contains(confidence))
+        .all(|confidence| (0.80..=1.0).contains(confidence))
     {
         return UnattendedRoute::Fallback("low_confidence");
     }
-    if !qualified {
-        return UnattendedRoute::Fallback("unqualified");
+    if !calibrated {
+        return UnattendedRoute::Fallback("uncalibrated");
     }
     UnattendedRoute::Model
-}
-
-static VETOES: LazyLock<Mutex<HashMap<String, (String, u64)>>> = LazyLock::new(Default::default);
-
-fn veto_key(tab: &Tab, prompt: &PendingPrompt) -> (String, u64) {
-    (
-        identity::LocalIdentity::of_tab(tab).launch_key,
-        frame_hash(
-            &serde_json::to_string(&(&prompt.question, &prompt.options)).unwrap_or_default(),
-        ),
-    )
 }
 
 pub(super) struct Gate {
     kind: Kind,
     prompt: Option<(PendingPrompt, PromptKind)>,
     target: Option<Target>,
-    vetoed: bool,
-    answers: bool,
 }
 
 impl ServiceContext {
-    /// A provider-declared launch gate on a tab nobody watches: launch onboarding,
-    /// or a folder-trust dialog before the launch session authenticated.
     fn unattended_launch_gate(&self, tab_id: &str, screen: &str) -> Option<Gate> {
         let tab = self
             .mux
             .read()
             .get_tab(tab_id)
-            .filter(|tab| runs_unattended(tab))
+            .filter(|tab| owns_prompt_answers(tab))
             .cloned()?;
         let agent = tab.agent_type.clone()?;
         let provider = self.agent_registry.provider_arc(&agent)?;
-        let onboarding =
-            crate::service::directory_trust::launch_onboarding_check_applies(&tab, &agent)
-                && parse_prompt_safely(|| provider.launch_onboarding_response(screen)).is_some();
-        let kind = if onboarding {
-            Kind::Onboarding
-        } else if !tab.launch_session_authenticated()
-            && (parse_prompt_safely(|| provider.parse_directory_trust_prompt(screen)).is_some()
-                || self.provider_answers_directory_trust(&agent, screen))
-        {
-            Kind::DirectoryTrust
-        } else {
-            return None;
-        };
-        let prompt =
-            parse_prompt_safely(|| self.agent_registry.parse_interactive_prompt(&agent, screen))
-                .filter(|(prompt, kind)| {
-                    *kind == PromptKind::DirectoryTrust
-                        || !crate::agent::state_reactor::prompt_is_composer_text(screen, prompt)
-                });
-        let answers = kind == Kind::Onboarding
-            || matches!(
-                provider.directory_trust_prompt_response(screen),
-                Some(DirectoryTrustPromptResponse::Answer { .. })
-            );
-        let vetoed = prompt
-            .as_ref()
-            .is_some_and(|(prompt, _)| VETOES.lock().get(tab_id) == Some(&veto_key(&tab, prompt)));
         let target = self
             .model_safe_response_target(tab_id, screen)
-            .filter(|target| target.kind == kind);
+            .filter(|target| target.kind != Kind::Onboarding);
+        let parsed = parse_prompt_safely(|| {
+            self.agent_registry.parse_interactive_prompt(&agent, screen)
+        })
+        .filter(|(prompt, kind)| {
+            *kind == PromptKind::DirectoryTrust
+                || !crate::agent::state_reactor::prompt_is_composer_text(screen, prompt)
+        });
+        let kind = target.as_ref().map(|target| target.kind).or_else(|| {
+            if crate::service::output::manual_update_prompt_candidate(screen) {
+                Some(Kind::Update)
+            } else if !tab.launch_session_authenticated()
+                && parse_prompt_safely(|| provider.parse_directory_trust_prompt(screen)).is_some()
+            {
+                Some(Kind::DirectoryTrust)
+            } else if self
+                .prompt_detector
+                .lock()
+                .pending_permission_request(tab_id)
+                .is_some()
+            {
+                Some(Kind::Permission)
+            } else {
+                None
+            }
+        })?;
+        let prompt = target
+            .as_ref()
+            .map(|target| (target.prompt.clone(), target.kind.prompt_kind()))
+            .or_else(|| parsed);
         Some(Gate {
             kind,
             prompt,
             target,
-            vetoed,
-            answers,
         })
     }
 
-    /// Model-first decision for an unattended launch gate; `false` leaves the
-    /// candidate to the ordinary publication path.
+    /// Model-first decision for an owned prompt; `false` leaves other prompts alone.
     pub(crate) fn route_unattended_launch_prompt(
         &self,
         snapshot: &TabStateSnapshot,
@@ -207,11 +182,12 @@ impl ServiceContext {
         else {
             return false;
         };
-        let qualified = verdict
+        let calibrated = verdict
             .receipt
             .as_ref()
-            .zip(gate.target.as_ref())
-            .is_some_and(|(receipt, target)| receipt_qualified(receipt, target.kind));
+            .and_then(|receipt| receipt.metadata.envelope.as_ref())
+            .and_then(|envelope| envelope.adapter.as_ref())
+            .is_some_and(|adapter| adapter.supports_calibrated_choice_confidence());
         let decision = route(
             gate.target.as_ref(),
             &VerdictView {
@@ -223,26 +199,12 @@ impl ServiceContext {
                     .as_ref()
                     .map(|(choice, confidence)| (choice.as_str(), *confidence)),
             },
-            qualified,
-            gate.vetoed,
+            calibrated,
         );
         self.journal_unattended_route(&snapshot.tab_id, Some(verdict), gate.kind, decision);
         match decision {
             UnattendedRoute::Model => self.advance_unattended_model(snapshot, verdict, &gate),
             UnattendedRoute::Fallback(_) => self.resolve_unattended_gate(snapshot, &gate),
-            UnattendedRoute::OwnerNotice(_) => {
-                if let Some(envelope) = verdict
-                    .receipt
-                    .as_ref()
-                    .and_then(|receipt| receipt.metadata.envelope.as_ref())
-                {
-                    cancel_for_correlation(&snapshot.tab_id, &envelope.correlation);
-                }
-                if decision.vetoes() {
-                    self.veto_unattended_prompt(&snapshot.tab_id, &gate);
-                }
-                self.notify_unattended_owner(snapshot, &gate);
-            }
         }
         true
     }
@@ -255,20 +217,13 @@ impl ServiceContext {
         }
     }
 
-    /// A launch gate whose observation could not be queued still owes a decision.
+    /// An owned prompt whose observation could not be queued still owes a decision.
     pub(crate) fn resolve_unobserved_launch_gate(&self, snapshot: &TabStateSnapshot) {
         let Some(gate) = self.unattended_launch_gate(&snapshot.tab_id, &snapshot.screen_text)
         else {
+            self.resolve_scrape_candidate_heuristically(snapshot);
             return;
         };
-        if self
-            .prompt_detector
-            .lock()
-            .active_prompt_explicit(&snapshot.tab_id)
-            == Some(true)
-        {
-            return;
-        }
         self.journal_unattended_route(
             &snapshot.tab_id,
             None,
@@ -304,21 +259,23 @@ impl ServiceContext {
         gate: &Gate,
     ) {
         let Some(target) = gate.target.as_ref() else {
+            self.resolve_unattended_gate(snapshot, gate);
+            return;
+        };
+        let Some((choice, _)) = verdict.safe_choice.as_ref() else {
+            self.resolve_unattended_gate(snapshot, gate);
+            return;
+        };
+        let Some(option_index) = target
+            .prompt
+            .options
+            .iter()
+            .position(|option| option.value == *choice)
+        else {
+            self.resolve_unattended_gate(snapshot, gate);
             return;
         };
         let kind = target.kind.prompt_kind();
-        let established = self
-            .mux
-            .read()
-            .get_tab(&snapshot.tab_id)
-            .is_some_and(|tab| {
-                tab.pending_prompt.as_ref() == Some(&target.prompt)
-                    && tab.pending_prompt_kind == Some(kind)
-            });
-        if established {
-            self.try_model_safe_response(snapshot, verdict);
-            return;
-        }
         if !self.publish_unattended_launch_prompt(
             &snapshot.tab_id,
             &snapshot.screen_text,
@@ -335,23 +292,48 @@ impl ServiceContext {
             self.resolve_unattended_gate(snapshot, gate);
             return;
         }
-        let Some(scope) = self.followup_scope(&snapshot.tab_id, &snapshot.screen_text) else {
-            return;
-        };
-        if coordinator::global().claim_followup(&snapshot.tab_id, &scope, false) {
-            self.observe_unattended_candidate(snapshot, None);
+        if target.kind == Kind::Update {
+            super::super::super::provider_update::manual_prompt_observed(self, snapshot);
         }
+        let identity = codeterm_types::pty::PromptIdentity::new(kind, &target.prompt);
+        let result = self.respond_prompt_with_identity(
+            &snapshot.tab_id,
+            &(option_index + 1).to_string(),
+            &identity,
+        );
+        if matches!(
+            result,
+            Ok(crate::service::tab::RespondPromptOutcome::Sent)
+                | Ok(crate::service::tab::RespondPromptOutcome::Structured)
+        ) {
+            if target.kind == Kind::Update && *choice == target.choice {
+                super::super::super::provider_update::record_safe_prompt_answer(
+                    &snapshot.agent_type,
+                    &snapshot.tab_id,
+                );
+            }
+            return;
+        }
+        self.journal_unattended_route(
+            &snapshot.tab_id,
+            Some(verdict),
+            gate.kind,
+            UnattendedRoute::Fallback("response_failed"),
+        );
+        self.resolve_unattended_gate(snapshot, gate);
     }
 
     /// The deterministic responder decides under its own provenance and provider
     /// hook; whatever it will not answer goes to the owner once.
     fn resolve_unattended_gate(&self, snapshot: &TabStateSnapshot, gate: &Gate) {
-        if gate.vetoed {
-            self.notify_unattended_owner(snapshot, gate);
-            return;
-        }
         self.resolve_scrape_candidate_heuristically(snapshot);
-        if !gate.answers {
+        let unresolved = gate.prompt.as_ref().is_some_and(|(prompt, kind)| {
+            self.mux.read().get_tab(&snapshot.tab_id).is_some_and(|tab| {
+                tab.pending_prompt.as_ref() == Some(prompt)
+                    && tab.pending_prompt_kind == Some(*kind)
+            })
+        });
+        if unresolved {
             self.notify_unattended_owner(snapshot, gate);
         }
     }
@@ -365,13 +347,6 @@ impl ServiceContext {
                 kind,
                 true,
             );
-        }
-    }
-
-    fn veto_unattended_prompt(&self, tab_id: &str, gate: &Gate) {
-        let tab = self.mux.read().get_tab(tab_id).cloned();
-        if let Some((tab, (prompt, _))) = tab.zip(gate.prompt.as_ref()) {
-            VETOES.lock().insert(tab_id.into(), veto_key(&tab, prompt));
         }
     }
 
@@ -408,17 +383,12 @@ impl ServiceContext {
             title,
         );
         let (phase, decided_by, reason) = match decision {
-            UnattendedRoute::Model => {
-                ("unattended_model", "adapter".to_string(), "declared_choice")
-            }
-            UnattendedRoute::OwnerNotice(reason) => {
-                ("unattended_owner_notice", "adapter".to_string(), reason)
-            }
+            UnattendedRoute::Model => ("owned_model", "adapter".to_string(), "declared_choice"),
             UnattendedRoute::Fallback(reason) => {
-                ("unattended_fallback", format!("fallback({reason})"), reason)
+                ("owned_fallback", format!("fallback({reason})"), reason)
             }
         };
-        event["action"] = serde_json::json!("unattended_launch_prompt");
+        event["action"] = serde_json::json!("owned_prompt_answer");
         event["phase"] = serde_json::json!(phase);
         event["decided_by"] = serde_json::json!(decided_by);
         event["reason"] = serde_json::json!(reason);

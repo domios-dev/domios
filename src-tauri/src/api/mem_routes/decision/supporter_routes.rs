@@ -192,64 +192,6 @@ where
         })
 }
 
-#[derive(Deserialize)]
-pub struct SupporterBalanceBody {
-    adapter: Option<String>,
-    balance_usd: Option<f64>,
-}
-
-pub async fn supporter_balance(
-    AxumState(state): AxumState<AppState>,
-    SupporterJson(body): SupporterJson<SupporterBalanceBody>,
-) -> RouteResult {
-    let adapter = body
-        .adapter
-        .or_else(|| state.config.lock().supporter.adapter.clone())
-        .ok_or_else(no_active)?;
-    let Some(model) = state.svc.supporter_models.get(&adapter) else {
-        return Err(super::connection_routes::error(
-            crate::service::supporter::connections::ConnectionError {
-                code: "unknown_adapter",
-                message: "This adapter is not registered. Install it and refresh.",
-            },
-        ));
-    };
-    if body
-        .balance_usd
-        .is_some_and(|value| !value.is_finite() || value < 0.0)
-    {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            json_error(
-                "invalid_request",
-                "Balance must be a nonnegative USD value.",
-            ),
-        ));
-    }
-    let price = model.pricing();
-    if price.as_ref().is_none_or(|price| {
-        !price.input_usd_per_million.is_finite()
-            || !price.output_usd_per_million.is_finite()
-            || price.input_usd_per_million < 0.0
-            || price.output_usd_per_million < 0.0
-            || (price.input_usd_per_million == 0.0 && price.output_usd_per_million == 0.0)
-    }) {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            json_error("unavailable", "This adapter has no declared pricing."),
-        ));
-    }
-    let runtime = crate::service::supporter::runtime_with_notifications(&state.svc);
-    token_io(move || {
-        runtime
-            .set_balance(&adapter, price.as_ref(), body.balance_usd)
-            .map_err(|error| io::Error::other(error.to_string()))?;
-        Ok(spend_snapshot(&runtime, &adapter, price.as_ref()))
-    })
-    .await
-    .map(Json)
-}
-
 fn spend_snapshot(
     runtime: &crate::service::supporter::SupporterRuntime,
     adapter: &str,
@@ -257,10 +199,9 @@ fn spend_snapshot(
 ) -> Value {
     let mut spend = runtime.spend_status(adapter);
     if price.is_none() {
-        for period in ["today", "month", "since_balance"] {
+        for period in ["today", "month"] {
             spend[period]["estimated_usd"] = Value::Null;
         }
-        spend["remaining_usd"] = Value::Null;
     }
     spend
 }

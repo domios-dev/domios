@@ -1,9 +1,9 @@
 use super::records::{DeskLayoutNode, DeskSnapshot, DeskTeam, DeskTeamLifecycle, DeskWorkspace};
-use crate::WorkspaceRecord;
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
 use crate::repositories::{expect_matches, from_sql_u64, to_sql_u64, Expect, Revision};
 use crate::schema::{self, WORKSPACE_ORDER_REVISION};
+use crate::WorkspaceRecord;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
 
@@ -403,7 +403,7 @@ pub(super) fn select_tab(
     bump_desk(cx)
 }
 
-pub(super) fn remove_team(
+pub(crate) fn remove_team(
     cx: &mut WriteCx<'_>,
     id: &str,
     expect: Revision,
@@ -522,7 +522,7 @@ fn insert_layout(
             let fields_json = serde_json::to_string(&fields.values)
                 .map_err(|error| StorageError::invalid("desk leaf fields", error.to_string()))?;
             cx.write(
-                "INSERT INTO desk_layout_nodes (group_id, parent_id, ordinal, kind, tab_id, cwd, leaf_fields_json) \
+                "INSERT INTO desk_layout_nodes (group_id, parent_id, ordinal, kind, tab_id, cwd, fields_json) \
                  VALUES (?1, ?2, ?3, 'leaf', ?4, ?5, ?6)",
                 params![group_id, parent_id, ordinal, tab_id, cwd, fields_json],
             )?;
@@ -532,11 +532,14 @@ fn insert_layout(
             orientation,
             ratio,
             children,
+            fields,
         } => {
+            let fields_json = serde_json::to_string(fields)
+                .map_err(|error| StorageError::invalid("desk split fields", error.to_string()))?;
             cx.write(
-                "INSERT INTO desk_layout_nodes (group_id, parent_id, ordinal, kind, orientation, ratio) \
-                 VALUES (?1, ?2, ?3, 'split', ?4, ?5)",
-                params![group_id, parent_id, ordinal, orientation, ratio],
+                "INSERT INTO desk_layout_nodes (group_id, parent_id, ordinal, kind, orientation, ratio, fields_json) \
+                 VALUES (?1, ?2, ?3, 'split', ?4, ?5, ?6)",
+                params![group_id, parent_id, ordinal, orientation, ratio, fields_json],
             )?;
             let id = cx.conn.last_insert_rowid();
             for (child_ordinal, child) in children.iter().enumerate() {

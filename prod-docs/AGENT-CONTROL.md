@@ -128,13 +128,13 @@ The General Agent watchdog reacts to PTY death, provider exit to a shell and lau
 
 | Observed condition | Required evidence and response |
 |---|---|
-| Update prompt | The automatic provider coordinator answers classified prompts with the declared safe option. Outside that coordinator, model recovery additionally requires agreement with the option; otherwise notify. Details: `codeterm docs CONFIG`. |
+| Update prompt | An agent-owned tab may answer with one calibrated choice at 0.80 or above among provider-declared options. Owner-launched tabs keep the prompt for the owner. See `codeterm docs CONFIG`. |
 | Crash to shell | The provider is absent from this tab's process tree and its recovery session is verified. Resume in the same tab. |
 | Startup failure after its deadline | One restart within the overall episode limit. |
 | Error loop | One restart, then an owner notification if the condition continues. |
 | Sign-in or unavailable model/quota | Notify the owner with choices; never answer or switch the model automatically. |
-| Folder trust | Use the existing trust responder: provenance, the shared trust cache or a live same-provider tab in the exact directory can authorize the declared option. Otherwise ask the owner. |
-| Command/tool permission | Follow the tab's own permission policy. A Supporter verdict cannot grant permission. |
+| Folder trust | Use the existing trust responder: provenance, the shared trust cache or a live same-provider tab in the exact directory can authorize the declared option. Agent-owned launch and cron prompts may also use one calibrated declared choice. |
+| Command/tool permission | An agent-owned tab may use one calibrated provider-declared choice; otherwise the tab's own permission policy applies. |
 | `other` | Record the verdict; no recovery or hint. |
 
 Model-authorized automatic actions require two agreeing observations, each at least 0.90 confidence, plus the deterministic evidence above. Owner notifications require two agreeing observations at or above 0.80. Below 0.60 is ignored. The separate held-out check must achieve at least 0.95 precision on automatic-action labels before those actions are enabled; an unqualified row notifies instead.
@@ -143,7 +143,7 @@ There are at most two automatic restarts per General Agent episode (the configur
 
 Trust, permission and login notifications are suppressed for tabs the owner opened directly from the UI; the journal still records the condition. The General Agent, agent-spawned, Team, cron and hidden-worker tabs keep their notifications. After a Domios restart, restored tabs with the same condition produce one grouped notification per condition at restore completion. A durable key for tab, condition and launch prevents reporting the same condition twice across restarts.
 
-Unattended tabs (hidden tabs outside the owner's audience, such as cron runs and hidden Workers) handle launch onboarding and pre-authentication folder-trust prompts without the owner. A connected, qualified Supporter model may choose only a provider-declared answer, at 0.90 or above with two agreeing observations, and Domios writes exactly that declared step. Otherwise the deterministic responder answers under its usual provenance rules. An undeclared or refusing choice is never written; it and any prompt nobody will answer produce one owner notice. Visible tabs are unchanged. Details: `codeterm docs TAB-LIFECYCLE`.
+Agent-, Team-, worker- and cron-owned tabs, visible or hidden, may answer folder-trust, tool-permission and update prompts with one calibrated Supporter choice at 0.80 or above among provider-declared options. Domios uses the existing prompt response surface and never submits model-authored text. If the model is absent, fails, is capped, selects `other` or is below 0.80, the structural responder decides and unresolved prompts notify the owner. Folder-trust prompts at launch or in cron can use this choice without host provenance; provenance still decides elsewhere. Login, authentication, unavailable-model and quota prompts are never answered automatically. Tabs launched directly by the owner without agent or Team ownership keep owner-facing prompts. Details: `codeterm docs TAB-LIFECYCLE`.
 
 ## Command Palette
 
@@ -160,4 +160,4 @@ Domios tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

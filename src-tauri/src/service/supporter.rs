@@ -172,6 +172,9 @@ struct BudgetedModel {
 }
 
 impl DecisionModel for BudgetedModel {
+    fn supports_calibrated_choice_confidence(&self) -> bool {
+        self.model.supports_calibrated_choice_confidence()
+    }
     fn supports_question_batch(&self) -> bool {
         self.model.supports_question_batch()
     }

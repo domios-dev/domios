@@ -75,6 +75,7 @@ fn desk() -> DeskSnapshot {
                         DeskLayoutNode::Split {
                             orientation: "vertical".into(),
                             ratio: 0.62,
+                            fields: Default::default(),
                             children: vec![DeskLayoutNode::Leaf {
                                 tab_id: "hidden-ref".into(),
                                 cwd: None,
@@ -82,6 +83,7 @@ fn desk() -> DeskSnapshot {
                             }],
                         },
                     ],
+                    fields: Default::default(),
                 },
             }],
         }],

@@ -782,7 +782,6 @@ impl ServiceContext {
             std::thread::spawn(move || {
                 for step in steps {
                     let _ = pty.lock().write(&pid, &step);
-                    std::thread::sleep(std::time::Duration::from_millis(100));
                 }
             });
         } else {

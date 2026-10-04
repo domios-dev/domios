@@ -10,6 +10,8 @@ pub const MAX_HANDLERS_PER_BUCKET: usize = 16;
 pub const MAX_HANDLERS: usize = 64;
 pub const DEFAULT_TRANSITIONS: u16 = 64;
 pub const DEFAULT_ACTIONS: u16 = 256;
+pub const ESCALATION_RATE_WINDOW_MS: u64 = 300_000;
+pub const ESCALATION_RATE_LIMITED: &str = "sentinel_escalation_rate_limited";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -77,6 +79,7 @@ impl Definition {
                 (kind @ ("sentinel" | "send" | "cron"), Some(target)) => {
                     Route::parse(&format!("{kind}:{target}"))?
                 }
+                ("escalate", Some(target)) => Route::parse(&format!("escalate:{target}"))?,
                 _ => return Err("handler type or parameters are invalid".into()),
             }
         };
@@ -128,6 +131,32 @@ pub fn definitions(
     }
     validate(buckets, &result)?;
     Ok(result)
+}
+
+pub fn definitions_with_other(
+    buckets: &[String],
+    routes: BTreeMap<String, String>,
+    declared: Option<BTreeMap<String, Vec<Definition>>>,
+) -> Result<(BTreeMap<String, Vec<Handler>>, Vec<Handler>), String> {
+    let mut declared = declared;
+    let on_other = declared
+        .as_mut()
+        .and_then(|handlers| handlers.remove(crate::storage::OTHER_BUCKET));
+    let routes = definitions(buckets, routes, declared)?;
+    let on_other = match on_other {
+        Some(handlers) => definitions(
+            &[crate::storage::OTHER_BUCKET.into()],
+            BTreeMap::new(),
+            Some(BTreeMap::from([(
+                crate::storage::OTHER_BUCKET.into(),
+                handlers,
+            )])),
+        )?
+        .remove(crate::storage::OTHER_BUCKET)
+        .unwrap_or_default(),
+        None => Vec::new(),
+    };
+    Ok((routes, on_other))
 }
 
 pub(super) fn valid_id(id: &str) -> bool {
@@ -237,6 +266,7 @@ pub fn default_actions() -> u16 {
 enum Gate {
     Refuse,
     Exhausted,
+    RateLimited,
     Claim,
 }
 
@@ -276,10 +306,11 @@ impl Store {
         if let Err(error) = self.ensure_available() {
             return Staged::ready(Err(error));
         }
-        if id.is_empty() || id.len() > 128 || !job.buckets.iter().any(|declared| declared == bucket)
-        {
+        let declared = job.buckets.iter().any(|declared| declared == bucket)
+            || (bucket == crate::storage::OTHER_BUCKET && !job.on_other.is_empty());
+        if id.is_empty() || id.len() > 128 || !declared {
             return Staged::ready(Err(
-                "transition requires a stable identity and declared bucket".into(),
+                "transition requires a stable identity and declared or reserved bucket".into(),
             ));
         }
         let now = self.clock.now_ms();
@@ -375,11 +406,25 @@ impl Store {
             return Ok(Gate::Refuse);
         }
         if !current
-            .routes
-            .get(&transition.bucket)
+            .declared_handlers(&transition.bucket)
             .is_some_and(|handlers| handlers.contains(handler))
         {
             return Err("handler is not declared for the accepted transition".into());
+        }
+        let now = self.clock.now_ms();
+        if matches!(&handler.action, Route::Escalate(_))
+            && current.transitions.iter().any(|transition| {
+                transition.bucket == crate::storage::OTHER_BUCKET
+                    && transition.handlers.iter().any(|result| {
+                        result.handler_id == handler.id
+                            && result.claim_id.is_some()
+                            && result.accepted_at.is_some_and(|at| {
+                                now.saturating_sub(at) < ESCALATION_RATE_WINDOW_MS
+                            })
+                    })
+            })
+        {
+            return Ok(Gate::RateLimited);
         }
         let actions = current
             .transitions
@@ -403,6 +448,7 @@ impl Store {
         match self.claim_gate(job, transition_id, handler) {
             Ok(Gate::Claim) => {}
             Ok(Gate::Refuse) => return Staged::ready(Ok(None)),
+            Ok(Gate::RateLimited) => return Staged::ready(Err(ESCALATION_RATE_LIMITED.into())),
             Ok(Gate::Exhausted) => {
                 return self
                     .stage_stop(&job.id, "action_budget_exhausted")

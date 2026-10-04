@@ -61,11 +61,11 @@ export function trackTranscriptSend(key: string, status: ChatSendStatus, sentAtM
     sends.set(status.send_id, { correlationId, sentAtMs });
     pendingSends.set(key, sends);
   }
-  if (status.state === "confirmed") stampConfirmedTranscriptRow(key, status);
+  if (status.state === "delivered") stampConfirmedTranscriptRow(key, status);
 }
 
 export function stampConfirmedTranscriptRow(key: string, status: ChatSendStatus): boolean {
-  if (status.state !== "confirmed") return false;
+  if (status.state !== "delivered") return false;
   const sends = pendingSends.get(key);
   const pending = sends?.get(status.send_id);
   const correlationId = status.correlationId ?? pending?.correlationId;
