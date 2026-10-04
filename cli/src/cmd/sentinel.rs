@@ -49,6 +49,28 @@ fn render(job: &Value) {
     );
 }
 
+fn render_history(history: &Value) {
+    println!(
+        "{} history: current version {}{}",
+        history["sentinel_id"].as_str().unwrap_or("?"),
+        history["current_version"],
+        if history["history_truncated"].as_bool().unwrap_or(false) {
+            " (older versions truncated)"
+        } else {
+            ""
+        }
+    );
+    if let Some(versions) = history["versions"].as_array() {
+        for version in versions {
+            println!(
+                "Version {}: {}",
+                version["version"],
+                serde_json::to_string_pretty(&version["definition"]).unwrap_or_default()
+            );
+        }
+    }
+}
+
 pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: SentinelAction) {
     let (method, params) = request(
         action,
@@ -61,6 +83,18 @@ pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: Senti
         .unwrap_or_else(|error| fail(1, error.to_string()));
     if json_mode {
         print_json(&result);
+        return;
+    }
+    if method == "sentinel.history" {
+        render_history(&result);
+        return;
+    }
+    if method == "sentinel.update" {
+        println!(
+            "Updated {} to definition version {}.",
+            result["id"].as_str().unwrap_or("?"),
+            result["definition_version"]
+        );
         return;
     }
     if let Some(jobs) = result.as_array() {
@@ -132,6 +166,21 @@ fn request(
             params["id"] = json!(id);
             "sentinel.stop"
         }
+        SentinelAction::Update {
+            id,
+            expect_version,
+            from_file,
+            cause,
+        } => {
+            params["id"] = json!(id);
+            params["expect_version"] = json!(expect_version);
+            params["update"] = read_update(&from_file, cause.as_deref())?;
+            "sentinel.update"
+        }
+        SentinelAction::History { id } => {
+            params["id"] = json!(id);
+            "sentinel.history"
+        }
     };
     Ok((method, params))
 }
@@ -142,6 +191,27 @@ fn observation_binding(source: &str) -> Result<Value, String> {
         return Err("--observe: tab id must be nonempty and bounded".into());
     }
     Ok(json!({"kind":"tab", "id":tab_id}))
+}
+
+fn read_update(path: &std::path::Path, cause: Option<&str>) -> Result<Value, String> {
+    let mut raw = String::new();
+    std::fs::File::open(path)
+        .map_err(|error| error.to_string())?
+        .take(65_537)
+        .read_to_string(&mut raw)
+        .map_err(|error| error.to_string())?;
+    if raw.len() > 65_536 {
+        return Err("definition file exceeds 64 KiB".into());
+    }
+    let mut update: Value =
+        serde_json::from_str(&raw).map_err(|error| format!("invalid definition file: {error}"))?;
+    let object = update
+        .as_object_mut()
+        .ok_or("definition file must contain a JSON object")?;
+    if let Some(cause) = cause {
+        object.insert("cause".into(), json!(cause));
+    }
+    Ok(update)
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -374,6 +444,67 @@ mod tests {
             json!({"id":"handler_2","type":"sentinel","parameters":{"target":"sentinel_child"}})
         );
         assert_eq!(create["timeout"], "1h");
+    }
+
+    #[test]
+    fn sentinel_update_cli_json_round_trip_preserves_definition_and_history_request() {
+        use clap::Parser;
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("definition.json");
+        let definition = json!({
+            "name": "Updated graph",
+            "question": "Did it finish?",
+            "buckets": ["done"],
+            "every": "30s",
+            "routes": {"done": "notify"},
+            "matches": {"done": "^done$"},
+            "until": "done",
+            "on_other": [],
+            "max_transitions": 8,
+            "max_actions": 12,
+            "note": "new completion condition"
+        });
+        std::fs::write(&path, serde_json::to_vec(&definition).unwrap()).unwrap();
+        let cli = crate::args::cli::Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "update",
+            "sentinel_a",
+            "--expect-version",
+            "3",
+            "--from-file",
+            path.to_str().unwrap(),
+            "--cause",
+            "transition_2",
+        ])
+        .unwrap();
+        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+            panic!("unexpected command")
+        };
+        let (method, params) =
+            request(action, Some("editor".into()), Some("nonce".into())).unwrap();
+        assert_eq!(method, "sentinel.update");
+        assert_eq!(params["caller_tab_id"], "editor");
+        assert_eq!(params["session_binding_nonce"], "nonce");
+        assert_eq!(params["expect_version"], 3);
+        let mut expected = definition;
+        expected["cause"] = json!("transition_2");
+        assert_eq!(params["update"], expected);
+
+        let cli = crate::args::cli::Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "history",
+            "sentinel_a",
+        ])
+        .unwrap();
+        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+            panic!("unexpected command")
+        };
+        let (method, params) = request(action, Some("reader".into()), None).unwrap();
+        assert_eq!(method, "sentinel.history");
+        assert_eq!(params["id"], "sentinel_a");
     }
 }
 

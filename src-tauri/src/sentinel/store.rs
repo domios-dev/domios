@@ -517,7 +517,7 @@ impl Store {
     }
 
     /// Validates exact targets and collects unassociated stages joining the new scenario.
-    fn association_ids(&self, job: &Sentinel) -> Result<Vec<String>, String> {
+    pub(super) fn association_ids(&self, job: &Sentinel) -> Result<Vec<String>, String> {
         self.validate_targets(job)?;
         let mut association_ids = Vec::new();
         if job.scenario_id.is_some() {
@@ -958,8 +958,6 @@ impl Sentinel {
             || actions().any(|action| matches!(action, Route::Escalate(_)))
         {
             Some("escalation")
-        } else if self.definition_version != 1 || !self.amendments.is_empty() {
-            Some("definition amendment")
         } else {
             None
         }
