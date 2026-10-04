@@ -5,10 +5,13 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+mod directory_trust;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Kind {
     Update,
     Onboarding,
+    DirectoryTrust,
 }
 
 impl Kind {
@@ -16,12 +19,27 @@ impl Kind {
         match self {
             Self::Update => label == PROVIDER_UPDATE_PROMPT,
             Self::Onboarding => matches!(label, LOGIN_OR_AUTH_REQUIRED | STILL_STARTING),
+            Self::DirectoryTrust => label == TRUST_OR_PERMISSION_PROMPT,
         }
     }
     fn context(self) -> &'static str {
         match self {
             Self::Update => "update",
             Self::Onboarding => "onboarding",
+            Self::DirectoryTrust => "directory_trust",
+        }
+    }
+    fn prompt_kind(self) -> codeterm_types::pty::PromptKind {
+        match self {
+            Self::Update => codeterm_types::pty::PromptKind::ManualUpdate,
+            Self::Onboarding => codeterm_types::pty::PromptKind::Provider,
+            Self::DirectoryTrust => codeterm_types::pty::PromptKind::DirectoryTrust,
+        }
+    }
+    fn qualifying_label(self) -> &'static str {
+        match self {
+            Self::Update | Self::Onboarding => LOGIN_OR_AUTH_REQUIRED,
+            Self::DirectoryTrust => TRUST_OR_PERMISSION_PROMPT,
         }
     }
 }
@@ -291,7 +309,11 @@ pub(super) fn criteria_version() -> String {
             "prompt_visible": "current_interactive_prompt_noul_v1",
             "input_area": ["active_modal", "composer", "historical_or_draft_text", OTHER],
             "safe_choice": "unique_provider_option_values_plus_other_v1",
-            "actions": ["provider_declared_update_skip", "delegated_provider_onboarding_not_now"],
+            "actions": [
+                "provider_declared_update_skip",
+                "delegated_provider_onboarding_not_now",
+                "provider_declared_directory_trust_option"
+            ],
             "minimum_component": 0.90,
             "observations": "two_distinct_completed_ids_in_current_occurrence_and_step_v1",
         }))
@@ -307,7 +329,13 @@ fn recorded_qualification(
     .ok()
 }
 
-fn qualified_for(adapter: &str, model: Option<&str>, criteria: &str, heldout_hash: &str) -> bool {
+fn qualified_for(
+    adapter: &str,
+    model: Option<&str>,
+    criteria: &str,
+    heldout_hash: &str,
+    label: &str,
+) -> bool {
     #[cfg(test)]
     if model.is_some_and(|model| {
         QUALIFICATION_OVERRIDES
@@ -319,8 +347,27 @@ fn qualified_for(adapter: &str, model: Option<&str>, criteria: &str, heldout_has
     }
     recorded_qualification().is_some_and(|qualification| {
         qualification.authorizes(adapter, model, criteria, heldout_hash)
-            && qualification.supports_label(LOGIN_OR_AUTH_REQUIRED)
+            && qualification.supports_label(label)
     })
+}
+
+fn receipt_qualified(receipt: &Receipt, kind: Kind) -> bool {
+    let model = receipt
+        .metadata
+        .envelope
+        .as_ref()
+        .and_then(|envelope| envelope.adapter.as_ref())
+        .and_then(|model| model.model_id());
+    let heldout_hash = supporter::criteria_hash(include_bytes!(
+        "../../../../evals/tab-state-jev/heldout.jsonl"
+    ));
+    qualified_for(
+        &receipt.adapter_id,
+        model.as_deref(),
+        &criteria_version(),
+        &heldout_hash,
+        kind.qualifying_label(),
+    )
 }
 
 impl ServiceContext {
@@ -329,11 +376,7 @@ impl ServiceContext {
         let target = self.model_safe_response_target(tab_id, screen)?;
         let prompt = identity::prompt_hash(&tab)?;
         if tab.pending_prompt.as_ref() != Some(&target.prompt)
-            || tab.pending_prompt_kind
-                != Some(match target.kind {
-                    Kind::Update => codeterm_types::pty::PromptKind::ManualUpdate,
-                    Kind::Onboarding => codeterm_types::pty::PromptKind::Provider,
-                })
+            || tab.pending_prompt_kind != Some(target.kind.prompt_kind())
         {
             return None;
         }
@@ -386,13 +429,19 @@ impl ServiceContext {
         let provider = self
             .agent_registry
             .provider_arc(tab.agent_type.as_deref()?)?;
-        let target = provider_target(provider.as_ref(), screen)?;
-        if target.kind == Kind::Onboarding
-            && !super::super::directory_trust::launch_onboarding_check_applies(&tab, provider.id())
-        {
-            return None;
-        }
-        Some(target)
+        let target = provider_target(provider.as_ref(), screen).or_else(|| {
+            directory_trust::target_applies(&tab)
+                .then(|| directory_trust::provider_target(provider.as_ref(), screen))
+                .flatten()
+        })?;
+        let applies = match target.kind {
+            Kind::Update => true,
+            Kind::Onboarding => {
+                super::super::directory_trust::launch_onboarding_check_applies(&tab, provider.id())
+            }
+            Kind::DirectoryTrust => directory_trust::target_applies(&tab),
+        };
+        applies.then_some(target)
     }
 
     pub(super) fn add_safe_response_metadata(
@@ -483,11 +532,7 @@ impl ServiceContext {
         let tab = self.mux.read().get_tab(tab_id).cloned();
         let eligible = tab.as_ref().is_some_and(|tab| {
             tab.pending_prompt.as_ref() == Some(&target.prompt)
-                && tab.pending_prompt_kind
-                    == Some(match target.kind {
-                        Kind::Update => codeterm_types::pty::PromptKind::ManualUpdate,
-                        Kind::Onboarding => codeterm_types::pty::PromptKind::Provider,
-                    })
+                && tab.pending_prompt_kind == Some(target.kind.prompt_kind())
         });
         if !eligible
             || !receipt.unclaimed_mutation_current(self, tab_id)
@@ -496,16 +541,7 @@ impl ServiceContext {
             cancel_for_correlation(tab_id, &envelope.correlation);
             return Progress::NotHandled;
         }
-        let model = envelope.adapter.as_ref().and_then(|model| model.model_id());
-        let heldout_hash = supporter::criteria_hash(include_bytes!(
-            "../../../../evals/tab-state-jev/heldout.jsonl"
-        ));
-        let qualified = qualified_for(
-            &receipt.adapter_id,
-            model.as_deref(),
-            &criteria_version(),
-            &heldout_hash,
-        );
+        let qualified = receipt_qualified(receipt, target.kind);
         let Some(scope) = self.followup_scope(tab_id, &snapshot.screen_text) else {
             cancel_for_correlation(tab_id, &envelope.correlation);
             return Progress::NotHandled;
@@ -528,13 +564,18 @@ impl ServiceContext {
                 cancel_for_correlation(tab_id, &envelope.correlation);
                 return Progress::NotHandled;
             }
-            if self.observe_scrape_candidate_from(
-                snapshot.clone(),
-                |_| {},
-                ObservationTrigger::PromptConfirmation,
-                Some(envelope.observation_id),
-                envelope.local.as_ref(),
-            ) {
+            let queued = if directory_trust::confirms_unattended(target.kind, tab.as_ref()) {
+                self.observe_unattended_candidate(snapshot, envelope.local.as_ref())
+            } else {
+                self.observe_scrape_candidate_from(
+                    snapshot.clone(),
+                    |_| {},
+                    ObservationTrigger::PromptConfirmation,
+                    Some(envelope.observation_id),
+                    envelope.local.as_ref(),
+                )
+            };
+            if queued {
                 return Progress::ConfirmationQueued;
             }
             cancel_for_correlation(tab_id, &envelope.correlation);
@@ -563,6 +604,7 @@ impl ServiceContext {
             receipt.metadata.session_key, envelope.observation.occurrence
         );
         let occurrence = format!("{episode}:{}", target.frame_key);
+        let screen = snapshot.screen_text.clone();
         let claimed = match target.kind {
             Kind::Update => {
                 super::super::output::claim_manual_update_occurrence(tab_id, &occurrence)
@@ -572,6 +614,9 @@ impl ServiceContext {
                 &episode,
                 &target.frame_key,
             ),
+            Kind::DirectoryTrust => {
+                super::super::directory_trust::claim_model_trust_step(tab_id, &screen)
+            }
         };
         if !claimed {
             return Progress::NotHandled;
@@ -582,15 +627,17 @@ impl ServiceContext {
             Kind::Onboarding => {
                 super::super::directory_trust::model_onboarding_step_revision(&target.frame_key)
             }
+            Kind::DirectoryTrust => {
+                super::super::directory_trust::model_trust_step_revision(&screen)
+            }
         };
         let mut unchanged = ledgers.clone();
         match target.kind {
             Kind::Update => unchanged.update = envelope.ledgers.update,
-            Kind::Onboarding => unchanged.trust = envelope.ledgers.trust,
+            Kind::Onboarding | Kind::DirectoryTrust => unchanged.trust = envelope.ledgers.trust,
         }
         let service = self.clone();
         let tab = tab_id.clone();
-        let screen = snapshot.screen_text.clone();
         let receipt = receipt.clone();
         let step = target.step.clone();
         let label = verdict.label.clone();
@@ -603,21 +650,28 @@ impl ServiceContext {
             move || {
                 let own_ledger_current = match target.kind {
                     Kind::Update => ledgers.update == owned_revision,
-                    Kind::Onboarding => ledgers.trust == owned_revision,
+                    Kind::Onboarding | Kind::DirectoryTrust => ledgers.trust == owned_revision,
                 };
                 let current = own_ledger_current
                     && unchanged == receipt.metadata.envelope.as_ref().unwrap().ledgers
                     && receipt.current(&service, &tab, &ledgers)
                     && service.model_safe_response_target(&tab, &screen).as_ref() == Some(&target);
-                if target.kind == Kind::Onboarding {
-                    super::super::directory_trust::finish_model_onboarding_step(
-                        &tab,
-                        &episode,
-                        &target.frame_key,
-                        current,
-                    );
-                } else if !current {
-                    super::super::output::release_model_update_step(&tab, &occurrence);
+                match target.kind {
+                    Kind::Onboarding => {
+                        super::super::directory_trust::finish_model_onboarding_step(
+                            &tab,
+                            &episode,
+                            &target.frame_key,
+                            current,
+                        )
+                    }
+                    Kind::DirectoryTrust => super::super::directory_trust::finish_model_trust_step(
+                        &tab, &screen, current,
+                    ),
+                    Kind::Update if !current => {
+                        super::super::output::release_model_update_step(&tab, &occurrence)
+                    }
+                    Kind::Update => {}
                 }
                 let mut event = identity::journal(
                     &tab,
