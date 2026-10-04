@@ -721,6 +721,157 @@ fn reread(cron: &CronState) -> Result<(), CronCommitError> {
         .map_err(CronCommitError::NotApplied)
 }
 
+/// A Storage change admitted without waiting for COMMIT.
+struct Admitted<T> {
+    completion: Completion<Committed<CronApplied>>,
+    prepared: Prepared<T>,
+    bases: Vec<(String, Option<Revision>)>,
+}
+
+enum Admission<T> {
+    Unchanged(T),
+    Admitted(Admitted<T>),
+}
+
+impl CronStore {
+    /// Whether changes commit to Storage off the cron lock rather than to the legacy file.
+    pub(crate) fn commits_to_storage(&self) -> bool {
+        self.storage().is_some()
+    }
+
+    /// Admits a Storage change without waiting for COMMIT; `None` when nothing is written.
+    /// The future is driven by the completion's own wake and publishes only what committed.
+    pub(crate) fn stage<T, P>(
+        cron: &CronState,
+        mut prepare: P,
+    ) -> Result<
+        Option<impl Future<Output = Result<CronCommitted<T>, CronCommitError>> + Send + 'static>,
+        CronCommitError,
+    >
+    where
+        T: Send + 'static,
+        P: FnMut(&mut CronStore) -> Result<Prepared<T>, String> + Send + 'static,
+    {
+        let admitted = match admit(cron, &mut prepare)? {
+            Admission::Unchanged(_) => return Ok(None),
+            Admission::Admitted(admitted) => admitted,
+        };
+        let cron = cron.clone();
+        Ok(Some(async move {
+            settle_admitted(&cron, admitted, prepare).await
+        }))
+    }
+}
+
+/// Prepares and admits in one cron lock hold. A fenced store refuses, since settling its
+/// fence waits on committed reads.
+fn admit<T>(
+    cron: &CronState,
+    prepare: impl FnOnce(&mut CronStore) -> Result<Prepared<T>, String>,
+) -> Result<Admission<T>, CronCommitError> {
+    let mut store = cron.lock();
+    let repo = store
+        .storage()
+        .map(|storage| storage.repo.clone())
+        .ok_or_else(|| CronCommitError::NotApplied(STAGED_ONLY.to_string()))?;
+    if !store.fence_clear() {
+        return Err(CronCommitError::Fenced(
+            "an earlier cron outcome is unresolved".to_string(),
+        ));
+    }
+    let prepared = prepare(&mut store).map_err(CronCommitError::Refused)?;
+    if prepared.changes.is_empty() {
+        return Ok(Admission::Unchanged(prepared.value));
+    }
+    let Plan { writes, bases } = store
+        .plan(&prepared.changes)
+        .map_err(|error| CronCommitError::NotApplied(error.to_string()))?;
+    let completion = repo.apply(writes);
+    Ok(Admission::Admitted(Admitted {
+        completion,
+        prepared,
+        bases,
+    }))
+}
+
+/// Publishes the outcome once the completion wakes; a stale base rereads committed state
+/// and admits the same request again, as `commit` does.
+async fn settle_admitted<T>(
+    cron: &CronState,
+    mut admitted: Admitted<T>,
+    mut prepare: impl FnMut(&mut CronStore) -> Result<Prepared<T>, String>,
+) -> Result<CronCommitted<T>, CronCommitError> {
+    let mut attempts = 1;
+    loop {
+        let Admitted {
+            completion,
+            prepared,
+            bases,
+        } = admitted;
+        let outcome = completion.await;
+        match outcome {
+            Ok(committed) => {
+                let consistent = cron.lock().publish(
+                    &prepared.changes,
+                    &bases,
+                    &committed.value,
+                    committed.receipt.revision,
+                );
+                if !consistent && reread_settled(cron).await.is_err() {
+                    fence(cron, |fence| fence.reread = true);
+                }
+                return Ok(CronCommitted {
+                    value: prepared.value,
+                    removed: removed_ids(&committed.value),
+                    receipt: Some(committed.receipt),
+                });
+            }
+            Err(StorageError::StaleRevision { .. }) => {
+                if let Err(error) = reread_settled(cron).await {
+                    fence(cron, |fence| fence.reread = true);
+                    return Err(error);
+                }
+                if attempts == MAX_ATTEMPTS {
+                    return Err(CronCommitError::NotApplied(
+                        "cron jobs kept changing concurrently".to_string(),
+                    ));
+                }
+                attempts += 1;
+                admitted = match admit(cron, &mut prepare)? {
+                    Admission::Admitted(next) => next,
+                    Admission::Unchanged(value) => {
+                        return Ok(CronCommitted {
+                            value,
+                            removed: Vec::new(),
+                            receipt: None,
+                        })
+                    }
+                };
+            }
+            Err(error @ StorageError::Unconfirmed { .. }) => {
+                fence(cron, |fence| fence.reread = true);
+                return Err(CronCommitError::Unconfirmed(error.to_string()));
+            }
+            Err(error) => return Err(CronCommitError::NotApplied(error.to_string())),
+        }
+    }
+}
+
+/// `reread` driven by the read completion's wake instead of a blocking wait.
+async fn reread_settled(cron: &CronState) -> Result<(), CronCommitError> {
+    let repo = cron
+        .lock()
+        .storage()
+        .map(|storage| storage.repo.clone())
+        .ok_or_else(|| CronCommitError::NotApplied(STAGED_ONLY.to_string()))?;
+    let read = repo.snapshot().await.map_err(|error| {
+        CronCommitError::Unconfirmed(format!("committed cron state was not reread: {error}"))
+    })?;
+    cron.lock()
+        .merge(read.value.states, read.revision)
+        .map_err(CronCommitError::NotApplied)
+}
+
 /// Records a run completion; `Ok(true)` only for the first terminal transition, which
 /// alone may notify.
 pub(crate) fn finish_run(
