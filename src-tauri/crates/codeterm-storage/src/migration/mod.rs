@@ -5,17 +5,18 @@
 
 mod compare;
 mod cron;
+mod desk;
 mod live_capture;
 mod manifest;
 mod sentinel;
 mod source_inventory;
 
 pub use compare::{ComparisonReport, DomainComparison, ProjectionMismatch};
+pub use live_capture::LiveRootImportRequest;
 pub use manifest::{
     ExpectedDivergence, ImportMarker, ImportRefusal, MigrationError, RecordedManifest,
     RecoveryCandidate, RefusalReport, SourceStatus, IMPORT_MANIFEST_FORMAT,
 };
-pub use live_capture::LiveRootImportRequest;
 pub use source_inventory::{
     capture_sources, CaptureLimits, CaptureStep, Captured, EntryKind, Sha256Digest, SourceCapture,
     SourceFile, SourceRole,
@@ -41,16 +42,22 @@ const REFUSALS: &str = "refusals";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[non_exhaustive]
 pub enum ImportDomain {
+    Desk,
     Cron,
     Sentinel,
 }
 
 impl ImportDomain {
     /// Every domain, in transaction order; an import requires each exactly once.
-    pub const ALL: &'static [ImportDomain] = &[ImportDomain::Cron, ImportDomain::Sentinel];
+    pub const ALL: &'static [ImportDomain] = &[
+        ImportDomain::Cron,
+        ImportDomain::Sentinel,
+        ImportDomain::Desk,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
+            ImportDomain::Desk => "desk",
             ImportDomain::Cron => "cron",
             ImportDomain::Sentinel => "sentinel",
         }
@@ -62,12 +69,14 @@ impl ImportDomain {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum DomainImport {
+    Desk(crate::repositories::desk::DeskSnapshot),
     Cron(CronImport),
     Sentinel(Vec<SentinelImport>),
 }
 
 /// What a domain wrote, handed to its own verification before commit.
 enum Written {
+    Desk,
     Cron,
     Sentinel(SentinelCommit),
 }
@@ -93,6 +102,7 @@ impl From<ImportRefusal> for Halt {
 impl DomainImport {
     pub fn domain(&self) -> ImportDomain {
         match self {
+            DomainImport::Desk(_) => ImportDomain::Desk,
             DomainImport::Cron(_) => ImportDomain::Cron,
             DomainImport::Sentinel(_) => ImportDomain::Sentinel,
         }
@@ -100,6 +110,7 @@ impl DomainImport {
 
     fn empty(domain: ImportDomain) -> Self {
         match domain {
+            ImportDomain::Desk => DomainImport::Desk(desk::empty()),
             ImportDomain::Cron => DomainImport::Cron(CronImport::default()),
             ImportDomain::Sentinel => DomainImport::Sentinel(Vec::new()),
         }
@@ -107,6 +118,7 @@ impl DomainImport {
 
     fn preflight(&self, facts: &mut Facts) -> Result<(), ImportRefusal> {
         match self {
+            DomainImport::Desk(snapshot) => desk::preflight(snapshot, facts),
             DomainImport::Cron(import) => cron::preflight(import, facts),
             DomainImport::Sentinel(records) => sentinel::preflight(records, facts),
         }
@@ -114,6 +126,7 @@ impl DomainImport {
 
     fn occupied(&self, conn: &Connection) -> Result<bool, StorageError> {
         match self {
+            DomainImport::Desk(_) => desk::occupied(conn),
             DomainImport::Cron(_) => cron::occupied(conn),
             DomainImport::Sentinel(_) => sentinel::occupied(conn),
         }
@@ -121,6 +134,10 @@ impl DomainImport {
 
     fn write(&self, cx: &mut WriteCx<'_>) -> Result<Written, Halt> {
         match self {
+            DomainImport::Desk(snapshot) => {
+                desk::write(cx, snapshot.clone())?;
+                Ok(Written::Desk)
+            }
             DomainImport::Cron(import) => {
                 cron::write(cx, import)?;
                 Ok(Written::Cron)
@@ -131,6 +148,9 @@ impl DomainImport {
 
     fn verify(&self, cx: &WriteCx<'_>, written: &Written, plan: &ImportPlan) -> Result<(), Halt> {
         match (self, written) {
+            (DomainImport::Desk(snapshot), Written::Desk) => {
+                desk::verify(cx.conn, snapshot).map_err(Halt::Refused)
+            }
             (DomainImport::Cron(import), Written::Cron) => {
                 cron::verify(cx.conn, import, &plan.facts.divergences, cx.revision)
             }
@@ -151,6 +171,11 @@ pub enum SourceSelection {
     /// An explicitly chosen rotating backup, only for an absent or damaged (recoverable)
     /// current original, which stays captured.
     Backup(String),
+    /// Independently chooses desk backups; an absent snapshot with no rotating backup is acknowledged.
+    DeskBackups {
+        snapshot: Option<String>,
+        identities: Option<String>,
+    },
     /// Explicitly accepts an absent current original although recovery assets exist.
     AcknowledgeAbsent,
 }
@@ -192,6 +217,29 @@ pub struct IgnoredKeys {
 /// Pure decoding of captured original bytes; it must not read files or construct effects.
 pub trait LegacyDecoder {
     fn decode(&self, domain: ImportDomain, bytes: &[u8]) -> Result<DomainImport, DecodeFailure>;
+
+    fn decode_desk_snapshot(
+        &self,
+        bytes: &[u8],
+    ) -> Result<crate::repositories::desk::DeskSnapshot, DecodeFailure> {
+        match self.decode(ImportDomain::Desk, bytes)? {
+            DomainImport::Desk(snapshot) => Ok(snapshot),
+            other => Err(DecodeFailure::new(
+                DecodeFailureKind::Conflict,
+                format!("desk snapshot decoded as {}", other.domain().as_str()),
+            )),
+        }
+    }
+
+    fn decode_desk_identities(
+        &self,
+        _bytes: &[u8],
+    ) -> Result<Vec<crate::repositories::desk::DeskAgentSessionIdentity>, DecodeFailure> {
+        Err(DecodeFailure::new(
+            DecodeFailureKind::Unsupported,
+            "no desk identity catalogue decoder",
+        ))
+    }
 
     /// Keys `decode` accepted without keeping, recorded in the manifest, never refused.
     fn ignored_keys(&self, _domain: ImportDomain, _bytes: &[u8]) -> Vec<IgnoredKeys> {
@@ -286,12 +334,17 @@ impl Draft {
                 .get(&domain)
                 .cloned()
                 .unwrap_or(SourceSelection::Current);
-            let (origin, import, ignored) =
-                select(capture, decoder, domain, &selection, &mut self.statuses)?;
+            let (provenance, import, ignored) = if domain == ImportDomain::Desk {
+                desk::select_desk(capture, decoder, &selection, &mut self.statuses)?
+            } else {
+                let (origin, import, ignored) =
+                    select(capture, decoder, domain, &selection, &mut self.statuses)?;
+                (vec![(domain, origin)], import, ignored)
+            };
             for keys in &ignored {
                 self.facts.ignored(domain, keys);
             }
-            self.provenance.push((domain, origin));
+            self.provenance.extend(provenance);
             self.domains.push(import);
         }
         for import in &self.domains {
@@ -531,6 +584,10 @@ fn select(
                 Vec::new(),
             ))
         }
+        SourceSelection::DeskBackups { .. } => Err(ImportRefusal::InvalidSelection {
+            domain,
+            reason: "desk backup selections apply only to the desk domain",
+        }),
     }
 }
 
@@ -600,6 +657,8 @@ pub enum ImportTamper {
     CronDefinition,
     /// Alters the generation in the Sentinel aggregates read back after their write.
     SentinelReadBack,
+    /// Attempts one child insert with a missing domain-owned foreign key target.
+    ForeignKey(ImportDomain),
 }
 
 #[derive(Clone, Copy)]
@@ -631,6 +690,26 @@ impl Tamper {
                         }
                     }
                 }
+                Ok(())
+            }
+            #[cfg(feature = "test-support")]
+            Tamper::Apply(ImportTamper::ForeignKey(domain)) => {
+                let statement = match domain {
+                    ImportDomain::Desk => {
+                        "INSERT INTO desk_tabs (id, workspace_id, ordinal, title, sort_order, revision) \
+                         VALUES ('fk-missing', 'fk-missing', 0, 'fk', 0, 1)"
+                    }
+                    ImportDomain::Cron => {
+                        "INSERT INTO cron_runs (job_id, run_id, started_at, status) \
+                         VALUES ('fk-missing', 'fk-missing', 0, 'success')"
+                    }
+                    ImportDomain::Sentinel => {
+                        "INSERT INTO sentinel_definitions (sentinel_id, version, provenance, probe, question, interval_ms, max_transitions, max_actions, created_revision) \
+                         VALUES ('fk-missing', 1, 'imported', 'probe', 'question', 1, 1, 1, 1)"
+                    }
+                    _ => return Err(StorageError::invalid("legacy import", "unknown domain")),
+                };
+                cx.write(statement, [])?;
                 Ok(())
             }
         }

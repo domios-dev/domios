@@ -9,6 +9,7 @@ use crate::repositories::cron::{
     CronHistoryImport, CronImport, CronJobId, CronJobImport, CronLastRunDivergence, CronRunId,
     CronSnapshot,
 };
+use crate::repositories::desk::{DeskLayoutNode, DeskSnapshot};
 use crate::repositories::sentinel::{DefinitionProvenance, SentinelImport, SentinelRecord};
 use crate::repositories::Revision;
 use std::collections::{BTreeMap, HashSet};
@@ -244,6 +245,56 @@ pub(crate) fn diff_sentinel(
     }
 }
 
+pub(crate) fn diff_desk(expected: &DeskSnapshot, actual: &DeskSnapshot, diff: &mut Diff) {
+    if expected.version != actual.version {
+        diff.note("desk", "version");
+    }
+    if expected.timestamp != actual.timestamp {
+        diff.note("desk", "timestamp");
+    }
+    if expected.active_workspace_id != actual.active_workspace_id {
+        diff.note("desk", "active_workspace");
+    }
+    if expected.workspaces != actual.workspaces {
+        diff.note("workspaces", "content_or_order");
+    }
+    if expected.teams != actual.teams {
+        diff.note("teams", "content_or_order");
+    }
+    if expected.agent_session_identities != actual.agent_session_identities {
+        diff.note("identity_catalogue", "content_or_order");
+    }
+}
+
+fn layout_count(node: &DeskLayoutNode) -> u64 {
+    match node {
+        DeskLayoutNode::Leaf { .. } => 1,
+        DeskLayoutNode::Split { children, .. } => children
+            .iter()
+            .map(layout_count)
+            .fold(1_u64, u64::saturating_add),
+    }
+}
+
+fn desk_counts(snapshot: &DeskSnapshot) -> (u64, u64) {
+    let tabs = snapshot
+        .workspaces
+        .iter()
+        .map(|workspace| workspace.tabs.len() as u64)
+        .fold(0_u64, u64::saturating_add);
+    let entities = (snapshot.workspaces.len() as u64)
+        .saturating_add(tabs)
+        .saturating_add(snapshot.teams.len() as u64)
+        .saturating_add(snapshot.agent_session_identities.len() as u64);
+    let layouts = snapshot
+        .workspaces
+        .iter()
+        .flat_map(|workspace| &workspace.tabs)
+        .map(|tab| layout_count(&tab.layout))
+        .fold(0_u64, u64::saturating_add);
+    (entities, layouts)
+}
+
 fn transition_count(transitions: impl Iterator<Item = usize>) -> u64 {
     transitions.map(|count| count as u64).sum()
 }
@@ -288,6 +339,13 @@ pub(crate) fn verify_committed(
     let mut domains = Vec::new();
     for import in plan.domains() {
         domains.push(match import {
+            DomainImport::Desk(expected) => {
+                let state = storage.desk().snapshot().wait(deadline)?.value;
+                let actual = &state.snapshot;
+                let mut diff = Diff::new(ImportDomain::Desk);
+                diff_desk(expected, actual, &mut diff);
+                diff.report(desk_counts(expected), desk_counts(actual))
+            }
             DomainImport::Cron(expected) => {
                 let snapshot = storage.crons().snapshot().wait(deadline)?.value;
                 let (actual, observed) = project_snapshot(&snapshot);
