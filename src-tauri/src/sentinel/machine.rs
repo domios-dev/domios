@@ -10,6 +10,25 @@ pub const MIN_INTERVAL_MS: u64 = 10_000;
 pub const ROUTE_CONFIDENCE: f64 = 0.80;
 pub const MAX_BUCKETS: usize = 16;
 
+/// Prompt class a respond-prompt handler requests an answer for; the answer path alone
+/// chooses among the provider-declared options.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SafeKind {
+    DirectoryTrust,
+    Onboarding,
+    Update,
+    Permission,
+    Structured,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EscalateTarget {
+    Creator,
+    Agent(String),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -24,6 +43,8 @@ pub enum Route {
     Sentinel(String),
     Stop,
     Command(super::command::Parameters),
+    RespondPrompt(SafeKind),
+    Escalate(EscalateTarget),
 }
 
 impl Route {
@@ -72,6 +93,9 @@ pub struct Machine {
     pub stopped: bool,
     #[serde(default)]
     pub paused: bool,
+    /// The `other` transition whose escalation holds the stage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub held: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]

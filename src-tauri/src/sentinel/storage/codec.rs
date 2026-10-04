@@ -2,22 +2,46 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::sentinel::amend::Amendment;
 use crate::sentinel::command::{Capture, Parameters, ResultMetadata, Status as CommandStatus};
 use crate::sentinel::graph::Identity;
 use crate::sentinel::handlers::{Handler, ResultRecord, Status, Transition};
-use crate::sentinel::machine::{Machine, Route};
+use crate::sentinel::machine::{EscalateTarget, Machine, Route, SafeKind};
+use crate::sentinel::source::{RunBinding, TabBinding};
 use crate::sentinel::store::Sentinel;
 use crate::storage::{
-    BatchFence, BucketDefinition, CaptureRecord, CommandParameters, CommandResultRecord,
-    CommandStatus as StoredCommandStatus, HandlerAction, HandlerDefinition, HandlerResultRecord,
-    HandlerStatus, NewTransition, RuntimeOutcome, SentinelCreate, SentinelId, SentinelIdentity,
-    SentinelImport, SentinelScope, StageDefinition, StageRuntime, StoredSentinel, TargetIdentity,
-    TransitionRecord,
+    AmendmentRecord, BatchFence, BucketDefinition, CaptureRecord, CommandParameters,
+    CommandResultRecord, CommandStatus as StoredCommandStatus,
+    EscalateTarget as StoredEscalateTarget, HandlerAction, HandlerDefinition, HandlerResultRecord,
+    HandlerStatus, NewTransition, ObserveKind, ObserveSource, RunRecord, RuntimeOutcome,
+    SafeKind as StoredSafeKind, SentinelCreate, SentinelId, SentinelIdentity, SentinelImport,
+    SentinelScope, StageDefinition, StageRuntime, StoredSentinel, TargetIdentity, TransitionRecord,
 };
 
 pub(super) fn id(id: &str) -> Result<SentinelId, String> {
     SentinelId::new(id).map_err(|error| format!("invalid sentinel identity: {error}"))
 }
+
+fn safe_kind(kind: SafeKind) -> StoredSafeKind {
+    match kind {
+        SafeKind::DirectoryTrust => StoredSafeKind::DirectoryTrust,
+        SafeKind::Onboarding => StoredSafeKind::Onboarding,
+        SafeKind::Update => StoredSafeKind::Update,
+        SafeKind::Permission => StoredSafeKind::Permission,
+        SafeKind::Structured => StoredSafeKind::Structured,
+    }
+}
+
+fn domain_safe_kind(kind: StoredSafeKind) -> SafeKind {
+    match kind {
+        StoredSafeKind::DirectoryTrust => SafeKind::DirectoryTrust,
+        StoredSafeKind::Onboarding => SafeKind::Onboarding,
+        StoredSafeKind::Update => SafeKind::Update,
+        StoredSafeKind::Permission => SafeKind::Permission,
+        StoredSafeKind::Structured => SafeKind::Structured,
+    }
+}
+
 fn action(route: &Route) -> HandlerAction {
     match route {
         Route::Notify => HandlerAction::Notify,
@@ -30,6 +54,13 @@ fn action(route: &Route) -> HandlerAction {
             label: parameters.label.clone(),
             timeout_ms: parameters.timeout_ms,
         }),
+        Route::RespondPrompt(kind) => HandlerAction::RespondPrompt(safe_kind(*kind)),
+        Route::Escalate(EscalateTarget::Creator) => {
+            HandlerAction::Escalate(StoredEscalateTarget::Creator)
+        }
+        Route::Escalate(EscalateTarget::Agent(tab)) => {
+            HandlerAction::Escalate(StoredEscalateTarget::Agent(tab.clone()))
+        }
     }
 }
 
@@ -45,6 +76,67 @@ fn route(action: HandlerAction) -> Route {
             label: parameters.label,
             timeout_ms: parameters.timeout_ms,
         }),
+        HandlerAction::RespondPrompt(kind) => Route::RespondPrompt(domain_safe_kind(kind)),
+        HandlerAction::Escalate(StoredEscalateTarget::Creator) => {
+            Route::Escalate(EscalateTarget::Creator)
+        }
+        HandlerAction::Escalate(StoredEscalateTarget::Agent(tab)) => {
+            Route::Escalate(EscalateTarget::Agent(tab))
+        }
+    }
+}
+
+fn handler_definition(handler: &Handler) -> HandlerDefinition {
+    HandlerDefinition {
+        id: handler.id.clone(),
+        action: action(&handler.action),
+        target: handler.target.as_ref().map(target),
+    }
+}
+
+fn domain_handler(handler: HandlerDefinition) -> Handler {
+    Handler {
+        id: handler.id,
+        action: route(handler.action),
+        target: handler.target.map(identity),
+    }
+}
+
+fn observe(binding: &TabBinding) -> ObserveSource {
+    let (kind, reference) = match binding {
+        TabBinding::Tab(id) => (ObserveKind::Tab, id),
+        TabBinding::CronRun(id) => (ObserveKind::CronRun, id),
+    };
+    ObserveSource {
+        kind,
+        reference: reference.clone(),
+    }
+}
+
+fn domain_observe(source: ObserveSource) -> TabBinding {
+    match source.kind {
+        ObserveKind::Tab => TabBinding::Tab(source.reference),
+        ObserveKind::CronRun => TabBinding::CronRun(source.reference),
+    }
+}
+
+fn amendment(amendment: &Amendment) -> AmendmentRecord {
+    AmendmentRecord {
+        version: amendment.version,
+        replaced_version: amendment.replaced_version,
+        author_tab_id: amendment.author_tab_id.clone(),
+        cause_transition_id: amendment.cause_transition_id.clone(),
+        authored_at: amendment.at,
+    }
+}
+
+fn domain_amendment(record: AmendmentRecord) -> Amendment {
+    Amendment {
+        version: record.version,
+        replaced_version: record.replaced_version,
+        author_tab_id: record.author_tab_id,
+        cause_transition_id: record.cause_transition_id,
+        at: record.authored_at,
     }
 }
 
@@ -225,25 +317,21 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
         .map(|bucket| BucketDefinition {
             name: bucket.clone(),
             match_pattern: job.matches.get(bucket).cloned(),
-            handlers: job.routes[bucket]
-                .iter()
-                .map(|handler| HandlerDefinition {
-                    id: handler.id.clone(),
-                    action: action(&handler.action),
-                    target: handler.target.as_ref().map(target),
-                })
-                .collect(),
+            handlers: job.routes[bucket].iter().map(handler_definition).collect(),
         })
         .collect();
     Ok(StageDefinition {
         name: job.name.clone(),
         probe: job.probe.clone(),
+        observe: job.observe.as_ref().map(observe),
         question: job.question.clone(),
         interval_ms: job.interval_ms,
         until: job.until.clone(),
+        escalation_timeout_ms: job.escalation_timeout_ms,
         max_transitions: job.max_transitions,
         max_actions: job.max_actions,
         buckets,
+        on_other: job.on_other.iter().map(handler_definition).collect(),
     })
 }
 
@@ -257,6 +345,21 @@ fn runtime(job: &Sentinel) -> StageRuntime {
         last_hash: job.machine.last_hash.clone(),
         last_bucket: job.machine.last_bucket.clone(),
         last_reason: job.last_reason.clone(),
+        held: job.machine.held.clone(),
+        run: job.run.as_ref().map(|run| RunRecord {
+            run_id: run.run_id.clone(),
+            tab_id: run.tab_id.clone(),
+            bound_at: run.bound_at,
+        }),
+    }
+}
+
+/// The imported head's own lineage; earlier amendments have no stored definition to join.
+fn head_amendment(job: &Sentinel) -> Result<Option<AmendmentRecord>, String> {
+    match job.amendments.as_slice() {
+        [] if job.definition_version == 1 => Ok(None),
+        [head] if head.version == job.definition_version => Ok(Some(amendment(head))),
+        _ => Err("sentinel amendment lineage is not losslessly representable".into()),
     }
 }
 
@@ -281,6 +384,9 @@ pub(super) fn create(job: &Sentinel, associate: &[String]) -> Result<SentinelCre
     if !job.transitions.is_empty() {
         return Err("a new sentinel carries no accepted transitions".into());
     }
+    if job.definition_version != 1 || !job.amendments.is_empty() {
+        return Err("a new sentinel starts at definition version 1 without amendments".into());
+    }
     Ok(SentinelCreate {
         identity: stage_identity(job)?,
         scenario_id: scenario(job)?,
@@ -298,6 +404,8 @@ pub(super) fn import(job: &Sentinel) -> Result<SentinelImport, String> {
     Ok(SentinelImport {
         identity: stage_identity(job)?,
         scenario_id: scenario(job)?,
+        version: job.definition_version,
+        amendment: head_amendment(job)?,
         definition: definition(job)?,
         runtime: runtime(job),
         transitions: job.transitions.iter().map(transition).collect(),
@@ -325,6 +433,7 @@ pub(super) fn fence(job: &Sentinel, transition: &str) -> BatchFence {
 /// The committed aggregate as a domain Sentinel; the definition is the current head version.
 pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
     let record = stored.record.clone();
+    let definition_version = record.definition.version;
     let definition = record.definition.definition;
     let mut buckets = Vec::with_capacity(definition.buckets.len());
     let mut routes = BTreeMap::new();
@@ -333,15 +442,7 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
         if let Some(pattern) = bucket.match_pattern {
             matches.insert(bucket.name.clone(), pattern);
         }
-        let handlers: Vec<Handler> = bucket
-            .handlers
-            .into_iter()
-            .map(|handler| Handler {
-                id: handler.id,
-                action: route(handler.action),
-                target: handler.target.map(identity),
-            })
-            .collect();
+        let handlers: Vec<Handler> = bucket.handlers.into_iter().map(domain_handler).collect();
         routes.insert(bucket.name.clone(), handlers);
         buckets.push(bucket.name);
     }
@@ -366,6 +467,7 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
             last_bucket: runtime.last_bucket,
             stopped: runtime.stopped,
             paused: runtime.paused,
+            held: runtime.held,
         },
         last_reason: runtime.last_reason,
         revision: runtime.generation,
@@ -378,6 +480,24 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
             .transitions
             .into_iter()
             .map(domain_transition)
+            .collect(),
+        observe: definition.observe.map(domain_observe),
+        run: runtime.run.map(|run| RunBinding {
+            run_id: run.run_id,
+            tab_id: run.tab_id,
+            bound_at: run.bound_at,
+        }),
+        on_other: definition
+            .on_other
+            .into_iter()
+            .map(domain_handler)
+            .collect(),
+        escalation_timeout_ms: definition.escalation_timeout_ms,
+        definition_version,
+        amendments: record
+            .amendments
+            .into_iter()
+            .map(domain_amendment)
             .collect(),
     }
 }
