@@ -44,7 +44,7 @@ pub async fn save_session_api(
     if actions > 1 {
         return Err((
             StatusCode::BAD_REQUEST,
-            "session save accepts one continuation action",
+            "session save accepts one continuation action".to_string(),
         ));
     }
     let caller = crate::api::tab_routes::caller_tab_header(&headers);

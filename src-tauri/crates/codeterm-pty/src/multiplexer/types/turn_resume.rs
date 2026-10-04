@@ -149,14 +149,6 @@ pub fn suppress_continue(
     {
         return false;
     }
-    if mark.as_ref().is_some_and(|current| {
-        current
-            .settled
-            .as_ref()
-            .is_some_and(|settlement| settlement.start_epoch == start_epoch)
-    }) {
-        return false;
-    }
     let current = mark
         .get_or_insert_with(|| TurnResumeMark::new(session_id, start_epoch, None));
     current.settled = Some(TurnResumeSettlement {

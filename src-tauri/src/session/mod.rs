@@ -31,7 +31,7 @@ fn save_current_snapshot_after_lock(
     intent: store::SaveIntent,
     after_lock: impl FnOnce(),
 ) -> Result<store::SaveOutcome, String> {
-    let mut store = session.lock();
+    let store = session.lock();
     after_lock();
     let snapshot = mux.read().to_session_snapshot();
     store
@@ -44,7 +44,7 @@ pub(crate) fn save_current_snapshot_named(
     mux: &MuxState,
     name: &str,
 ) -> Result<(), String> {
-    let mut store = session.lock();
+    let store = session.lock();
     let snapshot = mux.read().to_session_snapshot();
     store
         .save_named(name, &snapshot)
@@ -57,7 +57,7 @@ pub(crate) fn save_captured_snapshot_with_live_identities(
     captured: &SessionSnapshot,
     intent: store::SaveIntent,
 ) -> Result<store::SaveOutcome, String> {
-    let mut store = session.lock();
+    let store = session.lock();
     let live = mux.read().to_session_snapshot();
     let mut snapshot = captured.clone();
     merge_live_agent_identities(&mut snapshot, &live);

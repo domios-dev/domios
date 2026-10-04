@@ -497,14 +497,10 @@ impl ServiceContext {
             } else {
                 let session_id = tab
                     .agent_session_id
-                    .as_deref()
-                    .or_else(|| {
-                        tab.turn_resume
-                            .as_ref()
-                            .map(|mark| mark.session_id.as_str())
-                    })
+                    .clone()
+                    .or_else(|| tab.turn_resume.as_ref().map(|mark| mark.session_id.clone()))
                     .unwrap_or_default();
-                suppress_continue(&mut tab.turn_resume, session_id, start_epoch)
+                suppress_continue(&mut tab.turn_resume, &session_id, start_epoch)
             }
         };
         if changed {
@@ -634,7 +630,7 @@ impl ServiceContext {
                 self.withdraw_turn_resume(tab_id, start_epoch, SESSION_CHANGED);
             }
             Err(DeliveryFailure::SendRefused(error)) => {
-                if crate::service::pty_io::send::delivery_is_unknown(&error) {
+                if crate::service::pty_io::delivery_is_unknown(&error) {
                     log::warn!(
                         "[turn-resume] tab={tab_id} session={} continue outcome unknown after write: {error}",
                         claim.session_id
