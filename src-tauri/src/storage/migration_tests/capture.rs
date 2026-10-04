@@ -234,6 +234,36 @@ fn storage_migration_listing_change_mid_capture_refuses() {
 }
 
 #[test]
+fn storage_migration_unreadable_entry_change_mid_capture_refuses() {
+    let f = Fixture::new();
+    let current = f.source().join("crons.json");
+    fs::create_dir_all(&current).expect("a directory where the file belongs");
+    f.put("sentinels.json", SENTINELS.as_bytes());
+
+    let error = SourceCapture::capture_observed(
+        &f.source(),
+        &f.backup(),
+        CaptureLimits::default(),
+        &mut |relative: &str| {
+            if relative == "crons.json" {
+                fs::remove_dir(&current).expect("replace the unreadable entry");
+                fs::write(&current, CRONS).expect("with a readable file");
+            }
+            CaptureStep::Continue
+        },
+    )
+    .expect_err("an unreadable entry that changed under the capture refuses");
+
+    assert_eq!(
+        refusal(error),
+        ImportRefusal::SourceChanged {
+            relative: "crons.json".to_string()
+        }
+    );
+    assert!(!f.backup().join("capture.manifest").exists());
+}
+
+#[test]
 fn storage_migration_interrupted_capture_restarts_idempotently() {
     let f = Fixture::seeded();
     f.put(BAK_1, CRONS.as_bytes());

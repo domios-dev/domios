@@ -146,7 +146,8 @@ impl DomainImport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceSelection {
     Current,
-    /// An explicitly chosen rotating backup; the damaged current original stays captured.
+    /// An explicitly chosen rotating backup, only for an absent or damaged (recoverable)
+    /// current original, which stays captured.
     Backup(String),
     /// Explicitly accepts an absent current original although recovery assets exist.
     AcknowledgeAbsent,
@@ -245,6 +246,8 @@ pub struct ImportReceipt {
     pub capture_sha256: Sha256Digest,
     pub divergences: Vec<ExpectedDivergence>,
     pub comparison: Result<ComparisonReport, StorageError>,
+    /// The sealed copies and both manifests re-hashed after commit.
+    pub archive: Result<(), ImportRefusal>,
     pub recorded: RecordedManifest,
 }
 
@@ -377,6 +380,17 @@ impl ImportPlan {
         self.digest
     }
 
+    /// Re-hashes every sealed copy, the capture manifest and the import manifest.
+    fn verify_archive(&self) -> Result<(), ImportRefusal> {
+        self.capture.verify_sealed()?;
+        source_inventory::verify_immutable(
+            self.capture.backup_dir(),
+            IMPORT_MANIFEST,
+            self.manifest.len() as u64,
+            self.digest,
+        )
+    }
+
     fn refuse(&self, refusal: ImportRefusal) -> MigrationError {
         record_refusal(
             &PlanContext {
@@ -478,7 +492,16 @@ fn select(
                     reason: "names no rotating backup of this domain",
                 })?;
             if let Some(current) = current {
-                let _status_recorded = decode(capture, decoder, domain, current, statuses)?;
+                let damaged = match decode(capture, decoder, domain, current, statuses)? {
+                    Ok(_) => false,
+                    Err(status) => status.recoverable(),
+                };
+                if !damaged {
+                    return Err(ImportRefusal::InvalidSelection {
+                        domain,
+                        reason: "a backup stands in only for an absent or damaged original",
+                    });
+                }
             }
             match decode(capture, decoder, domain, file, statuses)? {
                 Ok((import, ignored)) => Ok((
@@ -612,27 +635,12 @@ impl Tamper {
     }
 }
 
-/// Everything below runs inside one savepoint of the writer's IMMEDIATE transaction; any
-/// error rolls back every domain together and the marker never commits without the data.
+/// Runs inside one savepoint of the writer's IMMEDIATE transaction with SQL and in-memory
+/// data only; any error rolls every domain back and the marker never commits alone.
 fn transaction(cx: &mut WriteCx<'_>, plan: &ImportPlan, tamper: Tamper) -> Result<(), Halt> {
     if let Some(marker) = manifest::read_marker(cx.conn)? {
         return Err(Halt::Refused(ImportRefusal::AlreadyImported { marker }));
     }
-    let root = cx
-        .layout
-        .dir
-        .parent()
-        .ok_or_else(|| StorageError::Corrupt {
-            detail: "storage layout has no instance root".to_string(),
-        })?;
-    source_inventory::refuse_live_root(plan.capture.source_root(), root)?;
-    plan.capture.verify_backup()?;
-    source_inventory::verify_immutable(
-        plan.capture.backup_dir(),
-        IMPORT_MANIFEST,
-        plan.manifest.len() as u64,
-        plan.digest,
-    )?;
     for import in &plan.domains {
         if import.occupied(cx.conn)? {
             return Err(Halt::Refused(ImportRefusal::DomainOccupied {
@@ -673,13 +681,7 @@ impl Storage {
         if let Some(marker) = self.legacy_import_marker().wait(request.deadline)?.value {
             return Ok(ImportOutcome::AlreadyCommitted(marker));
         }
-        let root = self
-            .submit_read(|cx| Ok(cx.layout.dir.parent().map(Path::to_path_buf)))
-            .wait(request.deadline)?
-            .value
-            .ok_or_else(|| StorageError::Corrupt {
-                detail: "storage layout has no instance root".to_string(),
-            })?;
+        let root = self.instance_root(request.deadline)?;
         source_inventory::refuse_live_root(&request.source_root, &root).map_err(uncaptured)?;
         let capture = capture_sources(&request.source_root, &request.backup_dir, request.limits)?;
         let plan = ImportPlan::resolve(capture, decoder, &request.selections)?;
@@ -694,7 +696,7 @@ impl Storage {
         plan: ImportPlan,
         deadline: Duration,
     ) -> Result<ImportReceipt, MigrationError> {
-        self.commit_plan(plan, deadline, Tamper::Nothing)
+        self.commit_plan(plan, deadline, Tamper::Nothing, None)
     }
 
     #[cfg(feature = "test-support")]
@@ -704,29 +706,63 @@ impl Storage {
         deadline: Duration,
         tamper: ImportTamper,
     ) -> Result<ImportReceipt, MigrationError> {
-        self.commit_plan(plan, deadline, Tamper::Apply(tamper))
+        self.commit_plan(plan, deadline, Tamper::Apply(tamper), None)
     }
 
+    /// Runs `after_submit` once the verified plan is admitted and before its outcome is
+    /// awaited, so a test can act while a held writer keeps the import queued.
+    #[cfg(feature = "test-support")]
+    pub fn commit_legacy_import_after_submit(
+        &self,
+        plan: ImportPlan,
+        deadline: Duration,
+        after_submit: Box<dyn FnOnce()>,
+    ) -> Result<ImportReceipt, MigrationError> {
+        self.commit_plan(plan, deadline, Tamper::Nothing, Some(after_submit))
+    }
+
+    fn instance_root(&self, deadline: Duration) -> Result<PathBuf, MigrationError> {
+        self.submit_read(|cx| Ok(cx.layout.dir.parent().map(Path::to_path_buf)))
+            .wait(deadline)?
+            .value
+            .ok_or_else(|| {
+                MigrationError::Storage(StorageError::Corrupt {
+                    detail: "storage layout has no instance root".to_string(),
+                })
+            })
+    }
+
+    /// Every filesystem check runs here on the calling thread, immediately before submit;
+    /// the writer transaction touches only SQL and the already-verified plan.
     fn commit_plan(
         &self,
         plan: ImportPlan,
         deadline: Duration,
         tamper: Tamper,
+        after_submit: Option<Box<dyn FnOnce()>>,
     ) -> Result<ImportReceipt, MigrationError> {
+        let root = self.instance_root(deadline)?;
+        let verified = source_inventory::refuse_live_root(plan.capture.source_root(), &root)
+            .and_then(|()| plan.verify_archive());
+        if let Err(refusal) = verified {
+            return Err(plan.refuse(refusal));
+        }
         let plan = Arc::new(plan);
         let slot: Arc<Mutex<Option<ImportRefusal>>> = Arc::default();
         let (job, refusal) = (plan.clone(), slot.clone());
-        let outcome = self
-            .submit_mutation(plan.cost, move |cx| {
-                transaction(cx, &job, tamper).map_err(|halt| match halt {
-                    Halt::Storage(error) => error,
-                    Halt::Refused(found) => {
-                        *lock(&refusal) = Some(found);
-                        StorageError::invalid("legacy import", "refused before commit")
-                    }
-                })
+        let submitted = self.submit_mutation(plan.cost, move |cx| {
+            transaction(cx, &job, tamper).map_err(|halt| match halt {
+                Halt::Storage(error) => error,
+                Halt::Refused(found) => {
+                    *lock(&refusal) = Some(found);
+                    StorageError::invalid("legacy import", "refused before commit")
+                }
             })
-            .wait(deadline);
+        });
+        if let Some(after_submit) = after_submit {
+            after_submit();
+        }
+        let outcome = submitted.wait(deadline);
         let committed = match outcome {
             Ok(committed) => committed,
             Err(error) => {
@@ -744,6 +780,7 @@ impl Storage {
             capture_sha256: plan.capture.digest(),
             divergences: plan.facts.divergences.clone(),
             comparison: compare::verify_committed(self, &plan, revision, deadline),
+            archive: plan.verify_archive(),
             recorded: RecordedManifest::NotCaptured,
         };
         let text = manifest::render_receipt(&receipt);

@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 use crate::cron::store::{
     decode_legacy_cron_file, CronJob, CronRunInfo, CronRunStatus, LegacyCronError,
 };
-use crate::sentinel::storage::legacy_import;
+use crate::sentinel::storage::{legacy_import, LegacySentinelError};
 use crate::storage::{
     DecodeFailure, DecodeFailureKind, DomainImport, IgnoredKeys, ImportDomain, ImportOutcome,
     ImportRequest, LegacyDecoder, MigrationError, Storage,
@@ -32,7 +32,7 @@ impl LegacyDecoder for LegacyCodecs {
                 })?;
                 legacy_import(text)
                     .map(DomainImport::Sentinel)
-                    .map_err(|detail| DecodeFailure::new(DecodeFailureKind::Malformed, detail))
+                    .map_err(sentinel_failure)
             }
             _ => Err(DecodeFailure::new(
                 DecodeFailureKind::Unsupported,
@@ -184,6 +184,18 @@ fn json_shape(bytes: &[u8]) -> Result<(), DecodeFailure> {
             DecodeFailureKind::Malformed,
             error.to_string(),
         )),
+    }
+}
+
+/// Valid JSON that breaks a Sentinel invariant is a conflict, never recoverable damage.
+fn sentinel_failure(error: LegacySentinelError) -> DecodeFailure {
+    match error {
+        LegacySentinelError::Malformed(detail) => {
+            DecodeFailure::new(DecodeFailureKind::Malformed, detail)
+        }
+        LegacySentinelError::Conflict(detail) => {
+            DecodeFailure::new(DecodeFailureKind::Conflict, detail)
+        }
     }
 }
 
