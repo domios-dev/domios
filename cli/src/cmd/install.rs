@@ -43,14 +43,13 @@ fn windows_install_script(
 
 // The relaunched daemon owns every continuation; the helper only swaps and relaunches.
 #[cfg(target_os = "windows")]
-pub fn run_install_from_file(installer_path: &str, json_output: bool) {
+pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<(), String> {
     use std::io::Write;
     use std::os::windows::process::CommandExt;
 
     let installer = std::path::Path::new(installer_path);
     if !installer.exists() {
-        eprintln!("Installer not found: {}", installer_path);
-        std::process::exit(1);
+        return Err(format!("Installer not found: {installer_path}"));
     }
 
     let local_app_data = std::env::var("LocalAppData").unwrap_or_default();
@@ -67,8 +66,7 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) {
     let bat = windows_install_script(&log_path, installer_path, &target_exe);
 
     if let Err(e) = std::fs::write(&bat_path, bat) {
-        eprintln!("Failed to write self-install helper: {}", e);
-        std::process::exit(1);
+        return Err(format!("Failed to write self-install helper: {e}"));
     }
 
     eprintln!("[install --from-file] Installer: {}", installer_path);
@@ -93,16 +91,12 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) {
     let broker = match broker {
         Ok(output) if output.status.success() => output,
         Ok(output) => {
-            eprintln!(
+            return Err(format!(
                 "Failed to detach self-install helper: {}",
                 String::from_utf8_lossy(&output.stderr).trim()
-            );
-            std::process::exit(1);
+            ));
         }
-        Err(e) => {
-            eprintln!("Failed to start self-install broker: {}", e);
-            std::process::exit(1);
-        }
+        Err(e) => return Err(format!("Failed to start self-install broker: {e}")),
     };
     if !broker.stderr.is_empty() {
         eprintln!("{}", String::from_utf8_lossy(&broker.stderr).trim());
@@ -117,17 +111,17 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) {
 
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]
-pub fn run_install_from_file(installer_path: &str, json_output: bool) {
+pub fn run_install_from_file(installer_path: &str, json_output: bool) -> Result<(), String> {
     use std::io::Write;
     use std::os::unix::process::CommandExt;
 
     let src = std::path::Path::new(installer_path);
     if !src.exists() {
-        eprintln!("Installer not found: {}", installer_path);
-        std::process::exit(1);
+        return Err(format!("Installer not found: {installer_path}"));
     }
     let tmp = std::env::temp_dir();
     let log = tmp.join("codeterm-self-install.log");
@@ -183,8 +177,7 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) {
         script = script.display(),
     );
     if let Err(e) = std::fs::write(&script, body) {
-        eprintln!("Failed to write self-install helper: {}", e);
-        std::process::exit(1);
+        return Err(format!("Failed to write self-install helper: {e}"));
     }
 
     eprintln!("[install --from-file] Source: {}", installer_path);
@@ -192,17 +185,14 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) {
     eprintln!("[install --from-file] Detaching. Domios goes down in ~2s.");
 
     // Detach into its own process group so it survives this CLI + the daemon.
-    let spawn = std::process::Command::new("bash")
+    std::process::Command::new("bash")
         .arg(&script)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .process_group(0)
-        .spawn();
-    if let Err(e) = spawn {
-        eprintln!("Failed to spawn self-install helper: {}", e);
-        std::process::exit(1);
-    }
+        .spawn()
+        .map_err(|e| format!("Failed to spawn self-install helper: {e}"))?;
     if json_output {
         println!(
             "{{\"status\":\"helper_detached\",\"log\":\"{}\"}}",
@@ -211,6 +201,7 @@ pub fn run_install_from_file(installer_path: &str, json_output: bool) {
     }
     let _ = std::io::stdout().flush();
     let _ = std::io::stderr().flush();
+    Ok(())
 }
 
 #[cfg(all(test, target_os = "windows"))]
@@ -259,10 +250,32 @@ mod tests {
             assert!(script.contains(&format!("set \"{variable}=\"")));
         }
     }
+
+    #[test]
+    fn missing_installer_returns_failure_before_the_caller_withdraws_resume() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing-installer.exe");
+
+        let result = super::run_install_from_file(missing.to_str().unwrap(), false);
+
+        assert!(result.is_err());
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod mac_failure_tests {
+    #[test]
+    fn missing_installer_returns_failure_before_the_caller_withdraws_resume() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing-installer.app");
+
+        let result = super::run_install_from_file(missing.to_str().unwrap(), false);
+
+        assert!(result.is_err());
+    }
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-pub fn run_install_from_file(_installer_path: &str, _json_output: bool) {
-    eprintln!("--from-file is currently Windows/macOS-only");
-    std::process::exit(2);
+pub fn run_install_from_file(_installer_path: &str, _json_output: bool) -> Result<(), String> {
+    Err("--from-file is currently Windows/macOS-only".into())
 }

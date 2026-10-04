@@ -50,6 +50,48 @@ fn classify_continuation(
     }
 }
 
+fn session_save_action(
+    prompt: Option<&str>,
+    tab: Option<&str>,
+    suppress: bool,
+) -> Option<serde_json::Value> {
+    let tab = tab?;
+    if suppress {
+        Some(serde_json::json!({ "suppress_continue_tab": tab }))
+    } else {
+        Some(serde_json::json!({
+            "continue_tab": tab,
+            "continue_prompt": prompt,
+        }))
+    }
+}
+
+fn post_session_save(
+    http: &crate::local_api::LocalApiClient,
+    base_url: &str,
+    action: Option<serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    let save_url = format!("{}/api/session/save", base_url);
+    let request = http.post(&save_url);
+    let request = match action {
+        Some(body) => request.json(&body),
+        None => request,
+    };
+    request
+        .send()
+        .and_then(|response| response.error_for_status())
+        .and_then(|response| response.json::<serde_json::Value>())
+        .map_err(|error| error.to_string())
+}
+
+fn continuation_withdraw_action(prompt: Option<&str>, tab: Option<&str>) -> Option<serde_json::Value> {
+    let tab = tab?;
+    Some(serde_json::json!({
+        "withdraw_continue_tab": tab,
+        "withdraw_continue_prompt": prompt,
+    }))
+}
+
 /// Persist the desk and hand the calling tab's continuation to the daemon that
 /// restarts; the next start delivers it once that tab's session is agent-ready.
 fn save_session_with_continuation(
@@ -57,28 +99,20 @@ fn save_session_with_continuation(
     base_url: &str,
     prompt: Option<&str>,
     tab: Option<&str>,
-) {
-    let save_url = format!("{}/api/session/save", base_url);
-    let request = http.post(&save_url);
-    let request = match tab {
-        Some(tab) => request.json(&serde_json::json!({
-            "continue_tab": tab,
-            "continue_prompt": prompt,
-        })),
-        None => request,
-    };
-    let saved = request
-        .send()
-        .and_then(|response| response.error_for_status())
-        .and_then(|response| response.json::<serde_json::Value>());
-    let saved = match saved {
+) -> ContinuationRegistration {
+    let saved = match post_session_save(http, base_url, session_save_action(prompt, tab, false)) {
         Ok(saved) => saved,
         Err(e) => {
             eprintln!("[install --from-file] WARN: session save failed ({e}) — Tab id may rotate");
-            return;
+            return if tab.is_some() {
+                ContinuationRegistration::Unsupported
+            } else {
+                ContinuationRegistration::NotRequested
+            };
         }
     };
-    match classify_continuation(tab, &saved["continuation"]) {
+    let registration = classify_continuation(tab, &saved["continuation"]);
+    match &registration {
         ContinuationRegistration::NotRequested => {}
         ContinuationRegistration::Registered => eprintln!(
             "[install --from-file] Continue: Domios continues tab {} once its session is ready after restart",
@@ -92,6 +126,46 @@ fn save_session_with_continuation(
             "[install --from-file] WARN: running Domios predates restart continuation; tab {} is not continued",
             tab.unwrap_or("?")
         ),
+    }
+    registration
+}
+
+fn save_session_with_suppression(
+    http: &crate::local_api::LocalApiClient,
+    base_url: &str,
+    tab: Option<&str>,
+) -> Result<(), String> {
+    let Some(tab) = tab else {
+        return Ok(());
+    };
+    let saved = post_session_save(http, base_url, session_save_action(None, Some(tab), true))?;
+    suppression_result(&saved)
+}
+
+fn suppression_result(saved: &serde_json::Value) -> Result<(), String> {
+    if saved["suppression"]["suppressed"] == true {
+        return Ok(());
+    }
+    if let Some(reason) = saved["suppression"]["reason"].as_str() {
+        return Err(format!("caller continuation was not suppressed: {reason}"));
+    }
+    if saved["suppression"]["suppressed"] == false {
+        return Ok(());
+    }
+    Err("daemon did not confirm caller continuation suppression".into())
+}
+
+fn withdraw_session_continuation(
+    http: &crate::local_api::LocalApiClient,
+    base_url: &str,
+    prompt: Option<&str>,
+    tab: Option<&str>,
+) {
+    let Some(action) = continuation_withdraw_action(prompt, tab) else {
+        return;
+    };
+    if let Err(error) = post_session_save(http, base_url, Some(action)) {
+        eprintln!("[install] WARN: failed to withdraw continuation after install failure: {error}");
     }
 }
 
@@ -163,7 +237,7 @@ fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
 mod tests {
     use super::{
         classify_continuation, resolve_local_install_continuation, ContinuationRegistration,
-        DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT,
+        continuation_withdraw_action, session_save_action, DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT,
     };
 
     #[test]
@@ -213,6 +287,51 @@ mod tests {
 
         assert!(prompt.is_none());
         assert!(tab.is_none());
+    }
+
+    #[test]
+    fn no_continue_saves_a_caller_suppression_action() {
+        let action = session_save_action(None, Some("tab-1"), true).unwrap();
+
+        assert_eq!(action, serde_json::json!({ "suppress_continue_tab": "tab-1" }));
+        assert_eq!(
+            session_save_action(None, None, true),
+            None,
+            "no caller has no mark to suppress"
+        );
+    }
+
+    #[test]
+    fn no_continue_requires_a_daemon_suppression_result() {
+        assert!(super::suppression_result(&serde_json::json!({
+            "suppression": {"tab_id": "tab-1", "suppressed": true}
+        }))
+        .is_ok());
+        assert!(super::suppression_result(&serde_json::json!({
+            "suppression": {"tab_id": "tab-1", "suppressed": false}
+        }))
+        .is_ok());
+        assert_eq!(
+            super::suppression_result(&serde_json::json!({
+                "suppression": {"tab_id": "tab-1", "suppressed": false, "reason": "disabled"}
+            })),
+            Err("caller continuation was not suppressed: disabled".into())
+        );
+        assert!(super::suppression_result(&serde_json::json!({ "ok": true })).is_err());
+    }
+
+    #[test]
+    fn failed_install_can_withdraw_only_its_registered_prompt() {
+        let action = continuation_withdraw_action(Some("opaque-prompt"), Some("tab-1")).unwrap();
+
+        assert_eq!(
+            action,
+            serde_json::json!({
+                "withdraw_continue_tab": "tab-1",
+                "withdraw_continue_prompt": "opaque-prompt",
+            })
+        );
+        assert_eq!(continuation_withdraw_action(None, None), None);
     }
 }
 
@@ -312,18 +431,52 @@ pub fn handle_update(
                     continue_tab,
                     std::env::var("CODETERM_TAB_ID").ok(),
                 );
-                save_session_with_continuation(
-                    &http,
-                    &base_url,
-                    continue_prompt.as_deref(),
-                    tab.as_deref(),
-                );
-                crate::cmd::install::run_install_from_file(&path, json);
+                if no_continue {
+                    if let Err(error) = save_session_with_suppression(
+                        &http,
+                        &base_url,
+                        std::env::var("CODETERM_TAB_ID").ok().as_deref(),
+                    ) {
+                        crate::cmd::print::fail(
+                            1,
+                            format!("--no-continue could not be honored: {error}"),
+                        );
+                    }
+                }
+                if !no_continue {
+                    let _ = save_session_with_continuation(
+                        &http,
+                        &base_url,
+                        continue_prompt.as_deref(),
+                        tab.as_deref(),
+                    );
+                }
+                if let Err(error) = crate::cmd::install::run_install_from_file(&path, json) {
+                    withdraw_session_continuation(
+                        &http,
+                        &base_url,
+                        continue_prompt.as_deref(),
+                        tab.as_deref(),
+                    );
+                    crate::cmd::print::fail(1, error);
+                }
                 return;
             }
             let mut params: Vec<(&str, String)> = Vec::new();
             if auto {
                 params.push(("method", "auto".into()));
+            }
+            if no_continue {
+                if let Err(error) = save_session_with_suppression(
+                    &http,
+                    &base_url,
+                    std::env::var("CODETERM_TAB_ID").ok().as_deref(),
+                ) {
+                    crate::cmd::print::fail(
+                        1,
+                        format!("--no-continue could not be honored: {error}"),
+                    );
+                }
             }
             if let Some(m) = manifest_url {
                 params.push(("manifest_url", m));

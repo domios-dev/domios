@@ -597,7 +597,6 @@ impl ServiceContext {
         };
         let became_idle =
             previous.state != TimelineState::Idle && verdict.state == TimelineState::Idle;
-        let turn_edge = previous.state != verdict.state;
         let mut new_state: AgentLiveState = verdict.into();
         // Surface the live status/progress line while working (UI shows it verbatim);
         // when idle, surface the completed-turn summary as a muted secondary line.
@@ -635,9 +634,7 @@ impl ServiceContext {
         if changed {
             self.emit_state_changed();
             self.schedule_planner_replay(&tab_id);
-            if turn_edge {
-                self.record_turn_resume_edge(&tab_id);
-            }
+            self.record_turn_resume_edge(&tab_id);
             if became_idle {
                 // The turn boundary, not a status value: the pass itself runs on the
                 // ledger thread, never here.

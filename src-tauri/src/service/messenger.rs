@@ -282,6 +282,56 @@ impl Messenger {
         Self::deliver_with_pad_file(svc, to_tab, envelope, body).map(|(delivery, _)| delivery)
     }
 
+    pub(crate) fn deliver_turn_resume(
+        svc: &super::ServiceContext,
+        to_tab: &str,
+        expected_pty_id: &str,
+        expected_session_id: &str,
+        expected_binding_nonce: &str,
+        sender: Option<&crate::multiplexer::types::TurnResumeSender>,
+        body: &str,
+    ) -> Result<Delivery, String> {
+        let envelope = sender
+            .map(|sender| {
+                let mut envelope =
+                    MessageEnvelope::tab(sender.label.clone(), sender.tab_id.clone());
+                envelope.from_agent = sender.from_agent;
+                envelope.from_model = sender.from_model.clone();
+                envelope
+            })
+            .unwrap_or_else(MessageEnvelope::from_codeterm);
+        let should_prefix = should_prefix_pty(
+            envelope.kind,
+            true,
+            &envelope.from_tab,
+            to_tab,
+        );
+        let wrapped = if should_prefix {
+            Self::from(envelope.clone()).wrap(body)
+        } else {
+            body.to_string()
+        };
+        let (body, pad_file) =
+            svc.substitute_paste_limited_body(to_tab, body.to_string(), wrapped.len())?;
+        let text = if pad_file.is_some() {
+            if should_prefix {
+                Self::from(envelope).wrap(&body)
+            } else {
+                body
+            }
+        } else {
+            wrapped
+        };
+        svc.send_to_authenticated_agent_session_pinned(
+            to_tab,
+            expected_pty_id,
+            expected_session_id,
+            expected_binding_nonce,
+            &text,
+        )?;
+        Ok(Delivery::Pty { text })
+    }
+
     pub fn deliver_with_pad_file(
         svc: &super::ServiceContext,
         to_tab: &str,

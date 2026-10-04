@@ -1,9 +1,10 @@
 use super::readiness::composer_input_ready;
 use super::{
-    authenticated_pty_target, await_shell_prompt, await_shell_prompt_armed, delivery_is_unknown,
-    is_pre_ready_launch_stage, optimistic_agent_pty_target, provider_frame_ready,
-    provider_or_generic_tui, public_agent_input_readiness, require_submission_result,
-    submit_authenticated_pty_input, wait_for_observed_readiness,
+    authenticated_pty_target, authenticated_pty_target_pinned, await_shell_prompt,
+    await_shell_prompt_armed, delivery_is_unknown, is_pre_ready_launch_stage,
+    optimistic_agent_pty_target, provider_frame_ready, provider_or_generic_tui,
+    public_agent_input_readiness, require_submission_result, submit_authenticated_pty_input,
+    wait_for_observed_readiness,
 };
 use crate::multiplexer::state::MultiplexerState;
 
@@ -193,6 +194,25 @@ fn optimistic_send_accepts_a_live_agent_without_a_reported_nonce() {
         ("pty-agent".into(), "codex".into()),
     );
     assert!(authenticated_pty_target(tab, "session", "launch-nonce").is_err());
+}
+
+#[test]
+fn authenticated_resume_refuses_a_rotated_pty_or_binding_nonce() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::Pty;
+    tab.pty_id = Some("pty-old".into());
+    tab.agent_type = Some("opaque-provider".into());
+    tab.agent_session_id = Some("session".into());
+    tab.session_binding_nonce = Some("nonce-old".into());
+    tab.reported_session_binding_nonce = Some("nonce-old".into());
+
+    assert!(authenticated_pty_target_pinned(tab, "pty-old", "session", "nonce-old").is_ok());
+    assert!(authenticated_pty_target_pinned(tab, "pty-new", "session", "nonce-old").is_err());
+    tab.pty_id = Some("pty-old".into());
+    tab.session_binding_nonce = Some("nonce-new".into());
+    tab.reported_session_binding_nonce = Some("nonce-new".into());
+    assert!(authenticated_pty_target_pinned(tab, "pty-old", "session", "nonce-old").is_err());
 }
 
 #[test]
