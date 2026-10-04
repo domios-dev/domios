@@ -675,7 +675,7 @@ impl SentinelCreate {
 }
 
 impl SentinelImport {
-    pub(super) fn validate(&self) -> Result<(), StorageError> {
+    pub(crate) fn validate(&self) -> Result<(), StorageError> {
         self.identity.validate()?;
         self.definition.validate()?;
         self.runtime.validate()?;
@@ -699,7 +699,7 @@ impl SentinelImport {
         Ok(())
     }
 
-    pub(super) fn cost(&self) -> usize {
+    pub(crate) fn cost(&self) -> usize {
         RECORD_OVERHEAD
             + self.identity.cost()
             + self.definition.cost()
