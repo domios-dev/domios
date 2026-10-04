@@ -1,3 +1,4 @@
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::sync::{atomic::Ordering, Arc};
 use std::time::Duration;
@@ -21,6 +22,7 @@ const FAILURE_DEADLINE_MS: u64 = 60_000;
 #[derive(Clone)]
 pub struct Handle {
     pub store: Arc<Mutex<Store>>,
+    pending_run_bindings: Arc<Mutex<BTreeMap<String, super::run_binding::PendingRunBinding>>>,
     wake: Arc<(std::sync::Mutex<u64>, std::sync::Condvar)>,
     probe_owner: Arc<probe::owner::ProbeResourceOwner>,
     app: Option<tauri::AppHandle>,
@@ -46,6 +48,35 @@ impl Handle {
         }
     }
 
+    pub(super) fn queue_run_binding(
+        &self,
+        sentinel_id: String,
+        binding: super::run_binding::PendingRunBinding,
+    ) -> bool {
+        let store = self.store.lock();
+        let live_ids: BTreeSet<_> = store.list().iter().map(|job| job.id.clone()).collect();
+        if !live_ids.contains(&sentinel_id) {
+            return false;
+        }
+        let mut pending = self.pending_run_bindings.lock();
+        pending.retain(|id, _| live_ids.contains(id));
+        if let Some(existing) = pending.get(&sentinel_id) {
+            if existing.started_at > binding.started_at {
+                return false;
+            }
+        } else if pending.len() >= super::store::MAX_SENTINELS {
+            return false;
+        }
+        pending.insert(sentinel_id, binding);
+        true
+    }
+
+    pub(super) fn take_run_bindings(&self) -> Vec<(String, super::run_binding::PendingRunBinding)> {
+        std::mem::take(&mut *self.pending_run_bindings.lock())
+            .into_iter()
+            .collect()
+    }
+
     /// Blocking settlement: callers on the async runtime must move this off it.
     pub fn remove_team(&self, team: &str) -> Result<(), String> {
         let result = storage::commit(&self.store, |store| store.stage_remove_team(team));
@@ -58,6 +89,7 @@ impl Handle {
 pub(crate) fn fixture_handle(store: Store, app: tauri::AppHandle) -> Handle {
     Handle {
         store: Arc::new(Mutex::new(store)),
+        pending_run_bindings: Arc::new(Mutex::new(BTreeMap::new())),
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
         app: Some(app),
@@ -78,6 +110,7 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
             codeterm_paths::data_dir().join("sentinels.json"),
             clock,
         ))),
+        pending_run_bindings: Arc::new(Mutex::new(BTreeMap::new())),
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
         app: Some(svc.app_handle.clone()),
@@ -94,13 +127,14 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
         }
     }
     crate::service::sentinel::graph::install_invalidations(&svc, handle.store.clone());
-    wake::listen_any(&svc.app_handle, handle.clone());
+    wake::listen_any(svc.clone(), handle.clone());
     svc.app_handle.manage(handle.clone());
     if let Err(error) = handle.store.lock().ensure_available() {
         log::error!("[sentinel] subsystem unavailable: {error}");
         return;
     }
     let store = handle.store.clone();
+    let pending_run_bindings = handle.pending_run_bindings.clone();
     let wake = handle.wake.clone();
     let probe_owner = Arc::downgrade(&handle.probe_owner);
     drop(handle);
@@ -108,7 +142,10 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
         let (generation, wake_condvar) = &*wake;
         let mut unavailable_incident: Option<String> = None;
         loop {
-            if probe_owner.upgrade().is_none_or(|owner| owner.is_closing()) {
+            let Some(owner) = probe_owner.upgrade() else {
+                return;
+            };
+            if owner.is_closing() {
                 return;
             }
             let observed = match generation.lock() {
@@ -127,6 +164,16 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
                 if let Err(error) = reconciliation {
                     log::error!("[sentinel] unconfirmed commit reconciliation failed: {error}");
                 }
+                let run_handle = Handle {
+                    store: store.clone(),
+                    pending_run_bindings: pending_run_bindings.clone(),
+                    wake: wake.clone(),
+                    probe_owner: owner.clone(),
+                    app: Some(svc.app_handle.clone()),
+                    _shutdown: None,
+                };
+                super::run_binding::process_pending(&svc, &run_handle);
+                super::run_binding::reconcile_runs(&svc, &run_handle);
                 match storage::commit(&store, Store::stage_due) {
                     Ok(leases) => {
                         for lease in leases {
@@ -135,6 +182,7 @@ pub fn start(svc: ServiceState, clock: SharedClock) {
                             };
                             let worker_handle = Handle {
                                 store: store.clone(),
+                                pending_run_bindings: pending_run_bindings.clone(),
                                 wake: wake.clone(),
                                 probe_owner: owner,
                                 app: Some(svc.app_handle.clone()),
@@ -756,6 +804,7 @@ pub(super) fn advance(
 pub(super) fn fixture_handle_without_app(store: Store) -> Handle {
     Handle {
         store: Arc::new(Mutex::new(store)),
+        pending_run_bindings: Arc::new(Mutex::new(BTreeMap::new())),
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),
         app: None,

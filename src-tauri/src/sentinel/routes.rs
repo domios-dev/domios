@@ -39,23 +39,32 @@ pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Ro
                 .app_handle
                 .try_state::<crate::CronState>()
                 .ok_or("cron not initialized")?;
-            let store = cron.lock();
-            let candidates: Vec<_> = store
-                .list()
-                .iter()
-                .filter(|cron| {
-                    (cron.id == *target || cron.name == *target)
-                        && cron.team_id == job.team_id
-                        && cron.workspace_id == job.workspace_id
-                })
-                .collect();
-            if candidates.len() != 1 {
-                return Err("sentinel cron target must resolve uniquely in the creator's Team and workspace".into());
-            }
-            Ok(Route::Cron(candidates[0].id.clone()))
+            Ok(Route::Cron(resolve_cron_target(&cron.lock(), job, target)?))
         }
         Route::RespondPrompt(_) | Route::Escalate(_) => Err(unavailable(route)),
     }
+}
+
+pub(super) fn resolve_cron_target(
+    store: &crate::cron::store::CronStore,
+    job: &Sentinel,
+    target: &str,
+) -> Result<String, String> {
+    let candidates: Vec<_> = store
+        .list()
+        .iter()
+        .filter(|cron| {
+            (cron.id == target || cron.name == target)
+                && cron.team_id == job.team_id
+                && cron.workspace_id == job.workspace_id
+        })
+        .collect();
+    if candidates.len() != 1 {
+        return Err(
+            "sentinel cron target must resolve uniquely in the creator's Team and workspace".into(),
+        );
+    }
+    Ok(candidates[0].id.clone())
 }
 
 fn unavailable(route: &Route) -> String {

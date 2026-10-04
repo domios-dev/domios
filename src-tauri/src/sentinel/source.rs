@@ -10,6 +10,7 @@ use super::probe::{process::ProbeFailure, Output};
 use serde::{Deserialize, Serialize};
 
 use super::machine::Route;
+use super::routes;
 use super::store::Sentinel;
 
 /// What a graph stage observes instead of running a shell probe.
@@ -29,6 +30,24 @@ impl TabBinding {
     pub fn id(&self) -> &str {
         match self {
             Self::Tab(id) | Self::CronRun(id) => id,
+        }
+    }
+}
+
+pub(crate) fn resolve_binding(
+    svc: &ServiceContext,
+    job: &Sentinel,
+    binding: &TabBinding,
+) -> Result<TabBinding, String> {
+    match binding {
+        TabBinding::Tab(_) => Ok(binding.clone()),
+        TabBinding::CronRun(target) => {
+            let cron = svc
+                .app_handle
+                .try_state::<crate::CronState>()
+                .ok_or("cron not initialized")?;
+            let cron_id = routes::resolve_cron_target(&cron.lock(), job, target)?;
+            Ok(TabBinding::CronRun(cron_id))
         }
     }
 }
@@ -102,8 +121,14 @@ pub(super) fn observe(
     if job.observe.as_ref() != Some(binding) {
         return Err(ProbeFailure::new("sentinel_observation_binding_changed"));
     }
-    let TabBinding::Tab(tab_id) = binding else {
-        return Err(ProbeFailure::new("sentinel_observation_source_unavailable"));
+    let (tab_id, run_id) = match binding {
+        TabBinding::Tab(tab_id) => (tab_id.as_str(), None),
+        TabBinding::CronRun(_) => {
+            let Some(run) = job.run.as_ref() else {
+                return Err(ProbeFailure::new("sentinel_observation_source_unavailable"));
+            };
+            (run.tab_id.as_str(), Some(run.run_id.as_str()))
+        }
     };
     let tab = {
         let mux = svc.mux.read();
@@ -125,7 +150,7 @@ pub(super) fn observe(
         tab.pending_prompt_kind,
         status,
         tab.agent_booting,
-        job.run.as_ref().map(|run| run.run_id.as_str()),
+        run_id,
         screen.as_deref(),
     )
     .map_err(|_| ProbeFailure::new("sentinel_observation_invalid"))?;

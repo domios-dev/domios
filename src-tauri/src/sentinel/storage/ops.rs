@@ -3,6 +3,8 @@
 
 use super::{codec, finishing, Failure, Staged};
 use crate::sentinel::handlers::{ResultRecord, Transition};
+use crate::sentinel::run_binding::RunBindOutcome;
+use crate::sentinel::source::RunBinding;
 use crate::sentinel::store::{Lease, ScheduleChange, Sentinel, Store, MAX_ACTIVE};
 use crate::storage::{Fence, MutationOutcome, ScheduleUpdate};
 
@@ -15,6 +17,64 @@ fn applied(outcome: MutationOutcome) -> bool {
 }
 
 impl Store {
+    pub(in crate::sentinel) fn sqlite_set_run_binding(
+        &mut self,
+        id: &str,
+        expected_generation: u64,
+        cron_id: &str,
+        expected_run: Option<RunBinding>,
+        run: Option<RunBinding>,
+        next_run: u64,
+        last_reason: Option<String>,
+    ) -> Staged<RunBindOutcome> {
+        let stored = match codec::id(id) {
+            Ok(stored) => stored,
+            Err(error) => return refused(error),
+        };
+        let to_record = |run: RunBinding| crate::storage::RunRecord {
+            run_id: run.run_id,
+            tab_id: run.tab_id,
+            bound_at: run.bound_at,
+        };
+        let expected_run = expected_run.map(to_record);
+        let run = run.map(to_record);
+        let binding = run.is_some();
+        let replaced = run.as_ref().and(expected_run.clone());
+        let (cron_id, sentinel_id) = (cron_id.to_string(), id.to_string());
+        let committed_id = sentinel_id.clone();
+        self.submit(
+            move |repo| {
+                repo.set_run_binding(
+                    stored,
+                    expected_generation,
+                    cron_id,
+                    expected_run,
+                    run,
+                    next_run,
+                    last_reason,
+                )
+            },
+            finishing(move |store, outcome| {
+                let commit = outcome.map_err(Failure::message)?;
+                let applied = commit.outcome == crate::storage::MutationOutcome::Applied;
+                if applied {
+                    if let Some(cancelled) = store.active.get(&committed_id) {
+                        cancelled.cancel();
+                    }
+                    if binding {
+                        store.wake_pending.insert(committed_id.clone());
+                    } else {
+                        store.wake_pending.remove(&committed_id);
+                    }
+                }
+                Ok(RunBindOutcome {
+                    changed: applied,
+                    replaced: applied.then_some(replaced).flatten(),
+                })
+            }),
+        )
+    }
+
     pub(in crate::sentinel) fn sqlite_insert(
         &mut self,
         job: Sentinel,
@@ -181,7 +241,12 @@ impl Store {
         self.submit(
             move |repo| repo.schedule(updates),
             finishing(move |store, outcome| match outcome {
-                Ok(_) => Ok(leases),
+                Ok(_) => {
+                    for id in consumed_wakes {
+                        store.wake_pending.remove(&id);
+                    }
+                    Ok(leases)
+                }
                 Err(failure) => {
                     store.wake_pending.extend(consumed_wakes);
                     for lease in &leases {
