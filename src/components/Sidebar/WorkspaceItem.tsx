@@ -241,7 +241,7 @@ function WorkspaceItemInner({
       </div>
       {/* 3-dot menu — visible on hover */}
       <div className="flex shrink-0 items-center gap-0.5">
-        {onOpenAutomation && <WorkspaceAutomationAction workspaceId={workspace.id} workspaceName={workspace.name} touchMode={touchMode} onOpen={onOpenAutomation} />}
+        {onOpenAutomation && <WorkspaceAutomationAction workspaceId={workspace.id} workspaceName={workspace.name} touchMode={touchMode} revealOnHover={detailHeader} onOpen={onOpenAutomation} />}
         {onOpenMap && (
           <button
             type="button"
