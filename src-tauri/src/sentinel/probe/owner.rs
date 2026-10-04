@@ -300,6 +300,7 @@ impl WindowsRun {
     }
 }
 
+#[cfg(any(windows, test))]
 pub(super) fn settlement_event_required(
     resources_settled: bool,
     permanent_unconfirmed: bool,
@@ -308,6 +309,7 @@ pub(super) fn settlement_event_required(
     !resources_settled && !permanent_unconfirmed && !unknown_completion
 }
 
+#[cfg(any(windows, test))]
 pub(super) fn mark_close_uncertain(permanent: &mut bool, error: String) -> String {
     *permanent = true;
     error

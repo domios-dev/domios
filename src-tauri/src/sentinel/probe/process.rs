@@ -18,7 +18,9 @@ pub(in crate::sentinel) enum ResourceKind {
     Child,
     ProcessGroup,
     Capture,
+    #[cfg_attr(not(windows), allow(dead_code))]
     Job,
+    #[cfg_attr(not(windows), allow(dead_code))]
     OverlappedIo,
 }
 
@@ -138,9 +140,11 @@ impl std::error::Error for ProbeFailure {}
 
 #[derive(Clone, Copy)]
 pub(super) struct Deadlines {
+    #[cfg(test)]
     pub admitted: Instant,
     pub operation: Instant,
     pub hard: Instant,
+    #[cfg(test)]
     pub duration: Duration,
 }
 
@@ -170,9 +174,11 @@ impl Deadlines {
         let reserve = Duration::from_millis(500).min(duration / 4);
         let operation = hard.checked_sub(reserve).unwrap_or(admitted);
         Ok(Self {
+            #[cfg(test)]
             admitted,
             operation,
             hard,
+            #[cfg(test)]
             duration,
         })
     }
