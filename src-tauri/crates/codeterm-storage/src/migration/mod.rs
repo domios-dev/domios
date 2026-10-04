@@ -66,7 +66,7 @@ impl ImportDomain {
 
 /// One domain's original state, decoded from its selected backup copy. Each variant is a
 /// typed join of the single import transaction.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum DomainImport {
     Desk(crate::repositories::desk::DeskSnapshot),
@@ -302,7 +302,7 @@ pub struct ImportReceipt {
 }
 
 /// Decoded, bound-checked domains with a published import manifest, ready for one commit.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ImportPlan {
     capture: SourceCapture,
     domains: Vec<DomainImport>,
@@ -707,7 +707,6 @@ impl Tamper {
                         "INSERT INTO sentinel_definitions (sentinel_id, version, provenance, probe, question, interval_ms, max_transitions, max_actions, created_revision) \
                          VALUES ('fk-missing', 1, 'imported', 'probe', 'question', 1, 1, 1, 1)"
                     }
-                    _ => return Err(StorageError::invalid("legacy import", "unknown domain")),
                 };
                 cx.write(statement, [])?;
                 Ok(())
