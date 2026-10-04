@@ -19,6 +19,7 @@ pub(crate) struct UserSendAuthority {
     pub(crate) tab_id: String,
     pub(crate) pty_id: String,
     pub(crate) binding_nonce: String,
+    pub(crate) pty_session_generation: Option<u64>,
     pub(crate) provider_id: String,
     pub(crate) session_id: Option<String>,
     pub(crate) observed_session_id: Option<String>,
@@ -286,6 +287,33 @@ impl UserSendStore {
 
     pub(crate) fn head(&self, tab_id: &str) -> Result<Option<UserSendRecord>, String> {
         Ok(self.records(tab_id)?.into_iter().find(|record| record.state != UserSendState::BodyLease))
+    }
+
+    pub(crate) fn bind_pty_session_generation(
+        &self,
+        record: &UserSendRecord,
+        generation: u64,
+    ) -> Result<Option<UserSendRecord>, String> {
+        let tab = self.tab(&record.authority.tab_id);
+        let mut data = tab.data.lock();
+        let loaded = self.load(&tab, &mut data)?;
+        let Some(current) = loaded.index.records.iter().find(|item| item.send_id == record.send_id) else {
+            return Ok(None);
+        };
+        if current.authority != record.authority || current.state != UserSendState::Queued {
+            return Ok(None);
+        }
+        if let Some(current_generation) = current.authority.pty_session_generation {
+            return Ok((current_generation == generation).then(|| current.clone()));
+        }
+        let mut next = loaded.index.clone();
+        let current = next.records.iter_mut().find(|item| item.send_id == record.send_id)
+            .ok_or("user head disappeared")?;
+        current.authority.pty_session_generation = Some(generation);
+        let bound = current.clone();
+        self.persist(&tab, &next)?;
+        loaded.index = next;
+        Ok(Some(bound))
     }
 
     pub(crate) fn eligible(&self, record: &UserSendRecord) -> bool {

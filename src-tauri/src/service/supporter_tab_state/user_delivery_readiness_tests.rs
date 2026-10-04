@@ -102,25 +102,41 @@ fn supporter_fallback_requires_distinct_observations_of_one_launch_generation() 
     assert!(user_delivery_pair_has_same_generation(
         10,
         11,
+        42,
+        42,
         Some(&local),
         Some(&same_launch)
     ));
     assert!(!user_delivery_pair_has_same_generation(
         10,
         10,
+        42,
+        42,
         Some(&local),
         Some(&same_launch)
     ));
     assert!(!user_delivery_pair_has_same_generation(
         10,
         11,
+        42,
+        42,
         Some(&local),
         Some(&different_launch),
     ));
     assert!(!user_delivery_pair_has_same_generation(
         10,
         11,
+        42,
+        42,
         Some(&local),
         None
+    ));
+    assert!(!user_delivery_pair_has_same_generation(
+        10,
+        11,
+        42,
+        43,
+        Some(&local),
+        Some(&same_launch),
     ));
 }

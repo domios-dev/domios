@@ -60,6 +60,7 @@
             tab_id: "tab-1".into(),
             pty_id: "pty-1".into(),
             binding_nonce: "nonce-1".into(),
+            pty_session_generation: Some(1),
             provider_id: "provider".into(),
             session_id: None,
             observed_session_id: Some("session-1".into()),

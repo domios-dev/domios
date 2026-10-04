@@ -14,6 +14,7 @@ pub(crate) struct EnvelopeContext {
     pub(super) observation_id: u64,
     pub(crate) adapter: Option<Arc<dyn DecisionModel>>,
     pub(crate) policy_hash: Option<String>,
+    pub(super) pty_session_generation: Option<u64>,
 }
 
 impl std::fmt::Debug for EnvelopeContext {
@@ -189,6 +190,7 @@ pub(super) fn observe_user_delivery_readiness(
     tab_id: &str,
     expected_local: Option<&identity::LocalIdentity>,
 ) -> Result<super::UserDeliveryObservation, String> {
+    let pty_session_generation = host.user_delivery_pty_session_generation(tab_id)?;
     let config = host.supporter_decision_config();
     let adapter_id = config
         .active_id()
@@ -203,12 +205,17 @@ pub(super) fn observe_user_delivery_readiness(
         None,
         expected_local,
     )?;
+    if host.user_delivery_pty_session_generation(tab_id)? != pty_session_generation {
+        return Err("supporter_pty_generation_changed_during_capture".into());
+    }
     let adapter = host
         .supporter_models()
         .get(&adapter_id)
         .ok_or_else(|| "supporter_adapter_unavailable".to_string())?;
     let mut prepared = prepared;
-    prepared.1.envelope.as_mut().ok_or("supporter_observation_invalid")?.adapter = Some(adapter.clone());
+    let envelope = prepared.1.envelope.as_mut().ok_or("supporter_observation_invalid")?;
+    envelope.adapter = Some(adapter.clone());
+    envelope.pty_session_generation = Some(pty_session_generation);
     let metadata = prepared.1.clone();
     let callback_metadata = metadata.clone();
     let callback_tab = tab_id.to_string();
@@ -230,6 +237,7 @@ pub(super) fn observe_user_delivery_readiness(
             adapter_id: callback_adapter,
             adapter: callback_model,
             observation_id,
+            pty_session_generation,
             decided_by,
             metadata: callback_metadata,
             verdict,
@@ -812,6 +820,7 @@ pub(crate) fn prepare_observation_with_parent_and_identity<H: ShadowHost>(
         observation_id: capture.observation_id,
         adapter: None,
         policy_hash: None,
+        pty_session_generation: None,
     });
     metadata.context = privacy::value(&metadata.context);
     let safe_screen = privacy::screen(text);
