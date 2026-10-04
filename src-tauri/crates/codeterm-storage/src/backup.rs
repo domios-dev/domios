@@ -167,5 +167,5 @@ fn restore_into(
     conn.close()
         .map_err(|(_, e)| sqlite_error("close restore staging", e))?;
     assets::sync_file(&staging)?;
-    assets::rename_durable(&staging, &target.database, &target.dir)
+    assets::publish_no_replace(&staging, &target.database, &target.dir)
 }

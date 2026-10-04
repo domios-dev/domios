@@ -1,4 +1,8 @@
-use crate::assets::{self, claim_root, AssetId, AssetRepository, Layout, RootClaim};
+mod mailbox;
+mod pins;
+mod support;
+
+use crate::assets::{claim_root, AssetId, AssetRepository, Layout, RootClaim};
 use crate::error::{io_error, sqlite_error, StorageError};
 use crate::repositories::workspaces::WorkspaceRepository;
 use crate::repositories::{
@@ -6,14 +10,18 @@ use crate::repositories::{
     ShutdownReceipt, StorageMetrics,
 };
 use crate::schema::{self, EffectiveSettings};
+use mailbox::Mailbox;
+use pins::{ReadPins, ReleaseQueue};
 use rusqlite::{Connection, Transaction, TransactionBehavior};
 use std::cell::Cell;
-use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+#[cfg(feature = "test-support")]
+pub use support::{Fault, Hold, ReentrancyProbe};
+pub(crate) use support::{FaultPoint, Faults, ReadGates};
 
 pub const DEFAULT_MAILBOX_COMMANDS: usize = 128;
 pub const DEFAULT_MAILBOX_BYTES: usize = 8 * 1024 * 1024;
@@ -82,115 +90,6 @@ impl StorageConfig {
     }
 }
 
-pub(crate) struct Queued<J> {
-    pub(crate) job: J,
-    cost: usize,
-    enqueued: Instant,
-}
-
-struct MailboxState<J> {
-    queue: VecDeque<Queued<J>>,
-    bytes: usize,
-    open: bool,
-}
-
-/// Bounded by command count and payload bytes; a full mailbox refuses, never discards.
-pub(crate) struct Mailbox<J> {
-    state: Mutex<MailboxState<J>>,
-    ready: Condvar,
-    limit_commands: usize,
-    limit_bytes: usize,
-}
-
-impl<J> Mailbox<J> {
-    fn new(limit_commands: usize, limit_bytes: usize) -> Self {
-        Mailbox {
-            state: Mutex::new(MailboxState {
-                queue: VecDeque::new(),
-                bytes: 0,
-                open: true,
-            }),
-            ready: Condvar::new(),
-            limit_commands,
-            limit_bytes,
-        }
-    }
-
-    fn push(&self, job: J, cost: usize) -> Result<(), (J, StorageError)> {
-        let mut state = lock(&self.state);
-        if !state.open {
-            return Err((job, StorageError::Closed));
-        }
-        if cost > self.limit_bytes {
-            return Err((
-                job,
-                StorageError::TooLarge {
-                    bytes: cost,
-                    limit: self.limit_bytes,
-                },
-            ));
-        }
-        if state.queue.len() >= self.limit_commands || state.bytes + cost > self.limit_bytes {
-            let error = StorageError::Backpressure {
-                queued_commands: state.queue.len(),
-                queued_bytes: state.bytes,
-                limit_commands: self.limit_commands,
-                limit_bytes: self.limit_bytes,
-            };
-            return Err((job, error));
-        }
-        state.bytes += cost;
-        state.queue.push_back(Queued {
-            job,
-            cost,
-            enqueued: Instant::now(),
-        });
-        drop(state);
-        self.ready.notify_one();
-        Ok(())
-    }
-
-    /// Blocks until work or close; groups only commands that are already queued.
-    fn pop(&self, max: usize, groupable: fn(&J) -> bool) -> Option<(Vec<Queued<J>>, bool)> {
-        let mut state = lock(&self.state);
-        while state.queue.is_empty() && state.open {
-            state = self
-                .ready
-                .wait(state)
-                .unwrap_or_else(PoisonError::into_inner);
-        }
-        let first = state.queue.pop_front()?;
-        let group = groupable(&first.job);
-        let mut batch = vec![first];
-        while group
-            && batch.len() < max
-            && state.queue.front().is_some_and(|next| groupable(&next.job))
-        {
-            if let Some(next) = state.queue.pop_front() {
-                batch.push(next);
-            }
-        }
-        state.bytes -= batch.iter().map(|queued| queued.cost).sum::<usize>();
-        Some((batch, !state.open))
-    }
-
-    fn close(&self) {
-        lock(&self.state).open = false;
-        self.ready.notify_all();
-    }
-
-    fn close_and_take(&self) -> Vec<Queued<J>> {
-        let taken: Vec<_> = {
-            let mut state = lock(&self.state);
-            state.open = false;
-            state.bytes = 0;
-            state.queue.drain(..).collect()
-        };
-        self.ready.notify_all();
-        taken
-    }
-}
-
 pub(crate) struct WriteCx<'a> {
     pub(crate) conn: &'a Connection,
     pub(crate) revision: Revision,
@@ -222,11 +121,42 @@ pub(crate) struct WriterEnv<'a> {
     pub(crate) conn: &'a mut Connection,
     pub(crate) layout: &'a Layout,
     pub(crate) faults: &'a mut Faults,
+    pub(crate) releases: &'a mut ReleaseQueue,
 }
 
 pub(crate) struct ReadCx<'a> {
     pub(crate) conn: &'a Connection,
     pub(crate) layout: &'a Layout,
+    gates: &'a ReadGates,
+}
+
+impl ReadCx<'_> {
+    pub(crate) fn before_asset_file(&self) {
+        self.gates.before_asset_file();
+    }
+}
+
+/// What a reader thread owns besides its connection.
+struct ReaderContext {
+    layout: Layout,
+    pins: Arc<ReadPins>,
+    published: Arc<Published>,
+    writes: Arc<Mailbox<WriteJob>>,
+    gates: Arc<ReadGates>,
+}
+
+/// Registered before the snapshot opens and released after it ends.
+struct SnapshotPin<'a> {
+    context: &'a ReaderContext,
+    token: u64,
+}
+
+impl Drop for SnapshotPin<'_> {
+    fn drop(&mut self) {
+        if self.context.pins.leave(self.token) {
+            self.context.writes.signal();
+        }
+    }
 }
 
 pub(crate) trait MutationJob: Send {
@@ -239,8 +169,8 @@ pub(crate) trait ExclusiveJob: Send {
     fn fail(self: Box<Self>, error: StorageError);
 }
 
-pub(crate) trait ReadJob: Send {
-    fn run(self: Box<Self>, conn: &mut Connection, layout: &Layout);
+trait ReadJob: Send {
+    fn run(self: Box<Self>, conn: &mut Connection, context: &ReaderContext);
     fn fail(self: Box<Self>, error: StorageError);
 }
 
@@ -324,9 +254,9 @@ where
     T: Send,
     F: FnOnce(&ReadCx<'_>) -> Result<T, StorageError> + Send,
 {
-    fn run(self: Box<Self>, conn: &mut Connection, layout: &Layout) {
+    fn run(self: Box<Self>, conn: &mut Connection, context: &ReaderContext) {
         let TypedRead { op, settle } = *self;
-        settle.settle(read_snapshot(conn, layout, op));
+        settle.settle(read_snapshot(conn, context, op));
     }
 
     fn fail(self: Box<Self>, error: StorageError) {
@@ -335,16 +265,26 @@ where
     }
 }
 
+/// The pin outlives the transaction, so it is released before the caller is settled.
 fn read_snapshot<T>(
     conn: &mut Connection,
-    layout: &Layout,
+    context: &ReaderContext,
     op: impl FnOnce(&ReadCx<'_>) -> Result<T, StorageError>,
 ) -> Result<Read<T>, StorageError> {
+    let _pin = SnapshotPin {
+        token: context.pins.enter(&context.published.revision),
+        context,
+    };
     let tx = conn
         .transaction()
         .map_err(|e| sqlite_error("begin read", e))?;
     let revision = Revision(schema::read_meta(&tx, schema::COMMIT_REVISION)?);
-    let value = op(&ReadCx { conn: &tx, layout })?;
+    let cx = ReadCx {
+        conn: &tx,
+        layout: &context.layout,
+        gates: &context.gates,
+    };
+    let value = op(&cx)?;
     tx.commit().map_err(|e| sqlite_error("end read", e))?;
     Ok(Read { value, revision })
 }
@@ -422,6 +362,8 @@ struct Shared {
     published: Arc<Published>,
     lifecycle: Arc<Lifecycle>,
     metrics: Arc<Mutex<StorageMetrics>>,
+    #[cfg(feature = "test-support")]
+    gates: Arc<ReadGates>,
     settings: EffectiveSettings,
 }
 
@@ -470,6 +412,10 @@ impl Storage {
         });
         let lifecycle = Arc::new(Lifecycle::default());
         let metrics = Arc::new(Mutex::new(StorageMetrics::default()));
+        let (pins, gates) = (
+            Arc::new(ReadPins::default()),
+            Arc::new(ReadGates::default()),
+        );
         let guard = ExitGuard {
             writes: writes.clone(),
             reads: reads.clone(),
@@ -479,9 +425,16 @@ impl Storage {
         };
         let mut readers = Vec::with_capacity(reader_conns.len());
         for (index, (conn, _)) in reader_conns.into_iter().enumerate() {
-            let (layout, queue) = (claim.layout.clone(), reads.clone());
+            let context = ReaderContext {
+                layout: claim.layout.clone(),
+                pins: pins.clone(),
+                published: published.clone(),
+                writes: writes.clone(),
+                gates: gates.clone(),
+            };
+            let queue = reads.clone();
             readers.push(spawn(format!("storage-reader-{index}"), move || {
-                reader_main(conn, layout, queue)
+                reader_main(conn, context, queue)
             })?);
         }
         let writer = Writer {
@@ -489,6 +442,7 @@ impl Storage {
             claim,
             revision,
             faults: Faults::default(),
+            releases: ReleaseQueue::new(pins),
             max_asset_bytes: config.max_asset_bytes,
             readers,
             writes: writes.clone(),
@@ -507,6 +461,8 @@ impl Storage {
                 published,
                 lifecycle,
                 metrics,
+                #[cfg(feature = "test-support")]
+                gates,
                 settings,
             }),
         })
@@ -663,12 +619,16 @@ impl Drop for ReaderGuard {
     }
 }
 
-fn reader_main(mut conn: Connection, layout: Layout, reads: Arc<Mailbox<Box<dyn ReadJob>>>) {
+fn reader_main(
+    mut conn: Connection,
+    context: ReaderContext,
+    reads: Arc<Mailbox<Box<dyn ReadJob>>>,
+) {
     mark_owner_thread();
     let _guard = ReaderGuard(reads.clone());
-    while let Some((batch, _)) = reads.pop(1, |_| false) {
-        for queued in batch {
-            queued.job.run(&mut conn, &layout);
+    while let Some(popped) = reads.pop(1, |_| false) {
+        for queued in popped.jobs {
+            queued.job.run(&mut conn, &context);
         }
     }
     let _ = conn.close();
@@ -726,6 +686,7 @@ struct Writer {
     claim: RootClaim,
     revision: u64,
     faults: Faults,
+    releases: ReleaseQueue,
     max_asset_bytes: usize,
     readers: Vec<JoinHandle<()>>,
     writes: Arc<Mailbox<WriteJob>>,
@@ -743,19 +704,23 @@ fn writer_main(writer: Writer, guard: ExitGuard) {
 
 impl Writer {
     fn run(mut self) -> Result<ShutdownReceipt, StorageError> {
-        while let Some((batch, closed)) = self.writes.pop(MAX_GROUP, WriteJob::is_mutation) {
-            if closed {
-                self.drained += batch.len() as u64;
+        while let Some(popped) = self.writes.pop(MAX_GROUP, WriteJob::is_mutation) {
+            if popped.signaled {
+                self.drain_releases();
+            }
+            if popped.closed {
+                self.drained += popped.jobs.len() as u64;
             }
             let dequeued = Instant::now();
             let mut group = Vec::new();
-            for queued in batch {
+            for queued in popped.jobs {
                 let waited = dequeued.saturating_duration_since(queued.enqueued);
                 match queued.job {
                     WriteJob::Exclusive(job) => job.run(&mut WriterEnv {
                         conn: &mut self.conn,
                         layout: &self.claim.layout,
                         faults: &mut self.faults,
+                        releases: &mut self.releases,
                     }),
                     WriteJob::Mutation(job) => group.push((job, waited)),
                 }
@@ -765,6 +730,13 @@ impl Writer {
             }
         }
         self.finish()
+    }
+
+    /// A removal failure stays recorded in `asset_cleanup` for an explicit retry.
+    fn drain_releases(&mut self) {
+        let _ = self
+            .releases
+            .drain(&self.conn, &self.claim.layout, &mut self.faults);
     }
 
     /// One IMMEDIATE transaction, one savepoint per operation; acknowledgments follow COMMIT.
@@ -790,15 +762,21 @@ impl Writer {
             group_size,
         };
         self.revision = next;
-        let released: Vec<AssetId> = applied
+        // Publishing before the pin check keeps every later reader's floor at or above `next`.
+        self.published.store(next);
+        let released: Vec<(AssetId, u64)> = applied
             .iter()
             .flatten()
-            .flat_map(|done| done.released.iter().cloned())
+            .flat_map(|done| {
+                done.released
+                    .iter()
+                    .map(move |asset| (asset.clone(), done.revision.0))
+            })
             .collect();
         if !released.is_empty() {
-            assets::cleanup_released(&self.conn, &self.claim.layout, &mut self.faults, &released);
+            self.releases.defer(released);
+            self.drain_releases();
         }
-        self.published.store(next);
         let committed = applied.iter().filter(|result| result.is_ok()).count() as u64;
         self.record(committed, group_size as u64 - committed, Some(timings));
         for ((job, waited), result) in jobs.into_iter().zip(applied) {
@@ -918,13 +896,15 @@ impl Writer {
         }
     }
 
-    /// Readers close first so the final checkpoint can truncate and SQLite can remove
-    /// the WAL and shared-memory files before the root lock is released.
+    /// Readers close first: their pins end, deferred removals complete, and the final
+    /// checkpoint can truncate so SQLite removes WAL/SHM before the root lock is released.
     fn finish(self) -> Result<ShutdownReceipt, StorageError> {
         let Writer {
             conn,
             claim,
             revision,
+            mut faults,
+            mut releases,
             readers,
             reads,
             drained,
@@ -934,6 +914,7 @@ impl Writer {
         for reader in readers {
             let _ = reader.join();
         }
+        let _ = releases.drain(&conn, &claim.layout, &mut faults);
         let checkpointed = schema::checkpoint_truncate(&conn);
         let closed = conn
             .close()
@@ -978,195 +959,4 @@ fn apply_one(
         .commit()
         .map_err(|e| sqlite_error("release operation", e))?;
     Ok(applied)
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum FaultPoint {
-    Commit,
-    AssetPublish,
-    Cleanup,
-}
-
-/// Fault injection compiles to "never" unless the test-support feature is enabled.
-#[derive(Debug, Default)]
-pub(crate) struct Faults {
-    #[cfg(feature = "test-support")]
-    armed: Vec<FaultPoint>,
-}
-
-impl Faults {
-    pub(crate) fn take(&mut self, point: FaultPoint) -> bool {
-        #[cfg(feature = "test-support")]
-        if let Some(index) = self.armed.iter().position(|armed| *armed == point) {
-            self.armed.remove(index);
-            return true;
-        }
-        let _ = point;
-        false
-    }
-}
-
-#[cfg(feature = "test-support")]
-pub use support::{Fault, ReentrancyProbe, WriterHold};
-
-#[cfg(feature = "test-support")]
-mod support {
-    use super::*;
-    use std::path::PathBuf;
-    use std::sync::mpsc;
-
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub enum Fault {
-        FailNextCommit,
-        FailNextAssetPublish,
-        FailNextCleanup,
-        /// Caps the database at its current page count so growth fails with SQLITE_FULL.
-        DatabaseFull,
-        ClearDatabaseFull,
-    }
-
-    /// Keeps the writer inside one exclusive job until released or dropped.
-    pub struct WriterHold {
-        held: mpsc::Receiver<()>,
-        release: Option<mpsc::Sender<()>>,
-    }
-
-    impl WriterHold {
-        pub fn wait_held(&self, deadline: Duration) -> Result<(), StorageError> {
-            self.held
-                .recv_timeout(deadline)
-                .map_err(|_| StorageError::Unconfirmed {
-                    operation: "writer hold",
-                })
-        }
-
-        pub fn release(mut self) {
-            self.release.take();
-        }
-    }
-
-    /// What each Storage entry point returned when called from the writer thread.
-    #[derive(Debug, Clone, PartialEq, Eq)]
-    pub struct ReentrancyProbe {
-        pub read: Option<StorageError>,
-        pub wait: Option<StorageError>,
-        pub shutdown: Option<StorageError>,
-        pub open: Option<StorageError>,
-    }
-
-    struct Gate {
-        held: mpsc::Sender<()>,
-        release: mpsc::Receiver<()>,
-    }
-
-    impl Gate {
-        fn block(self) {
-            let _ = self.held.send(());
-            let _ = self.release.recv();
-        }
-    }
-
-    fn gate() -> (Gate, WriterHold) {
-        let (held_tx, held) = mpsc::channel();
-        let (release, release_rx) = mpsc::channel();
-        (
-            Gate {
-                held: held_tx,
-                release: release_rx,
-            },
-            WriterHold {
-                held,
-                release: Some(release),
-            },
-        )
-    }
-
-    fn admitted<T>(hold: WriterHold, queued: Completion<T>) -> Result<WriterHold, StorageError> {
-        match queued.try_take() {
-            Ok(Err(error)) => Err(error),
-            _ => Ok(hold),
-        }
-    }
-
-    impl Storage {
-        /// Holds the writer between transactions.
-        pub fn hold_writer(&self) -> Result<WriterHold, StorageError> {
-            let (gate, hold) = gate();
-            let queued = self.submit_exclusive(0, move |_| {
-                gate.block();
-                Ok(())
-            });
-            admitted(hold, queued)
-        }
-
-        /// Holds the writer inside an open IMMEDIATE transaction holding an uncommitted change
-        /// to every workspace name; the change rolls back on release.
-        pub fn hold_write_transaction(&self) -> Result<WriterHold, StorageError> {
-            let (gate, hold) = gate();
-            let queued = self.submit_mutation(0, move |cx| -> Result<(), StorageError> {
-                cx.write("UPDATE workspaces SET name = name || ' (uncommitted)'", [])?;
-                gate.block();
-                Err(StorageError::Injected {
-                    point: "held transaction",
-                })
-            });
-            admitted(hold, queued)
-        }
-
-        pub fn inject_fault(&self, fault: Fault) -> Completion<()> {
-            self.submit_exclusive(0, move |env| apply_fault(env, fault))
-        }
-
-        pub fn probe_reentrancy(&self, other_root: &Path) -> Completion<ReentrancyProbe> {
-            let storage = self.clone();
-            let other_root = other_root.to_path_buf();
-            self.submit_exclusive(0, move |_| {
-                let first_error =
-                    |completion: Completion<_>| completion.try_take().ok().and_then(Result::err);
-                Ok(ReentrancyProbe {
-                    read: first_error(storage.workspaces().list()),
-                    wait: storage
-                        .committed_after(storage.revision())
-                        .wait(Duration::from_secs(5))
-                        .err(),
-                    shutdown: storage.shutdown().try_take().ok().and_then(Result::err),
-                    open: Storage::open(&other_root, StorageConfig::default()).err(),
-                })
-            })
-        }
-
-        pub fn database_path(root: &Path) -> PathBuf {
-            Layout::of_root(root).database
-        }
-
-        pub fn lock_path(root: &Path) -> PathBuf {
-            Layout::of_root(root).lock
-        }
-    }
-
-    fn apply_fault(env: &mut WriterEnv<'_>, fault: Fault) -> Result<(), StorageError> {
-        match fault {
-            Fault::FailNextCommit => env.faults.armed.push(FaultPoint::Commit),
-            Fault::FailNextAssetPublish => env.faults.armed.push(FaultPoint::AssetPublish),
-            Fault::FailNextCleanup => env.faults.armed.push(FaultPoint::Cleanup),
-            Fault::DatabaseFull => {
-                let pages: i64 = env
-                    .conn
-                    .query_row("PRAGMA page_count", [], |row| row.get(0))
-                    .map_err(|e| sqlite_error("read page count", e))?;
-                set_page_limit(env.conn, pages)?;
-            }
-            Fault::ClearDatabaseFull => set_page_limit(env.conn, 4_294_967_294)?,
-        }
-        Ok(())
-    }
-
-    fn set_page_limit(conn: &Connection, pages: i64) -> Result<(), StorageError> {
-        let _: i64 = conn
-            .query_row(&format!("PRAGMA max_page_count = {pages}"), [], |row| {
-                row.get(0)
-            })
-            .map_err(|e| sqlite_error("set page limit", e))?;
-        Ok(())
-    }
 }

@@ -186,6 +186,8 @@ pub struct SweepReport {
 pub struct CleanupReport {
     pub removed: u64,
     pub retained: Vec<PendingCleanup>,
+    /// Still reachable from an open read snapshot; removed once that snapshot ends.
+    pub deferred: u64,
 }
 
 /// Asset maintenance; references themselves belong to typed domain repositories.
@@ -210,14 +212,12 @@ impl AssetRepository {
             .submit_exclusive(0, |env| sweep(env.conn, env.layout))
     }
 
-    /// Retries the bounded set of retained post-commit file removals.
+    /// Retries the bounded set of released files; files an open read snapshot can still
+    /// reach stay queued and are reported as deferred.
     pub fn run_cleanup(&self) -> Completion<CleanupReport> {
         self.storage.submit_exclusive(0, |env| {
-            let pending: Vec<AssetId> = pending_cleanup(env.conn)?
-                .into_iter()
-                .map(|entry| entry.asset)
-                .collect();
-            cleanup(env.conn, env.layout, env.faults, &pending)
+            env.releases.defer(pending_releases(env.conn)?);
+            env.releases.drain(env.conn, env.layout, env.faults)
         })
     }
 }
@@ -250,6 +250,23 @@ pub(crate) fn dir_has_entries(dir: &Path) -> Result<bool, StorageError> {
     Ok(entries.next().is_some())
 }
 
+/// Links and every Windows reparse point (symlinks, junctions, mount points) are refused.
+fn is_link_or_reparse(meta: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        use windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_REPARSE_POINT;
+        if meta.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
+            return true;
+        }
+    }
+    meta.file_type().is_symlink()
+}
+
+fn is_owned_file(meta: &fs::Metadata) -> bool {
+    meta.is_file() && !is_link_or_reparse(meta)
+}
+
 fn not_confined(path: &Path, reason: &str) -> StorageError {
     StorageError::RootInvalid {
         root: path.to_path_buf(),
@@ -259,7 +276,7 @@ fn not_confined(path: &Path, reason: &str) -> StorageError {
 
 /// Storage directories are real directories, never links out of the owned root.
 pub(crate) fn ensure_owned_dir(path: &Path) -> Result<(), StorageError> {
-    let real_dir = |meta: &fs::Metadata| meta.is_dir() && !meta.file_type().is_symlink();
+    let real_dir = |meta: &fs::Metadata| meta.is_dir() && !is_link_or_reparse(meta);
     match fs::symlink_metadata(path) {
         Ok(meta) if real_dir(&meta) => Ok(()),
         Ok(_) => Err(not_confined(path, "is not a real directory")),
@@ -294,7 +311,7 @@ pub(crate) fn create_owner_file(path: &Path) -> Result<File, StorageError> {
 }
 
 pub(crate) fn open_lock_file(path: &Path) -> Result<File, StorageError> {
-    if fs::symlink_metadata(path).is_ok_and(|meta| !meta.is_file()) {
+    if fs::symlink_metadata(path).is_ok_and(|meta| !is_owned_file(&meta)) {
         return Err(not_confined(path, "lock is not a regular file"));
     }
     let mut options = OpenOptions::new();
@@ -315,7 +332,8 @@ pub(crate) fn sync_file(path: &Path) -> Result<(), StorageError> {
         .map_err(|e| io_error("sync storage file", e))
 }
 
-/// Persists a directory entry change on Unix.
+/// Persists a directory entry change on Unix. Windows publication flushes through
+/// MoveFileExW instead; std cannot open a Windows directory handle for flushing.
 pub(crate) fn sync_dir(dir: &Path) -> Result<(), StorageError> {
     #[cfg(unix)]
     {
@@ -323,8 +341,6 @@ pub(crate) fn sync_dir(dir: &Path) -> Result<(), StorageError> {
             .and_then(|handle| handle.sync_all())
             .map_err(|e| io_error("sync storage directory", e))
     }
-    // std cannot open a Windows directory for flushing; NTFS journals renames, the same
-    // assumption SQLite's Windows VFS makes when it ignores directory sync.
     #[cfg(not(unix))]
     {
         let _ = dir;
@@ -332,17 +348,42 @@ pub(crate) fn sync_dir(dir: &Path) -> Result<(), StorageError> {
     }
 }
 
-/// Atomic same-volume publication that refuses to replace an existing entry.
-pub(crate) fn rename_durable(from: &Path, to: &Path, dir: &Path) -> Result<(), StorageError> {
-    if entry_exists(to)? {
-        return Err(StorageError::Io {
-            operation: "publish storage file",
-            kind: ErrorKind::AlreadyExists,
-            detail: "target already exists".to_string(),
-        });
+/// Publishes a fully synced staged file under `target`, atomically refusing to replace any
+/// existing entry. Unix: link(2) fails with EEXIST, then the directory is synced and the
+/// staging name dropped. Windows: MoveFileExW without REPLACE_EXISTING, with WRITE_THROUGH.
+pub(crate) fn publish_no_replace(
+    staged: &Path,
+    target: &Path,
+    dir: &Path,
+) -> Result<(), StorageError> {
+    #[cfg(unix)]
+    {
+        fs::hard_link(staged, target).map_err(|e| io_error("publish storage file", e))?;
+        sync_dir(dir)?;
+        // A surviving staging name is a reclaimable duplicate; publication already happened.
+        let _ = fs::remove_file(staged);
+        Ok(())
     }
-    fs::rename(from, to).map_err(|e| io_error("publish storage file", e))?;
-    sync_dir(dir)
+    #[cfg(windows)]
+    {
+        let _ = dir;
+        move_no_replace(staged, target).map_err(|e| io_error("publish storage file", e))
+    }
+}
+
+#[cfg(windows)]
+fn move_no_replace(from: &Path, to: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_WRITE_THROUGH};
+    let wide =
+        |path: &Path| -> Vec<u16> { path.as_os_str().encode_wide().chain(Some(0)).collect() };
+    let (from, to) = (wide(from), wide(to));
+    // SAFETY: both buffers are NUL-terminated UTF-16 paths that outlive the call.
+    let moved = unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_WRITE_THROUGH) };
+    if moved == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
 }
 
 fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), StorageError> {
@@ -361,7 +402,7 @@ pub(crate) fn publish(cx: &mut WriteCx<'_>, bytes: &[u8]) -> Result<AssetRef, St
             limit: cx.max_asset_bytes,
         });
     }
-    let id = AssetId::generate();
+    let id = cx.faults.take_asset_id().unwrap_or_else(AssetId::generate);
     let staged = cx.layout.tmp.join(format!("asset-{id}.part"));
     write_new_file(&staged, bytes)?;
     if cx.faults.take(FaultPoint::AssetPublish) {
@@ -369,11 +410,11 @@ pub(crate) fn publish(cx: &mut WriteCx<'_>, bytes: &[u8]) -> Result<AssetRef, St
             point: "asset publish",
         });
     }
-    rename_durable(
-        &staged,
-        &cx.layout.blobs.join(id.as_str()),
-        &cx.layout.blobs,
-    )?;
+    let target = cx.layout.blobs.join(id.as_str());
+    if let Err(error) = publish_no_replace(&staged, &target, &cx.layout.blobs) {
+        let _ = fs::remove_file(&staged);
+        return Err(error);
+    }
     let byte_len = bytes.len() as u64;
     let revision = to_sql_u64("revision", cx.revision.0)?;
     cx.write(
@@ -414,17 +455,9 @@ pub(crate) fn release_if_unreferenced(
     Ok(true)
 }
 
-/// Runs after the reference removal committed; a failure stays recorded for retry.
-pub(crate) fn cleanup_released(
-    conn: &Connection,
-    layout: &Layout,
-    faults: &mut Faults,
-    ids: &[AssetId],
-) {
-    let _ = cleanup(conn, layout, faults, ids);
-}
-
-fn cleanup(
+/// Removes released files after their reference removal committed; a failure stays
+/// recorded in `asset_cleanup` for an explicit retry.
+pub(crate) fn remove_released(
     conn: &Connection,
     layout: &Layout,
     faults: &mut Faults,
@@ -432,7 +465,7 @@ fn cleanup(
 ) -> Result<CleanupReport, StorageError> {
     let mut report = CleanupReport::default();
     let mut outcomes = Vec::with_capacity(ids.len());
-    for id in ids.iter().take(MAX_CLEANUP_BATCH) {
+    for id in ids {
         outcomes.push((id, remove_blob(layout, id, faults)));
     }
     let tx = conn
@@ -483,8 +516,12 @@ fn corrupt(id: &AssetId, detail: impl Into<String>) -> StorageError {
 }
 
 fn open_committed(layout: &Layout, id: &AssetId, byte_len: u64) -> Result<File, StorageError> {
-    let file =
-        File::open(layout.blobs.join(id.as_str())).map_err(|e| corrupt(id, e.to_string()))?;
+    let path = layout.blobs.join(id.as_str());
+    let meta = fs::symlink_metadata(&path).map_err(|e| corrupt(id, e.to_string()))?;
+    if !is_owned_file(&meta) {
+        return Err(corrupt(id, "not a regular owned file"));
+    }
+    let file = File::open(&path).map_err(|e| corrupt(id, e.to_string()))?;
     let actual = file
         .metadata()
         .map_err(|e| io_error("inspect asset", e))?
@@ -572,6 +609,29 @@ fn pending_cleanup(conn: &Connection) -> Result<Vec<PendingCleanup>, StorageErro
     .collect()
 }
 
+/// Released assets still awaiting file removal, with the revision that released each.
+pub(crate) fn pending_releases(conn: &Connection) -> Result<Vec<(AssetId, u64)>, StorageError> {
+    let mut statement = conn
+        .prepare(
+            "SELECT asset_id, released_revision FROM asset_cleanup \
+             ORDER BY released_revision, asset_id LIMIT ?1",
+        )
+        .map_err(|e| sqlite_error("list asset cleanup", e))?;
+    let rows = statement
+        .query_map([MAX_CLEANUP_BATCH as i64], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
+        .map_err(|e| sqlite_error("list asset cleanup", e))?;
+    rows.map(|row| {
+        let (asset, released) = row.map_err(|e| sqlite_error("list asset cleanup", e))?;
+        let asset = AssetId::parse(&asset).map_err(|_| StorageError::Corrupt {
+            detail: "malformed asset id".to_string(),
+        })?;
+        Ok((asset, from_sql_u64("released revision", released)?))
+    })
+    .collect()
+}
+
 fn scan(dir: &Path) -> Result<Vec<String>, StorageError> {
     let entries = fs::read_dir(dir).map_err(|e| io_error("list storage directory", e))?;
     entries
@@ -593,7 +653,7 @@ fn audit(conn: &Connection, layout: &Layout) -> Result<AssetAudit, StorageError>
     for (id, byte_len) in &committed {
         let on_disk = fs::symlink_metadata(layout.blobs.join(id.as_str()))
             .ok()
-            .filter(|meta| meta.is_file());
+            .filter(is_owned_file);
         if on_disk.map(|meta| meta.len()) != Some(*byte_len) {
             report.dangling.push(id.clone());
         }
@@ -628,7 +688,7 @@ fn sweep(conn: &Connection, layout: &Layout) -> Result<SweepReport, StorageError
     }
     for name in scan(&layout.tmp)? {
         let path = layout.tmp.join(&name);
-        if fs::symlink_metadata(&path).is_ok_and(|meta| meta.is_file()) {
+        if fs::symlink_metadata(&path).is_ok_and(|meta| is_owned_file(&meta)) {
             fs::remove_file(&path).map_err(|e| io_error("remove staging file", e))?;
             report.removed_temp += 1;
         }

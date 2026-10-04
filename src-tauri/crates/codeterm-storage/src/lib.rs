@@ -14,7 +14,7 @@ pub use assets::{
 pub use backup::{BackupReceipt, RestoreReceipt};
 pub use error::{ConstraintKind, StorageError};
 #[cfg(feature = "test-support")]
-pub use owner::{Fault, ReentrancyProbe, WriterHold};
+pub use owner::{Fault, Hold, ReentrancyProbe};
 pub use owner::{
     Storage, StorageConfig, DEFAULT_MAILBOX_BYTES, DEFAULT_MAILBOX_COMMANDS, MAX_READ_CONNECTIONS,
 };
