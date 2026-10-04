@@ -1,4 +1,5 @@
 pub mod cron;
+pub mod sentinel;
 pub mod workspaces;
 
 use crate::error::StorageError;

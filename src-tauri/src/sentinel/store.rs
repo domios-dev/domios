@@ -1,16 +1,18 @@
 use std::collections::{BTreeMap, HashMap};
-use std::path::PathBuf;
 use std::sync::{atomic::Ordering, Arc};
 
 use serde::{Deserialize, Serialize};
 
 use super::handlers::{self, Definition, Handler, Transition};
 use super::machine::{self, Machine, Route};
+use super::probe::cancellation::Cancellation;
+use super::storage::{Backend, LoadFailure, Staged};
 use crate::cron::clock::SharedClock;
-use crate::persisted_state::StateFile;
 
 const MAX_SENTINELS: usize = 256;
-const MAX_ACTIVE: usize = 64;
+pub(super) const MAX_ACTIVE: usize = 64;
+
+pub(super) type ScopeKey = (String, Option<String>);
 
 #[derive(Clone, Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -83,7 +85,7 @@ pub struct Owner {
 
 pub struct Lease {
     pub job: Sentinel,
-    pub(super) cancelled: Arc<super::probe::cancellation::Cancellation>,
+    pub(super) cancelled: Arc<Cancellation>,
 }
 
 #[cfg(test)]
@@ -95,49 +97,19 @@ impl Lease {
 
 pub struct Store {
     pub(super) jobs: Vec<Sentinel>,
-    pub(super) active: HashMap<String, Arc<super::probe::cancellation::Cancellation>>,
-    file: StateFile,
+    pub(super) active: HashMap<String, Arc<Cancellation>>,
+    pub(super) backend: Backend,
     pub clock: SharedClock,
-    unavailable: Option<LoadFailure>,
+    pub(super) unavailable: Option<LoadFailure>,
     pub(super) admission_closed: bool,
-    committed_revisions: BTreeMap<(String, Option<String>), String>,
-    changes: BTreeMap<(String, Option<String>), String>,
+    pub(super) committed_revisions: BTreeMap<ScopeKey, String>,
+    pub(super) changes: BTreeMap<ScopeKey, String>,
 }
 
-#[derive(Clone, Copy)]
-enum LoadFailure {
-    UnsupportedFormat,
-    LoadFailed,
-    PersistenceFailed,
-}
-
-impl LoadFailure {
-    fn from_raw(raw: &str) -> Self {
-        let unsupported = serde_json::from_str::<serde_json::Value>(raw)
-            .ok()
-            .and_then(|value| value.as_array().cloned())
-            .is_some_and(|jobs| {
-                jobs.iter().any(|job| {
-                    job["routes"]
-                        .as_object()
-                        .is_some_and(|routes| routes.values().any(serde_json::Value::is_object))
-                })
-            });
-        if unsupported {
-            Self::UnsupportedFormat
-        } else {
-            Self::LoadFailed
-        }
-    }
-
-    fn message(self) -> String {
-        let code = match self {
-            Self::UnsupportedFormat => "sentinel_store_unsupported_format",
-            Self::LoadFailed => "sentinel_store_load_failed",
-            Self::PersistenceFailed => "sentinel_store_persistence_failed",
-        };
-        format!("{code}: original definitions remain in place; preserve/export them and recreate through supported authoring only after operator recovery")
-    }
+/// Operational scheduling changes staged by `due`; never authored definition versions.
+pub(super) enum ScheduleChange {
+    Advance { id: String, next_run: u64 },
+    Stop { id: String, reason: &'static str },
 }
 
 pub fn duration_ms(value: &str) -> Result<u64, String> {
@@ -190,8 +162,8 @@ pub fn duration_ms(value: &str) -> Result<u64, String> {
     crate::cron::store::parse_oneshot_schedule_at(&format!("in {value}"), 0)
 }
 
-fn decode(raw: &str) -> Result<Vec<Sentinel>, String> {
-    let jobs: Vec<Sentinel> = serde_json::from_str(raw).map_err(|e| e.to_string())?;
+/// Every stored-inventory invariant, shared by the legacy file and typed Storage loads.
+pub(super) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
     if jobs.len() > MAX_SENTINELS
         || jobs
             .iter()
@@ -331,89 +303,6 @@ fn decode(raw: &str) -> Result<Vec<Sentinel>, String> {
 }
 
 impl Store {
-    pub fn new(path: PathBuf, clock: SharedClock) -> Self {
-        let file = StateFile::new(path);
-        let (jobs, unavailable) = match std::fs::read_to_string(file.path()) {
-            Ok(raw) => match decode(&raw) {
-                Ok(jobs) => {
-                    crate::persisted_state::release_hold(file.path());
-                    (jobs, None)
-                }
-                Err(_) => {
-                    file.hold_for_repair();
-                    (Vec::new(), Some(LoadFailure::from_raw(&raw)))
-                }
-            },
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound && file.held().is_none() => {
-                (Vec::new(), None)
-            }
-            Err(_) => {
-                file.hold_for_repair();
-                (Vec::new(), Some(LoadFailure::LoadFailed))
-            }
-        };
-        let committed_revisions = scope_revisions(&jobs);
-        Self {
-            jobs,
-            active: HashMap::new(),
-            file,
-            clock,
-            unavailable,
-            admission_closed: false,
-            committed_revisions,
-            changes: BTreeMap::new(),
-        }
-    }
-
-    pub(super) fn save(&mut self) -> Result<(), String> {
-        self.ensure_available()?;
-        self.check_existing_file()?;
-        let raw = serde_json::to_string_pretty(&self.jobs).map_err(|e| e.to_string())?;
-        if let Err(error) = self.file.save(&raw) {
-            self.unavailable = Some(LoadFailure::PersistenceFailed);
-            self.file.hold_for_repair();
-            for cancelled in self.active.values() {
-                cancelled.store(true, Ordering::SeqCst);
-            }
-            return Err(format!(
-                "{}; write failed: {error}",
-                LoadFailure::PersistenceFailed.message()
-            ));
-        }
-        let current = scope_revisions(&self.jobs);
-        let scopes: std::collections::BTreeSet<_> = current
-            .keys()
-            .chain(self.committed_revisions.keys())
-            .cloned()
-            .collect();
-        for scope in scopes {
-            if current.get(&scope) != self.committed_revisions.get(&scope) {
-                let revision =
-                    super::graph::scope_revision(&self.jobs, &scope.0, scope.1.as_deref());
-                self.changes.insert(scope, revision);
-            }
-        }
-        self.committed_revisions = current;
-        Ok(())
-    }
-
-    fn check_existing_file(&mut self) -> Result<(), String> {
-        let failure = match std::fs::read_to_string(self.file.path()) {
-            Ok(raw) => decode(&raw).err().map(|_| LoadFailure::from_raw(&raw)),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-            Err(_) => Some(LoadFailure::LoadFailed),
-        };
-        if let Some(failure) = failure {
-            self.unavailable = Some(failure);
-            self.file.hold_for_repair();
-            for cancelled in self.active.values() {
-                cancelled.store(true, Ordering::SeqCst);
-            }
-            return Err(failure.message());
-        }
-        Ok(())
-    }
-
     pub fn committed_revision(&self, workspace: &str, team: Option<&str>) -> Option<&str> {
         self.committed_revisions
             .get(&(workspace.into(), team.map(str::to_owned)))
@@ -428,7 +317,7 @@ impl Store {
         if let Some(failure) = self.unavailable {
             return Err(failure.message());
         }
-        if self.file.held().is_some() {
+        if self.backend.held() {
             return Err("sentinel_store_load_failed: persistence is held for repair".into());
         }
         Ok(())
@@ -546,17 +435,44 @@ impl Store {
         Ok(job)
     }
 
-    pub fn insert(&mut self, job: Sentinel) -> Result<Sentinel, String> {
-        self.ensure_available()?;
+    pub(crate) fn stage_insert(&mut self, job: Sentinel) -> Staged<Sentinel> {
+        if let Err(error) = self.ensure_available() {
+            return Staged::ready(Err(error));
+        }
         if self.jobs.len() >= MAX_SENTINELS
             || (!job.machine.paused && self.active_count() >= MAX_ACTIVE)
         {
-            return Err("sentinel capacity reached".into());
+            return Staged::ready(Err("sentinel capacity reached".into()));
         }
         if self.get(&job.id).is_some() {
-            return Err("duplicate sentinel ID".into());
+            return Staged::ready(Err("duplicate sentinel ID".into()));
         }
-        self.validate_targets(&job)?;
+        let association_ids = match self.association_ids(&job) {
+            Ok(ids) => ids,
+            Err(error) => return Staged::ready(Err(error)),
+        };
+        if self.backend.json().is_none() {
+            return self.sqlite_insert(job, &association_ids);
+        }
+        let previous = self.jobs.clone();
+        for child in self
+            .jobs
+            .iter_mut()
+            .filter(|child| association_ids.contains(&child.id))
+        {
+            child.scenario_id = job.scenario_id.clone();
+        }
+        self.jobs.push(job.clone());
+        if let Err(error) = self.save() {
+            self.jobs = previous;
+            return Staged::ready(Err(error));
+        }
+        Staged::ready(Ok(job))
+    }
+
+    /// Validates exact targets and collects unassociated stages joining the new scenario.
+    fn association_ids(&self, job: &Sentinel) -> Result<Vec<String>, String> {
+        self.validate_targets(job)?;
         let mut association_ids = Vec::new();
         if job.scenario_id.is_some() {
             let mut pending: Vec<String> = job
@@ -576,7 +492,7 @@ impl Store {
                 if !seen.insert(id.clone()) {
                     continue;
                 }
-                self.validate_target(&job, &id)?;
+                self.validate_target(job, &id)?;
                 let child = self.get(&id).ok_or("scenario target disappeared")?;
                 if child.scenario_id.is_none() {
                     association_ids.push(id.clone());
@@ -590,20 +506,12 @@ impl Store {
                 }
             }
         }
-        let previous = self.jobs.clone();
-        for child in self
-            .jobs
-            .iter_mut()
-            .filter(|child| association_ids.contains(&child.id))
-        {
-            child.scenario_id = job.scenario_id.clone();
-        }
-        self.jobs.push(job.clone());
-        if let Err(error) = self.save() {
-            self.jobs = previous;
-            return Err(error);
-        }
-        Ok(job)
+        Ok(association_ids)
+    }
+
+    #[cfg(test)]
+    pub fn insert(&mut self, job: Sentinel) -> Result<Sentinel, String> {
+        self.locked(|store| store.stage_insert(job))
     }
 
     #[cfg(test)]
@@ -624,24 +532,37 @@ impl Store {
         }
     }
 
-    pub fn stop(&mut self, id: &str, reason: &str) -> Result<Sentinel, String> {
-        let job = self
-            .jobs
-            .iter_mut()
-            .find(|job| job.id == id)
-            .ok_or_else(|| format!("sentinel not found: {id}"))?;
-        job.machine.stopped = true;
-        job.revision += 1;
-        job.last_reason = Some(reason.into());
+    pub(crate) fn stage_stop(&mut self, id: &str, reason: &str) -> Staged<Sentinel> {
+        if self.get(id).is_none() {
+            return Staged::ready(Err(format!("sentinel not found: {id}")));
+        }
         if let Some(cancelled) = self.active.remove(id) {
             cancelled.store(true, Ordering::SeqCst);
         }
-        let result = job.clone();
-        self.save()?;
-        Ok(result)
+        if self.backend.json().is_none() {
+            return self.sqlite_stop(id, reason);
+        }
+        let Some(stopped) = self.apply_stop(id, reason) else {
+            return Staged::ready(Err(format!("sentinel not found: {id}")));
+        };
+        Staged::ready(self.save().map(|()| stopped))
     }
 
-    pub fn remove_team(&mut self, team: &str) -> Result<(), String> {
+    /// The in-memory stop; callers cancel the live lease themselves.
+    pub(super) fn apply_stop(&mut self, id: &str, reason: &str) -> Option<Sentinel> {
+        let job = self.jobs.iter_mut().find(|job| job.id == id)?;
+        job.machine.stopped = true;
+        job.revision += 1;
+        job.last_reason = Some(reason.into());
+        Some(job.clone())
+    }
+
+    #[cfg(test)]
+    pub fn stop(&mut self, id: &str, reason: &str) -> Result<Sentinel, String> {
+        self.locked(|store| store.stage_stop(id, reason))
+    }
+
+    pub(super) fn stage_remove_team(&mut self, team: &str) -> Staged<()> {
         for job in self
             .jobs
             .iter()
@@ -651,113 +572,104 @@ impl Store {
                 cancelled.store(true, Ordering::SeqCst);
             }
         }
+        if self.backend.json().is_none() {
+            return self.sqlite_remove_team(team);
+        }
         self.jobs.retain(|job| job.team_id.as_deref() != Some(team));
-        self.save()
+        Staged::ready(self.save())
     }
 
-    pub fn due(&mut self) -> Result<Vec<Lease>, String> {
+    #[cfg(test)]
+    pub fn remove_team(&mut self, team: &str) -> Result<(), String> {
+        self.locked(|store| store.stage_remove_team(team))
+    }
+
+    /// The typed backend plans on a copy, so the cache changes only on publication.
+    pub(super) fn stage_due(&mut self) -> Staged<Vec<Lease>> {
         if self.admission_closed {
-            return Err("sentinel_shutdown_admission_closed".into());
+            return Staged::ready(Err("sentinel_shutdown_admission_closed".into()));
         }
-        self.ensure_available()?;
+        if let Err(error) = self.ensure_available() {
+            return Staged::ready(Err(error));
+        }
         let now = self.clock.now_ms();
-        let mut due = Vec::new();
-        let previous = self.jobs.clone();
-        let mut changed = false;
-        for job in &mut self.jobs {
-            if job.machine.stopped {
-                continue;
-            }
-            if job.expires_at.is_some_and(|at| now >= at) {
-                job.machine.stopped = true;
-                job.revision += 1;
-                job.last_reason = Some("timeout".into());
-                if let Some(cancelled) = self.active.remove(&job.id) {
-                    cancelled.store(true, Ordering::SeqCst);
-                }
-                changed = true;
-                continue;
-            }
-            if !self.active.contains_key(&job.id)
-                && (job.transitions.len() >= usize::from(job.max_transitions)
-                    || job
-                        .transitions
-                        .iter()
-                        .flat_map(|t| &t.handlers)
-                        .filter(|r| r.claim_id.is_some())
-                        .count()
-                        >= usize::from(job.max_actions))
-            {
-                job.machine.stopped = true;
-                job.revision += 1;
-                job.last_reason = Some(
-                    if job.transitions.len() >= usize::from(job.max_transitions) {
-                        "transition_budget_exhausted"
-                    } else {
-                        "action_budget_exhausted"
-                    }
-                    .into(),
-                );
-                changed = true;
-                continue;
-            }
-            if job.machine.paused {
-                continue;
-            }
-            if job.next_run <= now && !self.active.contains_key(&job.id) {
-                let missed = (now - job.next_run) / job.interval_ms;
-                job.next_run = job
-                    .next_run
-                    .saturating_add((missed + 1).saturating_mul(job.interval_ms));
-                let cancelled = Arc::new(super::probe::cancellation::Cancellation::new(false));
-                self.active.insert(job.id.clone(), cancelled.clone());
-                due.push(Lease {
-                    job: job.clone(),
-                    cancelled,
-                });
-                changed = true;
-            }
+        if self.backend.json().is_none() {
+            let mut planned = self.jobs.clone();
+            let (due, changes) = plan_due(&mut planned, &mut self.active, now);
+            return self.sqlite_due(due, changes);
         }
-        if changed {
+        let previous = self.jobs.clone();
+        let (due, changes) = plan_due(&mut self.jobs, &mut self.active, now);
+        if !changes.is_empty() {
             if let Err(error) = self.save() {
                 for lease in &due {
                     lease.cancelled.store(true, Ordering::SeqCst);
                     self.active.remove(&lease.job.id);
                 }
                 self.jobs = previous;
-                return Err(error);
+                return Staged::ready(Err(error));
             }
         }
-        Ok(due)
+        Staged::ready(Ok(due))
     }
 
-    pub fn finish(&mut self, job: &Sentinel) -> Result<bool, String> {
-        self.ensure_available()?;
-        let Some(current) = self.jobs.iter_mut().find(|current| current.id == job.id) else {
-            return Ok(false);
+    #[cfg(test)]
+    pub fn due(&mut self) -> Result<Vec<Lease>, String> {
+        self.locked(Store::stage_due)
+    }
+
+    pub(super) fn stage_finish(&mut self, job: &Sentinel) -> Staged<bool> {
+        self.stage_finish_with(job, None)
+    }
+
+    /// Records a lease outcome; with `transition` it also accepts that transition.
+    pub(super) fn stage_finish_with(
+        &mut self,
+        job: &Sentinel,
+        transition: Option<Transition>,
+    ) -> Staged<bool> {
+        if let Err(error) = self.ensure_available() {
+            return Staged::ready(Err(error));
+        }
+        let now = self.clock.now_ms();
+        let Some(current) = self.get(&job.id) else {
+            return Staged::ready(Ok(false));
         };
         if !current.same_owner(job)
             || current.revision != job.revision
             || current.machine.stopped
-            || current
-                .expires_at
-                .is_some_and(|at| self.clock.now_ms() >= at)
+            || current.expires_at.is_some_and(|at| now >= at)
         {
-            return Ok(false);
+            return Staged::ready(Ok(false));
         }
-        let mut next = job.clone();
-        if next.transitions.len() < current.transitions.len() {
-            next.transitions = current.transitions.clone();
+        if self.backend.json().is_none() {
+            return self.sqlite_finish(job, transition);
         }
-        *current = next;
+        if let Some(current) = self.jobs.iter_mut().find(|current| current.id == job.id) {
+            apply_finish(current, job, transition);
+        }
         if let Err(error) = self.save() {
             if let Some(current) = self.jobs.iter_mut().find(|current| current.id == job.id) {
                 current.machine.stopped = true;
                 current.last_reason = Some("persistence_failed".into());
             }
-            return Err(error);
+            return Staged::ready(Err(error));
         }
-        Ok(true)
+        Staged::ready(Ok(true))
+    }
+
+    /// A failed commit keeps the outcome in memory but stops the stage, as the file did.
+    pub(super) fn keep_finish_intent(&mut self, job: &Sentinel, transition: Option<Transition>) {
+        if let Some(current) = self.jobs.iter_mut().find(|current| current.id == job.id) {
+            apply_finish(current, job, transition);
+            current.machine.stopped = true;
+            current.last_reason = Some("persistence_failed".into());
+        }
+    }
+
+    #[cfg(test)]
+    pub fn finish(&mut self, job: &Sentinel) -> Result<bool, String> {
+        self.locked(|store| store.stage_finish(job))
     }
 
     fn active_count(&self) -> usize {
@@ -795,8 +707,36 @@ impl Store {
         Ok(())
     }
 
-    pub fn activate(
+    pub(super) fn stage_activate(
         &mut self,
+        source: &Sentinel,
+        transition: &str,
+        id: &str,
+    ) -> Staged<bool> {
+        match self.activation_check(source, transition, id) {
+            Ok(true) => {}
+            Ok(false) => return Staged::ready(Ok(false)),
+            Err(error) => return Staged::ready(Err(error)),
+        }
+        if self.backend.json().is_none() {
+            return self.sqlite_activate(source, transition, id);
+        }
+        let previous = self.jobs.clone();
+        let Some(target) = self.jobs.iter_mut().find(|job| job.id == id) else {
+            return Staged::ready(Err("sentinel target disappeared".into()));
+        };
+        target.machine.paused = false;
+        target.revision += 1;
+        if let Err(error) = self.save() {
+            self.jobs = previous;
+            return Staged::ready(Err(error));
+        }
+        Staged::ready(Ok(true))
+    }
+
+    /// `Ok(false)` when the target already runs; every error fences the activation.
+    fn activation_check(
+        &self,
         source: &Sentinel,
         transition: &str,
         id: &str,
@@ -840,19 +780,17 @@ impl Store {
         if self.active_count() >= MAX_ACTIVE {
             return Err("sentinel active capacity reached".into());
         }
-        let previous = self.jobs.clone();
-        let target = self
-            .jobs
-            .iter_mut()
-            .find(|job| job.id == id)
-            .ok_or("sentinel target disappeared")?;
-        target.machine.paused = false;
-        target.revision += 1;
-        if let Err(error) = self.save() {
-            self.jobs = previous;
-            return Err(error);
-        }
         Ok(true)
+    }
+
+    #[cfg(test)]
+    pub fn activate(
+        &mut self,
+        source: &Sentinel,
+        transition: &str,
+        id: &str,
+    ) -> Result<bool, String> {
+        self.locked(|store| store.stage_activate(source, transition, id))
     }
 
     pub fn has_live_lease(&self, id: &str) -> bool {
@@ -908,7 +846,7 @@ impl Sentinel {
     }
 }
 
-fn scope_revisions(jobs: &[Sentinel]) -> BTreeMap<(String, Option<String>), String> {
+pub(super) fn scope_revisions(jobs: &[Sentinel]) -> BTreeMap<ScopeKey, String> {
     jobs.iter()
         .map(|j| (j.workspace_id.clone(), j.team_id.clone()))
         .collect::<std::collections::BTreeSet<_>>()
@@ -918,4 +856,85 @@ fn scope_revisions(jobs: &[Sentinel]) -> BTreeMap<(String, Option<String>), Stri
             (scope, revision)
         })
         .collect()
+}
+
+fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Transition>) {
+    current.machine.last_hash = job.machine.last_hash.clone();
+    current.machine.last_bucket = job.machine.last_bucket.clone();
+    current.machine.stopped = job.machine.stopped;
+    current.last_reason = job.last_reason.clone();
+    current.transitions.extend(transition);
+}
+
+/// Expiry and budget stops, then due leases; registers each lease's ephemeral cancellation.
+fn plan_due(
+    jobs: &mut [Sentinel],
+    active: &mut HashMap<String, Arc<Cancellation>>,
+    now: u64,
+) -> (Vec<Lease>, Vec<ScheduleChange>) {
+    let mut due = Vec::new();
+    let mut changes = Vec::new();
+    for job in jobs.iter_mut() {
+        if job.machine.stopped {
+            continue;
+        }
+        if job.expires_at.is_some_and(|at| now >= at) {
+            job.machine.stopped = true;
+            job.revision += 1;
+            job.last_reason = Some("timeout".into());
+            if let Some(cancelled) = active.remove(&job.id) {
+                cancelled.store(true, Ordering::SeqCst);
+            }
+            changes.push(ScheduleChange::Stop {
+                id: job.id.clone(),
+                reason: "timeout",
+            });
+            continue;
+        }
+        let transitions_spent = job.transitions.len() >= usize::from(job.max_transitions);
+        if !active.contains_key(&job.id)
+            && (transitions_spent
+                || job
+                    .transitions
+                    .iter()
+                    .flat_map(|t| &t.handlers)
+                    .filter(|r| r.claim_id.is_some())
+                    .count()
+                    >= usize::from(job.max_actions))
+        {
+            let reason = if transitions_spent {
+                "transition_budget_exhausted"
+            } else {
+                "action_budget_exhausted"
+            };
+            job.machine.stopped = true;
+            job.revision += 1;
+            job.last_reason = Some(reason.into());
+            changes.push(ScheduleChange::Stop {
+                id: job.id.clone(),
+                reason,
+            });
+            continue;
+        }
+        if job.machine.paused {
+            continue;
+        }
+        if job.next_run <= now && !active.contains_key(&job.id) {
+            let missed = (now - job.next_run) / job.interval_ms;
+            job.next_run = job
+                .next_run
+                .saturating_add((missed + 1).saturating_mul(job.interval_ms));
+            let cancelled = Arc::new(Cancellation::new(false));
+            active.insert(job.id.clone(), cancelled.clone());
+            due.push(Lease {
+                job: job.clone(),
+                cancelled,
+            });
+            changes.push(ScheduleChange::Advance {
+                id: job.id.clone(),
+                next_run: job.next_run,
+            });
+        }
+    }
+    (due, changes)
 }
