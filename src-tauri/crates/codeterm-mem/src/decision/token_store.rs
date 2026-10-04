@@ -21,9 +21,9 @@ impl fmt::Debug for ApiToken {
     }
 }
 
-#[derive(Debug, Clone)]
 const RESERVED_FILES: [&str; 3] = ["spend.json", "calls.json", "launch-origins.json"];
 
+#[derive(Debug, Clone)]
 pub struct TokenStore {
     base_dir: PathBuf,
 }

@@ -6,6 +6,8 @@ mod mutations;
 mod queries;
 mod records;
 
+pub(crate) use mutations::apply as apply_mutations;
+
 pub(crate) use mutations::write_import;
 pub use records::{
     CronApplied, CronDivergenceOrigin, CronHistoryDisposition, CronHistoryImport, CronIdentity,

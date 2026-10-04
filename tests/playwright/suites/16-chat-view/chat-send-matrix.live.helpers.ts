@@ -1,0 +1,729 @@
+import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, watch, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { performance } from "node:perf_hooks";
+import { expect, type ManagedUiSession } from "../../helpers/fixtures";
+import type { ApiClient, Provider } from "../../helpers/api-client";
+export type ChatMessage = { id: string; type: string; content: string };
+export type ChatSnapshot = { messages: ChatMessage[]; count: number; pending: boolean };
+export type ChatSendState = "accepted" | "unknown" | "confirmed" | "failed";
+export type ChatSendStatus = {
+  send_id: string;
+  tab_id: string;
+  state: ChatSendState;
+  error: string | null;
+  sequence: number;
+};
+export type ApiEvent = {
+  seq: number;
+  event_type: string;
+  data: Record<string, unknown>;
+  receivedAt: number;
+};
+export type SendRecord = {
+  providerId: string;
+  tabId: string;
+  text: string;
+  receiptText?: string;
+  bubbleMarker: string;
+  submittedAt: number;
+  sequence?: number;
+  firstStatus?: ChatSendState;
+  firstStatusAt?: number;
+  deliveredAt?: number;
+  audited?: boolean;
+  receiptCount?: number;
+};
+export type ProviderMetrics = {
+  provider: Provider;
+  records: SendRecord[];
+  skipped?: string;
+};
+export type BusyGate = {
+  agent: AgentUi;
+  directory: string;
+  readyPath: string;
+  releasePath: string;
+  marker: string;
+};
+export type AgentUi = {
+  tabId: string;
+  chat: import("@playwright/test").Locator;
+  composer: import("@playwright/test").Locator;
+  events: TabEvents;
+  nextSendSequence: number;
+};
+
+export const SEND_TIMEOUT_MS = 120_000;
+export const TURN_TIMEOUT_MS = 240_000;
+export const TEST_TIMEOUT_MS = 7_200_000;
+export const LARGE_SIZES = [8 * 1024, 40 * 1024] as const;
+export const HEAVY_TURNS = 12;
+export const HEAVY_OUTPUT_BYTES = 4 * 1024;
+
+export class TabEvents {
+  private readonly controller = new AbortController();
+  private readonly frames: ApiEvent[] = [];
+  private readonly waiters: Array<{
+    predicate: (event: ApiEvent) => boolean;
+    resolve: (event: ApiEvent) => void;
+    reject: (error: Error) => void;
+    signal: AbortSignal;
+    onAbort: () => void;
+  }> = [];
+  private failure: Error | undefined;
+  private reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+
+  private constructor() {}
+
+  static async open(api: ApiClient, tabId: string): Promise<TabEvents> {
+    const events = new TabEvents();
+    const response = await api.openEventStream(tabId, events.controller.signal);
+    if (!response.ok || !response.body) {
+      throw new Error(`tab event stream failed for ${tabId}: HTTP ${response.status}`);
+    }
+    events.reader = response.body.getReader();
+    void events.read();
+    return events;
+  }
+
+  async close(): Promise<void> {
+    this.controller.abort();
+    await this.reader?.cancel().catch(() => {});
+  }
+
+  waitFor(
+    predicate: (event: ApiEvent) => boolean,
+    timeoutMs: number,
+    label: string,
+  ): Promise<ApiEvent> {
+    const present = this.frames.find(predicate);
+    if (present) return Promise.resolve(present);
+    if (this.failure) return Promise.reject(this.failure);
+
+    return new Promise((resolve, reject) => {
+      const signal = AbortSignal.timeout(timeoutMs);
+      let waiter!: (typeof this.waiters)[number];
+      const finish = (error?: Error, event?: ApiEvent) => {
+        signal.removeEventListener("abort", waiter.onAbort);
+        const index = this.waiters.indexOf(waiter);
+        if (index >= 0) this.waiters.splice(index, 1);
+        if (error) reject(error);
+        else resolve(event!);
+      };
+      waiter = {
+        predicate,
+        resolve,
+        reject,
+        signal,
+        onAbort: () => finish(new Error(`${label} event timed out after ${timeoutMs}ms`)),
+      };
+      signal.addEventListener("abort", waiter.onAbort, { once: true });
+      this.waiters.push(waiter);
+      const arrived = this.frames.find(predicate);
+      if (arrived) finish(undefined, arrived);
+      else if (this.failure) finish(this.failure);
+    });
+  }
+
+  private async read(): Promise<void> {
+    const reader = this.reader!;
+    const decoder = new TextDecoder();
+    let buffer = "";
+    try {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) return;
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split(/\r?\n\r?\n/);
+        buffer = frames.pop() ?? "";
+        for (const frame of frames) this.accept(frame);
+      }
+    } catch (error) {
+      if (!this.controller.signal.aborted) {
+        this.fail(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+  }
+
+  private accept(frame: string): void {
+    const data = frame
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart())
+      .join("\n");
+    if (!data) return;
+    const parsed = JSON.parse(data) as Partial<ApiEvent>;
+    if (parsed.event_type === "overflow") {
+      this.fail(new Error(`tab event stream overflow: ${JSON.stringify(parsed.data)}`));
+      return;
+    }
+    if (typeof parsed.seq !== "number" || typeof parsed.event_type !== "string") {
+      this.fail(new Error(`malformed tab event frame: ${data.slice(0, 240)}`));
+      return;
+    }
+    const event = {
+      seq: parsed.seq,
+      event_type: parsed.event_type,
+      data: (parsed.data ?? {}) as Record<string, unknown>,
+      receivedAt: performance.now(),
+    };
+    this.frames.push(event);
+    for (const waiter of [...this.waiters]) {
+      if (waiter.predicate(event)) {
+        waiter.signal.removeEventListener("abort", waiter.onAbort);
+        this.waiters.splice(this.waiters.indexOf(waiter), 1);
+        waiter.resolve(event);
+      }
+    }
+  }
+
+  private fail(error: Error): void {
+    this.failure = error;
+    for (const waiter of [...this.waiters]) {
+      waiter.signal.removeEventListener("abort", waiter.onAbort);
+      waiter.reject(error);
+    }
+    this.waiters.splice(0);
+  }
+}
+
+export function repeatCount(): number {
+  const raw = process.env.PW_SEND_REPEAT;
+  const value = raw === undefined ? 20 : Number(raw);
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`PW_SEND_REPEAT must be a positive integer, got ${raw}`);
+  }
+  return value;
+}
+
+export function statusEvent(event: ApiEvent, tabId: string): event is ApiEvent & { data: ChatSendStatus } {
+  return event.event_type === "chat-send-status" && event.data.tab_id === tabId;
+}
+
+export function userMessages(snapshot: ChatSnapshot): ChatMessage[] {
+  return snapshot.messages.filter((message) => message.type === "user");
+}
+
+export async function readChat(api: ApiClient, tabId: string): Promise<ChatSnapshot> {
+  return api.get<ChatSnapshot>(`/tabs/${encodeURIComponent(tabId)}/chat?since=0`);
+}
+
+export async function createWorkspace(api: ApiClient, name: string): Promise<string> {
+  await api.createWorkspace(name);
+  const workspace = (await api.workspaces()).find((candidate) => candidate.name === name);
+  if (!workspace) throw new Error(`workspace ${name} was not listed after creation`);
+  return workspace.id;
+}
+
+export async function openAgent(
+  api: ApiClient,
+  ui: ManagedUiSession,
+  spawnAgent: (body: Record<string, unknown>) => Promise<{ tab_id: string }>,
+  provider: Provider,
+  workspaceId: string,
+  title: string,
+  role?: "Orchestrator",
+): Promise<AgentUi> {
+  const launched = await spawnAgent({
+    agent: provider.id,
+    title,
+    workspace_id: workspaceId,
+    activate: true,
+    can_spawn: false,
+    ...(provider.supports_permission_bypass ? { skip_permissions: true } : {}),
+    ...(role ? { role } : {}),
+  });
+  const tabId = launched.tab_id;
+  expect(tabId, `${provider.display_name ?? provider.id} spawn returns its tab id`).toBeTruthy();
+  await api.post(`/tabs/${encodeURIComponent(tabId)}/chat-view`, { enabled: true });
+  await api.focusWorkspace(workspaceId);
+  await api.focusTab(tabId);
+  const row = ui.page.locator(`[data-testid="tab-item"][data-tab-id="${tabId}"]`);
+  await expect(row, `owned tab ${tabId} is visible`).toBeVisible({ timeout: 30_000 });
+  await row.click();
+
+  const chat = ui.page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`);
+  await expect(chat, `Chat UI mounted for ${tabId}`).toBeVisible({ timeout: 30_000 });
+  const conversation = chat.getByRole("log", { name: "Conversation" });
+  const composer = chat.getByRole("textbox", { name: "Message composer" });
+  await expect(conversation).toBeVisible({ timeout: 15_000 });
+  await expect(composer).toBeVisible({ timeout: 15_000 });
+
+  const prior = await api.get<ChatSendStatus[]>(`/tabs/${encodeURIComponent(tabId)}/chat-send`);
+  const nextSendSequence = Math.max(0, ...prior.map((status) => status.sequence));
+  return {
+    tabId,
+    chat,
+    composer,
+    events: await TabEvents.open(api, tabId),
+    nextSendSequence,
+  };
+}
+
+export function makeRecord(
+  providerId: string,
+  agent: AgentUi,
+  text: string,
+  bubbleMarker: string,
+  submittedAt: number,
+): SendRecord {
+  return { providerId, tabId: agent.tabId, text, receiptText: text, bubbleMarker, submittedAt };
+}
+
+export async function submitText(
+  agent: AgentUi,
+  provider: Provider,
+  metrics: ProviderMetrics,
+  text: string,
+  bubbleMarker: string,
+): Promise<SendRecord> {
+  await agent.composer.fill(text);
+  await expect(agent.composer).toHaveValue(text, { timeout: 15_000 });
+  const submittedAt = performance.now();
+  await agent.composer.press("Enter");
+  const record = makeRecord(provider.id, agent, text, bubbleMarker, submittedAt);
+  metrics.records.push(record);
+  await expect(agent.composer, "Chat composer clears after submit").toHaveValue("", {
+    timeout: 15_000,
+  });
+
+  const status = await agent.events.waitFor(
+    (event) =>
+      statusEvent(event, agent.tabId) &&
+      typeof event.data.sequence === "number" &&
+      event.data.sequence > agent.nextSendSequence,
+    SEND_TIMEOUT_MS,
+    `send admission ${bubbleMarker}`,
+  );
+  const data = status.data as ChatSendStatus;
+  record.sequence = data.sequence;
+  record.firstStatus = data.state;
+  record.firstStatusAt = status.receivedAt;
+  agent.nextSendSequence = data.sequence;
+  expect(data.state, `send ${bubbleMarker} was not refused`).not.toBe("failed");
+  expect(data.error, `send ${bubbleMarker} did not report a delivery failure`).toBeNull();
+  return record;
+}
+
+export async function submitPaste(
+  agent: AgentUi,
+  provider: Provider,
+  metrics: ProviderMetrics,
+  ui: ManagedUiSession,
+  text: string,
+  bubbleMarker: string,
+): Promise<SendRecord> {
+  await agent.composer.click();
+  await ui.page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: new URL(ui.page.url()).origin,
+  });
+  await ui.page.evaluate((value) => navigator.clipboard.writeText(value), text);
+  await agent.composer.press(process.platform === "darwin" ? "Meta+V" : "Control+V");
+  await expect(agent.composer, "clipboard paste reaches the real composer").toHaveValue(text, {
+    timeout: 30_000,
+  });
+  const submittedAt = performance.now();
+  await agent.composer.press("Enter");
+  const record = makeRecord(provider.id, agent, text, bubbleMarker, submittedAt);
+  metrics.records.push(record);
+  await expect(agent.composer, "large Chat message clears after submit").toHaveValue("", {
+    timeout: 30_000,
+  });
+  const status = await agent.events.waitFor(
+    (event) =>
+      statusEvent(event, agent.tabId) &&
+      typeof event.data.sequence === "number" &&
+      event.data.sequence > agent.nextSendSequence,
+    SEND_TIMEOUT_MS,
+    `large paste admission ${bubbleMarker}`,
+  );
+  const data = status.data as ChatSendStatus;
+  record.sequence = data.sequence;
+  record.firstStatus = data.state;
+  record.firstStatusAt = status.receivedAt;
+  agent.nextSendSequence = data.sequence;
+  expect(data.state, `large paste ${bubbleMarker} was not refused`).not.toBe("failed");
+  expect(data.error, `large paste ${bubbleMarker} did not report a delivery failure`).toBeNull();
+  return record;
+}
+
+export async function waitDelivered(agent: AgentUi, record: SendRecord): Promise<void> {
+  expect(record.sequence, `send ${record.bubbleMarker} has an API ledger sequence`).toBeTruthy();
+  if (record.firstStatus === "confirmed") {
+    record.deliveredAt = record.firstStatusAt;
+    return;
+  }
+  const delivered = await agent.events.waitFor(
+    (event) =>
+      statusEvent(event, agent.tabId) &&
+      event.data.sequence === record.sequence &&
+      event.data.state === "confirmed",
+    SEND_TIMEOUT_MS,
+    `provider session receipt ${record.bubbleMarker}`,
+  );
+  record.deliveredAt = delivered.receivedAt;
+}
+
+export async function assertFinalStatuses(api: ApiClient, agent: AgentUi, records: SendRecord[]): Promise<void> {
+  const statuses = await api.get<ChatSendStatus[]>(`/tabs/${encodeURIComponent(agent.tabId)}/chat-send`);
+  for (const record of records) {
+    const status = statuses.find((candidate) => candidate.sequence === record.sequence);
+    expect(status, `send ${record.bubbleMarker} remains in the delivery ledger`).toBeTruthy();
+    expect(status!.state, `send ${record.bubbleMarker} reaches delivered`).toBe("confirmed");
+    expect(status!.error, `send ${record.bubbleMarker} has no submit_unconfirmed result`).toBeNull();
+  }
+}
+
+export async function auditTranscript(
+  api: ApiClient,
+  agent: AgentUi,
+  records: SendRecord[],
+  metrics: ProviderMetrics,
+): Promise<void> {
+  const snapshot = await readChat(api, agent.tabId);
+  expect(snapshot.pending, `tab ${agent.tabId} transcript is bound to its own provider session`).toBe(false);
+  const users = userMessages(snapshot);
+  let previousIndex = -1;
+  for (const record of records) {
+    expect(record.receiptText, `send ${record.bubbleMarker} has session-turn evidence`).toBeTruthy();
+    const matches = users
+      .map((message, index) => ({ message, index }))
+      .filter(({ message }) => message.content === record.receiptText);
+    record.receiptCount = matches.length;
+    record.audited = true;
+    expect(matches.length, `provider session contains ${record.bubbleMarker} exactly once`).toBe(1);
+    if (matches[0]) {
+      expect(matches[0].index, `provider user turns stay in send order for ${record.bubbleMarker}`).toBeGreaterThan(
+        previousIndex,
+      );
+      previousIndex = matches[0].index;
+    }
+    const bubble = agent.chat
+      .getByRole("article", { name: "user message" })
+      .filter({ hasText: record.bubbleMarker });
+    await expect(bubble, `Chat UI renders ${record.bubbleMarker} once`).toHaveCount(1, {
+      timeout: 30_000,
+    });
+  }
+}
+
+export async function completeCase(
+  api: ApiClient,
+  agent: AgentUi,
+  records: SendRecord[],
+  metrics: ProviderMetrics,
+): Promise<void> {
+  await Promise.all(records.map((record) => waitDelivered(agent, record)));
+  for (const record of records) {
+    expect(record.deliveredAt, `send ${record.bubbleMarker} reached session evidence`).toBeTruthy();
+  }
+  await assertFinalStatuses(api, agent, records);
+  await auditTranscript(api, agent, records, metrics);
+}
+
+export function agentState(agent: AgentUi) {
+  return agent.chat.locator('[data-testid="agent-state"]');
+}
+
+export async function waitForWorking(agent: AgentUi, label: string): Promise<void> {
+  await expect(agentState(agent), `${label} enters working state`).toHaveAttribute(
+    "data-agent-state",
+    "working",
+    { timeout: TURN_TIMEOUT_MS },
+  );
+}
+
+export async function waitForIdle(agent: AgentUi, api: ApiClient, label: string): Promise<void> {
+  await expect(agentState(agent), `${label} returns to idle`).toHaveAttribute(
+    "data-agent-state",
+    "idle",
+    { timeout: TURN_TIMEOUT_MS },
+  );
+  const status = await api.get<{ status: string; agent_session_id?: string | null }>(
+    `/tabs/${encodeURIComponent(agent.tabId)}/status`,
+  );
+  expect(status.status, `${label} reaches backend idle`).toBe("Idle");
+  expect(status.agent_session_id, `${label} has a bound provider session`).toBeTruthy();
+}
+
+export function uniqueMarker(runId: string, provider: Provider, scenario: string, index: number): string {
+  const providerLabel = (provider.display_name ?? provider.id).replace(/[^A-Za-z0-9]/g, "_");
+  return `PW_SEND_${runId}_${providerLabel}_${scenario}_${index}`;
+}
+
+export function makeLargePayload(
+  bytes: number,
+  runId: string,
+  provider: Provider,
+  index = 0,
+  scenario = "LARGE",
+): {
+  text: string;
+  start: string;
+  end: string;
+  sha256: string;
+} {
+  const start = uniqueMarker(runId, provider, `${scenario}_${bytes}_START`, index);
+  const end = uniqueMarker(runId, provider, `${scenario}_${bytes}_END`, index);
+  const head = `${start}\n\n\`\`\`ts\nconst fixture = [\n`;
+  const line = `  "🧪 Привіт 世界 🌍",\n\n`;
+  const tail = `  "${end}",\n];\n\`\`\`\n${end}`;
+  const lines: string[] = [];
+  while (Buffer.byteLength(head + [...lines, line].join("") + tail) + 3 <= bytes) {
+    lines.push(line);
+  }
+  const base = head + lines.join("");
+  const fillerBytes = bytes - Buffer.byteLength(base + tail);
+  const filler = `//${"x".repeat(fillerBytes - 3)}\n`;
+  const text = base + filler + tail;
+  expect(Buffer.byteLength(text), "large paste generator hits its requested byte size").toBe(bytes);
+  return {
+    text,
+    start,
+    end,
+    sha256: createHash("sha256").update(text, "utf8").digest("hex"),
+  };
+}
+
+export function encodedNodeCommand(source: string): string {
+  const encoded = Buffer.from(source, "utf8").toString("base64");
+  return `node -e "eval(Buffer.from('${encoded}','base64').toString())"`;
+}
+
+export function toolOutputPrompt(marker: string, bytes: number): string {
+  const source =
+    `const text=${JSON.stringify(marker)}+"x".repeat(${bytes})+${JSON.stringify(`${marker}_END`)};` +
+    `process.stdout.write(text);`;
+  return `Run this exact command with your terminal tool, then stop: ${encodedNodeCommand(source)}`;
+}
+
+export function createBusyGate(agent: AgentUi, marker: string): BusyGate {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "pw-send-busy-"));
+  const readyPath = path.join(directory, "ready.marker");
+  const releasePath = path.join(directory, "release.marker");
+  return { agent, directory, readyPath, releasePath, marker };
+}
+
+export function busyPrompt(gate: BusyGate): string {
+  const source =
+    `const fs=require("node:fs");` +
+    `const dir=${JSON.stringify(gate.directory)};` +
+    `const ready=${JSON.stringify(gate.readyPath)};` +
+    `const release=${JSON.stringify(gate.releasePath)};` +
+    `const marker=${JSON.stringify(gate.marker)};` +
+    `fs.writeFileSync(ready,marker,{flag:"wx"});` +
+    `await new Promise(resolve=>{const watcher=fs.watch(dir,()=>{if(fs.existsSync(release)){watcher.close();resolve();}});` +
+    `if(fs.existsSync(release)){watcher.close();resolve();}});` +
+    `console.log(marker);`;
+  return `Run this exact command with your terminal tool, then stop: ${encodedNodeCommand(`(async()=>{${source}})().catch(error=>{console.error(error);process.exitCode=1})`)}`;
+}
+
+export async function waitForFile(filePath: string, timeoutMs: number, label: string): Promise<void> {
+  if (existsSync(filePath)) return;
+  const signal = AbortSignal.timeout(timeoutMs);
+  const watcher = watch(path.dirname(filePath));
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const finish = (error?: Error) => {
+        signal.removeEventListener("abort", onAbort);
+        watcher.close();
+        if (error) reject(error);
+        else resolve();
+      };
+      const onAbort = () => finish(new Error(`${label} timed out after ${timeoutMs}ms`));
+      signal.addEventListener("abort", onAbort, { once: true });
+      const checkReady = () => {
+        if (existsSync(filePath)) finish();
+      };
+      watcher.on("change", checkReady);
+      watcher.on("error", (error) => finish(error));
+      if (existsSync(filePath)) finish();
+    });
+  } finally {
+    watcher.close();
+  }
+}
+
+export function releaseBusyGate(gate: BusyGate): void {
+  mkdirSync(gate.directory, { recursive: true });
+  writeFileSync(gate.releasePath, gate.marker, { flag: "w" });
+}
+
+export function removeBusyGate(gate: BusyGate): void {
+  rmSync(gate.directory, { recursive: true, force: true });
+}
+
+export function extractAbsolutePath(content: string): string | undefined {
+  const found = content.match(/[A-Za-z]:[\\/][^\r\n]+|\/(?:[^\r\n]+)/)?.[0];
+  return found?.replace(/["'`]+$/, "").trim();
+}
+
+export async function verifyLargeReceipt(
+  api: ApiClient,
+  agent: AgentUi,
+  provider: Provider,
+  metrics: ProviderMetrics,
+  record: SendRecord,
+  payload: ReturnType<typeof makeLargePayload>,
+  runId: string,
+): Promise<SendRecord | undefined> {
+  const snapshot = await readChat(api, agent.tabId);
+  const users = userMessages(snapshot);
+  const matchedIndex = users.findIndex((message) => message.content === record.receiptText);
+  expect(matchedIndex, `large paste ${record.bubbleMarker} exists in the provider session`).toBeGreaterThanOrEqual(0);
+  const receivedText = users[matchedIndex].content;
+  if (receivedText === payload.text) {
+    expect(createHash("sha256").update(receivedText, "utf8").digest("hex")).toBe(payload.sha256);
+    expect(receivedText.startsWith(payload.start)).toBe(true);
+    expect(receivedText.endsWith(payload.end)).toBe(true);
+    await auditTranscript(api, agent, [record], metrics);
+    return undefined;
+  }
+
+  const path = extractAbsolutePath(receivedText);
+  expect(path, `large send ${record.bubbleMarker} session turn points to its prepared body`).toBeTruthy();
+  const proofToken = uniqueMarker(runId, provider, "HASH_PROOF", record.sequence ?? 0);
+  const source =
+    `const b=require("node:fs").readFileSync(${JSON.stringify(path)});` +
+    `const c=require("node:crypto");` +
+    `const v={byteLength:b.length,sha256:c.createHash("sha256").update(b).digest("hex"),` +
+    `start:b.subarray(0,128).toString("utf8"),end:b.subarray(-128).toString("utf8")};` +
+    `console.log(${JSON.stringify(proofToken)}+" "+JSON.stringify(v));`;
+  const command = encodedNodeCommand(source);
+  const probeText = `Read the exact prepared body at the path in this command and run it unchanged: ${command}`;
+  const probe = await submitText(agent, provider, metrics, probeText, proofToken);
+  await waitForWorking(agent, `large body hash ${record.bubbleMarker}`);
+  await waitDelivered(agent, probe);
+  await assertFinalStatuses(api, agent, [probe]);
+  await auditTranscript(api, agent, [probe], metrics);
+  await waitForIdle(agent, api, `large body hash ${record.bubbleMarker}`);
+
+  const after = await readChat(api, agent.tabId);
+  const proofRows = after.messages.filter(
+    (message) => message.type === "tool_result" && message.content.includes(proofToken),
+  );
+  expect(proofRows.length, `provider tool output carries one body hash for ${record.bubbleMarker}`).toBe(1);
+  const proofLine = proofRows[0].content
+    .slice(proofRows[0].content.lastIndexOf(proofToken) + proofToken.length)
+    .trim()
+    .split(/\r?\n/, 1)[0]
+    .trim();
+  const proof = JSON.parse(proofLine) as {
+    byteLength: number;
+    sha256: string;
+    start: string;
+    end: string;
+  };
+  expect(proof.byteLength, `provider read every byte of ${record.bubbleMarker}`).toBe(
+    Buffer.byteLength(payload.text),
+  );
+  expect(proof.sha256, `provider body hash matches ${record.bubbleMarker}`).toBe(payload.sha256);
+  expect(proof.start, `provider read the start marker of ${record.bubbleMarker}`).toContain(payload.start);
+  expect(proof.end, `provider read the end marker of ${record.bubbleMarker}`).toContain(payload.end);
+  await auditTranscript(api, agent, [record], metrics);
+}
+
+export async function submitTextWithoutAudit(
+  agent: AgentUi,
+  provider: Provider,
+  metrics: ProviderMetrics,
+  text: string,
+  marker: string,
+): Promise<SendRecord> {
+  return submitText(agent, provider, metrics, text, marker);
+}
+
+export async function submitBatch(
+  agent: AgentUi,
+  provider: Provider,
+  metrics: ProviderMetrics,
+  texts: Array<{ text: string; marker: string }>,
+  requireWorking = false,
+): Promise<SendRecord[]> {
+  const records: SendRecord[] = [];
+  for (const item of texts) {
+    const record = await submitTextWithoutAudit(agent, provider, metrics, item.text, item.marker);
+    records.push(record);
+    if (requireWorking) {
+      await expect(agentState(agent), `busy send ${item.marker} is admitted while working`).toHaveAttribute(
+        "data-agent-state",
+        "working",
+        { timeout: 15_000 },
+      );
+    }
+  }
+  return records;
+}
+
+export async function submitLarge(
+  api: ApiClient,
+  agent: AgentUi,
+  provider: Provider,
+  metrics: ProviderMetrics,
+  ui: ManagedUiSession,
+  payload: ReturnType<typeof makeLargePayload>,
+): Promise<SendRecord> {
+  const before = userMessages(await readChat(api, agent.tabId)).length;
+  const record = await submitPaste(agent, provider, metrics, ui, payload.text, payload.start);
+  await waitDelivered(agent, record);
+  await assertFinalStatuses(api, agent, [record]);
+  record.deliveredAt ??= record.submittedAt;
+  const after = userMessages(await readChat(api, agent.tabId));
+  expect(after.length, `large paste ${payload.start} adds one own-session user turn`).toBe(before + 1);
+  record.receiptText = after[before]?.content;
+  expect(record.receiptText, `large paste ${payload.start} has a provider-owned user turn`).toBeTruthy();
+  const bubble = agent.chat
+    .getByRole("article", { name: "user message" })
+    .filter({ hasText: payload.start });
+  await expect(bubble, `large paste ${payload.start} is shown once in Chat`).toHaveCount(1, {
+    timeout: 30_000,
+  });
+  return record;
+}
+
+export async function waitForAndAuditRecords(
+  api: ApiClient,
+  agent: AgentUi,
+  records: SendRecord[],
+  metrics: ProviderMetrics,
+): Promise<void> {
+  await completeCase(api, agent, records, metrics);
+}
+
+export async function disposeAgent(api: ApiClient, agent: AgentUi): Promise<void> {
+  await agent.events.close();
+  await api.closeTab(agent.tabId).catch(() => {});
+}
+
+export function recordMetrics(metrics: ProviderMetrics): Record<string, unknown> {
+  const received = metrics.records.filter((record) => record.audited && (record.receiptCount ?? 0) > 0).length;
+  const duplicated = metrics.records.reduce(
+    (total, record) => total + Math.max(0, (record.receiptCount ?? 0) - 1),
+    0,
+  );
+  const lost = metrics.records.filter(
+    (record) => record.receiptCount === undefined || record.receiptCount === 0,
+  ).length;
+  const latencies = metrics.records
+    .filter((record) => record.deliveredAt !== undefined)
+    .map((record) => record.deliveredAt! - record.submittedAt);
+  return {
+    provider: metrics.provider.display_name ?? metrics.provider.id,
+    providerId: metrics.provider.id,
+    skipped: metrics.skipped,
+    sent: metrics.records.length,
+    received,
+    duplicated,
+    lost,
+    maxComposerToFirstStatusMs: Math.max(
+      0,
+      ...metrics.records
+        .filter((record) => record.firstStatusAt !== undefined)
+        .map((record) => record.firstStatusAt! - record.submittedAt),
+    ),
+    maxComposerToDeliveredMs: Math.max(0, ...latencies),
+  };
+}
+

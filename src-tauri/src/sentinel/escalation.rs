@@ -28,8 +28,14 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
         .values()
         .flatten()
         .any(|handler| matches!(handler.action, Route::Escalate(_)));
+    let escalation_count = job
+        .on_other
+        .iter()
+        .filter(|handler| matches!(&handler.action, Route::Escalate(_)))
+        .count();
     if escalates_elsewhere
         || job.on_other.len() > MAX_ON_OTHER
+        || escalation_count > 1
         || job.on_other.is_empty() != job.escalation_timeout_ms.is_none()
         || job.escalation_timeout_ms == Some(0)
     {
@@ -64,9 +70,19 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
             .transitions
             .iter()
             .any(|transition| transition.id == *held && transition.bucket == OTHER_BUCKET);
-        if job.on_other.is_empty() || !accepted {
+        if escalation_count == 0 || !accepted {
             return Err("invalid sentinel hold".into());
         }
     }
     Ok(())
+}
+
+pub fn expiry_at(job: &Sentinel) -> Option<u64> {
+    let held = job.machine.held.as_ref()?;
+    let accepted_at = job
+        .transitions
+        .iter()
+        .find(|transition| transition.id == *held)?
+        .accepted_at;
+    Some(accepted_at.saturating_add(job.escalation_timeout_ms?))
 }

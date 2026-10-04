@@ -81,7 +81,7 @@ struct ActionColumns<'a> {
     command: Option<&'a str>,
     label: Option<&'a str>,
     timeout_ms: Option<i64>,
-    safe_kind: Option<&'static str>,
+    safe_kind: Option<&'a str>,
     escalate_to: Option<&'static str>,
 }
 

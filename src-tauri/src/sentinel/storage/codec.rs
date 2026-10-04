@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::sentinel::amend::Amendment;
+use crate::sentinel::amend::{Amendment, AmendmentLineage, DefinitionSnapshot, DefinitionVersion};
 use crate::sentinel::command::{Capture, Parameters, ResultMetadata, Status as CommandStatus};
 use crate::sentinel::graph::Identity;
 use crate::sentinel::handlers::{Handler, ResultRecord, Status, Transition};
@@ -11,11 +11,12 @@ use crate::sentinel::source::{RunBinding, TabBinding};
 use crate::sentinel::store::Sentinel;
 use crate::storage::{
     AmendmentRecord, BatchFence, BucketDefinition, CaptureRecord, CommandParameters,
-    CommandResultRecord, CommandStatus as StoredCommandStatus,
-    EscalateTarget as StoredEscalateTarget, HandlerAction, HandlerDefinition, HandlerResultRecord,
-    HandlerStatus, NewTransition, ObserveKind, ObserveSource, RunRecord, RuntimeOutcome,
-    SafeKind as StoredSafeKind, SentinelCreate, SentinelId, SentinelIdentity, SentinelImport,
-    SentinelScope, StageDefinition, StageRuntime, StoredSentinel, TargetIdentity, TransitionRecord,
+    CommandResultRecord, CommandStatus as StoredCommandStatus, DefinitionProvenance,
+    DefinitionUpdate, EscalateTarget as StoredEscalateTarget, HandlerAction, HandlerDefinition,
+    HandlerResultRecord, HandlerStatus, NewTransition, ObserveKind, ObserveSource, RunRecord,
+    RuntimeOutcome, SafeKind as StoredSafeKind, SentinelCreate, SentinelId, SentinelIdentity,
+    SentinelImport, SentinelScope, StageDefinition, StageRuntime, StoredDefinition, StoredSentinel,
+    TargetIdentity, TransitionRecord,
 };
 
 pub(super) fn id(id: &str) -> Result<SentinelId, String> {
@@ -139,6 +140,7 @@ fn domain_amendment(record: AmendmentRecord) -> Amendment {
         author_tab_id: record.author_tab_id,
         cause_transition_id: record.cause_transition_id,
         at: record.authored_at,
+        previous_definition: None,
     }
 }
 
@@ -337,6 +339,71 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
     })
 }
 
+pub(super) fn update_definition(
+    job: &Sentinel,
+    author_tab_id: String,
+    cause_transition_id: Option<String>,
+    authored_at: u64,
+) -> Result<DefinitionUpdate, String> {
+    Ok(DefinitionUpdate {
+        definition: definition(job)?,
+        author_tab_id,
+        cause_transition_id,
+        authored_at,
+    })
+}
+
+pub(super) fn history_version(stored: StoredDefinition) -> DefinitionVersion {
+    let definition = stored.definition;
+    let mut buckets = Vec::with_capacity(definition.buckets.len());
+    let mut routes = BTreeMap::new();
+    let mut matches = BTreeMap::new();
+    for bucket in definition.buckets {
+        if let Some(pattern) = bucket.match_pattern {
+            matches.insert(bucket.name.clone(), pattern);
+        }
+        routes.insert(
+            bucket.name.clone(),
+            bucket.handlers.into_iter().map(domain_handler).collect(),
+        );
+        buckets.push(bucket.name);
+    }
+    let amendment = stored.amendment.map(|amendment| AmendmentLineage {
+        replaced_version: amendment.replaced_version,
+        author_tab_id: amendment.author_tab_id,
+        cause_transition_id: amendment.cause_transition_id,
+        authored_at: amendment.authored_at,
+    });
+    DefinitionVersion {
+        version: stored.version,
+        provenance: match stored.provenance {
+            DefinitionProvenance::Authored => "authored",
+            DefinitionProvenance::Imported => "imported",
+        }
+        .into(),
+        definition: DefinitionSnapshot {
+            name: definition.name,
+            probe: definition.probe,
+            observe: definition.observe.map(domain_observe),
+            question: definition.question,
+            interval_ms: definition.interval_ms,
+            buckets,
+            routes,
+            matches,
+            until: definition.until,
+            max_transitions: definition.max_transitions,
+            max_actions: definition.max_actions,
+            on_other: definition
+                .on_other
+                .into_iter()
+                .map(domain_handler)
+                .collect(),
+            escalation_timeout_ms: definition.escalation_timeout_ms,
+        },
+        amendment,
+    }
+}
+
 fn runtime(job: &Sentinel) -> StageRuntime {
     StageRuntime {
         generation: job.revision,
@@ -420,6 +487,7 @@ pub(super) fn outcome(job: &Sentinel) -> RuntimeOutcome {
         last_bucket: job.machine.last_bucket.clone(),
         stopped: job.machine.stopped,
         last_reason: job.last_reason.clone(),
+        held: job.machine.held.clone(),
     }
 }
 

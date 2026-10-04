@@ -8,12 +8,14 @@ pub(crate) mod machine;
 pub(crate) mod probe;
 pub(crate) mod provenance;
 pub(crate) mod routes;
+pub(crate) mod run_binding;
 pub(crate) mod scheduler;
 pub(crate) mod source;
 pub(crate) mod storage;
 pub(crate) mod store;
 #[cfg(test)]
 mod tests;
+pub(crate) mod wake;
 
 #[cfg(test)]
 mod connected_tests;
@@ -35,3 +37,9 @@ mod command_tests;
 
 #[cfg(test)]
 mod command_native_tests;
+
+#[cfg(test)]
+#[path = "run_binding_tests.rs"]
+mod run_binding_tests;
+#[cfg(test)]
+mod escalation_tests;

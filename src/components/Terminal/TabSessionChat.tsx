@@ -53,6 +53,7 @@ import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
 import { chatBodyView, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
+import { agentMessageTimeIds } from "./chatMessageTimePlacement";
 import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
@@ -466,6 +467,10 @@ export function TabSessionChat({
     () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
     [enrichedMessages],
   );
+  const agentTimeMessageIds = useMemo(
+    () => agentMessageTimeIds(renderedEnrichedMessages.map(({ msg }) => msg)),
+    [renderedEnrichedMessages],
+  );
   const sessionIntent = useMemo(() => sessionIntentFromMessages(allMessages), [allMessages]);
   // The rails are content, so they answer to the same authority the setup view
   // does: a body that still owns a loading or failed state emits no rail rows.
@@ -721,7 +726,7 @@ export function TabSessionChat({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="ct-hover-reveal-scrollbar absolute inset-0 overflow-y-auto overscroll-contain p-3 select-text"
+        className="ct-chat-surface ct-hover-reveal-scrollbar absolute inset-0 overflow-y-auto overscroll-contain p-3 select-text"
         data-testid="tab-session-chat-messages"
         role="log"
         aria-label="Conversation"
@@ -778,6 +783,7 @@ export function TabSessionChat({
             >
               <MessageBubble
                 message={msg}
+                showTimestamp={msg.type === "user" || agentTimeMessageIds.has(msg.id)}
                 item={item.kind === "tool" ? item : undefined}
                 isLatestFailedToolCall={msg.id === latestFailedToolCallId}
                 origin={origin}
