@@ -1,4 +1,5 @@
 pub mod cron;
+pub mod desk;
 pub mod sentinel;
 pub mod workspaces;
 

@@ -414,43 +414,9 @@ fn handle_pty_death_with_cause(
         let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);
         svc.emit_tab_status_if_changed(pty_id, prev, crate::agent::status::TabStatus::Dead);
 
-        // Cron fallback: if agent died without calling cron complete, mark as failed.
         use tauri::Manager;
         if let Some(cron_state) = svc.app_handle.try_state::<crate::CronState>() {
-            let mut fresh_transition = false;
-            let owner = {
-                // Hold the cron lock ACROSS owner-lookup and the read/write below.
-                let mut store = cron_state.lock();
-                let owner = store.get_tab_owner(pid).cloned();
-                if let Some((ref job_id, ref run_id)) = owner {
-                    if store.read_log(job_id, run_id).is_none() {
-                        let text = svc.output_buf.lock().get_text(pty_id).unwrap_or_default();
-                        let clean = crate::pty::ansi::clean_terminal_output(&text);
-                        let _ = store.save_log(job_id, run_id, &clean);
-                        fresh_transition = store
-                            .update_run_status(
-                                job_id,
-                                run_id,
-                                crate::cron::store::CronRunStatus::Failed,
-                            )
-                            .unwrap_or(false);
-                    }
-                    store.unregister_tab(pid);
-                }
-                owner
-            };
-            // Notify after the store guard drops — it re-locks internally.
-            if let Some((job_id, run_id)) = owner {
-                if fresh_transition {
-                    crate::cron::notify::notify_on_consecutive_failure(svc, &cron_state, &job_id);
-                }
-                log::info!(
-                    "[backend-reader] cron Tab exited: job={}, run={}",
-                    job_id,
-                    run_id
-                );
-                crate::api::events::emit_everywhere(&svc.app_handle, "cron-run-finished", ());
-            }
+            crate::cron::pty_death_fallback::fail_run_on_pty_death(svc, &cron_state, pid, pty_id);
         }
 
         let watchdog = {

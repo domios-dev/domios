@@ -1,15 +1,19 @@
 use std::fs;
 use std::sync::Arc;
+use std::time::Duration;
 
 use parking_lot::Mutex;
 
 use super::CronRunEnd;
 use crate::agent::provider::ModelInfo;
 use crate::agent::test_provider::MockProvider;
+use crate::cron::clock::MockClock;
 use crate::cron::store::{
-    CronCreateParams, CronRunInfo, CronRunStatus, CronStore, CronUpdateParams,
+    commit, CronCreateParams, CronRunInfo, CronRunStatus, CronStorageOptions, CronStore,
+    CronUpdateParams,
 };
 use crate::service::test_fixture::ServiceFixture;
+use crate::storage::{Fault, Storage, StorageConfig};
 
 fn fixture() -> (
     ServiceFixture,
@@ -522,4 +526,65 @@ fn cron_complete_requires_run_owner() {
         .find(|run| run.run_id == run_id)
         .expect("owner-completed run remains recorded");
     assert_eq!(run.status, CronRunStatus::Success);
+}
+
+#[test]
+fn cron_settle_refused_trigger_record_never_dispatches() {
+    let temp = tempfile::tempdir().unwrap();
+    let storage = Storage::open(temp.path().join("instance"), StorageConfig::default())
+        .expect("open storage");
+    let cron = Arc::new(Mutex::new(
+        CronStore::open_storage(
+            &storage,
+            temp.path().join("crons"),
+            MockClock::starting_at(1),
+            CronStorageOptions::default(),
+        )
+        .expect("open storage-backed cron store"),
+    ));
+    let job = commit(&cron, |store| {
+        store.prepare_create(create_params("refused-trigger", None))
+    })
+    .expect("create existing job")
+    .value;
+    storage
+        .inject_fault(Fault::FailNextCommit)
+        .wait(Duration::from_secs(30))
+        .expect("arm commit fault");
+    let run = CronRunInfo {
+        run_id: "refused-trigger-run".into(),
+        started_at: 1,
+        finished_at: None,
+        status: CronRunStatus::Running,
+        tab_id: None,
+        session_id: None,
+        cwd: None,
+        summary: None,
+        report_delivery: None,
+    };
+    let mut dispatched = false;
+
+    let result = super::dispatch_after_trigger_record(&cron, &job.id, &run, || {
+        dispatched = true;
+    });
+
+    assert!(result.is_err());
+    assert!(!dispatched, "refused run record never dispatches an agent");
+    assert!(cron.lock().get_history(&job.id).is_empty());
+    let committed = storage
+        .crons()
+        .snapshot()
+        .wait(Duration::from_secs(30))
+        .expect("read committed cron snapshot")
+        .value;
+    let stored_job = committed
+        .states
+        .iter()
+        .find(|state| state.job_id.as_str() == job.id.as_str())
+        .expect("existing job remains stored");
+    assert!(stored_job.history.is_empty());
+    storage
+        .shutdown()
+        .wait(Duration::from_secs(30))
+        .expect("shutdown storage");
 }

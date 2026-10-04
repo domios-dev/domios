@@ -563,7 +563,7 @@ pub fn chat_start_core(
             session_binding_nonce.clone(),
             Some(svc.chat_send_ledger.clone()),
         );
-        let handle = crate::service::tab_chat::spawn_tailer(
+        let handle = crate::service::tab_chat::tailer::spawn_sourced_tailer(
             crate::service::tab_chat::TailConfig {
                 tab_id: tab_id.clone(),
                 provider_id: provider_id.clone(),
@@ -572,6 +572,7 @@ pub fn chat_start_core(
                 start_offset: tailer_start_offset,
                 poll_interval: crate::service::tab_chat::live_chat_poll_interval(),
             },
+            Some(svc.chat_registry.jsonl_source(&tab_id)),
             svc.agent_registry.clone(),
             sink,
         );

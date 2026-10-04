@@ -3,6 +3,7 @@
 //! Time comes exclusively from the store's injected Clock, never from
 //! SystemTime directly — that's what makes cron time-travel testable.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -16,6 +17,7 @@ pub type CronState = Arc<Mutex<CronStore>>;
 
 /// Notification channel to wake the scheduler when cron jobs are modified.
 pub type CronWake = Arc<std::sync::Condvar>;
+const FAILURE_DEADLINE_MS: u64 = 60_000;
 
 /// Start the cron scheduler in a background thread.
 pub fn start(cron_state: CronState, cron_wake: CronWake, service: ServiceState) {
@@ -24,11 +26,35 @@ pub fn start(cron_state: CronState, cron_wake: CronWake, service: ServiceState) 
     std::thread::spawn(move || {
         log::info!("Cron scheduler started");
         loop {
-            let sleep_ms = tick(&cron_state, &service);
-            let duration = Duration::from_millis(sleep_ms);
-
+            let wait = tick(&cron_state, &service);
             let guard = wake_mutex.lock().unwrap();
-            let _ = cron_wake.wait_timeout(guard, duration);
+            match wait {
+                TickWait::Until(wait_ms) => {
+                    let _ = cron_wake.wait_timeout(guard, Duration::from_millis(wait_ms));
+                }
+                TickWait::Settlement => {
+                    if cron_state.lock().scheduler_settlement_ready() {
+                        continue;
+                    }
+                    let timed_out = cron_wake
+                        .wait_timeout(guard, Duration::from_millis(FAILURE_DEADLINE_MS))
+                        .map(|(_, result)| result.timed_out())
+                        .unwrap_or(true);
+                    if timed_out {
+                        let mut store = cron_state.lock();
+                        if store.scheduler_settlement_ready() {
+                            continue;
+                        }
+                        store.mark_scheduler_unavailable(
+                            "cron storage settlement deadline expired".to_string(),
+                        );
+                    }
+                }
+                TickWait::Unavailable => {
+                    let _ =
+                        cron_wake.wait_timeout(guard, Duration::from_millis(FAILURE_DEADLINE_MS));
+                }
+            }
         }
     });
 }
@@ -67,8 +93,22 @@ fn fire_spec(job: &CronJob) -> FireSpec {
     }
 }
 
-/// One scheduler tick: fire any overdue jobs, return ms until next fire.
-fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
+/// Fires overdue jobs and selects the next wake condition.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TickWait {
+    Until(u64),
+    Settlement,
+    Unavailable,
+}
+
+fn tick(cron_state: &CronState, service: &ServiceState) -> TickWait {
+    tick_with(cron_state, |spec| fire_job(cron_state, service, spec))
+}
+
+fn tick_with(cron_state: &CronState, mut fire: impl FnMut(&FireSpec) -> FireStart) -> TickWait {
+    if scheduler_unavailable(cron_state) {
+        return TickWait::Unavailable;
+    }
     let now_ms = cron_state.lock().now_ms();
     let mut next_fire: Option<u64> = None;
     let mut to_fire: Vec<FireSpec> = Vec::new();
@@ -98,19 +138,32 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
         }
     }
 
-    let fired_any = !to_fire.is_empty();
+    let had_due_jobs = !to_fire.is_empty();
+    let mut recorded_any = false;
+    let mut refused = HashSet::new();
     for spec in to_fire {
-        fire_job(cron_state, service, &spec);
+        match fire(&spec) {
+            FireStart::Recorded => recorded_any = true,
+            FireStart::Refused => {
+                if scheduler_unavailable(cron_state) {
+                    return TickWait::Unavailable;
+                }
+                refused.insert(spec.job_id);
+            }
+            FireStart::Fenced => return TickWait::Settlement,
+        }
     }
 
-    if fired_any {
+    if had_due_jobs {
         let store = cron_state.lock();
         for job in store.list_enabled() {
-            if let Some(nr) = job.next_run {
-                next_fire = Some(match next_fire {
-                    Some(current) => current.min(nr),
-                    None => nr,
-                });
+            if !refused.contains(&job.id) {
+                if let Some(nr) = job.next_run {
+                    next_fire = Some(match next_fire {
+                        Some(current) => current.min(nr),
+                        None => nr,
+                    });
+                }
             }
         }
     }
@@ -120,16 +173,46 @@ fn tick(cron_state: &CronState, service: &ServiceState) -> u64 {
         Some(nr) => {
             let now_ms = cron_state.lock().now_ms();
             if nr > now_ms {
-                (nr - now_ms).min(60_000)
+                TickWait::Until((nr - now_ms).min(FAILURE_DEADLINE_MS))
             } else {
-                100 // Fire immediately on next tick
+                if recorded_any && refused.is_empty() {
+                    TickWait::Until(100)
+                } else {
+                    TickWait::Until(FAILURE_DEADLINE_MS)
+                }
             }
         }
-        None => 60_000, // No jobs, check every 60s
+        None => TickWait::Until(FAILURE_DEADLINE_MS),
     }
 }
 
-fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
+fn scheduler_unavailable(cron_state: &CronState) -> bool {
+    let mut store = cron_state.lock();
+    let unavailable = store.scheduler_unavailable();
+    let incident = store.take_scheduler_unavailable_incident();
+    drop(store);
+    if let Some(reason) = incident {
+        log::error!("[cron] scheduler unavailable: {reason}");
+    }
+    unavailable
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FireStart {
+    Recorded,
+    Refused,
+    Fenced,
+}
+
+impl std::ops::Not for FireStart {
+    type Output = bool;
+
+    fn not(self) -> Self::Output {
+        !matches!(self, FireStart::Recorded)
+    }
+}
+
+fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> FireStart {
     let job_id = spec.job_id.as_str();
     let agent = spec.agent.as_str();
     let model = spec.model.as_deref();
@@ -142,10 +225,11 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
     let job_timeout = spec.timeout_seconds;
 
     let run_id = uuid::Uuid::new_v4().to_string();
-    log::info!("Cron fired: job={}, run={}", job_id, run_id);
-    if !record_fire_start(cron_state, job_id, &run_id) {
-        return;
+    match record_fire_start(cron_state, job_id, &run_id) {
+        FireStart::Recorded => {}
+        outcome => return outcome,
     }
+    log::info!("Cron fired: job={}, run={}", job_id, run_id);
 
     // Spawn agent via the unified spawn_tab surface.
     let skill_block = spec.skill.as_deref().map(crate::commands::cron_skill_block);
@@ -275,11 +359,12 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) {
             }
         }
     }
+    FireStart::Recorded
 }
 
 /// Records the run start before any dispatch. Only a recorded start dispatches: a
 /// refused or unconfirmed record is never promoted to a launched run.
-pub(crate) fn record_fire_start(cron_state: &CronState, job_id: &str, run_id: &str) -> bool {
+pub(crate) fn record_fire_start(cron_state: &CronState, job_id: &str, run_id: &str) -> FireStart {
     let run = CronRunInfo {
         run_id: run_id.to_string(),
         started_at: cron_state.lock().now_ms(),
@@ -294,10 +379,25 @@ pub(crate) fn record_fire_start(cron_state: &CronState, job_id: &str, run_id: &s
     match commit(cron_state, |store| {
         store.prepare_record_run(job_id, run.clone())
     }) {
-        Ok(_) => true,
+        Ok(_) => FireStart::Recorded,
         Err(error) => {
+            if error.applied() {
+                log::error!("Failed to record cron run: {}", error);
+                return FireStart::Recorded;
+            }
+            if scheduler_unavailable(cron_state) {
+                return FireStart::Refused;
+            }
             log::error!("Failed to record cron run: {}", error);
-            error.applied()
+            if matches!(
+                &error,
+                super::store::CronCommitError::Fenced(_)
+                    | super::store::CronCommitError::Unconfirmed(_)
+            ) {
+                FireStart::Fenced
+            } else {
+                FireStart::Refused
+            }
         }
     }
 }
@@ -307,8 +407,69 @@ pub(crate) fn record_fire_start(cron_state: &CronState, job_id: &str, run_id: &s
 #[cfg(test)]
 mod tests {
 
-    use crate::cron::clock::{Clock, SystemClock};
-    use crate::cron::store::{compute_next_run, CronCreateParams, CronStore};
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        mpsc, Arc,
+    };
+    use std::time::Duration;
+
+    use parking_lot::Mutex;
+
+    use crate::cron::clock::{Clock, MockClock, SystemClock};
+    use crate::cron::store::{
+        commit, compute_next_run, CronCommitError, CronCreateParams, CronStorageOptions, CronStore,
+        CronUpdateParams,
+    };
+    use crate::storage::{Storage, StorageConfig};
+
+    const TEST_DEADLINE: Duration = Duration::from_secs(3);
+    const TEST_START: u64 = 1_700_000_000_000;
+
+    struct StorageFixture {
+        cron: super::CronState,
+        storage: Storage,
+        clock: Arc<MockClock>,
+        _temp: tempfile::TempDir,
+    }
+
+    fn storage_fixture() -> StorageFixture {
+        let temp = tempfile::tempdir().unwrap();
+        let storage = Storage::open(temp.path().join("instance"), StorageConfig::default())
+            .expect("open typed storage");
+        let clock = MockClock::starting_at(TEST_START);
+        let cron = CronStore::open_storage(
+            &storage,
+            temp.path().join("crons"),
+            clock.clone(),
+            CronStorageOptions::default(),
+        )
+        .expect("hydrate cron store");
+        StorageFixture {
+            cron: Arc::new(Mutex::new(cron)),
+            storage,
+            clock,
+            _temp: temp,
+        }
+    }
+
+    fn create_due_job(fixture: &StorageFixture) -> String {
+        let params: CronCreateParams = serde_json::from_value(serde_json::json!({
+            "name": "Due",
+            "workspace_id": "workspace",
+            "schedule": "* * * * *",
+            "task": "run once",
+            "agent": "claude",
+            "jitter_max_ms": 0
+        }))
+        .unwrap();
+        let job = commit(&fixture.cron, |store| store.prepare_create(params.clone()))
+            .expect("create cron job")
+            .value;
+        fixture
+            .clock
+            .set_ms(job.next_run.expect("enabled job schedule"));
+        job.id
+    }
 
     #[test]
     fn test_compute_next_fire_soonest() {
@@ -441,5 +602,92 @@ mod tests {
             }
             other => panic!("expected PTY agent spawn, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn cron_fence_scheduler_waits_for_settlement_event_and_records_once() {
+        let fixture = storage_fixture();
+        let job_id = create_due_job(&fixture);
+        let (settled_tx, settled_rx) = mpsc::channel();
+        fixture.cron.lock().set_fence_notifier(move || {
+            let _ = settled_tx.send(());
+        });
+        let hold = fixture.storage.hold_writer().expect("hold writer");
+        hold.wait_held(TEST_DEADLINE).expect("writer hold reached");
+        fixture
+            .cron
+            .lock()
+            .set_storage_deadline(Duration::from_millis(1));
+        let pending = commit(&fixture.cron, |store| {
+            store.prepare_update(
+                &job_id,
+                serde_json::from_value::<CronUpdateParams>(serde_json::json!({
+                    "name": "Pending rename"
+                }))
+                .unwrap(),
+            )
+        });
+        assert!(matches!(pending, Err(CronCommitError::Unconfirmed(_))));
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let first_attempts = attempts.clone();
+        assert_eq!(
+            super::tick_with(&fixture.cron, |spec| {
+                first_attempts.fetch_add(1, Ordering::SeqCst);
+                super::record_fire_start(&fixture.cron, &spec.job_id, "settled-run")
+            }),
+            super::TickWait::Settlement
+        );
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
+
+        hold.release();
+        settled_rx
+            .recv_timeout(TEST_DEADLINE)
+            .expect("settlement wakes the scheduler signal");
+        let second_attempts = attempts.clone();
+        super::tick_with(&fixture.cron, |spec| {
+            second_attempts.fetch_add(1, Ordering::SeqCst);
+            super::record_fire_start(&fixture.cron, &spec.job_id, "settled-run")
+        });
+
+        let store = fixture.cron.lock();
+        let run = store
+            .get(&job_id)
+            .and_then(|job| job.last_run.as_ref())
+            .expect("run start published");
+        assert_eq!(run.run_id, "settled-run");
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
+        drop(store);
+        fixture.storage.shutdown().wait(TEST_DEADLINE).unwrap();
+    }
+
+    #[test]
+    fn cron_fence_closed_storage_marks_scheduler_unavailable_without_retry() {
+        let fixture = storage_fixture();
+        let job_id = create_due_job(&fixture);
+        fixture.storage.shutdown().wait(TEST_DEADLINE).unwrap();
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let first_attempts = attempts.clone();
+
+        assert_eq!(
+            super::tick_with(&fixture.cron, |spec| {
+                first_attempts.fetch_add(1, Ordering::SeqCst);
+                super::record_fire_start(&fixture.cron, &spec.job_id, "closed-run")
+            }),
+            super::TickWait::Unavailable
+        );
+        let second_attempts = attempts.clone();
+        assert_eq!(
+            super::tick_with(&fixture.cron, |spec| {
+                second_attempts.fetch_add(1, Ordering::SeqCst);
+                super::record_fire_start(&fixture.cron, &spec.job_id, "closed-run")
+            }),
+            super::TickWait::Unavailable
+        );
+
+        let store = fixture.cron.lock();
+        assert!(store.scheduler_unavailable());
+        assert!(store.get(&job_id).unwrap().last_run.is_none());
+        assert_eq!(attempts.load(Ordering::SeqCst), 1);
     }
 }

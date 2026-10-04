@@ -15,6 +15,10 @@ from transport import Finding, Pending, objects, run_group
 
 
 ROLE = "Read no files and call no tools. Reply with READY once, then wait for instructions."
+LAUNCH_ROLE = ("Read no files. Do not answer provider prompts yourself. Emit "
+              "MATRIX_PROMPT_MATRIX_READY exactly once, then follow the appended CodeTerm cron "
+              "completion instruction using only its exact command and arguments. Do not run any "
+              "other command or use any other tool.")
 CASES = ("trust-hidden", "trust-cron", "trust-visible", "trust-lane", "update",
          "login", "permission", "bad-model", "crash")
 
@@ -35,15 +39,17 @@ class Scenario:
         self.worker = None
         self.capture = False
         self.precondition_n = 0
+        self.run_id = None
 
     def observe(self):
         tab, payload = self.dev.snapshot(self.tab)
         self.last_payload = payload
+        self.last_tab = tab
         return tab
 
     def workspace_for_case(self):
         case = self.options.case
-        if case in ("trust-cron", "trust-lane"):
+        if case in ("trust-cron", "trust-lane", "launch-prompt"):
             cwd = Path(self.fixture["cwd"])
             if case == "trust-lane":
                 self.make_git_lane(cwd)
@@ -72,6 +78,8 @@ class Scenario:
         case = self.options.case
         provider = self.options.provider
         self.precondition_n = self.dev.transcript.record("provocation", {"provider": provider, "case": case})
+        if case == "launch-prompt":
+            self.setup_launch_folder()
         if case == "trust-hidden":
             require(self.options.owner_tab, "Hidden worker needs --owner-tab on the named instance")
             meta = json.loads((self.root / "instance.json").read_text())
@@ -86,19 +94,21 @@ class Scenario:
         else:
             cwd = self.workspace_for_case()
             register_scope(self.root, self.fixture, Path(cwd))
-            if case == "trust-cron":
+            if case in ("trust-cron", "launch-prompt"):
                 require(self.options.owner_tab, "Cron needs --owner-tab on the named instance")
+                task = LAUNCH_ROLE if case == "launch-prompt" else ROLE
                 result = self.dev.dc("--as-tab", self.options.owner_tab, "cron", "create", "Matrix",
-                                     "--schedule", "0 0 1 1 *", "--task", ROLE, "--agent", provider,
+                                     "--schedule", "0 0 1 1 *", "--task", task, "--agent", provider,
                                      "--cwd", cwd, "--workspace", self.workspace,
                                      "--tab", self.options.owner_tab, "--timeout-secs", "150")
                 self.cron = identifier(result, "id")
                 self.dev.dc("cron", "trigger", self.cron)
                 def fired():
                     history = self.dev.dc("cron", "history", self.cron)
-                    ids = [item["tab_id"] for item in objects(history) if item.get("tab_id")]
-                    return ids[-1] if ids else None
-                self.tab = self.events.until(fired, "cron has launched its exact run tab")
+                    runs = [item for item in objects(history) if item.get("run_id") and item.get("tab_id")]
+                    return runs[-1] if runs else None
+                run = self.events.until(fired, "cron has launched its exact run tab")
+                self.run_id, self.tab = run["run_id"], run["tab_id"]
             else:
                 arguments = ["agent", "spawn", provider, "--title", "Matrix", "--cwd", cwd,
                              "--workspace", self.workspace]
@@ -120,6 +130,24 @@ class Scenario:
         elif case == "crash":
             self.crash()
         return self.tab
+
+    def setup_launch_folder(self):
+        folder = self.options.folder
+        case_root = Path(self.fixture["case_root"])
+        if folder == "owner-dir":
+            cwd = Path(self.fixture["cwd"])
+        elif folder == "new-dir":
+            import tempfile
+            cwd = Path(tempfile.mkdtemp(prefix="never-trusted-", dir=case_root))
+        elif folder == "lane":
+            self.make_git_lane(case_root / "lane-source")
+            cwd = case_root / "lane"
+        elif folder == "home":
+            cwd = Path(self.fixture["home"])
+        else:
+            raise Finding(f"Unsupported launch-prompt folder: {folder}")
+        cwd.mkdir(parents=True, exist_ok=True)
+        self.fixture["cwd"] = str(cwd)
 
     def wait_ready(self):
         return self.events.until(lambda: ready(self.observe()), "AgentReady + own bound session + no prompt")

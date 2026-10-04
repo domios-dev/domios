@@ -1144,8 +1144,11 @@ pub fn run() {
                     app.try_state::<MuxState>(),
                     app.try_state::<SessionState>(),
                 ) {
-                    let snapshot = mux.write().to_session_snapshot();
-                    let saved = session.lock().save(&snapshot);
+                    let saved = session::save_current_snapshot(
+                        session.inner(),
+                        mux.inner(),
+                        session::store::SaveIntent::PreserveDesk,
+                    );
                     if let Err(e) = saved {
                         log::error!("Failed to save session: {}", e);
                     } else {

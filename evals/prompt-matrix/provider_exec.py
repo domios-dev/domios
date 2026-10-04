@@ -76,7 +76,7 @@ def main():
         env.update(CODEX_MANAGED_BY_NPM="1", CODEX_MANAGED_PACKAGE_ROOT=str(executable.parents[4] / "wrapper"))
     if active["case"] == "bad-model":
         args = model_args(args, provider, active["bad_model"])
-    if active["case"].startswith("trust-"):
+    if active["case"].startswith("trust-") or active["case"] == "launch-prompt":
         args = [arg for arg in args if arg not in BYPASS]
     if active["case"] == "permission":
         args = permission_args(args, provider)

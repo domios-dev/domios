@@ -231,7 +231,7 @@ fn list_local_includes_cron_jobs_as_virtual_services() {
             timeout_seconds: None,
         })
         .unwrap();
-    cron_store.get_mut(&cron.id).unwrap().protected = true;
+    cron_store.set_protected(&cron.id, true).unwrap();
 
     let svc_store = ServicesStore::open_in_memory().unwrap();
     svc_store

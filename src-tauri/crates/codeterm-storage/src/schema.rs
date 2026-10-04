@@ -6,13 +6,21 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use std::path::Path;
 use std::time::Duration;
 
+mod desk;
 mod sentinel;
 
 /// `PRAGMA application_id` of every Storage database ("CTST").
 pub(crate) const APPLICATION_ID: i32 = 0x4354_5354;
 
 /// Index `n` upgrades schema `n` to `n + 1`; follow-up domain migrations append here.
-const MIGRATIONS: &[&str] = &[SCHEMA_V1, cron::SCHEMA, sentinel::SCHEMA];
+const MIGRATIONS: &[&str] = &[
+    SCHEMA_V1,
+    cron::SCHEMA,
+    sentinel::SCHEMA,
+    desk::SCHEMA,
+    // Sentinel graph v4 is the migration immediately after the desk migration.
+    sentinel::GRAPH_SCHEMA,
+];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 
 /// Every table holding `asset_id` references; an asset is released only when none refers to it.
@@ -218,6 +226,9 @@ fn migrate(conn: &mut Connection, from: i32) -> Result<(), StorageError> {
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|e| sqlite_error("begin migration", e))?;
     for step in MIGRATIONS.iter().skip(from as usize) {
+        if *step == sentinel::GRAPH_SCHEMA {
+            sentinel::refuse_stored_stages(&tx)?;
+        }
         tx.execute_batch(step)
             .map_err(|e| sqlite_error("apply migration", e))?;
     }

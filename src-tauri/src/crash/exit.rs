@@ -65,9 +65,11 @@ pub(crate) fn save_and_sync_sidecars(
     session: &SessionState,
     output_buf: Option<&OutputBufferState>,
 ) {
-    let snapshot = mux.write().to_session_snapshot();
-    // Drop the session guard before sidecar sync re-enters the store.
-    let save_result = { session.lock().save(&snapshot) };
+    let save_result = crate::session::save_current_snapshot(
+        session,
+        mux,
+        crate::session::store::SaveIntent::PreserveDesk,
+    );
     match save_result {
         Ok(outcome) => {
             match &outcome {

@@ -64,17 +64,17 @@ open_settings = "Ctrl+,"
 # path = "\\\\.\\pipe\\codeterm-custom"
 
 [agent]
-# Agent config controls AI agent integration (e.g. Claude Code).
 # poll_interval_ms: how often the agent polls for new commands.
 # idle_timeout_s: seconds of idle before treating agent as idle (used for output streaming).
-# resume_sessions: auto-resume agent sessions on restart. When the JSONL referenced
-#                  by the saved session id is missing on disk, Domios clears the stale id and launches fresh
-#                  instead of looping on "No conversation found".
+# resume_sessions: auto-resume agent sessions on restart; a saved session id whose
+#                  JSONL is missing on disk is cleared and the agent launches fresh.
+# continue_after_restart: one system continue per mid-turn agent tab after any stop.
 # full_access: one global permission choice for every agent provider.
 # Omit it until onboarding or the first agent launch asks the user.
 poll_interval_ms = 500
 idle_timeout_s = 2
 resume_sessions = true
+continue_after_restart = true  # false disables it (codeterm docs TAB-LIFECYCLE)
 full_access = true
 
 [supporter]
@@ -231,10 +231,10 @@ General Agent recovery, its thresholds and owner-notification rules, and provide
 
 ## Worker lane provisioning
 
-Worker lanes are source-only. Provisioning creates an isolated git worktree and launches the agent there; it installs no dependencies and links nothing from the canonical checkout (`node_modules` is never shared by symlink or junction, and no package-manager command precedes the agent command). Source-only workers do not build or test in their lane.
+Provisioning creates an isolated git worktree and launches the agent there; it installs no dependencies and links nothing from the canonical checkout (`node_modules` is never shared by symlink or junction, and no package-manager command precedes the agent command). An isolated check that needs dependencies installs them inside its own lane; full rebuilds stay in canonical.
 
 ## Related documents
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
 
-<!-- revision: 88 -->
+<!-- revision: 90 -->

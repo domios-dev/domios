@@ -866,6 +866,51 @@ fn codex_session_reasoning_effort_reads_exact_rollout() {
 }
 
 #[test]
+fn parity_directory_trust_codex_declared_option_is_the_first_option() {
+    if require_plugins().is_none() {
+        return;
+    }
+    use crate::provider::DirectoryTrustPromptResponse;
+    let provider = codex();
+    let dir = workspace_plugins_root()
+        .join("provider-codex")
+        .join("tests")
+        .join("fixtures")
+        .join("directory-trust");
+    let cases: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("cases.json")).expect("cases.json"))
+            .expect("cases.json parses");
+    let mut declared = 0;
+    for case in cases.as_array().expect("case list") {
+        let file = case["file"].as_str().expect("file");
+        let screen = std::fs::read_to_string(dir.join(file)).expect("fixture");
+        let Some(prompt) = provider.parse_directory_trust_prompt(&screen) else {
+            continue;
+        };
+        let Some(DirectoryTrustPromptResponse::Answer { step }) =
+            provider.directory_trust_prompt_response(&screen)
+        else {
+            continue;
+        };
+        let advanced = (0..prompt.options.len())
+            .filter(|index| {
+                provider
+                    .live_prompt_response(*index, &screen)
+                    .and_then(|steps| steps.into_iter().next())
+                    .as_deref()
+                    == Some(step.as_slice())
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(advanced, vec![0], "{file}");
+        declared += 1;
+    }
+    assert!(
+        declared >= 1,
+        "a captured Codex trust frame declares an option"
+    );
+}
+
+#[test]
 fn codex_declares_its_dedicated_directory_trust_parser() {
     if require_plugins().is_none() {
         return;

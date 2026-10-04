@@ -806,13 +806,11 @@ codeterm update install \
   --continue-prompt "after restart, verify tab performance"
 ```
 
-`--continue-tab` defaults to `$CODETERM_TAB_ID`. The helper:
-1. Sleeps 2s, lets the calling CLI return.
-2. `taskkill /F /IM codeterm.exe codeterm-embed.exe`.
-3. Runs the NSIS installer with `/S` (silent — no UAC since `installMode=currentUser`).
-4. Launches the freshly installed `codeterm.exe`.
-5. If `--continue-prompt`: polls `/api/health` until 200, then `codeterm send --tab <id>` resumes the calling agent.
-6. Logs to `%LocalAppData%\codeterm\self-install.log`.
+`--continue-tab` defaults to `$CODETERM_TAB_ID`. Before detaching, the CLI saves the desk through `/api/session/save` with the continuation; the relaunched daemon delivers it once, after that tab's own resumed session is agent-ready (`codeterm docs TAB-LIFECYCLE`, "Resume after restart"). Every other agent that was mid-turn gets one default continue the same way. The helper:
+1. `taskkill /F /IM codeterm.exe codeterm-embed.exe`.
+2. Runs the NSIS installer with `/S` (silent — no UAC since `installMode=currentUser`).
+3. Launches the freshly installed `codeterm.exe`. It never writes to a tab.
+4. Logs to `%LocalAppData%\codeterm\self-install.log`.
 
 Fallback when CLI itself is broken or version-mismatched — use the standalone PowerShell script:
 ```powershell
@@ -827,7 +825,7 @@ The script lives in this skill's folder at `<repo>/.agents/skills/github-release
 Gotchas:
 - Don't pass `-Verb RunAs` to the installer. `installMode=currentUser` doesn't need elevation; RunAs triggers UAC and hangs on headless.
 - Helper survives the daemon, not your terminal tab — if invoked from a Domios-managed tab, the tab dies with the daemon. Tail progress from outside: `Get-Content -Wait "$env:LocalAppData\codeterm\self-install.log"`.
-- Auto-resume of agent tabs is best-effort — `~/.codeterm/sessions/last.json` may be slightly behind if the daemon was killed abruptly.
+- A daemon older than the restart-continuation owner ignores the continuation (the CLI warns `predates restart continuation`); the first install INTO a build with the owner continues no tab.
 
 ### Path 3 — full release publish
 

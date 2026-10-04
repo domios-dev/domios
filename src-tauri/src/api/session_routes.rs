@@ -11,18 +11,101 @@ use crate::api::{
     routes::{check_auth, AppState},
 };
 
+#[derive(Deserialize)]
+pub struct SaveSessionBody {
+    pub continue_tab: Option<String>,
+    pub continue_prompt: Option<String>,
+    pub suppress_continue_tab: Option<String>,
+    pub withdraw_continue_tab: Option<String>,
+    pub withdraw_continue_prompt: Option<String>,
+}
+
 /// Snapshot the multiplexer into the session store NOW. Durability is
 /// otherwise the 30s auto-save timer plus the close-to-tray hook — a
 /// force-killed daemon (taskkill, crash, e2e harness) loses anything
 /// younger than the last tick. Restart-persistence tests call this first.
+/// A `continue_tab` asks the next start to deliver one continue to that tab.
 pub async fn save_session_api(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    OptionalJson(body): OptionalJson<SaveSessionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let body = body.unwrap_or(SaveSessionBody {
+        continue_tab: None,
+        continue_prompt: None,
+        suppress_continue_tab: None,
+        withdraw_continue_tab: None,
+        withdraw_continue_prompt: None,
+    });
+    let actions = body.continue_tab.is_some() as usize
+        + body.suppress_continue_tab.is_some() as usize
+        + body.withdraw_continue_tab.is_some() as usize;
+    if actions > 1 {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "session save accepts one continuation action".to_string(),
+        ));
+    }
+    let caller = crate::api::tab_routes::caller_tab_header(&headers);
+    let continuation = body.continue_tab.map(|tab_id| {
+        let Some(caller_tab_id) = caller.as_deref() else {
+            return serde_json::json!({
+                "tab_id": tab_id,
+                "registered": false,
+                "reason": crate::service::turn_resume::CALLER_TAB_REQUIRED,
+            });
+        };
+        let prompt = body
+            .continue_prompt
+            .filter(|prompt| !prompt.trim().is_empty())
+            .unwrap_or_else(|| crate::service::turn_resume::DEFAULT_CONTINUE.to_string());
+        match state
+            .svc
+            .request_turn_resume_for_caller(caller_tab_id, &tab_id, &prompt)
+        {
+            Ok(()) => serde_json::json!({"tab_id": tab_id, "registered": true}),
+            Err(reason) => {
+                serde_json::json!({"tab_id": tab_id, "registered": false, "reason": reason})
+            }
+        }
+    });
+    let suppression = body.suppress_continue_tab.map(|tab_id| {
+        let result = match caller.as_deref() {
+            Some(caller_tab_id) if caller_tab_id == tab_id => state
+                .svc
+                .suppress_turn_resume_for_caller(caller_tab_id)
+                .map(|suppressed| serde_json::json!({"tab_id": tab_id, "suppressed": suppressed})),
+            Some(_) => Err(crate::service::turn_resume::NOT_CALLER_TAB.into()),
+            None => Err(crate::service::turn_resume::CALLER_TAB_REQUIRED.into()),
+        };
+        result.unwrap_or_else(|reason| {
+            serde_json::json!({"tab_id": tab_id, "suppressed": false, "reason": reason})
+        })
+    });
+    let withdrawal = body.withdraw_continue_tab.map(|tab_id| {
+        let prompt = body.withdraw_continue_prompt.as_deref().unwrap_or_default();
+        let result = match caller.as_deref() {
+            Some(caller_tab_id) => state
+                .svc
+                .withdraw_turn_resume_request(caller_tab_id, &tab_id, prompt)
+                .map(|withdrawn| serde_json::json!({"tab_id": tab_id, "withdrawn": withdrawn})),
+            None => Err(crate::service::turn_resume::CALLER_TAB_REQUIRED.into()),
+        };
+        result.unwrap_or_else(|reason| {
+            serde_json::json!({"tab_id": tab_id, "withdrawn": false, "reason": reason})
+        })
+    });
     crate::update::shutdown::persist_session(&state.svc.app_handle, &state.svc)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    Ok(Json(serde_json::json!({"ok": true})))
+    Ok(Json(
+        serde_json::json!({
+            "ok": true,
+            "continuation": continuation,
+            "suppression": suppression,
+            "withdrawal": withdrawal,
+        }),
+    ))
 }
 
 /// Rotated full-desk snapshots under `sessions/backups/`, newest first.

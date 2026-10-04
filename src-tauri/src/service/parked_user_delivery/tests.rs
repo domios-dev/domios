@@ -386,11 +386,82 @@ pub(crate) fn mark_ready(fixture: &ServiceFixture, tab_id: &str) {
     tab.boot_failure_reason = None;
 }
 
-pub(crate) fn live_turn(fixture: &ServiceFixture, tab: &str, session: &str, nonce: &str, id: &str, text: &str) -> Vec<ChatSendStatus> {
+#[derive(Clone)]
+struct ObservedTurn {
+    message: crate::agent::chat_types::ChatMsg,
+    provenance: crate::service::chat_send_transaction::LiveProvenance,
+}
+
+fn observed_turn(fixture: &ServiceFixture, tab: &str, id: &str, text: &str) -> ObservedTurn {
+    let path = fixture.temp.path().join("transcripts").join("opaque-session.jsonl");
+    let bytes = std::fs::read(&path).unwrap();
+    let content_end = bytes
+        .iter()
+        .rposition(|byte| *byte != b'\n')
+        .map_or(0, |index| index + 1);
+    let record_start = bytes[..content_end]
+        .iter()
+        .rposition(|byte| *byte == b'\n')
+        .map_or(0, |index| index + 1) as u64;
+    let source = fixture.service.chat_registry.jsonl_source(tab);
+    let crate::service::tab_chat::registry::SourceObservation::Present {
+        incarnation: Some(incarnation),
+        ..
+    } = source.observe("opaque-session", &path, None, record_start)
+    else {
+        panic!("the transcript must have a sourced incarnation");
+    };
+    let nonce = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(tab)
+        .and_then(|tab| tab.session_binding_nonce.clone())
+        .unwrap();
+    ObservedTurn {
+        message: crate::agent::chat_types::ChatMsg {
+            id: id.into(),
+            kind: "user".into(),
+            content: text.into(),
+            ..Default::default()
+        },
+        provenance: crate::service::chat_send_transaction::LiveProvenance {
+            source_session_id: "opaque-session".into(),
+            source_binding_nonce: Some(nonce),
+            range: crate::service::tab_chat::tailer::SourceRange {
+                start_offset: record_start,
+                offset: bytes.len() as u64,
+                incarnation: Some(incarnation),
+            },
+            positions: vec![crate::service::chat_send_transaction::TurnPosition {
+                record_start: Some(record_start),
+                record_row: 0,
+            }],
+        },
+    }
+}
+
+fn deliver_turn(
+    fixture: &ServiceFixture,
+    tab: &str,
+    session: &str,
+    nonce: &str,
+    turn: &ObservedTurn,
+) -> Vec<ChatSendStatus> {
     crate::service::tab_chat::structured_sink::current_binding_turn_confirmations(
         &fixture.service.mux, Some(&fixture.service.chat_send_ledger), tab, Some(session), Some(nonce),
-        &[crate::agent::chat_types::ChatMsg { id: id.into(), kind: "user".into(), content: text.into(), ..Default::default() }],
+        &[turn.message.clone()],
+        Some(&turn.provenance),
     )
+}
+
+pub(crate) fn live_turn(fixture: &ServiceFixture, tab: &str, session: &str, nonce: &str, id: &str, text: &str) -> Vec<ChatSendStatus> {
+    let path = fixture.temp.path().join("transcripts").join("opaque-session.jsonl");
+    if !path.exists() {
+        return Vec::new();
+    }
+    let turn = observed_turn(fixture, tab, id, text);
+    deliver_turn(fixture, tab, session, nonce, &turn)
 }
 
 fn append_turn(fixture: &ServiceFixture, text: &str) {
@@ -398,6 +469,15 @@ fn append_turn(fixture: &ServiceFixture, text: &str) {
     let path = fixture.temp.path().join("transcripts").join("opaque-session.jsonl");
     let mut file = std::fs::OpenOptions::new().create(true).append(true).open(path).unwrap();
     writeln!(file, "{}", serde_json::json!({ "content": text })).unwrap();
+}
+
+fn owner_state(fixture: &ServiceFixture, tab: &str) -> String {
+    let store = &fixture.service.pending_delivery_payloads.user_sends;
+    let owner = store.tab(tab);
+    let records = store.records(tab)
+        .map(|records| records.iter().map(|record| (record.state, record.cycle_settled)).collect::<Vec<_>>());
+    format!("failed={} revoked={} running={} records={records:?}", owner.failed.load(Ordering::Acquire),
+        owner.revoked.load(Ordering::Acquire), owner.running.load(Ordering::Acquire))
 }
 
 fn settled_listener(fixture: &ServiceFixture, tab: &str) -> (tauri::EventId, mpsc::Receiver<serde_json::Value>) {
@@ -661,14 +741,22 @@ fn anchorless_equal_text_requires_two_distinct_live_turn_ids() {
     }));
     mark_ready(&fixture, &tab);
     fixture.service.wake_parked_user_send(&tab);
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), first.send_id);
-    assert_eq!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal")[0].send_id, first.send_id);
+    let handoff = writes_rx.recv_timeout(TEST_DEADLINE).ok();
+    assert_eq!(handoff.as_ref(), Some(&first.send_id), "{}", owner_state(&fixture, &tab));
+    append_turn(&fixture, "opaque-equal");
+    let turn_a = observed_turn(&fixture, &tab, "turn-a", "opaque-equal");
+    assert_eq!(deliver_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", &turn_a)[0].send_id, first.send_id);
+    let transcript = fixture.temp.path().join("transcripts").join("opaque-session.jsonl");
+    std::fs::remove_file(&transcript).unwrap();
     release_tx.send(()).unwrap();
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), second.send_id);
+    let handoff = writes_rx.recv_timeout(TEST_DEADLINE).ok();
+    assert_eq!(handoff.as_ref(), Some(&second.send_id), "{}", owner_state(&fixture, &tab));
     assert!(fixture.service.chat_send_anchor(&tab).anchor.is_none());
-    assert!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal").is_empty());
+    assert!(deliver_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", &turn_a).is_empty());
     assert!(!fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
-    assert_eq!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-b", "opaque-equal")[0].send_id, second.send_id);
+    append_turn(&fixture, "opaque-equal");
+    let turn_b = observed_turn(&fixture, &tab, "turn-b", "opaque-equal");
+    assert_eq!(deliver_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", &turn_b)[0].send_id, second.send_id);
     let (listener, settled) = settled_listener(&fixture, &tab);
     release_tx.send(()).unwrap();
     assert_eq!(settled.recv_timeout(TEST_DEADLINE).unwrap()["send_id"], second.send_id);
@@ -904,4 +992,54 @@ fn zero_write_refusal_keeps_new_readiness_or_admission_wakes_and_consumes_only_h
             assert_reopened_originals(&fixture, &[first, second]);
         }
     }
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
+fn unmatched_live_turn_bound_cannot_starve_next_anchorless_head_or_reuse_previous_equal_turn() {
+    let (fixture, tab) = queue_fixture(false, None);
+    let first = start_current_chat_send(&fixture, &tab, "opaque-equal", "client-a");
+    let second = start_current_chat_send(&fixture, &tab, "opaque-equal", "client-b");
+    let (writes_tx, writes_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let release_rx = Arc::new(Mutex::new(release_rx));
+    let first_id = first.send_id.clone();
+    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |record, _| {
+        writes_tx.send(record.send_id.clone()).unwrap();
+        if record.send_id == first_id {
+            release_rx.lock().recv_timeout(TEST_DEADLINE).unwrap();
+            Ok(())
+        } else {
+            Err(DeliveryError::SubmitUnconfirmed { tab: record.authority.tab_id.clone(), detail: "opaque-postwrite".into() })
+        }
+    }));
+    mark_ready(&fixture, &tab);
+    fixture.service.wake_parked_user_send(&tab);
+    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), first.send_id);
+    append_turn(&fixture, "opaque-equal");
+    let turn_a = observed_turn(&fixture, &tab, "turn-a", "opaque-equal");
+    let confirmed = deliver_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", &turn_a);
+    assert_eq!(confirmed.len(), 1);
+    assert_eq!(confirmed[0].send_id, first.send_id);
+    for index in 0..256 {
+        append_turn(&fixture, "opaque-unrelated");
+        let unmatched = observed_turn(&fixture, &tab, &format!("opaque-unmatched-{index}"), "opaque-unrelated");
+        assert!(deliver_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", &unmatched).is_empty());
+    }
+    assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    let transcript = fixture.temp.path().join("transcripts").join("opaque-session.jsonl");
+    std::fs::remove_file(&transcript).unwrap();
+    release_tx.send(()).unwrap();
+    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), second.send_id);
+    assert!(fixture.service.chat_send_anchor(&tab).anchor.is_none());
+    assert!(deliver_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", &turn_a).is_empty());
+    assert!(!fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
+    assert!(deliver_turn(&fixture, &tab, "opaque-session", "old-nonce", &turn_a).is_empty());
+    assert!(deliver_turn(&fixture, &tab, "other-session", "opaque-current-nonce", &turn_a).is_empty());
+    append_turn(&fixture, "opaque-equal");
+    let turn_b = observed_turn(&fixture, &tab, "turn-b", "opaque-equal");
+    let confirmed = deliver_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", &turn_b);
+    assert_eq!(confirmed.len(), 1, "unmatched earlier deltas must not permanently consume the next head's proof capacity");
+    assert_eq!(confirmed[0].send_id, second.send_id);
+    assert!(deliver_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", &turn_b).is_empty());
 }

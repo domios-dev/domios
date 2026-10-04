@@ -63,6 +63,9 @@ pub struct AgentIdentitySnapshot {
     pub reported_session_binding_nonce: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_state: Option<codeterm_types::pty::AgentLiveState>,
+    /// Kept whether or not the session claim restores, so an owed continue is settled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turn_resume: Option<crate::multiplexer::types::TurnResumeMark>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub boot_stage: Option<codeterm_types::pty::BootStage>,
     #[serde(
@@ -874,6 +877,10 @@ fn parse_tab_record(
 }
 
 mod retention;
+mod legacy_decode;
+mod storage_adapter;
+
+pub use storage_adapter::StorageDeskAdapter;
 
 #[cfg(test)]
 mod tests;
