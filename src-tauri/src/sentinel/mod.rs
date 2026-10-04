@@ -36,3 +36,6 @@ mod command_tests;
 
 #[cfg(test)]
 mod command_native_tests;
+
+#[cfg(test)]
+mod escalation_tests;

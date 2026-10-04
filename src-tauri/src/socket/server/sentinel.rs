@@ -90,6 +90,15 @@ pub(super) fn dispatch(
             serde_json::to_value(svc.sentinel_history(&caller, &id).map_err(error)?)
                 .map_err(|e| error(e.to_string()))
         }
+        "sentinel.escalation.resolve" => {
+            let id = get_string_param(params, "id")?;
+            let transition_id = get_string_param(params, "transition_id")?;
+            serde_json::to_value(
+                svc.sentinel_resolve_escalation(&caller, &id, &transition_id)
+                    .map_err(error)?,
+            )
+            .map_err(|e| error(e.to_string()))
+        }
         _ => Err(JsonRpcError {
             code: -32601,
             message: "Method not found".into(),

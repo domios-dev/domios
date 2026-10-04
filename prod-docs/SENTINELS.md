@@ -17,12 +17,15 @@ Sentinel graph instead of spending your own turns on it:
   command, target or reply.
 - A graph acts with your authority and never beyond it. The model only
   selects among the actions you offered.
-- `other` means the graph cannot handle the case. Today it is journaled and
-  takes no route. Escalating `other` to you and versioned graph rewrites, so
-  the graph handles that case next time, are planned, not available.
-- Until then, improve a graph yourself: read the last decision reason with
-  `sentinel show`, then stop it and create a replacement that declares the new
-  bucket and its handler. There is no update or rearm command.
+- `other` means the graph cannot classify the case into a declared bucket.
+  Optional reserved `other` handlers may notify or escalate the case to the
+  creator or an exact same-Team agent tab. An escalation carries only Sentinel
+  and transition IDs; it never forwards probe output.
+- An escalation holds that stage, so it does not classify again until someone
+  resolves the exact transition, a new run binding releases it, or its
+  `escalation_timeout_ms` expires. Expiry is journaled as `escalation_expired`.
+- Use versioned updates to change a graph after an escalation. Updates retain
+  immutable definition history and require the current expected version.
 
 ## Create a watch
 
@@ -38,7 +41,8 @@ the watch after that bucket's first routed transition. `--route bucket=stop`
 ends it without sending a message.
 
 For quiet PR waiting, declare only terminal outcomes; classify still-running
-CI as `other`, which takes no route. With an existing same-Team cron and agent:
+CI as `other`, and add an `other` escalation handler when it needs attention.
+With an existing same-Team cron and agent:
 
 ```bash
 codeterm sentinel create --probe "gh run view 456 --json status,conclusion" --question "passed for completed successful CI; failed for completed unsuccessful CI; other while running" --buckets passed,failed --route passed=cron:review_pr --route failed=send:repair_worker --timeout 1h
@@ -71,10 +75,10 @@ Choice adapter or a pattern is refused.
 
 Routes run once when a new accepted bucket differs from the previous accepted
 bucket, including the first accepted result. Model confidence must be at least
-0.80. `other`, low confidence, adapter failure, and exhausted budgets take no
-route and are journaled. Unknown or weak observations do not reset the last
-accepted bucket. Returning to a previously accepted bucket after another
-accepted bucket is a new transition.
+0.80. `other` and low confidence can use the reserved `other` handlers;
+adapter failure and exhausted budgets never escalate. Unknown or weak
+observations do not reset the last accepted bucket. Returning to a previously
+accepted bucket after another accepted bucket is a new transition.
 
 ## Closed-set routes
 
@@ -88,6 +92,7 @@ one bucket. Each receives a stable persisted ID. Unassigned buckets use `notify`
 | `send:<tab>` | Sends a result-file pointer through the existing tab message API |
 | `cron:<name>` | Triggers the uniquely named existing cron |
 | `stop` | Stops the sentinel |
+| `escalate:creator` or `escalate:agent:<tab>` | Sends a small escalation packet through the message gateway |
 
 A send target must be an agent in the creator's Team and workspace, so probe
 text cannot become shell input. Result bodies live in the recipient's AgentPad.
@@ -115,8 +120,8 @@ Replace `sentinel_DOWNSTREAM_ID` with the exact ID from the first response.
 The entry and its reachable stages appear as one named scenario. Shared targets
 retain their identity and results. Activating an already active stage is a noop:
 it does not reset its accepted result, schedule, expiry or running work. Missing,
-foreign, self, stopped and expired targets are refused. There is no rearm or
-update API, recursive scheduler execution, or cyclic-episode guarantee.
+foreign, self, stopped and expired targets are refused. There is no rearm API,
+recursive scheduler execution, or cyclic-episode guarantee.
 
 Use `--handlers-file PATH` for explicit IDs and JSON bucket-to-array definitions:
 
@@ -141,6 +146,35 @@ the downstream ID, and create from that directory:
 
 ```bash
 codeterm sentinel create --name "Marker and review" --probe "printf passed" --question "passed or failed" --buckets passed,failed --match 'passed=(?m)^passed$' --match 'failed=(?m)^failed$' --handlers-file handlers.json --timeout 1h
+```
+
+Put escalation actions only in the reserved `other` array, for example:
+
+```json
+{"other":[{"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}}]}
+```
+
+It accepts only `notify` and `escalate` handlers, with at most one escalation.
+Creating a graph with `other` handlers requires positive
+`--escalation-timeout-ms`; updates must set a positive `escalation_timeout_ms`
+in the definition JSON. After an escalation the stage holds without classifying
+until resolution, a new run binding, or timeout. Resolve an open episode with:
+
+```bash
+codeterm sentinel escalation resolve SENTINEL_ID TRANSITION_ID
+```
+
+Resolution clears the observation hash and re-evaluates once. An escalation
+claim is persisted before delivery and is never replayed after restart. The
+same escalation cause may be delivered at most once per five minutes per
+Sentinel.
+
+Update a definition from JSON with the current version. Any caller in the same
+Team and workspace may amend it; each accepted update records version lineage:
+
+```bash
+codeterm sentinel update SENTINEL_ID --expect-version VERSION --from-file definition.json
+codeterm sentinel history SENTINEL_ID
 ```
 
 Command text is immutable, nonempty, at most 8192 bytes and contains no NUL.
@@ -212,4 +246,4 @@ Cancellation remains in memory; durability is unconfirmed until a valid store
 reload. Repair the filesystem before loading the store again. No stop success
 or claimed-handler replay is inferred from a failed write.
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

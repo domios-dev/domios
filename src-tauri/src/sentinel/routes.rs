@@ -1,6 +1,6 @@
 use tauri::Manager;
 
-use super::machine::{Route, Verdict};
+use super::machine::{EscalateTarget, Route, Verdict};
 use super::store::Sentinel;
 use crate::service::message_gateway::DeliveryClass;
 use crate::service::messenger::MessageEnvelope;
@@ -54,7 +54,14 @@ pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Ro
             }
             Ok(Route::Cron(candidates[0].id.clone()))
         }
-        Route::RespondPrompt(_) | Route::Escalate(_) => Err(unavailable(route)),
+        Route::Escalate(EscalateTarget::Creator) => Ok(route.clone()),
+        Route::Escalate(EscalateTarget::Agent(target)) => {
+            let Route::Send(target) = resolve_send(&svc.mux.read(), job, target)? else {
+                return Err("sentinel escalation target did not resolve to an agent".into());
+            };
+            Ok(Route::Escalate(EscalateTarget::Agent(target)))
+        }
+        Route::RespondPrompt(_) => Err(unavailable(route)),
     }
 }
 
@@ -113,11 +120,35 @@ fn send_file(
     .map(|_| ())
 }
 
+fn escalation_packet(job: &Sentinel, transition_id: &str) -> String {
+    serde_json::json!({
+        "sentinel_id": job.id,
+        "transition_id": transition_id
+    })
+    .to_string()
+}
+
+fn deliver_escalation(
+    svc: &ServiceContext,
+    target: &str,
+    job: &Sentinel,
+    transition_id: &str,
+) -> Result<Option<String>, String> {
+    svc.gateway_deliver(
+        target,
+        MessageEnvelope::codeterm_reminder(format!("sentinel:{}:{transition_id}", job.id)),
+        &escalation_packet(job, transition_id),
+        DeliveryClass::SystemNotice,
+    )
+    .map(|_| None)
+}
+
 pub fn run(
     svc: &ServiceContext,
     job: &Sentinel,
     verdict: &Verdict,
     route: &Route,
+    transition_id: &str,
     output: &str,
 ) -> Result<Option<String>, String> {
     if !creator_live(svc, job) {
@@ -161,7 +192,13 @@ pub fn run(
         Route::Stop => Ok(None),
         Route::Command(_) => Err("command execution requires a durable scheduler claim".into()),
         Route::Sentinel(_) => Err("sentinel activation requires a durable scheduler claim".into()),
-        resolved @ (Route::RespondPrompt(_) | Route::Escalate(_)) => Err(unavailable(&resolved)),
+        Route::Escalate(EscalateTarget::Creator) => {
+            deliver_escalation(svc, &job.creator_tab_id, job, transition_id)
+        }
+        Route::Escalate(EscalateTarget::Agent(target)) => {
+            deliver_escalation(svc, &target, job, transition_id)
+        }
+        resolved @ Route::RespondPrompt(_) => Err(unavailable(&resolved)),
     }
 }
 
@@ -175,5 +212,44 @@ pub fn action_name(route: &Route) -> &'static str {
         Route::Sentinel(_) => "sentinel",
         Route::RespondPrompt(_) => "respond_prompt",
         Route::Escalate(_) => "escalate",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sentinel_escalate_packet_contains_only_stage_and_transition_ids() {
+        let root = tempfile::tempdir().unwrap();
+        let mut store = super::super::store::Store::new(
+            root.path().join("sentinels.json"),
+            crate::cron::clock::MockClock::starting_at(1000),
+        );
+        let job = store
+            .create(
+                serde_json::from_value(serde_json::json!({
+                    "probe": "status",
+                    "question": "state?",
+                    "buckets": ["done"],
+                    "every": "10s",
+                    "matches": {"done": "done"}
+                }))
+                .unwrap(),
+                super::super::store::Owner {
+                    creator_tab_id: "creator".into(),
+                    team_id: None,
+                    workspace_id: "workspace".into(),
+                    cwd: "/tmp".into(),
+                },
+                false,
+            )
+            .unwrap();
+        let packet: serde_json::Value =
+            serde_json::from_str(&escalation_packet(&job, "transition_one")).unwrap();
+
+        assert_eq!(packet.as_object().unwrap().len(), 2);
+        assert_eq!(packet["sentinel_id"], job.id);
+        assert_eq!(packet["transition_id"], "transition_one");
     }
 }

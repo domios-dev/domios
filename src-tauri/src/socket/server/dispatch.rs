@@ -167,6 +167,7 @@ pub(super) fn dispatch(
                 "sentinel.stop",
                 "sentinel.update",
                 "sentinel.history",
+                "sentinel.escalation.resolve",
                 "cron.list",
                 "cron.get",
                 "cron.create",

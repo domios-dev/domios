@@ -38,6 +38,8 @@ pub struct Create {
     #[serde(default)]
     pub paused: bool,
     pub handlers: Option<BTreeMap<String, Vec<Definition>>>,
+    #[serde(default)]
+    pub escalation_timeout_ms: Option<u64>,
     pub max_transitions: Option<u16>,
     pub max_actions: Option<u16>,
 }
@@ -408,9 +410,11 @@ impl Store {
             return Err("--until: name a declared bucket".into());
         }
         let declared = params.handlers.is_some();
-        let routes = handlers::definitions(&params.buckets, params.routes, params.handlers)?;
+        let (routes, on_other) =
+            handlers::definitions_with_other(&params.buckets, params.routes, params.handlers)?;
         let composition = params.paused
             || declared
+            || !on_other.is_empty()
             || routes.values().any(|hs| {
                 hs.len() > 1 || hs.iter().any(|h| matches!(h.action, Route::Sentinel(_)))
             });
@@ -467,12 +471,13 @@ impl Store {
             transitions: Vec::new(),
             observe,
             run: None,
-            on_other: Vec::new(),
-            escalation_timeout_ms: None,
+            on_other,
+            escalation_timeout_ms: params.escalation_timeout_ms,
             definition_version: amend::initial_version(),
             amendments: Vec::new(),
         };
         source::validate(&job)?;
+        escalation::validate(&job)?;
         Ok(job)
     }
 
@@ -682,6 +687,60 @@ impl Store {
 
     pub(super) fn stage_finish(&mut self, job: &Sentinel) -> Staged<bool> {
         self.stage_finish_with(job, None)
+    }
+
+    pub(crate) fn stage_resolve_escalation(
+        &mut self,
+        id: &str,
+        transition_id: &str,
+    ) -> Staged<bool> {
+        if let Err(error) = self.ensure_available() {
+            return Staged::ready(Err(error));
+        }
+        let Some(current) = self.get(id).cloned() else {
+            return Staged::ready(Err(format!("sentinel not found: {id}")));
+        };
+        if current.machine.held.as_deref() != Some(transition_id) {
+            return Staged::ready(Err(
+                "sentinel escalation is not open for that transition".into()
+            ));
+        }
+        if let Some(cancelled) = self.active.remove(id) {
+            cancelled.cancel();
+        }
+        let mut resolved = current;
+        resolved.machine.held = None;
+        resolved.machine.last_hash = None;
+        resolved.last_reason = Some("escalation_resolved".into());
+        self.stage_finish_with(&resolved, None)
+    }
+
+    pub(crate) fn wake_stage(&mut self, id: &str) -> bool {
+        let Some(job) = self.get(id) else {
+            return false;
+        };
+        if job.machine.stopped || job.machine.paused || job.machine.held.is_some() {
+            return false;
+        }
+        self.wake_pending.insert(id.into())
+    }
+
+    pub(super) fn stage_expire_escalation(&mut self) -> Option<(Sentinel, Staged<bool>)> {
+        let now = self.clock.now_ms();
+        let current = self
+            .jobs
+            .iter()
+            .find(|job| {
+                !job.machine.stopped
+                    && !self.active.contains_key(&job.id)
+                    && !job.expires_at.is_some_and(|at| now >= at)
+                    && super::escalation::expiry_at(job).is_some_and(|at| now >= at)
+            })?
+            .clone();
+        let mut expired = current.clone();
+        expired.machine.held = None;
+        expired.last_reason = Some("escalation_expired".into());
+        Some((current, self.stage_finish_with(&expired, None)))
     }
 
     /// Records a lease outcome; with `transition` it also accepts that transition.
@@ -912,6 +971,8 @@ impl Store {
                 let active = self.active.contains_key(&job.id);
                 let next = if job.machine.paused || active {
                     None
+                } else if job.machine.held.is_some() {
+                    super::escalation::expiry_at(job)
                 } else if self.wake_pending.contains(&job.id) {
                     Some(now)
                 } else {
@@ -952,12 +1013,6 @@ impl Sentinel {
             Some("tab observation")
         } else if actions().any(|action| matches!(action, Route::RespondPrompt(_))) {
             Some("respond_prompt")
-        } else if !self.on_other.is_empty()
-            || self.escalation_timeout_ms.is_some()
-            || self.machine.held.is_some()
-            || actions().any(|action| matches!(action, Route::Escalate(_)))
-        {
-            Some("escalation")
         } else {
             None
         }
@@ -980,6 +1035,7 @@ fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Trans
     current.machine.last_hash = job.machine.last_hash.clone();
     current.machine.last_bucket = job.machine.last_bucket.clone();
     current.machine.stopped = job.machine.stopped;
+    current.machine.held = job.machine.held.clone();
     current.last_reason = job.last_reason.clone();
     current.transitions.extend(transition);
 }
@@ -1010,6 +1066,9 @@ fn plan_due(
                 id: job.id.clone(),
                 reason: "timeout",
             });
+            continue;
+        }
+        if job.machine.held.is_some() {
             continue;
         }
         let transitions_spent = job.transitions.len() >= usize::from(job.max_transitions);

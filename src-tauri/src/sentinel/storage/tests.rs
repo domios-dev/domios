@@ -614,3 +614,102 @@ fn storage_sentinel_codec_refuses_lossy_definitions() {
     job.matches.insert("undeclared".into(), "x".into());
     assert!(codec::import(&job).is_err());
 }
+
+#[test]
+fn sentinel_escalate_typed_outcomes_persist_hold_resolve_and_expiry() {
+    let root = temp_root();
+    let mut storage = open(root.path());
+    let clock = MockClock::starting_at(1000);
+    let store = typed(&storage, &clock);
+    let params: Create = serde_json::from_value(json!({
+        "probe": "status",
+        "question": "state?",
+        "buckets": ["done", "failed"],
+        "every": "10s",
+        "timeout": "1h",
+        "matches": {"done": "^done$"},
+        "escalation_timeout_ms": 5000,
+        "handlers": {
+            "done": [{"id": "done_notice", "type": "notify", "parameters": {}}],
+            "other": [{"id": "ask_creator", "type": "escalate", "parameters": {"target": "creator"}}]
+        }
+    }))
+    .unwrap();
+    let job = store
+        .lock()
+        .prepare(params, owner(Some("team")), false)
+        .expect("escalation definition");
+    let job = commit(&store, |current| current.stage_insert(job)).unwrap();
+    let lease = due(&store).remove(0);
+    run(&store, &lease, "unknown", "other", |_, _, _| {
+        Ok(Status::Completed)
+    });
+    store.lock().release(&job.id);
+    let held = store.lock().get(&job.id).unwrap().clone();
+    let held_transition = held.machine.held.clone().expect("typed held state");
+    let original_hash = held.machine.last_hash.clone().expect("observation hash");
+    assert_eq!(
+        codec::outcome(&held).held.as_deref(),
+        Some(held_transition.as_str())
+    );
+
+    assert!(commit(&store, |current| {
+        current.stage_resolve_escalation(&job.id, &held_transition)
+    })
+    .unwrap());
+    let resolved = store.lock().get(&job.id).unwrap().clone();
+    assert!(resolved.machine.held.is_none());
+    assert!(resolved.machine.last_hash.is_none());
+    assert_eq!(resolved.machine.last_bucket.as_deref(), Some("other"));
+    assert!(store.lock().wake_stage(&job.id));
+
+    let lease = due(&store).remove(0);
+    run(&store, &lease, "unknown", "other", |_, _, _| {
+        Ok(Status::Completed)
+    });
+    store.lock().release(&job.id);
+    let held_again = store.lock().get(&job.id).unwrap().clone();
+    let expired_transition = held_again.machine.held.clone().expect("second held state");
+    let expired_hash = held_again
+        .machine
+        .last_hash
+        .clone()
+        .expect("second observation hash");
+    assert_ne!(original_hash, "");
+
+    clock.advance_ms(5000);
+    let (_, staged) = store
+        .lock()
+        .stage_expire_escalation()
+        .expect("expired hold");
+    assert!(staged.settle(&store).unwrap());
+    let expired = store.lock().get(&job.id).unwrap().clone();
+    assert!(expired.machine.held.is_none());
+    assert_eq!(
+        expired.machine.last_hash.as_deref(),
+        Some(expired_hash.as_str())
+    );
+    assert_eq!(expired.machine.last_bucket.as_deref(), Some("other"));
+    assert_eq!(expired.last_reason.as_deref(), Some("escalation_expired"));
+    assert!(codec::outcome(&expired).held.is_none());
+    assert_eq!(
+        codec::outcome(&expired).last_hash.as_deref(),
+        Some(expired_hash.as_str())
+    );
+    assert_ne!(expired_transition, held_transition);
+
+    drop(store);
+    close(storage);
+    storage = open(root.path());
+    let reopened = typed(&storage, &clock);
+    let restored = reopened.lock().get(&job.id).unwrap().clone();
+    assert!(restored.machine.held.is_none());
+    assert_eq!(
+        restored.machine.last_hash.as_deref(),
+        Some(expired_hash.as_str())
+    );
+    assert_eq!(restored.machine.last_bucket.as_deref(), Some("other"));
+    assert_eq!(restored.last_reason.as_deref(), Some("escalation_expired"));
+    drop(reopened);
+    close(storage);
+}

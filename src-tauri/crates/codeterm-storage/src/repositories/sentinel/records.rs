@@ -323,6 +323,7 @@ pub struct RuntimeOutcome {
     pub last_bucket: Option<String>,
     pub stopped: bool,
     pub last_reason: Option<String>,
+    pub held: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -805,7 +806,8 @@ impl RuntimeOutcome {
     pub(super) fn validate(&self) -> Result<(), StorageError> {
         optional_text("runtime hash", &self.last_hash)?;
         optional_text("runtime bucket", &self.last_bucket)?;
-        optional_text("runtime reason", &self.last_reason)
+        optional_text("runtime reason", &self.last_reason)?;
+        optional_identifier("held transition", &self.held)
     }
 
     pub(super) fn cost(&self) -> usize {
@@ -813,6 +815,7 @@ impl RuntimeOutcome {
             + optional_len(&self.last_hash)
             + optional_len(&self.last_bucket)
             + optional_len(&self.last_reason)
+            + optional_len(&self.held)
     }
 }
 
