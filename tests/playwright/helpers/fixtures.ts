@@ -1,6 +1,6 @@
 import { chromium, test as base, type Browser, type Page } from "@playwright/test";
 import { ApiClient, readDevToken } from "./api-client";
-import { currentDevInstance, type DevInstance } from "./dev-instance";
+import { currentDevInstance, isDevTarget, type DevInstance } from "./dev-instance";
 import { apiReset, diffReset, snapshotBaseline } from "./reset";
 import {
   API_BASE,
@@ -23,7 +23,7 @@ type WorkerFixtures = {
 };
 
 export type ManagedUiSession = UiSession & {
-  reconnect: () => Promise<ManagedUiSession>;
+  reconnect: (allowRestart?: boolean) => Promise<ManagedUiSession>;
 };
 
 export type TabCleanup = {
@@ -123,7 +123,9 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
   uiSession: [
     async ({ devInstance }, use) => {
-      let current = await connectUi(devInstance);
+      let current = isDevTarget()
+        ? await connectUi(devInstance, { safeAttach: true })
+        : await connectUi(devInstance);
       const session: ManagedUiSession = {
         get browser() {
           return current.browser;
@@ -131,9 +133,11 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         get page() {
           return current.page;
         },
-        reconnect: async () => {
+        reconnect: async (allowRestart = false) => {
           await current.browser.close().catch(() => {});
-          current = await connectUi(devInstance);
+          current = await connectUi(devInstance, {
+            safeAttach: isDevTarget() && !allowRestart,
+          });
           return session;
         },
       };
@@ -202,10 +206,13 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   api: [
     async ({ devInstance, resetTracker }, use, testInfo) => {
       if (!(await isHealthy(devInstance))) {
+        if (isDevTarget()) {
+          throw new Error("PW_TARGET=dev will not start or restart the running DEV console");
+        }
         await ensureDevConsole(devInstance);
       }
       const client = new ApiClient(undefined, devInstance);
-      if (resetTracker.lastFile !== testInfo.file) {
+      if (!isDevTarget() && resetTracker.lastFile !== testInfo.file) {
         resetTracker.lastFile = testInfo.file;
         await apiReset(client);
       }
@@ -213,7 +220,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       try {
         await use(client);
       } finally {
-        await diffReset(client, baseline).catch(() => {});
+        if (!isDevTarget()) await diffReset(client, baseline).catch(() => {});
       }
     },
     { timeout: DEV_FIXTURE_TIMEOUT_MS },
