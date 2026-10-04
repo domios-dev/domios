@@ -870,6 +870,10 @@ fn plan_reminder_choice_producer_paths_and_excluded_notices() {
             },
         );
         let counter = TurnCounter::new();
+        let retained = deadline_tabs(&plans, &counter);
+        assert!(retained.contains(wrap_owner.as_str()));
+        assert!(!retained.contains(paused_owner.as_str()));
+        assert!(!retained.contains(archived_owner.as_str()));
         for now in [0, 1800, 3600] {
             run_reminder_tick(&host, &plans, &counter, now, 1800);
         }
