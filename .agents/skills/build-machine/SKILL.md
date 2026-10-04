@@ -329,13 +329,14 @@ and measured, and raw exit 0; the three ignored Cron rows must say `requires des
 not passes. Compilation command wall time and libtest-reported time are recorded separately. The
 first raw failure or inventory refusal leaves later commands `not_run`. It joins the exact expected,
 workflow, event, and checkout SHA, pins the complete combined
-domain input tree to `dc5cb198bfd440aba370ec578a98c182eb9e30ca` (with its one Storage `assets.rs`
-change and four reviewed Sentinel probe inputs since `3972c8bd13bbf666e4470a3fcf6a51c6d67f5447`),
+domain input tree to `bae48571f3ec780816aa05b0d47c2289755cc029` (with its one Storage `assets.rs`
+change, four reviewed Sentinel probe inputs and the test-only Sentinel `handlers.rs` wrapper removal
+since `3972c8bd13bbf666e4470a3fcf6a51c6d67f5447`),
 and independently compares unchanged foundation inputs to `dbc17edee5c1c9032c1498caa0f04b00eb3468ad`.
 The changed shared Storage registration/schema files and added Cron/Sentinel repository/schema files
 are joined to the combined anchor; they cannot equal the older whole-crate foundation tree, whose
 existing check remains unchanged. Fresh `storage-domains-linux-<run>-<attempt>` evidence retains a
-bounded receipt and full raw logs. The counts are source expectations until Fermi independently
+bounded receipt and full raw logs. The counts are source expectations until the primary Orchestrator
 reviews and admits one canonical Linux dispatch at the exact published SHA. The route runs only
 isolated synthetic tests and does not import, select, or migrate user JSON/SQL state. Dispatch:
 
