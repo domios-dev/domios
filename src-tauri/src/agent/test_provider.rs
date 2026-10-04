@@ -37,6 +37,7 @@ pub struct MockProvider {
     tab_state_classification: Option<codeterm_plugin::tab_state::TabStateClassification>,
     parsed_prompt: Option<codeterm_types::pty::PendingPrompt>,
     parsed_directory_trust_prompt: Option<codeterm_types::pty::PendingPrompt>,
+    live_prompt_responses: std::collections::HashMap<usize, Vec<Vec<u8>>>,
     sessions: std::collections::HashSet<String>,
     session_file: Option<PathBuf>,
     session_models: std::collections::HashMap<String, String>,
@@ -81,6 +82,7 @@ impl MockProvider {
             tab_state_classification: None,
             parsed_prompt: None,
             parsed_directory_trust_prompt: None,
+            live_prompt_responses: Default::default(),
             sessions: Default::default(),
             session_file: None,
             session_models: Default::default(),
@@ -336,6 +338,11 @@ impl MockProvider {
 
     pub fn with_parsed_prompt(mut self, prompt: codeterm_types::pty::PendingPrompt) -> Self {
         self.parsed_prompt = Some(prompt);
+        self
+    }
+
+    pub fn with_live_prompt_response(mut self, option_index: usize, steps: Vec<Vec<u8>>) -> Self {
+        self.live_prompt_responses.insert(option_index, steps);
         self
     }
 
@@ -650,6 +657,9 @@ impl AgentProvider for MockProvider {
     }
     fn parse_prompt(&self, _screen: &str) -> Option<codeterm_types::pty::PendingPrompt> {
         self.parsed_prompt.clone()
+    }
+    fn live_prompt_response(&self, option_index: usize, _screen: &str) -> Option<Vec<Vec<u8>>> {
+        self.live_prompt_responses.get(&option_index).cloned()
     }
     fn parse_directory_trust_prompt(
         &self,
