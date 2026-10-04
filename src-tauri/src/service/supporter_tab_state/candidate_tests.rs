@@ -190,6 +190,13 @@ fn prompt() -> PendingPrompt {
     }
 }
 
+fn update_prompt() -> PendingPrompt {
+    let mut update = prompt();
+    update.options[0].label = "Update".into();
+    update.options[1].label = "Skip".into();
+    update
+}
+
 #[test]
 fn supporter_first_opinion_scrape_a004b77d4_transcript_and_composer_copy_negatives() {
     let live = "Fixture selection\n❯ 1. Opaque alpha\n2. Opaque beta\nEnter to confirm\n";
@@ -298,16 +305,15 @@ fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch(
     mux.link_pty(&id, "safe-choice-batch-pty".into());
     mux.get_tab_mut(&id).unwrap().agent_type = Some("fixture-provider".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let mut update = prompt();
-    update.options[0].label = "Update".into();
-    update.options[1].label = "Skip".into();
+    let mut update = update_prompt();
     update.options[1].value = "opaque-skip-value".into();
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("fixture-provider")
             .with_parsed_prompt(update)
             .with_classified_prompt_auto_response(
                 codeterm_plugin::provider::ClassifiedPromptOptionRole::Skip,
-            ),
+            )
+            .with_live_prompt_response(1, vec![b"opaque-step".to_vec()]),
     ));
     let (mut host, calls, seen) = StubHost::new(
         "Fixture selection\n❯ 1. Update\n2. Skip\nEnter to confirm\n",
@@ -382,20 +388,24 @@ fn supporter_first_opinion_safe_response_bound_receipt_cancels_user_nonce_and_di
         let tab = mux.get_tab_mut(&id).unwrap();
         tab.agent_type = Some("fixture-provider".into());
         tab.session_binding_nonce = Some("nonce-a".into());
-        tab.pending_prompt = Some(prompt());
+        tab.pending_prompt = Some(update_prompt());
         tab.pending_prompt_kind = Some(PromptKind::ManualUpdate);
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         fixture.service.agent_registry.register_provider(Box::new(
             crate::agent::test_provider::MockProvider::new("fixture-provider")
-                .with_parsed_prompt(prompt()),
+                .with_parsed_prompt(update_prompt())
+                .with_classified_prompt_auto_response(
+                    codeterm_plugin::provider::ClassifiedPromptOptionRole::Skip,
+                )
+                .with_live_prompt_response(1, vec![b"opaque-step".to_vec()]),
         ));
         fixture
             .service
             .prompt_detector
             .lock()
-            .hook_detected_scraped(&id, prompt());
+            .hook_detected_scraped(&id, update_prompt());
         let (mut host, _, _) = StubHost::new(
-            "Fixture selection\n❯ 1. Opaque alpha\n2. Opaque beta\nEnter to confirm\n",
+            "Fixture selection\n❯ 1. Update\n2. Skip\nEnter to confirm\n",
             StubModel::answering(Ok(choice(OTHER, 0.99))),
         );
         host.metadata_service = Some(fixture.service.clone());
