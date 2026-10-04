@@ -19,9 +19,9 @@ pub use migration::{
     DecodeFailureKind, DomainComparison, DomainImport, EntryKind, ExpectedDivergence, IgnoredKeys,
     ImportDomain, ImportMarker, ImportOutcome, ImportPlan, ImportProvenance, ImportReceipt,
     ImportRefusal, ImportRequest, ImportTamper, LegacyDecoder, LiveRootImportRequest,
-    MigrationError, ProjectionMismatch,
-    RecordedManifest, RecoveryCandidate, RefusalReport, Sha256Digest, SourceCapture, SourceFile,
-    SourceRole, SourceSelection, SourceStatus, IMPORT_MANIFEST_FORMAT,
+    MigrationError, ProjectionMismatch, RecordedManifest, RecoveryCandidate, RefusalReport,
+    Sha256Digest, SourceCapture, SourceFile, SourceRole, SourceSelection, SourceStatus,
+    IMPORT_MANIFEST_FORMAT,
 };
 #[cfg(feature = "test-support")]
 pub use owner::{Fault, Hold, ReentrancyProbe};
@@ -58,4 +58,5 @@ pub use repositories::{
     CommitReceipt, CommitTimings, Committed, Completion, Expect, Read, Revision, ShutdownReceipt,
     StorageMetrics,
 };
+pub use repositories::{TeamTeardown, TeamTeardownApplied};
 pub use schema::{ConnectionSettings, EffectiveSettings, Synchronous};

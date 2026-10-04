@@ -1,9 +1,9 @@
 use super::records::{DeskLayoutNode, DeskSnapshot, DeskTeam, DeskTeamLifecycle, DeskWorkspace};
-use crate::WorkspaceRecord;
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
 use crate::repositories::{expect_matches, from_sql_u64, to_sql_u64, Expect, Revision};
 use crate::schema::{self, WORKSPACE_ORDER_REVISION};
+use crate::WorkspaceRecord;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashSet;
 
@@ -403,7 +403,7 @@ pub(super) fn select_tab(
     bump_desk(cx)
 }
 
-pub(super) fn remove_team(
+pub(crate) fn remove_team(
     cx: &mut WriteCx<'_>,
     id: &str,
     expect: Revision,
