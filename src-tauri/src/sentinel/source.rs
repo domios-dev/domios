@@ -1,3 +1,4 @@
+use tauri::Manager;
 use serde_json::{json, Value};
 
 use crate::multiplexer::{
