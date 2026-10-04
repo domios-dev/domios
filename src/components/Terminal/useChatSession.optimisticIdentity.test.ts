@@ -110,7 +110,7 @@ async function main(): Promise<void> {
     v().observeChatSendStatus({
       send_id: "send-chip",
       tab_id: "tab",
-      state: "accepted",
+      state: "held",
       error: null,
       ledger_id: "ledger",
       sequence: 1,
@@ -121,7 +121,7 @@ async function main(): Promise<void> {
   confirmedStatuses = [{
     send_id: "send-chip",
     tab_id: "tab",
-    state: "confirmed",
+    state: "delivered",
     error: null,
     ledger_id: "ledger",
     sequence: 1,

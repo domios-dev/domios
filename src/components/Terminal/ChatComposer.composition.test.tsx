@@ -88,7 +88,7 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
       return {
         send_id: "send-1",
         tab_id: call.tabId,
-        state: "accepted",
+        state: "held",
         error: null,
         ledger_id: "ledger-1",
         sequence: 1,
@@ -403,9 +403,9 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function acceptedStatus(tabId: string): ChatSendStatus {
+function heldStatus(tabId: string): ChatSendStatus {
   return {
-    send_id: "opaque-send-a", tab_id: tabId, state: "accepted", error: null,
+    send_id: "opaque-send-a", tab_id: tabId, state: "held", error: null,
     ledger_id: "opaque-ledger", sequence: 1, retained_from: 1,
   };
 }
@@ -463,7 +463,7 @@ for (const outcome of ["accepted", "refused", "ambiguous"] as const) {
       await fire(h.el, inputEvent({ isComposing: false }));
       await act(async () => h.replaceAttachments(["/opaque/newer-9ed5.txt"]));
       await act(async () => {
-        if (outcome === "accepted") admission.resolve(acceptedStatus(tabId));
+        if (outcome === "accepted") admission.resolve(heldStatus(tabId));
         else admission.reject(new Error(`opaque-${outcome}-completion`));
       });
       await flush();
@@ -471,13 +471,13 @@ for (const outcome of ["accepted", "refused", "ambiguous"] as const) {
       assert(h.el.value === newer, "completion of the older request must not clear a newer edit");
       assert(JSON.stringify(h.attachments()) === JSON.stringify(["/opaque/newer-9ed5.txt"]), "the newer attachment survives");
       if (outcome === "accepted") {
-        assert(h.statuses.length === 1 && h.statuses[0].state === "accepted", "the real acceptance is observed once");
+        assert(h.statuses.length === 1 && h.statuses[0].state === "held", "the durable hold receipt is observed once");
       } else {
         assert(h.statuses.length === 0, "an unacknowledged admission is not acceptance");
       }
       assert(h.sendCalls.length === 1, "the newer draft remains unsent");
     } finally {
-      admission.resolve(acceptedStatus(tabId));
+      admission.resolve(heldStatus(tabId));
       await teardown(h);
     }
   });
@@ -501,13 +501,13 @@ test("an admission receipt clears only the unchanged draft and attachments", asy
     assert(composerValue() === text, "pending admission retains the unsaved draft");
     assert(h.attachments().length === 1, "pending admission retains its attachment");
     assert(statusCount() === 0, "pending transport supplies no receipt");
-    await act(async () => admission.resolve(acceptedStatus(tabId)));
+    await act(async () => admission.resolve(heldStatus(tabId)));
     await flush();
     assert(composerValue() === "", "the admitted unchanged draft clears");
     assert(h.attachments().length === 0, "the admitted unchanged attachment clears");
     assert(statusCount() === 1, "exactly one actual acceptance is observed");
   } finally {
-    admission.resolve(acceptedStatus(tabId));
+    admission.resolve(heldStatus(tabId));
     await teardown(h);
   }
 });
@@ -526,13 +526,13 @@ test("admission preserves a draft edited away and back to the same text", async 
       setDomValue(h.el, edit);
       await fire(h.el, inputEvent({ isComposing: false }));
     }
-    await act(async () => admission.resolve(acceptedStatus(tabId)));
+    await act(async () => admission.resolve(heldStatus(tabId)));
     await flush();
     assert(h.el.value === text, "a newer draft with equal text retains its own ownership");
     assert(h.sendCalls.length === 1, "the new equal-text draft is not automatically submitted");
     assert(h.statuses.length === 1, "the older acceptance is still observed");
   } finally {
-    admission.resolve(acceptedStatus(tabId));
+    admission.resolve(heldStatus(tabId));
     await teardown(h);
   }
 });

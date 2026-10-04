@@ -331,6 +331,9 @@ impl ServiceContext {
             self.resume_exited_member_on_shell_ready(tab_id);
         }
         if stage == BootStage::AgentReady {
+            if let Ok(authority) = self.user_send_authority(tab_id) {
+                self.latch_user_authority_ready(&authority);
+            }
             // Sealing transition: this is the only place an operation becomes
             // restorable, and only if provider + session already committed.
             self.record_lifecycle(

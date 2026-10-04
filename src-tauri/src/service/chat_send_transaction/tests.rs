@@ -119,23 +119,52 @@
     }
 
     #[test]
-    fn serialized_states_separate_acceptance_uncertainty_and_confirmation() {
+    fn serialized_states_report_write_and_exact_delivery_progress() {
         assert_eq!(
             serde_json::to_string(&ChatSendState::Pending).unwrap(),
-            "\"accepted\""
+            "\"held\""
+        );
+        assert_eq!(
+            serde_json::to_string(&ChatSendState::Written).unwrap(),
+            "\"written\""
         );
         assert_eq!(
             serde_json::to_string(&ChatSendState::Unknown).unwrap(),
-            "\"unknown\""
+            "\"submit_unconfirmed\""
         );
         assert_eq!(
             serde_json::to_string(&ChatSendState::Sent).unwrap(),
-            "\"confirmed\""
+            "\"delivered\""
         );
         assert_eq!(
             serde_json::to_string(&ChatSendState::Failed).unwrap(),
             "\"failed\""
         );
+    }
+
+    #[test]
+    fn queued_user_payload_is_not_released_as_a_zero_write() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger.try_start("tab-1", "payload", None).unwrap();
+        ledger.state.lock().owned.insert(
+            pending.send_id.clone(),
+            (
+                crate::service::pending_delivery_payloads::user_sends::UserSendAuthority {
+                    tab_id: "tab-1".into(),
+                    pty_id: "pty-1".into(),
+                    binding_nonce: "nonce-1".into(),
+                    pty_session_generation: Some(1),
+                    provider_id: "provider".into(),
+                    session_id: None,
+                    observed_session_id: None,
+                },
+                true,
+            ),
+        );
+        ledger.mark_user_written(&pending.send_id).unwrap();
+
+        assert!(ledger.user_payload_may_have_been_written(&pending.send_id));
+        assert!(!ledger.user_confirmed(&pending.send_id));
     }
 
     #[test]

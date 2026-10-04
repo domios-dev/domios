@@ -783,6 +783,7 @@ fn has_unprocessed_send_after_tick(
             && matches!(
                 send.state,
                 crate::service::chat_send_transaction::ChatSendState::Pending
+                    | crate::service::chat_send_transaction::ChatSendState::Written
                     | crate::service::chat_send_transaction::ChatSendState::Unknown
                     | crate::service::chat_send_transaction::ChatSendState::Failed
             )
