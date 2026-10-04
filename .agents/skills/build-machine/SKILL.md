@@ -300,8 +300,8 @@ SIGKILLs `rustc`.
 
 ### Fixed Linux Storage foundation qualification
 
-The manual `storage-foundation-linux` scope of `tests.yml` is the only Linux proof of the dormant
-Storage foundation; Sentinel scopes never count toward it. On `[self-hosted, linux-build]` it joins
+The manual `storage-foundation-linux` scope of `tests.yml` retains its standalone foundation check;
+Sentinel-only scopes never count toward it. On `[self-hosted, linux-build]` it joins
 `expected_source_sha` to the workflow, event and checkout SHA, refuses a dirty checkout, `.env`,
 ambient target or test-command overrides and `CODETERM_*` bindings other than the embed cache, and
 refuses unless the tracked Storage facade, both test files and crate equal reviewed
@@ -317,6 +317,30 @@ never retried:
 
 ```sh
 gh workflow run tests.yml --repo rollacode/codeterm --ref <reviewed-published-ref> -f evaluator_scope=storage-foundation-linux -f expected_source_sha=<same-full-reviewed-sha>
+```
+
+The combined `storage-domains-linux` scope runs Cron V2 (`storage_cron_`, 28 selected: 25 `ok` and
+three `ignored` desktop-runtime controls), Sentinel V3 (`storage_sentinel_`, 17 `ok`), then the
+accepted Storage foundation (`storage_contract_`, 23 `ok`) in exactly this foreground order:
+`TEST_CAP_SECS=600 RUST_TEST_THREADS=1 CARGO_TERM_COLOR=never ./build.sh test-one app storage_cron_`,
+then the same fixed command with `storage_sentinel_`, then with `storage_contract_`. Each selected run
+requires its exact full-name/status inventory once, one successful matching summary with zero failed
+and measured, and raw exit 0; the three ignored Cron rows must say `requires desktop runtime` and are
+not passes. Compilation command wall time and libtest-reported time are recorded separately. The
+first raw failure or inventory refusal leaves later commands `not_run`. It joins the exact expected,
+workflow, event, and checkout SHA, pins the complete combined
+domain input tree to `dc5cb198bfd440aba370ec578a98c182eb9e30ca` (with its one Storage `assets.rs`
+change and four reviewed Sentinel probe inputs since `3972c8bd13bbf666e4470a3fcf6a51c6d67f5447`),
+and independently compares unchanged foundation inputs to `dbc17edee5c1c9032c1498caa0f04b00eb3468ad`.
+The changed shared Storage registration/schema files and added Cron/Sentinel repository/schema files
+are joined to the combined anchor; they cannot equal the older whole-crate foundation tree, whose
+existing check remains unchanged. Fresh `storage-domains-linux-<run>-<attempt>` evidence retains a
+bounded receipt and full raw logs. The counts are source expectations until Fermi independently
+reviews and admits one canonical Linux dispatch at the exact published SHA. The route runs only
+isolated synthetic tests and does not import, select, or migrate user JSON/SQL state. Dispatch:
+
+```sh
+gh workflow run tests.yml --repo rollacode/codeterm --ref <reviewed-published-ref> -f evaluator_scope=storage-domains-linux -f expected_source_sha=<same-full-reviewed-sha>
 ```
 
 ---
