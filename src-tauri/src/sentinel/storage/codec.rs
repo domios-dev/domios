@@ -487,6 +487,7 @@ pub(super) fn outcome(job: &Sentinel) -> RuntimeOutcome {
         last_bucket: job.machine.last_bucket.clone(),
         stopped: job.machine.stopped,
         last_reason: job.last_reason.clone(),
+        held: job.machine.held.clone(),
     }
 }
 

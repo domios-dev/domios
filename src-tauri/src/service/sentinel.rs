@@ -109,6 +109,16 @@ impl ServiceContext {
             resolved.insert(bucket.clone(), admitted);
         }
         job.routes = resolved;
+        let mut resolved_other = Vec::new();
+        for handler in &job.on_other {
+            let action = routes::resolve(self, &job, &handler.action)?;
+            resolved_other.push(crate::sentinel::handlers::Handler {
+                id: handler.id.clone(),
+                target: graph::target_identity(self, &job, &action)?,
+                action,
+            });
+        }
+        job.on_other = resolved_other;
         let staged = {
             let mux = self.mux.read();
             let live = mux.get_tab(&caller.tab).is_some_and(|tab| {
@@ -278,6 +288,58 @@ impl ServiceContext {
         }
     }
 
+    pub(crate) fn sentinel_resolve_escalation(
+        &self,
+        caller: &SentinelCaller,
+        id: &str,
+        transition_id: &str,
+    ) -> Result<Sentinel, String> {
+        let handle = self
+            .app_handle
+            .try_state::<Handle>()
+            .ok_or("sentinels not initialized")?;
+        let staged = {
+            let mux = self.mux.read();
+            if !caller_is_live(&mux, caller) {
+                return Err("sentinel caller scope changed".into());
+            }
+            let mut store = handle.store.lock();
+            store.ensure_available()?;
+            if !store.get(id).is_some_and(|job| caller.can_amend(job)) {
+                return Err(format!(
+                    "sentinel not found in this workspace and Team: {id}"
+                ));
+            }
+            store.stage_resolve_escalation(id, transition_id)
+        };
+        if !staged.settle(&handle.store)? {
+            return Err("sentinel escalation resolution was not applied".into());
+        }
+        handle.store.lock().wake_stage(id);
+        handle.notify();
+        let resolved = handle
+            .store
+            .lock()
+            .get(id)
+            .cloned()
+            .ok_or_else(|| format!("sentinel not found: {id}"))?;
+        if let Err(error) = crate::service::supporter::runtime_with_notifications(self)
+            .sentinel_event(serde_json::json!({
+                "time": chrono::Utc::now().timestamp(),
+                "kind": "sentinel",
+                "sentinel_id": id,
+                "transition_id": transition_id,
+                "tab": caller.tab,
+                "team_id": caller.team,
+                "workspace_id": caller.workspace,
+                "action": "escalation_resolved"
+            }))
+        {
+            log::error!("sentinel escalation resolution journal failed: {error}");
+        }
+        Ok(resolved)
+    }
+
     pub(crate) fn sentinel_list(&self, caller: &SentinelCaller) -> Result<Vec<Sentinel>, String> {
         let handle = self
             .app_handle
@@ -386,6 +448,7 @@ mod tests {
             timeout: None,
             paused: false,
             handlers: None,
+            escalation_timeout_ms: None,
             max_transitions: None,
             max_actions: None,
         };

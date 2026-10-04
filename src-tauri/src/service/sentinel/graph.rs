@@ -6,7 +6,7 @@ use tauri::Manager;
 use crate::multiplexer::state::MultiplexerState;
 use crate::sentinel::{
     graph::{self, ConnectedCron, Identity, Snapshot},
-    machine::Route,
+    machine::{EscalateTarget, Route},
     scheduler::Handle,
     storage::{self, Staged},
     store::{Sentinel, Store},
@@ -113,6 +113,18 @@ pub fn target_identity(
             exact.id = id.clone();
             exact.owner_tab_id = cron.creator_tab_id.clone();
         }
+        Route::Escalate(EscalateTarget::Agent(id)) => {
+            let mux = svc.mux.read();
+            let tab = mux.get_tab(id).ok_or("escalation target disappeared")?;
+            if tab.agent_type.is_none()
+                || tab.team_id != job.team_id
+                || mux.find_workspace_for_tab(id).as_deref() != Some(&job.workspace_id)
+            {
+                return Err("escalation target scope changed".into());
+            }
+            exact = graph::tab_identity(tab, &job.workspace_id);
+        }
+        Route::Escalate(EscalateTarget::Creator) => return Ok(None),
         _ => return Ok(None),
     }
     Ok(Some(exact))
