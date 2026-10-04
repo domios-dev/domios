@@ -138,21 +138,32 @@ fn body_admission(store: &UserSendStore, sequence: u64, returned: &Path, bytes: 
 #[test]
 fn pointer_body_outlives_old_pad_submission_settlement_and_reopen() {
     let dir = tempfile::tempdir().unwrap();
-    let returned = dir.path().join("opaque pad λ 界.md");
+    let data_dir = dir.path().join("owned user λ 界");
+    #[cfg(windows)]
+    let data_dir = (0..4).fold(data_dir, |path, _| path.join("owned-path-component".repeat(4)));
+    fs::create_dir_all(&data_dir).unwrap();
+    let data_dir = data_dir.canonicalize().unwrap();
+    let returned = data_dir.join("opaque pad λ 界.md");
     let bytes = b"opaque-prepared\r\nbody  ".to_vec();
     fs::write(&returned, &bytes).unwrap();
-    let store = UserSendStore::open(dir.path()).unwrap();
+    let store = UserSendStore::open(&data_dir).unwrap();
     let record = body_admission(&store, 1, &returned, bytes.clone()).unwrap();
     fs::remove_file(&returned).unwrap();
     let owned = store.body_path(&record).unwrap().unwrap();
     assert_ne!(owned, returned);
+    assert!(owned.to_str().unwrap().contains("owned user λ 界"));
+    #[cfg(windows)]
+    {
+        assert!(owned.as_os_str().len() > 260);
+        assert!(!store.prepared(&record).unwrap().contains(r"\\?\"));
+    }
     assert_eq!(fs::read(&owned).unwrap(), bytes);
     assert!(store.prepared(&record).unwrap().ends_with(codeterm_paths::strip_verbatim_prefix(owned.to_str().unwrap())));
     assert!(store.claim(&record, "opaque-session").unwrap());
     store.settle_cycle(&record, false).unwrap();
     assert!(store.complete(&record).unwrap());
     store.tab("opaque-tab").revoked.store(true, Ordering::Release);
-    let reopened = UserSendStore::open(dir.path()).unwrap();
+    let reopened = UserSendStore::open(&data_dir).unwrap();
     let retained = reopened.records("opaque-tab").unwrap();
     assert_eq!(retained.len(), 1);
     assert_eq!(retained[0].state, UserSendState::BodyLease);
@@ -263,4 +274,33 @@ fn body_owner_count_remains_bounded_after_confirmed_pointer_submissions() {
     for record in retained {
         assert_eq!(fs::read(store.body_path(&record).unwrap().unwrap()).unwrap(), b"opaque-body");
     }
+}
+
+#[cfg(windows)]
+#[test]
+fn junction_owner_is_refused_before_acl_changes_or_external_payload_writes() {
+    use base64::Engine;
+    let dir = tempfile::tempdir().unwrap();
+    let external = dir.path().join("external target λ 界");
+    fs::create_dir(&external).unwrap();
+    fs::write(external.join("opaque-sentinel"), b"opaque-retained").unwrap();
+    let owned = dir.path().join("user-send-payloads");
+    let literal = |path: &Path| format!("'{}'", path.to_str().unwrap().replace('\'', "''"));
+    let script = format!("New-Item -ItemType Junction -Path {} -Target {} -ErrorAction Stop | Out-Null",
+        literal(&owned), literal(&external));
+    let encoded: Vec<u8> = script.encode_utf16().flat_map(u16::to_le_bytes).collect();
+    let mut command = std::process::Command::new("powershell.exe");
+    command.args(["-NoProfile", "-NonInteractive", "-EncodedCommand"])
+        .arg(base64::engine::general_purpose::STANDARD.encode(encoded));
+    crate::process_util::no_window_std(&mut command);
+    assert!(command.status().unwrap().success());
+    let before = super::super::acl_setup_calls();
+    let store = UserSendStore::open(dir.path()).unwrap();
+    let ticket = reserve(&store, 1);
+    let error = store.admit(&ticket, "opaque-original", "opaque-transport", None).unwrap_err();
+    assert!(error.contains("reparse point"));
+    assert_eq!(super::super::acl_setup_calls(), before);
+    assert_eq!(fs::read(external.join("opaque-sentinel")).unwrap(), b"opaque-retained");
+    assert_eq!(fs::read_dir(&external).unwrap().count(), 1);
+    fs::remove_dir(&owned).unwrap();
 }
