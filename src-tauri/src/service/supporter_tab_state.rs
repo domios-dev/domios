@@ -854,7 +854,16 @@ fn user_delivery_pair_has_same_generation(
 
 impl UserDeliveryObservation {
     pub(crate) fn qualifies(&self) -> bool {
-        self.pending_reason().is_none()
+        user_delivery_verdict_qualifies(
+            self.decided_by,
+            &self.verdict.label,
+            self.verdict.confidence,
+            self.verdict.reported_prompt_visible,
+            self.verdict
+                .input_area
+                .as_ref()
+                .map(|(area, confidence)| (area.as_str(), *confidence)),
+        )
     }
 
     pub(crate) fn pending_reason(&self) -> Option<&'static str> {

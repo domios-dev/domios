@@ -6,13 +6,11 @@ use std::cell::{Cell, RefCell};
 use std::time::Duration;
 
 #[test]
-fn newer_ingress_claim_waits_for_the_prior_submit_cycle() {
+fn newer_ingress_claim_cancels_the_prior_submit_cycle() {
     let first = claim_submit_cycle("rapid-ingress-claim");
     let second = claim_submit_cycle("rapid-ingress-claim");
 
-    assert!(first.is_current());
-    assert!(!second.is_current());
-    drop(first);
+    assert!(!first.is_current());
     assert!(second.is_current());
 }
 

@@ -135,6 +135,9 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
     let mut dialog_blocked = false;
     let mut force_key_schedule_after_deadline = false;
     while submit_key_writes < MAX_SUBMIT_KEY_WRITES {
+        if !transport.retry_active() {
+            break;
+        }
         if (submit_key_writes > 0 && submit_observed)
             || (exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn))
         {
