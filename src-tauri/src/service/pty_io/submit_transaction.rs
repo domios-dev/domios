@@ -169,7 +169,6 @@ struct PtySubmitTransport<'a> {
     #[allow(dead_code)]
     status_signal: Arc<codeterm_types::pty::TabStatusSignal>,
     permit: Option<crate::pty::write_queue::GuardedInputPermit>,
-    pre_write_guard: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     submit_cycle: Arc<SubmitCycle>,
     submit_generation: u64,
     paste_capability: PasteEncodingCapability,
@@ -432,11 +431,6 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .ok_or_else(|| InjectionError::PtyClosed {
                 pty_id: self.pty_id.to_string(),
             })?;
-        if self.pre_write_guard.as_ref().is_some_and(|guard| !guard()) {
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: self.pty_id.to_string(),
-            });
-        }
         let timeout = deadline.saturating_duration_since(Instant::now());
         let result = match self.permit.as_ref() {
             Some(permit) => {
@@ -670,36 +664,6 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up(
     track_exact_session_turn: bool,
     claim: SubmitCycleClaim,
 ) -> Result<InjectionResult, InjectionError> {
-    submit_text_with_key_claimed_and_follow_up_revalidated(
-        svc,
-        pty_id,
-        text,
-        typed_follow_up,
-        enter,
-        submit_key,
-        strategy,
-        opts,
-        permit,
-        track_exact_session_turn,
-        claim,
-        None,
-    )
-}
-
-pub(crate) fn submit_text_with_key_claimed_and_follow_up_revalidated(
-    svc: &ServiceContext,
-    pty_id: &str,
-    text: &str,
-    typed_follow_up: Option<&str>,
-    enter: bool,
-    submit_key: &[u8],
-    strategy: VerifySubmitStrategy,
-    opts: VerifyOpts,
-    permit: Option<crate::pty::write_queue::GuardedInputPermit>,
-    track_exact_session_turn: bool,
-    claim: SubmitCycleClaim,
-    pre_write_guard: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
-) -> Result<InjectionResult, InjectionError> {
     if claim.pty_id() != pty_id {
         return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
@@ -726,7 +690,6 @@ pub(crate) fn submit_text_with_key_claimed_and_follow_up_revalidated(
         signal: RefCell::new(signal),
         status_signal,
         permit,
-        pre_write_guard,
         submit_cycle: Arc::clone(&submit_cycle),
         submit_generation,
         paste_capability,
