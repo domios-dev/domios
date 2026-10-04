@@ -213,3 +213,27 @@ fn cron_pty_death_fallback_create_log_never_overwrites() {
         .collect();
     assert_eq!(entries, vec![std::ffi::OsString::from("run.log")]);
 }
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+fn cron_settle_pty_death_fallback_finishes_once_off_runtime() {
+    let run = owned_run();
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let writer = run.cron.lock();
+
+    let settlement = fail_run_on_pty_death(&fixture.service, &run.cron, TAB, "pty-1")
+        .expect("owned run starts settlement");
+    drop(writer);
+    settlement.join().unwrap();
+
+    assert_eq!(run.status(), CronRunStatus::Failed);
+    assert!(run.log_path().exists());
+    assert!(run.cron.lock().get_tab_owner(TAB).is_none());
+    let reloaded = CronStore::new_with_path(run.json.clone());
+    assert_eq!(reloaded.get_history(&run.job_id).len(), 1);
+    assert_eq!(
+        reloaded.get_history(&run.job_id)[0].status,
+        CronRunStatus::Failed
+    );
+}

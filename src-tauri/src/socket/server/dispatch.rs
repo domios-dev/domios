@@ -337,6 +337,22 @@ pub(super) fn dispatch(
     }
 }
 
+pub(super) fn dispatch_with_post_response(
+    method: &str,
+    params: Option<serde_json::Value>,
+    mux: &MuxState,
+    pty: &PtyState,
+    notif: &NotifState,
+    app: &AppHandle,
+    output_buf: &OutputBufferState,
+    svc: &ServiceState,
+) -> Result<(serde_json::Value, Option<super::PostResponseAction>), JsonRpcError> {
+    if method == "cron.complete" {
+        return cron::dispatch_complete(&params, app, svc);
+    }
+    dispatch(method, params, mux, pty, notif, app, output_buf, svc).map(|result| (result, None))
+}
+
 pub(crate) fn dispatch_service_rpc(
     method: &str,
     mut params: Option<serde_json::Value>,
