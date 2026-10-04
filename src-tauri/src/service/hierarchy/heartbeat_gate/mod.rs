@@ -178,6 +178,9 @@ pub(crate) struct Scope {
     pub workspace: String,
     pub team_id: Option<String>,
     pub tab_id: String,
+    pub recipient_team: Option<String>,
+    pub recipient_workspace: String,
+    pub recipient_role: String,
     pub binding: String,
     pub task_id: Option<String>,
     pub attempt_id: Option<String>,
@@ -201,7 +204,7 @@ pub(crate) struct Snapshot {
 }
 
 impl Snapshot {
-    fn hash(&self) -> String {
+    pub(crate) fn hash(&self) -> String {
         let health: Vec<_> = self.workers.iter().map(Worker::health).collect();
         let state = json!({ "plan": self.plan_id, "projection": self.projection,
             "delta": self.delta, "hard": self.hard, "health": health, "learnings": self.learnings,

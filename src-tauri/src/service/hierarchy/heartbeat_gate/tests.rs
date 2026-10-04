@@ -367,11 +367,21 @@ fn heartbeat_gate_budget_and_redacted_feed_share_runtime() {
     let exhausted = tick(&gate, &next, 101, Some(model.as_ref()));
     assert_eq!(exhausted.reason, "budget_exhausted");
     assert!(!exhausted.wake);
+    let mut bounded = next.clone();
+    bounded.truncated = true;
+    let overflow = tick(&gate, &bounded, 102, Some(model.as_ref()));
+    assert_eq!(overflow.reason, "observation_bounds");
+    runtime
+        .heartbeat_event(overflow.journal_event("private-tab", "private-plan", 102))
+        .unwrap();
     assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
     let feed = runtime.feed(100, None).unwrap();
     assert!(feed
         .iter()
         .any(|row| row["kind"] == "heartbeat" && row["action"] == "suppress"));
+    assert!(feed
+        .iter()
+        .any(|row| row["reason"] == "observation_bounds" && row["fallback"] == false));
     for row in feed {
         assert!(row.get("observation").is_none());
         assert!(row.get("observation_id").is_none());

@@ -173,6 +173,7 @@ struct FakeHost {
     owner_view: Mutex<Snapshot>,
     emits: Mutex<Vec<Emitted>>,
     emit_error: Mutex<Option<String>>,
+    compose_hook: Mutex<Option<fn(&FakeHost)>>,
     dir: tempfile::TempDir,
 }
 
@@ -183,6 +184,7 @@ impl ReminderHost for FakeHost {
 
     fn supporter(&self) -> Supporter<'_> {
         Supporter {
+            epoch: self.runtime.connection_epoch(),
             cfg: self.cfg.lock().clone(),
             token: TokenSnapshot {
                 usable: self.token_usable.load(Ordering::SeqCst),
@@ -232,6 +234,10 @@ impl ReminderHost for FakeHost {
     }
 
     fn compose(&self, plan: &Plan, scope: &Scope, _: &Snapshot, decision: &Decision) -> Emission {
+        let hook = self.compose_hook.lock().take();
+        if let Some(hook) = hook {
+            hook(self);
+        }
         let transport = match scope.kind {
             ReminderKind::Worker | ReminderKind::CompleteWrapup => Transport::Automated,
             _ => Transport::Heartbeat {
@@ -350,6 +356,7 @@ fn host(plans: Vec<Plan>, mux: MultiplexerState, reply: Reply) -> (FakeHost, Arc
         owner_view: Mutex::new(owner_view()),
         emits: Mutex::default(),
         emit_error: Mutex::default(),
+        compose_hook: Mutex::default(),
         dir,
     };
     (host, model)
@@ -659,7 +666,7 @@ fn plan_reminder_choice_approve_exact_scope_once() {
             );
         }
     }
-    let scopes: [(&str, ReminderKind, fn(&Fixture), &str); 6] = [
+    let scopes: [(&str, ReminderKind, fn(&Fixture), &str); 8] = [
         (
             "attempt_missing",
             ReminderKind::Worker,
@@ -714,6 +721,21 @@ fn plan_reminder_choice_approve_exact_scope_once() {
             },
             "ineligible",
         ),
+        (
+            "recipient_outside_plan_team",
+            ReminderKind::Owner,
+            |f| {
+                f.edit_plan(|plan| plan.team_id = Some("plan-team".into()));
+                f.edit_tab(&f.owner, |tab| tab.team_id = Some("other-team".into()));
+            },
+            "recipient_scope_mismatch",
+        ),
+        (
+            "teamless_recipient_for_team_plan",
+            ReminderKind::Worker,
+            |f| f.edit_plan(|plan| plan.team_id = Some("plan-team".into())),
+            "recipient_scope_mismatch",
+        ),
     ];
     for (name, kind, mutate, reason) in scopes {
         let f = fixture(kind, approve());
@@ -725,6 +747,13 @@ fn plan_reminder_choice_approve_exact_scope_once() {
         );
         assert_eq!((f.model.calls(), f.emits()), (0, 0), "{name}");
     }
+    let f = fixture(ReminderKind::Worker, approve());
+    f.edit_plan(|plan| plan.team_id = Some("plan-team".into()));
+    f.edit_tab(&f.worker, |tab| tab.team_id = Some("plan-team".into()));
+    assert_eq!(
+        f.admit(ReminderKind::Worker, 100),
+        ReminderOutcome::Accepted
+    );
 }
 
 #[test]
@@ -759,7 +788,7 @@ fn plan_reminder_choice_unchanged_observation_no_repeat() {
 
 #[test]
 fn plan_reminder_choice_stale_scope_and_disconnect_refuse() {
-    let cases: [(&str, ReminderKind, fn(&Fixture)); 10] = [
+    let cases: [(&str, ReminderKind, fn(&Fixture)); 16] = [
         ("owner_rebound", ReminderKind::Owner, |f| {
             f.edit_tab(&f.owner, |tab| bind(tab, "owner-session", "rotated"));
         }),
@@ -791,14 +820,82 @@ fn plan_reminder_choice_stale_scope_and_disconnect_refuse() {
         ("scope_cleaned_up", ReminderKind::StalledTeam, |f| {
             f.host.gate.retain(&HashSet::new());
         }),
+        ("owner_moved_team", ReminderKind::Owner, |f| {
+            f.edit_tab(&f.owner, |tab| tab.team_id = Some("moved-team".into()));
+        }),
+        ("worker_re_roled", ReminderKind::Worker, |f| {
+            f.edit_tab(&f.worker, |tab| {
+                tab.role = Some(crate::multiplexer::types::AgentRole::Manager);
+            });
+        }),
+        (
+            "adapter_reconnected_same_instance",
+            ReminderKind::Owner,
+            |f| {
+                f.host.registry.unregister("fake");
+                f.host.runtime.connection_changed();
+                let same = f.model.clone() as Arc<dyn DecisionModel>;
+                f.host.registry.register("fake", same);
+                f.host.runtime.connection_changed();
+            },
+        ),
+        (
+            "adapter_replaced_same_id",
+            ReminderKind::CompleteWrapup,
+            |f| {
+                let replacement = FakeChoice::new(approve()) as Arc<dyn DecisionModel>;
+                f.host.registry.register("fake", replacement);
+            },
+        ),
+        ("owner_state_changed", ReminderKind::StalledTeam, |f| {
+            let mut view = f.host.owner_view.lock();
+            view.delta.insert("task:task-a".into(), "changed".into());
+        }),
+        ("worker_task_changed", ReminderKind::Worker, |f| {
+            f.edit_plan(|plan| plan.tasks[0].status_label = Some("changed".into()));
+        }),
     ];
     for (name, kind, mutate) in cases {
         let f = fixture(kind, approve());
         let outcome = during_model_call(&f, kind, 100, || mutate(&f));
+        let reason = if name.ends_with("_changed") {
+            "stale_observation"
+        } else {
+            "stale_scope"
+        };
+        assert_eq!(outcome, ReminderOutcome::Suppressed(reason), "{name}");
+        assert_eq!((f.model.calls(), f.emits()), (1, 0), "{name}");
+        let (_, attempted, accepted, _) = f.telemetry(kind);
+        assert_eq!((attempted, accepted), (0, 0), "{name}");
+    }
+    let during_compose: [(&str, ReminderKind, fn(&FakeHost)); 3] = [
+        ("compose_disconnect", ReminderKind::Worker, |host| {
+            host.registry.unregister("fake");
+            host.runtime.connection_changed();
+        }),
+        (
+            "compose_reconnect_same_instance",
+            ReminderKind::Owner,
+            |host| {
+                host.runtime.connection_changed();
+            },
+        ),
+        ("compose_plan_paused", ReminderKind::StalledTeam, |host| {
+            host.plans.lock()[0].mode = PlanMode::Paused;
+        }),
+    ];
+    for (name, kind, mutate) in during_compose {
+        let f = fixture(kind, approve());
+        *f.host.compose_hook.lock() = Some(mutate);
+        let outcome = f.admit(kind, 100);
         assert_eq!(
             outcome,
             ReminderOutcome::Suppressed("stale_scope"),
             "{name}"
+        );
+        assert!(
+            f.host.compose_hook.lock().is_none(),
+            "{name} never composed"
         );
         assert_eq!((f.model.calls(), f.emits()), (1, 0), "{name}");
         let (_, attempted, accepted, _) = f.telemetry(kind);
@@ -870,6 +967,10 @@ fn plan_reminder_choice_producer_paths_and_excluded_notices() {
             },
         );
         let counter = TurnCounter::new();
+        let retained = deadline_tabs(&plans, &counter);
+        assert!(retained.contains(wrap_owner.as_str()));
+        assert!(!retained.contains(paused_owner.as_str()));
+        assert!(!retained.contains(archived_owner.as_str()));
         for now in [0, 1800, 3600] {
             run_reminder_tick(&host, &plans, &counter, now, 1800);
         }

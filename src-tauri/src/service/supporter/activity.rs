@@ -1,5 +1,6 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use codeterm_types::decision::{DecisionAnswer, DecisionError, DecisionPricing, DecisionResponse};
@@ -39,6 +40,7 @@ pub(crate) struct SupporterRuntime {
     team_resolver: OnceLock<TeamResolver>,
     journal_sink: OnceLock<JournalSink>,
     alert_sink: OnceLock<Arc<dyn Fn(SpendAlert) + Send + Sync>>,
+    connection_epoch: AtomicU64,
 }
 
 impl SupporterRuntime {
@@ -62,6 +64,7 @@ impl SupporterRuntime {
             alert_sink: OnceLock::new(),
             team_resolver: OnceLock::new(),
             journal_sink: OnceLock::new(),
+            connection_epoch: AtomicU64::new(0),
         }
     }
 
@@ -177,10 +180,17 @@ impl SupporterRuntime {
         }
     }
 
+    /// Bumped before the journal row on every connection mutation attempt; it
+    /// wraps only after 2^64 mutations and never resets within a daemon run.
     pub(crate) fn connection_changed(&self) {
+        self.connection_epoch.fetch_add(1, Ordering::AcqRel);
         let _ = self.append(
             json!({ "time": chrono::Utc::now().timestamp(), "kind": "connection_changed" }),
         );
+    }
+
+    pub(crate) fn connection_epoch(&self) -> u64 {
+        self.connection_epoch.load(Ordering::Acquire)
     }
 
     pub(crate) fn set_balance(

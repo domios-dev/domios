@@ -7,6 +7,8 @@ use std::sync::Arc;
 /// The active Supporter connection as the existing config and token rules see
 /// it; it never selects another adapter or model.
 pub(crate) struct Supporter<'a> {
+    /// Connection epoch read before `cfg` and `token`, so a later mutation is never missed.
+    pub(crate) epoch: u64,
     pub(crate) cfg: SupporterConfig,
     pub(crate) token: supporter::TokenSnapshot,
     pub(crate) registry: &'a SupporterRegistry,
@@ -15,16 +17,19 @@ pub(crate) struct Supporter<'a> {
 
 impl<'a> Supporter<'a> {
     pub(crate) fn live(svc: &'a ServiceContext) -> Self {
+        let runtime = supporter::runtime_with_notifications(svc);
+        let epoch = runtime.connection_epoch();
         let cfg = crate::config::load_config().supporter;
         let token = supporter::TokenSnapshot::read(
             &crate::api::mem_routes::decision::token_store(),
             cfg.active_id().unwrap_or(""),
         );
         Self {
+            epoch,
             cfg,
             token,
             registry: &svc.supporter_models,
-            runtime: supporter::runtime_with_notifications(svc),
+            runtime,
         }
     }
 
@@ -38,16 +43,18 @@ impl<'a> Supporter<'a> {
         )
     }
 
-    /// Digest of the adapter, its selected model and token usability; None
-    /// whenever no Choice-capable adapter is connected.
+    /// Connection fingerprint, not a monotonic generation: adapter id, selected
+    /// model, token usability and the registered instance; None when disconnected.
     pub(crate) fn generation(&self) -> Option<String> {
         if !supporter::supporter_connected(&self.cfg, self.registry, &self.token) {
             return None;
         }
         let model = supporter::configured_model(&self.cfg, self.registry)
             .filter(|model| model.primitives().choice)?;
+        // An in-flight decision holds this instance, so its address cannot be reused meanwhile.
+        let instance = Arc::as_ptr(&model) as *const () as usize;
         let identity = json!({ "adapter": model.id(), "model": model.model_id(),
-            "token": self.token.usable });
+            "token": self.token.usable, "instance": instance });
         Some(supporter::criteria_hash(identity.to_string().as_bytes()))
     }
 
