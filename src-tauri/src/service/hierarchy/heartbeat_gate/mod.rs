@@ -179,7 +179,7 @@ pub(crate) struct Scope {
     pub team_id: Option<String>,
     pub tab_id: String,
     pub recipient_team: Option<String>,
-    pub recipient_workspace: String,
+    pub recipient_workspace: Option<String>,
     pub recipient_role: String,
     pub binding: String,
     pub task_id: Option<String>,
