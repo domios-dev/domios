@@ -403,7 +403,7 @@ pub(super) fn select_tab(
     bump_desk(cx)
 }
 
-pub(super) fn remove_team(
+pub(crate) fn remove_team(
     cx: &mut WriteCx<'_>,
     id: &str,
     expect: Revision,

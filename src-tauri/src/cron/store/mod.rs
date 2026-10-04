@@ -33,7 +33,7 @@ pub use schedule::{
     to_6field, validate_schedule, validate_tz, MAX_CONSECUTIVE_FAILURES,
 };
 
-pub(crate) use crud::{CronScope, Prepared, RunSession};
+pub(crate) use crud::{CronChange, CronScope, Prepared, RunSession};
 pub(crate) use storage::{commit, finish_run};
 pub use storage::{
     decode_legacy_cron_file, read_legacy_cron_file, settle_port, CronCommitError, CronCommitted,

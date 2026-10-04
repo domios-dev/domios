@@ -322,6 +322,25 @@ fn classify(error: StorageError) -> (Option<LoadFailure>, String) {
 }
 
 impl Store {
+    pub(crate) fn ensure_external_commit_ready(&self) -> Result<(), String> {
+        self.ensure_available()?;
+        match &self.backend {
+            Backend::Sqlite(backend) if backend.inflight == 0 => Ok(()),
+            Backend::Sqlite(_) => Err("sentinel storage has unsettled commits".into()),
+            Backend::Json(_) => Err(GUARD_FREE_REQUIRED.into()),
+        }
+    }
+
+    pub(crate) fn adopt_external_commit(
+        &mut self,
+        committed: &Committed<SentinelCommit>,
+    ) -> Result<(), String> {
+        if !matches!(&self.backend, Backend::Sqlite(_)) {
+            return Err(GUARD_FREE_REQUIRED.into());
+        }
+        self.publish(committed)
+    }
+
     /// Admits one typed mutation without waiting; refusals settle through `finish` at once.
     pub(super) fn submit<T: Send + 'static>(
         &mut self,
