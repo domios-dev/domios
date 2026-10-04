@@ -62,6 +62,7 @@ pub fn observe_declared_event(
     let verdict = declared_state_verdict(&roster, event)?;
     apply(&svc.mux, tab_id, verdict).then(|| {
         svc.emit_state_changed();
+        svc.record_turn_resume_edge(tab_id);
         verdict
     })
 }

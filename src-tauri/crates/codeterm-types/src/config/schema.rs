@@ -546,6 +546,8 @@ pub struct AgentConfig {
     pub poll_interval_ms: u32,
     pub idle_timeout_s: u32,
     pub resume_sessions: bool,
+    /// One system continue for agent tabs that were mid-turn when Domios stopped.
+    pub continue_after_restart: bool,
     pub full_access: Option<bool>,
 }
 
@@ -555,6 +557,7 @@ impl Default for AgentConfig {
             poll_interval_ms: 500,
             idle_timeout_s: 2,
             resume_sessions: true,
+            continue_after_restart: true,
             full_access: None,
         }
     }

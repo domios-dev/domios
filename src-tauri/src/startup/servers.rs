@@ -339,6 +339,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
             });
         }
     }
+    service::turn_resume::arm(&service_state);
     start_restored_pty_backends(service_state.clone(), frontend_readiness_generation);
 
     // Start mesh listeners if enabled (no broadcasting — user triggers that manually)
