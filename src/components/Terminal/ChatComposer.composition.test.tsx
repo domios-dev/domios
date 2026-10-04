@@ -483,7 +483,7 @@ for (const outcome of ["accepted", "refused", "ambiguous"] as const) {
   });
 }
 
-test("durable admission clears only the unchanged draft and attachments", async () => {
+test("an admission receipt clears only the unchanged draft and attachments", async () => {
   const tabId = "tab-unchanged-admission";
   const admission = deferred<ChatSendStatus>();
   const h = await renderComposer(tabId, {
