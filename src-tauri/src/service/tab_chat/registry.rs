@@ -12,9 +12,116 @@
 
 use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use super::tailer::TailerHandle;
+
+/// One materialization of a tab's JSONL transcript as observed by its reader.
+/// `absence_witness` names the send capture that saw the exact path absent
+/// before this file existed, so every row read from it postdates that capture.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceIncarnation {
+    pub id: Arc<str>,
+    pub absence_witness: Option<Arc<str>>,
+}
+
+pub enum SourceCapture {
+    Present { len: u64 },
+    Absent { witness: Arc<str> },
+    Unreadable,
+}
+
+pub enum SourceObservation {
+    Absent,
+    Present {
+        incarnation: Option<SourceIncarnation>,
+        restart: bool,
+    },
+}
+
+#[derive(Default)]
+struct SourceState {
+    bound: Option<(String, PathBuf)>,
+    current: Option<SourceIncarnation>,
+    pending_absence: Option<Arc<str>>,
+}
+
+/// Send captures and transcript readers stat the exact path under one lock, so
+/// an absence a capture saw always precedes the presence a reader later sees.
+#[derive(Default)]
+pub struct JsonlSource {
+    state: Mutex<SourceState>,
+}
+
+fn opaque_id() -> Arc<str> {
+    uuid::Uuid::new_v4().to_string().into()
+}
+
+impl SourceState {
+    fn binds(&self, session_id: &str, path: &Path) -> Option<bool> {
+        self.bound.as_ref().map(|(session, bound)| session == session_id && bound == path)
+    }
+}
+
+impl JsonlSource {
+    pub fn capture(&self, session_id: &str, path: &Path) -> SourceCapture {
+        let mut guard = self.state.lock();
+        let state = &mut *guard;
+        if state.binds(session_id, path) != Some(true) {
+            *state = SourceState {
+                bound: Some((session_id.to_string(), path.to_path_buf())),
+                ..SourceState::default()
+            };
+        }
+        match std::fs::metadata(path) {
+            Ok(metadata) => SourceCapture::Present { len: metadata.len() },
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => SourceCapture::Absent {
+                witness: state.pending_absence.get_or_insert_with(opaque_id).clone(),
+            },
+            Err(_) => SourceCapture::Unreadable,
+        }
+    }
+
+    /// A reader holding `held` at byte `offset` restarts at zero whenever the
+    /// file it was reading is no longer the observed incarnation.
+    pub fn observe(
+        &self,
+        session_id: &str,
+        path: &Path,
+        held: Option<&SourceIncarnation>,
+        offset: u64,
+    ) -> SourceObservation {
+        let mut guard = self.state.lock();
+        let state = &mut *guard;
+        let binds = state.binds(session_id, path);
+        let len = match std::fs::metadata(path) {
+            Ok(metadata) => metadata.len(),
+            Err(error) => {
+                if error.kind() == std::io::ErrorKind::NotFound && binds == Some(true) {
+                    state.current = None;
+                }
+                return SourceObservation::Absent;
+            }
+        };
+        match binds {
+            Some(false) => return SourceObservation::Present { incarnation: None, restart: false },
+            Some(true) => {}
+            None => state.bound = Some((session_id.to_string(), path.to_path_buf())),
+        }
+        let truncated = held.is_some() && held == state.current.as_ref() && offset > len;
+        if state.pending_absence.is_some() || state.current.is_none() || truncated {
+            let absence_witness = state.pending_absence.take();
+            state.current = Some(SourceIncarnation { id: opaque_id(), absence_witness });
+        }
+        let current = state.current.clone();
+        let restart = match held {
+            Some(held) => Some(held) != current.as_ref(),
+            None => offset > len,
+        };
+        SourceObservation::Present { incarnation: current, restart }
+    }
+}
 
 struct Entry {
     handle: TailerHandle,
@@ -35,11 +142,16 @@ impl Entry {
 #[derive(Default)]
 pub struct ChatRegistry {
     inner: Mutex<HashMap<String, Entry>>,
+    sources: Mutex<HashMap<String, Arc<JsonlSource>>>,
 }
 
 impl ChatRegistry {
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
+    }
+
+    pub fn jsonl_source(&self, tab_id: &str) -> Arc<JsonlSource> {
+        self.sources.lock().entry(tab_id.to_string()).or_default().clone()
     }
 
     /// Attach `subscriber_id` to a live tailer bound to `session_id`.
@@ -161,6 +273,7 @@ impl ChatRegistry {
     }
 
     pub fn shutdown_tab(&self, tab_id: &str) {
+        self.sources.lock().remove(tab_id);
         let h = self.inner.lock().remove(tab_id).map(|entry| entry.handle);
         if let Some(handle) = h {
             handle.shutdown();
