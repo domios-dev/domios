@@ -298,6 +298,27 @@ SIGKILLs `rustc`.
   format`. Keep AppImage in `latest.json`; publish deb packages through `latest-deb.json`.
 - **AppImage in Docker** needs `APPIMAGE_EXTRACT_AND_RUN=1` (no FUSE in containers).
 
+### Fixed Linux Storage foundation qualification
+
+The manual `storage-foundation-linux` scope of `tests.yml` is the only Linux proof of the dormant
+Storage foundation; Sentinel scopes never count toward it. On `[self-hosted, linux-build]` it joins
+`expected_source_sha` to the workflow, event and checkout SHA, refuses a dirty checkout, `.env`,
+ambient target or test-command overrides and `CODETERM_*` bindings other than the embed cache, and
+refuses unless the tracked Storage facade, both test files and crate equal reviewed
+`dbc17edee5c1c9032c1498caa0f04b00eb3468ad`. It then runs one foreground
+`./build.sh test-one app storage_contract_` (600-second cap, one test thread) through the existing
+fail-fast gateway. The `storage-foundation-linux-<run>-<attempt>-<sha>` artifact keeps the raw log,
+raw exit, UTC times, input hashes and `receipt.json`. `outcome: qualified` requires the 23 named
+cases once each `ok`, one `23 passed; 0 failed; 0 ignored; 0 measured` summary, raw exit 0 and a
+clean checkout after stub cleanup; `command.phase` separates compile from execution failure. Only
+Fermi dispatches it, once, after a real merge and canonical structural review of the exact
+published SHA; a source lane never runs it, and a busy gateway or uncertain dispatch is reported,
+never retried:
+
+```sh
+gh workflow run tests.yml --repo rollacode/codeterm --ref <reviewed-published-ref> -f evaluator_scope=storage-foundation-linux -f expected_source_sha=<same-full-reviewed-sha>
+```
+
 ---
 
 ## Release pipeline (tying it together)
