@@ -25,6 +25,16 @@ export function SupporterConnectPanel({ adapters, busy, connect, finish }: Props
     const result = await pending;
     if (result) finish(adapter.id, result.state === "active");
   };
+  if (!adapters.length) {
+    return (
+      <div role="status" className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--ct-border)] p-2 text-xs">
+        <span>No other Supporter adapters are installed. Install one from Plugins, then connect it here.</span>
+        <Button variant="ghost" size="sm" onClick={() => finish()}>
+          Close
+        </Button>
+      </div>
+    );
+  }
   return (
     <form
       onSubmit={(event) => void submit(event)}

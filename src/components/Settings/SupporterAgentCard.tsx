@@ -1,23 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { RefreshCw, Sparkles } from "lucide-react";
 import type { HelpSectionId } from "../../help/types";
-import type { ApiConfig } from "../../lib/types";
-import { ActivityFeed } from "../Supporter/ActivityFeed";
 import { Button } from "../shared/Button";
 import { InlineLinkButton, SettingsCard, SettingsPill } from "./shared";
 import {
-  SupporterBalanceForm,
   SupporterSpendLine,
   SupporterSpendSummary,
   supporterIsPriced,
-  supporterTokenTotals,
 } from "./SupporterSpendPanel";
 import { SupporterConnectionRow } from "./SupporterConnectionRow";
 import { SupporterConnectPanel } from "./SupporterConnectPanel";
 import { useDecisionToken, type SupporterConnection, type SupporterStatus } from "./useDecisionToken";
 
 interface Props {
-  api: ApiConfig;
   apiBase: string;
   apiHeaders: HeadersInit;
   onOpenGuide: (section: HelpSectionId) => void;
@@ -42,7 +37,7 @@ function readiness(status: SupporterStatus, selected: SupporterConnection) {
   return "Availability unknown";
 }
 
-export function SupporterAgentCard({ api, apiBase, apiHeaders, onOpenGuide }: Props) {
+export function SupporterAgentCard({ apiBase, apiHeaders, onOpenGuide }: Props) {
   const controls = useDecisionToken(apiBase, apiHeaders);
   const [connecting, setConnecting] = useState(false);
   const [announcement, setAnnouncement] = useState("");
@@ -144,7 +139,6 @@ export function SupporterAgentCard({ api, apiBase, apiHeaders, onOpenGuide }: Pr
     : !status
       ? "Checking status"
       : currentReadiness;
-  const when = (seconds: number) => new Date(seconds * 1000).toLocaleTimeString();
   return (
     <SettingsCard
       icon={<Sparkles size={16} />}
@@ -228,42 +222,9 @@ export function SupporterAgentCard({ api, apiBase, apiHeaders, onOpenGuide }: Pr
                         {status.calls_last_hour.toLocaleString()} req/hr · {status.calls_last_day.toLocaleString()} req/day
                       </span>
                       {supporterIsPriced(row.pricing) && <SupporterSpendSummary spend={status.spend} />}
-                      <details className="basis-full">
-                        <summary className="w-fit cursor-pointer text-[var(--ct-muted-fg)]">Details</summary>
-                        <div className="flex flex-col gap-1 pt-1">
-                          <span>
-                            Last activity: {status.last_activity === null ? "none yet" : when(status.last_activity)}
-                          </span>
-                          <span>{supporterTokenTotals("Today", status.spend.today)}</span>
-                          <span>{supporterTokenTotals("This month", status.spend.month)}</span>
-                          <span>Answer deadline: {status.deadline_ms} ms</span>
-                          <span>
-                            Team heartbeats wake the Orchestrator only for decisions and incidents; healthy, unchanged work
-                            stays quiet.
-                          </span>
-                          <ActivityFeed api={api} embedded />
-                          {(["rerank", "tab_state"] as const).map((kind) => {
-                            const verdict = status.last_verdict[kind];
-                            return verdict ? (
-                              <span key={kind}>
-                                {kind}: {verdict.label ?? "relevance scored"}
-                                {verdict.confidence === null ? "" : ` (${Math.round(verdict.confidence * 100)}%)`}
-                              </span>
-                            ) : null;
-                          })}
-                          {supporterIsPriced(row.pricing) && (
-                            <>
-                              <SupporterSpendLine spend={status.spend} />
-                              <SupporterBalanceForm
-                                adapter={row.adapter}
-                                spend={status.spend}
-                                busy={disabled}
-                                setBalance={(balance) => controls.setBalance(row.adapter, balance)}
-                              />
-                            </>
-                          )}
-                        </div>
-                      </details>
+                      {supporterIsPriced(row.pricing) && (status.spend.exhausted || !status.spend.storage_ready) && (
+                        <SupporterSpendLine spend={status.spend} />
+                      )}
                     </>
                   )}
                 </SupporterConnectionRow>
@@ -280,7 +241,7 @@ export function SupporterAgentCard({ api, apiBase, apiHeaders, onOpenGuide }: Pr
             <InlineLinkButton
               label="+ Connect another adapter"
               onClick={() => setConnecting(true)}
-              disabled={disabled || !status || controls.catalogFailed || !available.length}
+              disabled={disabled || !status || controls.catalogFailed}
               testId="supporter-agent-connect-link"
             />
           </div>
