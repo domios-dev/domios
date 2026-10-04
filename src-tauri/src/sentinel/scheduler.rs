@@ -198,6 +198,7 @@ mod tests {
             "question": "ready?",
             "buckets": ["done"],
             "every": "10s",
+            "timeout": "1h",
             "matches": {"done": "done"},
             "handlers": {"done": [{"id": "notice", "type": "notify", "parameters": {}}]}
         }))
