@@ -87,8 +87,6 @@ bundle or conclude that macOS self-install is missing because
 
 `dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Every build, test, dev run, and executable gate runs only from the canonical integration checkout under Orchestrator authority.
 
-Workers run isolated checks in their own lane when those checks do not rebuild the project: `tsc --noEmit`, a single TS/node test file, linters, Python/eval unit checks, and focused tests of small standalone crates (`./build.sh test-one plan|pty <selector> --wait-build`). Anything that compiles the main app crate in the lane (`check`, `check-tests`, `test-one app ...`) is effectively a full project rebuild and stays with the Orchestrator in canonical. Lanes never start dev servers, run full suites, package, or self-install. Workers report the exact commands, counts and raw exits they observed, and the exact deferred app selectors. The Orchestrator accepts on review, real-merges, then runs the deferred selectors for the merged wave in one canonical batch; a canonical failure becomes a fix task. The broad gate stays one run on the release SHA.
-
 Parallel writers always use separate worktrees/lanes; the canonical checkout has one writer/integrator at a time. This keeps commits atomic and allows ordinary `git add -A` inside a lane instead of fragile cross-owner file lists.
 
 Gateway-backed build commands fail fast when the machine slot is busy. Report the returned blocker and continue source-only work; never poll or retry it. Use `--wait-build` only when blocking the caller is explicitly intended.
