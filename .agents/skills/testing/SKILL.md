@@ -52,6 +52,32 @@ a unit test on the parser plus, at most, one golden test for the end-to-end path
 | PR gate | `./build.sh test:all` | Before opening a PR |
 | CI gate | Rust unit + TS unit + plugin tests (+ pytest spike) | CI on PR — task D7 |
 
+## Affected-test map
+
+Use `node scripts/affected-tests.mjs` to print exact commands for the current
+diff. Set the base with `--base <ref>` or `AFFECTED_TESTS_BASE`; it defaults to
+`origin/master`. Rust changes currently require an explicit strategy while
+canonical timing compares the options:
+
+```bash
+node scripts/affected-tests.mjs --base origin/master --rust-mode module-filters
+node scripts/affected-tests.mjs --base origin/master --rust-mode whole-crate
+```
+
+The mapper uses Cargo metadata to identify touched packages. Module-filter mode
+uses nextest filtersets for app modules and `rdeps(<package>)` for smaller
+crates. Whole-crate mode runs the complete touched Rust package. The output
+prints one command per crate, the reason for each filter, and a rough compile
+cost. Non-Rust commands are grouped for parallel execution during Rust compile.
+
+`./build.sh nextest <scope> [filterset]` compiles test targets before applying
+the capped execution deadline, and `--no-tests=fail` rejects empty selections.
+TypeScript selections use the existing runner's related-file mode for tsx-runner
+tests and `pnpm exec vitest related <files>` for Vitest-owned tests. Plugin
+selections use `bash scripts/plugin-tests.sh <provider>`.
+
+Mapper fixture coverage is `node --test scripts/affected-tests.test.mjs`.
+
 ### Unified entrypoint: `./build.sh test:all`
 
 One command runs every non-LLM layer and prints a per-layer summary table. Layers:
