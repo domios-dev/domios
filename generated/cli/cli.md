@@ -2734,7 +2734,7 @@ Classify a bounded probe or same-Team agent observation
 - `--buckets`
 - `--escalation-timeout-ms` — Bound how long an `other` escalation may hold this stage, in milliseconds
 - `--every` — Owner-requested cadence (minimum 10s)
-- `--handlers-file` — JSON bucket-to-array of {id,type,parameters} handlers, including fixed local command actions
+- `--handlers-file` — JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`
 - `--match` — Deterministic fallback when no Choice adapter is connected: bucket=regex
 - `--max-actions` — Finite action-attempt budget (maximum 1024)
 - `--max-transitions` — Finite accepted transition budget (maximum 256)
@@ -2743,7 +2743,7 @@ Classify a bounded probe or same-Team agent observation
 - `--paused` — Create a dormant downstream stage; its lifetime starts now
 - `--probe`
 - `--question`
-- `--route` — Closed-set route: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop
+- `--route` — Inline routes: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop; use --handlers-file for command, respond_prompt and escalation handlers
 - `--timeout` — End the sentinel after this duration
 - `--until` — Stop after this bucket's first confident transition
 
