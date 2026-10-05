@@ -856,20 +856,22 @@ impl ChatSendLedger {
 
     pub(crate) fn reconcile(&self, tab_id: &str) -> Vec<ChatSendStatus> {
         let state = self.state.lock();
-        let unresolved = state
+        let retained = state
             .order
             .iter()
             .filter_map(|send_id| state.by_id.get(send_id))
             .filter(|status| {
                 status.tab_id == tab_id
-                    && (matches!(status.state, ChatSendState::Written | ChatSendState::Unknown | ChatSendState::Failed)
+                    && (state.latest_by_tab.get(tab_id) == Some(&status.send_id)
+                        || status.state == ChatSendState::Sent
+                        || matches!(status.state, ChatSendState::Written | ChatSendState::Unknown | ChatSendState::Failed)
                         || (status.state == ChatSendState::Pending && state.owned.contains_key(&status.send_id)))
             })
             .cloned()
             .map(|status| Self::with_retention_window(&state, status))
             .collect::<Vec<_>>();
-        if !unresolved.is_empty() {
-            return unresolved;
+        if !retained.is_empty() {
+            return retained;
         }
         state
             .latest_by_tab
