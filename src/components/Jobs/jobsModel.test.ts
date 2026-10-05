@@ -36,4 +36,6 @@ assert.deepEqual(mergeJobs("workspace-a", null, [cron("team-cron", "team-a"), cr
 assert.equal(clearableJobs(all).filter((job) => job.kind === "sentinel").length, 2);
 const activeGraph = { ...crossTeamGraph, nodes: crossTeamGraph.nodes.map((node) => node.identity.id === graph.scenarios[0].root.id ? { ...node, state: "active" } : node) };
 assert.equal(activeJobsCount("workspace-a", [cron("team-cron", "team-a"), cron("no-team-cron", null), cron("foreign", null, "workspace-b")], sentinelJobs(activeGraph, { workspace_id: "workspace-a", team_id: ALL_JOBS })), 3);
+const runningGraph = { ...crossTeamGraph, nodes: crossTeamGraph.nodes.map((node) => node.identity.id === otherTeam.id ? { ...node, state: "running" } : node) };
+assert.equal(activeJobsCount("workspace-a", [cron("team-cron", "team-a"), cron("disabled-cron", null, "workspace-a", false)], sentinelJobs(runningGraph, { workspace_id: "workspace-a", team_id: ALL_JOBS })), 2);
 console.log("5 Jobs model cases passed");

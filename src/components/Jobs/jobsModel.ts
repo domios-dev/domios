@@ -33,7 +33,7 @@ export function mergeJobs(
       kind: "sentinel",
       sentinel,
       title: sentinelTitle(sentinel.scenario, sentinel.root),
-      active: sentinel.state.toLowerCase() === "active" || sentinel.state.toLowerCase() === "finishing",
+      active: ["active", "running", "finishing"].includes(sentinel.state.toLowerCase()),
       state: sentinel.state,
     })),
   ];
