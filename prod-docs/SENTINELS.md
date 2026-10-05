@@ -103,6 +103,7 @@ one bucket. Each receives a stable persisted ID. Unassigned buckets use `notify`
 | `sentinel:<exact-id>` | Activates an existing dormant stage owned by the same creator, Team and workspace |
 | `send:<tab>` | Sends a result-file pointer through the existing tab message API |
 | `cron:<name>` | Triggers the uniquely named existing cron |
+| `respond_prompt:<kind>` | Requests a provider-declared safe answer on the observed unattended tab |
 | `stop` | Stops the sentinel |
 | `escalate:creator` or `escalate:agent:<tab>` | Sends a small escalation packet through the message gateway |
 
@@ -116,6 +117,13 @@ Independent successes, failures, skips and unconfirmed outcomes stay visible.
 Completion confirms the selected operation, not recipient work or cron success.
 A failed handler does not erase earlier results or prevent later handlers; stop
 cancels the remaining handlers. A missing result after a crash is unconfirmed.
+
+`respond_prompt` requires an `--observe` tab or cron-run source and a kind of
+`directory_trust`, `onboarding`, `update`, or `permission`. It is refused for
+shell-probe stages, owner-facing tabs, changed prompts, and provider prompts
+without a matching declared safe option. Login, authentication and quota
+prompts are never answered. The request uses the existing bounded prompt
+answer path; Sentinel does not write keys or construct provider steps.
 
 ## Compose a named Sentinel graph
 
@@ -151,6 +159,12 @@ is available only through `--handlers-file`, with creator-authored parameters:
 
 ```json
 {"passed":[{"id":"marker","type":"command","parameters":{"command":"printf marker > marker.txt","label":"Write marker","timeout_ms":1000}},{"id":"review","type":"sentinel","parameters":{"target":"sentinel_DOWNSTREAM_ID"}}],"failed":[{"id":"finish","type":"stop","parameters":{}}]}
+```
+
+Use the same file form to declare a prompt answer:
+
+```json
+{"ready":[{"id":"answer_permission","type":"respond_prompt","parameters":{"target":"permission"}}]}
 ```
 
 Save the JSON as `handlers.json` in your disposable fixture directory, replace
@@ -258,4 +272,4 @@ Cancellation remains in memory; durability is unconfirmed until a valid store
 reload. Repair the filesystem before loading the store again. No stop success
 or claimed-handler replay is inferred from a failed write.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->

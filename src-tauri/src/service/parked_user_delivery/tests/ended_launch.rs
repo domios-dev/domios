@@ -66,7 +66,7 @@ fn previous_launch_never_written_head_is_settled_before_restored_send_flushes() 
         fixture
             .service
             .chat_send_ledger
-            .finish(&stale.send_id, Ok())
+            .finish(&stale.send_id, Ok(()))
             .unwrap(),
         expired
     );

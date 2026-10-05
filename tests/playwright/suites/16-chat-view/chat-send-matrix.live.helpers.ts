@@ -264,17 +264,17 @@ export async function openAgent(
       await selectWorkspace.click();
       await expect(selectWorkspace).toHaveAttribute("aria-pressed", "true");
     }
+    await api.focusWorkspace(workspaceId);
 
     await expect(row, `owned tab ${tabId} is visible in its workspace`).toBeVisible({
       timeout: 30_000,
     });
     await expect(activateTab).toBeVisible({ timeout: 15_000 });
     const tabIsActive = await row.locator(".active-tab-pill").isVisible();
-    if (!tabIsActive) {
-      await api.focusWorkspace(workspaceId);
-      await api.focusTab(tabId);
-      await activateTab.click();
-    }
+    if (!tabIsActive) await activateTab.click();
+    await api.post(
+      `/workspaces/${encodeURIComponent(workspaceId)}/tabs/${encodeURIComponent(tabId)}/focus`,
+    );
     await expect(row.locator(".active-tab-pill"), `owned tab ${tabId} is active`).toBeVisible({
       timeout: 30_000,
     });
