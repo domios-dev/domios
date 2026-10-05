@@ -62,6 +62,25 @@ impl ServiceContext {
         }
     }
 
+    pub(crate) fn record_remote_ownership_release(
+        &self,
+        tab_id: &str,
+        peer_id: String,
+        peer_name: String,
+        caller_tab_id: Option<String>,
+    ) {
+        let transition = LifecycleTransition::RemoteOwnershipReleased {
+            peer_id,
+            peer_name,
+            caller_tab_id,
+        };
+        let journal = TabLifecycleJournal::shared();
+        match self.mux.read().lifecycle_key(tab_id) {
+            Some(key) => append(journal, key, transition),
+            None => append_minted(journal, tab_id, "ownership-release", transition),
+        }
+    }
+
     /// End the tab's authority and drop its lineage, so no snapshot can match
     /// a dead operation.
     pub(crate) fn record_lifecycle_end(&self, tab_id: &str, transition: LifecycleTransition) {

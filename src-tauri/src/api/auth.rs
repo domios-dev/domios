@@ -174,6 +174,18 @@ pub(crate) fn caller_peer_id(state: &AppState, headers: &axum::http::HeaderMap) 
     }
 }
 
+pub(crate) fn is_local_caller(state: &AppState, headers: &axum::http::HeaderMap) -> bool {
+    let auth = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    identify_caller(state, auth).is_ok_and(ownership_release_is_local)
+}
+
+fn ownership_release_is_local(caller: CallerIdentity) -> bool {
+    matches!(caller, CallerIdentity::Local)
+}
+
 pub(crate) fn isolated_caller_peer_id(
     state: &AppState,
     headers: &axum::http::HeaderMap,
@@ -406,6 +418,16 @@ pub async fn auth_middleware(
 mod tests {
     use super::super::access_policy::check_access;
     use super::*;
+
+    #[test]
+    fn remote_ownership_release_accepts_only_local_identity() {
+        assert!(ownership_release_is_local(CallerIdentity::Local));
+        assert!(!ownership_release_is_local(CallerIdentity::Peer {
+            instance_id: "peer-eight".into(),
+            access_level: AccessLevel::Full,
+            relay_protocol_version: crate::mesh::types::RELAY_PROTOCOL_VERSION,
+        }));
+    }
 
     #[test]
     fn hook_auth_context_only_matches_binding_events() {

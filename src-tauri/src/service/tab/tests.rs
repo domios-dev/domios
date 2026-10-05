@@ -1,6 +1,9 @@
 use crate::service::launch_readiness::{self, LaunchAttempt, LaunchExitProof};
 use crate::service::process_tree::{ProcessIdentity, ProviderProcessTreeSnapshot, ProviderTreeKey};
 use crate::service::test_fixture::ServiceFixture;
+use crate::multiplexer::types::AgentRole;
+use crate::session::lifecycle::{JournalRecord, LifecycleTransition, TabLifecycleJournal};
+use codeterm_types::pty::{RemoteOwnership, RemoteOwnershipTeam};
 use std::collections::HashSet;
 
 fn restored_opencode_fixture() -> (
@@ -78,6 +81,123 @@ fn assert_opencode_identity(fixture: &ServiceFixture, tab_id: &str) {
         .read()
         .get_tab(tab_id)
         .is_some_and(|tab| tab.agent_type.as_deref() == Some("opencode")));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
+    let (mut mux, orchestrator) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = mux.find_workspace_for_tab(&orchestrator).unwrap();
+    mux.set_tab_role_kind(
+        &orchestrator,
+        AgentRole::Manager,
+        Some("orchestrator"),
+        None,
+    )
+    .unwrap();
+    let team_id = mux
+        .resolve_or_mint_team_for_parent(&orchestrator)
+        .unwrap()
+        .team_id;
+    let tab_id = mux.create_tab(&workspace_id).unwrap();
+    let unrelated = mux.create_tab(&workspace_id).unwrap();
+    {
+        let target = mux.get_tab_mut(&tab_id).unwrap();
+        target.team_id = Some(team_id.clone());
+        target.ownership = Some(RemoteOwnership {
+            controller_title: "Orchestrator".into(),
+            controller_tab_id: Some("remote-controller".into()),
+            peer_id: "peer-eight".into(),
+            peer_name: "eight".into(),
+            team: Some(RemoteOwnershipTeam {
+                id: team_id,
+                title: Some("Mesh team".into()),
+            }),
+        });
+    }
+    let fixture = ServiceFixture::new(mux);
+    let refusal = fixture
+        .service
+        .release_remote_ownership(&tab_id, Some(&unrelated))
+        .expect_err("an unrelated local tab cannot release ownership");
+    assert!(refusal.contains("not authorized"));
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .ownership
+        .is_some());
+
+    let app = fixture._app.handle().clone();
+    let storage = crate::storage::Storage::open(
+        fixture.temp.path().join("ownership-release-storage"),
+        crate::storage::StorageConfig::default(),
+    )
+    .unwrap();
+    crate::service::session_persist::install_storage_desk_adapter(
+        &app,
+        crate::session::store::StorageDeskAdapter::from_storage(storage.clone()),
+    )
+    .unwrap();
+    let released = fixture
+        .service
+        .release_remote_ownership(&tab_id, Some(&orchestrator))
+        .expect("Team Orchestrator releases its tab")
+        .expect("ownership existed");
+    assert_eq!(released.peer_id, "peer-eight");
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .ownership
+        .is_none());
+
+    crate::service::session_persist::write_session_snapshot(&app, &fixture.service.mux)
+        .expect("flush the queued desk snapshot");
+    let persisted = crate::session::store::StorageDeskAdapter::from_storage(storage.clone())
+        .snapshot()
+        .expect("read persisted desk snapshot");
+    let restored = crate::multiplexer::state::MultiplexerState::from_session_snapshot(&persisted);
+    assert!(restored.get_tab(&tab_id).unwrap().ownership.is_none());
+
+    let path = format!("/api/tabs/{tab_id}/send");
+    assert!(!crate::api::access_policy::peer_access_allowed(
+        &crate::mesh::types::AccessLevel::AgentIsolated,
+        "peer-eight",
+        &axum::http::Method::POST,
+        &path,
+        |id| fixture
+            .service
+            .mux
+            .read()
+            .get_tab(id)
+            .and_then(|tab| tab.ownership.as_ref())
+            .map(|owner| owner.peer_id.clone()),
+    ));
+    assert!(TabLifecycleJournal::shared().load().records.iter().any(|record| {
+        matches!(
+            record,
+            JournalRecord::Transition { entry }
+                if entry.key.tab_id == tab_id
+                    && matches!(
+                        &entry.transition,
+                        LifecycleTransition::RemoteOwnershipReleased { peer_id, .. }
+                            if peer_id == "peer-eight"
+                    )
+        )
+    }));
+    crate::service::session_persist::stop_worker(&app).unwrap();
+    storage
+        .shutdown()
+        .wait(std::time::Duration::from_secs(30))
+        .unwrap();
 }
 
 #[test]

@@ -275,6 +275,46 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             let result = close_tab(client, params);
             handle_cli_result(json, result);
         }
+        TabAction::ReleaseOwnership { tab } => {
+            if let Some(value) = tab.as_deref() {
+                match classify_remote_tab_id(value) {
+                    RemoteTabTarget::Remote(_, _) => exit_with_cli_error(
+                        json,
+                        &CliError::new("tab release-ownership can target local tabs only"),
+                    ),
+                    RemoteTabTarget::Invalid => {
+                        exit_with_cli_error(json, &CliError::new(INVALID_REMOTE_TAB_ID))
+                    }
+                    RemoteTabTarget::Local => {}
+                }
+            }
+            let tab_id = resolve_tab(client, tab);
+            let (api_url, _) = read_api_config();
+            let api = match build_local_api() {
+                Ok(client) => client,
+                Err(error) => {
+                    crate::cmd::print::fail(1, format!("ownership release failed: {error}"));
+                }
+            };
+            let result = api
+                .post(format!(
+                    "{api_url}/api/tabs/{}/release-ownership",
+                    urlencoding::encode(&tab_id)
+                ))
+                .json(&serde_json::json!({}))
+                .send()
+                .map_err(|error| error.to_string())
+                .and_then(|response| {
+                    let status = response.status();
+                    let body = response.text().unwrap_or_default();
+                    if status.is_success() {
+                        serde_json::from_str(&body).map_err(|error| error.to_string())
+                    } else {
+                        Err(format!("HTTP {}: {body}", status.as_u16()))
+                    }
+                });
+            handle_result(json, result);
+        }
         TabAction::Restart { tab, cwd, cmd } => {
             handle_shell_restart(client, json, tab, cwd, cmd);
         }
@@ -905,6 +945,7 @@ fn validate_user_tab_selectors(action: &TabAction) -> Result<(), String> {
             .chain(tab.as_deref())
             .find(|value| invalid(value)),
         TabAction::Restart { tab, .. }
+        | TabAction::ReleaseOwnership { tab }
         | TabAction::Rename { tab, .. }
         | TabAction::Describe { tab, .. }
         | TabAction::GetText { tab, .. }
