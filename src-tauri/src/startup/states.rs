@@ -277,48 +277,30 @@ pub(crate) fn init_states() -> AppStates {
         None => None,
     };
     let mut boot_resync = false;
-    let mux_state_inner = {
-        match (storage.storage().is_some(), desk_snapshot.as_ref()) {
-            (true, Some(snapshot)) if !snapshot.workspaces.is_empty() => {
-                bound_at_shutdown = snapshot_role_bindings(snapshot);
-                agent_panes_at_shutdown = snapshot_agent_panes(snapshot);
+    let mux_state_inner = match (storage.storage().is_some(), desk_snapshot.as_ref()) {
+        (true, Some(snapshot)) if !snapshot.workspaces.is_empty() => {
+            bound_at_shutdown = snapshot_role_bindings(snapshot);
+            agent_panes_at_shutdown = snapshot_agent_panes(snapshot);
+            log::info!(
+                "Restoring session with {} workspaces, {} tabs total",
+                snapshot.workspaces.len(),
+                snapshot
+                    .workspaces
+                    .iter()
+                    .map(|w| w.tabs.len())
+                    .sum::<usize>()
+            );
+            for ws in &snapshot.workspaces {
                 log::info!(
-                    "Restoring session with {} workspaces, {} tabs total",
-                    snapshot.workspaces.len(),
-                    snapshot
-                        .workspaces
-                        .iter()
-                        .map(|w| w.tabs.len())
-                        .sum::<usize>()
+                    "  Workspace '{}': {} tabs, active_tab={:?}",
+                    ws.name,
+                    ws.tabs.len(),
+                    ws.active_tab_id
                 );
-                for ws in &snapshot.workspaces {
-                    log::info!(
-                        "  Workspace '{}': {} tabs, active_tab={:?}",
-                        ws.name,
-                        ws.tabs.len(),
-                        ws.active_tab_id
-                    );
-                }
-                MultiplexerState::from_session_snapshot(snapshot)
             }
-            (true, _) => {
-                boot_resync = true;
-                if ga_enabled {
-                    log::info!("Storage desk is empty, GA enabled — General will be created");
-                    MultiplexerState::empty()
-                } else {
-                    log::info!("Storage desk is empty, creating default workspace");
-                    let (state, _) = MultiplexerState::new();
-                    state
-                }
-            }
-            (false, _) => {
-                log::error!(
-                    "Storage unavailable — desk restore and default workspace creation skipped"
-                );
-                MultiplexerState::empty()
-            }
+            MultiplexerState::from_session_snapshot(snapshot)
         }
+        _ => initial_empty_desk_state(&storage, ga_enabled, &mut boot_resync),
     };
     // Ensure General Agent workspace exists (before any threading/locking — no deadlock)
     let general_config = config_state.lock().general_agent.clone();
@@ -482,9 +464,45 @@ pub(crate) fn init_states() -> AppStates {
     }
 }
 
+fn initial_empty_desk_state(
+    storage: &StorageAuthority,
+    ga_enabled: bool,
+    boot_resync: &mut bool,
+) -> MultiplexerState {
+    if storage.storage().is_none() {
+        log::error!("Storage unavailable — desk restore and default workspace creation skipped");
+        return MultiplexerState::empty();
+    }
+
+    *boot_resync = true;
+    if ga_enabled {
+        log::info!("Storage desk is empty, GA enabled — General will be created");
+        MultiplexerState::empty()
+    } else {
+        log::info!("Storage desk is empty, creating default workspace");
+        MultiplexerState::new().0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn storage_cutover_unavailable_startup_skips_default_workspace_and_rejects_persistence() {
+        let storage = StorageAuthority::Unavailable {
+            storage: None,
+            reason: "test storage failure".into(),
+        };
+        let mut boot_resync = false;
+
+        let state = initial_empty_desk_state(&storage, true, &mut boot_resync);
+
+        assert!(state.list_workspaces().is_empty());
+        assert!(!boot_resync);
+        crate::service::session_persist::tests::
+            assert_unavailable_rejects_persistence_without_a_commit();
+    }
 
     #[test]
     fn restore_contract_startup_flags_an_exited_member_and_journals_its_decision_once() {

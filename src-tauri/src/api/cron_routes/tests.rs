@@ -49,6 +49,53 @@ fn storage_cutover_cron_unavailable_read_maps_to_service_unavailable() {
     );
 }
 
+#[tokio::test]
+#[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
+async fn storage_cutover_unavailable_desk_rest_reads_return_503_with_the_preservation_message() {
+    use crate::startup::{StorageAuthority, STORAGE_UNAVAILABLE_MESSAGE};
+    use tauri::Manager;
+
+    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    assert!(fixture._app.manage(StorageAuthority::Unavailable {
+        storage: None,
+        reason: "test storage failure".into(),
+    }));
+    let storage_cron = StorageCron::open();
+    let state = app_state(&fixture, &storage_cron);
+
+    let mux_error = crate::api::web_routes::mux_state(AxumState(state.clone()), HeaderMap::new())
+        .await
+        .unwrap_err();
+    assert_eq!(mux_error.0, axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(mux_error.1, STORAGE_UNAVAILABLE_MESSAGE);
+
+    let workspace_error =
+        crate::api::workspace_routes::list_workspaces(AxumState(state.clone()), HeaderMap::new())
+            .await
+            .unwrap_err();
+    assert_eq!(
+        workspace_error.0,
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+    assert_eq!(workspace_error.1, STORAGE_UNAVAILABLE_MESSAGE);
+
+    let tab_error = crate::api::tab_routes::list_tabs(
+        AxumState(state),
+        HeaderMap::new(),
+        Query(crate::api::tab_routes::TabListQuery {
+            workspace_id: None,
+            focused_workspace: false,
+            all_workspaces: false,
+            agents: false,
+            local_only: true,
+        }),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(tab_error.0, axum::http::StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(tab_error.1, STORAGE_UNAVAILABLE_MESSAGE);
+}
+
 /// One runtime thread: the parked disable may hold it only if the route blocks inline.
 #[tokio::test]
 #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
