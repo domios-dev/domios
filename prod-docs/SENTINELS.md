@@ -19,7 +19,7 @@ Make the probe print one stable verdict: no timestamps or durations (every chang
 7. **Self-improving loop.** Escalate `other` to the owning agent (`escalate:agent:<tab>` in `--handlers-file`). It reads `sentinel history`, adds the missing bucket or handler with `sentinel update ... --cause TRANSITION_ID`, then resolves the escalation so the stage re-evaluates once. Each unknown case costs one turn, then stays a versioned branch. The update file is not the `history` definition: it takes `question`, `buckets`, `every`, `handlers` (the create file form), `on_other`, `escalation_timeout_ms`, `max_transitions` and `max_actions`; the probe or observed source cannot change.
 8. **Watching a whole Team.** A General Agent probes `codeterm tab status --tab <orchestrator-tab>` (it reports `not found` once the tab is gone; `orchestrator status` does not) and `codeterm orchestrator status --plan <plan> --tab <orchestrator-tab>` filtered to its `live_lanes` and `drift` lines (the reminder line changes every tick). Buckets `healthy,stuck,needs_owner,lost` in `--handlers-file`: `"healthy": []`; `stuck`, `needs_owner` and `lost` each `notify` the creator once per change; leave `other` quiet, since an escalation hold would hide later changes. A `send` target must share the creator's Team, so the General Agent relays `stuck` to the Team Orchestrator with `codeterm send` and takes `needs_owner` to the owner.
 
-A probe puts the creating instance's installed CLI directory first on `PATH` and receives that instance's API URL, configured token and socket path, so `codeterm` commands use the right daemon. A flapping source routes on every flip until the transition budget stops the graph silently, so keep `--max-transitions` small or use `--until`. A hung probe skips each tick without slowing other graphs. A removed observed tab leaves the stage skipping with `sentinel_observation_scope_changed` until it expires; nobody is told. A Team that forms after you create a graph (your first Worker spawn forms one) stops it without notice and hides it from `sentinel list`, so create graphs once your Team exists.
+A probe puts the creating instance's installed CLI directory first on `PATH` and receives that instance's API URL, configured token and socket path, so `codeterm` commands use the right daemon. A flapping source routes until its transition budget is exhausted; the graph stops and notifies its creator with the reason. A hung probe skips each tick without slowing other graphs. Removing a directly observed tab stops that graph and notifies its creator. Removing a CronRun tab ends that run's observation, notifies the creator, and leaves the graph waiting for another verified run. A graph created while its creator is solo remains visible to that creator after they join a Team.
 
 ## Create a watch
 
@@ -44,10 +44,11 @@ Use `--observe` to watch an agent tab or a cron run instead of running a shell p
 codeterm sentinel create --observe cron-run:nightly --question "identify the current run state" --buckets waiting,finished --every 20s --timeout 1h
 ```
 
-The observed tab must be an agent in the creator's Team and workspace. A `cron-run:<id-or-name>` stage waits for a run,
-then observes the exact tab recorded for that run. A finished run or removed tab unbinds the stage; a replacement run
-starts a fresh observation episode by resetting the observation hash, accepted bucket, and held state. The transition
-count is retained across runs.
+For `tab:<id>`, the observed tab must be an agent in the creator's Team and workspace. A `cron-run:<id-or-name>` stage
+waits for a run, then observes the exact automation tab recorded for that run, even when that hidden tab has no Team
+membership. A finished run or removed tab unbinds the stage; a replacement run starts a fresh observation episode by
+resetting the observation hash, accepted bucket, held state, and per-run transition allowance while retaining history.
+A removed tab notifies the creator with the reason.
 
 ## Classification and transitions
 
@@ -128,8 +129,10 @@ Use `--handlers-file PATH` for explicit IDs and JSON bucket-to-array definitions
 
 The file form cannot be mixed with `--route`. Unknown fields or types, duplicate IDs and ambiguous targets are refused.
 At most 16 handlers fit each bucket and 64 fit one node. Composition definitions require `--timeout`. Each graph has
-a lifetime transition budget that defaults to 64 and can be set up to 256 with `--max-transitions`; a new cron run
-does not reset that count. Exhaustion stops the graph with `transition_budget_exhausted`. The action-attempt budget
+a transition budget that defaults to 64 and can be set up to 256 with `--max-transitions`. Probe and direct-tab graphs
+spend it over their lifetime; each verified CronRun binding gets a fresh allowance. Accepted history is retained to a
+separate lifetime cap of 65,536 transitions. Exhaustion stops the graph with `transition_budget_exhausted` and notifies
+the creator once with the reason. The action-attempt budget
 defaults to 256 and `--max-actions` allows up to 1024. No model output constructs a handler, target or command. A fixed local
 command is available only through `--handlers-file`, with creator-authored parameters:
 
@@ -212,10 +215,11 @@ codeterm sentinel show SENTINEL_ID --json
 codeterm sentinel stop SENTINEL_ID --json
 ```
 
-These commands show or manage only the calling tab's sentinels in its current Team and workspace. `show` includes the
-probe, accepted bucket, hash, next run, expiry, and last decision reason. Stopped watches remain inspectable. Closing a
-Team stops and removes all its sentinels, including in-flight route claims. A removed creator or changed Team stops the
-watch. The store admits at most 64 active and 256 total sentinels; dormant stages count toward the total. Watches are
+These commands show or manage only the calling tab's sentinels in its creation scope and workspace. A solo graph remains
+visible to its creator after that tab joins a Team; it is not shared with the new Team. `show` includes the probe,
+accepted bucket, hash, next run, expiry, and last decision reason. Stopped watches remain inspectable. Closing a Team
+stops and removes its Team-owned sentinels, including in-flight route claims. A removed creator stops the watch. The
+store admits at most 64 active and 256 total sentinels; dormant stages count toward the total. Watches are
 local to the creator's machine; `--mesh` is refused.
 
 Stored single-route definitions from older builds and unreadable/corrupt files leave the Sentinel subsystem unavailable
