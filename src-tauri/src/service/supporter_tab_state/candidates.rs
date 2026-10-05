@@ -236,7 +236,7 @@ pub(crate) fn spawn_with_origin_and_id<H: ShadowHost>(
         host: host.clone(),
         tab: tab.into(),
         metadata,
-        source: identity::DecisionSource::Error,
+        source: identity::DecisionSource::unavailable(),
         recorded: false,
         model_verdict: None,
     };
@@ -266,7 +266,7 @@ pub(crate) fn spawn_with_origin_and_id<H: ShadowHost>(
     );
     scheduler::global()
         .submit(tab.into(), critical, request.questions.len(), move || {
-            pending.source = identity::DecisionSource::Error;
+            pending.source = identity::DecisionSource::unavailable();
             if !pending.current(&adapter_id, &adapter) {
                 return None;
             }

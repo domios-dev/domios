@@ -44,7 +44,7 @@ fn supporter_first_opinion_scrape_fallback_on_timeout_budget_other_low_confidenc
         (Err(DecisionError::Budget), identity::DecisionSource::Budget),
         (
             Err(DecisionError::Unsupported),
-            identity::DecisionSource::Error,
+            identity::DecisionSource::error(&DecisionError::Unsupported),
         ),
         (
             Ok(answer(OTHER, 0.99, 0.99, "active_modal")),
@@ -81,7 +81,7 @@ fn supporter_first_opinion_scrape_fallback_on_timeout_budget_other_low_confidenc
     malformed.answers.remove("input_area");
     assert_eq!(
         candidates::select(Ok(malformed)).1,
-        identity::DecisionSource::Error
+        identity::DecisionSource::error(&DecisionError::Parse("invalid_candidate".into()))
     );
 }
 
