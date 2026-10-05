@@ -2402,6 +2402,7 @@ button,
 .sidebar-general-section > .sidebar-structural-header {
   margin-top: 0;
   border-top: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--ct-border) 65%, transparent);
   background: transparent;
   color: var(--ct-muted-fg);
   text-align: left;

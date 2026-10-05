@@ -1,6 +1,6 @@
 // Run: node scripts/run-ts-unit-tests.mjs src/components/Jobs/JobsView.test.tsx
 import assert from "node:assert/strict";
-import { act, type ReactElement } from "react";
+import { act, useCallback, useRef, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { CronJob, CronRunInfo } from "../../lib/types";
@@ -15,6 +15,10 @@ async function main() {
     Object.defineProperty(globalThis, key, { configurable: true, value: (win as unknown as Record<string, unknown>)[key] });
   }
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  Object.assign(globalThis, {
+    requestAnimationFrame: (callback: FrameRequestCallback) => { callback(0); return 0; },
+    cancelAnimationFrame: () => undefined,
+  });
 
   const [{ __setInvokeForTest, __setListenForTest }, { JobsView }, { TeamJobsUnit }] = await Promise.all([
     import("../../lib/bridge"),
@@ -22,15 +26,16 @@ async function main() {
     import("./TeamJobsUnit"),
   ]);
 
-  function cronJob(id: string, team_id: string | null): CronJob {
+  function cronJob(id: string, team_id: string | null, enabled = true): CronJob {
     return {
-      id, name: `name-${id}`, description: null, workspace_id: attachment.workspace_id, team_id, schedule: "*/5 * * * *", enabled: true,
+      id, name: `name-${id}`, description: null, workspace_id: attachment.workspace_id, team_id, schedule: "*/5 * * * *", enabled,
       agent: "agent-fixture", model: null, reasoning_effort: null, task: `task-${id}`, cwd: null, role: null, report_target_tab_id: null,
       oneshot: false, max_history: 10, created_at: 1, last_run: null, next_run: null, jitter_max_ms: null,
     };
   }
   const teamCron = cronJob("cron-team", attachment.team_id);
   const unteamedCron = cronJob("cron-unteamed", null);
+  const otherTeamCron = cronJob("cron-other-team", "team-b");
 
   function service(job: CronJob): Service {
     const allowed = { allowed: true };
@@ -42,7 +47,7 @@ async function main() {
     };
   }
 
-  let cronList: () => Promise<CronJob[]> = async () => [teamCron, unteamedCron];
+  let cronList: () => Promise<CronJob[]> = async () => [teamCron, unteamedCron, otherTeamCron];
   __setInvokeForTest(async <T,>(command: string): Promise<T> => {
     if (command === "cron_list") return await cronList() as T;
     if (command === "cron_get") return teamCron as T;
@@ -63,6 +68,23 @@ async function main() {
     regenerateToken: async () => "token",
   };
 
+  const cronJobCalls: string[] = [];
+  let afterCronDelete: (job: CronJob) => void = () => undefined;
+  const jobActions = {
+    stopCron: async (job: CronJob) => { cronJobCalls.push(`stop:${job.id}`); },
+    deleteCron: async (job: CronJob) => { cronJobCalls.push(`delete:${job.id}`); afterCronDelete(job); },
+  };
+
+  function JobsHarness({ transport, initialScenarioId, teamId = attachment.team_id }: { transport: FixtureTransport; initialScenarioId?: string; teamId?: string | null }) {
+    const [clear, setClear] = useState<{ count: number; run: (() => void) | null }>({ count: 0, run: null });
+    const clearButton = useRef<HTMLButtonElement>(null);
+    const onClearChange = useCallback((count: number, run: (() => void) | null) => setClear({ count, run }), []);
+    return <>
+      <button ref={clearButton} type="button" aria-label={`Clear stopped${clear.count ? `, ${clear.count} jobs` : ""}`} disabled={!clear.run} onClick={() => clear.run?.()}>Clear stopped {clear.count || ""}</button>
+      <JobsView workspaceId={attachment.workspace_id} teamId={teamId} adapter={transport} initialScenarioId={initialScenarioId} cronActionAdapter={cronActions} jobActionAdapter={jobActions} onClearStoppedChange={onClearChange} clearStoppedButtonRef={clearButton} />
+    </>;
+  }
+
   async function settle(predicate: () => boolean) {
     await act(async () => {
       for (let tick = 0; tick < 50 && !predicate(); tick++) await Promise.resolve();
@@ -78,8 +100,8 @@ async function main() {
     return { host, root, close: async () => { await act(async () => root.unmount()); host.remove(); } };
   }
 
-  function jobsView(transport: FixtureTransport, initialScenarioId?: string) {
-    return <JobsView workspaceId={attachment.workspace_id} teamId={attachment.team_id} adapter={transport} initialScenarioId={initialScenarioId} cronActionAdapter={cronActions} />;
+  function jobsView(transport: FixtureTransport, initialScenarioId?: string, teamId: string | null = attachment.team_id) {
+    return <JobsHarness transport={transport} initialScenarioId={initialScenarioId} teamId={teamId} />;
   }
 
   function entry(host: HTMLElement, key: string) {
@@ -108,6 +130,130 @@ async function main() {
       assert.ok(!entry(view.host, `scenario:${second.id}`)?.textContent?.includes("Sentinel graph"), "single observer stays a Sentinel");
       assert.ok(!view.host.textContent?.includes("Internal stage A"), "internal stage is not a top-level job");
     } finally { await view.close(); }
+  });
+
+  test("All jobs merges every Team Cron and graph and derives a readable unnamed graph title", async () => {
+    const transport = new FixtureTransport();
+    const graph = multiScenarioGraph();
+    const previousRoot = graph.scenarios[1].root;
+    const otherRoot = { ...previousRoot, team_id: "team-b" };
+    transport.graph = {
+      ...graph,
+      all_teams: true,
+      team_id: null,
+      scenarios: graph.scenarios.map((scenario, index) => index === 1 ? { ...scenario, name: scenario.id, root: otherRoot } : scenario),
+      nodes: graph.nodes.map((node) => node.identity.id === previousRoot.id
+        ? { ...node, identity: otherRoot, name: otherRoot.id, purpose: "Inspect production health", outcomes: [{ bucket: "first-ready", handlers: [] }] }
+        : node),
+    };
+    const { ALL_JOBS } = await import("./jobsModel");
+    const view = await mount(jobsView(transport, undefined, ALL_JOBS));
+    try {
+      await settle(() => view.host.querySelectorAll('ul[aria-label="Jobs"] > li').length === 5);
+      assert.ok(entry(view.host, `cron:${teamCron.id}`));
+      assert.ok(entry(view.host, `cron:${unteamedCron.id}`));
+      assert.ok(entry(view.host, `cron:${otherTeamCron.id}`));
+      const unnamed = entry(view.host, `scenario:${graph.scenarios[1].id}`);
+      assert.ok(unnamed?.textContent?.includes("Inspect production health"));
+      assert.ok(unnamed?.textContent?.includes(graph.scenarios[1].id), "graph ID is secondary metadata");
+    } finally { await view.close(); }
+  });
+
+  test("job action menus have names, arrow navigation, and return focus after Escape", async () => {
+    const transport = new FixtureTransport();
+    const graph = transport.graph;
+    const rootId = graph.scenarios[0].root.id;
+    transport.graph = { ...graph, nodes: graph.nodes.map((node) => node.identity.id === rootId ? { ...node, state: "active" } : node) };
+    const view = await mount(jobsView(transport));
+    try {
+      const title = graph.scenarios[0].name;
+      await settle(() => view.host.querySelector(`[aria-label="Actions for ${title}"]`) !== null);
+      const trigger = view.host.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${title}"]`)!;
+      assert.equal(trigger.getAttribute("aria-haspopup"), "menu");
+      await act(async () => {
+        trigger.focus();
+        trigger.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+      });
+      await settle(() => document.querySelector('[role="menu"]') !== null && document.activeElement?.getAttribute("role") === "menuitem");
+      const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
+      assert.equal(menu.getAttribute("aria-label"), `Actions for ${title}`);
+      const items = menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
+      assert.equal(items[0].textContent?.trim(), "Stop");
+      assert.equal(items[1].textContent?.trim(), "Delete");
+      await act(async () => document.activeElement?.dispatchEvent(new win.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
+      assert.equal(document.activeElement, items[1], "ArrowDown moves through menu items");
+      await act(async () => document.activeElement?.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+      assert.equal(document.querySelector('[role="menu"]'), null);
+      assert.equal(document.activeElement, trigger, "Escape restores focus to the menu button");
+    } finally { await view.close(); }
+  });
+
+  test("Delete confirms the named graph, traps focus, restores focus on cancel, then refreshes after deletion", async () => {
+    const transport = new FixtureTransport();
+    const graph = transport.graph;
+    const target = graph.scenarios[0];
+    const view = await mount(jobsView(transport));
+    try {
+      await settle(() => entry(view.host, `scenario:${target.id}`) !== null);
+      const trigger = view.host.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${target.name}"]`)!;
+      const openDelete = async () => {
+        await act(async () => trigger.dispatchEvent(new win.MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+        await settle(() => document.querySelector('[role="menu"]') !== null);
+        const deleteItem = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Delete");
+        assert.ok(deleteItem);
+        await act(async () => deleteItem.click());
+      };
+      await openDelete();
+      const dialog = view.host.querySelector<HTMLElement>('[role="alertdialog"]');
+      assert.ok(dialog);
+      assert.equal(dialog.getAttribute("aria-modal"), "true");
+      assert.equal(dialog.querySelector("h2")?.textContent, `Delete ${target.name}?`);
+      assert.ok(dialog.textContent?.includes("and its history"));
+      const cancel = dialog.querySelector<HTMLButtonElement>("button");
+      const confirm = dialog.querySelector<HTMLButtonElement>("[data-dialog-confirm]");
+      await settle(() => document.activeElement === cancel);
+      await act(async () => cancel!.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+      assert.equal(document.activeElement, confirm, "Tab stays inside the confirmation dialog");
+      await act(async () => confirm!.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })));
+      assert.equal(document.activeElement, cancel, "Shift+Tab stays inside the confirmation dialog");
+      await act(async () => cancel!.click());
+      assert.equal(document.activeElement, trigger, "Cancel restores focus to the actions button");
+
+      await openDelete();
+      transport.graph = { ...graph, scenarios: [] };
+      await act(async () => view.host.querySelector<HTMLButtonElement>("[data-dialog-confirm]")!.click());
+      await settle(() => entry(view.host, `scenario:${target.id}`) === null);
+      assert.deepEqual(transport.deletes.map((identity) => identity.id), [target.root.id]);
+    } finally { await view.close(); }
+  });
+
+  test("Clear stopped lists the count once and removes disabled crons and stopped graphs from the current filter", async () => {
+    const transport = new FixtureTransport();
+    const stoppedCron = cronJob("disabled-clear-me", attachment.team_id, false);
+    cronList = async () => [stoppedCron];
+    const graph = transport.graph;
+    const rootId = graph.scenarios[0].root.id;
+    transport.graph = { ...graph, nodes: graph.nodes.map((node) => node.identity.id === rootId ? { ...node, state: "stopped", stop: { allowed: false, reason: null } } : node) };
+    afterCronDelete = (job) => { if (job.id === stoppedCron.id) cronList = async () => []; };
+    const view = await mount(jobsView(transport));
+    try {
+      await settle(() => view.host.querySelector<HTMLButtonElement>('button[aria-label="Clear stopped, 2 jobs"]')?.disabled === false);
+      const clear = view.host.querySelector<HTMLButtonElement>('button[aria-label="Clear stopped, 2 jobs"]')!;
+      await act(async () => clear.click());
+      const dialog = view.host.querySelector<HTMLElement>('[role="alertdialog"]');
+      assert.ok(dialog?.textContent?.includes("2 stopped or disabled jobs"));
+      transport.graph = { ...transport.graph, scenarios: [] };
+      await act(async () => view.host.querySelector<HTMLButtonElement>("[data-dialog-confirm]")!.click());
+      await settle(() => view.host.querySelector('ul[aria-label="Jobs"] > li') === null);
+      assert.deepEqual(cronJobCalls.filter((call) => call.startsWith("delete:")), [`delete:${stoppedCron.id}`]);
+      assert.deepEqual(transport.deletes.map((identity) => identity.id), [graph.scenarios[0].root.id]);
+      assert.equal(clear.disabled, true, "the header action reflects the refreshed filter");
+      assert.equal(document.activeElement, clear, "the bulk action restores header focus");
+    } finally {
+      await view.close();
+      cronList = async () => [teamCron, unteamedCron, otherTeamCron];
+      afterCronDelete = () => undefined;
+    }
   });
 
   test("a Cron opens its real controls and returning keeps the list entry focused", async () => {

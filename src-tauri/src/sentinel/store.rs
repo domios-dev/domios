@@ -699,6 +699,47 @@ impl Store {
         Staged::ready(self.save_legacy())
     }
 
+    pub(super) fn stage_delete_scenario(
+        &mut self,
+        id: &str,
+        workspace: &str,
+        team: Option<&str>,
+    ) -> Staged<()> {
+        if let Err(error) = self.ensure_available() {
+            return Staged::ready(Err(error));
+        }
+        let owned: Vec<_> = self
+            .jobs
+            .iter()
+            .filter(|job| {
+                job.workspace_id == workspace
+                    && job.team_id.as_deref() == team
+                    && (job.id == id || job.scenario_id.as_deref() == Some(id))
+            })
+            .map(|job| job.id.clone())
+            .collect();
+        if !owned.iter().any(|candidate| candidate == id) {
+            return Staged::ready(Err(format!("Sentinel scenario not found: {id}")));
+        }
+        for job_id in &owned {
+            if let Some(cancelled) = self.active.remove(job_id) {
+                cancelled.store(true, Ordering::SeqCst);
+            }
+        }
+        if !self.backend.is_json() {
+            return self.sqlite_delete_scenario(id, workspace, team);
+        }
+        let owned: BTreeSet<_> = owned.into_iter().collect();
+        let previous = self.jobs.clone();
+        self.jobs.retain(|job| !owned.contains(&job.id));
+        self.wake_pending.retain(|job_id| !owned.contains(job_id));
+        let result = self.save_legacy();
+        if result.is_err() {
+            self.jobs = previous;
+        }
+        Staged::ready(result)
+    }
+
     #[cfg(test)]
     pub fn remove_team(&mut self, team: &str) -> Result<(), String> {
         self.locked(|store| store.stage_remove_team(team))
