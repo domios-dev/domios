@@ -31,8 +31,9 @@ use windows_sys::Win32::System::Pipes::{
 use windows_sys::Win32::System::Threading::{
     CreateProcessW, DeleteProcThreadAttributeList, GetExitCodeProcess,
     InitializeProcThreadAttributeList, TerminateProcess, UpdateProcThreadAttribute,
-    WaitForSingleObject, CREATE_NO_WINDOW, CREATE_SUSPENDED, EXTENDED_STARTUPINFO_PRESENT,
-    PROC_THREAD_ATTRIBUTE_HANDLE_LIST, STARTF_USESTDHANDLES, STARTUPINFOEXW,
+    WaitForSingleObject, CREATE_NO_WINDOW, CREATE_SUSPENDED, CREATE_UNICODE_ENVIRONMENT,
+    EXTENDED_STARTUPINFO_PRESENT, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, STARTF_USESTDHANDLES,
+    STARTUPINFOEXW,
 };
 use windows_sys::Win32::System::IO::{
     CancelIoEx, CreateIoCompletionPort, GetQueuedCompletionStatus, OVERLAPPED,
@@ -44,6 +45,7 @@ use super::cancellation::{
 };
 use super::capture::{self, OwnedHandle, WindowsStream as Stream};
 use super::capture::{last_error, resource_name, timeout_ms};
+use super::environment::Environment;
 use super::owner::{mark_close_uncertain, ProbeResourceOwner, Reservation, WindowsPending};
 use super::process::{Deadlines, ProbeFailure, ResourceKind, WindowsLaunchState};
 use super::Output;
@@ -69,6 +71,7 @@ pub(super) fn run(
     reservation: Reservation,
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
+    environment: &Environment,
 ) -> Result<Output, ProbeFailure> {
     run_with_assignment(
         command,
@@ -77,6 +80,7 @@ pub(super) fn run(
         reservation,
         owner,
         cancellation,
+        environment,
         |job, process| {
             if unsafe { AssignProcessToJobObject(job, process) } == 0 {
                 Err(last_error())
@@ -94,6 +98,7 @@ pub(super) fn run_with_assignment(
     reservation: Reservation,
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
+    environment: &Environment,
     assign: impl FnOnce(HANDLE, HANDLE) -> Result<(), String>,
 ) -> Result<Output, ProbeFailure> {
     let mut run = WindowsRun::new(deadlines, reservation, owner);
@@ -174,7 +179,7 @@ pub(super) fn run_with_assignment(
         run.add_error(error);
         return run.finish_failure();
     }
-    if let Err(error) = run.spawn_contained(command, cwd, assign) {
+    if let Err(error) = run.spawn_contained(command, cwd, environment, assign) {
         run.fail("probe_containment_failed");
         run.add_error(error);
         return run.finish_failure();
@@ -437,6 +442,7 @@ impl WindowsRun {
         &mut self,
         command: &str,
         cwd: &Path,
+        environment: &Environment,
         assign: impl FnOnce(HANDLE, HANDLE) -> Result<(), String>,
     ) -> Result<(), String> {
         let mut handles = [
@@ -489,6 +495,19 @@ impl WindowsRun {
         }
         let mut command_line = capture::windows_command_line(command, self.events.as_ref());
         let mut current_directory = cwd.as_os_str().encode_wide().chain([0]).collect::<Vec<_>>();
+        let mut environment_block = (!environment.is_empty()).then(|| environment.windows_block());
+        let environment_pointer = environment_block
+            .as_mut()
+            .map(|block| block.as_mut_ptr().cast())
+            .unwrap_or(null_mut());
+        let creation_flags = CREATE_SUSPENDED
+            | CREATE_NO_WINDOW
+            | EXTENDED_STARTUPINFO_PRESENT
+            | if environment_block.is_some() {
+                CREATE_UNICODE_ENVIRONMENT
+            } else {
+                0
+            };
         let mut information = windows_sys::Win32::System::Threading::PROCESS_INFORMATION::default();
         if self.cancelled() {
             unsafe { DeleteProcThreadAttributeList(attributes) };
@@ -502,8 +521,8 @@ impl WindowsRun {
                 null(),
                 null(),
                 1,
-                CREATE_SUSPENDED | CREATE_NO_WINDOW | EXTENDED_STARTUPINFO_PRESENT,
-                null(),
+                creation_flags,
+                environment_pointer,
                 current_directory.as_mut_ptr(),
                 &startup.StartupInfo as *const _,
                 &mut information,

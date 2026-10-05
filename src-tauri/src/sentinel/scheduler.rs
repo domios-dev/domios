@@ -550,11 +550,12 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
     let observed = if let Some(binding) = &lease.job.observe {
         source::observe(svc, &lease.job, binding)
     } else {
-        probe::run(
+        probe::run_with_environment(
             &lease.job.probe,
             Path::new(&lease.job.cwd),
             remaining,
             &handle.probe_owner,
+            &probe::environment::Environment::current_instance(),
         )
     };
     let output = resolve_probe_result(
