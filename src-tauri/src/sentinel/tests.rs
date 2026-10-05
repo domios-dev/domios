@@ -275,7 +275,7 @@ fn sentinel_routes_are_closed_set() {
 
 fn create_params() -> super::store::Create {
     super::store::Create {
-        name: None,
+        name: Some("ci-result-watch".into()),
         probe: Some("check-ci".into()),
         observe: None,
         question: "CI result?".into(),
@@ -292,6 +292,30 @@ fn create_params() -> super::store::Create {
         max_transitions: None,
         max_actions: None,
     }
+}
+
+#[test]
+fn sentinel_create_requires_a_meaningful_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path(), crate::cron::clock::MockClock::starting_at(1000));
+    let mut params = create_params();
+    params.name = None;
+
+    let error = store
+        .prepare(
+            params,
+            crate::sentinel::store::Owner {
+                creator_tab_id: "creator".into(),
+                team_id: None,
+                workspace_id: "workspace".into(),
+                cwd: "/tmp".into(),
+            },
+            true,
+        )
+        .unwrap_err();
+
+    assert!(error.contains("Sentinel graph name is required"));
+    assert!(store.list().is_empty());
 }
 
 #[test]
@@ -313,6 +337,31 @@ fn sentinel_rearm_on_change_requires_a_declared_bucket() {
             true,
         )
         .is_err());
+}
+
+#[test]
+fn create_preview_preparation_does_not_persist_or_admit_a_graph() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sentinels.json");
+    let store = store(dir.path(), crate::cron::clock::MockClock::starting_at(1000));
+    let disk_before = std::fs::read(&path).ok();
+    let preview = store
+        .prepare(
+            create_params(),
+            crate::sentinel::store::Owner {
+                creator_tab_id: "creator".into(),
+                team_id: Some("team".into()),
+                workspace_id: "workspace".into(),
+                cwd: "/tmp".into(),
+            },
+            true,
+        )
+        .unwrap();
+
+    assert_eq!(preview.name.as_deref(), Some("ci-result-watch"));
+    assert!(preview.routes.contains_key("passed"));
+    assert!(store.list().is_empty());
+    assert_eq!(std::fs::read(&path).ok(), disk_before);
 }
 
 pub(super) fn store(
@@ -439,12 +488,7 @@ fn sentinel_probe_bounded_runtime_and_output() {
         "while ($true) { [Console]::Out.Write('x') }",
     );
     let started = std::time::Instant::now();
-    let trivial = super::probe::run(
-        "echo ok",
-        dir.path(),
-        super::probe::PROBE_RUNTIME,
-        &owner,
-    );
+    let trivial = super::probe::run("echo ok", dir.path(), super::probe::PROBE_RUNTIME, &owner);
     assert!(
         trivial.is_ok(),
         "trivial probe failed after {:?}: {:?}",
@@ -452,7 +496,10 @@ fn sentinel_probe_bounded_runtime_and_output() {
         trivial.err()
     );
     let trivial = trivial.unwrap();
-    assert_eq!(i32::from_le_bytes(trivial.bytes[..4].try_into().unwrap()), 0);
+    assert_eq!(
+        i32::from_le_bytes(trivial.bytes[..4].try_into().unwrap()),
+        0
+    );
     let normalized = trivial.text.replace("\r\n", "\n");
     assert!(
         normalized.contains("stdout:\nok\n"),
@@ -460,12 +507,7 @@ fn sentinel_probe_bounded_runtime_and_output() {
         trivial.text
     );
     let started = std::time::Instant::now();
-    let output = super::probe::run(
-        large,
-        dir.path(),
-        super::probe::PROBE_RUNTIME,
-        &owner,
-    )
+    let output = super::probe::run(large, dir.path(), super::probe::PROBE_RUNTIME, &owner)
         .unwrap_or_else(|error| {
             panic!("large probe failed after {:?}: {error}", started.elapsed())
         });
@@ -539,7 +581,9 @@ fn sentinel_probe_unconfirmed_cleanup_stops_watch_without_classification() {
     assert!(stopped.machine.stopped);
     assert_eq!(stopped.machine.last_hash, None);
     assert_eq!(stopped.machine.last_bucket, None);
-    assert!(matches!(store.lock().due(), Err(error) if error.starts_with("sentinel_store_load_failed:")));
+    assert!(
+        matches!(store.lock().due(), Err(error) if error.starts_with("sentinel_store_load_failed:"))
+    );
     assert!(lease.cancelled.load(std::sync::atomic::Ordering::SeqCst));
     crate::persisted_state::release_hold(&state_path);
 }

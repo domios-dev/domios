@@ -12,6 +12,7 @@ fn owner() -> Owner {
 
 fn definition(kind: &str, parameters: Value) -> Value {
     json!({
+        "name":"command-result-watch",
         "probe":"status", "question":"state?", "buckets":["done"],
         "every":"10s", "matches":{"done":"done"}, "timeout":"1h",
         "handlers":{"done":[{"id":"action", "type":kind, "parameters":parameters}]}

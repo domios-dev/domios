@@ -168,6 +168,14 @@ fn main_impl() {
         }
     }
 
+    if let Commands::Sentinel {
+        action: args::sentinel::SentinelAction::Recipe { name },
+    } = &cli.command
+    {
+        cmd::sentinel::handle_recipe(cli.json, name.as_deref());
+        return;
+    }
+
     if let Some(mesh_target) = cli.mesh.clone() {
         if matches!(&cli.command, Commands::Supporter { .. }) {
             cmd::print::fail(

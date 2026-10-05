@@ -10,7 +10,8 @@ pub enum CronAction {
     },
     /// Create a cron job
     Create {
-        /// Cron job name
+        /// Short meaningful cron job name
+        #[arg(value_parser = parse_cron_name)]
         name: String,
         /// Cron schedule (5-field: "*/30 * * * *") or oneshot time ("in 5m", ISO8601)
         #[arg(long)]
@@ -71,7 +72,7 @@ pub enum CronAction {
     Edit {
         /// Cron job ID
         id: String,
-        #[arg(long)]
+        #[arg(long, value_parser = parse_cron_name)]
         name: Option<String>,
         #[arg(long)]
         schedule: Option<String>,
@@ -150,6 +151,11 @@ pub enum CronAction {
     },
 }
 
+fn parse_cron_name(value: &str) -> Result<String, String> {
+    codeterm_types::automation_name::validate_cron_name(value)?;
+    Ok(value.to_string())
+}
+
 /// Single source of truth for the `cron.create` request body, shared by the
 /// local socket path (`cmd/cron.rs`) and the mesh HTTP path
 /// (`mesh_cli/api_map.rs`). Both transports deserialize into the server's
@@ -225,4 +231,27 @@ pub fn cron_create_body(
         body["timeout_seconds"] = serde_json::json!(t);
     }
     body
+}
+
+#[cfg(test)]
+mod tests {
+    use clap::Parser;
+
+    #[test]
+    fn cron_create_requires_a_meaningful_name() {
+        let valid = crate::args::cli::Cli::try_parse_from([
+            "codeterm", "cron", "create", "build-result-notify",
+            "--schedule", "0 * * * *", "--task", "check build",
+        ]);
+        assert!(valid.is_ok());
+        for name in ["ab", "cron_5d22889a8898"] {
+            assert!(crate::args::cli::Cli::try_parse_from([
+                "codeterm", "cron", "create", name,
+                "--schedule", "0 * * * *", "--task", "check build",
+            ]).is_err());
+        }
+        assert!(crate::args::cli::Cli::try_parse_from([
+            "codeterm", "cron", "create", "--schedule", "0 * * * *", "--task", "check build",
+        ]).is_err());
+    }
 }
