@@ -33,7 +33,7 @@ impl ServiceContext {
         let cron_launch_pending = launch_attempt
             .as_ref()
             .is_some_and(crate::service::launch_readiness::cron_launch_is_pending);
-        let tree_observation = (!cron_launch_pending)
+        let tree_observation = (!cron_launch_pending && self.pty_child_is_live(pty_id))
             .then(|| self.observe_provider_process_tree(tab_id, pty_id))
             .flatten();
         for event in &events {
@@ -76,7 +76,7 @@ impl ServiceContext {
                     let note_surviving_shell_exit = !cron_run_reaped
                         && !general_exit
                         && !crate::crash::shutdown::is_shutting_down()
-                        && self.note_provider_exit_in_surviving_shell(tab_id);
+                        && self.note_provider_exit_in_surviving_shell(tab_id, &proof);
                     if !note_surviving_shell_exit && !cron_run_reaped {
                         self.clear_tab_agent_identity_after_exit_with_proof(
                             tab_id,

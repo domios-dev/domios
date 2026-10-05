@@ -291,6 +291,39 @@ fn restored_codex_launch_keeps_model_and_reasoning_effort() {
 }
 
 #[test]
+fn restored_snapshot_resumes_the_tab_owned_session_for_each_provider() {
+    for provider in ["claude", "codex", "opencode", "grok"] {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(
+            crate::agent::test_provider::MockProvider::new(provider).with_launch_binary(provider),
+        ));
+        let session_id = format!("{provider}-owned-session");
+        let launch = RestoredLaunch {
+            provider_id: provider.into(),
+            session_id: Some(session_id.clone()),
+            cwd: Some("fixture-cwd".into()),
+            model: None,
+            launch_parameters: RestorableLaunchParameters::default(),
+            role: None,
+            role_profile: None,
+        };
+
+        let input = restored_snapshot_launch_input(&registry, launch, None, None);
+        let command =
+            restored_snapshot_launch_command(&registry, "tab-provider-resume", provider, &input);
+
+        assert_eq!(
+            input.params.resume_session_id.as_deref(),
+            Some(session_id.as_str())
+        );
+        assert!(
+            command.contains(&format!("--resume {session_id}")),
+            "{provider}"
+        );
+    }
+}
+
+#[test]
 fn restore_keeps_every_launch_shaping_parameter_named_in_the_proposal() {
     let registry = codex_effort_registry();
     let input = restored_snapshot_launch_input(&registry, codex_restore_launch(), None, None);
