@@ -33,6 +33,7 @@ pub mod health;
 pub(crate) mod hierarchy;
 pub mod inject_verify;
 pub mod input_parser;
+pub(crate) mod instance_env;
 pub(crate) mod integration_silence;
 mod kpi_hooks;
 pub(crate) mod lane_removal;
