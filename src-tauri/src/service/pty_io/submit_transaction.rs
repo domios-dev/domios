@@ -12,6 +12,7 @@ use crate::service::inject_verify::{
 use crate::service::ServiceContext;
 mod cycle;
 mod evidence_watcher;
+mod recovery_guard;
 mod runner;
 pub(crate) use cycle::{
     claim_submit_cycle, notify_submit_cycle_status_transition, wake_submit_cycle,
@@ -19,6 +20,8 @@ pub(crate) use cycle::{
 };
 use cycle::{retire_submit_cycle, CycleWait, SubmitCycle, SubmitCycleSignal};
 use evidence_watcher::watch_session_evidence;
+#[cfg(test)]
+use recovery_guard::{recovery_composer_guard, recovery_session_authorized};
 #[cfg(test)]
 use runner::run;
 #[cfg(test)]
@@ -503,11 +506,12 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         };
         let result = match self.permit.as_ref() {
             Some(permit) => session.write_and_flush_guarded_with_enqueued(
-                input.clone(), permit.clone(), timeout, on_enqueued,
+                input.clone(),
+                permit.clone(),
+                timeout,
+                on_enqueued,
             ),
-            None => session.write_and_flush_with_enqueued(
-                input.clone(), timeout, on_enqueued,
-            ),
+            None => session.write_and_flush_with_enqueued(input.clone(), timeout, on_enqueued),
         };
         result.map_err(|error| injection_write_error(self.pty_id, error))?;
         if self.permit.is_some() {
@@ -973,111 +977,7 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
         deferred_ready_seen: Cell::new(false),
     };
     let mut key_guard = |allow_initial_key: bool, turn_was_started: bool| {
-        let (agent_id, session_bound, owns_pty) = {
-            let mux = svc.mux.read();
-            let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
-                return Err(InjectionError::AgentInputUnavailable {
-                    pty_id: pty_id.to_string(),
-                });
-            };
-            let Some(tab) = mux.get_tab(&tab_id) else {
-                return Err(InjectionError::AgentInputUnavailable {
-                    pty_id: pty_id.to_string(),
-                });
-            };
-            (
-                tab.agent_type.clone(),
-                tab.launch_session_authenticated(),
-                tab.pty_id.as_deref() == Some(pty_id),
-            )
-        };
-        if !owns_pty {
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            });
-        }
-        if allow_initial_key && agent_id.is_none() {
-            transport.dialog_guard()?;
-            return Ok(());
-        }
-        let (screen, input) = {
-            let screen_state = svc.screen_state.lock();
-            (
-                screen_state.get_screen_text(pty_id),
-                screen_state.composer_input_state(pty_id),
-            )
-        };
-        let Some(agent_id) = agent_id else {
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            });
-        };
-        let Some(screen) = screen else {
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            });
-        };
-        let readiness = svc.agent_registry.with_provider(&agent_id, |provider| {
-            let provider_tui = provider.screen_has_tui(&screen);
-            let (cursor_ready, alternate_screen) =
-                input
-                    .as_ref()
-                    .map(|state| {
-                        let cursor_ready =
-                            crate::agent::offline_state_classifier::composer_cursor_ready(
-                                state.cursor_visible,
-                                state.cursor_row,
-                                state.rows,
-                            ) || state
-                                .inverse_caret_row
-                                .zip(state.last_nonblank_row)
-                                .is_some_and(|(row, bottom)| {
-                                    crate::agent::offline_state_classifier::composer_cursor_ready(
-                                        true,
-                                        row,
-                                        bottom.saturating_add(1),
-                                    )
-                                });
-                        (cursor_ready, state.alternate_screen)
-                    })
-                    .unwrap_or((false, false));
-            let composer_ready = cursor_ready && (provider_tui || alternate_screen);
-            (provider_tui, cursor_ready, alternate_screen, composer_ready)
-        });
-        let Some((provider_tui, cursor_ready, alternate_screen, composer_ready)) = readiness else {
-            log::info!(
-                "[submit-audit] key-guard pty={} provider_available=false session_bound={} turn_started_at_claim={} allowed=false",
-                pty_id,
-                session_bound,
-                turn_was_started
-            );
-            return Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            });
-        };
-        let turn_started_now = transport.turn_started();
-        let allowed = submit_key_readiness(turn_was_started, turn_started_now, composer_ready);
-        if allow_initial_key || !allowed {
-            log::info!(
-                "[submit-audit] key-guard pty={} session_bound={} turn_started_at_claim={} turn_started_now={} provider_available=true provider_tui={} cursor_ready={} alternate_screen={} composer_ready={} allowed={}",
-                pty_id,
-                session_bound,
-                turn_was_started,
-                turn_started_now,
-                provider_tui,
-                cursor_ready,
-                alternate_screen,
-                composer_ready,
-                allowed
-            );
-        }
-        if allowed {
-            Ok(())
-        } else {
-            Err(InjectionError::AgentInputUnavailable {
-                pty_id: pty_id.to_string(),
-            })
-        }
+        recovery_guard::submit_key_guard(&transport, allow_initial_key, turn_was_started)
     };
     let run = if type_suffix_after_paste {
         runner::run_with_submit_key_and_follow_up(

@@ -236,6 +236,7 @@ instead.
 | `detectFromTitle(title)` | terminal title | bool | `false`. |
 | `detectFromOutput(text)` | output chunk | bool | `false`. |
 | `screenHasTui(screenText)` | screen text | bool | `false`. |
+| `supportsUnboundSubmitRecovery()` | — | bool | `false`. Opt in only when this provider can safely recover submits without an authenticated session; each key still requires the provider classifier and live composer evidence. |
 | `extractSessionName(screen)` | screen text | string or `null` | `null`. |
 | `classifyTabState(snapshot)` | `{tabId, agentType, screenText, …}` (TabStateSnapshot) | TabStateClassification or `null` | native fallback; else `null` (generic classifier serves the tab). |
 | `isOutputNoise(text)` | output chunk | bool | `false`. |
