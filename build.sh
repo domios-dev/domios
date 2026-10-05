@@ -1661,8 +1661,8 @@ EOF
     prepare_exceptional_worktree_target
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
-    cargo check --manifest-path src-tauri/Cargo.toml --workspace --all-targets
-    cargo check --manifest-path cli/Cargo.toml --all-targets
+    cargo test --manifest-path src-tauri/Cargo.toml --workspace --all-targets --no-run
+    cargo test --manifest-path cli/Cargo.toml --all-targets --no-run
     ;;
   frontend)
     enter_build_gateway "$CMD ${*:2}"
@@ -1726,7 +1726,7 @@ EOF
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
         prepare_exceptional_worktree_target
-        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib --no-default-features "$test_filter"
+        scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"
         ;;
       plan) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-plan/Cargo.toml -p codeterm-plan --lib "$test_filter" ;;
       pty) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-pty/Cargo.toml -p codeterm-pty "$test_filter" ;;
