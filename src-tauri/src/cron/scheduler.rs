@@ -7,9 +7,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use parking_lot::Mutex;
 use super::store::{commit, finish_run, CronJob, CronRunInfo, CronRunStatus, CronStore};
 use crate::service::ServiceState;
+use parking_lot::Mutex;
 
 pub type CronState = Arc<Mutex<CronStore>>;
 
@@ -278,7 +278,10 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
             task_text,
             role: role.map(|s| s.to_string()),
             cwd: cwd.map(|s| s.to_string()),
-            workspace_id: (!workspace_id.is_empty()).then(|| workspace_id.to_string()),
+            workspace_id: crate::cron::recovery::restored_spawn_workspace(
+                &service.mux.read(),
+                workspace_id,
+            ),
             team_id: spec.team_id.clone(),
             creator_tab_id: spec.creator_tab_id.clone(),
             report_target_tab_id: report_target_tab_id.map(str::to_string),
