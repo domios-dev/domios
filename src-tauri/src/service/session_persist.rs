@@ -568,7 +568,7 @@ impl super::ServiceContext {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::storage::{Storage, StorageConfig};
     use std::sync::mpsc::TryRecvError;
@@ -598,6 +598,28 @@ mod tests {
         let (response, completion) = mpsc::channel();
         worker.configure(WorkerMessage::Stop(response)).unwrap();
         completion.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+
+    pub(crate) fn assert_unavailable_rejects_persistence_without_a_commit() {
+        let (commit_tx, commit_rx) = mpsc::channel();
+        let worker = test_worker(move |revision| {
+            commit_tx.send(revision).unwrap();
+            Ok(SaveOutcome::Saved)
+        });
+        worker
+            .configure(WorkerMessage::Unavailable("Storage unavailable".into()))
+            .unwrap();
+
+        let error = worker
+            .submit_snapshot(test_snapshot(1), SaveIntent::PreserveDesk, true)
+            .unwrap_err();
+
+        assert_eq!(error, "Storage unavailable");
+        assert!(matches!(
+            commit_rx.try_recv(),
+            Err(TryRecvError::Empty | TryRecvError::Disconnected)
+        ));
+        stop_test_worker(&worker);
     }
 
     fn test_snapshot(revision: u64) -> crate::session::SessionSnapshot {
