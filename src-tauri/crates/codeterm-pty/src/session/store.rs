@@ -900,7 +900,7 @@ pub mod legacy_decode;
 mod retention;
 mod storage_adapter;
 
-pub use storage_adapter::{project_snapshot, StorageDeskAdapter};
+pub use storage_adapter::{orphan_teams, project_snapshot, prune_orphan_teams, StorageDeskAdapter};
 
 #[cfg(test)]
 mod tests;
