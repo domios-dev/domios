@@ -27,6 +27,9 @@ any open state → cancelled
   and lane unchanged. Only the Plan owner or Planner blocks explicitly with
   `codeterm plan task update <plan> <task> --status blocked --status-label
   "<reason; owner trigger>"`. A block label must be supplied with that update.
+- `blocked` means only an outside prerequisite can advance the task (an owner
+  decision, approval, access). Work sequenced after a release or milestone is
+  not blocked: keep it `pending` in a later group (`plan task update --group`).
 - The Orchestrator alone accepts, bounces, or holds an `in_review` task. `hold`
   records a reason while preserving its assignment and lane; `bounce` returns it
   to the assigned Worker when its continuation is available. If the Worker is
@@ -82,4 +85,4 @@ Pause only when an owner decision blocks all tasks. Ask once with
 Paused plans have no heartbeat or reminders. Resume with
 `codeterm plan resume <plan_id>` and continue the frontier.
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->
