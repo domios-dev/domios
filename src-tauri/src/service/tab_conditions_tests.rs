@@ -69,6 +69,19 @@ fn set_pending_prompt(fixture: &ServiceFixture, tab_id: &str, prompt: PendingPro
 }
 
 #[test]
+fn parent_prompt_report_body_includes_parsed_options() {
+    let mut asked = prompt("Allow once");
+    asked.question = "opaque permission question".into();
+    asked.options[0].value = "allow_once".into();
+
+    let body = super::parent_prompt_report_body("prompt-tab", &asked);
+
+    assert!(body.contains("opaque permission question"));
+    assert!(body.contains("codeterm tab respond <option> --tab prompt-tab"));
+    assert!(body.contains("1. Allow once (value: allow_once)"));
+}
+
+#[test]
 fn only_a_visible_user_audience_tab_is_owned_by_the_user() {
     let (mut mux, owner, child) = two_tabs();
     assert_eq!(
@@ -165,6 +178,103 @@ fn non_user_facing_tab_routes_prompt_to_parent() {
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
+fn user_audience_prompt_notifies_owner_and_routes_parsed_options_once() {
+    let (mut mux, owner, child) = two_tabs();
+    {
+        let tab = mux.get_tab_mut(&child).unwrap();
+        tab.audience = TabAudience::User;
+        tab.parent_tab_id = Some(owner.clone());
+    }
+    let fixture = ServiceFixture::new(mux);
+    let mut asked = prompt("Trust once");
+    asked.question = "opaque trust question".into();
+    asked.multi_select = Some(true);
+    asked.options.push(PromptOption {
+        label: "Trust always".into(),
+        value: "trust_always".into(),
+    });
+    set_pending_prompt(&fixture, &child, asked.clone());
+
+    assert_eq!(
+        fixture
+            .service
+            .route_pending_prompt(&child, &asked, PromptKind::Provider),
+        Some(owner.clone())
+    );
+    assert_eq!(
+        fixture
+            .service
+            .route_pending_prompt(&child, &asked, PromptKind::Provider),
+        None
+    );
+
+    let records = records_for(&fixture, &child);
+    assert_eq!(records.len(), 1);
+    let notice = fixture
+        .service
+        .notif
+        .lock()
+        .notification(&records[0].0)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        notice.level,
+        Some(crate::notification::push::NotifyLevel::ActionNeeded)
+    );
+    assert_eq!(notice.title, "Agent prompt needs your attention");
+    assert!(notice
+        .body
+        .as_deref()
+        .unwrap()
+        .contains("opaque trust question"));
+    assert!(notice.body.as_deref().unwrap().contains(child.as_str()));
+    assert_eq!(notice.actions.as_ref().map(Vec::len), Some(2));
+    let report = super::parent_prompt_report_body(&child, &asked);
+    assert!(report.contains("1. Trust once (value: 1)"));
+    assert!(report.contains("2. Trust always (value: trust_always)"));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
+fn owner_launched_prompt_gets_one_owner_notice_without_parent_route() {
+    let (mux, _, tab_id) = two_tabs();
+    let fixture = ServiceFixture::new(mux);
+    let asked = prompt("Trust once");
+    set_pending_prompt(&fixture, &tab_id, asked.clone());
+
+    for _ in 0..2 {
+        assert_eq!(
+            fixture
+                .service
+                .route_pending_prompt(&tab_id, &asked, PromptKind::Provider),
+            None
+        );
+    }
+
+    let records = records_for(&fixture, &tab_id);
+    assert_eq!(records.len(), 1);
+    let notice = fixture
+        .service
+        .notif
+        .lock()
+        .notification(&records[0].0)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        notice.level,
+        Some(crate::notification::push::NotifyLevel::ActionNeeded)
+    );
+    assert_eq!(notice.actions.as_ref().map(Vec::len), Some(2));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn hidden_tab_without_report_target_stays_off_the_user_surfaces() {
     let (mut mux, _owner, child) = two_tabs();
     mux.get_tab_mut(&child).unwrap().hidden = true;
@@ -188,7 +298,7 @@ fn hidden_tab_without_report_target_stays_off_the_user_surfaces() {
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
-fn user_owned_cron_prompt_tracks_waiting_state_without_notification() {
+fn user_owned_cron_prompt_notifies_owner_and_tracks_waiting_state() {
     let (mut mux, _, child) = two_tabs();
     {
         let tab = mux.get_tab_mut(&child).unwrap();
@@ -256,7 +366,42 @@ fn user_owned_cron_prompt_tracks_waiting_state_without_notification() {
             .route_pending_prompt(&child, &asked, PromptKind::Provider),
         None
     );
-    assert!(fixture.service.notif.lock().list(false).is_empty());
+    assert_eq!(
+        fixture
+            .service
+            .route_pending_prompt(&child, &asked, PromptKind::Provider),
+        None
+    );
+    let records = records_for(&fixture, &child);
+    assert_eq!(records.len(), 1);
+    let notice = fixture
+        .service
+        .notif
+        .lock()
+        .notification(&records[0].0)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        notice.level,
+        Some(crate::notification::push::NotifyLevel::ActionNeeded)
+    );
+    assert_eq!(notice.title, "Agent prompt needs your attention");
+    assert!(notice
+        .body
+        .as_deref()
+        .unwrap()
+        .contains("cron:owner-prompt"));
+    let generated_title = fixture
+        .service
+        .mux
+        .read()
+        .display_label_for_tab(&child);
+    assert!(!notice
+        .body
+        .as_deref()
+        .unwrap()
+        .contains(generated_title.as_str()));
+    assert!(notice.body.as_deref().unwrap().contains("opaque question"));
     assert_eq!(
         cron.lock().get_history(&job_id)[0].status,
         crate::cron::store::CronRunStatus::AwaitingOwnerPrompt

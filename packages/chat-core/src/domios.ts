@@ -1,6 +1,5 @@
 export const DOMIOS_CLOSE_TAG = "</domios>";
-export const DOMIOS_TYPED_INSTRUCTION =
-  "Act on this routed request.";
+export const DOMIOS_TYPED_INSTRUCTION = "Handle the message above.";
 
 export interface ParsedDomiosMessage {
   attrs: Record<string, string>;

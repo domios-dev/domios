@@ -681,6 +681,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
                         status: Status::Completed,
                         execution_id,
                         command_result: None,
+                        reason: None,
                     }),
                     Err(error) if error.starts_with("submit_unconfirmed") => {
                         Ok(Status::Unconfirmed.into())
