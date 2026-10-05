@@ -173,7 +173,9 @@ fn install_message(base: &str, id: &str, reload_required: bool) -> String {
     }
     msg.push_str(&format!(
         ". To configure it: run `codeterm plugin get {id}` to see options, \
-         ask the user what they want, then `codeterm plugin config {id} --set key=value`."
+         ask the user what they want, then use `codeterm plugin config {id} --set key=value` \
+         for non-secret fields. For secret fields, pipe the value to \
+         `codeterm plugin config {id} --secret FIELD`; never put the value in command arguments."
     ));
     msg
 }
