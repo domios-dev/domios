@@ -2,16 +2,22 @@
 
 Domios keeps one append-only journal of every authoritative tab lifecycle transition. The journal is **telemetry**: a forensic record of what each launch committed and when. Normal session restore does not use it as authority.
 
-**Tab restore is unconditional.** Whatever tabs were open at shutdown come back. A claimed PTY session re-establishes its provider only from its own provider session record; without unique ownership the restored tab remains a shell. Journal state — missing, mismatched, truncated, or absent — does not change that decision.
+**When Storage is available, tab restore is unconditional.** Whatever tabs were open at shutdown come back. A claimed PTY session re-establishes its provider only from its own provider session record; without unique ownership the restored tab remains a shell. Journal state — missing, mismatched, truncated, or absent — does not change that decision.
+
+## Storage authority and recovery
+
+The instance's desk is owned by one Storage authority in `storage/state.db` beneath its data directory. Storage opens before restore; an open, import, or archive-verification failure leaves desk state unavailable and prevents a default-empty desk from replacing it. The typed importer preserves recognized source files under `storage/legacy-originals/`.
+
+For backup, stop Domios cleanly and copy the complete `storage/` directory, including `state.db`, referenced assets, and the import archive. Restore into an empty `storage/` root with a Storage-compatible build. An older binary cannot see changes made after cutover in retained legacy files, so running it against those files is not rollback. Keep the backup and originals intact and use a compatible recovery path.
 
 ## The restore contract
 
-1. `sessions/last.json` is loaded and every tab it holds is rebuilt with its persisted `agent_session_id`, binding nonces, `role`, `role_profile`, `team_id`, `parent_tab_id`, `can_spawn`, `depth`, model provenance, and chatBackend binding intact. Prior binding lineage is restored for every restored tab, whether or not it claims a session.
+1. Storage loads the committed desk and every tab is rebuilt with its persisted `agent_session_id`, binding nonces, `role`, `role_profile`, `team_id`, `parent_tab_id`, `can_spawn`, `depth`, model provenance, and chatBackend binding intact. Prior binding lineage is restored for every restored tab, whether or not it claims a session.
 2. A PTY agent tab resolves the unique provider whose store owns that tab's claimed session id, then relaunches that provider with the session (`--resume`-style continuation). A missing provider label does not bypass that lookup: a unique owner repairs the label before either visible or lazy restoration claims the launch. The repair preserves the session and checks the tab's identity again before committing; it never replays a historical task. Missing or ambiguous ownership retains the saved session and refuses agent materialization. A provider proves ownership from its authoritative per-session record, which exists from the session's first turn, never only from a secondary index the provider writes later: a session that has not reached that index yet still resumes. On an OpenCode resume only the explicit `--session` id is validated; no session is inferred from the latest record for a cwd.
 3. If a claimed session has no unique provider record, the tab comes back as a shell with a null provider label. A snapshot with no claimed session may still fresh-launch its explicitly persisted provider. Restore never chooses a claimed session's provider from another tab, the newest session for a cwd, or the journal.
 4. Pre-journal snapshots restore like everything else. Lineage fields are optional telemetry, not an admission ticket.
 5. A rebuilt record is not a restored agent. The restore report counts a pane as restored only once an agent process is observed live behind it. The persisted report is reconciled whenever lifecycle evidence changes, so a late-live pane replaces its earlier dropped outcome; each pane gets one log line per restore wave. A pane that came back as a bare shell is named with its role and reason (`agent_not_live`), and one whose liveness is not yet observable is reported as `agent_liveness_unobserved` rather than assumed either way.
-6. A provider exit observed while a graceful shutdown is armed (update, quit, restart, signal) keeps the tab's provider, session and nonces. The shutdown killed that process, so the snapshot written at exit still names the session the next boot resumes. Outside a shutdown the same exit clears the identity into binding lineage, from which `agent restart` resumes the verified session in place with the launch arguments its spawn recorded (model, effort, arguments, identity instructions). When a tab instead has `LaunchBindingUnconfirmed`, a live shell-ready PTY, a known provider and no verified recovery session selectable from its lineage and lifecycle journal, `agent restart` starts that provider fresh from its recorded launch and reports `fresh_launch`. A provider started by hand in that surviving shell inherits the exited launch's nonce; when its session-start hook reports that newest retired nonce and no launch owns the tab, the tab adopts it as a verified binding and reaches `agent_ready`.
+6. A provider exit observed while a graceful shutdown is armed (update, quit, restart, signal) keeps the tab's provider, session and nonces. The committed desk state still names the session the next boot resumes. Outside a shutdown the same exit clears the identity into binding lineage, from which `agent restart` resumes the verified session in place with the launch arguments its spawn recorded (model, effort, arguments, identity instructions). When a tab instead has `LaunchBindingUnconfirmed`, a live shell-ready PTY, a known provider and no verified recovery session selectable from its lineage and lifecycle journal, `agent restart` starts that provider fresh from its recorded launch and reports `fresh_launch`. A provider started by hand in that surviving shell inherits the exited launch's nonce; when its session-start hook reports that newest retired nonce and no launch owns the tab, the tab adopts it as a verified binding and reaches `agent_ready`.
 7. A team member whose provider exited to its shell before shutdown restores as that shell and is not relaunched. The report names it `agent_exited_before_shutdown` with `exited_session_id`; `agent restart` recovers it.
 8. A restored agent whose saved cwd is no longer a directory is not relaunched anywhere else: the Tab keeps its session and cwd, shows `spawn_failed` naming the missing directory, and raises a notification. Restore the directory, then `codeterm agent restart --tab ID`.
 
@@ -19,13 +25,13 @@ Domios keeps one append-only journal of every authoritative tab lifecycle transi
 
 An agent tab that was mid-turn when Domios stopped continues its work after the next start. The stop can be a quit, an update, a self-install, a crash or a kill; no shutdown hook is involved.
 
-- **The working mark is persisted continuously.** Each live turn edge of a PTY agent tab (working, or idle/question) updates the tab's `turn_resume` mark in `last.json`: the tab's own `session_id` and the `start_epoch` that observed it. A turn that ended before the stop clears the mark. Once a graceful shutdown is armed the mark is frozen, so teardown never erases the turn it interrupted.
+- **The working mark is persisted continuously.** Each live turn edge of a PTY agent tab (working, or idle/question) updates its `turn_resume` mark in Storage: the tab's own `session_id` and the `start_epoch` that observed it. A turn that ended before the stop clears the mark. Once a graceful shutdown is armed the mark is frozen, so teardown never erases the turn it interrupted.
 - **One continue per tab per start.** At start, a mark recorded by an earlier start and not yet settled is owed. The tab receives one system message from Domios through the post-ready send path, only when it is `agent_ready` with a nonce-verified binding on the same session the mark recorded. The claim (`settled: {start_epoch, outcome: "sent"}`) is saved before the payload is written, so a later crash never produces a second continue for the same turn. Work the agent resumes after that continue records a fresh mark for the following start.
 - **Skips are recorded, never retried.** A tab that resumes on another session, comes back as a shell, has no PTY agent session, or is not agent-ready within the 300-second failure deadline is settled with `outcome: {"skipped": "<reason>"}` (`session_not_resumed`, `no_agent_session`, `no_pty_agent_session`, `spawn_failed`, `session_unverified`, `agent_not_ready`, `claim_not_persisted`, `session_changed_before_send`, `send_refused`, `disabled`). Idle tabs carry no mark and receive nothing. Owner messages are never replayed.
 - **A requested continuation shares the same owner.** `update install --from-file` (and `build.sh install-local`) passes `--continue-tab`/`--continue-prompt` to `/api/session/save`; the tab's mark then carries that prompt, survives the caller's turn ending, and is delivered once in place of the default text. The installer helper itself never writes to a tab.
 - `[agent] continue_after_restart = false` (`codeterm docs CONFIG`) disables delivery; owed marks settle as `disabled`.
 
-The mark is visible in the tab JSON as `turn_resume`. The first start of a build that introduced it has no marks from the previous build to resume.
+The mark is visible in the tab API object as `turn_resume`. The first start of a build that introduced it has no marks from the previous build to resume.
 
 ## Restore reporting and observed liveness
 
@@ -47,7 +53,7 @@ A pane observed `absent` is reconciled through the ordinary lifecycle teardown, 
 | Dev | `~/.codeterm-dev/sessions/tab-lifecycle.jsonl` |
 | Named dev instance | `~/.codeterm-dev-<name>/sessions/tab-lifecycle.jsonl` |
 
-It sits beside `last.json`, `backups/`, and `agent-session-identities.json` in the same `sessions/` directory.
+The journal remains under the instance's `sessions/` directory. It is telemetry and is not a Storage restore source.
 
 **Agent access is read-only.** Read, grep, or diff it; never hand-edit the journal or a snapshot.
 
@@ -134,14 +140,10 @@ grep '"tab_id":"db79d2da"' "$JOURNAL" \
   | jq -r '.entry | "\(.seq)  \(.recorded_at)  \(.transition.transition)"'
 # does this tab have a committed checkpoint at all?
 jq -c 'select(.record=="checkpoint" and .checkpoint.key.tab_id=="db79d2da")' "$JOURNAL"
-# what the snapshot persisted, next to what the journal recorded
-jq -r '.workspaces[].tabs[].split_tree
-       | select(.agent_type != null or .role != null)
-       | "\(.tab_id) role=\(.role) provider=\(.agent_type) epoch=\(.agent_identity.lifecycle_epoch)"' \
-  ~/.codeterm-dev/sessions/last.json
+codeterm tab inspect --tab db79d2da --lifecycle
 ```
 
-Rotated snapshots in `sessions/backups/` are plain JSON and diff the same way. For one selected live tab, `codeterm tab inspect --tab ID --lifecycle` adds a read-only `lifecycle` object with live lineage, ordered transitions, surviving checkpoint, and journal-tail health. The workspace map from plain `tab list` and the scoped tree from `tab list --workspace` remain separate from lifecycle telemetry. The projection is telemetry only; it has no restore or checkpoint-mutation surface.
+Session backup list and restore commands read Storage-backed desk projections. Restore is additive: it recreates missing workspaces and tabs under their original ids without changing or closing existing entries. For one selected live tab, `codeterm tab inspect --tab ID --lifecycle` adds a read-only `lifecycle` object with live lineage, ordered transitions, surviving checkpoint, and journal-tail health. The workspace map from plain `tab list` and the scoped tree from `tab list --workspace` remain separate from lifecycle telemetry. The projection is telemetry only; it has no restore or checkpoint-mutation surface.
 
 ## Attempt retirement fences a closed tab's dispatch
 
@@ -214,4 +216,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 40 -->
+<!-- revision: 41 -->

@@ -363,7 +363,7 @@ dc() {
 
 # --- Lifecycle -------------------------------------------------------
 
-# Returns dev PID on stdout if listening on 7686, empty otherwise.
+# Returns the selected dev instance PID on stdout, or empty if it is stopped.
 dev_pid() {
   if is_windows; then
     netstat -ano 2>/dev/null | grep ":$EVAL_LIB_DEV_API_PORT.*LISTEN" | awk '{print $5}' | head -1
@@ -413,7 +413,7 @@ dev_start_bg() {
 
 # --- Snapshots -------------------------------------------------------
 
-# Capture workspaces + tabs + last.json under target-check/evals/<label>/.
+# Capture workspaces + tabs from the selected dev API under target-check/evals/<label>/.
 # Echoes the snapshot dir on stdout so callers can chain.
 snapshot() {
   local label="${1:?usage: snapshot <label>}"
@@ -421,12 +421,6 @@ snapshot() {
   mkdir -p "$dir"
   dev_get /api/workspaces > "$dir/ws.json"
   dev_get /api/tabs      > "$dir/tabs.json"
-  python3 - "$dir" "$(dev_data_dir)" <<'PYEOF'
-import os, sys, shutil
-src = os.path.join(sys.argv[2], 'sessions', 'last.json')
-if os.path.exists(src):
-    shutil.copy(src, os.path.join(sys.argv[1], 'last.json'))
-PYEOF
   echo "$dir"
 }
 
@@ -505,9 +499,8 @@ for w in json.load(sys.stdin):
 #     known backend bug where back-to-back close of *restored*
 #     workspaces (PTYs already killed by the restart) intermittently
 #     returns dropped connections; the retry loop covers the gap.
-#   - reset_dev_state_hard (nuclear) — kills the daemon, blanks
-#     last.json, restarts. Guarantees a single-workspace baseline
-#     (just General) regardless of what state the daemon was in.
+#   - reset_dev_state_hard — replaces the selected named dev Storage
+#     root from an empty typed import, then restarts that instance.
 #     Use when the bench's `pre` snapshot count must be exact.
 reset_dev_state() {
   local pass max_pass=4
@@ -528,39 +521,68 @@ for w in json.load(sys.stdin):
   done
 }
 
-# Nuclear reset — kills dev, removes last.json (so restart can't
-# restore old workspaces), restarts dev, waits for ready. Ends with
-# exactly one workspace (General). Slow (~30s) but bulletproof.
-reset_dev_state_hard() {
-  dev_kill_hard
-  local data_dir; data_dir="$(dev_data_dir)" || return 7
-  rm -f "$data_dir/sessions/last.json"
-  rm -rf "$data_dir/sessions/backups"
-  dev_start_bg
-  dev_wait_ready 600
-  sleep 3
+# Build an empty inert copy root and import it with the reviewed typed verifier.
+# Only the selected named dev instance's Storage root is replaced.
+seed_empty_storage_root() {
+  [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ] || {
+    echo "ERROR: Storage reset requires CODETERM_INSTANCE for a named dev instance" >&2
+    return 7
+  }
+  dev_resolve || return 7
+  local data_dir stage imported previous
+  data_dir="$(dev_data_dir)" || return 7
+  dev_kill_hard || return
+  stage="$(mktemp -d "$data_dir/.storage-seed.XXXXXX")" || return 1
+  mkdir -p "$stage/copy-root" || { rm -rf "$stage"; return 1; }
+  if ! (
+    cd "$EVAL_LIB_REPO_ROOT" || exit 1
+    CARGO_TARGET_DIR="$data_dir/target" CODETERM_ALLOW_EXTERNAL_TARGET=1 \
+      cargo run --quiet --manifest-path "$EVAL_LIB_REPO_ROOT/src-tauri/Cargo.toml" \
+        --bin storage-verify -- --copy-root "$stage/copy-root" --work-root "$stage/work-root"
+  ); then
+    rm -rf "$stage"
+    return 1
+  fi
+  imported="$stage/work-root/instance/storage"
+  [ -f "$imported/state.db" ] || {
+    echo "ERROR: typed empty import did not create Storage state.db" >&2
+    rm -rf "$stage"
+    return 1
+  }
+  previous="$stage/previous-storage"
+  if [ -e "$data_dir/storage" ] && ! mv "$data_dir/storage" "$previous"; then
+    rm -rf "$stage"
+    return 1
+  fi
+  if ! mv "$imported" "$data_dir/storage"; then
+    if [ -e "$previous" ] && ! mv "$previous" "$data_dir/storage"; then
+      echo "ERROR: prior Storage root preserved at $previous" >&2
+      return 1
+    fi
+    rm -rf "$stage"
+    return 1
+  fi
+  rm -rf "$stage"
 }
 
-# Sanity check the on-disk session file is well-formed and that no
-# half-written .tmp got left behind. Returns non-zero on either issue.
-# Uses python3's os.path.expanduser so the path resolves correctly on
-# Windows (git bash $HOME is /c/Users/X — invalid for native Python).
+reset_dev_state_hard() {
+  seed_empty_storage_root || return
+  dev_start_bg
+  dev_wait_ready 600
+}
+
+# Confirm the selected named dev instance has its Storage database.
+assert_storage_root_present() {
+  local data_dir; data_dir="$(dev_data_dir)" || return 7
+  [ -f "$data_dir/storage/state.db" ] || {
+    echo "  FAIL Storage state.db missing from selected dev instance" >&2
+    return 1
+  }
+  echo "  OK Storage root present"
+}
+
 assert_atomic_save_clean() {
-  python3 - "$(dev_data_dir)" <<'PYEOF' || { echo "  FAIL session file integrity check"; return 1; }
-import json, os, sys
-sess = os.path.join(sys.argv[1], 'sessions')
-tmp = os.path.join(sess, 'last.json.tmp')
-last = os.path.join(sess, 'last.json')
-if os.path.exists(tmp):
-    print("  FAIL leftover last.json.tmp — atomic write didn't complete")
-    sys.exit(1)
-try:
-    json.load(open(last))
-except Exception as e:
-    print(f"  FAIL last.json: {e}")
-    sys.exit(1)
-print("  OK atomic save clean")
-PYEOF
+  assert_storage_root_present
 }
 
 # --- Plan-junk cleanup (test-harness hygiene) ------------------------
