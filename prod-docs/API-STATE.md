@@ -2,6 +2,12 @@
 
 Secrets, sessions, web mirror, diagnostics, usage, logs, configuration, and update endpoints.
 
+## Storage authority and recovery
+
+Each instance has one typed Storage owner for migrated desk, cron, and Sentinel state in `storage/state.db` beneath that instance's data directory. Storage opens before restore and schedulers start. Its one-time importer seals and verifies a copy of recognized legacy inputs under `storage/legacy-originals/`; it retains the original files and switches authority only after archive and semantic checks pass. A failed open, import, or verification leaves migrated state unavailable. Storage-dependent API operations return 503 with the Storage-unavailable error; they do not return or create an empty substitute.
+
+For a Storage backup, stop Domios cleanly and copy the complete `storage/` directory, including `state.db`, referenced assets, and the import archive. Restore the complete backup into an empty `storage/` root with a Storage-compatible build. Never downgrade by running an older binary against the retained legacy files: writes made after cutover are absent there. There is no supported in-place downgrade or JSON rollback; preserve both copies and use a reviewed compatible recovery path.
+
 #### Secrets
 
 Pluggable secret-store layer. Active backend is selected by `integrations.secrets.backend` in `config.toml`; built-in backends are `local` (plaintext local file, default), `bitwarden` (Bitwarden CLI, optional Vaultwarden server), and `mock` (in-memory, dev only). All endpoints require the standard Bearer token. **Local-only by design** — secret routes are never relayed across the mesh; the CLI rejects `--mesh` on `mem secret` subcommands with exit code 7.
@@ -36,8 +42,8 @@ Pluggable secret-store layer. Active backend is selected by `integrations.secret
 #### Session Snapshot
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| POST | `/api/session/save` | optional `{continue_tab, continue_prompt}` | Snapshot the multiplexer (workspaces/tabs) into the session store immediately. With `continue_tab`, the next Domios start delivers one system continue to that tab (text `continue_prompt`, or the default) once its own resumed session is agent-ready; the response's `continuation` reports `registered` or the refusal `reason` (`no_agent_session`, `no_pty_agent_session`). Durability is otherwise the 30s auto-save timer + close-to-tray hook; Call it before force-killing the daemon to make restart persistence deterministic. A save that would drop workspaces/tabs vs the persisted `last.json` is refused unless it carries authorized-reduction intent (close verbs, Team close, policy closes, spawn rollbacks, boot cleanup of ghost/duplicate entries): the fuller persisted desk stays authoritative, the rejected snapshot is quarantined as `sessions/last.json.reduced-<epoch-ms>`, and the refusal is logged at error with drop counts. Refusal is protection, not failure — the endpoint still returns 200; only a genuine persist failure (I/O, serialization) errors. |
-| GET | `/api/session/backups` | — | List rotated full-desk snapshots from `sessions/backups/`, newest first: `{backups: [{name, saved_at_secs, workspaces, tabs}]}`. CLI: `codeterm sessions backups list`. |
+| POST | `/api/session/save` | optional `{continue_tab, continue_prompt}` | Flush accepted desk writes through Storage. With `continue_tab`, the next start delivers one system continue to that tab (the supplied prompt or default) after its own resumed session is agent-ready; the response reports `registered` or a refusal reason (`no_agent_session`, `no_pty_agent_session`). A snapshot that would drop workspaces or tabs from the committed desk is refused unless it carries authorized-reduction intent; the committed desk remains authoritative. Storage errors are reported, never replaced by empty state. |
+| GET | `/api/session/backups` | — | List rotated full-desk backup projections from Storage, newest first: `{backups: [{name, saved_at_secs, workspaces, tabs}]}`. CLI: `codeterm sessions backups list`. |
 | POST | `/api/session/backups/{name}/restore` | — | Additive desk recovery from one backup: recreates workspaces/tabs missing from the live desk under their original ids; existing ones are never modified or closed. Returns `{restored, workspaces_added, tabs_added, tabs_already_present}`; 404 for an unknown/invalid name. CLI: `codeterm sessions backups restore <name>`. |
 
 #### Web Mirror
@@ -212,4 +218,4 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 24 -->
+<!-- revision: 25 -->
