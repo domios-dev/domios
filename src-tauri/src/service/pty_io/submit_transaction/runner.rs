@@ -247,7 +247,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
         let key_ready = if force_key_schedule_after_deadline {
             match transport.retry_active() {
                 false => false,
-                true => match key_guard(allow_initial_key, turn_was_started) {
+                true if !allow_initial_key => match key_guard(false, turn_was_started) {
                     Ok(()) => true,
                     Err(InjectionError::AgentTuiPresent { .. }) => {
                         log::info!("[submit-transaction] automatic submit stopped: provider dialog detected during deadline fallback");
@@ -259,6 +259,21 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
                         false
                     }
                 },
+                true if transport.draft_evidence_count(text) > baseline_evidence => {
+                    match transport.dialog_guard() {
+                        Ok(()) => true,
+                        Err(InjectionError::AgentTuiPresent { .. }) => {
+                            log::info!("[submit-transaction] automatic submit stopped: provider dialog detected during deadline fallback");
+                            dialog_blocked = true;
+                            false
+                        }
+                        Err(error) => {
+                            key_error = Some(error);
+                            false
+                        }
+                    }
+                },
+                true => false,
             }
         } else {
             loop {
@@ -306,7 +321,19 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
                     }
                     Err(InjectionError::AgentTuiPresent { .. }) => {
                         log::info!("[submit-transaction] automatic submit stopped: provider dialog detected at readiness deadline");
-                        dialog_blocked = true;
+                    }
+                    Err(InjectionError::AgentInputUnavailable { .. }) => {
+                        match transport.dialog_guard() {
+                            Ok(()) if transport.retry_active() => {
+                                log::info!("[submit-transaction] readiness deadline expired with draft present; starting bounded submit-key schedule");
+                                force_key_schedule_after_deadline = true;
+                                continue;
+                            }
+                            Err(InjectionError::AgentTuiPresent { .. }) => {
+                                log::info!("[submit-transaction] automatic submit stopped: provider dialog detected at readiness deadline");
+                            }
+                            _ => {}
+                        }
                     }
                     _ => {}
                 }

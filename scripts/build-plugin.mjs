@@ -33,14 +33,17 @@ if (!id) {
 }
 
 const shortHash = (s) => createHash("sha256").update(s).digest("hex").slice(0, 12);
+const candidates = [id, `provider-${id}`].map((name) => resolve(repo, `plugins/${name}`));
+const pluginDir = candidates.find((directory) => existsSync(resolve(directory, "src/plugin.ts")));
+if (!pluginDir) {
+  console.error(`no logic entry for plugin: ${id}`);
+  process.exit(1);
+}
+const pluginPath = pluginDir.slice(repo.length + 1).replaceAll("\\", "/");
 
 async function buildLogic() {
-  const entry = resolve(repo, `plugins/${id}/src/plugin.ts`);
-  if (!existsSync(entry)) {
-    console.error(`no logic entry: ${entry}`);
-    process.exit(1);
-  }
-  const out = resolve(repo, `plugins/${id}/plugin.js`);
+  const entry = resolve(pluginDir, "src/plugin.ts");
+  const out = resolve(pluginDir, "plugin.js");
   const result = await build({
     entryPoints: [entry],
     bundle: true,
@@ -54,13 +57,13 @@ async function buildLogic() {
   });
   const js = result.outputFiles.map((f) => f.text).join("");
   writeFileSync(out, js);
-  console.log(`built ${id} logic → plugins/${id}/plugin.js (${(js.length / 1024).toFixed(1)} KB)`);
+  console.log(`built ${id} logic → ${pluginPath}/plugin.js (${(js.length / 1024).toFixed(1)} KB)`);
 }
 
 async function buildUi() {
-  const entry = resolve(repo, `plugins/${id}/ui/src/main.tsx`);
+  const entry = resolve(pluginDir, "ui/src/main.tsx");
   if (!existsSync(entry)) return;
-  const uiDir = resolve(repo, `plugins/${id}/ui`);
+  const uiDir = resolve(pluginDir, "ui");
 
   const result = await build({
     entryPoints: [entry],
@@ -109,7 +112,7 @@ async function buildUi() {
   writeFileSync(resolve(uiDir, jsName), js);
   writeFileSync(resolve(uiDir, "index.html"), html);
   console.log(
-    `built ${id} ui → plugins/${id}/ui/{${jsName} (${(js.length / 1024).toFixed(1)} KB), index.html (${(html.length / 1024).toFixed(1)} KB)}`,
+    `built ${id} ui → ${pluginPath}/ui/{${jsName} (${(js.length / 1024).toFixed(1)} KB), index.html (${(html.length / 1024).toFixed(1)} KB)}`,
   );
 }
 

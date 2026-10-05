@@ -16,7 +16,7 @@ const context = {
     shell: {
       quoteFor: (value: unknown, target: string) => {
         assert.equal(target, platform);
-        const argument = String(value);
+        const argument = String(value).replace(/\\"/g, '"');
         quoted.push(argument);
         return `ARG(${argument})`;
       },

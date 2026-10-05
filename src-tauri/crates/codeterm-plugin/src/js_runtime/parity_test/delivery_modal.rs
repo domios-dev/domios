@@ -97,7 +97,7 @@ fn provider_prompt_fixtures_remain_visible_to_recovery_guards() {
         codex_js
             .classify_tab_state(&codex_snapshot)
             .map(|classification| classification.state),
-        Some(crate::tab_state::TabState::Working)
+        Some(crate::tab_state::TabState::ClarifyingQuestion)
     );
     assert!(codex_js.delivery_modal_visible(&codex_snapshot));
     assert!(
