@@ -1,12 +1,13 @@
 use serde::Serialize;
 
-const SOURCE: &str = include_str!("../../../../prod-docs/SENTINELS.md");
+const SOURCE: &str = include_str!("../../../../prod-docs/SENTINEL-RECIPES.md");
 const REQUIRED: &[&str] = &[
     "team-watch",
     "wait-for-build",
     "retry-until-pass",
     "prompt-responder",
     "cron-run-watch",
+    "launch-prompt-gate",
     "all-finished",
 ];
 

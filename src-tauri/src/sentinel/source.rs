@@ -255,3 +255,7 @@ fn redacted_screen_tail(input: &str) -> String {
 #[cfg(test)]
 #[path = "observe_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "launch_recipe_tests.rs"]
+mod launch_recipe_tests;

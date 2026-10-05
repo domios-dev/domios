@@ -55,7 +55,7 @@ specific shell id).
 Full references live in `codeterm docs <NAME>`; the `references/` files only point there:
 - Memory — `codeterm docs MEMORY-USAGE` (commands, kinds, search fallbacks, wake-up, calibration), `codeterm docs MEMORY`, `codeterm docs MEMORY-SERVICES` (skill folders, Librarian, dreaming)
 - Agent roles — `codeterm docs AGENT-CONTROL` (hierarchy, placement, briefs) and `codeterm docs ORCHESTRATION`
-- Sentinels — `codeterm docs SENTINELS` (when-to-use recipes and full reference)
+- Sentinels — `codeterm docs SENTINELS` (full reference) and `codeterm docs SENTINEL-RECIPES` (use-case patterns and recipes)
 - Cron — `codeterm docs API-INTEGRATIONS` (CLI, oneshot, lifecycle) and `codeterm docs RUNTIME-CONFIG` (job schema)
 - Telegram — `codeterm docs TELEGRAM-SETUP` (setup, media, formatting, per-tab topic threads) and `codeterm docs MESH-BRIDGE` (poller migration)
 - Themes — `codeterm docs RUNTIME-CONFIG` (custom theme TOML format)
