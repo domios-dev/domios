@@ -142,6 +142,21 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
         {
             entry["fallback"] = json!(true);
         }
+        if entry["decided_by"] == "fallback(error)" {
+            if let Some(category) = value["error_category"].as_str().filter(|category| {
+                [
+                    "transport",
+                    "http",
+                    "unavailable",
+                    "unsupported",
+                    "parse",
+                    "invalid_observation",
+                ]
+                .contains(category)
+            }) {
+                entry["error_category"] = json!(category);
+            }
+        }
         crate::service::supporter_tab_state::project_observation_diagnostics(value, &mut entry);
     }
     let asked = if value["kind"] == "tab_state" {
