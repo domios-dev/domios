@@ -1036,8 +1036,8 @@ pub trait AgentProvider: Send + Sync {
     }
 }
 
-pub(crate) fn provider_classified_delivery_modal_visible(
-    provider: &dyn AgentProvider,
+pub(crate) fn provider_classified_delivery_modal_visible<P: AgentProvider + ?Sized>(
+    provider: &P,
     snapshot: &crate::tab_state::TabStateSnapshot,
 ) -> bool {
     use crate::tab_state::TabState;
