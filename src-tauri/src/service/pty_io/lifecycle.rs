@@ -642,7 +642,11 @@ impl ServiceContext {
     /// which is also what arms the existing guarded-input refusal.
     /// Identity teardown only, and deliberately blind to a booting tab. Launch
     /// readiness is settled by the caller before this, never behind this gate.
-    pub(crate) fn note_provider_exit_in_surviving_shell(&self, tab_id: &str) -> bool {
+    pub(crate) fn note_provider_exit_in_surviving_shell(
+        &self,
+        tab_id: &str,
+        proof: &crate::service::launch_readiness::LaunchExitProof,
+    ) -> bool {
         let observed = {
             let mut mux = self.mux.write();
             let Some(tab) = mux.get_tab_mut(tab_id) else {
@@ -660,10 +664,22 @@ impl ServiceContext {
             return false;
         }
         log::info!("[agent-lifecycle] provider exited to a surviving shell: tab={tab_id}");
-        self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(
+        self.clear_tab_agent_identity_after_exit_with_proof(
             tab_id,
             "provider process exited to a surviving shell",
+            proof,
         )
+    }
+
+    pub(crate) fn pty_child_is_live(&self, pty_id: &str) -> bool {
+        let session = { self.pty.lock().get_session(pty_id) };
+        let Some(session) = session else {
+            return false;
+        };
+        let Ok(mut child) = session.child.lock() else {
+            return false;
+        };
+        matches!(child.try_wait(), Ok(None))
     }
 
     /// Kill the PTY process for a tab without removing the tab from the mux.
@@ -672,13 +688,13 @@ impl ServiceContext {
         // A chatBackend tab has no PTY process — close the plugin session.
         if let Some((plugin_id, session_id)) = self.tab_chat_backing(tab_id) {
             self.chatbackend_close(&plugin_id, &session_id)?;
-            self.clear_tab_agent_identity_for_lifecycle_exit(tab_id);
+            self.clear_tab_agent_identity_explicitly(tab_id, "user stopped the agent");
             return Ok(());
         }
         let pty_id = self.resolve_pty_id(tab_id)?;
         self.pty_ownership.release_pty(&pty_id);
         kill_live_tab_pty(&mut self.pty.lock(), &pty_id)?;
-        self.clear_tab_agent_identity_for_lifecycle_exit(tab_id);
+        self.clear_tab_agent_identity_explicitly(tab_id, "user stopped the agent");
         Ok(())
     }
 

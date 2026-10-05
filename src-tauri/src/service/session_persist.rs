@@ -857,6 +857,51 @@ pub(crate) mod tests {
         assert_eq!(restored.workspaces[1].name, "Restored");
     }
 
+    #[test]
+    fn storage_desk_restores_live_provider_sessions_for_each_provider() {
+        let root = tempfile::tempdir().unwrap();
+        let adapter = test_adapter(root.path());
+        let (mut mux, parent_id) = crate::multiplexer::state::MultiplexerState::new();
+        let workspace_id = mux.find_workspace_for_tab(&parent_id).unwrap();
+        let providers = ["claude", "codex", "opencode", "grok"];
+        let mut expected = Vec::new();
+
+        for provider in providers {
+            let tab_id = mux.create_tab(&workspace_id).unwrap();
+            mux.set_tab_role(
+                &tab_id,
+                crate::multiplexer::types::AgentRole::Worker,
+                Some(&parent_id),
+            )
+            .unwrap();
+            let session_id = format!("{provider}-session");
+            let nonce = format!("{provider}-nonce");
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            tab.agent_type = Some(provider.into());
+            tab.agent_type_locked = true;
+            tab.agent_session_id = Some(session_id.clone());
+            tab.session_binding_nonce = Some(nonce.clone());
+            tab.reported_session_binding_nonce = Some(nonce);
+            expected.push((tab_id, provider, session_id));
+        }
+
+        let snapshot = mux.to_session_snapshot();
+        let identities = desk_agent_session_identities(&snapshot);
+        adapter.import_snapshot(&snapshot, identities).unwrap();
+        adapter.flush().unwrap();
+        assert_eq!(adapter.identity_catalog().unwrap().len(), providers.len());
+        let restored_snapshot = adapter.snapshot().unwrap();
+        let restored =
+            crate::multiplexer::state::MultiplexerState::from_session_snapshot(&restored_snapshot);
+
+        for (tab_id, provider, session_id) in expected {
+            let tab = restored.get_tab(&tab_id).expect("restored agent tab");
+            assert_eq!(tab.agent_type.as_deref(), Some(provider));
+            assert_eq!(tab.agent_session_id.as_deref(), Some(session_id.as_str()));
+            assert!(tab.agent_type_locked);
+        }
+    }
+
     fn desk_delta_snapshot(workspace_count: usize) -> crate::session::store::SessionSnapshot {
         crate::session::store::SessionSnapshot {
             version: "test".into(),
