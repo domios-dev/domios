@@ -19,6 +19,7 @@ import {
   assertFinalStatuses,
   auditTranscript,
   busyPrompt,
+  captureProviderEvidence,
   completeCase,
   createBusyGate,
   createWorkspace,
@@ -56,6 +57,20 @@ function requestedProviderIds(): Set<string> | undefined {
   const ids = raw.split(",").map((id) => id.trim()).filter(Boolean);
   expect(ids.length, "PW_SEND_PROVIDERS lists capability ids").toBeGreaterThan(0);
   return new Set(ids);
+}
+
+function hasProviderFailures(metrics: Map<string, ProviderMetrics>): boolean {
+  return [...metrics.values()].some(
+    (entry) =>
+      !entry.skipped &&
+      (Boolean(entry.errors?.length) ||
+        entry.records.some(
+          (record) =>
+            record.receivedInSession !== true ||
+            record.confirmedStatus !== true ||
+            (record.markerCount ?? 0) > 1,
+        )),
+  );
 }
 
 test.describe.configure({ retries: 0 });
@@ -109,16 +124,22 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
 
     for (const [providerIndex, provider] of runnable.entries()) {
       const entry = metrics.get(provider.id)!;
+      const providerOwnedTabStart = ownedTabs.length;
+      const spawnProviderAgent: typeof spawnAgent = async (body) => {
+        const launched = await spawnAgent(body);
+        ownedTabs.push(launched.tab_id);
+        return launched;
+      };
 
+      try {
       const fresh = await openAgent(
         api,
         ui,
-        spawnAgent,
+        spawnProviderAgent,
         provider,
         workspaceId,
         `pw-send-${providerIndex}-fresh`,
       );
-      ownedTabs.push(fresh.tabId);
       openStreams.add(fresh.events);
       const freshRecords = await submitBatch(
         fresh,
@@ -136,12 +157,11 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
       const busy = await openAgent(
         api,
         ui,
-        spawnAgent,
+        spawnProviderAgent,
         provider,
         workspaceId,
         `pw-send-${providerIndex}-busy`,
       );
-      ownedTabs.push(busy.tabId);
       openStreams.add(busy.events);
       const firstMarker = uniqueMarker(runId, provider, "BUSY_WORK", 0);
       const busyGate = createBusyGate(busy, firstMarker);
@@ -202,12 +222,11 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
       const rapid = await openAgent(
         api,
         ui,
-        spawnAgent,
+        spawnProviderAgent,
         provider,
         workspaceId,
         `pw-send-${providerIndex}-rapid`,
       );
-      ownedTabs.push(rapid.tabId);
       openStreams.add(rapid.events);
       const rapidRecords: SendRecord[] = [];
       for (let index = 0; index < repeats; index++) {
@@ -229,12 +248,11 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
       const large = await openAgent(
         api,
         ui,
-        spawnAgent,
+        spawnProviderAgent,
         provider,
         workspaceId,
         `pw-send-${providerIndex}-large`,
       );
-      ownedTabs.push(large.tabId);
       openStreams.add(large.events);
       for (const size of LARGE_SIZES) {
         for (let index = 0; index < repeats; index++) {
@@ -252,13 +270,12 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
       const heavy = await openAgent(
         api,
         ui,
-        spawnAgent,
+        spawnProviderAgent,
         provider,
         workspaceId,
         `pw-send-${providerIndex}-heavy`,
         "Orchestrator",
       );
-      ownedTabs.push(heavy.tabId);
       openStreams.add(heavy.events);
       const historyRecords: SendRecord[] = [];
       for (let turn = 0; turn < HEAVY_TURNS; turn++) {
@@ -432,8 +449,32 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
       } else {
         await api.closeTab(heavy.tabId).catch(() => {});
       }
+      } catch (error) {
+        entry.errors ??= [];
+        entry.errors.push(error instanceof Error ? error.message : String(error));
+        await captureProviderEvidence(api, entry);
+        for (const gate of [...busyGates]) {
+          releaseBusyGate(gate);
+          removeBusyGate(gate);
+          busyGates.delete(gate);
+        }
+        for (const events of [...openStreams]) {
+          await events.close().catch(() => {});
+          openStreams.delete(events);
+        }
+        const providerOwnedTabs = ownedTabs.splice(providerOwnedTabStart).reverse();
+        for (const tabId of providerOwnedTabs) await api.closeTab(tabId).catch(() => {});
+        console.log(
+          `[chat-send-matrix-provider-error] ${JSON.stringify({
+            provider: provider.display_name ?? provider.id,
+            providerId: provider.id,
+            error: error instanceof Error ? error.message : String(error),
+          })}`,
+        );
+      }
     }
 
+    if (!hasProviderFailures(metrics)) {
     const soakProvider = runnable[0];
     const soakMetrics = metrics.get(soakProvider.id)!;
     const soak = await openAgent(
@@ -504,6 +545,7 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
       await disposeAgent(api, agent);
       openStreams.delete(agent.events);
     }
+    }
 
     const summaries = providers.map((provider) => recordMetrics(metrics.get(provider.id)!));
     console.log(`[chat-send-matrix-summary] ${JSON.stringify(summaries)}`);
@@ -511,12 +553,33 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
       body: Buffer.from(JSON.stringify(summaries, null, 2)),
       contentType: "application/json",
     });
-    expect(summaries.reduce((total, item) => total + Number(item.duplicated), 0)).toBe(0);
-    expect(summaries.reduce((total, item) => total + Number(item.lost), 0)).toBe(0);
-    for (const summary of summaries) {
-      if (summary.skipped) continue;
-      expect(summary.received, `${summary.provider} receives every submitted send`).toBe(summary.sent);
-    }
+    const failures = summaries.flatMap((raw) => {
+      const summary = raw as {
+        provider: string;
+        skipped?: string;
+        sent: number;
+        received_in_session: number;
+        confirmed_status: number;
+        duplicated: number;
+        lost: number;
+        unconfirmed: number;
+        errors?: string[];
+      };
+      if (summary.skipped) return [];
+      const reasons: string[] = [];
+      if (summary.lost > 0) reasons.push(`${summary.lost} lost`);
+      if (summary.duplicated > 0) reasons.push(`${summary.duplicated} duplicated`);
+      if (summary.unconfirmed > 0) reasons.push(`${summary.unconfirmed} unconfirmed`);
+      if (summary.received_in_session !== summary.sent) {
+        reasons.push(`${summary.received_in_session}/${summary.sent} received in session`);
+      }
+      if (summary.confirmed_status !== summary.sent) {
+        reasons.push(`${summary.confirmed_status}/${summary.sent} confirmed status`);
+      }
+      for (const error of summary.errors ?? []) reasons.push(error);
+      return reasons.map((reason) => `${summary.provider}: ${reason}`);
+    });
+    expect(failures, "all selected providers complete with exact-once receipt and confirmed status").toEqual([]);
   } finally {
     for (const gate of busyGates) releaseBusyGate(gate);
     await Promise.all(

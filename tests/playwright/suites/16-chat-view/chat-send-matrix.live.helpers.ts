@@ -7,7 +7,7 @@ import { expect, type ManagedUiSession } from "../../helpers/fixtures";
 import type { ApiClient, Provider } from "../../helpers/api-client";
 export type ChatMessage = { id: string; type: string; content: string };
 export type ChatSnapshot = { messages: ChatMessage[]; count: number; pending: boolean };
-export type ChatSendState = "accepted" | "unknown" | "confirmed" | "failed";
+export type ChatSendState = "held" | "written" | "accepted" | "unknown" | "confirmed" | "failed";
 export type ChatSendStatus = {
   send_id: string;
   tab_id: string;
@@ -28,10 +28,17 @@ export type SendRecord = {
   receiptText?: string;
   bubbleMarker: string;
   submittedAt: number;
+  sequenceFloor?: number;
   sequence?: number;
   firstStatus?: ChatSendState;
   firstStatusAt?: number;
   deliveredAt?: number;
+  sendId?: string;
+  deliveryStatus?: ChatSendState | null;
+  confirmedStatus?: boolean;
+  markerCount?: number;
+  receivedInSession?: boolean;
+  sessionBound?: boolean;
   audited?: boolean;
   receiptCount?: number;
 };
@@ -39,6 +46,7 @@ export type ProviderMetrics = {
   provider: Provider;
   records: SendRecord[];
   skipped?: string;
+  errors?: string[];
 };
 export type BusyGate = {
   agent: AgentUi;
@@ -321,7 +329,15 @@ export function makeRecord(
   bubbleMarker: string,
   submittedAt: number,
 ): SendRecord {
-  return { providerId, tabId: agent.tabId, text, receiptText: text, bubbleMarker, submittedAt };
+  return {
+    providerId,
+    tabId: agent.tabId,
+    text,
+    receiptText: text,
+    bubbleMarker,
+    submittedAt,
+    sequenceFloor: agent.nextSendSequence,
+  };
 }
 
 export async function submitText(
@@ -352,8 +368,11 @@ export async function submitText(
     `send admission ${bubbleMarker}`,
   );
   const data = status.data as ChatSendStatus;
+  record.sendId = data.send_id;
   record.sequence = data.sequence;
   record.firstStatus = data.state;
+  record.deliveryStatus = data.state;
+  record.confirmedStatus = data.state === "confirmed";
   record.firstStatusAt = status.receivedAt;
   agent.nextSendSequence = data.sequence;
   expect(data.state, `send ${bubbleMarker} was not refused`).not.toBe("failed");
@@ -396,8 +415,11 @@ export async function submitPaste(
     `large paste admission ${bubbleMarker}`,
   );
   const data = status.data as ChatSendStatus;
+  record.sendId = data.send_id;
   record.sequence = data.sequence;
   record.firstStatus = data.state;
+  record.deliveryStatus = data.state;
+  record.confirmedStatus = data.state === "confirmed";
   record.firstStatusAt = status.receivedAt;
   agent.nextSendSequence = data.sequence;
   expect(data.state, `large paste ${bubbleMarker} was not refused`).not.toBe("failed");
@@ -409,6 +431,8 @@ export async function waitDelivered(agent: AgentUi, record: SendRecord): Promise
   expect(record.sequence, `send ${record.bubbleMarker} has an API ledger sequence`).toBeTruthy();
   if (record.firstStatus === "confirmed") {
     record.deliveredAt = record.firstStatusAt;
+    record.deliveryStatus = "confirmed";
+    record.confirmedStatus = true;
     return;
   }
   const delivered = await agent.events.waitFor(
@@ -420,12 +444,19 @@ export async function waitDelivered(agent: AgentUi, record: SendRecord): Promise
     `provider session receipt ${record.bubbleMarker}`,
   );
   record.deliveredAt = delivered.receivedAt;
+  record.deliveryStatus = "confirmed";
+  record.confirmedStatus = true;
 }
 
 export async function assertFinalStatuses(api: ApiClient, agent: AgentUi, records: SendRecord[]): Promise<void> {
   const statuses = await api.get<ChatSendStatus[]>(`/tabs/${encodeURIComponent(agent.tabId)}/chat-send`);
   for (const record of records) {
     const status = statuses.find((candidate) => candidate.sequence === record.sequence);
+    if (status) {
+      record.sendId = status.send_id;
+      record.deliveryStatus = status.state;
+      record.confirmedStatus = status.state === "confirmed";
+    }
     expect(status, `send ${record.bubbleMarker} remains in the delivery ledger`).toBeTruthy();
     expect(status!.state, `send ${record.bubbleMarker} reaches delivered`).toBe("confirmed");
     expect(status!.error, `send ${record.bubbleMarker} has no submit_unconfirmed result`).toBeNull();
@@ -439,8 +470,16 @@ export async function auditTranscript(
   metrics: ProviderMetrics,
 ): Promise<void> {
   const snapshot = await readChat(api, agent.tabId);
-  expect(snapshot.pending, `tab ${agent.tabId} transcript is bound to its own provider session`).toBe(false);
   const users = userMessages(snapshot);
+  for (const record of records) {
+    record.sessionBound = !snapshot.pending;
+    record.markerCount = users.reduce(
+      (count, message) => count + message.content.split(record.bubbleMarker).length - 1,
+      0,
+    );
+    record.receivedInSession = record.sessionBound && record.markerCount === 1;
+  }
+  expect(snapshot.pending, `tab ${agent.tabId} transcript is bound to its own provider session`).toBe(false);
   let previousIndex = -1;
   for (const record of records) {
     expect(record.receiptText, `send ${record.bubbleMarker} has session-turn evidence`).toBeTruthy();
@@ -462,6 +501,64 @@ export async function auditTranscript(
     await expect(bubble, `Chat UI renders ${record.bubbleMarker} once`).toHaveCount(1, {
       timeout: 30_000,
     });
+  }
+}
+
+export async function captureProviderEvidence(api: ApiClient, metrics: ProviderMetrics): Promise<void> {
+  const tabIds = [...new Set(metrics.records.map((record) => record.tabId))];
+  for (const tabId of tabIds) {
+    const records = metrics.records.filter((record) => record.tabId === tabId);
+    try {
+      const snapshot = await readChat(api, tabId);
+      const users = userMessages(snapshot);
+      for (const record of records) {
+        record.sessionBound = !snapshot.pending;
+        record.markerCount = users.reduce(
+          (count, message) => count + message.content.split(record.bubbleMarker).length - 1,
+          0,
+        );
+        record.receivedInSession = record.sessionBound && record.markerCount === 1;
+        if (record.receiptText !== undefined) {
+          record.receiptCount = users.filter((message) => message.content === record.receiptText).length;
+        }
+      }
+    } catch (error) {
+      metrics.errors ??= [];
+      metrics.errors.push(`session evidence for tab ${tabId}: ${error instanceof Error ? error.message : String(error)}`);
+      for (const record of records) record.receivedInSession ??= false;
+    }
+
+    try {
+      const statuses = await api.get<ChatSendStatus[]>(`/tabs/${encodeURIComponent(tabId)}/chat-send`);
+      const unmatched = [...statuses];
+      for (const record of records) {
+        const statusIndex = unmatched.findIndex(
+          (candidate) =>
+            (record.sequence !== undefined && candidate.sequence === record.sequence) ||
+            (record.sendId !== undefined && candidate.send_id === record.sendId) ||
+            (record.sequence === undefined &&
+              candidate.sequence > (record.sequenceFloor ?? 0) &&
+              candidate.sequence === Math.min(
+                ...unmatched
+                  .filter((item) => item.sequence > (record.sequenceFloor ?? 0))
+                  .map((item) => item.sequence),
+              )),
+        );
+        const status = statusIndex >= 0 ? unmatched.splice(statusIndex, 1)[0] : undefined;
+        if (!status) {
+          record.confirmedStatus ??= false;
+          continue;
+        }
+        record.sendId = status.send_id;
+        record.sequence = status.sequence;
+        record.deliveryStatus = status.state;
+        record.confirmedStatus = status.state === "confirmed";
+      }
+    } catch (error) {
+      metrics.errors ??= [];
+      metrics.errors.push(`delivery status for tab ${tabId}: ${error instanceof Error ? error.message : String(error)}`);
+      for (const record of records) record.confirmedStatus ??= false;
+    }
   }
 }
 
@@ -755,14 +852,16 @@ export async function disposeAgent(api: ApiClient, agent: AgentUi): Promise<void
 }
 
 export function recordMetrics(metrics: ProviderMetrics): Record<string, unknown> {
-  const received = metrics.records.filter((record) => record.audited && (record.receiptCount ?? 0) > 0).length;
+  const receivedInSession = metrics.records.filter((record) => record.receivedInSession === true).length;
+  const confirmedStatus = metrics.records.filter((record) => record.confirmedStatus === true).length;
   const duplicated = metrics.records.reduce(
-    (total, record) => total + Math.max(0, (record.receiptCount ?? 0) - 1),
+    (total, record) => total + Math.max(0, (record.markerCount ?? 0) - 1),
     0,
   );
   const lost = metrics.records.filter(
-    (record) => record.receiptCount === undefined || record.receiptCount === 0,
+    (record) => record.receivedInSession !== true,
   ).length;
+  const unconfirmed = metrics.records.filter((record) => record.confirmedStatus !== true).length;
   const latencies = metrics.records
     .filter((record) => record.deliveredAt !== undefined)
     .map((record) => record.deliveredAt! - record.submittedAt);
@@ -770,10 +869,25 @@ export function recordMetrics(metrics: ProviderMetrics): Record<string, unknown>
     provider: metrics.provider.display_name ?? metrics.provider.id,
     providerId: metrics.provider.id,
     skipped: metrics.skipped,
+    errors: metrics.errors,
     sent: metrics.records.length,
-    received,
+    received_in_session: receivedInSession,
+    confirmed_status: confirmedStatus,
+    unconfirmed,
     duplicated,
     lost,
+    sends: metrics.records.map((record) => ({
+      send_id: record.sendId ?? null,
+      tab_id: record.tabId,
+      marker: record.bubbleMarker,
+      received_in_session: record.receivedInSession ?? false,
+      marker_count: record.markerCount ?? null,
+      session_bound: record.sessionBound ?? false,
+      confirmed_status: record.confirmedStatus ?? false,
+      status: record.deliveryStatus ?? null,
+      receipt_count: record.receiptCount ?? null,
+    })),
+    received: receivedInSession,
     maxComposerToFirstStatusMs: Math.max(
       0,
       ...metrics.records
