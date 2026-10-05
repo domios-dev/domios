@@ -338,11 +338,14 @@ fn queued_user_head_releases_through_actual_current_nonce_acknowledgment() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
-fn stale_nonce_or_rebound_pty_acknowledgment_cannot_release_queued_user_owner() {
-    use crate::service::parked_user_delivery::tests::{queue_fixture, UserSubmitBoundary};
+fn stale_nonce_ack_does_not_release_and_rebound_launch_expires_queued_user_owner() {
+    use crate::service::parked_user_delivery::tests::{
+        await_owner_idle, queue_fixture, UserSubmitBoundary,
+    };
     let (fixture, tab_id) = queue_fixture(false, None);
     let first = fixture.service.start_chat_send(&tab_id, "opaque-held-first".into(), None, None).unwrap();
     let second = fixture.service.start_chat_send(&tab_id, "opaque-held-second".into(), None, None).unwrap();
+    await_owner_idle(&fixture, &tab_id);
     let writes = Arc::new(AtomicUsize::new(0));
     let count = writes.clone();
     let _boundary = UserSubmitBoundary::install(&tab_id, Arc::new(move |_, _| {
@@ -354,8 +357,18 @@ fn stale_nonce_or_rebound_pty_acknowledgment_cannot_release_queued_user_owner() 
         "opaque-provider", "opaque-session", Some("opaque-old-nonce"),
     );
     assert!(refused.is_err());
-    fixture.service.drain_user_owner(&tab_id).unwrap();
+    await_owner_idle(&fixture, &tab_id);
     assert_eq!(writes.load(Ordering::SeqCst), 0);
+    let retained = fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab_id)
+        .unwrap();
+    assert_eq!(retained.len(), 2);
+    assert_eq!(retained[0].send_id, first.send_id);
+    assert_eq!(retained[1].send_id, second.send_id);
+
     fixture.service.mux.write().get_tab_mut(&tab_id).unwrap().pty_id = Some("opaque-new-pty".into());
     let claim = bind_reported_session(
         &fixture.service.mux, fixture.service.agent_registry.as_ref(), &tab_id,
@@ -365,9 +378,22 @@ fn stale_nonce_or_rebound_pty_acknowledgment_cannot_release_queued_user_owner() 
         &fixture.service, &tab_id, &claim, Some("opaque-current-nonce"),
     ).unwrap();
     assert_eq!(identity.pty_id, "opaque-new-pty");
-    fixture.service.drain_user_owner(&tab_id).unwrap();
+    await_owner_idle(&fixture, &tab_id);
     assert_eq!(writes.load(Ordering::SeqCst), 0);
-    let reopened = crate::service::pending_delivery_payloads::user_sends::UserSendStore::open(fixture.temp.path()).unwrap();
-    assert_eq!(reopened.original(&tab_id, &first.send_id).unwrap(), "opaque-held-first");
-    assert_eq!(reopened.original(&tab_id, &second.send_id).unwrap(), "opaque-held-second");
+    let store = &fixture.service.pending_delivery_payloads.user_sends;
+    let remaining = store.records(&tab_id).unwrap();
+    assert!(
+        remaining.is_empty(),
+        "rebound authority {:#?} left queued records {remaining:#?}",
+        fixture.service.user_send_authority(&tab_id).unwrap(),
+    );
+    for send_id in [&first.send_id, &second.send_id] {
+        let status = fixture.service.chat_send_ledger.status(send_id).unwrap();
+        assert_eq!(
+            status.state,
+            crate::service::chat_send_transaction::ChatSendState::Failed
+        );
+        assert_eq!(status.error.as_deref(), Some("launch_ended_before_write"));
+        assert!(store.original(&tab_id, send_id).is_err());
+    }
 }
