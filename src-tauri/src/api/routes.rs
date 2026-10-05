@@ -131,6 +131,10 @@ pub fn create_router(state: AppState) -> Router {
             "/api/automation/sentinels/{id}/stop",
             post(super::automation_graph_routes::stop),
         )
+        .route(
+            "/api/automation/sentinels/{id}",
+            axum::routing::delete(super::automation_graph_routes::delete),
+        )
         .route("/api/cli/rpc", post(super::cli_rpc_routes::dispatch))
         .route("/api/fs/list-dir", get(fs_routes::list_dir))
         .route("/api/fs/mkdir", post(fs_routes::mkdir))

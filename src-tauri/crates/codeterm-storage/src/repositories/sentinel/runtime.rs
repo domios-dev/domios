@@ -811,6 +811,51 @@ pub(crate) fn remove_team_rows(
     Ok(ids.into_iter().map(SentinelId::trusted).collect())
 }
 
+pub(super) fn delete_scenario(
+    cx: &mut WriteCx<'_>,
+    id: SentinelId,
+    workspace: &str,
+    team: Option<&str>,
+) -> Result<SentinelCommit, StorageError> {
+    let ids: Vec<String> = {
+        let mut statement = cx
+            .conn
+            .prepare_cached(
+                "SELECT id FROM sentinels WHERE workspace_id = ?1 AND team_id IS ?2 \
+             AND (id = ?3 OR scenario_id = ?3) ORDER BY ordinal",
+            )
+            .map_err(|e| sqlite_error("read scenario sentinels", e))?;
+        let rows = statement
+            .query_map(params![workspace, team, id.as_str()], |row| row.get(0))
+            .map_err(|e| sqlite_error("read scenario sentinels", e))?;
+        rows.collect::<Result<_, _>>()
+            .map_err(|e| sqlite_error("read scenario sentinels", e))?
+    };
+    if ids.is_empty() {
+        return Ok(SentinelCommit::fenced(Fence::Missing, None));
+    }
+    for table in OWNED_TABLES {
+        cx.write(
+            &format!(
+                "DELETE FROM {table} WHERE sentinel_id IN \
+                 (SELECT id FROM sentinels WHERE workspace_id = ?1 AND team_id IS ?2 \
+                  AND (id = ?3 OR scenario_id = ?3))"
+            ),
+            params![workspace, team, id.as_str()],
+        )?;
+    }
+    cx.write(
+        "DELETE FROM sentinels WHERE workspace_id = ?1 AND team_id IS ?2 \
+         AND (id = ?3 OR scenario_id = ?3)",
+        params![workspace, team, id.as_str()],
+    )?;
+    Ok(SentinelCommit {
+        outcome: MutationOutcome::Applied,
+        sentinels: Vec::new(),
+        removed: ids.into_iter().map(SentinelId::trusted).collect(),
+    })
+}
+
 pub(super) fn remove_team(
     cx: &mut WriteCx<'_>,
     team: &str,
