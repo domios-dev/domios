@@ -189,7 +189,8 @@ fn sentinel_removed_observation_tab_stops_with_one_creator_notice() {
         )
         .unwrap();
 
-    let failure = super::observe(&fixture.service, &job).unwrap_err();
+    let binding = job.observe.as_ref().unwrap();
+    let failure = super::observe(&fixture.service, &job, binding).unwrap_err();
     assert_eq!(failure.reason(), "sentinel_observation_tab_removed");
 
     let store = std::sync::Arc::new(parking_lot::Mutex::new(store));
@@ -239,7 +240,7 @@ fn sentinel_cron_run_scope_accepts_only_its_verified_hidden_automation_tab() {
             Owner {
                 creator_tab_id: creator,
                 team_id: Some("creator-team".into()),
-                workspace_id: workspace,
+                workspace_id: workspace.clone(),
                 cwd: ".".into(),
             },
             true,
