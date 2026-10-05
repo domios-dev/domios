@@ -599,6 +599,8 @@ pub(crate) fn attach_fixture_pty(fixture: &ServiceFixture, tab_id: &str) -> u64 
 
 #[path = "tests/owner_jev.rs"]
 mod owner_jev;
+#[path = "tests/ended_launch.rs"]
+mod ended_launch;
 mod evidence;
 
 #[test]
@@ -641,7 +643,7 @@ fn restored_head_waits_with_reason_then_writes_once_after_current_nonce_binding(
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
-fn pre_ready_user_sends_are_held_then_flushed_in_admission_order() {
+fn current_launch_pre_ready_user_sends_are_held_then_flushed_in_admission_order() {
     let (fixture, tab) = queue_fixture(true, None);
     let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
     let second = start_current_chat_send(&fixture, &tab, SECOND_PAYLOAD, "client-b");
@@ -654,6 +656,9 @@ fn pre_ready_user_sends_are_held_then_flushed_in_admission_order() {
     fixture.service.drain_user_owner(&tab).unwrap();
     await_owner_idle(&fixture, &tab);
     assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    let queued = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
+    assert_eq!(queued.len(), 2);
+    assert!(queued.iter().all(|record| record.authority.binding_nonce == "opaque-current-nonce"));
     for accepted in [&first, &second] {
         let status = fixture.service.chat_send_ledger.status(&accepted.send_id).unwrap();
         assert_eq!(status.state, ChatSendState::Pending);
