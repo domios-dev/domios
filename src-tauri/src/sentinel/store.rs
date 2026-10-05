@@ -1010,7 +1010,8 @@ impl Sentinel {
                 .chain(&self.on_other)
                 .map(|handler| &handler.action)
         };
-        if actions().any(|action| matches!(action, Route::RespondPrompt(_))) {
+        // Answering a prompt needs an observed agent tab; a shell probe has no prompt to answer.
+        if self.observe.is_none() && actions().any(|action| matches!(action, Route::RespondPrompt(_))) {
             Some("respond_prompt")
         } else {
             None
