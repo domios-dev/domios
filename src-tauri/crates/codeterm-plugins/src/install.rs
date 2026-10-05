@@ -429,5 +429,27 @@ pub(super) fn manifest_requires_reload(dir: &Path) -> bool {
 pub(super) fn manifest_hash(dir: &Path) -> Result<String, String> {
     let path = dir.join("plugin.json");
     let bytes = fs::read(&path).map_err(|e| format!("read {}: {e}", path.display()))?;
-    Ok(format!("{:x}", Sha256::digest(&bytes)))
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|e| format!("parse {}: {e}", path.display()))?;
+    let canonical = canonicalize_manifest(manifest);
+    let canonical_bytes = serde_json::to_vec(&canonical).map_err(|e| e.to_string())?;
+    Ok(format!("{:x}", Sha256::digest(canonical_bytes)))
+}
+
+fn canonicalize_manifest(value: serde_json::Value) -> serde_json::Value {
+    match value {
+        serde_json::Value::Object(object) => {
+            let mut entries: Vec<_> = object.into_iter().collect();
+            entries.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+            let mut canonical = serde_json::Map::new();
+            for (key, value) in entries {
+                canonical.insert(key, canonicalize_manifest(value));
+            }
+            serde_json::Value::Object(canonical)
+        }
+        serde_json::Value::Array(values) => {
+            serde_json::Value::Array(values.into_iter().map(canonicalize_manifest).collect())
+        }
+        value => value,
+    }
 }

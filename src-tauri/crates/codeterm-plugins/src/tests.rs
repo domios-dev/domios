@@ -588,6 +588,89 @@ mod store_index_tests {
         });
     }
 
+    #[test]
+    fn channel_install_with_reformatted_manifest_is_up_to_date() {
+        with_data_root(|root| {
+            let channel_root = channels_root().join("manifest-format");
+            let source_plugin = channel_root.join("format-plugin");
+            std::fs::create_dir_all(&source_plugin).unwrap();
+            let remote_manifest = concat!(
+                "{\r\n",
+                "  \"id\": \"format-plugin\",\r\n",
+                "  \"version\": \"1.0.0\",\r\n",
+                "  \"displayName\": \"Format Plugin\",\r\n",
+                "  \"entry\": \"plugin.js\"\r\n",
+                "}\r\n"
+            );
+            std::fs::write(source_plugin.join("plugin.json"), remote_manifest).unwrap();
+            std::fs::write(source_plugin.join("plugin.js"), "module.exports = {};").unwrap();
+            std::fs::write(
+                channel_root.join("channel.json"),
+                serde_json::json!({
+                    "schemaVersion": 1,
+                    "name": "manifest-format",
+                    "plugins": [{
+                        "id": "format-plugin",
+                        "version": "1.0.0",
+                        "path": "format-plugin"
+                    }]
+                })
+                .to_string(),
+            )
+            .unwrap();
+            write_channel_registry(&ChannelRegistry {
+                channels: BTreeMap::from([(
+                    "manifest-format".to_string(),
+                    ChannelRecord {
+                        name: "manifest-format".to_string(),
+                        url: format!("file://{}", root.join("missing-source").display()),
+                        path: channel_root.display().to_string(),
+                        kind: ChannelKind::Local,
+                    },
+                )]),
+            })
+            .unwrap();
+
+            install_command(
+                Some("format-plugin".to_string()),
+                None,
+                None,
+                Some("manifest-format".to_string()),
+            )
+            .expect("channel install must succeed from its cached manifest");
+
+            let installed_manifest =
+                plugin_dir(&PluginId::validated("format-plugin")).join("plugin.json");
+            let installed_bytes = std::fs::read(&installed_manifest).unwrap();
+            let remote_bytes = std::fs::read(source_plugin.join("plugin.json")).unwrap();
+            assert_ne!(installed_bytes, remote_bytes);
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&installed_bytes).unwrap(),
+                serde_json::from_slice::<serde_json::Value>(&remote_bytes).unwrap()
+            );
+
+            let row = &channel_diff(Some("manifest-format")).unwrap()["diff"][0];
+            assert_eq!(row["local_version"], "1.0.0");
+            assert_eq!(row["remote_version"], "1.0.0");
+            assert_eq!(row["local_manifest_hash"], row["remote_manifest_hash"]);
+            assert_eq!(row["drift"], "up_to_date");
+
+            let changed_manifest = serde_json::json!({
+                "id": "format-plugin",
+                "version": "1.0.0",
+                "displayName": "Changed Plugin",
+                "entry": "plugin.js"
+            });
+            std::fs::write(
+                source_plugin.join("plugin.json"),
+                serde_json::to_vec_pretty(&changed_manifest).unwrap(),
+            )
+            .unwrap();
+            let changed_row = &channel_diff(Some("manifest-format")).unwrap()["diff"][0];
+            assert_eq!(changed_row["drift"], "hash_drift");
+        });
+    }
+
     // The refresh swap must keep the cache continuously readable; the old remove_dir_all + rename
     // left `ch.path` absent mid-publish.
     #[test]
