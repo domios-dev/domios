@@ -368,7 +368,7 @@ impl ServiceContext {
         let source = if verdict.is_some() {
             identity::DecisionSource::Adapter
         } else {
-            identity::DecisionSource::Error
+            identity::DecisionSource::unavailable()
         };
         let title = receipt.map_or(tab, |receipt| receipt.metadata.title.as_str());
         let mut event = identity::journal(

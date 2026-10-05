@@ -273,7 +273,7 @@ fn supporter_first_opinion_model_first_selection_defers_the_heuristic_per_arm() 
         ),
         (
             Some(Err(DecisionError::Unsupported)),
-            identity::DecisionSource::Error,
+            identity::DecisionSource::error(&DecisionError::Unsupported),
         ),
     ] {
         let before = calls.load(Ordering::SeqCst);
