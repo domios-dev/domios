@@ -50,6 +50,14 @@ import type {
   SendRecord,
 } from "./chat-send-matrix.live.helpers";
 
+function requestedProviderIds(): Set<string> | undefined {
+  const raw = process.env.PW_SEND_PROVIDERS;
+  if (raw === undefined || raw.trim() === "") return undefined;
+  const ids = raw.split(",").map((id) => id.trim()).filter(Boolean);
+  expect(ids.length, "PW_SEND_PROVIDERS lists capability ids").toBeGreaterThan(0);
+  return new Set(ids);
+}
+
 test.describe.configure({ retries: 0 });
 
 test("@live Chat UI sends are exact-once across available PTY providers", async ({
@@ -59,9 +67,18 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
 }, testInfo) => {
   test.setTimeout(TEST_TIMEOUT_MS);
   const repeats = repeatCount();
+  const requestedIds = requestedProviderIds();
   const runId = randomUUID().replace(/-/g, "");
   const workspaceName = `pw-send-${runId}`;
-  const providers = (await api.providers()).filter((provider) => provider.transport === "pty");
+  const capabilities = (await api.providers()).filter((provider) => provider.transport === "pty");
+  if (requestedIds) {
+    const capabilityIds = new Set(capabilities.map((provider) => provider.id));
+    const unknownIds = [...requestedIds].filter((id) => !capabilityIds.has(id));
+    expect(unknownIds, "PW_SEND_PROVIDERS matches advertised PTY capability ids").toEqual([]);
+  }
+  const providers = requestedIds
+    ? capabilities.filter((provider) => requestedIds.has(provider.id))
+    : capabilities;
   expect(providers.length, "/agents/providers reports PTY providers").toBeGreaterThan(0);
 
   const metrics = new Map<string, ProviderMetrics>();
