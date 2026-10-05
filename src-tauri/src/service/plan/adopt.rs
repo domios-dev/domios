@@ -56,8 +56,10 @@ impl AdoptPlanExt for PlanStore {
             &request,
             task_count,
         );
+        let destination_taken =
+            destination_exists(&target_dir, &plan.id) || self.get(&plan.id).is_some();
         let report = AdoptPlanReport {
-            ok: request.overwrite || !destination_exists(&target_dir, &plan.id),
+            ok: request.overwrite || !destination_taken,
             dry_run: request.dry_run,
             moved: request.remove_source && !request.dry_run,
             plan_id: plan.id.clone(),
@@ -70,7 +72,7 @@ impl AdoptPlanExt for PlanStore {
         if request.dry_run {
             return Ok(report);
         }
-        if !request.overwrite && destination_exists(&target_dir, &plan.id) {
+        if !request.overwrite && destination_taken {
             return Err(PlanError::Io(format!(
                 "destination plan '{}' already exists at {}; rerun with --overwrite",
                 plan.id,
