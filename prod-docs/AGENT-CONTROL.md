@@ -44,6 +44,12 @@ Domios has a 2-level role hierarchy: Orchestrator (depth 1) -> Worker (depth 2).
 
 Backward-compat alias: `Conductor` -> `Orchestrator`.
 
+**Placement rules.** The backend refuses a parent for an Orchestrator (`Orchestrator cannot have a parent`), requires a Worker's `--parent-tab` to be a spawning parent such as its Orchestrator, and refuses to make a tab that already has a parent an Orchestrator (`already in a hierarchy`). There is no middle coordinator: a sub-task that needs its own tree goes to a fresh Orchestrator spawned with `--workspace` in its own workspace, which owns the whole sub-request; a concrete leaf goes to a Worker under you. Workers fan out in parallel, one task each.
+
+**Briefs.** Pass a brief with `--task-file PATH` or `--task-file -` fed by a single-quoted heredoc. The CLI refuses a multiline or over-240-character inline `--task`, because the shell has already expanded its backticks, `$`, quotes and newlines; a short scalar such as `--task "run tests"` stays fine. Every Worker brief names its report command, or the Worker finishes without reporting.
+
+**Worker discipline.** A Worker executes its one task, reports with `codeterm agent report`, and stops: no spawning, sleeping or polling, and no "also do X" scope creep. A task too big for one Worker is reported `blocked` with the needed decomposition, so the Orchestrator splits it.
+
 **Push-based reports:** Reports go to the spawning Orchestrator, auto-injected into its PTY as `[Report from Name] message\r`, so Claude sees them as user input -- no polling needed.
 
 ```bash
@@ -160,4 +166,4 @@ Domios tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->
