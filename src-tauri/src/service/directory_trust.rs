@@ -719,6 +719,7 @@ impl ServiceContext {
                         &tab,
                         "directory_trust",
                         format!("directory-trust:{expected:?}"),
+                        Some(format!("{expected:?}")),
                     )
             },
         );
@@ -780,6 +781,7 @@ impl ServiceContext {
                         &tab,
                         "onboarding",
                         format!("onboarding:{}", expected.frame_key),
+                        Some(format!("{:?}", expected.step)),
                     )
                 },
             );

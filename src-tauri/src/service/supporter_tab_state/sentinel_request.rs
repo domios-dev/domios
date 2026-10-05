@@ -5,7 +5,7 @@ use std::time::{Duration, Instant};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 
-use super::{identity, safe_response, state, ServiceContext, ShadowHost};
+use super::{identity, safe_response, ServiceContext, ShadowHost};
 use crate::agent::tab_state::TabStateSnapshot;
 use crate::multiplexer::types::Tab;
 use crate::sentinel::machine::SafeKind;
@@ -19,7 +19,7 @@ static GLOBAL_REQUESTS: LazyLock<Mutex<VecDeque<Instant>>> = LazyLock::new(Defau
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RequestEffect {
-    Completed(u64),
+    Held(Option<u64>),
     AlreadyClaimed,
 }
 
@@ -164,12 +164,11 @@ impl ServiceContext {
         };
         if self.scrape_model_connected() {
             self.observe_sentinel_prompt_candidate(snapshot, &local, kind, requested_by, None)
-                .map(RequestEffect::Completed)
+                .map(|observation_id| RequestEffect::Held(Some(observation_id)))
                 .ok_or(RequestRefusal::ObservationUnavailable)
         } else {
-            let observation_id = state::next_observation_id();
             self.resolve_scrape_candidate_fallback(&snapshot);
-            Ok(RequestEffect::Completed(observation_id))
+            Ok(RequestEffect::Held(None))
         }
     }
 }

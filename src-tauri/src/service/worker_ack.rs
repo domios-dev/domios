@@ -281,7 +281,11 @@ impl WorkerAckRegistry {
             return AgentStartupArm::AlreadyAcknowledged;
         }
         if task_acknowledged {
-            acknowledged.insert(authority.child_tab_id.clone(), authority);
+            let tab_id = authority.child_tab_id.clone();
+            acknowledged.insert(tab_id, authority.clone());
+            drop(acknowledged);
+            drop(startup_waiters);
+            self.clear_startup_supervisor(&authority);
             return AgentStartupArm::AlreadyAcknowledged;
         }
         acknowledged.remove(&authority.child_tab_id);

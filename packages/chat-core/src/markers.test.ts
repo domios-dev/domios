@@ -12,7 +12,12 @@ import {
   parseMarker,
   shortTabRef,
 } from "./markers";
-import { buildDomiosOpeningTag, parseDomiosMessage } from "./domios";
+import {
+  buildDomiosMessage,
+  buildDomiosOpeningTag,
+  DOMIOS_TYPED_INSTRUCTION,
+  parseDomiosMessage,
+} from "./domios";
 
 let passed = 0,
   failed = 0;
@@ -61,6 +66,16 @@ eq(
   buildDomiosOpeningTag({ from: "tab", label: "first\nsecond" }),
   '<domios from="tab" label="first second">',
   "typed route attributes cannot add a line break",
+);
+const typedDomios = buildDomiosMessage(
+  { from: "tab", tab: "abc12345" },
+  "opaque routed body",
+  ` [to reply, run: codeterm send "YOUR REPLY" --tab abc12345] ${DOMIOS_TYPED_INSTRUCTION}`,
+);
+eq(
+  parseDomiosMessage(typedDomios)?.body,
+  "opaque routed body",
+  "typed instruction is stripped from the routed message body",
 );
 eq(parseMarker("-=-codeterm:tab label=Main tab=abc12345-=-body"), null, "legacy route grammar is rejected");
 

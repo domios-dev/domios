@@ -661,7 +661,7 @@ fn sentinel_respond_prompt_preapproved_folder_trust_uses_declared_target() {
             &expected,
             "sentinel_fixture",
         ),
-        Ok(crate::service::supporter_tab_state::sentinel_request::RequestEffect::Completed(_))
+        Ok(crate::service::supporter_tab_state::sentinel_request::RequestEffect::Held(_))
     ));
     assert_eq!(
         crate::service::output::prompt_step_dispatch_count_for_test(&pty),
