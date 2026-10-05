@@ -71,6 +71,7 @@ struct Entry {
 #[derive(Default)]
 pub(crate) struct Gate {
     entries: Mutex<HashMap<String, Entry>>,
+    blocker_notices: Mutex<HashSet<String>>,
     epochs: AtomicU64,
 }
 
@@ -97,6 +98,10 @@ impl Drop for Claim<'_> {
 }
 
 impl Gate {
+    pub(crate) fn claim_blocker_notice(&self, event_key: &str) -> bool {
+        self.blocker_notices.lock().insert(event_key.to_string())
+    }
+
     fn entry<'m>(
         &self,
         entries: &'m mut HashMap<String, Entry>,

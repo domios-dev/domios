@@ -38,6 +38,8 @@ Close refuses while a Team task is in progress or a Worker is working unless for
 
 With plan reminders enabled, an active execution plan with actionable work and no live task-bound Worker may nudge its idle Orchestrator. Lifecycle and idle events trigger the check. Like every automatic plan reminder, the nudge is sent only on the connected [Supporter's](supporter-agent.md) approval. The same stall episode produces at most one delivery attempt: a suppressed nudge leaves it eligible, and live work or a changed actionable set opens a new one. The nudge leaves dispatch and task decisions with the Orchestrator and never resumes a paused plan.
 
+A validated blocked verdict sends no reminder to that recipient. It creates one host-authored owner notice per distinct blocker, with choices to wait, pause the plan or decide. The notice proposes pausing when its blocker stops every actionable task. After a reminder is accepted, unrelated plan changes do not repeat it for the same recipient; that recipient's task status, assignment, report or new owner message must change first.
+
 Team utility work reports back to its coordinating agent through the message gateway. Readiness requires observed health; command completion carries its outcome and failure evidence. A failed command or an empty test selection cannot become a passing QA report. Changing the development instance being checked must not redirect the report away from its caller. These are repository toolchain responsibilities, not a new core service.
 
 ```map
