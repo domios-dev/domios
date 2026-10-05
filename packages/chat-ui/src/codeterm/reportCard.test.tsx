@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { InboundReportCard, parseInboundReport } from "./InboundReportCard";
 import { OutboundReportCard, type OutboundReportDescriptor } from "./OutboundReportCard";
-import { parseDeliveredTaskOutcome, reportContentBody, reportVerdict, shortSha } from "./reportOutcome";
+import { parseDeliveredTaskOutcome, reportContentBody, reportOutcomeLine, reportVerdict, shortSha } from "./reportOutcome";
 
 const window = new Window({ url: "http://localhost/" });
 for (const [name, value] of Object.entries({ window, document: window.document, navigator: window.navigator, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node })) {
@@ -63,6 +63,17 @@ async function main(): Promise<void> {
     reportVerdict("Done", { persisted: false, transitionRejected: true, cause: null })
       === "transition rejected",
     "a refused transition did not win the header verdict",
+  );
+  const blockProposal = {
+    persisted: true,
+    transitionRejected: false,
+    cause: null,
+    reportOutcome: "block_proposed" as const,
+  };
+  assert(reportVerdict("Blocked", blockProposal) === "Block proposed", "proposal verdict was hidden");
+  assert(
+    reportOutcomeLine(blockProposal)?.includes("status is unchanged"),
+    "proposal card implied that the task had already moved to blocked",
   );
 
   // Inbound: one dense header row, then the summary — no repeated metadata rows.
