@@ -23,7 +23,7 @@ async function main() {
   });
   __setListenForTest(async () => () => undefined);
   const { WorkspaceAutomationView } = await import("./WorkspaceAutomationView");
-  const { WorkspaceAutomationAction } = await import("./WorkspaceAutomationAction");
+  const { WorkspaceNavigationActions } = await import("../Sidebar/WorkspaceNavigationActions");
   const { ALL_JOBS } = await import("../Jobs/jobsModel");
   const team: Team = { id: attachment.team_id!, workspace_id: attachment.workspace_id, name: "Sentinel-only Team", lifecycle: "active", created_at: 0 };
   const foreign = { ...team, id: "foreign-team", name: "Foreign Team", workspace_id: "foreign-workspace" };
@@ -38,7 +38,7 @@ async function main() {
   let closed = 0;
   function Harness({ teams = [team, foreign] }: { teams?: Team[] }) {
     const [workspaceId, setWorkspaceId] = useState<string | null>(null);
-    return <><WorkspaceAutomationAction workspaceId={attachment.workspace_id} workspaceName="Workspace A" onOpen={setWorkspaceId} />{workspaceId && <WorkspaceAutomationView workspaceId={workspaceId} teams={teams} adapter={transport} onClose={() => { closed++; setWorkspaceId(null); }} />}</>;
+    return <><WorkspaceNavigationActions workspaceId={attachment.workspace_id} workspaceName="Workspace A" onOpenJobs={setWorkspaceId} onOpenMap={() => {}} />{workspaceId && <WorkspaceAutomationView workspaceId={workspaceId} teams={teams} adapter={transport} onClose={() => { closed++; setWorkspaceId(null); }} />}</>;
   }
   const selectTeam = async () => {
     const select = host.querySelector<HTMLSelectElement>('select[aria-label="Jobs Team"]');
@@ -47,7 +47,7 @@ async function main() {
   };
   try {
     await renderAct(async () => root.render(<Harness />));
-    const action = host.querySelector<HTMLButtonElement>('[data-testid="workspace-automation-action"]');
+    const action = host.querySelector<HTMLButtonElement>('button[aria-label="Jobs"]');
     assert.ok(action);
     await renderAct(async () => { action.focus(); action.click(); });
     assert.ok(host.querySelector('section[aria-label="Jobs"]'));

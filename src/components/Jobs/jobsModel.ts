@@ -45,3 +45,7 @@ export function clearableJobs(jobs: readonly MergedJob[]): MergedJob[] {
     ? !job.cron.enabled && cronState(job.cron) !== "Running"
     : ["stopped", "expired", "finished"].includes(job.state.toLowerCase()));
 }
+
+export function activeJobsCount(workspaceId: string, crons: readonly CronJob[], sentinels: readonly SentinelJob[]): number {
+  return mergeJobs(workspaceId, ALL_JOBS, crons, sentinels).filter((job) => job.active).length;
+}

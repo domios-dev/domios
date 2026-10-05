@@ -13,8 +13,8 @@ import { anchorsTeam } from "../../lib/roleKind";
 import { TerminalIcon, FolderIcon, FolderPlusIcon, ExtensionsIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
-import { WorkspaceAutomationAction } from "../Automation/WorkspaceAutomationAction";
 import { WorkspaceItem } from "./WorkspaceItem";
+import { LiveWorkspaceNavigationActions, WorkspaceNavigationActions } from "./WorkspaceNavigationActions";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RecentlyClosed } from "./RecentlyClosed";
 import {
@@ -669,7 +669,7 @@ export function Sidebar({
                     role="region"
                     aria-label={`${generalWorkspace.name} workspace contents`}
                   >
-                    <div className="sidebar-structural-header w-full">
+                    <div className="sidebar-structural-header sidebar-general-header w-full">
                       <SidebarDisclosure
                         data-testid="general-section-toggle"
                         className="sidebar-structural-toggle min-w-0"
@@ -678,8 +678,16 @@ export function Sidebar({
                       >
                         <span className="sidebar-structural-label">GENERAL</span>
                       </SidebarDisclosure>
-                      {onOpenWorkspaceAutomation && <WorkspaceAutomationAction workspaceId={generalWorkspace.id} workspaceName={generalWorkspace.name} onOpen={onOpenWorkspaceAutomation} touchMode={touchMode} />}
                     </div>
+                    {(onOpenWorkspaceMap || onOpenWorkspaceAutomation) && (onOpenWorkspaceAutomation
+                      ? <LiveWorkspaceNavigationActions
+                        workspaceId={generalWorkspace.id}
+                        workspaceName={generalWorkspace.name}
+                        onOpenMap={onOpenWorkspaceMap}
+                        onOpenJobs={onOpenWorkspaceAutomation}
+                        touchMode={touchMode}
+                      />
+                      : <WorkspaceNavigationActions workspaceId={generalWorkspace.id} workspaceName={generalWorkspace.name} onOpenMap={onOpenWorkspaceMap} touchMode={touchMode} />)}
                     {generalExpanded && <SidebarWorkspaceTabs
                       workspace={generalWorkspace}
                       activeTabId={state.activeTabIds[generalWorkspace.id] ?? null}
@@ -838,6 +846,7 @@ export function Sidebar({
                       showDisclosure={false}
                       detailHeader
                       touchMode={touchMode}
+                      countActiveJobs={selected}
                       uiFontScale={uiFontScale}
                     />
                     <SidebarWorkspaceTabs
