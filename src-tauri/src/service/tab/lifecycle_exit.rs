@@ -71,13 +71,6 @@ fn clear_agent_identity_with_prompt(
 }
 
 impl ServiceContext {
-    pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit(&self, tab_id: &str) -> bool {
-        self.clear_tab_agent_identity_for_lifecycle_exit_with_cause(
-            tab_id,
-            "agent identity cleared on lifecycle exit",
-        )
-    }
-
     pub(crate) fn clear_tab_agent_identity_for_lifecycle_exit_with_cause(
         &self,
         tab_id: &str,
@@ -184,33 +177,28 @@ impl ServiceContext {
         if !self.lifecycle_clear_allowed(tab_id, cause, shutdown.as_ref()) {
             return false;
         }
+        if !self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.exit_suspected_at.is_some())
+        {
+            return self.refuse_lifecycle_identity_clear(
+                tab_id,
+                cause,
+                "provider_exit_marker_not_observed",
+            );
+        }
         let pty_id = self
             .mux
             .read()
             .get_tab(tab_id)
             .and_then(|tab| tab.pty_id.clone());
         let Some(pty_id) = pty_id else {
-            let (cleared, prompt_identity) = {
-                let mut mux = self.mux.write();
-                mux.get_tab_mut(tab_id)
-                    .map_or((false, None), |tab| clear_agent_identity_with_prompt(tab))
-            };
-            crate::service::launch_readiness::owner_prompt_cleared(tab_id);
-            return self.finish_agent_identity_clear(
-                tab_id,
-                cause,
-                cleared,
-                prompt_identity,
-                "lifecycle-clear",
-                "tab_has_no_live_pty_tree",
-            );
+            return self.refuse_lifecycle_identity_clear(tab_id, cause, "tab_has_no_live_pty_tree");
         };
-        if self.pty.lock().get_session(&pty_id).is_none() {
-            return self.clear_tab_agent_identity_after_confirmed_exit_with_evidence(
-                tab_id,
-                cause,
-                "pty_manager_session_absent",
-            );
+        if !self.pty_child_is_live(&pty_id) {
+            return self.refuse_lifecycle_identity_clear(tab_id, cause, "tab_pty_child_not_live");
         }
         let Some(tree) = self.observe_provider_process_tree(tab_id, &pty_id) else {
             return self.refuse_lifecycle_identity_clear(
@@ -320,6 +308,13 @@ impl ServiceContext {
             return false;
         }
         let attempt = proof.attempt();
+        if !self.pty_child_is_live(&attempt.pty_id) {
+            return self.refuse_lifecycle_identity_clear(
+                tab_id,
+                cause,
+                "finished_marker_pty_child_not_live",
+            );
+        }
         let key_matches = self
             .provider_tree_key_for_tab(tab_id, &attempt.pty_id)
             .is_some_and(|key| proof.tree_key().is_some_and(|proof_key| &key == proof_key));
