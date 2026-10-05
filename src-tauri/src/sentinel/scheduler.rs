@@ -253,6 +253,7 @@ mod tests {
         let clock = crate::cron::clock::MockClock::starting_at(1_000);
         let mut store = Store::new(temp.path().join("sentinels.json"), clock.clone());
         let params: Create = serde_json::from_value(json!({
+            "name": "scheduler-readiness-watch",
             "probe": "status",
             "question": "ready?",
             "buckets": ["done"],

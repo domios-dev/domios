@@ -269,6 +269,7 @@ mod tests {
         let job = store
             .create(
                 serde_json::from_value(serde_json::json!({
+                    "name": "escalation-packet-watch",
                     "probe": "status",
                     "question": "state?",
                     "buckets": ["done"],

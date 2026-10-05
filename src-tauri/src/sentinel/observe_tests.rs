@@ -73,7 +73,7 @@ fn sentinel_observe_source_requires_agent_in_creator_team_workspace() {
     let job = store
         .prepare(
             Create {
-                name: None,
+                name: Some("observed-state-watch".into()),
                 probe: None,
                 observe: Some(TabBinding::Tab(bound.clone())),
                 question: "state?".into(),
@@ -120,7 +120,7 @@ fn sentinel_direct_observation_survives_creator_joining_a_team() {
     let job = store
         .prepare(
             Create {
-                name: None,
+                name: Some("creator-state-watch".into()),
                 probe: None,
                 observe: Some(TabBinding::Tab(creator.clone())),
                 question: "state?".into(),
@@ -163,7 +163,7 @@ fn sentinel_removed_observation_tab_stops_with_one_creator_notice() {
     let job = store
         .create(
             Create {
-                name: None,
+                name: Some("removed-tab-watch".into()),
                 probe: None,
                 observe: Some(TabBinding::Tab("removed-tab".into())),
                 question: "state?".into(),
@@ -221,7 +221,7 @@ fn sentinel_cron_run_scope_accepts_only_its_verified_hidden_automation_tab() {
     let mut job = store
         .prepare(
             Create {
-                name: None,
+                name: Some("cron-state-watch".into()),
                 probe: None,
                 observe: Some(TabBinding::CronRun("cron-nightly".into())),
                 question: "run state?".into(),

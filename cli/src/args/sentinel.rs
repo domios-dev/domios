@@ -2,6 +2,8 @@ use clap::Subcommand;
 
 #[derive(Subcommand)]
 pub enum SentinelAction {
+    /// List built-in graph skeletons or print one ready-to-edit recipe
+    Recipe { name: Option<String> },
     /// Classify a bounded probe or same-Team agent observation
     Create {
         /// Short meaningful name describing what is watched and what happens
@@ -329,20 +331,47 @@ mod tests {
     #[test]
     fn sentinel_create_requires_a_short_non_raw_name() {
         let base = [
-            "codeterm", "sentinel", "create", "--probe", "status", "--question", "state?",
-            "--buckets", "done",
+            "codeterm",
+            "sentinel",
+            "create",
+            "--probe",
+            "status",
+            "--question",
+            "state?",
+            "--buckets",
+            "done",
         ];
         assert!(Cli::try_parse_from(base).is_err());
         for name in ["ab", "sentinel_5d22889a8898"] {
             assert!(Cli::try_parse_from([
-                "codeterm", "sentinel", "create", "--name", name, "--probe", "status",
-                "--question", "state?", "--buckets", "done",
-            ]).is_err());
+                "codeterm",
+                "sentinel",
+                "create",
+                "--name",
+                name,
+                "--probe",
+                "status",
+                "--question",
+                "state?",
+                "--buckets",
+                "done",
+            ])
+            .is_err());
         }
         assert!(Cli::try_parse_from([
-            "codeterm", "sentinel", "create", "--name", "ci-green-watch", "--probe", "status",
-            "--question", "state?", "--buckets", "done",
-        ]).is_ok());
+            "codeterm",
+            "sentinel",
+            "create",
+            "--name",
+            "ci-green-watch",
+            "--probe",
+            "status",
+            "--question",
+            "state?",
+            "--buckets",
+            "done",
+        ])
+        .is_ok());
     }
 
     #[test]

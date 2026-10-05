@@ -541,13 +541,13 @@ mod tests {
         ) {
             use tauri::Listener;
             let fixture = Fixture::new(None);
-            let cron=fixture.state.cron.lock().create(serde_json::from_value(json!({"name":"Supplied cron","workspace_id":fixture.workspace,"creator_tab_id":fixture.creator,"schedule":"0 * * * *","task":"private task"})).unwrap()).unwrap();
+            let cron=fixture.state.cron.lock().create(serde_json::from_value(json!({"name":"nightly-ci-review","workspace_id":fixture.workspace,"creator_tab_id":fixture.creator,"schedule":"0 * * * *","task":"private task"})).unwrap()).unwrap();
             let caller = fixture
                 .runtime
                 .service
                 .sentinel_caller(&fixture.creator, Some("fixture-nonce"))
                 .unwrap();
-            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("cron:{}",cron.id)}})).unwrap()).unwrap();
+            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"name":"cron-result-watch","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("cron:{}",cron.id)}})).unwrap()).unwrap();
             let before = fixture
                 .runtime
                 .service
@@ -642,7 +642,7 @@ mod tests {
                 .service
                 .sentinel_caller(&fixture.creator, Some("fixture-nonce"))
                 .unwrap();
-            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("send:{worker}")}})).unwrap()).unwrap();
+            fixture.runtime.service.sentinel_create(&caller,serde_json::from_value(json!({"name":"agent-result-notify","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","routes":{"done":format!("send:{worker}")}})).unwrap()).unwrap();
             let before = fixture
                 .runtime
                 .service

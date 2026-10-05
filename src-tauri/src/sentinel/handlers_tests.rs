@@ -15,6 +15,7 @@ fn owner() -> Owner {
 
 fn definition() -> Value {
     json!({
+        "name": "handler-result-watch",
         "probe": "status", "question": "state?", "buckets": ["done"],
         "every": "10s", "matches": {"done": "^done$"}, "timeout": "1h"
     })

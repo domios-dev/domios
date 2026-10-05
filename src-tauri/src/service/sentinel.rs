@@ -81,6 +81,42 @@ impl ServiceContext {
         caller: &SentinelCaller,
         create: Create,
     ) -> Result<Sentinel, String> {
+        let mut job = self.prepare_sentinel_create(caller, create)?;
+        let handle = self
+            .app_handle
+            .try_state::<Handle>()
+            .ok_or("sentinels not initialized")?;
+        let staged = {
+            let mux = self.mux.read();
+            if !caller_is_live(&mux, caller) {
+                return Err("sentinel creator or Team is gone".into());
+            }
+            if let Some(crate::sentinel::source::TabBinding::Tab(tab_id)) = &job.observe {
+                source::validate_tab_scope(&mux, &job, tab_id)?;
+            }
+            validate_send_scope(&mux, &job)?;
+            let tab = mux.get_tab(&caller.tab).ok_or("sentinel creator gone")?;
+            job.agent_authored = tab.agent_type.is_some() && tab.session_binding_nonce.is_some();
+            handle.store.lock().stage_insert(job.clone())
+        };
+        staged.settle(&handle.store)?;
+        handle.notify();
+        Ok(job)
+    }
+
+    pub(crate) fn sentinel_validate_create(
+        &self,
+        caller: &SentinelCaller,
+        create: Create,
+    ) -> Result<Sentinel, String> {
+        self.prepare_sentinel_create(caller, create)
+    }
+
+    fn prepare_sentinel_create(
+        &self,
+        caller: &SentinelCaller,
+        create: Create,
+    ) -> Result<Sentinel, String> {
         let handle = self
             .app_handle
             .try_state::<Handle>()
@@ -124,39 +160,16 @@ impl ServiceContext {
             });
         }
         job.on_other = resolved_other;
-        let staged = {
+        {
             let mux = self.mux.read();
-            let live = mux.get_tab(&caller.tab).is_some_and(|tab| {
-                tab.team_id == caller.team && tab.session_binding_nonce == caller.nonce
-            }) && mux.find_workspace_for_tab(&caller.tab).as_deref()
-                == Some(&caller.workspace)
-                && caller
-                    .team
-                    .as_ref()
-                    .is_none_or(|id| mux.get_team(id).is_some());
-            if !live {
+            if !caller_is_live(&mux, caller) {
                 return Err("sentinel creator or Team is gone".into());
             }
             if let Some(crate::sentinel::source::TabBinding::Tab(tab_id)) = &job.observe {
                 source::validate_tab_scope(&mux, &job, tab_id)?;
             }
-            for handler in job.routes.values().flatten() {
-                if let crate::sentinel::machine::Route::Send(id) = &handler.action {
-                    let target = mux.get_tab(id).ok_or("sentinel send target disappeared")?;
-                    if target.agent_type.is_none()
-                        || target.team_id != job.team_id
-                        || mux.find_workspace_for_tab(id).as_deref() != Some(&job.workspace_id)
-                    {
-                        return Err("sentinel send target scope changed".into());
-                    }
-                }
-            }
-            let tab = mux.get_tab(&caller.tab).ok_or("sentinel creator gone")?;
-            job.agent_authored = tab.agent_type.is_some() && tab.session_binding_nonce.is_some();
-            handle.store.lock().stage_insert(job.clone())
-        };
-        staged.settle(&handle.store)?;
-        handle.notify();
+            validate_send_scope(&mux, &job)?;
+        }
         Ok(job)
     }
 
@@ -167,62 +180,20 @@ impl ServiceContext {
         expect_version: u64,
         update: Update,
     ) -> Result<Sentinel, String> {
+        let (current, update) = self.prepare_sentinel_update(caller, id, expect_version, update)?;
         let handle = self
             .app_handle
             .try_state::<Handle>()
             .ok_or("sentinels not initialized")?;
-        let current = {
-            let store = handle.store.lock();
-            store.ensure_available()?;
-            store
-                .get(id)
-                .filter(|job| caller.can_amend(job))
-                .cloned()
-                .ok_or_else(|| format!("sentinel not found in this workspace and Team: {id}"))?
-        };
-        if current.definition_version != expect_version {
-            return Err(amend::version_conflict(current.definition_version));
-        }
-        let connected = classify::connected_model(self).is_some();
-        let mut update = update.prepare(&current, &caller.tab, connected)?;
         let note = update.note.clone();
         let cause = update.cause_transition_id.clone();
-        let resolution_source = update.job.clone();
-        for handler in update
-            .job
-            .routes
-            .values_mut()
-            .flatten()
-            .chain(&mut update.job.on_other)
-        {
-            let action = routes::resolve(self, &resolution_source, &handler.action)?;
-            handler.target = graph::target_identity(self, &resolution_source, &action)?;
-            handler.action = action;
-        }
         let authored_at = handle.store.lock().clock.now_ms();
         let updated = {
             let mux = self.mux.read();
             if !caller_is_live(&mux, caller) {
                 return Err("sentinel caller scope changed".into());
             }
-            for handler in update
-                .job
-                .routes
-                .values()
-                .flatten()
-                .chain(&update.job.on_other)
-            {
-                if let crate::sentinel::machine::Route::Send(id) = &handler.action {
-                    let target = mux.get_tab(id).ok_or("sentinel send target disappeared")?;
-                    if target.agent_type.is_none()
-                        || target.team_id != update.job.team_id
-                        || mux.find_workspace_for_tab(id).as_deref()
-                            != Some(&update.job.workspace_id)
-                    {
-                        return Err("sentinel send target scope changed".into());
-                    }
-                }
-            }
+            validate_send_scope(&mux, &update.job)?;
             let staged = handle.store.lock().stage_update_definition(
                 expect_version,
                 &caller.tab,
@@ -252,6 +223,70 @@ impl ServiceContext {
             log::error!("sentinel definition update journal failed: {error}");
         }
         Ok(updated)
+    }
+
+    pub(crate) fn sentinel_validate_update(
+        &self,
+        caller: &SentinelCaller,
+        id: &str,
+        expect_version: u64,
+        update: Update,
+    ) -> Result<Sentinel, String> {
+        self.prepare_sentinel_update(caller, id, expect_version, update)
+            .map(|(_, update)| update.job)
+    }
+
+    fn prepare_sentinel_update(
+        &self,
+        caller: &SentinelCaller,
+        id: &str,
+        expect_version: u64,
+        update: Update,
+    ) -> Result<(Sentinel, amend::PreparedUpdate), String> {
+        let handle = self
+            .app_handle
+            .try_state::<Handle>()
+            .ok_or("sentinels not initialized")?;
+        let current = {
+            let store = handle.store.lock();
+            store.ensure_available()?;
+            store
+                .get(id)
+                .filter(|job| caller.can_amend(job))
+                .cloned()
+                .ok_or_else(|| format!("sentinel not found in this workspace and Team: {id}"))?
+        };
+        if current.definition_version != expect_version {
+            return Err(amend::version_conflict(current.definition_version));
+        }
+        let connected = classify::connected_model(self).is_some();
+        let mut update = update.prepare(&current, &caller.tab, connected)?;
+        let resolution_source = update.job.clone();
+        for handler in update
+            .job
+            .routes
+            .values_mut()
+            .flatten()
+            .chain(&mut update.job.on_other)
+        {
+            let action = routes::resolve(self, &resolution_source, &handler.action)?;
+            handler.target = graph::target_identity(self, &resolution_source, &action)?;
+            handler.action = action;
+        }
+        if let Some(binding) = update.job.observe.clone() {
+            update.job.observe = Some(source::resolve_binding(self, &update.job, &binding)?);
+        }
+        {
+            let mux = self.mux.read();
+            if !caller_is_live(&mux, caller) {
+                return Err("sentinel caller scope changed".into());
+            }
+            if let Some(crate::sentinel::source::TabBinding::Tab(tab_id)) = &update.job.observe {
+                source::validate_tab_scope(&mux, &update.job, tab_id)?;
+            }
+            validate_send_scope(&mux, &update.job)?;
+        }
+        Ok((current, update))
     }
 
     pub(crate) fn sentinel_history(
@@ -429,6 +464,24 @@ fn caller_is_live(
             .is_none_or(|team| mux.get_team(team).is_some())
 }
 
+fn validate_send_scope(
+    mux: &crate::multiplexer::state::MultiplexerState,
+    job: &Sentinel,
+) -> Result<(), String> {
+    for handler in job.routes.values().flatten().chain(&job.on_other) {
+        if let crate::sentinel::machine::Route::Send(id) = &handler.action {
+            let target = mux.get_tab(id).ok_or("sentinel send target disappeared")?;
+            if target.agent_type.is_none()
+                || target.team_id != job.team_id
+                || mux.find_workspace_for_tab(id).as_deref() != Some(&job.workspace_id)
+            {
+                return Err("sentinel send target scope changed".into());
+            }
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -441,7 +494,7 @@ mod tests {
             crate::cron::clock::MockClock::starting_at(1000),
         );
         let params = crate::sentinel::store::Create {
-            name: None,
+            name: Some("service-state-watch".into()),
             probe: Some("status".into()),
             observe: None,
             question: "state".into(),
@@ -507,6 +560,7 @@ mod tests {
         let solo = store
             .create(
                 serde_json::from_value(serde_json::json!({
+                    "name": "solo-state-watch",
                     "probe": "status",
                     "question": "state",
                     "buckets": ["done"],

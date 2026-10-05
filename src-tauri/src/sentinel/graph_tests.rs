@@ -130,7 +130,7 @@ fn sentinel_update_snapshot_exposes_read_only_definition_version_and_lineage() {
 #[test]
 fn sentinel_graph_legacy_origin_and_orphan_paused_nodes_are_not_roots() {
     let (_dir, mut store, mux, owner) = setup();
-    let mut legacy=store.prepare(serde_json::from_value(json!({"probe":"p","question":"q","buckets":["done"],"every":"10s","matches":{"done":"done"}})).unwrap(),owner.clone(),false).unwrap();
+    let mut legacy=store.prepare(serde_json::from_value(json!({"name":"legacy-origin-watch","probe":"p","question":"q","buckets":["done"],"every":"10s","matches":{"done":"done"}})).unwrap(),owner.clone(),false).unwrap();
     legacy.agent_authored = false;
     store.insert(legacy).unwrap();
     create(&mut store, &owner, true, json!({}));
@@ -285,7 +285,7 @@ fn sentinel_graph_explicit_null_team_adapter_refuses_ambiguous_scope() {
 fn sentinel_graph_actual_cron_history_joins_exact_hidden_worker_and_missing_tab() {
     let (dir, mut store, mut mux, owner) = setup();
     let mut crons = crate::cron::store::CronStore::new_with_path(dir.path().join("crons.json"));
-    let cron=crons.create(serde_json::from_value(json!({"name":"Supplied cron","workspace_id":owner.workspace_id,"schedule":"0 * * * *","task":"RAW_PRIVATE_TASK","creator_tab_id":owner.creator_tab_id})).unwrap()).unwrap();
+    let cron=crons.create(serde_json::from_value(json!({"name":"nightly-run-watch","workspace_id":owner.workspace_id,"schedule":"0 * * * *","task":"RAW_PRIVATE_TASK","creator_tab_id":owner.creator_tab_id})).unwrap()).unwrap();
     let worker = mux.create_tab(&owner.workspace_id).unwrap();
     let tab = mux.get_tab_mut(&worker).unwrap();
     tab.hidden = true;
@@ -640,7 +640,7 @@ fn sentinel_graph_connected_worker_status_projects_actual_tracker_without_defaul
 #[test]
 fn sentinel_graph_host_stop_fences_until_terminal_batch_while_actual_lease_is_live() {
     let (_dir, mut store, mux, owner) = setup();
-    let mut job=store.prepare(serde_json::from_value(json!({"probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","until":"done"})).unwrap(),owner.clone(),false).unwrap();
+    let mut job=store.prepare(serde_json::from_value(json!({"name":"host-stop-watch","probe":"status","question":"state?","buckets":["done"],"matches":{"done":"done"},"timeout":"1h","until":"done"})).unwrap(),owner.clone(),false).unwrap();
     job.agent_authored = true;
     store.insert(job.clone()).unwrap();
     let lease = store.due().unwrap().remove(0);

@@ -121,6 +121,33 @@ fn sentinel_update_allows_a_scoped_non_creator_without_new_command_text() {
 }
 
 #[test]
+fn sentinel_update_preview_preparation_does_not_change_the_stored_definition() {
+    let (_root, store, job) = fixture();
+    let before = serde_json::to_value(store.get(&job.id).unwrap()).unwrap();
+
+    let preview = update("New question?")
+        .prepare(&job, "editor", true)
+        .unwrap();
+
+    assert_eq!(preview.job.name.as_deref(), Some("updated"));
+    assert_eq!(
+        serde_json::to_value(store.get(&job.id).unwrap()).unwrap(),
+        before
+    );
+}
+
+#[test]
+fn sentinel_update_definition_requires_a_meaningful_name() {
+    let (_root, _store, job) = fixture();
+    let mut definition = update("New question?");
+    definition.name = None;
+
+    let error = definition.prepare(&job, "editor", true).err().unwrap();
+
+    assert!(error.contains("Sentinel update definition needs a name"));
+}
+
+#[test]
 fn sentinel_update_refuses_observe_rebind_and_non_creator_command_text() {
     let (_root, _store, job) = fixture();
     let observe = serde_json::json!({
