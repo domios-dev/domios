@@ -172,7 +172,7 @@ async function main() {
       assert.equal(trigger.getAttribute("aria-haspopup"), "menu");
       await act(async () => {
         trigger.focus();
-        trigger.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+        trigger.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
       });
       await settle(() => document.querySelector('[role="menu"]') !== null && document.activeElement?.getAttribute("role") === "menuitem");
       const menu = document.querySelector<HTMLElement>('[role="menu"]')!;
@@ -180,9 +180,9 @@ async function main() {
       const items = menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]');
       assert.equal(items[0].textContent?.trim(), "Stop");
       assert.equal(items[1].textContent?.trim(), "Delete");
-      await act(async () => document.activeElement?.dispatchEvent(new win.KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
+      await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true })));
       assert.equal(document.activeElement, items[1], "ArrowDown moves through menu items");
-      await act(async () => document.activeElement?.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
+      await act(async () => document.activeElement?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })));
       assert.equal(document.querySelector('[role="menu"]'), null);
       assert.equal(document.activeElement, trigger, "Escape restores focus to the menu button");
     } finally { await view.close(); }
@@ -197,7 +197,7 @@ async function main() {
       await settle(() => entry(view.host, `scenario:${target.id}`) !== null);
       const trigger = view.host.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${target.name}"]`)!;
       const openDelete = async () => {
-        await act(async () => trigger.dispatchEvent(new win.MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+        await act(async () => trigger.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
         await settle(() => document.querySelector('[role="menu"]') !== null);
         const deleteItem = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Delete");
         assert.ok(deleteItem);
@@ -212,9 +212,9 @@ async function main() {
       const cancel = dialog.querySelector<HTMLButtonElement>("button");
       const confirm = dialog.querySelector<HTMLButtonElement>("[data-dialog-confirm]");
       await settle(() => document.activeElement === cancel);
-      await act(async () => cancel!.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
+      await act(async () => cancel!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true })));
       assert.equal(document.activeElement, confirm, "Tab stays inside the confirmation dialog");
-      await act(async () => confirm!.dispatchEvent(new win.KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })));
+      await act(async () => confirm!.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true })));
       assert.equal(document.activeElement, cancel, "Shift+Tab stays inside the confirmation dialog");
       await act(async () => cancel!.click());
       assert.equal(document.activeElement, trigger, "Cancel restores focus to the actions button");
