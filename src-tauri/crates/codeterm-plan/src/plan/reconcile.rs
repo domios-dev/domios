@@ -11,6 +11,7 @@ pub const STALE_REVIEW_LABEL: &str = "stale-review";
 pub const STALE_UNSTAFFED_LABEL: &str = "stale-unstaffed";
 pub const TAB_GONE_LABEL: &str = "tab-gone";
 pub const TEAM_CLOSED_LABEL: &str = "team-closed";
+pub const REPORT_TARGET_WRITE_GRACE_MS: u64 = 30_000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AgedOpenTask {
@@ -128,6 +129,7 @@ impl ReconcileConfig {
 pub enum DriftKind {
     InProgressTabGone,
     StaleInReview,
+    ReportTargetWriteMissing,
     StalePendingUnstaffed,
     BoundToClosedTab,
     AcceptedButNotDone,
@@ -211,6 +213,47 @@ where
                 STALE_REVIEW_LABEL,
                 not_mine,
             ));
+        }
+
+        if task.status == TaskStatus::InReview {
+            for attempt in task.execution_attempts.iter().filter(|attempt| {
+                attempt.closed_at.is_none()
+                    && attempt
+                        .report
+                        .as_ref()
+                        .and_then(|report| report.status.as_deref())
+                        == Some("in_review")
+                    && attempt.report_target_written_at.is_none()
+                    && attempt.reported_at.is_some_and(|reported_at| {
+                        config.now_ms.saturating_sub(reported_at) > REPORT_TARGET_WRITE_GRACE_MS
+                    })
+            }) {
+                let target_tab = [
+                    attempt.parent_tab_id.as_deref(),
+                    attempt.orchestrator_tab_id.as_deref(),
+                    plan.owner.tab_id.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                .map(str::trim)
+                .find(|tab_id| !tab_id.is_empty());
+                if let Some(target_tab) = target_tab {
+                    let age_ms = config
+                        .now_ms
+                        .saturating_sub(attempt.reported_at.unwrap_or_default());
+                    items.push(item(
+                        plan,
+                        task,
+                        DriftKind::ReportTargetWriteMissing,
+                        format!(
+                            "in_review report for attempt {} was not written to target tab {} after {} ms",
+                            attempt.id, target_tab, age_ms
+                        ),
+                        &format!("deliver the report to tab {target_tab}"),
+                        not_mine,
+                    ));
+                }
+            }
         }
 
         if task.status == TaskStatus::Pending
@@ -407,7 +450,10 @@ fn item(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::plan::{OrchestratorRef, Plan, Task, TaskPriority, TaskStatus};
+    use crate::plan::{
+        OrchestratorRef, Plan, Task, TaskExecutionAttempt, TaskExecutionReportSnapshot,
+        TaskPriority, TaskStatus,
+    };
 
     fn task(id: &str, status: TaskStatus) -> Task {
         Task {
@@ -530,6 +576,49 @@ mod tests {
         let items = detect_plan_drift(&plan(vec![t]), &cfg(2_500), |_| TabProbe::default());
         assert_eq!(items[0].kind, DriftKind::StaleInReview);
         assert_eq!(items[0].suggested_fix, STALE_REVIEW_LABEL);
+    }
+
+    #[test]
+    fn report_delivery_is_drift_until_written() {
+        let now_ms = REPORT_TARGET_WRITE_GRACE_MS + 101;
+        let mut review = task("t1", TaskStatus::InReview);
+        review.status_changed_at = now_ms;
+        review.execution_attempts.push(TaskExecutionAttempt {
+            id: "attempt-1".into(),
+            executor_tab_id: "worker".into(),
+            parent_tab_id: Some("target-tab".into()),
+            reported_at: Some(100),
+            report: Some(TaskExecutionReportSnapshot {
+                status: Some("in_review".into()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let mut plan = plan(vec![review]);
+
+        let before_grace =
+            detect_plan_drift(&plan, &cfg(100 + REPORT_TARGET_WRITE_GRACE_MS), |_| {
+                TabProbe::default()
+            });
+        assert!(before_grace
+            .iter()
+            .all(|item| item.kind != DriftKind::ReportTargetWriteMissing));
+
+        let drift = detect_plan_drift(&plan, &cfg(now_ms), |_| TabProbe::default());
+        let item = drift
+            .iter()
+            .find(|item| item.kind == DriftKind::ReportTargetWriteMissing)
+            .unwrap();
+        assert_eq!(item.task_id, "t1");
+        assert!(item.detail.contains("attempt-1"));
+        assert!(item.detail.contains("target-tab"));
+
+        plan.tasks[0].execution_attempts[0].report_target_written_at = Some(now_ms);
+        assert!(
+            detect_plan_drift(&plan, &cfg(now_ms), |_| TabProbe::default())
+                .iter()
+                .all(|item| item.kind != DriftKind::ReportTargetWriteMissing)
+        );
     }
 
     #[test]

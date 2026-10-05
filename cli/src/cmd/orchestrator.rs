@@ -188,6 +188,20 @@ fn compact_status(value: &Value) -> Value {
         .and_then(|v| v.get("total"))
         .and_then(Value::as_u64)
         .unwrap_or_else(|| count(&["drift", "items"]) as u64);
+    let report_delivery_drift = value
+        .get("drift")
+        .and_then(|drift| drift.get("items"))
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter(|item| {
+                    item.get("kind").and_then(Value::as_str) == Some("report_target_write_missing")
+                })
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     let actions = value
         .get("next_actions")
         .and_then(Value::as_array)
@@ -217,6 +231,7 @@ fn compact_status(value: &Value) -> Value {
             "agents": count(&["live_lanes", "agents"]),
         },
         "drift": drift,
+        "report_delivery_drift": report_delivery_drift,
         "next_actions": compact_actions,
         "next_actions_total": actions.len(),
         "reminder": value.get("reminder").cloned().unwrap_or_else(|| json!({})),
@@ -257,6 +272,22 @@ fn render_status(value: &Value) -> String {
         "live_lanes: open={open} blocked={blocked} agents={live_agents}\n"
     ));
     out.push_str(&format!("drift: {drift}\n"));
+    if let Some(items) = value.get("report_delivery_drift").and_then(Value::as_array) {
+        for item in items {
+            let task_id = item.get("task_id").and_then(Value::as_str).unwrap_or("?");
+            let detail = item
+                .get("detail")
+                .and_then(Value::as_str)
+                .unwrap_or("report was not delivered");
+            let fix = item
+                .get("suggested_fix")
+                .and_then(Value::as_str)
+                .unwrap_or("deliver the report to its target tab");
+            out.push_str(&format!(
+                "report_delivery: task {task_id}: {detail}\n  fix: {fix}\n"
+            ));
+        }
+    }
     let reminder = value.get("reminder").cloned().unwrap_or_default();
     out.push_str(&format!(
         "reminder: last_tick={:?} last_due={:?} last_delivery={:?} retry_reason={:?}\n",
@@ -594,6 +625,29 @@ mod tests {
         assert!(!encoded.contains("transcript"));
         assert!(!encoded.contains("drift body"));
         assert!(!encoded.contains("very long action body"));
+    }
+
+    #[test]
+    fn orchestrator_status_surfaces_report_delivery_drift() {
+        let rendered = render_status(&compact_status(&json!({
+            "plan_id": "pl_1",
+            "tab_id": "orch",
+            "live_lanes": {"open": [], "blocked": [], "agents": []},
+            "drift": {
+                "total": 1,
+                "items": [{
+                    "task_id": "task_a",
+                    "kind": "report_target_write_missing",
+                    "detail": "in_review report for attempt attempt_1 was not written to target tab orch after 30001 ms",
+                    "suggested_fix": "deliver the report to tab orch"
+                }]
+            },
+            "next_actions": []
+        })));
+
+        assert!(rendered.contains("task task_a"));
+        assert!(rendered.contains("attempt_1"));
+        assert!(rendered.contains("target tab orch"));
     }
 
     #[test]
