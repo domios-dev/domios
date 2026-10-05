@@ -341,7 +341,7 @@ where
 }
 
 /// Build a PendingPrompt from parsed (question, options) tuple.
-pub(crate) fn build_prompt(question: String, opts: Vec<(String, String)>) -> PendingPrompt {
+pub fn build_prompt(question: String, opts: Vec<(String, String)>) -> PendingPrompt {
     PendingPrompt {
         question,
         options: opts
