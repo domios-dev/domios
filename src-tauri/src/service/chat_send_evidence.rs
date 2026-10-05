@@ -388,7 +388,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
 
-    #[path = "chat_send_evidence/structured_sequential_tests.rs"]
+    #[path = "../structured_sequential_tests.rs"]
     mod structured_sequential_tests;
 
     /// Honest byte-window JSONL provider: parses `{"role":"user","content":..}`
