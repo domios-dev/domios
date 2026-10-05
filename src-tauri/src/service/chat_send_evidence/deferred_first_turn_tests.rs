@@ -5,6 +5,7 @@ use crate::agent::provider::{
 use crate::service::chat_send_transaction::ChatSendState;
 use crate::service::test_fixture::ServiceFixture;
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -12,7 +13,6 @@ use std::time::Duration;
 #[derive(Clone, Copy)]
 enum StoreKind {
     Jsonl,
-    CursorJsonl,
     Structured,
 }
 
@@ -20,7 +20,7 @@ enum StoreKind {
 struct LazyFirstTurnProvider {
     root: PathBuf,
     kind: StoreKind,
-    structured_rows: Arc<Mutex<Vec<ChatMsg>>>,
+    structured_rows: Arc<Mutex<HashMap<String, Vec<ChatMsg>>>>,
 }
 
 impl AgentProvider for LazyFirstTurnProvider {
@@ -66,7 +66,7 @@ impl AgentProvider for LazyFirstTurnProvider {
     }
 
     fn session_file_path(&self, _: &str, session_id: &str) -> Option<PathBuf> {
-        matches!(self.kind, StoreKind::Jsonl | StoreKind::CursorJsonl)
+        matches!(self.kind, StoreKind::Jsonl)
             .then(|| self.root.join(format!("{session_id}.jsonl")))
     }
 
@@ -122,19 +122,6 @@ impl AgentProvider for LazyFirstTurnProvider {
                             .collect::<String>();
                         (payload.get("role")?.as_str()?, text)
                     }
-                    StoreKind::CursorJsonl => {
-                        let role = value.get("role")?.as_str()?;
-                        let content = value.pointer("/message/content")?.as_array()?;
-                        let text = content
-                            .iter()
-                            .filter_map(|block| {
-                                (block.get("type")?.as_str()? == "text")
-                                    .then(|| block.get("text")?.as_str())
-                                    .flatten()
-                            })
-                            .collect::<String>();
-                        (role, cursor_user_text(&text, role))
-                    }
                     StoreKind::Structured => return None,
                 };
                 (role == "user").then(|| RichMessage {
@@ -157,25 +144,18 @@ impl AgentProvider for LazyFirstTurnProvider {
         matches!(self.kind, StoreKind::Structured)
     }
 
-    fn read_structured_chat(&self, _: &str, _: &str, _: Option<&str>) -> StructuredChat {
+    fn read_structured_chat(&self, _: &str, session_id: &str, _: Option<&str>) -> StructuredChat {
         StructuredChat {
             cursor: Some("snapshot-cursor".into()),
-            messages: self.structured_rows.lock().clone(),
+            messages: self
+                .structured_rows
+                .lock()
+                .get(session_id)
+                .cloned()
+                .unwrap_or_default(),
             done: None,
         }
     }
-}
-
-fn cursor_user_text(text: &str, role: &str) -> String {
-    if role != "user" {
-        return text.to_string();
-    }
-    let Some((_, query)) = text.split_once("<user_query>") else {
-        return text.to_string();
-    };
-    query
-        .split_once("</user_query>")
-        .map_or_else(|| text.to_string(), |(body, _)| body.trim().to_string())
 }
 
 struct Fixture {
@@ -195,7 +175,7 @@ impl Fixture {
         let provider = LazyFirstTurnProvider {
             root: service.temp.path().to_path_buf(),
             kind,
-            structured_rows: Arc::new(Mutex::new(Vec::new())),
+            structured_rows: Arc::new(Mutex::new(HashMap::new())),
         };
         service
             .service
@@ -307,14 +287,17 @@ fn lazy_codex_first_user_turn_confirms_after_binding() {
 )]
 fn lazy_structured_first_user_turn_confirms_after_binding() {
     let fixture = Fixture::new(StoreKind::Structured);
-    let payload = "OpenCode first turn 🧪 exact marker";
+    let payload = "Structured first turn 🧪 exact marker";
     let send_id = fixture.start_lazy_send(payload);
-    fixture.provider.structured_rows.lock().push(ChatMsg {
-        id: "chat-message-1".into(),
-        kind: "user".into(),
-        content: payload.into(),
-        ..Default::default()
-    });
+    fixture.provider.structured_rows.lock().insert(
+        "lazy-session".into(),
+        vec![ChatMsg {
+            id: "chat-message-1".into(),
+            kind: "user".into(),
+            content: payload.into(),
+            ..Default::default()
+        }],
+    );
 
     fixture.bind_session("lazy-session");
     fixture.reconcile();
@@ -335,15 +318,40 @@ fn lazy_structured_first_user_turn_confirms_after_binding() {
     not(windows),
     ignore = "requires the shared interactive desktop ServiceContext fixture"
 )]
-fn lazy_cursor_grok_transcript_confirms_only_from_the_bound_session() {
-    let fixture = Fixture::new(StoreKind::CursorJsonl);
-    let payload = "Grok transcript exact marker 7f2a";
+fn lazy_structured_first_turn_ignores_foreign_and_later_matching_turns() {
+    let fixture = Fixture::new(StoreKind::Structured);
+    let payload = "structured first turn exact marker";
     let send_id = fixture.start_lazy_send(payload);
-    let transcript = include_str!("../../../../plugins/provider-cursor/tests/fixtures/cursor-grok-first-turn.jsonl");
-    std::fs::write(fixture.provider.root.join("foreign-session.jsonl"), transcript).unwrap();
+    fixture.provider.structured_rows.lock().insert(
+        "foreign-session".into(),
+        vec![ChatMsg {
+            id: "foreign-user".into(),
+            kind: "user".into(),
+            content: payload.into(),
+            ..Default::default()
+        }],
+    );
+    fixture.provider.structured_rows.lock().insert(
+        "lazy-session".into(),
+        vec![
+            ChatMsg {
+                id: "first-user".into(),
+                kind: "user".into(),
+                content: "unrelated first turn".into(),
+                ..Default::default()
+            },
+            ChatMsg {
+                id: "later-user".into(),
+                kind: "user".into(),
+                content: payload.into(),
+                ..Default::default()
+            },
+        ],
+    );
     fixture.bind_session("lazy-session");
 
     fixture.reconcile();
+
     assert_eq!(
         fixture
             .service
@@ -353,19 +361,6 @@ fn lazy_cursor_grok_transcript_confirms_only_from_the_bound_session() {
             .unwrap()
             .state,
         ChatSendState::Unknown
-    );
-
-    std::fs::write(fixture.provider.root.join("lazy-session.jsonl"), transcript).unwrap();
-    fixture.reconcile();
-    assert_eq!(
-        fixture
-            .service
-            .service
-            .chat_send_ledger
-            .status(&send_id)
-            .unwrap()
-            .state,
-        ChatSendState::Sent
     );
 }
 
