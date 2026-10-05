@@ -708,9 +708,7 @@ impl ServiceContext {
 }
 
 #[cfg(test)]
-#[path = "workspace_role_tests.rs"]
 mod workspace_role_tests;
 
 #[cfg(test)]
-#[path = "workspace_close_tests.rs"]
 mod workspace_close_tests;

@@ -1173,5 +1173,4 @@ impl Default for RunawayConfig {
 }
 
 #[cfg(test)]
-#[path = "schema_tests.rs"]
 mod tests;

@@ -1,6 +1,6 @@
 /**
  * Host plugin registry tests.
- * Run: npx tsx src/lib/plugins/__tests__/registry.test.ts
+ * Run: npx tsx src/lib/plugins/registry.test.ts
  *
  * The React hook `useRegistryVersion` is intentionally not tested here
  * — it requires a React DOM runtime. The pure registry surface
@@ -15,8 +15,8 @@ import {
   getAllPlugins,
   detectProvider,
   isProviderNoise,
-} from "../registry";
-import type { ProviderPlugin } from "../types";
+} from "./registry";
+import type { ProviderPlugin } from "./types";
 
 let passed = 0;
 let failed = 0;

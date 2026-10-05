@@ -317,5 +317,4 @@ fn values_at_segments<'a>(value: &'a Value, segments: &[&str]) -> Vec<&'a Value>
 }
 
 #[cfg(test)]
-#[path = "bounds_tests.rs"]
 mod tests;
