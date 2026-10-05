@@ -24,8 +24,7 @@
     "sessionIdInjection": "none",
     "statusBarRows": 1,
     "supportsLazySkills": false,
-    "hasHooks": false,
-    "sessionStartsOnFirstUserTurn": true
+    "hasHooks": false
   },
   "models": [
     {

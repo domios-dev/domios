@@ -86,7 +86,7 @@ fn lazy_session_start_capability_native_js_parity() {
     );
 
     if require_plugins().is_some() {
-        for id in ["codex", "cursor", "opencode"] {
+        for id in ["codex", "opencode"] {
             assert!(
                 load_js(id).session_starts_on_first_user_turn(),
                 "{id} manifest declares lazy session start"
