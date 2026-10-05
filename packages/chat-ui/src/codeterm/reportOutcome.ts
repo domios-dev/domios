@@ -1,7 +1,8 @@
 export type ReportOutcomeClass =
   | "stale_binding_conflict"
   | "structurally_not_attachable"
-  | "delivered_unattached";
+  | "delivered_unattached"
+  | "block_proposed";
 
 /** Task-transition truth of one accepted report, as decided by the daemon. */
 export interface ReportTaskOutcome {
@@ -59,6 +60,7 @@ export function reportVerdict(
   if (outcome?.reportOutcome === "stale_binding_conflict" || outcome?.transitionRejected) {
     return "transition rejected";
   }
+  if (outcome?.reportOutcome === "block_proposed") return "Block proposed";
   if (outcome?.reportOutcome === "structurally_not_attachable") return "reported";
   if (outcome?.reportOutcome === "delivered_unattached") return "delivered";
   return status?.trim() || "reported";
@@ -70,6 +72,9 @@ export function reportOutcomeLine(outcome: ReportTaskOutcome | null): string | n
     return cause
       ? `Report delivered, task transition rejected — ${cause}`
       : "Report delivered, task transition rejected";
+  }
+  if (outcome?.reportOutcome === "block_proposed") {
+    return "Block proposed; task status is unchanged until the Plan owner or Planner acts";
   }
   if (outcome?.reportOutcome === "structurally_not_attachable") return null;
   if (outcome?.reportOutcome === "delivered_unattached") return "Report delivered, not attached to a task";
@@ -84,6 +89,7 @@ export function reportOutcomeTone(outcome: ReportTaskOutcome | null): "error" | 
   if (
     outcome?.reportOutcome === "structurally_not_attachable"
     || outcome?.reportOutcome === "delivered_unattached"
+    || outcome?.reportOutcome === "block_proposed"
   ) return "calm";
   return null;
 }

@@ -252,7 +252,7 @@ impl fmt::Display for PlanError {
             ),
             PlanError::BlockedRequiresLabel => write!(
                 f,
-                "blocked is a claim, not a holding state: pass --status-label \"<what unblocks it>\" or open a decision gate"
+                "a task block needs an explicit Plan owner or Planner update with --status-label \"<reason; owner trigger>\"; a Worker blocked report is only a proposal"
             ),
             PlanError::ExecutorRoleRequired => write!(
                 f,

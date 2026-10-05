@@ -185,7 +185,7 @@ fn non_exhaustion_interruption_path_still_hands_off() {
     assert!(task.interruption.handoff_required);
     assert_eq!(task.status_label.as_deref(), Some("handoff_required"));
     assert!(task.execution_attempts[0].closed_at.is_some());
-    assert_ne!(task.status, TaskStatus::Paused);
+    assert_eq!(task.status, TaskStatus::InProgress);
 }
 
 fn run(repo: &Path, args: &[&str]) {

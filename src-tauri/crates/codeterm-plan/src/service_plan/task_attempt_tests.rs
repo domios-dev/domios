@@ -311,8 +311,9 @@ fn partial_report_keeps_bound_task_actionable() {
 }
 
 #[test]
-fn blocked_report_sets_task_blocked_with_reason() {
+fn blocked_report_is_persisted_as_a_proposal_without_moving_the_task() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
+    mark_bound_task_in_progress(&store, &plan_id, &task_id);
     let report = worker_report(ReportStatus::Blocked, None);
     let reason = report.message.clone();
     assert!(!store
@@ -320,8 +321,20 @@ fn blocked_report_sets_task_blocked_with_reason() {
         .unwrap());
 
     let task = store.get(&plan_id).unwrap().tasks.remove(0);
-    assert_eq!(task.status, TaskStatus::Blocked);
-    assert_eq!(task.status_label.as_deref(), Some(reason.as_str()));
+    assert_eq!(task.status, TaskStatus::InProgress);
+    assert_eq!(task.status_label.as_deref(), Some("acknowledged"));
+    assert_eq!(task.assigned_tab_id.as_deref(), Some("worker"));
+    assert_eq!(
+        task.execution_attempts[0]
+            .report
+            .as_ref()
+            .unwrap()
+            .status
+            .as_deref(),
+        Some("blocked")
+    );
+    assert!(task.milestones[0].text.starts_with("BLOCK PROPOSAL: "));
+    assert!(task.milestones[0].text.contains(&reason));
     assert!(task.execution_attempts[0].closed_at.is_none());
 }
 

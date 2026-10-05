@@ -83,10 +83,10 @@ fn planned_task_without_qa_plan_is_still_refused() {
 }
 
 #[test]
-fn unplanned_partial_and_blocked_reports_follow_task_status_mapping() {
+fn unplanned_partial_and_blocked_reports_leave_progress_unchanged() {
     for (status, expected) in [
         (ReportStatus::Partial, TaskStatus::InProgress),
-        (ReportStatus::Blocked, TaskStatus::Blocked),
+        (ReportStatus::Blocked, TaskStatus::InProgress),
     ] {
         let dir = tempfile::tempdir().unwrap();
         let store = PlanStore::new_for_test(dir.path());

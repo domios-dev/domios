@@ -319,7 +319,7 @@ fn milestone_text_prefixes_structured_status_only() {
     );
     assert_eq!(
         milestone_text("needs help", Some(ReportStatus::Blocked)),
-        "BLOCKED: needs help"
+        "BLOCK PROPOSAL: needs help"
     );
     assert_eq!(
         milestone_text("ready", Some(ReportStatus::InReview)),
@@ -456,7 +456,7 @@ fn bound_blocked_report_and_hierarchy_mapping_agree() {
         store
             .assign_task(&plan.id, &task_id, "worker", None, index as u64 + 3)
             .unwrap();
-        if report_status == ReportStatus::Partial {
+        if matches!(report_status, ReportStatus::Partial | ReportStatus::Blocked) {
             store
                 .with_plan(&plan.id, index as u64 + 3, |plan| {
                     let task = plan
@@ -507,8 +507,7 @@ fn bound_blocked_report_and_hierarchy_mapping_agree() {
             .key();
         let expected_status = match report_status {
             ReportStatus::InReview => "in_review",
-            ReportStatus::Partial => "in_progress",
-            ReportStatus::Blocked => "blocked",
+            ReportStatus::Partial | ReportStatus::Blocked => "in_progress",
             ReportStatus::Done => unreachable!(),
         };
         let mapped_transition = report_status
