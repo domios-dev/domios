@@ -17,6 +17,10 @@ mod provider_events;
 mod run_session;
 mod session_ack;
 mod session_claim;
+mod session_start_payload;
+use session_start_payload::{
+    reported_transcript_path, session_start_session_id, session_start_string,
+};
 pub(crate) use provider_events::hook_provider_event;
 #[cfg(test)]
 use session_ack::acknowledge_authenticated_launch;
@@ -500,9 +504,7 @@ pub async fn hook_session_start(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "session_start")?;
     let body = body.unwrap_or(serde_json::Value::Null);
-    let session_id = session_start_string(&body, &["session_id"])
-        .or_else(|| session_start_string(&body, &["payload", "session_id"]))
-        .or_else(|| session_start_string(&body, &["payload", "id"]));
+    let session_id = session_start_session_id(&body);
     let source = body
         .get("source")
         .and_then(|v| v.as_str())
@@ -519,6 +521,12 @@ pub async fn hook_session_start(
         .and_then(|v| v.as_str())
         .or_else(|| header_str(&headers, "x-codeterm-binding-nonce"))
         .map(|s| s.to_string());
+    if marked_hook_missing_binding_nonce(&headers, report_nonce.as_deref()) {
+        return Err((
+            StatusCode::CONFLICT,
+            "CodeTerm session hook is missing its binding nonce".into(),
+        ));
+    }
     log::debug!(
         "[hook_session_start] received tab={} source={} session_id_present={} nonce_present={}",
         tab_id,
@@ -1167,22 +1175,9 @@ fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
     headers.get(name).and_then(|v| v.to_str().ok())
 }
 
-fn session_start_string(body: &serde_json::Value, path: &[&str]) -> Option<String> {
-    let mut cur = body;
-    for key in path {
-        cur = cur.get(*key)?;
-    }
-    cur.as_str()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(String::from)
-}
-
-/// Provider-reported transcript path riding the SessionStart body. Persisted
-/// only after the report was accepted for this tab's own session above.
-fn reported_transcript_path(body: &serde_json::Value) -> Option<String> {
-    session_start_string(body, &["transcript_path"])
-        .or_else(|| session_start_string(body, &["payload", "transcript_path"]))
+fn marked_hook_missing_binding_nonce(headers: &HeaderMap, report_nonce: Option<&str>) -> bool {
+    headers.contains_key("x-codeterm-hook")
+        && !report_nonce.is_some_and(|nonce| !nonce.trim().is_empty())
 }
 
 #[cfg(test)]
