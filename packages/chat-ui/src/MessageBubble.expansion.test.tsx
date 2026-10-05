@@ -47,11 +47,11 @@ async function run() {
   const completedRead = command("collapsed-read", "src/coordination.ts");
   const completedCommand = command("collapsed-command", "git status --short");
   const completedEdit = command("expanded-edit", "edit src/coordination.ts");
-  const tabPrefix = detectChatPrefix("-=-codeterm:tab label=Auditor tab=tab-dom-12 model=model-dom-4-=-/agent-pad/pointer/opaque-dom-tab-12.md");
+  const tabPrefix = detectChatPrefix('<domios from="tab" label="Auditor" tab="tab-dom-12" model="model-dom-4">/agent-pad/pointer/opaque-dom-tab-12.md</domios>');
   assert(tabPrefix?.origin.kind === "tab", "parser supplies the Tab origin used by the DOM fixture");
-  const reportPrefix = detectChatPrefix("-=-codeterm:report from=Worker tab=tab-report-dom-13 model=model-report-dom-5-=-/agent-pad/pointer/opaque-dom-report-13.md");
+  const reportPrefix = detectChatPrefix('<domios from="report" label="Worker" tab="tab-report-dom-13" model="model-report-dom-5">/agent-pad/pointer/opaque-dom-report-13.md</domios>');
   assert(reportPrefix?.origin.kind === "tab" && reportPrefix.origin.report, "parser supplies the report origin used by the DOM fixture");
-  const systemPrefix = detectChatPrefix("-=-codeterm:system context=sYsTeM-=-/agent-pad/pointer/opaque-dom-system-14.md");
+  const systemPrefix = detectChatPrefix('<domios from="system" context="sYsTeM">/agent-pad/pointer/opaque-dom-system-14.md</domios>');
   assert(systemPrefix?.origin.kind === "system", "parser supplies the System origin used by the DOM fixture");
   const tabPointerMessage: NormalizedChatMessage = {
     id: "parsed-tab-pointer-message",

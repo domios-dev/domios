@@ -14,7 +14,7 @@ Every element carries an explicit stable id in its metadata: a vector heading en
 
 - Production listens on port 7685 and is never killed by development work; development uses 7686 or a named instance.
 - Core asks capabilities, never provider identities. The [Supporter contract](supporter-agent.md) keeps model judgments subordinate to deterministic evidence across every vector.
-- A routed marker is accepted as host-injected only in the leading frame placed by the host; the same bytes anywhere else are content. Position does not authenticate the sender or protect against direct writes into a tab's input stream.
+- A routed `<domios>` frame is accepted as host-injected only when the host placed the complete tag pair at the leading frame; the same bytes anywhere else are content. Position does not authenticate the sender or protect against direct writes into a tab's input stream.
 - Coordination waits on observed events, never on sleeps or polling intervals.
 - Changes to PTY or Chat input delivery get heightened attention: they name the causal finding, the files and symbols touched and the rollback boundary, and land only with focused proof that the delivery invariants still hold.
 - Agent-to-agent traffic, memory and documentation are English.

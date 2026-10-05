@@ -19,8 +19,14 @@ pub struct TurnEvidenceNormalization {
 impl TurnEvidenceNormalization {
     pub fn normalize(self, text: &str) -> String {
         let text = text.trim();
-        let text = if self.unwrap_pasted_content_wrapper {
-            unwrap_pasted_content_wrapper(text).unwrap_or(text)
+        let unwrapped = self
+            .unwrap_pasted_content_wrapper
+            .then(|| unwrap_pasted_content_wrapper(text))
+            .flatten();
+        let text = unwrapped.as_deref().unwrap_or(text);
+        let text = if codeterm_types::domios::parse_message(text).is_some() {
+            text.strip_suffix(codeterm_types::domios::DOMIOS_CLOSE_TAG)
+                .unwrap_or(text)
         } else {
             text
         };
@@ -44,17 +50,49 @@ impl TurnEvidenceNormalization {
     }
 }
 
-fn unwrap_pasted_content_wrapper(text: &str) -> Option<&str> {
-    let (opening, content) = text.split_once('\n')?;
-    let opening = opening.trim_end_matches('\r');
-    let id = opening
-        .strip_prefix("<pasted_content id=\"")?
-        .strip_suffix("\">")?;
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pasted_content_wrapper_between_typed_route_tags_keeps_exact_turn_evidence() {
+        let normalization = TurnEvidenceNormalization {
+            unwrap_pasted_content_wrapper: true,
+            collapse_horizontal_whitespace: true,
+            drop_supplementary_characters: false,
+        };
+        let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
+        let body = "routed body";
+        let suffix = format!(
+            " [reply] {}{}",
+            codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION,
+            codeterm_types::domios::DOMIOS_CLOSE_TAG
+        );
+        let expected = format!("{open}{body}{suffix}");
+        let observed = format!(
+            "{open}<pasted_content id=\"opaque\">\n{body}\n</pasted_content id=\"opaque\">{suffix}"
+        );
+
+        let normalized = normalization.normalize(&observed);
+        assert_eq!(normalized, normalization.normalize(&expected));
+        assert!(!normalized.contains(codeterm_types::domios::DOMIOS_CLOSE_TAG));
+    }
+}
+
+fn unwrap_pasted_content_wrapper(text: &str) -> Option<String> {
+    let opening_start = text.find("<pasted_content id=\"")?;
+    let opening_end = text[opening_start..].find('>')? + opening_start;
+    let opening = &text[opening_start..=opening_end];
+    let id = opening.strip_prefix("<pasted_content id=\"")?.strip_suffix("\">")?;
     if id.is_empty() {
         return None;
     }
     let closing = format!("</pasted_content id=\"{id}\">");
-    content.strip_suffix(&closing).map(str::trim)
+    let body_start = opening_end + 1;
+    let close_at = text[body_start..].find(&closing)? + body_start;
+    let pasted = text[body_start..close_at].trim();
+    let suffix_start = close_at + closing.len();
+    Some(format!("{}{pasted}{}", &text[..opening_start], &text[suffix_start..]))
 }
 
 /// How to wait for agent readiness after PTY spawn.
@@ -191,11 +229,7 @@ impl StarterPrompt {
             Self::StartupHandshake => "startup-handshake",
             Self::NoStarter => return None,
         };
-        Some(
-            codeterm_types::message_markers::Marker::new("system")
-                .attr("context", context)
-                .build(),
-        )
+        Some(codeterm_types::domios::build_opening_tag(&[("from", "system"), ("context", context)]))
     }
 }
 

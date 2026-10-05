@@ -14,12 +14,12 @@ const PARITY: &[(&str, &str)] = &[
     ),
     ("-=-codeterm:photo file=/u/p.jpg name=p.jpg-=-", "photo"),
     (
-        "-=-codeterm:telegram user=100000001 msg=12345-=-do the task",
+        "<domios from=\"telegram\" user=\"100000001\" msg=\"12345\">do the task</domios>",
         "telegram",
     ),
-    ("-=-codeterm:mesh peer=peer-a tab=abc12345-=-hi", "mesh"),
+    ("<domios from=\"mesh\" peer=\"peer-a\" tab=\"abc12345\">hi</domios>", "mesh"),
     (
-        "-=-codeterm:tab label=General%20Main tab=bda0e267-=-ping",
+        "<domios from=\"tab\" label=\"General Main\" tab=\"bda0e267\">ping</domios>",
         "tab label has space",
     ),
     (
@@ -63,17 +63,16 @@ fn every_parity_wire_parses() {
 
 #[test]
 fn parse_extracts_kind_attrs_payload() {
-    let p = parse("-=-codeterm:telegram user=100000001 msg=12345-=-do the task").unwrap();
-    assert_eq!(p.kind, "telegram");
-    assert_eq!(p.attr("user"), Some("100000001"));
-    assert_eq!(p.attr("msg"), Some("12345"));
+    let p = parse("-=-codeterm:voice file=/u/v.webm-=-do the task").unwrap();
+    assert_eq!(p.kind, "voice");
+    assert_eq!(p.attr("file"), Some("/u/v.webm"));
     assert_eq!(p.payload, "do the task");
 }
 
 #[test]
 fn percent_encoding_round_trips_structural_chars() {
     let nasty = "a b c=d%e\"f\ng";
-    let wire = Marker::new("tab").attr("label", nasty).build();
+    let wire = Marker::new("fixture").attr("label", nasty).build();
     // No raw structural chars leaked into the frame head.
     let head = &wire[OPEN.len()..wire[OPEN.len()..].find(CLOSE).unwrap() + OPEN.len()];
     assert!(!head.contains("]]"));
