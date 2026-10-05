@@ -54,6 +54,24 @@ pub(super) fn dispatch(
             serde_json::to_value(svc.sentinel_create(&caller, create).map_err(error)?)
                 .map_err(|e| error(e.to_string()))
         }
+        "sentinel.validate.create" => {
+            let create = params
+                .as_ref()
+                .and_then(|p| p.get("create"))
+                .ok_or_else(|| error("create params required"))?;
+            let create = serde_json::from_value(create.clone())
+                .map_err(|e| error(format!("invalid sentinel params: {e}")))?;
+            let mut preview = serde_json::to_value(
+                svc.sentinel_validate_create(&caller, create)
+                    .map_err(error)?,
+            )
+            .map_err(|e| error(e.to_string()))?;
+            if let Some(fields) = preview.as_object_mut() {
+                fields.remove("id");
+                fields.remove("scenario_id");
+            }
+            Ok(preview)
+        }
         "sentinel.list" => serde_json::to_value(svc.sentinel_list(&caller).map_err(error)?)
             .map_err(|e| error(e.to_string())),
         "sentinel.show" => {
@@ -81,6 +99,25 @@ pub(super) fn dispatch(
                 .map_err(|e| error(format!("invalid sentinel update: {e}")))?;
             serde_json::to_value(
                 svc.sentinel_update(&caller, &id, expect_version, update)
+                    .map_err(error)?,
+            )
+            .map_err(|e| error(e.to_string()))
+        }
+        "sentinel.validate.update" => {
+            let id = get_string_param(params, "id")?;
+            let expect_version = params
+                .as_ref()
+                .and_then(|value| value.get("expect_version"))
+                .and_then(Value::as_u64)
+                .ok_or_else(|| error("expect_version must be an unsigned integer"))?;
+            let update = params
+                .as_ref()
+                .and_then(|value| value.get("update"))
+                .ok_or_else(|| error("update params required"))?;
+            let update = serde_json::from_value(update.clone())
+                .map_err(|e| error(format!("invalid sentinel update: {e}")))?;
+            serde_json::to_value(
+                svc.sentinel_validate_update(&caller, &id, expect_version, update)
                     .map_err(error)?,
             )
             .map_err(|e| error(e.to_string()))

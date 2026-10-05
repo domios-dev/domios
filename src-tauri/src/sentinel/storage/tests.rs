@@ -115,6 +115,7 @@ fn owner(team: Option<&str>) -> Owner {
 
 fn params(paused: bool, handlers: Value) -> Create {
     serde_json::from_value(json!({
+        "name": "storage-state-watch",
         "probe": "status", "question": "state?", "buckets": ["done", "failed"], "every": "10s",
         "timeout": "1h", "matches": {"done": "^done$"}, "paused": paused, "handlers": handlers
     }))
@@ -662,6 +663,7 @@ fn sentinel_escalate_typed_outcomes_persist_hold_resolve_and_expiry() {
     let clock = MockClock::starting_at(1000);
     let store = typed(&storage, &clock);
     let params: Create = serde_json::from_value(json!({
+        "name": "escalation-outcome-watch",
         "probe": "status",
         "question": "state?",
         "buckets": ["done", "failed"],

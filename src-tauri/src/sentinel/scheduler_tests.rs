@@ -19,6 +19,7 @@ fn owner() -> Owner {
 
 fn create(store: &mut Store, paused: bool, handlers: serde_json::Value) -> Sentinel {
     store.create(serde_json::from_value(json!({
+        "name":"scheduler-result-watch",
         "probe":"status", "question":"state", "buckets":["done","failed"], "every":"10s", "timeout":"1h",
         "paused":paused, "handlers":handlers, "matches":{"done":"^done$"}
     })).unwrap(), owner(), false).unwrap()
@@ -230,7 +231,7 @@ fn sentinel_scheduler_graph_until_finishes_its_claimed_batch_and_stop_skips_tail
         dir.path().join("sentinels.json"),
         crate::cron::clock::MockClock::starting_at(1000),
     )));
-    let mut params = json!({"probe":"status","question":"state","buckets":["done"],"every":"10s","timeout":"1h","until":"done","matches":{"done":"done"},"handlers":{"done":[{"id":"first","type":"notify","parameters":{}},{"id":"end","type":"stop","parameters":{}},{"id":"tail","type":"notify","parameters":{}}]}});
+    let mut params = json!({"name":"scheduler-stop-watch","probe":"status","question":"state","buckets":["done"],"every":"10s","timeout":"1h","until":"done","matches":{"done":"done"},"handlers":{"done":[{"id":"first","type":"notify","parameters":{}},{"id":"end","type":"stop","parameters":{}},{"id":"tail","type":"notify","parameters":{}}]}});
     params["paused"] = json!(false);
     let parent = store
         .lock()
@@ -397,7 +398,7 @@ fn sentinel_scheduler_graph_action_budget_stops_before_next_effect() {
         dir.path().join("sentinels.json"),
         crate::cron::clock::MockClock::starting_at(1000),
     )));
-    let params = json!({"probe":"status","question":"state","buckets":["done"],"every":"10s","timeout":"1h","matches":{"done":"done"},"max_actions":1,"handlers":{"done":[{"id":"first","type":"notify","parameters":{}},{"id":"tail","type":"notify","parameters":{}}]}});
+    let params = json!({"name":"scheduler-budget-watch","probe":"status","question":"state","buckets":["done"],"every":"10s","timeout":"1h","matches":{"done":"done"},"max_actions":1,"handlers":{"done":[{"id":"first","type":"notify","parameters":{}},{"id":"tail","type":"notify","parameters":{}}]}});
     let job = store
         .lock()
         .create(serde_json::from_value(params).unwrap(), owner(), false)

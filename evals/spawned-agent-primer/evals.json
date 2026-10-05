@@ -102,6 +102,7 @@
       "expected_output": "Creates a bounded sentinel to watch CI and deliver one transition instead of repeatedly polling with the agent.",
       "expectations": [
         "Uses the codeterm sentinel create command family with --probe, --question, and --buckets to watch the CI result",
+        "Supplies a short meaningful --name and validates the graph with --dry-run before creation",
         "Sets an explicit cadence through --every of at least 10s and a bounded lifetime through --timeout or --until; --until names exactly one declared bucket, never a comma-separated list",
         "Does not write an agent-side polling loop or sleep between status checks; the real codeterm sentinel create command and its --every scheduler cadence are allowed and are not an agent polling loop",
         "Uses default notifications to the creator or only a supplied existing route target. Does not invent tab get-id, noop routes or another recipient. Automatic reserved other is not included in declared --buckets. Explanation must not invent commands, automatic stopping or claim model-free classification. The supported codeterm sentinel create syntax includes --probe, --question, --buckets, --every, --timeout, --until and --route bucket=send:tab or bucket=cron:name; evaluate it as a real supported command, not an unknown tool."
@@ -114,6 +115,7 @@
       "expected_output": "Creates a bounded Sentinel with predefined passed/failed routes instead of starting a repeated full agent or allowing model-selected shell commands.",
       "expectations": [
         "Uses codeterm sentinel create with --probe \"gh run view 456 --json status,conclusion\", --question describing classification, and --buckets passed,failed. These are outcome buckets; no --terminal flag exists or is required.",
+        "Supplies a short meaningful --name and validates the routes with --dry-run before creation",
         "Sets --route passed=cron:review_pr and --route failed=send:repair_worker, selecting only the supplied existing targets",
         "Explicitly classifies still-running CI as automatic other, not a declared bucket with guessed quiet behavior; no route while running and no early stop merely for a running result. Expiry at the explicit lifetime timeout is allowed and required.",
         "Uses explicit --timeout or one declared --until bucket to bound the real codeterm sentinel create scheduler; does not write an agent-side polling loop or full recurring agent",
@@ -128,6 +130,7 @@
       "expected_output": "Uses the CronRun observation source so each run is observed through the exact tab it launched.",
       "expectations": [
         "Uses codeterm sentinel create with --observe cron-run:nightly, not --probe or a hardcoded tab id",
+        "Supplies a short meaningful --name and validates the graph with --dry-run before creation",
         "Provides a question and declared buckets for waiting and working, with a notify route for waiting",
         "Bounds observation with --every of at least 10s and --timeout or --until",
         "Does not invent a shell probe or a separate tab target for the cron run"

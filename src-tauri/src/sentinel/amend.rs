@@ -177,11 +177,10 @@ impl Update {
         author_tab_id: &str,
         connected: bool,
     ) -> Result<PreparedUpdate, String> {
-        if self.name.as_ref().is_some_and(|name| {
-            name.trim().is_empty() || name.len() > 256 || name.chars().any(char::is_control)
-        }) {
-            return Err("name must be nonempty display text up to 256 bytes".into());
-        }
+        let name = self.name.as_deref().ok_or_else(|| {
+            "Sentinel update definition needs a name; use a short name such as ci-green-watch".to_string()
+        })?;
+        codeterm_types::automation_name::validate_sentinel_name(name)?;
         if self.question.trim().is_empty() || self.question.len() > 4096 {
             return Err("question must be nonempty and bounded to 4096 bytes".into());
         }

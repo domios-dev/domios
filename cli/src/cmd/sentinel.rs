@@ -1,10 +1,15 @@
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::io::Read;
 
 use crate::args::sentinel::{SentinelAction, SentinelEscalationAction};
 use crate::client::SocketClient;
 use crate::cmd::print::{fail, print_json};
+mod handlers;
+mod recipes;
+
+pub fn handle_recipe(json_mode: bool, name: Option<&str>) {
+    recipes::print(json_mode, name);
+}
 
 fn assignments(values: Vec<String>) -> Result<BTreeMap<String, String>, String> {
     let mut pairs = BTreeMap::new();
@@ -94,6 +99,10 @@ pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: Senti
         print_json(&result);
         return;
     }
+    if method.starts_with("sentinel.validate.") {
+        println!("{}", preview_summary(&result));
+        return;
+    }
     if method == "sentinel.history" {
         render_history(&result);
         return;
@@ -150,6 +159,7 @@ fn request(
 ) -> Result<(&'static str, Value), String> {
     let mut params = json!({ "caller_tab_id": caller, "session_binding_nonce": nonce });
     let method = match action {
+        SentinelAction::Recipe { .. } => return Err("sentinel recipe is handled locally".into()),
         SentinelAction::Create {
             name,
             probe,
@@ -167,13 +177,19 @@ fn request(
             until,
             timeout,
             matches,
+            dry_run,
         } => {
-            let (routes, handlers) = declared_outputs(routes, handlers_file.as_deref())?;
+            let (routes, handlers) =
+                handlers::declared_outputs(routes, handlers_file.as_deref(), &buckets)?;
             let observe = observe
                 .map(|source| observation_binding(&source))
                 .transpose()?;
             params["create"] = json!({ "name": name, "probe": probe, "observe": observe, "question": question, "buckets": buckets, "every": every, "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
-            "sentinel.create"
+            if dry_run {
+                "sentinel.validate.create"
+            } else {
+                "sentinel.create"
+            }
         }
         SentinelAction::List => "sentinel.list",
         SentinelAction::Show { id } => {
@@ -189,11 +205,16 @@ fn request(
             expect_version,
             from_file,
             cause,
+            dry_run,
         } => {
             params["id"] = json!(id);
             params["expect_version"] = json!(expect_version);
             params["update"] = read_update(&from_file, cause.as_deref())?;
-            "sentinel.update"
+            if dry_run {
+                "sentinel.validate.update"
+            } else {
+                "sentinel.update"
+            }
         }
         SentinelAction::History { id } => {
             params["id"] = json!(id);
@@ -225,175 +246,131 @@ fn observation_binding(source: &str) -> Result<Value, String> {
 }
 
 fn read_update(path: &std::path::Path, cause: Option<&str>) -> Result<Value, String> {
-    let mut raw = String::new();
-    std::fs::File::open(path)
-        .map_err(|error| error.to_string())?
-        .take(65_537)
-        .read_to_string(&mut raw)
-        .map_err(|error| error.to_string())?;
-    if raw.len() > 65_536 {
-        return Err("definition file exceeds 64 KiB".into());
-    }
+    let raw = handlers::read_bounded(path, "definition file")?;
     let mut update: Value =
         serde_json::from_str(&raw).map_err(|error| format!("invalid definition file: {error}"))?;
     let object = update
         .as_object_mut()
         .ok_or("definition file must contain a JSON object")?;
+    normalize_update_handlers(object)?;
     if let Some(cause) = cause {
         object.insert("cause".into(), json!(cause));
     }
     Ok(update)
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-struct HandlerDefinition {
-    id: String,
-    #[serde(rename = "type")]
-    kind: String,
-    parameters: HandlerParameters,
-}
-
-#[derive(Default, serde::Deserialize, serde::Serialize)]
-#[serde(deny_unknown_fields)]
-struct HandlerParameters {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    target: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    command: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    label: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    timeout_ms: Option<u64>,
-}
-
-fn declared_outputs(
-    routes: Vec<String>,
-    path: Option<&std::path::Path>,
-) -> Result<(BTreeMap<String, String>, Option<Value>), String> {
-    if path.is_some() && !routes.is_empty() {
-        return Err("--route and --handlers-file cannot be combined".into());
-    }
-    if let Some(path) = path {
-        let mut raw = String::new();
-        std::fs::File::open(path)
-            .map_err(|error| error.to_string())?
-            .take(65_537)
-            .read_to_string(&mut raw)
-            .map_err(|error| error.to_string())?;
-        if raw.len() > 65_536 {
-            return Err("handlers file exceeds 64 KiB".into());
-        }
-        let definitions: BTreeMap<String, Vec<HandlerDefinition>> =
-            serde_json::from_str(&raw).map_err(|e| format!("invalid handlers file: {e}"))?;
-        let mut ids = std::collections::BTreeSet::new();
-        for handlers in definitions.values() {
-            if handlers.len() > 16 {
-                return Err("at most 16 handlers per bucket".into());
-            }
-            for handler in handlers {
-                if !ids.insert(&handler.id) {
-                    return Err("duplicate handler ID".into());
-                }
-                let parameters = &handler.parameters;
-                if handler.kind == "command" {
-                    let command = parameters
-                        .command
-                        .as_deref()
-                        .ok_or("command text is required")?;
-                    let label = parameters
-                        .label
-                        .as_deref()
-                        .ok_or("command label is required")?;
-                    let timeout = parameters
-                        .timeout_ms
-                        .ok_or("command timeout_ms is required")?;
-                    if parameters.target.is_some()
-                        || command.trim().is_empty()
-                        || command.len() > 8192
-                        || command.contains('\0')
-                    {
-                        return Err("command requires local fixed text of at most 8192 bytes without NUL and no target".into());
-                    }
-                    if label.trim().is_empty()
-                        || label.len() > 256
-                        || label.chars().any(char::is_control)
-                    {
-                        return Err("command label must be bounded display text".into());
-                    }
-                    #[cfg(windows)]
-                    let runtime_ms = 10_000;
-                    #[cfg(not(windows))]
-                    let runtime_ms = 3_000;
-                    if timeout == 0 || timeout > runtime_ms {
-                        return Err("command timeout_ms exceeds the platform runtime".into());
-                    }
-                } else {
-                    if parameters.command.is_some()
-                        || parameters.label.is_some()
-                        || parameters.timeout_ms.is_some()
-                    {
-                        return Err("command parameters require type=command".into());
-                    }
-                    match (handler.kind.as_str(), parameters.target.as_deref()) {
-                        ("notify" | "stop", None) => {}
-                        ("sentinel" | "send" | "cron" | "escalate", Some(target))
-                            if !target.trim().is_empty() => {}
-                        ("respond_prompt", Some(target))
-                            if !target.trim().is_empty()
-                                && target.len() <= 256
-                                && !target.chars().any(char::is_control) => {}
-                        _ => return Err("unknown handler type or invalid parameters".into()),
-                    }
+fn preview_summary(job: &Value) -> String {
+    let mut lines = vec![format!(
+        "Sentinel graph: {}",
+        job["name"].as_str().unwrap_or("(unnamed)")
+    )];
+    lines.push(format!(
+        "Buckets: {}",
+        job["buckets"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(", ")
+    ));
+    lines.push("Handlers:".into());
+    if let Some(routes) = job["routes"].as_object() {
+        for (bucket, handlers) in routes {
+            lines.push(format!("  {bucket}:"));
+            if let Some(handlers) = handlers.as_array() {
+                for handler in handlers {
+                    let action =
+                        serde_json::to_string(&handler["action"]).unwrap_or_else(|_| "?".into());
+                    lines.push(format!(
+                        "    {} -> {action}",
+                        handler["id"].as_str().unwrap_or("?")
+                    ));
                 }
             }
         }
-        if ids.len() > 64 {
-            return Err("at most 64 handlers per sentinel".into());
+    }
+    if let Some(handlers) = job["on_other"]
+        .as_array()
+        .filter(|handlers| !handlers.is_empty())
+    {
+        lines.push("  other:".into());
+        for handler in handlers {
+            let action = serde_json::to_string(&handler["action"]).unwrap_or_else(|_| "?".into());
+            lines.push(format!(
+                "    {} -> {action}",
+                handler["id"].as_str().unwrap_or("?")
+            ));
         }
-        return Ok((
-            BTreeMap::new(),
-            Some(serde_json::to_value(definitions).map_err(|e| e.to_string())?),
-        ));
     }
-    let mut grouped: BTreeMap<String, Vec<HandlerDefinition>> = BTreeMap::new();
-    let mut single = BTreeMap::new();
-    let mut silent = std::collections::BTreeSet::<String>::new();
-    let mut repeated = false;
-    for (index, route) in routes.into_iter().enumerate() {
-        let (bucket, action) = route.split_once('=').ok_or("use bucket=action")?;
-        repeated |= single.insert(bucket.into(), action.into()).is_some();
-        if map_none_route(bucket, action, &mut grouped, &mut silent)? {
-            continue;
+    lines.push(format!("Cadence: {} ms", job["interval_ms"]));
+    lines.push(format!(
+        "Budgets: {} transitions, {} actions",
+        job["max_transitions"], job["max_actions"]
+    ));
+    lines.join("\n")
+}
+
+fn normalize_update_handlers(object: &mut serde_json::Map<String, Value>) -> Result<(), String> {
+    let has_handlers = object.contains_key("handlers");
+    let has_other = object.contains_key("on_other");
+    if !has_handlers && !has_other {
+        return Ok(());
+    }
+    let buckets = object
+        .get("buckets")
+        .and_then(Value::as_array)
+        .ok_or("definition JSON pointer `/buckets`: expected an array of bucket names")?
+        .iter()
+        .map(|bucket| {
+            bucket.as_str().map(str::to_string).ok_or_else(|| {
+                "definition JSON pointer `/buckets`: expected each bucket to be a string".into()
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let mut declared = object
+        .remove("handlers")
+        .unwrap_or_else(|| json!({}))
+        .as_object()
+        .cloned()
+        .ok_or("definition JSON pointer `/handlers`: expected an object")?;
+    if declared.contains_key("other") && !has_other {
+        return Err(
+            "definition JSON pointer `/handlers/other`: use `on_other` for reserved other handlers"
+                .into(),
+        );
+    }
+    if let Some(other) = object.remove("on_other") {
+        let other = other
+            .as_array()
+            .cloned()
+            .ok_or("definition JSON pointer `/on_other`: expected an array of handler objects")?;
+        if declared
+            .insert("other".into(), Value::Array(other))
+            .is_some()
+        {
+            return Err(
+                "definition JSON pointer `/on_other`: use `handlers.other` or `on_other`, not both"
+                    .into(),
+            );
         }
-        let handlers = grouped.entry(bucket.into()).or_default();
-        let (kind, target) = action
-            .split_once(':')
-            .map(|(k, t)| (k, Some(t.to_string())))
-            .unwrap_or((action, None));
-        handlers.push(HandlerDefinition {
-            id: format!("handler_{}", index + 1),
-            kind: kind.into(),
-            parameters: HandlerParameters {
-                target,
-                ..Default::default()
-            },
-        });
     }
-    if repeated {
-        Ok((
-            BTreeMap::new(),
-            Some(serde_json::to_value(grouped).map_err(|e| e.to_string())?),
-        ))
-    } else {
-        Ok((single, None))
+    let normalized = handlers::validate_handler_file(Value::Object(declared), &buckets)?;
+    let mut normalized = normalized.as_object().cloned().unwrap_or_default();
+    let on_other = normalized.remove("other").unwrap_or_else(|| json!([]));
+    if has_handlers {
+        object.insert("handlers".into(), Value::Object(normalized));
     }
+    if has_other {
+        object.insert("on_other".into(), on_other);
+    }
+    Ok(())
 }
 
 fn map_none_route(
     bucket: &str,
     action: &str,
-    grouped: &mut BTreeMap<String, Vec<HandlerDefinition>>,
+    grouped: &mut BTreeMap<String, Vec<Value>>,
     silent: &mut std::collections::BTreeSet<String>,
 ) -> Result<bool, String> {
     let handlers = grouped.entry(bucket.into()).or_default();
@@ -417,31 +394,39 @@ mod tests {
 
     #[test]
     fn sentinel_repeated_route_wire_preserves_order_and_stable_ids() {
-        let (routes, handlers) =
-            declared_outputs(vec!["done=notify".into(), "done=stop".into()], None).unwrap();
+        let (routes, handlers) = handlers::declared_outputs(
+            vec!["done=notify".into(), "done=stop".into()],
+            None,
+            &["done".into()],
+        )
+        .unwrap();
         assert!(routes.is_empty());
         assert_eq!(
             handlers.unwrap(),
             json!({"done":[
-                {"id":"handler_1","type":"notify","parameters":{}},
-                {"id":"handler_2","type":"stop","parameters":{}}
+                {"id":"notify-on-done","type":"notify","parameters":{}},
+                {"id":"stop-on-done","type":"stop","parameters":{}}
             ]})
         );
     }
 
     #[test]
     fn sentinel_none_route_is_an_empty_handler_array_and_can_mix_with_routes() {
-        let (routes, handlers) = declared_outputs(vec!["quiet=none".into()], None).unwrap();
+        let quiet = ["quiet".into()];
+        let (routes, handlers) =
+            handlers::declared_outputs(vec!["quiet=none".into()], None, &quiet).unwrap();
         assert_eq!(routes, BTreeMap::from([("quiet".into(), "none".into())]));
         assert!(handlers.is_none());
 
-        let (routes, handlers) = declared_outputs(
+        let buckets = ["quiet".into(), "done".into()];
+        let (routes, handlers) = handlers::declared_outputs(
             vec![
                 "quiet=none".into(),
                 "done=notify".into(),
                 "done=stop".into(),
             ],
             None,
+            &buckets,
         )
         .unwrap();
         assert!(routes.is_empty());
@@ -449,7 +434,12 @@ mod tests {
         assert_eq!(handlers["quiet"], json!([]));
         assert_eq!(handlers["done"].as_array().unwrap().len(), 2);
 
-        assert!(declared_outputs(vec!["done=none".into(), "done=notify".into()], None).is_err());
+        assert!(handlers::declared_outputs(
+            vec!["done=none".into(), "done=notify".into()],
+            None,
+            &["done".into()]
+        )
+        .is_err());
     }
 
     #[test]
@@ -461,8 +451,13 @@ mod tests {
             r#"{"done":[{"id":"h","type":"notify","parameters":{}}]}"#,
         )
         .unwrap();
-        assert!(declared_outputs(Vec::new(), Some(&path)).is_ok());
-        assert!(declared_outputs(vec!["done=stop".into()], Some(&path)).is_err());
+        assert!(handlers::declared_outputs(Vec::new(), Some(&path), &["done".into()]).is_ok());
+        assert!(handlers::declared_outputs(
+            vec!["done=stop".into()],
+            Some(&path),
+            &["done".into()]
+        )
+        .is_err());
         for raw in [
             r#"{"done":[{"id":"h","type":"notify","parameters":{}},{"id":"h","type":"stop","parameters":{}}]}"#,
             r#"{"done":[{"id":"h","type":"notify","parameters":{},"extra":true}]}"#,
@@ -471,7 +466,7 @@ mod tests {
             r#"{"done":[{"id":"h","type":"unknown","parameters":{}}]}"#,
         ] {
             std::fs::write(&path, raw).unwrap();
-            assert!(declared_outputs(Vec::new(), Some(&path)).is_err());
+            assert!(handlers::declared_outputs(Vec::new(), Some(&path), &["done".into()]).is_err());
         }
     }
 
@@ -485,7 +480,8 @@ mod tests {
         )
         .unwrap();
 
-        let (_, handlers) = declared_outputs(Vec::new(), Some(&path)).unwrap();
+        let (_, handlers) =
+            handlers::declared_outputs(Vec::new(), Some(&path), &["prompt".into()]).unwrap();
 
         assert_eq!(
             handlers.unwrap()["prompt"][0],
@@ -497,8 +493,30 @@ mod tests {
                 format!(r#"{{"prompt":[{{"id":"answer","type":"respond_prompt","parameters":{parameters}}}]}}"#),
             )
             .unwrap();
-            assert!(declared_outputs(Vec::new(), Some(&path)).is_err());
+            assert!(
+                handlers::declared_outputs(Vec::new(), Some(&path), &["prompt".into()]).is_err()
+            );
         }
+    }
+
+    #[test]
+    fn update_handler_definitions_generate_ids_for_buckets_and_other() {
+        let mut definition = json!({
+            "buckets": ["passed"],
+            "handlers": {"passed": [{"type":"notify", "parameters":{}}]},
+            "on_other": [{"type":"escalate", "parameters":{"target":"creator"}}]
+        });
+
+        normalize_update_handlers(definition.as_object_mut().unwrap()).unwrap();
+
+        assert_eq!(
+            definition["handlers"]["passed"][0]["id"],
+            "notify-on-passed"
+        );
+        assert_eq!(
+            definition["on_other"][0]["id"],
+            "escalate-to-owner-on-other"
+        );
     }
 
     #[test]
@@ -519,7 +537,7 @@ mod tests {
         )
         .unwrap();
 
-        let (_, handlers) = declared_outputs(Vec::new(), Some(&path)).unwrap();
+        let (_, handlers) = handlers::declared_outputs(Vec::new(), Some(&path), &[]).unwrap();
 
         assert_eq!(
             handlers.unwrap()["other"][0],
@@ -542,6 +560,38 @@ mod tests {
         assert_eq!(method, "sentinel.escalation.resolve");
         assert_eq!(params["id"], "sentinel_a");
         assert_eq!(params["transition_id"], "transition_9");
+    }
+
+    #[test]
+    fn create_dry_run_uses_validation_rpc() {
+        use clap::Parser;
+
+        let cli = crate::args::cli::Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "create",
+            "--name",
+            "ci-green-watch",
+            "--probe",
+            "status",
+            "--question",
+            "classify-result",
+            "--buckets",
+            "passed",
+            "--match",
+            "passed=.*",
+            "--dry-run",
+        ])
+        .unwrap();
+        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+            panic!("unexpected command")
+        };
+
+        let (method, params) =
+            request(action, Some("creator".into()), Some("nonce".into())).unwrap();
+
+        assert_eq!(method, "sentinel.validate.create");
+        assert_eq!(params["create"]["name"], "ci-green-watch");
     }
     #[test]
     fn sentinel_create_rpc_request_preserves_declared_handlers_and_tab_nonce() {
@@ -594,7 +644,7 @@ mod tests {
         assert_eq!(create["rearm_on_change"], json!(["done"]));
         assert_eq!(
             create["handlers"]["done"][1],
-            json!({"id":"handler_2","type":"sentinel","parameters":{"target":"sentinel_child"}})
+            json!({"id":"activate-sentinel-child-on-done","type":"sentinel","parameters":{"target":"sentinel_child"}})
         );
         assert_eq!(create["timeout"], "1h");
     }
@@ -648,6 +698,24 @@ mod tests {
         let cli = crate::args::cli::Cli::try_parse_from([
             "codeterm",
             "sentinel",
+            "update",
+            "sentinel_a",
+            "--expect-version",
+            "3",
+            "--from-file",
+            path.to_str().unwrap(),
+            "--dry-run",
+        ])
+        .unwrap();
+        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+            panic!("unexpected command")
+        };
+        let (method, _) = request(action, Some("editor".into()), Some("nonce".into())).unwrap();
+        assert_eq!(method, "sentinel.validate.update");
+
+        let cli = crate::args::cli::Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
             "history",
             "sentinel_a",
         ])
@@ -679,6 +747,8 @@ mod command_tests {
                 "codeterm",
                 "sentinel",
                 "create",
+                "--name",
+                "agent-state-watch",
                 "--observe",
                 source,
                 "--question",
@@ -715,6 +785,8 @@ mod command_tests {
             "codeterm",
             "sentinel",
             "create",
+            "--name",
+            "command-result-watch",
             "--probe",
             "status",
             "--question",

@@ -417,11 +417,10 @@ impl Store {
             workspace_id: workspace,
             cwd,
         } = owner;
-        if params.name.as_ref().is_some_and(|name| {
-            name.trim().is_empty() || name.len() > 256 || name.chars().any(char::is_control)
-        }) {
-            return Err("--name: provide a nonempty name up to 256 bytes".into());
-        }
+        let name = params.name.as_deref().ok_or_else(|| {
+            "Sentinel graph name is required; use --name ci-green-watch or --name build-done-notify".to_string()
+        })?;
+        codeterm_types::automation_name::validate_sentinel_name(name)?;
         let (probe, observe) = match (params.probe, params.observe) {
             (Some(probe), None) if !probe.trim().is_empty() && probe.len() <= 8192 => (probe, None),
             (Some(_), None) => {

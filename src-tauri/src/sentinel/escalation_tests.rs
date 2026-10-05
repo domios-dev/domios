@@ -25,6 +25,7 @@ fn create_params(other: serde_json::Value) -> Create {
         json!([other])
     };
     serde_json::from_value(json!({
+        "name": "escalation-state-watch",
         "probe": "status",
         "question": "Did it finish?",
         "buckets": ["done"],
@@ -463,7 +464,7 @@ fn sentinel_escalate_forbidden_on_other_kinds_fail_create_and_amend() {
 
     let job = create_escalating(&mut store);
     let update = super::amend::Update {
-        name: None,
+        name: Some("escalation-watch".into()),
         question: job.question.clone(),
         buckets: job.buckets.clone(),
         every: "10s".into(),
