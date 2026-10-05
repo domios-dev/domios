@@ -108,7 +108,8 @@ pub async fn supporter_status(AxumState(state): AxumState<AppState>) -> RouteRes
         let selected_token = store.status(id)?;
         let selected = models.get(id);
         let mode = selected.as_ref().map_or(TokenMode::None, |model| model.token_mode());
-        let connected = crate::service::supporter::supporter_connected(&cfg, models, &crate::service::supporter::TokenSnapshot::read(&store, id));
+        let token = crate::service::supporter::read_token_snapshot(&runtime, &store, id);
+        let connected = crate::service::supporter::supporter_connected(&cfg, models, &token);
         let rows = connections::list(&cfg, models, &store).map_err(|_| io::Error::other("connections unavailable"))?;
         let mut output = json!({
             "state": supporter_state(cfg.active_id().is_some(), &selected_token, selected.is_some(), mode),

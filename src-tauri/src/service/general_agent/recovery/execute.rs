@@ -415,7 +415,8 @@ impl ServiceContext {
             return false;
         }
         let config = crate::config::load_config().supporter;
-        let tokens = crate::service::supporter::TokenSnapshot::read(
+        let tokens = crate::service::supporter::read_token_snapshot(
+            &crate::service::supporter::runtime_with_notifications(self),
             &crate::api::mem_routes::decision::token_store(),
             config.active_id().unwrap_or(""),
         );

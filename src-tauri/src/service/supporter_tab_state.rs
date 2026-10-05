@@ -351,12 +351,13 @@ impl ShadowHost for ServiceContext {
     }
     fn connection_is_current(&self, adapter: &str) -> bool {
         let settings = self.supporter_decision_config();
+        let token = supporter::read_token_snapshot(
+            &self.supporter_runtime(),
+            &crate::api::mem_routes::decision::token_store(),
+            adapter,
+        );
         settings.active_id() == Some(adapter)
-            && supporter::supporter_connected(
-                &settings,
-                &self.supporter_models,
-                &TokenSnapshot::read(&crate::api::mem_routes::decision::token_store(), adapter),
-            )
+            && supporter::supporter_connected(&settings, &self.supporter_models, &token)
     }
     fn supporter_runtime(&self) -> Arc<SupporterRuntime> {
         #[cfg(test)]
@@ -377,7 +378,12 @@ impl ShadowHost for ServiceContext {
     }
 
     fn token_available(&self, adapter_id: &str) -> bool {
-        TokenSnapshot::read(&crate::api::mem_routes::decision::token_store(), adapter_id).usable
+        supporter::read_token_snapshot(
+            &self.supporter_runtime(),
+            &crate::api::mem_routes::decision::token_store(),
+            adapter_id,
+        )
+        .usable
     }
 
     fn metadata(
@@ -705,7 +711,8 @@ impl ServiceContext {
         tab_id: &str,
     ) -> Option<(DecisionQuestionsRequest, TabStateMetadata)> {
         let config = self.supporter_decision_config();
-        let tokens = TokenSnapshot::read(
+        let tokens = supporter::read_token_snapshot(
+            &supporter::runtime_with_notifications(self),
             &crate::api::mem_routes::decision::token_store(),
             config.active_id().unwrap_or(""),
         );
