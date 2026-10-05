@@ -5,6 +5,7 @@ use crate::service::chat_send_transaction::ChatSendState;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+mod status_tests;
 mod structured_sequential_tests;
 
 /// Honest byte-window JSONL provider: parses `{"role":"user","content":..}`

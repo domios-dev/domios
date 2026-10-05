@@ -1,7 +1,6 @@
 //! Prompt-fragment tests. Split out of `prompts.rs` to keep the source file
 //! inside the repository size gate; the module contract is unchanged.
 
-mod idle_coordination;
 mod notify_rules;
 mod prompt_diet;
 mod task_sequencing;
@@ -736,27 +735,45 @@ fn general_agent_template_receives_the_cli_reference() {
     assert!(!general.contains("{codeterm_cli}"));
 }
 
+/// Plan nudges are delivered from `prompts_plan` at runtime, outside the
+/// fragment sweep; a pointer to a renamed command strands its recipient.
 #[test]
-fn reflection_block_runs_velocity_and_cost_sweep() {
-    assert!(REFLECTION_BLOCK.contains("VELOCITY AND COST sweep"));
-    assert!(REFLECTION_BLOCK.contains("no longer earn their priority"));
-    assert!(REFLECTION_BLOCK.contains("cheaper model"));
+fn plan_nudges_teach_only_commands_the_manifest_has() {
+    let root: serde_json::Value =
+        serde_json::from_str(CLI_MANIFEST).expect("cli-manifest.json must parse");
+
+    let mut problems: Vec<String> = Vec::new();
+    for (name, fragment) in [
+        ("REFLECTION_BLOCK", REFLECTION_BLOCK),
+        ("PLAN_RETROSPECTIVE_NUDGE", PLAN_RETROSPECTIVE_NUDGE),
+        ("PLAN_SKILLS_WORKER_LINE", PLAN_SKILLS_WORKER_LINE),
+    ] {
+        let spans = command_spans(fragment);
+        assert!(!spans.is_empty(), "{name} points at no runnable command");
+        for span in spans {
+            let before = problems.len();
+            check_span(&root, span, &mut problems);
+            check_span_flags(&root, span, &mut problems);
+            for problem in problems.iter_mut().skip(before) {
+                *problem = format!("{name}: {problem}");
+            }
+        }
+    }
+
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
 }
 
 #[test]
-fn retrospective_nudge_graduates_skills_and_scripts_via_reviewed_lane() {
-    assert!(PLAN_RETROSPECTIVE_NUDGE.contains("codeterm mem skill"));
-    assert!(PLAN_RETROSPECTIVE_NUDGE.contains(".agents/skills/"));
-    assert!(PLAN_RETROSPECTIVE_NUDGE.contains("scripts/"));
-    assert!(PLAN_RETROSPECTIVE_NUDGE.contains("reviewed lane"));
+fn retrospective_nudge_reaches_the_wrapup_with_its_plan_substituted() {
+    let message = crate::service::plan::complete_wrapup::complete_wrapup_message("pl_probe");
+
+    assert!(message.contains(&PLAN_RETROSPECTIVE_NUDGE.replace("<plan>", "pl_probe")));
+    assert!(!message.contains("<plan>"));
 }
 
 #[test]
-fn plan_skills_worker_and_registry_lines_are_pointers() {
-    assert!(PLAN_SKILLS_WORKER_LINE.contains("codeterm plan skill list"));
-    assert!(PLAN_SKILLS_WORKER_LINE.contains("codeterm plan skill new"));
+fn plan_skills_registry_line_keeps_its_count_slot() {
     assert!(PLAN_SKILLS_REGISTRY_LINE.contains("{n}"));
-    assert!(PLAN_SKILLS_REGISTRY_LINE.contains("codeterm plan skill show <slug> | new | edit."));
 }
 
 #[test]
