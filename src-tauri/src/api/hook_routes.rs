@@ -252,46 +252,49 @@ pub async fn hook_permission(
     // Hook firing = authoritative proof that an agent is running in this tab.
     ensure_agent_state(&state, &tab_id);
 
-    // The per-tool payload the vendor already sent beats anything scraped back
-    // off the screen, so it is ingested before the parsing fallbacks.
-    if let Some(raw) = body.as_ref() {
-        if let Some(signal) = crate::agent::permission_request::parse_permission_request(raw) {
-            reject_foreign_binding_nonce(&state, &tab_id, &headers, raw)?;
-            let decision = state
-                .svc
-                .prompt_detector
-                .lock()
-                .hook_detected_permission_request(&tab_id, signal);
-            state.svc.apply_hook_prompt_decision(&tab_id, &decision);
-            return Ok(Json(serde_json::json!({"ok": true, "ingested": true})));
-        }
+    // The provider's request metadata is retained separately from screen choices.
+    let permission_request = body
+        .as_ref()
+        .and_then(crate::agent::permission_request::parse_permission_request);
+    let has_permission_request = permission_request.is_some();
+    if let (Some(signal), Some(raw)) = (permission_request, body.as_ref()) {
+        reject_foreign_binding_nonce(&state, &tab_id, &headers, raw)?;
+        state
+            .svc
+            .prompt_detector
+            .lock()
+            .hook_detected_permission_request(&tab_id, signal);
     }
 
-    let explicit_prompt = body.and_then(|b| {
-        let question = b.get("question")?.as_str()?.to_string();
-        let options = b
-            .get("options")?
-            .as_array()?
-            .iter()
-            .filter_map(|o| {
-                Some(crate::multiplexer::types::PromptOption {
-                    label: o.get("label")?.as_str()?.to_string(),
-                    value: o.get("value")?.as_str()?.to_string(),
+    let explicit_prompt = if has_permission_request {
+        None
+    } else {
+        body.and_then(|b| {
+            let question = b.get("question")?.as_str()?.to_string();
+            let options = b
+                .get("options")?
+                .as_array()?
+                .iter()
+                .filter_map(|o| {
+                    Some(crate::multiplexer::types::PromptOption {
+                        label: o.get("label")?.as_str()?.to_string(),
+                        value: o.get("value")?.as_str()?.to_string(),
+                    })
                 })
+                .collect::<Vec<_>>();
+            if options.is_empty() {
+                return None;
+            }
+            Some(crate::multiplexer::types::PendingPrompt {
+                question,
+                options,
+                sections: None,
+                multi_select: None,
+                submit_available: None,
+                selected_values: None,
             })
-            .collect::<Vec<_>>();
-        if options.is_empty() {
-            return None;
-        }
-        Some(crate::multiplexer::types::PendingPrompt {
-            question,
-            options,
-            sections: None,
-            multi_select: None,
-            submit_available: None,
-            selected_values: None,
         })
-    });
+    };
 
     let decision = if let Some(prompt) = explicit_prompt {
         state
@@ -381,7 +384,12 @@ pub async fn hook_permission(
 
     state.svc.apply_hook_prompt_decision(&tab_id, &decision);
 
-    Ok(Json(serde_json::json!({"ok": true})))
+    let response = if has_permission_request {
+        serde_json::json!({"ok": true, "ingested": true})
+    } else {
+        serde_json::json!({"ok": true})
+    };
+    Ok(Json(response))
 }
 
 /// Verdict for a provider-reported Stop POST. A carried nonce must equal the
