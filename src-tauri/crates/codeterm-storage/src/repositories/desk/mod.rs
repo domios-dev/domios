@@ -21,12 +21,24 @@ use crate::owner::WriteCx;
 use crate::repositories::workspaces::WorkspaceRecord;
 use crate::repositories::{Committed, Completion, Read, Revision};
 use rusqlite::Connection;
+use std::collections::HashSet;
+
+fn retain_orphan_teams(snapshot: &mut DeskSnapshot) {
+    let workspace_ids: HashSet<&str> = snapshot
+        .workspaces
+        .iter()
+        .map(|workspace| workspace.record.id.as_str())
+        .collect();
+    snapshot
+        .teams
+        .retain(|team| workspace_ids.contains(team.workspace_id.as_str()));
+}
 
 pub(crate) fn write_import(
     cx: &mut WriteCx<'_>,
     snapshot: DeskSnapshot,
 ) -> Result<(), StorageError> {
-    snapshot.validate()?;
+    snapshot.validate_preserving_orphan_teams()?;
     mutations::import(cx, snapshot)
 }
 
@@ -55,7 +67,8 @@ impl DeskRepository {
     }
 
     /// Imports one original desk into an empty domain. It never merges into a live desk.
-    pub fn import(&self, snapshot: DeskSnapshot) -> Completion<Committed<()>> {
+    pub fn import(&self, mut snapshot: DeskSnapshot) -> Completion<Committed<()>> {
+        retain_orphan_teams(&mut snapshot);
         let cost = match snapshot.validate() {
             Ok(cost) => cost,
             Err(error) => return Completion::settled(Err(error)),
@@ -66,7 +79,8 @@ impl DeskRepository {
 
     /// Adds entities that are missing. Existing workspace, Team, tab and identity rows
     /// retain their current values and revisions.
-    pub fn additive_restore(&self, snapshot: DeskSnapshot) -> Completion<Committed<()>> {
+    pub fn additive_restore(&self, mut snapshot: DeskSnapshot) -> Completion<Committed<()>> {
+        retain_orphan_teams(&mut snapshot);
         let cost = match snapshot.validate() {
             Ok(cost) => cost,
             Err(error) => return Completion::settled(Err(error)),

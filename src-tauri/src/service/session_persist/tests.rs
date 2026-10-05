@@ -265,12 +265,10 @@ fn failed_commit_is_retried_on_the_next_change_without_a_retry_loop() {
     );
     assert_eq!(attempt_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 1);
 
-    assert_eq!(
-        worker
-            .submit_snapshot(test_snapshot(2), SaveIntent::PreserveDesk, true)
-            .unwrap(),
-        Some(SaveOutcome::Saved)
-    );
+    assert!(matches!(
+        worker.submit_snapshot(test_snapshot(2), SaveIntent::PreserveDesk, true),
+        Ok(Some(SaveOutcome::Saved))
+    ));
     assert_eq!(attempt_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 2);
     assert!(matches!(attempt_rx.try_recv(), Err(TryRecvError::Empty)));
     worker.flush().unwrap();

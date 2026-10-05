@@ -385,7 +385,7 @@ fn storage_desk_drops_seeded_orphan_then_reorders_and_restores() {
     storage.shutdown().wait(Duration::from_secs(5)).unwrap();
     drop(storage);
 
-    let database = rusqlite::Connection::open(root.path().join("state.db")).unwrap();
+    let database = rusqlite::Connection::open(root.path().join("storage/state.db")).unwrap();
     database
         .execute("UPDATE desk_teams SET ordinal = 2 WHERE id = 'team-c'", [])
         .unwrap();

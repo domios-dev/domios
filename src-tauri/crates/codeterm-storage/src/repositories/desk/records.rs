@@ -217,6 +217,14 @@ pub struct DeskState {
 
 impl DeskSnapshot {
     pub fn validate(&self) -> Result<usize, StorageError> {
+        self.validate_inner(true)
+    }
+
+    pub(crate) fn validate_preserving_orphan_teams(&self) -> Result<usize, StorageError> {
+        self.validate_inner(false)
+    }
+
+    fn validate_inner(&self, require_team_workspace: bool) -> Result<usize, StorageError> {
         if self.workspaces.len() > MAX_DESK_WORKSPACES {
             return Err(StorageError::invalid(
                 "desk workspaces",
@@ -273,7 +281,7 @@ impl DeskSnapshot {
                     "empty or duplicate identity",
                 ));
             }
-            if !workspaces.contains(team.workspace_id.as_str()) {
+            if require_team_workspace && !workspaces.contains(team.workspace_id.as_str()) {
                 return Err(StorageError::invalid(
                     "Team workspace",
                     "must name a desk workspace",
