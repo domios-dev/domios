@@ -118,18 +118,22 @@ fn parse_screen_option(line: &str, row: usize) -> Option<ScreenOption> {
 
 fn parse_sections(line: &str) -> Vec<PromptSection> {
     let mut sections = Vec::new();
-    let mut characters = line.char_indices().peekable();
-    while let Some((_, marker)) = characters.next() {
+    let characters: Vec<(usize, char)> = line.char_indices().collect();
+    let mut position = 0;
+    while position < characters.len() {
+        let marker = characters[position].1;
+        position += 1;
         if !is_checkbox(marker) {
             continue;
         }
-        let start = characters.peek().map_or(line.len(), |(index, _)| *index);
-        let end = characters
-            .find_map(|(index, character)| {
-                (is_checkbox(character) || character == '→').then_some(index)
-            })
-            .unwrap_or(line.len());
+        let start = characters.get(position).map_or(line.len(), |(index, _)| *index);
+        let stop = characters[position..]
+            .iter()
+            .position(|(_, character)| is_checkbox(*character) || *character == '→')
+            .map(|offset| position + offset);
+        let end = stop.map_or(line.len(), |at| characters[at].0);
         let label = line[start..end].trim();
+        position = stop.unwrap_or(characters.len());
         if label.is_empty() || label.eq_ignore_ascii_case("submit") {
             continue;
         }
@@ -138,10 +142,6 @@ fn parse_sections(line: &str) -> Vec<PromptSection> {
             active: false,
             completed: marker == '✔' || marker == '☑' || marker == '☒',
         });
-        characters = line[end..]
-            .char_indices()
-            .map(|(index, ch)| (end + index, ch))
-            .peekable();
     }
     if let Some(active) = sections.iter_mut().find(|section| !section.completed) {
         active.active = true;
