@@ -172,13 +172,23 @@ for (const f of ["normal-working.txt", "tool-call-list.txt", "diff-and-shell.txt
   assert(!r?.action?.keys, `${f}: no auto-key action`, JSON.stringify(r?.action));
 }
 
-console.log("\n--- picker guard: model picker must not classify as rate_limited ---\n");
+console.log("\n--- active picker: model selection is a visible question ---\n");
 {
   const picker = fs.readFileSync(path.join(here, "fixtures", "model-picker.txt"), "utf8");
   const r = classify(plugin, picker);
-  const state = r?.state ?? "unknown";
-  assert(state !== "rate_limited", "model picker is not rate_limited", `state=${state}`);
-  assert(!r?.action?.delayedResume, "model picker gets no delayed resume", JSON.stringify(r?.action));
+  eq(r?.state, "clarifying_question", "model picker is surfaced as a question");
+  assert(!r?.action?.keys, "model picker has no automatic key action", JSON.stringify(r?.action));
+  eq(r?.action?.surface?.kind, "clarifying_question", "model picker carries a question surface");
+}
+
+{
+  const trust = fs.readFileSync(
+    path.join(here, "fixtures", "directory-trust", "trust-folder-access-0.157.1.txt"),
+    "utf8",
+  );
+  const r = classify(plugin, trust);
+  eq(r?.state, "clarifying_question", "Codex folder trust is surfaced as a question");
+  assert(!r?.action?.keys, "Codex trust screen has no automatic key action", JSON.stringify(r?.action));
 }
 
 console.log("\n--- ensemble: a single weak signal must NOT reach threshold ---\n");

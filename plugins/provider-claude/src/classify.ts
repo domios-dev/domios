@@ -1,4 +1,5 @@
 import { usageParseTodayClock } from "./usage";
+import { parseClaudeWizardPrompt } from "./prompts";
 
 export interface TabStateSnapshot {
   tabId: string;
@@ -184,6 +185,10 @@ function parseResetClock(screen: string, nowMs: number): number | null {
 interface ClarifyScore { confidence: number; questions: string[] }
 
 function scoreClarifyingQuestion(screen: string): ClarifyScore {
+  const wizardPrompt = parseClaudeWizardPrompt(screen);
+  if (wizardPrompt?.multiSelect === true) {
+    return { confidence: 1, questions: [wizardPrompt.question] };
+  }
   const block = activeClarifyingPromptBlock(screen);
   const options = block?.options ?? [];
   const questions = block?.questions ?? [];

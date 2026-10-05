@@ -7,8 +7,151 @@
 use codeterm_types::agent::chat_types::{
     InteractiveElement, InteractiveOption, InteractiveQuestion, RichMessage,
 };
+use codeterm_types::pty::{PendingPrompt, PromptOption, PromptSection};
 
 const ASK_USER_QUESTION: &str = "AskUserQuestion";
+
+pub(super) fn parse_screen_prompt(screen: &str) -> Option<PendingPrompt> {
+    let lines = screen.lines().collect::<Vec<_>>();
+    let tab_line = lines.iter().rposition(|line| {
+        line.contains("Submit") && line.chars().any(|character| is_checkbox(character))
+    })?;
+    let body = &lines[tab_line + 1..];
+    let mut checkbox_index = 0;
+    let rows = body
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let mut option = parse_screen_option(line, index)?;
+            if option.checkbox {
+                checkbox_index += 1;
+                option.value = checkbox_index.to_string();
+            }
+            Some(option)
+        })
+        .collect::<Vec<_>>();
+    if rows.len() < 2 {
+        return None;
+    }
+    let first = rows.first()?.line;
+    let question = body[..first]
+        .iter()
+        .rev()
+        .map(|line| line.trim())
+        .find(|line| line.ends_with('?'))?
+        .to_string();
+    let multi_select = rows.iter().any(|option| option.checkbox);
+    let sections = parse_sections(lines[tab_line]);
+    let selected_values = rows
+        .iter()
+        .filter(|option| option.selected)
+        .map(|option| option.value.clone())
+        .collect();
+
+    Some(PendingPrompt {
+        question,
+        options: rows
+            .into_iter()
+            .map(|option| PromptOption {
+                label: option.label,
+                value: option.value,
+            })
+            .collect(),
+        sections: (!sections.is_empty()).then_some(sections),
+        multi_select: Some(multi_select),
+        submit_available: Some(lines[tab_line].contains("Submit")),
+        selected_values: Some(selected_values),
+    })
+}
+
+struct ScreenOption {
+    label: String,
+    value: String,
+    line: usize,
+    checkbox: bool,
+    selected: bool,
+}
+
+fn parse_screen_option(line: &str, row: usize) -> Option<ScreenOption> {
+    let trimmed = line
+        .trim()
+        .trim_start_matches(|character| matches!(character, '❯' | '>' | '›' | '▶' | '➤'))
+        .trim();
+    let marker = trimmed.chars().next()?;
+    if is_checkbox(marker) {
+        let (label, selected) = if marker == '[' {
+            let mark = trimmed.get(0..3)?;
+            if !matches!(mark, "[ ]" | "[x]" | "[X]") {
+                return None;
+            }
+            (trimmed.get(3..)?.trim(), mark != "[ ]")
+        } else {
+            (
+                trimmed[marker.len_utf8()..].trim(),
+                matches!(marker, '☑' | '☒' | '✔'),
+            )
+        };
+        if label.is_empty() {
+            return None;
+        }
+        return Some(ScreenOption {
+            label: label.to_string(),
+            value: (row + 1).to_string(),
+            line: row,
+            checkbox: true,
+            selected,
+        });
+    }
+    let (number, label) = trimmed.split_once(". ")?;
+    if number.is_empty() || !number.chars().all(|character| character.is_ascii_digit()) {
+        return None;
+    }
+    let label = label.trim();
+    (!label.is_empty()).then(|| ScreenOption {
+        label: label.to_string(),
+        value: number.to_string(),
+        line: row,
+        checkbox: false,
+        selected: false,
+    })
+}
+
+fn parse_sections(line: &str) -> Vec<PromptSection> {
+    let mut sections = Vec::new();
+    let mut characters = line.char_indices().peekable();
+    while let Some((_, marker)) = characters.next() {
+        if !is_checkbox(marker) {
+            continue;
+        }
+        let start = characters.peek().map_or(line.len(), |(index, _)| *index);
+        let end = characters
+            .find_map(|(index, character)| {
+                (is_checkbox(character) || character == '→').then_some(index)
+            })
+            .unwrap_or(line.len());
+        let label = line[start..end].trim();
+        if label.is_empty() || label.eq_ignore_ascii_case("submit") {
+            continue;
+        }
+        sections.push(PromptSection {
+            label: label.to_string(),
+            active: false,
+            completed: marker == '✔' || marker == '☑' || marker == '☒',
+        });
+        characters = line[end..]
+            .char_indices()
+            .map(|(index, ch)| (end + index, ch))
+            .peekable();
+    }
+    if let Some(active) = sections.iter_mut().find(|section| !section.completed) {
+        active.active = true;
+    }
+    sections
+}
+
+fn is_checkbox(character: char) -> bool {
+    matches!(character, '[' | '☐' | '☑' | '☒' | '✔')
+}
 
 pub(super) fn parse_interactive_events(msg: &RichMessage) -> Vec<InteractiveElement> {
     let mut out = Vec::new();

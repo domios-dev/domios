@@ -469,6 +469,50 @@ fn codex_update_dialog_is_never_a_trust_dialog_native_js_parity() {
 }
 
 #[test]
+fn codex_model_picker_fixture_parses_and_classifies_as_a_manual_prompt() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let screen = std::fs::read_to_string(
+        workspace_plugins_root().join("provider-codex/tests/fixtures/model-picker.txt"),
+    )
+    .expect("Codex model picker fixture");
+    let provider = codex();
+    let prompt = provider.parse_prompt(&screen).expect("model picker parses");
+    let core = crate::detector::parse_interactive_picker(&screen)
+        .expect("shared native picker parser recognizes the same screen");
+    assert_eq!(prompt.question, core.question);
+    assert_eq!(
+        prompt
+            .options
+            .iter()
+            .map(|option| (option.label.as_str(), option.value.as_str()))
+            .collect::<Vec<_>>(),
+        core.options
+            .iter()
+            .map(|(label, value)| (label.as_str(), value.as_str()))
+            .collect::<Vec<_>>()
+    );
+    let classification = provider
+        .classify_tab_state(&crate::tab_state::TabStateSnapshot {
+            tab_id: "model-picker".into(),
+            agent_type: "codex".into(),
+            session_id: None,
+            cwd: None,
+            screen_text: screen,
+        })
+        .expect("active model picker classifies");
+    assert_eq!(
+        classification.state,
+        crate::tab_state::TabState::ClarifyingQuestion
+    );
+    assert!(classification
+        .action
+        .as_ref()
+        .is_some_and(|action| action.keys.is_none()));
+}
+
+#[test]
 fn codex_update_copy_in_transcript_is_not_a_blocking_modal() {
     if require_plugins().is_none() {
         return;
