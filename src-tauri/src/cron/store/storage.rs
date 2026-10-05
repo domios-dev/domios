@@ -1069,6 +1069,21 @@ pub(crate) fn finish_run(
     Ok(finished.fresh)
 }
 
+pub(crate) fn finish_run_with_summary(
+    cron: &CronState,
+    job_id: &str,
+    run_id: &str,
+    status: CronRunStatus,
+    summary: &str,
+) -> Result<bool, CronCommitError> {
+    let finished = commit(cron, |store| {
+        store.prepare_finish_run_with_summary(job_id, run_id, status.clone(), None, Some(summary))
+    })?
+    .value;
+    log_finished(job_id, run_id, &status, finished);
+    Ok(finished.fresh)
+}
+
 enum Waited<T> {
     Settled(Result<T, StorageError>),
     Expired(Completion<T>),

@@ -212,7 +212,7 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
         }
     }
 
-    let scheduler_ready = if cron_available {
+    let port_ready = if cron_available {
         match cron::store::settle_port(&cron_state) {
             cron::store::PortSettlement::Empty | cron::store::PortSettlement::Committed => true,
             cron::store::PortSettlement::Retained(error)
@@ -228,6 +228,28 @@ pub(crate) fn start_servers(app: &tauri::App, states: &AppStates, service_state:
     } else {
         false
     };
+    let restored_cron_session = {
+        let mux = states.mux.read();
+        cron::recovery::RestoredCronSession::from_mux(&mux)
+    };
+    let scheduler_ready = port_ready
+        && match cron::recovery::reconcile_restored_runs(&cron_state, &restored_cron_session) {
+            Ok((retained, terminalized)) => {
+                if retained + terminalized > 0 {
+                    log::info!(
+                        "[cron] startup reconciliation retained {retained} live run(s) and terminalized {terminalized} orphaned run(s)"
+                    );
+                }
+                true
+            }
+            Err(error) => {
+                log::error!("[cron] startup run reconciliation failed: {error}");
+                cron_state
+                    .lock()
+                    .mark_scheduler_unavailable(error.to_string());
+                false
+            }
+        };
 
     app.manage(cron_state.clone());
     app.manage(cron_wake.clone());
