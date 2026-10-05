@@ -16,13 +16,17 @@ use crate::storage::{
 use codeterm_pty::session::store::legacy_decode;
 use codeterm_storage::{
     DeskAgentSessionIdentity, DeskLayoutNode, DeskSnapshot, DeskTab, DeskTeam, DeskTeamLifecycle,
-    DeskWorkspace, WorkspaceId, WorkspaceRecord,
+    DeskWorkspace, LiveRootImportRequest, WorkspaceId, WorkspaceRecord,
 };
 
 const CRON_FILE_KEYS: [&str; 3] = ["version", "jobs", "history"];
 
 /// Decoders of every legacy domain this build imports.
 pub(crate) struct LegacyCodecs;
+
+pub(crate) fn cutover_import_live(storage: &Storage) -> Result<ImportOutcome, MigrationError> {
+    storage.import_live_root(&LiveRootImportRequest::new(), &LegacyCodecs)
+}
 
 impl LegacyDecoder for LegacyCodecs {
     fn decode(&self, domain: ImportDomain, bytes: &[u8]) -> Result<DomainImport, DecodeFailure> {

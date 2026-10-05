@@ -787,7 +787,16 @@ function AppInner() {
               <CronWorkspaceView cronId={cronSelection.cronId} />
             </div>
           )}
-          {state.workspaces.length > 0 ? (
+          {state.storageUnavailable ? (
+            <div
+              className="absolute inset-0 flex items-center justify-center px-6 text-center text-sm"
+              data-testid="storage-unavailable-empty"
+              role="alert"
+              style={{ color: "var(--ct-fg)" }}
+            >
+              Storage unavailable, your data is preserved, see the incident.
+            </div>
+          ) : state.workspaces.length > 0 ? (
             state.workspaces.flatMap((ws) =>
               ws.tabs.map((tabId) => {
                 const tab = state.tabs[tabId];

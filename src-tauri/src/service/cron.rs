@@ -297,16 +297,27 @@ impl ServiceContext {
         .map_err(|error| format!("reasoning_effort: {error}"))
     }
 
-    pub fn cron_list(&self, cron: &CronState, workspace_id: Option<&str>) -> Vec<CronJob> {
+    pub fn cron_list(
+        &self,
+        cron: &CronState,
+        workspace_id: Option<&str>,
+    ) -> Result<Vec<CronJob>, String> {
         let store = cron.lock();
-        match workspace_id {
+        if let Some(reason) = store.unavailable_reason() {
+            return Err(format!("cron storage unavailable: {reason}"));
+        }
+        Ok(match workspace_id {
             Some(ws) => store.list_for_workspace(ws).into_iter().cloned().collect(),
             None => store.list().to_vec(),
-        }
+        })
     }
 
     pub fn cron_get(&self, cron: &CronState, id: &str) -> Result<CronJob, String> {
-        cron.lock()
+        let store = cron.lock();
+        if let Some(reason) = store.unavailable_reason() {
+            return Err(format!("cron storage unavailable: {reason}"));
+        }
+        store
             .get(id)
             .cloned()
             .ok_or_else(|| format!("Cron job not found: {}", id))
@@ -823,6 +834,9 @@ impl ServiceContext {
 
     pub fn cron_history(&self, cron: &CronState, id: &str) -> Result<Vec<CronRunInfo>, String> {
         let store = cron.lock();
+        if let Some(reason) = store.unavailable_reason() {
+            return Err(format!("cron storage unavailable: {reason}"));
+        }
         let history = store.get_history(id);
         if history.is_empty() && store.get(id).is_none() {
             return Err(format!("Cron job not found: {id}"));

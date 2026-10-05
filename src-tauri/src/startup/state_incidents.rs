@@ -16,7 +16,8 @@ pub(super) fn install_notifier(service: &ServiceState) {
 
 fn notify(service: &ServiceState, incident: &Incident) {
     let key = incident.preserved.as_ref().unwrap_or(&incident.path);
-    service.create_notification_ext(
+    notify_once(
+        service,
         format!("{} failed to load", incident.file_name()),
         Some(format!(
             "{}. The original is {}; {}.",
@@ -24,13 +25,42 @@ fn notify(service: &ServiceState, incident: &Incident) {
             incident.kept_copy(),
             incident.outcome()
         )),
+        key,
+    );
+}
+
+pub(super) fn notify_storage_unavailable(
+    service: &ServiceState,
+    state_path: &std::path::Path,
+    reason: &str,
+) {
+    notify_once(
+        service,
+        "Storage unavailable".to_string(),
+        Some(format!(
+            "{}; the original state files were left unchanged.",
+            reason
+        )),
+        state_path,
+    );
+}
+
+fn notify_once(
+    service: &ServiceState,
+    title: String,
+    description: Option<String>,
+    event_path: &std::path::Path,
+) {
+    service.create_notification_ext(
+        title,
+        description,
         Some("error"),
         None,
         Some(true),
         NotificationOrigin::default(),
         PushIntent {
             level: Some(NotifyLevel::ActionNeeded),
-            event_key: Some(format!("persisted-state:{}", key.display())),
+            event_key: Some(format!("persisted-state:{}", event_path.display())),
         },
         None,
     );

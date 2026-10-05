@@ -8,6 +8,9 @@ use serde::{Deserialize, Serialize};
 /// Defined group-side; implemented app-side (ServiceContext).
 pub trait CommandPort: Send + Sync {
     fn mark_user_activity(&self);
+    fn ensure_storage_available(&self) -> Result<(), String> {
+        Ok(())
+    }
     fn mux_snapshot(&self) -> crate::multiplexer::state::MultiplexerSnapshot;
     /// The status-bearing snapshot, waiting for the state locks no later than
     /// `deadline`. `None` means a writer held them past the deadline.
@@ -53,7 +56,7 @@ pub trait CommandPort: Send + Sync {
         ws_id: &str,
         force: bool,
     ) -> Result<(), String>;
-    fn list_workspaces(&self) -> Vec<crate::multiplexer::state::WorkspaceInfo>;
+    fn list_workspaces(&self) -> Result<Vec<crate::multiplexer::state::WorkspaceInfo>, String>;
     fn list_recently_closed(&self, ws_id: &str) -> Vec<crate::multiplexer::types::ClosedTab>;
     fn reopen_closed_tab(&self, ws_id: &str, index: Option<usize>) -> Result<String, String>;
     fn reopen_closed_group(&self, group_id: &str) -> Result<(String, String), String>;
@@ -248,6 +251,7 @@ pub fn dispatch_tab_summary_if_ready(
         return dispatch(cmd, ctx);
     };
 
+    ctx.ensure_storage_available()?;
     let snapshot = ctx
         .mux_snapshot_until(std::time::Instant::now() + TAB_SUMMARY_LOCK_DEADLINE)
         .ok_or_else(|| TAB_SUMMARY_BUSY_ERROR.to_string())?;
@@ -273,6 +277,15 @@ pub async fn dispatch_tab_summary_blocking(
 }
 
 pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, String> {
+    if matches!(
+        cmd,
+        Command::TabList
+            | Command::TabSummary { .. }
+            | Command::TabInspect { .. }
+            | Command::WorkspaceList
+    ) {
+        ctx.ensure_storage_available()?;
+    }
     if is_mutating_user_command(cmd) {
         ctx.mark_user_activity();
     }
@@ -751,7 +764,7 @@ fn cmd_workspace_close(
 }
 
 fn cmd_workspace_list(ctx: &dyn CommandPort) -> Result<CommandResult, String> {
-    let workspaces = ctx.list_workspaces();
+    let workspaces = ctx.list_workspaces()?;
     let json =
         serde_json::to_value(&workspaces).map_err(|e| format!("serialize workspaces: {}", e))?;
     Ok(CommandResult::Json(json))

@@ -162,6 +162,7 @@ pub fn run() {
     }
 
     builder
+        .manage(states.storage.clone())
         .manage(states.config.clone())
         .manage(states.pty.clone())
         .manage(states.mux.clone())
@@ -336,7 +337,6 @@ pub fn run() {
             commands::check_provider_rule,
             commands::install_provider_rule,
             session::save_session,
-            session::save_session_named,
             session::list_saved_sessions,
             session::load_session,
             commands::automation_graph_snapshot,

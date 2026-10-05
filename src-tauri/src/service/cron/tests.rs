@@ -99,6 +99,35 @@ fn empty_patch() -> CronUpdateParams {
 }
 
 #[test]
+fn storage_cutover_cron_reads_error_when_storage_is_unavailable() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let logs = tempfile::tempdir().expect("cron log root");
+    let clock: crate::cron::clock::SharedClock = MockClock::starting_at(0);
+    let cron = Arc::new(Mutex::new(CronStore::unavailable(
+        "database unavailable".into(),
+        logs.path().to_path_buf(),
+        clock,
+    )));
+
+    assert!(fixture
+        .service
+        .cron_list(&cron, None)
+        .expect_err("list must not become an empty success")
+        .contains("cron storage unavailable"));
+    assert!(fixture
+        .service
+        .cron_get(&cron, "missing")
+        .expect_err("get must report unavailable")
+        .contains("cron storage unavailable"));
+    assert!(fixture
+        .service
+        .cron_history(&cron, "missing")
+        .expect_err("history must report unavailable")
+        .contains("cron storage unavailable"));
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_reasoning_effort_round_trips_for_advertised_levels() {
     let (fixture, cron, wake, path) = fixture();

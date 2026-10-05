@@ -21,6 +21,7 @@ pub struct OrphanedRestoreInfo {
 pub(crate) async fn mux_get_state_from_service(
     svc: ServiceState,
 ) -> Result<MultiplexerSnapshot, String> {
+    svc.ensure_storage_available()?;
     let reader = svc.clone();
     let snapshot =
         refuse_busy_snapshot_off_runtime(move || reader.try_snapshot_with_reconciled_status())
@@ -92,7 +93,7 @@ pub fn mux_rename_workspace(
 
 #[cfg(test)]
 mod snapshot_refusal_tests {
-    use super::refuse_busy_snapshot_off_runtime;
+    use super::{mux_get_state_from_service, refuse_busy_snapshot_off_runtime};
     use crate::agent::registry::AgentRegistry;
     use crate::agent::status::TabStatusTracker;
     use crate::lock_hold::{TimedMutex, TimedRwLock};
@@ -138,6 +139,63 @@ mod snapshot_refusal_tests {
             SNAPSHOT_BUSY_ERROR
         );
         worker.join().unwrap();
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn storage_cutover_unavailable_desk_reads_return_an_explicit_error() {
+        use crate::multiplexer::state::MultiplexerState;
+        use crate::service::test_fixture::ServiceFixture;
+        use crate::startup::{StorageAuthority, STORAGE_UNAVAILABLE_MESSAGE};
+        use tauri::Manager;
+
+        let fixture = ServiceFixture::new(MultiplexerState::empty());
+        assert!(fixture._app.manage(StorageAuthority::Unavailable {
+            storage: None,
+            reason: "test storage failure".into(),
+        }));
+        let service = std::sync::Arc::new(fixture.service.clone());
+        assert_eq!(
+            service.list_workspaces().unwrap_err(),
+            STORAGE_UNAVAILABLE_MESSAGE,
+        );
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        assert_eq!(
+            runtime
+                .block_on(mux_get_state_from_service(service.clone()))
+                .unwrap_err(),
+            STORAGE_UNAVAILABLE_MESSAGE,
+        );
+        assert_eq!(
+            crate::dispatch::dispatch(&crate::dispatch::Command::WorkspaceList, service.as_ref(),)
+                .unwrap_err(),
+            STORAGE_UNAVAILABLE_MESSAGE,
+        );
+        assert_eq!(
+            crate::dispatch::dispatch(&crate::dispatch::Command::TabList, service.as_ref(),)
+                .unwrap_err(),
+            STORAGE_UNAVAILABLE_MESSAGE,
+        );
+        let port: std::sync::Arc<dyn crate::dispatch::CommandPort> = service;
+        let tab_error = runtime
+            .block_on(crate::dispatch::dispatch_tab_summary_blocking(
+                crate::dispatch::Command::TabSummary {
+                    workspace_id: None,
+                    caller_tab_id: None,
+                    focused_workspace: false,
+                    agents_only: false,
+                },
+                port,
+            ))
+            .unwrap_err();
+        assert_eq!(tab_error, STORAGE_UNAVAILABLE_MESSAGE);
     }
 }
 

@@ -7,7 +7,9 @@ mod ops;
 mod tests;
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
+#[cfg(test)]
 use std::path::PathBuf;
+#[cfg(test)]
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
@@ -16,10 +18,11 @@ use parking_lot::Mutex;
 use super::amend::DefinitionVersion;
 use super::store::{scope_revisions, validate, ScopeKey, Sentinel, Store};
 use crate::cron::clock::SharedClock;
+#[cfg(test)]
 use crate::persisted_state::StateFile;
 use crate::storage::{
-    Committed, Completion, Read, Revision, SentinelCommit, SentinelImport, SentinelRepository,
-    Storage, StorageError, StoredDefinition, StoredSentinel,
+    Committed, Completion, Revision, SentinelCommit, SentinelImport, SentinelRepository, Storage,
+    StorageError, StoredDefinition, StoredSentinel,
 };
 
 /// Failure bound around a commit wait only; expiry is unconfirmed, never failure.
@@ -34,6 +37,7 @@ pub(super) type Finish<T> =
 /// Why the store refuses all work; never reported as an empty or idle inventory.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum LoadFailure {
+    #[cfg(test)]
     UnsupportedFormat,
     LoadFailed,
     PersistenceFailed,
@@ -42,6 +46,7 @@ pub(super) enum LoadFailure {
 }
 
 impl LoadFailure {
+    #[cfg(test)]
     fn from_raw(raw: &str) -> Self {
         let unsupported = serde_json::from_str::<serde_json::Value>(raw)
             .ok()
@@ -62,6 +67,7 @@ impl LoadFailure {
 
     pub(super) fn message(self) -> String {
         let (code, detail) = match self {
+            #[cfg(test)]
             Self::UnsupportedFormat => ("sentinel_store_unsupported_format", ""),
             Self::LoadFailed => ("sentinel_store_load_failed", ""),
             Self::PersistenceFailed => ("sentinel_store_persistence_failed", ""),
@@ -74,12 +80,14 @@ impl LoadFailure {
     }
 }
 
+#[cfg(test)]
 fn decode(raw: &str) -> Result<Vec<Sentinel>, String> {
     validate(serde_json::from_str(raw).map_err(|e| e.to_string())?)
 }
 
 /// The legacy JSON file backend; it stays the live authority until the cutover.
 impl Store {
+    #[cfg(test)]
     pub fn new(path: PathBuf, clock: SharedClock) -> Self {
         let file = StateFile::new(path);
         let (jobs, unavailable) = match std::fs::read_to_string(file.path()) {
@@ -115,12 +123,12 @@ impl Store {
         }
     }
 
-    /// Legacy whole-file save, made under the caller's store lock.
+    #[cfg(test)]
     pub(super) fn save(&mut self) -> Result<(), String> {
         self.ensure_available()?;
         self.check_existing_file()?;
         let raw = serde_json::to_string_pretty(&self.jobs).map_err(|e| e.to_string())?;
-        let Some(file) = self.backend.json() else {
+        let Backend::Json(file) = &self.backend else {
             return Err(GUARD_FREE_REQUIRED.into());
         };
         if let Err(error) = file.save(&raw) {
@@ -151,8 +159,20 @@ impl Store {
         Ok(())
     }
 
+    pub(super) fn save_legacy(&mut self) -> Result<(), String> {
+        #[cfg(test)]
+        {
+            self.save()
+        }
+        #[cfg(not(test))]
+        {
+            Err("legacy Sentinel JSON writer is test-only".into())
+        }
+    }
+
+    #[cfg(test)]
     fn check_existing_file(&mut self) -> Result<(), String> {
-        let Some(file) = self.backend.json() else {
+        let Backend::Json(file) = &self.backend else {
             return Ok(());
         };
         let failure = match std::fs::read_to_string(file.path()) {
@@ -173,20 +193,48 @@ impl Store {
 }
 
 pub(super) enum Backend {
+    #[cfg(test)]
     Json(StateFile),
     Sqlite(SqliteBackend),
 }
 
 impl Backend {
-    pub(super) fn json(&self) -> Option<&StateFile> {
+    pub(super) fn sqlite(&self) -> Option<&SqliteBackend> {
         match self {
-            Backend::Json(file) => Some(file),
-            Backend::Sqlite(_) => None,
+            #[cfg(test)]
+            Backend::Json(_) => None,
+            Backend::Sqlite(sqlite) => Some(sqlite),
+        }
+    }
+
+    pub(super) fn sqlite_mut(&mut self) -> Option<&mut SqliteBackend> {
+        match self {
+            #[cfg(test)]
+            Backend::Json(_) => None,
+            Backend::Sqlite(sqlite) => Some(sqlite),
+        }
+    }
+
+    pub(super) fn is_json(&self) -> bool {
+        #[cfg(test)]
+        match self {
+            Backend::Json(_) => true,
+            Backend::Sqlite(_) => false,
+        }
+        #[cfg(not(test))]
+        {
+            false
         }
     }
 
     pub(super) fn held(&self) -> bool {
-        self.json().is_some_and(|file| file.held().is_some())
+        #[cfg(test)]
+        {
+            if let Backend::Json(file) = self {
+                return file.held().is_some();
+            }
+        }
+        false
     }
 }
 
@@ -327,6 +375,7 @@ impl Store {
         match &self.backend {
             Backend::Sqlite(backend) if backend.inflight == 0 => Ok(()),
             Backend::Sqlite(_) => Err("sentinel storage has unsettled commits".into()),
+            #[cfg(test)]
             Backend::Json(_) => Err(GUARD_FREE_REQUIRED.into()),
         }
     }
@@ -352,6 +401,7 @@ impl Store {
         }
         let backend = match &mut self.backend {
             Backend::Sqlite(backend) => backend,
+            #[cfg(test)]
             Backend::Json(_) => return Staged::ready(Err(GUARD_FREE_REQUIRED.into())),
         };
         let completion = build(&backend.repo);
@@ -371,7 +421,7 @@ impl Store {
         &mut self,
         outcome: Result<Committed<SentinelCommit>, StorageError>,
     ) -> Result<SentinelCommit, Failure> {
-        if let Backend::Sqlite(backend) = &mut self.backend {
+        if let Some(backend) = self.backend.sqlite_mut() {
             backend.inflight = backend.inflight.saturating_sub(1);
         }
         match outcome {
@@ -394,7 +444,7 @@ impl Store {
             wake_pending,
             ..
         } = self;
-        let Backend::Sqlite(backend) = backend else {
+        let Some(backend) = backend.sqlite_mut() else {
             return Err(GUARD_FREE_REQUIRED.into());
         };
         let mut scopes: BTreeSet<ScopeKey> = BTreeSet::new();
@@ -485,7 +535,7 @@ impl Store {
     /// Replaces the cache with one authoritative committed inventory.
     fn install(&mut self, inventory: Vec<StoredSentinel>, floor: Revision) -> Result<(), String> {
         let jobs = validate(inventory.iter().map(codec::decode).collect())?;
-        let Backend::Sqlite(backend) = &mut self.backend else {
+        let Some(backend) = self.backend.sqlite_mut() else {
             return Err(GUARD_FREE_REQUIRED.into());
         };
         let mut known = HashMap::with_capacity(inventory.len());
@@ -518,7 +568,6 @@ impl Store {
 
     /// The typed Storage backend over a supplied shared owner; blocking, call off-runtime.
     /// Refuses to start empty when the committed inventory cannot be read or validated.
-    #[allow(dead_code)] // Dormant until the all-domain cutover selects it; tests drive it now.
     pub fn with_storage(storage: &Storage, clock: SharedClock) -> Store {
         let repo = storage.sentinels();
         let loaded = repo.inventory().wait(COMMIT_DEADLINE);
@@ -560,7 +609,7 @@ impl Store {
         &mut self,
         stage: impl FnOnce(&mut Store) -> Staged<T>,
     ) -> Result<T, String> {
-        if self.backend.json().is_none() {
+        if !self.backend.is_json() {
             return Err(GUARD_FREE_REQUIRED.into());
         }
         stage(self).into_ready()
@@ -605,6 +654,7 @@ pub(crate) fn committed_scope(
         let leases = store.live_leases();
         match &store.backend {
             Backend::Sqlite(backend) => (backend.repo.clone(), leases),
+            #[cfg(test)]
             Backend::Json(_) => {
                 let jobs = store
                     .list()

@@ -339,7 +339,7 @@ impl Store {
         if let Some(cancelled) = self.active.remove(&current.id) {
             cancelled.store(true, Ordering::SeqCst);
         }
-        if self.backend.json().is_none() {
+        if !self.backend.is_json() {
             return self.sqlite_update_definition(
                 expect_version,
                 author_tab_id,
@@ -349,7 +349,7 @@ impl Store {
             );
         }
         let previous = std::mem::replace(&mut self.jobs, jobs);
-        match self.save() {
+        match self.save_legacy() {
             Ok(()) => Staged::ready(Ok(next)),
             Err(error) => {
                 self.jobs = previous;
@@ -370,7 +370,7 @@ impl Store {
         let Some(job) = self.get(id) else {
             return Ok(None);
         };
-        let crate::sentinel::storage::Backend::Sqlite(backend) = &self.backend else {
+        let Some(backend) = self.backend.sqlite() else {
             return Ok(None);
         };
         let id =

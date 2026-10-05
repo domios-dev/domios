@@ -276,6 +276,7 @@ impl CronStore {
     }
 
     /// Legacy JSON path for callers holding the cron lock: apply, then save the file.
+    #[cfg(test)]
     pub(super) fn legacy<T>(&mut self, prepared: Result<Prepared<T>, String>) -> Result<T, String> {
         self.backend.require_legacy()?;
         let prepared = prepared?;
@@ -286,6 +287,14 @@ impl CronStore {
             self.save()?;
         }
         Ok(prepared.value)
+    }
+
+    #[cfg(not(test))]
+    pub(super) fn legacy<T>(
+        &mut self,
+        _prepared: Result<Prepared<T>, String>,
+    ) -> Result<T, String> {
+        Err("legacy cron backend is test-only".to_string())
     }
 
     pub(super) fn build_job(&self, params: CronCreateParams) -> Result<CronJob, String> {
