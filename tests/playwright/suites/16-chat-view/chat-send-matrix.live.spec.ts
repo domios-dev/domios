@@ -366,6 +366,7 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
         );
         const restoredAgent: AgentUi = {
           tabId: heavy.tabId,
+          api,
           chat: restoredChat,
           composer: restoredComposer,
           events: restoredEvents,

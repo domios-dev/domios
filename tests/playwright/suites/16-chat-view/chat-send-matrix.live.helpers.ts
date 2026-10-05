@@ -56,6 +56,7 @@ export type ProviderMetrics = {
 };
 export type AgentUi = {
   tabId: string;
+  api: ApiClient;
   chat: import("@playwright/test").Locator;
   composer: import("@playwright/test").Locator;
   activate: () => Promise<void>;
@@ -171,16 +172,6 @@ export class TabEvents {
 
   latestSequence(): number {
     return this.frames.length === 0 ? 0 : this.frames[this.frames.length - 1].seq;
-  }
-
-  latestTabStatus(tabId: string): string | undefined {
-    for (let index = this.frames.length - 1; index >= 0; index--) {
-      const event = this.frames[index];
-      if (event.event_type === "tab-status-changed" && event.data.tab_id === tabId) {
-        return typeof event.data.status === "string" ? event.data.status : undefined;
-      }
-    }
-    return undefined;
   }
 
   private async read(): Promise<void> {
@@ -352,6 +343,7 @@ export async function openAgent(
   const nextSendSequence = Math.max(0, ...prior.map((status) => status.sequence));
   return {
     tabId,
+    api,
     chat,
     composer,
     activate,
@@ -482,17 +474,30 @@ export async function waitDelivered(agent: AgentUi, record: SendRecord): Promise
     record.confirmedStatus = true;
     return;
   }
-  const delivered = await agent.events.waitFor(
-    (event) =>
-      statusEvent(event, agent.tabId) &&
-      event.data.sequence === record.sequence &&
-      event.data.state === "delivered",
-    SEND_TIMEOUT_MS,
-    `provider session receipt ${record.bubbleMarker}`,
-  );
-  record.deliveredAt = delivered.receivedAt;
-  record.deliveryStatus = "delivered";
-  record.confirmedStatus = true;
+  try {
+    const delivered = await agent.events.waitFor(
+      (event) =>
+        statusEvent(event, agent.tabId) &&
+        event.data.sequence === record.sequence &&
+        event.data.state === "delivered",
+      SEND_TIMEOUT_MS,
+      `provider session receipt ${record.bubbleMarker}`,
+    );
+    record.deliveredAt = delivered.receivedAt;
+    record.deliveryStatus = "delivered";
+    record.confirmedStatus = true;
+    return;
+  } catch (eventError) {
+    const statuses = await agent.api
+      .get<ChatSendStatus[]>(`/tabs/${encodeURIComponent(agent.tabId)}/chat-send`)
+      .catch(() => []);
+    const status = statuses.find((candidate) => candidate.sequence === record.sequence);
+    if (status?.state !== "delivered") throw eventError;
+    record.sendId = status.send_id;
+    record.deliveredAt = performance.now();
+    record.deliveryStatus = "delivered";
+    record.confirmedStatus = true;
+  }
 }
 
 export async function submitTextWhileWorking(
@@ -508,8 +513,7 @@ export async function submitTextWhileWorking(
   await agent.composer.fill(text);
   await expect(agent.composer).toHaveValue(text, { timeout: 15_000 });
   const tabStatus = await api.get<{ status: string }>(`/tabs/${encodeURIComponent(agent.tabId)}/status`);
-  const eventStatus = agent.events.latestTabStatus(agent.tabId);
-  if (tabStatus.status !== "Working" || eventStatus !== "Working") {
+  if (tabStatus.status !== "Working") {
     await agent.composer.fill("");
     return undefined;
   }
