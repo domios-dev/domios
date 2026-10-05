@@ -180,6 +180,8 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 **Workspace and Team resolution:** The CLI `cron create` command resolves the workspace the same way `codeterm workspace current` does — the calling tab's own workspace, then a validated `$CODETERM_WORKSPACE_ID`, then the focused workspace. A live Team caller's job inherits that Team unless `--no-team` is explicit. Override placement with `--workspace ID` or the membership-checked `--team ID`. Closing a workspace deletes its cron jobs, run history, and log directories. **Updating cron jobs:** Use `PUT /api/crons/:id` (CLI: `codeterm cron edit ID`) to modify a cron job in-place. Do NOT delete and recreate -- that loses run history and changes the ID. **Deleting a cron job** cascades: kills all running tabs/PTYs for that job, closes their tabs, and removes the entire log directory (`~/.codeterm/crons/<job_id>/`).
 
+**CLI.** Use Domios cron, never a provider's built-in scheduler: `codeterm cron create NAME --schedule S --task T [--cwd P] [--once]`, then `cron list|edit|enable|disable|trigger|cancel|history|delete ID`. Every run prompt gets the `codeterm cron complete --run-id UUID --summary "..."` instruction appended; completing the run closes its ephemeral run tab. Successful runs notify nobody; a spawn failure, the second consecutive failed run and an auto-disable do. The sidebar cron tree shows runs and the next fire time; clicking a finished run opens its log viewer.
+
 **Tauri events:** `cron-state-changed` on any cron CRUD operation; `cron-fired` when a cron fires, payload `{cron_id, run_id, tab_id, tab_id}`.
 
 ## Permission auto-confirm
@@ -204,4 +206,4 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage and updates: `codeterm docs API-STATE`.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->

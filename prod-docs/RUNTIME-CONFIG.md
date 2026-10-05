@@ -14,29 +14,20 @@ Toggle via Settings UI (Agents tab) or Tauri IPC commands `get_autostart_enabled
 
 ## Themes
 
-### GitHub Dark (default)
-Dark theme matching GitHub's dark mode.
+| Built-in | Look |
+|---|---|
+| GitHub Dark (default) | Dark theme matching GitHub's dark mode |
+| Dracula | Popular purple-tinted dark theme |
+| Catppuccin Mocha | Warm pastel dark theme |
+| One Dark | Atom-inspired dark theme |
+| Nord | Arctic blue-tinted theme |
+| GitHub Light | Light theme matching GitHub's light mode |
+| Solarized Light | Ethan Schoonover's warm light color scheme |
+| Pip-Boy | Retro green-on-black Fallout terminal theme; selecting it activates CRT effects: scanlines, phosphor glow, and screen vignette |
 
-### Dracula
-Popular purple-tinted dark theme.
+`codeterm theme list` shows built-in and custom themes; `theme apply NAME`, `theme dir` (custom themes directory), `theme save ID FILE.toml [--apply]` and `theme delete ID` manage them (REST: `codeterm docs API-TABS`).
 
-### Catppuccin Mocha
-Warm pastel dark theme.
-
-### One Dark
-Atom-inspired dark theme.
-
-### Nord
-Arctic blue-tinted theme.
-
-### GitHub Light
-Light theme matching GitHub's light mode.
-
-### Solarized Light
-Ethan Schoonover's warm light color scheme.
-
-### Pip-Boy
-Retro green-on-black Fallout terminal theme. Selecting this theme automatically activates CRT effects: scanlines, phosphor glow, and screen vignette.
+A custom theme is a TOML file with `name` plus 20 color fields: `background`, `foreground`, `cursor`, `selection`, then `black`, `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white` and their `bright_` variants (`bright_black` … `bright_white`), each a `"#rrggbb"` string. UI chrome (sidebar, surfaces, borders) is derived from the background and palette, so light and dark themes need no extra fields.
 
 ## Session Persistence
 
@@ -228,4 +219,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Both builds can run simultaneously.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->
