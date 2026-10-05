@@ -822,7 +822,8 @@ fn socket_dev_class(name: &str) -> Option<bool> {
 }
 
 pub(crate) fn instance_socket_name_from_path(path: &str) -> Option<String> {
-    let normalized = normalize_socket_path(path);
+    let name = path.rsplit(['/', '\\']).next()?;
+    let normalized = normalize_socket_path(name);
     let without_suffix = normalized.strip_suffix(".sock").unwrap_or(&normalized);
     let instance = without_suffix.strip_prefix("codeterm-dev-")?;
     (!instance.is_empty()
