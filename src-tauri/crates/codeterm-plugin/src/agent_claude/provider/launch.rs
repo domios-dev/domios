@@ -53,7 +53,12 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
             let prompt = params
                 .starter_prompt
                 .system_prefix()
-                .map(|prefix| format!(" {prefix}{prompt}"))
+                .map(|prefix| {
+                    format!(
+                        "{prefix}{prompt}{}",
+                        codeterm_types::domios::DOMIOS_CLOSE_TAG
+                    )
+                })
                 .unwrap_or_else(|| prompt.to_string());
             parts.push("--".to_string());
             parts.push(ShellSyntax::quote(&prompt));
@@ -155,7 +160,8 @@ mod tests {
         assert!(!cmd.contains("$(cat "));
         assert!(!cmd.contains("<location>") && !cmd.contains("whoami") && !cmd.contains("юникод"));
         assert!(cmd.contains(ASSIGNED_TASK_START_PROMPT));
-        assert!(cmd.contains("-=-codeterm:system context=assigned-task-=-"));
+        assert!(cmd.contains("<domios from=\"system\" context=\"assigned-task\">"));
+        assert!(cmd.contains(codeterm_types::domios::DOMIOS_CLOSE_TAG));
     }
 
     #[test]
@@ -193,7 +199,8 @@ mod tests {
             starter_prompt: crate::provider::StarterPrompt::TeamBootstrap,
             ..Default::default()
         });
-        assert!(command.contains("-=-codeterm:system context=team-bootstrap-=-"));
+        assert!(command.contains("<domios from=\"system\" context=\"team-bootstrap\">"));
+        assert!(command.contains(codeterm_types::domios::DOMIOS_CLOSE_TAG));
         assert!(command.contains(crate::prompts::TEAM_BOOTSTRAP_STARTER.trim()));
     }
 

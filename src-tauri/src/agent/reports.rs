@@ -9,6 +9,9 @@ use super::ledger::{LedgerRow, OrchestrationLedger};
 
 pub use codeterm_types::agent::ReportStatus;
 
+pub const BLOCK_PROPOSAL_NOTICE: &str =
+    "BLOCK PROPOSAL: task state unchanged pending Plan owner or Planner action";
+
 /// Optional structured fields a worker can attach to a report. All `None` for a
 /// freeform / synthetic message-only report, which then round-trips unchanged.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -115,7 +118,11 @@ impl AgentReport {
             (None, None) => {}
         }
         if let Some(status) = self.status {
-            lines.push(format!("status: {}", status.label()));
+            if status == ReportStatus::Blocked {
+                lines.push(BLOCK_PROPOSAL_NOTICE.into());
+            } else {
+                lines.push(format!("status: {}", status.label()));
+            }
         }
         if let Some(ref branch) = self.branch {
             lines.push(format!("branch: {}", branch));
@@ -798,6 +805,32 @@ mod tests {
              skipped: manual UI step\n\
              the freeform body";
         assert_eq!(report.inject_body(), expected);
+    }
+
+    #[test]
+    fn blocked_report_injects_a_proposal_marker_and_keeps_its_evidence() {
+        let details = ReportDetails {
+            plan_id: Some("pl_1".into()),
+            task_id: Some("task_1".into()),
+            status: Some(ReportStatus::Blocked),
+            test_cmd: Some("focused-check".into()),
+            test_result: Some("blocked by dependency".into()),
+            ..Default::default()
+        };
+        let report = ReportStore::new(100).add_detailed(
+            "orch",
+            "worker",
+            "Worker",
+            "dependency unavailable",
+            details,
+            None,
+        );
+
+        let body = report.inject_body();
+        assert!(body.contains(BLOCK_PROPOSAL_NOTICE));
+        assert!(body.contains("tests: focused-check -> blocked by dependency"));
+        assert!(body.ends_with("dependency unavailable"));
+        assert_eq!(report.status, Some(ReportStatus::Blocked));
     }
 
     #[test]

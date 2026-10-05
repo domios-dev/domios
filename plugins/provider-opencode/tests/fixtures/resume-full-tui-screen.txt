@@ -1,7 +1,7 @@
   ┃
-  ┃  -=-codeterm:tab label=Tester tab=55a147a0-=-
+  ┃  <domios from="tab" label="Tester" tab="55a147a0">
   ┃  reply with one word: alpha
-  ┃  [to reply, run: codeterm send "YOUR REPLY" --tab 55a147a0]
+  ┃  [to reply, run: codeterm send "YOUR REPLY" --tab 55a147a0]</domios>
   ┃
      alpha
   ┃

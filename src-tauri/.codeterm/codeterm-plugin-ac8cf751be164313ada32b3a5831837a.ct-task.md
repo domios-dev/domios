@@ -7,7 +7,7 @@ memory, scheduling, and routing. Never guess command syntax: run
 The full operational reference is the provider skill named `codeterm` in the
 synced CodeTerm skills directory. Load that skill whenever the task involves
 CodeTerm control, memory, sessions, mesh, bridges, orchestration, or tabs.
-Treat every `-=-codeterm:...-=-` marker as the return address for your reply.
+Treat a leading `<domios from="tab" ...>` frame as the return address for your reply; keep its terminal `</domios>` tag with the routed message.
 
 A tab's title is a NAME: keep it short and stable, and do not rewrite it to
 report progress. To record what the tab is currently doing, set a short

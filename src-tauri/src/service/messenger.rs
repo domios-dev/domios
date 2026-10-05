@@ -1,13 +1,6 @@
-//! Gateway for cross-tab / report / mesh deliveries. PTY-backed recipients get
-//! the legacy text prefix read by the receiving agent and UI parser
-//! (`src/lib/chatPrefixes.ts`). chatBackend recipients get structured host-side
-//! transcript metadata instead.
-//!
-//!   -=-codeterm:tab label=<Name> tab=<id>[ model=<m>][ mesh=<peer>]-=-body
-//!   -=-codeterm:report from=<Name> tab=<id> ...-=-body
-//!
-//! This wraps the unified `message_markers` frame so tab/report prefixes and
-//! bridge attachment markers share one wire family.
+//! Gateway for cross-tab / report / mesh deliveries. Routed PTY input carries a
+//! typed XML tag around a bracketed body paste; chatBackend keeps structured
+//! host-side transcript metadata.
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MessageKind {
@@ -209,6 +202,13 @@ fn clean_name(name: &str) -> String {
         .to_string()
 }
 
+fn safe_reply_token(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b':'))
+}
+
 impl From<MessageEnvelope> for Messenger {
     fn from(envelope: MessageEnvelope) -> Self {
         Self { envelope }
@@ -273,6 +273,17 @@ impl Messenger {
         .build()
     }
 
+    pub fn routed_frame(&self, body: &str) -> codeterm_types::domios::DomiosFrame {
+        codeterm_types::domios::DomiosFrame {
+            opening_tag: self.build(),
+            body: body.to_string(),
+            suffix: self
+                .reply_hint()
+                .map(|hint| format!(" {hint}"))
+                .unwrap_or_default(),
+        }
+    }
+
     pub fn deliver(
         svc: &super::ServiceContext,
         to_tab: &str,
@@ -306,29 +317,38 @@ impl Messenger {
             &envelope.from_tab,
             to_tab,
         );
-        let wrapped = if should_prefix {
-            Self::from(envelope.clone()).wrap(body)
-        } else {
-            body.to_string()
-        };
-        let (body, pad_file) =
+        let routed_frame = should_prefix.then(|| Self::from(envelope.clone()).routed_frame(body));
+        let wrapped = routed_frame
+            .as_ref()
+            .map(codeterm_types::domios::DomiosFrame::to_message)
+            .unwrap_or_else(|| body.to_string());
+        let (body, _pad_file) =
             svc.substitute_paste_limited_body(to_tab, body.to_string(), wrapped.len())?;
-        let text = if pad_file.is_some() {
-            if should_prefix {
-                Self::from(envelope).wrap(&body)
-            } else {
-                body
-            }
+        let routed_frame = routed_frame.map(|mut frame| {
+            frame.body = body.clone();
+            frame
+        });
+        let text = routed_frame
+            .as_ref()
+            .map(codeterm_types::domios::DomiosFrame::to_message)
+            .unwrap_or(body);
+        if let Some(frame) = routed_frame {
+            svc.send_to_authenticated_agent_session_pinned_routed(
+                to_tab,
+                expected_pty_id,
+                expected_session_id,
+                expected_binding_nonce,
+                frame,
+            )?;
         } else {
-            wrapped
-        };
-        svc.send_to_authenticated_agent_session_pinned(
-            to_tab,
-            expected_pty_id,
-            expected_session_id,
-            expected_binding_nonce,
-            &text,
-        )?;
+            svc.send_to_authenticated_agent_session_pinned(
+                to_tab,
+                expected_pty_id,
+                expected_session_id,
+                expected_binding_nonce,
+                &text,
+            )?;
+        }
         Ok(Delivery::Pty { text })
     }
 
@@ -398,31 +418,36 @@ impl Messenger {
             )
         };
         let entry = pty_submit_entry(envelope.kind);
-        let text = if should_prefix {
-            Self::from(envelope.clone()).wrap(body)
+        let messenger = Self::from(envelope.clone());
+        let routed_frame = should_prefix.then(|| messenger.routed_frame(body));
+        let text = if let Some(frame) = &routed_frame {
+            frame.to_message()
         } else {
             body.to_string()
         };
-        let (body, pad_file) =
+        let (prepared_body, pad_file) =
             svc.substitute_paste_limited_body(&resolved_target, body.to_string(), text.len())?;
-        let text = if pad_file.is_some() {
-            if should_prefix {
-                Self::from(envelope).wrap(&body)
-            } else {
-                body
-            }
-        } else {
-            text
-        };
+        let routed_frame = routed_frame.map(|mut frame| {
+            frame.body = prepared_body.clone();
+            frame
+        });
+        let text = routed_frame
+            .as_ref()
+            .map(codeterm_types::domios::DomiosFrame::to_message)
+            .unwrap_or(prepared_body);
         dispatch_delivery(
             DeliveryTransport::Pty,
             || unreachable!(),
             || {
-                crate::service::pty_io::submit_transaction::submit_entry(entry, &text, |text| {
+                crate::service::pty_io::submit_transaction::submit_entry(entry, &text, |_| {
                     if pty_agent_target {
-                        svc.send_to_agent_when_ready_detached(&resolved_target, text);
+                        if let Some(frame) = routed_frame {
+                            svc.send_routed_to_agent_when_ready_detached(&resolved_target, frame);
+                        } else {
+                            svc.send_to_agent_when_ready_detached(&resolved_target, &text);
+                        }
                     } else {
-                        svc.send_text_detached(&resolved_target, text);
+                        svc.send_text_detached(&resolved_target, &text);
                     }
                     Ok::<(), String>(())
                 })?;
@@ -470,25 +495,19 @@ impl Messenger {
             tab.backing.clone()
         };
         if matches!(backing, crate::multiplexer::types::TabBacking::Pty) {
-            let wrapped = Self::from(envelope.clone()).wrap(body);
-            let (body, pad_file) =
+            let messenger = Self::from(envelope);
+            let mut frame = messenger.routed_frame(body);
+            let wrapped = frame.to_message();
+            let (body, _pad_file) =
                 svc.substitute_paste_limited_body(to_tab, body.to_string(), wrapped.len())?;
-            let text = if pad_file.is_some() {
-                Self::from(envelope).wrap(&body)
-            } else {
-                wrapped
-            };
-            crate::service::pty_io::submit_transaction::submit_entry(
-                crate::service::pty_io::submit_transaction::PtySubmitEntry::Planner,
-                &text,
-                |text| {
-                    svc.send_to_authenticated_agent_session(
-                        to_tab,
-                        expected_session_id,
-                        expected_binding_nonce,
-                        text,
-                    )
-                },
+            frame.body = body;
+            let text = frame.to_message();
+            svc.send_to_authenticated_agent_session_pinned_routed(
+                to_tab,
+                &svc.resolve_pty_id(to_tab)?,
+                expected_session_id,
+                expected_binding_nonce,
+                frame,
             )?;
             return Ok(Delivery::Pty { text });
         }
@@ -611,21 +630,24 @@ impl Messenger {
         Ok(Delivery::ChatBackend { message_id })
     }
 
-    /// Render just the `[...]` prefix token (no trailing space/body).
+    /// Render the opening `<domios>` tag for this envelope.
     pub fn build(&self) -> String {
+        let mut attrs = vec![("from", self.envelope.kind.marker_kind().to_string())];
         if self.envelope.kind == MessageKind::System {
-            return crate::message_markers::Marker::new("system")
-                .attr_opt("context", self.envelope.context.as_deref().map(str::trim))
-                .build();
+            if let Some(context) = self.envelope.context.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+                attrs.push(("context", context.to_string()));
+            }
+            return domios_opening_tag(&attrs);
         }
         if self.envelope.kind == MessageKind::Reminder {
             return self.build_reminder();
         }
         if self.envelope.kind == MessageKind::Pebble {
-            return crate::message_markers::Marker::new("pebble")
-                .attr("source", &clean_name(&self.envelope.from_label))
-                .attr_opt("plugin", self.envelope.from_plugin.as_deref())
-                .build();
+            attrs.push(("source", clean_name(&self.envelope.from_label)));
+            if let Some(plugin) = self.envelope.from_plugin.as_deref().filter(|v| !v.is_empty()) {
+                attrs.push(("plugin", plugin.to_string()));
+            }
+            return domios_opening_tag(&attrs);
         }
         let tab = short_id(&self.envelope.from_tab);
         let base = clean_name(&self.envelope.from_label);
@@ -641,14 +663,15 @@ impl Messenger {
             }
             None => base,
         };
-        let report = self.envelope.kind == MessageKind::Report;
-        let name_key = if report { "from" } else { "label" };
-        crate::message_markers::Marker::new(self.envelope.kind.marker_kind())
-            .attr(name_key, &label)
-            .attr("tab", tab)
-            .attr_opt("model", self.envelope.from_model.as_deref().map(str::trim))
-            .attr_opt("mesh", self.envelope.from_mesh.as_deref().map(str::trim))
-            .build()
+        attrs.push(("label", label));
+        attrs.push(("tab", tab.to_string()));
+        if let Some(model) = self.envelope.from_model.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            attrs.push(("model", model.to_string()));
+        }
+        if let Some(mesh) = self.envelope.from_mesh.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            attrs.push(("mesh", mesh.to_string()));
+        }
+        domios_opening_tag(&attrs)
     }
 
     fn build_reminder(&self) -> String {
@@ -659,31 +682,36 @@ impl Messenger {
         let every_ms = self.envelope.every_ms.map(|v| v.to_string());
         let next_at = self.envelope.next_at_ms.map(|v| v.to_string());
         let skipped_ticks = self.envelope.skipped_ticks.map(|v| v.to_string());
-        crate::message_markers::Marker::new("reminder")
-            .attr_opt("from", Some(label.as_str()).filter(|s| !s.is_empty()))
-            .attr_opt("tab", Some(tab).filter(|s| !s.is_empty()))
-            .attr_opt("model", self.envelope.from_model.as_deref().map(str::trim))
-            .attr_opt("set_at", set_at.as_deref())
-            .attr_opt("fire_at", fire_at.as_deref())
-            .attr_opt("id", self.envelope.id.as_deref())
-            .attr_opt("every_ms", every_ms.as_deref())
-            .attr_opt("next_at", next_at.as_deref())
-            .attr_opt("skipped", skipped_ticks.as_deref())
-            .build()
+        let mut attrs = vec![("from", "reminder".to_string())];
+        for (key, value) in [
+            ("label", Some(label)),
+            ("tab", Some(tab.to_string())),
+            ("model", self.envelope.from_model.as_deref().map(str::trim).map(str::to_string)),
+            ("set_at", set_at),
+            ("fire_at", fire_at),
+            ("id", self.envelope.id.clone()),
+            ("every_ms", every_ms),
+            ("next_at", next_at),
+            ("skipped", skipped_ticks),
+        ] {
+            if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
+                attrs.push((key, value));
+            }
+        }
+        domios_opening_tag(&attrs)
     }
 
-    /// Prefix marker, then the body on its own line. The body is appended
-    /// here rather than carried as the marker payload, so the separation
-    /// belongs here too.
+    /// Serialize the XML-tagged routed message, including the closing tag.
     pub fn wrap(&self, body: &str) -> String {
-        let Some(reply_hint) = self.reply_hint() else {
-            return format!("{}\n{}", self.build(), body);
-        };
-        format!("{}\n{}\n{}", self.build(), body, reply_hint)
+        self.routed_frame(body).to_message()
     }
 
     fn reply_hint(&self) -> Option<String> {
         if self.envelope.kind != MessageKind::Message || self.envelope.from_tab.is_empty() {
+            return None;
+        }
+        let tab = short_id(&self.envelope.from_tab);
+        if !safe_reply_token(tab) {
             return None;
         }
         if self.envelope.from_agent == Some(false) {
@@ -692,7 +720,7 @@ impl Messenger {
         let mut command = format!(
             "{} \"YOUR REPLY\" --tab {}",
             Self::AGENT_REPLY_COMMAND,
-            short_id(&self.envelope.from_tab)
+            tab
         );
         if let Some(mesh) = self
             .envelope
@@ -701,6 +729,9 @@ impl Messenger {
             .map(str::trim)
             .filter(|mesh| !mesh.is_empty())
         {
+            if !safe_reply_token(mesh) {
+                return None;
+            }
             command.push_str(" --mesh ");
             command.push_str(mesh);
         }
@@ -722,6 +753,14 @@ fn pty_submit_entry(
             crate::service::pty_io::submit_transaction::PtySubmitEntry::Messenger
         }
     }
+}
+
+fn domios_opening_tag(attrs: &[(impl AsRef<str>, String)]) -> String {
+    let attrs = attrs
+        .iter()
+        .map(|(key, value)| (key.as_ref(), value.as_str()))
+        .collect::<Vec<_>>();
+    codeterm_types::domios::build_opening_tag(&attrs)
 }
 
 fn submit_chatbackend_provider_input<T>(
@@ -796,26 +835,28 @@ fn build_chatbackend_inbound(
 
 fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
     let label = clean_name(&envelope.from_label);
-    crate::message_markers::Marker::new("inbound")
-        .attr("kind", envelope_inbound_kind(envelope))
-        .attr_opt("from_label", Some(label.as_str()).filter(|s| !s.is_empty()))
-        .attr_opt(
-            "from_tab",
-            Some(short_id(&envelope.from_tab)).filter(|s| !s.is_empty()),
-        )
-        .attr_opt("from_model", envelope.from_model.as_deref().map(str::trim))
-        .attr_opt("context", envelope.context.as_deref().map(str::trim))
-        .attr_opt(
-            "from_mesh",
-            envelope
-                .from_mesh
-                .as_deref()
-                .or(envelope.peer.as_deref())
-                .map(str::trim),
-        )
-        .attr_opt("from_plugin", envelope.from_plugin.as_deref())
-        .payload(body)
-        .build()
+    let mut attrs = vec![("from", envelope_inbound_kind(envelope).to_string())];
+    for (key, value) in [
+        ("label", Some(label)),
+        ("tab", Some(short_id(&envelope.from_tab).to_string())),
+        ("model", envelope.from_model.as_deref().map(str::trim).map(str::to_string)),
+        ("context", envelope.context.as_deref().map(str::trim).map(str::to_string)),
+        (
+            "mesh",
+            envelope.from_mesh.as_deref().or(envelope.peer.as_deref()).map(str::trim).map(str::to_string),
+        ),
+        ("plugin", envelope.from_plugin.clone()),
+    ] {
+        if let Some(value) = value.filter(|value| !value.trim().is_empty()) {
+            attrs.push((key, value));
+        }
+    }
+    codeterm_types::domios::DomiosFrame {
+        opening_tag: domios_opening_tag(&attrs),
+        body: body.to_string(),
+        suffix: String::new(),
+    }
+    .to_message()
 }
 
 fn envelope_inbound_kind(envelope: &MessageEnvelope) -> &'static str {
@@ -846,16 +887,16 @@ fn should_prefix_pty(
     !from_tab.is_empty() && from_tab != resolved_target
 }
 
-/// The canonical source-prefix decision for every agent-to-agent delivery path.
-/// `None` for a shell recipient, self-send, or empty source. With `peer` set the
-/// delivery crossed the mesh and the label is peer-qualified (`label@peer`).
-pub fn delivery_prefix(
+/// Build a complete sender-attributed task frame. `None` means no valid source route.
+pub fn delivery_message(
     target_is_agent: bool,
     source_tab: &str,
     target_tab: &str,
     label: &str,
     model: Option<&str>,
     peer: Option<&str>,
+    from_agent: bool,
+    body: &str,
 ) -> Option<String> {
     if !target_is_agent || source_tab.is_empty() || source_tab == target_tab {
         return None;
@@ -864,7 +905,7 @@ pub fn delivery_prefix(
     if let Some(p) = peer.filter(|p| !p.trim().is_empty()) {
         pfx = pfx.peer(Some(p.to_string())).mesh(Some(p.to_string()));
     }
-    Some(pfx.build())
+    Some(pfx.from_agent(Some(from_agent)).wrap(body))
 }
 
 #[cfg(test)]

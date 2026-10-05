@@ -142,6 +142,8 @@ impl Default for ChatSendLedgerState {
             order: VecDeque::new(),
             owned: HashMap::new(),
             terminal_failures: HashSet::new(),
+            consumed_merged_turns: HashMap::new(),
+            consumed_merged_turn_order: VecDeque::new(),
             held_before_readiness_by_id: HashSet::new(),
             absence_witness_by_id: HashMap::new(),
             sessionless_first_turn_by_id: HashSet::new(),

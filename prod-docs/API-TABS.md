@@ -188,7 +188,7 @@ Custom themes are `.toml` files in `%APPDATA%/codeterm/themes/` (Windows) or `~/
 | POST | `/api/mesh/broadcast/start` | — | Start local discovery broadcast |
 | POST | `/api/mesh/broadcast/stop` | — | Stop local discovery broadcast |
 | POST | `/api/mesh/relay` | `{method, path, body}` | Relay an API call to a remote peer |
-| POST | `/api/mesh/relay-to` | `{target_peer_id, method, path, body}` | Local browser gateway call: a signed relay request that never exposes the target token. Requires relay protocol version `1`. |
+| POST | `/api/mesh/relay-to` | `{target_peer_id, method, path, body}` | Local browser gateway call: a signed relay request that never exposes the target token. Requires a supported relay protocol version (`1` or `2`). |
 | POST | `/api/mesh/rpc` | `{method, params, request_id}` | Execute allowlisted plan/spec/task/team JSON-RPC through the peer's in-process dispatcher. Requires full peer access and deduplicates by request ID. |
 | GET | `/api/mesh/relay-stream` | `?peer=<id>&path=<streamable>&since=<cursor>` | Browser→local byte-pipe of a peer's own `/api/events/stream` or `/api/output/stream`, cursor-resumed and un-timed. Peer unreachable → `504` `peer-unreachable`. |
 | GET | `/api/mesh/relay-asset/{peer}/{*path}` | `?token=<LOCAL>` | Read-only, `plugins/{id}/ui/*`-scoped byte proxy for a peer's plugin-UI iframe. |
@@ -206,7 +206,7 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 **Relay streaming (`relay-stream` / `relay-asset`).** These let a browser reach a paired peer without knowing its address. `relay-stream` opens a signed mesh request to the peer's own `/api/events/stream` or `/api/output/stream` (the only whitelisted paths) and copies bytes straight through, never buffered, filtered, or reordered, so the stream's cursor/overflow contract carries over. `relay-asset` is scoped to read-only `plugins/{id}/ui/*` GETs (path traversal rejected) because an `<iframe src>` can't send a `Bearer` header: the `.html` entry self-verifies the caller's LOCAL api token via `?token=` (an exact path allowlist exempts it from bearer auth), and the daemon reaches the peer with a server-minted signed mesh token never serialized to the browser.
 
-**Relay security.** Direct signed peer requests and `/api/mesh/relay` share one access policy. `/api/secrets/*` and `/api/mesh/debug/sign` are local-only for every peer access level. REST `GET /api/config` always returns `api.token: null`; the browser retains only its gateway token locally. Relay, relay-stream, and relay-asset reject peers whose announced `relay_protocol_version` is not `1` with `426 Upgrade Required`.
+**Relay security.** Direct signed peer requests and `/api/mesh/relay` share one access policy. `/api/secrets/*` and `/api/mesh/debug/sign` are local-only for every peer access level. REST `GET /api/config` always returns `api.token: null`; the browser retains only its gateway token locally. Relay, relay-stream, and relay-asset accept announced `relay_protocol_version` values `1` and `2`; unknown versions receive `426 Upgrade Required`. Send bodies remain raw across the relay and are framed once by the destination daemon.
 
 **Tauri IPC (Mesh):**
 | Command | Params | Description |
@@ -219,4 +219,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 51 -->
+<!-- revision: 53 -->

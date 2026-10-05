@@ -87,6 +87,7 @@ impl AgentProvider for ClaudeProvider {
         Some(PasteCapability {
             untrusted_above_lines: 4,
             typed_follow_up: " Handle the pasted message above as my request.".into(),
+            requires_typed_instruction_for_routed_messages: true,
         })
     }
 

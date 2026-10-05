@@ -590,8 +590,7 @@ impl ServiceContext {
                         h_task.to_string(),
                         from_ref.clone(),
                         task_status,
-                        (details.status == Some(ReportStatus::Blocked))
-                            .then(|| message.to_string()),
+                        None,
                         milestone_text(message, details.status),
                         milestone_kind.unwrap_or("status_update").to_string(),
                     ) {
@@ -705,6 +704,9 @@ impl ServiceContext {
                 match persistence {
                     Ok(task_id) => {
                         persisted_task = Some((plan_id.clone(), task_id));
+                        if details.status == Some(ReportStatus::Blocked) {
+                            report_outcome = Some(ReportOutcomeClass::BlockProposed);
+                        }
                         self.plan_turn_counter.reset_activity(tab_id);
                         crate::api::events::emit_everywhere(
                             &self.app_handle,
@@ -1101,7 +1103,7 @@ fn milestone_text(message: &str, status: Option<ReportStatus>) -> String {
         Some(ReportStatus::Done) => format!("DONE: {message}"),
         Some(ReportStatus::InReview) => format!("IN_REVIEW: {message}"),
         Some(ReportStatus::Partial) => format!("PARTIAL: {message}"),
-        Some(ReportStatus::Blocked) => format!("BLOCKED: {message}"),
+        Some(ReportStatus::Blocked) => format!("BLOCK PROPOSAL: {message}"),
         None => message.to_string(),
     }
 }

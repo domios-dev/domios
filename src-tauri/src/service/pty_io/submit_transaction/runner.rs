@@ -79,6 +79,57 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
     typed_follow_up: Option<&str>,
     strategy: VerifySubmitStrategy,
     opts: VerifyOpts,
+    key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
+) -> Result<InjectionResult, InjectionError> {
+    run_with_submit_key_and_parts(
+        transport,
+        text,
+        enter,
+        submit_key,
+        None,
+        typed_follow_up,
+        true,
+        strategy,
+        opts,
+        key_guard,
+    )
+}
+
+pub(super) fn run_with_submit_key_and_frame<T: SubmitTransport>(
+    transport: &T,
+    text: &str,
+    enter: bool,
+    submit_key: &[u8],
+    typed_prefix: Option<&str>,
+    typed_suffix: Option<&str>,
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
+    key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
+) -> Result<InjectionResult, InjectionError> {
+    run_with_submit_key_and_parts(
+        transport,
+        text,
+        enter,
+        submit_key,
+        typed_prefix,
+        typed_suffix,
+        false,
+        strategy,
+        opts,
+        key_guard,
+    )
+}
+
+fn run_with_submit_key_and_parts<T: SubmitTransport>(
+    transport: &T,
+    text: &str,
+    enter: bool,
+    submit_key: &[u8],
+    typed_prefix: Option<&str>,
+    typed_suffix: Option<&str>,
+    type_suffix_after_paste: bool,
+    strategy: VerifySubmitStrategy,
+    opts: VerifyOpts,
     mut key_guard: impl FnMut(bool, bool) -> Result<(), InjectionError>,
 ) -> Result<InjectionResult, InjectionError> {
     if let Err(error) = transport.dialog_guard() {
@@ -92,13 +143,16 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
     transport.prepare_paste(text, enter);
     let turn_deadline = started + opts.submit_timeout;
     let two_phase = enter && opts.verify_submit;
-    let typed_follow_up = typed_follow_up
-        .filter(|follow_up| PasteCapability::is_valid_typed_follow_up(follow_up))
-        .filter(|_| enter && !text.is_empty());
+    let typed_suffix = typed_suffix
+        .filter(|suffix| {
+            !type_suffix_after_paste || PasteCapability::is_valid_typed_follow_up(suffix)
+        })
+        .filter(|_| enter && (!text.is_empty() || typed_prefix.is_some()));
     let expected_user_turn = if enter && !text.is_empty() {
-        typed_follow_up.map_or_else(
-            || text.to_string(),
-            |follow_up| format!("{text}{follow_up}"),
+        format!(
+            "{}{text}{}",
+            typed_prefix.unwrap_or_default(),
+            typed_suffix.unwrap_or_default()
         )
     } else {
         text.to_string()
@@ -112,9 +166,13 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
     };
 
     let baseline_evidence = transport.draft_evidence_count(text);
-    let bytes_written = transport.write_paste(text, turn_deadline)?;
+    let bytes_written = if type_suffix_after_paste {
+        transport.write_paste(text, turn_deadline)?
+    } else {
+        transport.write_paste_with_frame(text, typed_prefix, typed_suffix, turn_deadline)?
+    };
     let mut submit_key_writes = 0;
-    let mut typed_follow_up_written = false;
+    let mut typed_suffix_written = !type_suffix_after_paste || typed_suffix.is_none();
     let mut paste_observed =
         text.is_empty() || transport.draft_evidence_count(text) > baseline_evidence;
 
@@ -271,12 +329,9 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
         } else {
             Instant::now() + opts.submit_timeout
         };
-        if !typed_follow_up_written {
-            if let Some(follow_up) = typed_follow_up {
-                if transport
-                    .write_typed_follow_up(follow_up, key_deadline)
-                    .is_err()
-                {
+        if !typed_suffix_written {
+            if let Some(suffix) = typed_suffix {
+                if transport.write_typed_follow_up(suffix, key_deadline).is_err() {
                     let screen_tail = transport
                         .observe()
                         .map(|state| state.tail)
@@ -286,7 +341,7 @@ pub(super) fn run_with_submit_key_and_follow_up<T: SubmitTransport>(
                         screen_tail,
                     });
                 }
-                typed_follow_up_written = true;
+                typed_suffix_written = true;
             }
         }
         let enter_armed = transport.generation();

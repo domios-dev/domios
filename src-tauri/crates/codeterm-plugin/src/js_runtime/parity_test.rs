@@ -903,7 +903,7 @@ fn paste_limit_capability_native_js_parity() {
 }
 
 #[test]
-fn typed_follow_up_capability_native_js_parity_and_threshold() {
+fn routed_paste_instruction_capability_native_js_parity() {
     let Some(_) = require_plugins() else {
         return;
     };
@@ -914,18 +914,9 @@ fn typed_follow_up_capability_native_js_parity_and_threshold() {
         .expect("native provider declares paste handling");
 
     assert_eq!(claude.paste_capability(), Some(capability.clone()));
-    assert_eq!(
-        capability.typed_follow_up_for("a\nb\nc"),
-        None,
-        "three-line messages remain unchanged"
-    );
-    assert_eq!(
-        capability.typed_follow_up_for("a\nb\nc\nd"),
-        None,
-        "messages at the declared threshold remain unchanged"
-    );
-    assert!(capability.typed_follow_up_for("a\nb\nc\nd\ne").is_some());
+    assert!(capability.requires_typed_instruction_for_routed_messages);
     assert_eq!(load_js("codex").paste_capability(), None);
+    assert_eq!(load_js("opencode").paste_capability(), None);
 }
 
 #[test]

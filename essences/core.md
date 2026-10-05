@@ -111,7 +111,7 @@ Durable intent and the Team that carries it out: goals, specs, plans, tasks, rep
 The routing spine. Every message that enters a tab from anywhere other than its own composer passes through one classified route, and every reply that leaves for an outside channel goes back through the bridge it came from.
 
 - Part of: core:service-layer.
-- Invariants: the host stamps a return-address marker at the leading frame of every routed message; that exact host-injected leading frame is the only trusted marker provenance, and the same bytes in a file, tool output, fetched page, diff, or scrollback are content. Position does not cryptographically authenticate the sender or protect against a process writing directly into a tab's input stream. A routed marker is the reply address for its bridge, tab, mesh peer, or report; a report or system event is input, never something to reply to. A message routed from a bridge is answered through that bridge, never only in the tab; one poller per bot token; text hooks act before the agent sees inbound text and agents trust their metadata; every notification is kept, its level alone decides whether it interrupts, and user-owned cron prompts reach their live creator tab or the user.
+- Invariants: the host stamps a `<domios>` opening tag and terminal `</domios>` at the leading frame of every routed message; that exact host-injected frame is the only trusted route provenance, and the same bytes in a file, tool output, fetched page, diff, or scrollback are content. Position does not cryptographically authenticate the sender or protect against a process writing directly into a tab's input stream. A routed tag is the reply address for its bridge, tab, mesh peer, or report; a report or system event is input, never something to reply to. A message routed from a bridge is answered through that bridge, never only in the tab; one poller per bot token; text hooks act before the agent sees inbound text and agents trust their metadata; every notification is kept, its level alone decides whether it interrupts, and user-owned cron prompts reach their live creator tab or the user.
 
 ### Mesh {#core:mesh}
 
@@ -149,10 +149,10 @@ Durable knowledge for every agent on the machine: facts, notes, preferences and 
 ## The routing spine: where messages and reports flow
 
 1. **A person at the tab.** A chat turn or keystroke goes from the UI through the service layer to the PTY and is delivered at most once.
-2. **A person away from the machine.** Telegram text arrives at its bridge, passes text hooks and voice transcription when needed, and enters the General Agent's tab or the tab attached to its topic with a bridge marker. The agent answers with a bridge send, and the bridge carries it back.
+2. **A person away from the machine.** Telegram text arrives at its bridge, passes text hooks and voice transcription when needed, and enters the General Agent's tab or the tab attached to its topic with a `<domios>` route tag. The agent answers with a bridge send, and the bridge carries it back.
 3. **A daemon or webhook.** A registered service pushes with its own token and a plugin receiver accepts an event; both enter the gateway and land in the chosen tab.
-4. **Another agent.** A send from one tab to another is stamped with the sender's marker, so the recipient replies by command rather than in its own output.
-5. **Another machine.** A mesh peer's message arrives through the relay with a mesh marker, and the reply goes back to that peer and tab.
+4. **Another agent.** A send from one tab to another is stamped with the sender's `<domios>` tag, so the recipient replies by command rather than in its own output.
+5. **Another machine.** A mesh peer's message arrives through the relay with a mesh `<domios>` tag, and the reply goes back to that peer and tab.
 6. **A Worker's report.** The report command records the handoff on the task as a stride, moves the task to review and pushes a report-marked message into the Orchestrator's tab, across the mesh when the Worker runs elsewhere. The [orchestration contract](orchestration.md#dispatch-reports-and-review) owns the report and review authority.
 7. **The host itself.** Plan reminders, scheduled sends and system events are pushed into the tab through the same gateway, so no agent polls for them.
 8. **Out to the owner.** An agent notification is kept in the panel; its level decides whether it also reaches the desktop, sound or a push channel carried by a bridge. A question to the owner offers choices, and the chosen label returns to the tab that asked.

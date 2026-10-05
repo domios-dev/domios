@@ -174,8 +174,12 @@ fn drop_already_stored_inbound(messages: Vec<ChatMsg>) -> Vec<ChatMsg> {
 fn is_already_stored_inbound(msg: &ChatMsg) -> bool {
     msg.kind == "user"
         && crate::message_markers::parse_host_injected(&msg.content)
-            .map(|marker| marker.kind == "inbound")
-            .unwrap_or(false)
+            .is_some_and(|marker| {
+                matches!(
+                    marker.kind.as_str(),
+                    "tab" | "report" | "system" | "reminder" | "mesh" | "telegram" | "pebble" | "plugin"
+                )
+            })
 }
 
 /// Adapter that turns a JSONL [`DeltaSink`] (RichMessage) into the structured
@@ -921,12 +925,16 @@ mod tests {
 
         let inner = Arc::new(CountingSink::default());
         let sink = ChatBackendStructuredSink::new(inner.clone(), plugin, session, None);
-        let inbound = crate::message_markers::Marker::new("inbound")
-            .attr("kind", "tab")
-            .attr("from_label", "Alice")
-            .attr("from_tab", "tab-a")
-            .payload("hello")
-            .build();
+        let inbound = codeterm_types::domios::DomiosFrame {
+            opening_tag: codeterm_types::domios::build_opening_tag(&[
+                ("from", "tab"),
+                ("label", "Alice"),
+                ("tab", "tab-a"),
+            ]),
+            body: "hello".into(),
+            suffix: String::new(),
+        }
+        .to_message();
 
         sink.emit(
             "tab-1",

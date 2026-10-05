@@ -5,7 +5,7 @@
 //! tab's terminal. Until the agent reaches its composer that terminal belongs to
 //! something else — a bare shell, or the provider's own modal prompt — and the
 //! paste arrives there as literal keystrokes. That is how a failed launch typed
-//! CodeTerm's own routing markers into the user's shell, and how a paste into an
+//! CodeTerm's own routing tags into the user's shell, and how a paste into an
 //! unanswered directory-trust menu killed the provider mid-launch.
 
 use super::directory_trust::TrustDecision;
