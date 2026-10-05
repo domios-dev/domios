@@ -613,6 +613,8 @@ mod owner_jev;
 mod retained_uncertainty;
 #[path = "tests/ended_launch.rs"]
 mod ended_launch;
+#[path = "tests/merged_turns.rs"]
+mod merged_turns;
 mod evidence;
 
 #[test]
@@ -651,40 +653,6 @@ fn restored_head_waits_with_reason_then_writes_once_after_current_nonce_binding(
     assert_eq!(settled.state, ChatSendState::Unknown);
     assert_eq!(settled.pending_reason, None);
     assert!(fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap().is_empty());
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
-fn current_launch_pre_ready_user_sends_are_held_then_flushed_in_admission_order() {
-    let (fixture, tab) = queue_fixture(true, None);
-    let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
-    let second = start_current_chat_send(&fixture, &tab, SECOND_PAYLOAD, "client-b");
-    let (writes_tx, writes_rx) = mpsc::channel();
-    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |record, _| {
-        writes_tx.send(record.send_id.clone()).unwrap();
-        Ok(())
-    }));
-
-    fixture.service.drain_user_owner(&tab).unwrap();
-    await_owner_idle(&fixture, &tab);
-    assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
-    let queued = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
-    assert_eq!(queued.len(), 2);
-    assert!(queued.iter().all(|record| record.authority.binding_nonce == "opaque-current-nonce"));
-    for accepted in [&first, &second] {
-        let status = fixture.service.chat_send_ledger.status(&accepted.send_id).unwrap();
-        assert_eq!(status.state, ChatSendState::Pending);
-        assert!(status.pending_reason.is_some(), "status={status:?} owner={}", owner_state(&fixture, &tab));
-    }
-
-    mark_ready(&fixture, &tab);
-    fixture.service.wake_parked_user_send(&tab);
-    await_owner_idle(&fixture, &tab);
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), first.send_id);
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), second.send_id);
-    assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
-    assert_eq!(fixture.service.chat_send_ledger.status(&first.send_id).unwrap().state, ChatSendState::Unknown);
-    assert_eq!(fixture.service.chat_send_ledger.status(&second.send_id).unwrap().state, ChatSendState::Unknown);
 }
 
 #[test]

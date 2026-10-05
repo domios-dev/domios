@@ -126,14 +126,9 @@ function candidateFollowsEcho<T extends NormalizedChatMessage>(echo: OptimisticE
 /** Decide which optimistic user bubbles now have a confirmed real counterpart
  *  in the parsed stream and should be dropped.
  *
- *  Consume-once: each parsed user message is claimed by AT MOST ONE bubble, so
- *  repeating a short message ("yes", "y", "continue") clears exactly one bubble
- *  per real echo — never collapsing two distinct sends into one. A bubble
- *  First pass is exact content matching. Second pass handles terminal TUIs that
- *  accepted several quick chat sends as one real user turn: each pending bubble
- *  can be claimed by one matching token sequence inside that combined parsed
- *  turn. Bubbles with no positive match stay pending; callers may decide how to
- *  surface or expire those, but this helper only clears with transcript proof.
+ *  Exact echoes are consumed once, except an ordered payload sequence can share
+ *  one committed row when the provider records several sends as one turn.
+ *  Unmatched bubbles stay pending; only transcript proof clears them.
  *
  *  `parsedUsers` must be in chronological order (oldest first) so the earliest
  *  qualifying echo is paired with the earliest pending bubble. */
@@ -146,6 +141,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   const idMatched = new Set<string>();
   const exactMatched = new Set<string>();
   const coveredMatched = new Set<string>();
+  const claimedRowsById = new Map<string, number>();
   const pendingIds: string[] = [];
   // Consume-once, and no ordering guard — a token is globally unique to its send, so its echo is unambiguous.
   for (const echo of optimistic) {
@@ -157,6 +153,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
       if (candidate.correlationId == null || candidate.correlationId !== echo.correlationId) continue;
       consumed[i] = true;
       idMatched.add(echo.id);
+      claimedRowsById.set(echo.id, i);
       claims.push({ echoId: echo.id, parsedIndex: i });
       break;
     }
@@ -185,7 +182,47 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
     if (hit >= 0) {
       consumed[hit] = true;
       exactMatched.add(echo.id);
+      claimedRowsById.set(echo.id, hit);
       claims.push({ echoId: echo.id, parsedIndex: hit });
+    }
+  }
+  const textSequenceMatched = new Set<string>();
+  for (let rowIndex = 0; rowIndex < parsedUsers.length; rowIndex += 1) {
+    const candidate = parsedUsers[rowIndex];
+    if ((candidate.type !== "user" && candidate.type !== "local_command")) continue;
+    const text = normalizeChatText(matchableContent(candidate.content)).toLowerCase();
+    if (!text) continue;
+    for (let start = 0; start < optimistic.length; start += 1) {
+      const first = optimistic[start];
+      if (!candidateFollowsEcho(first, candidate)) continue;
+      const firstOwner = claimedRowsById.get(first.id);
+      if (firstOwner != null && firstOwner !== rowIndex) continue;
+      const firstText = normalizeChatText(matchableContent(first.content)).toLowerCase();
+      if (!firstText || !text.startsWith(firstText)) continue;
+      let offset = firstText.length;
+      const matched = [first];
+      for (let next = start + 1; next < optimistic.length; next += 1) {
+        const send = optimistic[next];
+        if (!candidateFollowsEcho(send, candidate)) break;
+        const owner = claimedRowsById.get(send.id);
+        if (owner != null && owner !== rowIndex) break;
+        while (offset < text.length && /\s/.test(text[offset] ?? "")) offset += 1;
+        const sendText = normalizeChatText(matchableContent(send.content)).toLowerCase();
+        if (!sendText || !text.startsWith(sendText, offset)) break;
+        offset += sendText.length;
+        matched.push(send);
+        if (matched.length >= 2 && text.slice(offset).trim() === "") {
+          break;
+        }
+      }
+      if (matched.length < 2 || text.slice(offset).trim() !== "") continue;
+      consumed[rowIndex] = true;
+      for (const item of matched) {
+        if (claimedRowsById.has(item.id)) continue;
+        textSequenceMatched.add(item.id);
+        claimedRowsById.set(item.id, rowIndex);
+        claims.push({ echoId: item.id, parsedIndex: rowIndex });
+      }
     }
   }
   const coverageClaimed = new Set<number>();
@@ -195,7 +232,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
     tokens: consumed[index] ? [] : coverageTokens(message.content),
   }));
   for (const echo of optimistic) {
-    if (idMatched.has(echo.id) || exactMatched.has(echo.id)) continue;
+    if (idMatched.has(echo.id) || exactMatched.has(echo.id) || textSequenceMatched.has(echo.id)) continue;
     const wanted = tokenNeedle(echo.content);
     if (wanted.length === 0) continue;
     for (const candidate of coverage) {
@@ -245,6 +282,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
     if (
       idMatched.has(echo.id)
       || exactMatched.has(echo.id)
+      || textSequenceMatched.has(echo.id)
       || coveredMatched.has(echo.id)
       || fuzzyMatched.has(echo.id)
     ) {
