@@ -281,7 +281,13 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
     ],
     "wizard parsePrompt extracts sections and active step",
   );
-  eq(parsed?.options?.map((o: [string, string]) => o[1]), ["1", "2", "3", "4"], "wizard options keep 1-based values");
+  eq(parsed?.options, [
+    ["Dev (port 7686) The hot-reload dev instance. Safe to kill and restart freely.", "1"],
+    ["Prod (port 7685) Production CodeTerm. Read-only, never killed.", "2"],
+    ["Both Apply setup across dev and prod where applicable.", "3"],
+    ["Type something.", "4"],
+    ["Chat about this", "5"],
+  ], "wizard prompt preserves each visible option");
   eq(parsed?.multiSelect, false, "wizard numbered section is single-select");
   eq(parsed?.submitAvailable, true, "wizard submit is available");
   eq(hostPlugin.buildPromptResponse(2, wizard), ["ag==", "ag==", "DQ==", "CQ=="], "wizard option click moves from highlighted row, selects, then advances");
@@ -295,13 +301,21 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
     "❯ ☐ Performance",
     "  ☑ Tests",
     "  ☐ Docs",
+    "  5. Submit",
+    "  6. Chat about this",
     "",
     "Enter to select · Tab/Arrow keys to navigate · Esc to cancel",
   ].join("\n");
   const parsed = hostPlugin.parsePrompt(multi);
+  eq(parsed?.question, "Which focus areas should be enabled?", "multi-select question excludes choices");
   eq(parsed?.multiSelect, true, "checkbox section is multi-select");
   eq(parsed?.selectedValues, ["2"], "checkbox parser extracts selected values");
+  eq(parsed?.options?.map((option: [string, string]) => option[0]), [
+    "Performance", "Tests", "Docs", "Submit", "Chat about this",
+  ], "multi-select prompt preserves the visible submit and chat choices");
   eq(hostPlugin.buildPromptResponse(10004, multi), ["IA==", "ag==", "IA==", "ag==", "IA==", "CQ=="], "multi-select confirm toggles desired mask then advances");
+  eq(hostPlugin.classifyTabState({ tabId: "tab-1", agentType: "claude", screenText: multi })?.state,
+    "clarifying_question", "multi-select screen is surfaced for a person to answer");
 }
 
 {

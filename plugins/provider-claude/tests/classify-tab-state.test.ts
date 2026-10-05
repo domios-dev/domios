@@ -88,6 +88,16 @@ const plugin = loadClaude();
 
 assert(typeof plugin.classifyTabState === "function", "classifyTabState is exported");
 
+{
+  const screen = fs.readFileSync(
+    path.join(here, "fixtures", "folder-trust", "mcp-server.txt"),
+    "utf8",
+  );
+  const r = classify(plugin, screen);
+  eq(r?.state, "clarifying_question", "MCP server approval is surfaced as a question");
+  assert(!r?.action?.keys, "MCP approval has no automatic key action", JSON.stringify(r?.action));
+}
+
 console.log("\n--- positive: rate-limit menu, Stop-and-wait is the default highlight ---\n");
 {
   const r = classify(plugin, fixture("rate-limit-menu.txt"));

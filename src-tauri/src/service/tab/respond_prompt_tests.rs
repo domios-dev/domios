@@ -261,6 +261,26 @@ fn respond_prompt_rejects_invalid_options_before_pty_access() {
         .is_some());
 }
 
+#[test]
+fn respond_prompt_rejects_multi_select_options_before_pty_access() {
+    let (fixture, tab_id) = fixture_with_pending_prompt();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .pending_prompt
+        .as_mut()
+        .unwrap()
+        .multi_select = Some(true);
+
+    assert_eq!(
+        fixture.service.respond_prompt(&tab_id, "1"),
+        Ok(RespondPromptOutcome::InvalidOption)
+    );
+}
+
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime and live PTY")]
 #[tokio::test]
 async fn respond_prompt_reports_not_on_screen_instead_of_ok() {

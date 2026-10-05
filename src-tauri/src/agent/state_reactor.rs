@@ -228,6 +228,96 @@ fn react_heuristic(
     }
 }
 
+pub(crate) fn classify_adopted_launch_screen(svc: &ServiceState, tab_id: &str, pty_id: &str) {
+    let (agent_type, session_id, cwd) = {
+        let mux = svc.mux.read();
+        let Some(tab) = mux.get_tab(tab_id) else {
+            return;
+        };
+        if tab.pty_id.as_deref() != Some(pty_id) {
+            return;
+        }
+        let Some(agent_type) = tab.agent_type.clone() else {
+            return;
+        };
+        (agent_type, tab.agent_session_id.clone(), tab.cwd.clone())
+    };
+    let screen = svc
+        .screen_state
+        .lock()
+        .get_screen_text(pty_id)
+        .unwrap_or_default();
+    let snapshot = TabStateSnapshot {
+        tab_id: tab_id.to_string(),
+        agent_type: agent_type.clone(),
+        session_id,
+        cwd,
+        screen_text: screen.clone(),
+    };
+    let classification = svc
+        .agent_registry
+        .with_provider(&agent_type, |provider| {
+            provider.classify_tab_state(&snapshot)
+        })
+        .flatten();
+    let Some(classification) = classification.filter(|value| {
+        value.confidence >= GLOBAL_THRESHOLD
+            && matches!(
+                value.state,
+                TabState::WaitingOnAuth | TabState::ClarifyingQuestion
+            )
+    }) else {
+        surface_adopted_screen_prompt(svc, tab_id, &agent_type, &screen);
+        return;
+    };
+    if classification.state == TabState::WaitingOnAuth {
+        surface_to_user(
+            svc,
+            tab_id,
+            classification
+                .action
+                .as_ref()
+                .and_then(|action| action.surface.clone()),
+        );
+        surface_adopted_screen_prompt(svc, tab_id, &agent_type, &screen);
+        return;
+    }
+    if !route_classified_prompt(
+        svc,
+        tab_id,
+        &agent_type,
+        &screen,
+        Some(&classification),
+        false,
+        false,
+    ) {
+        surface_adopted_screen_prompt(svc, tab_id, &agent_type, &screen);
+    }
+}
+
+fn surface_adopted_screen_prompt(svc: &ServiceState, tab_id: &str, agent_type: &str, screen: &str) {
+    let Some((prompt, prompt_kind)) = crate::agent::prompt::parse_prompt_safely(|| {
+        svc.agent_registry
+            .parse_interactive_prompt(agent_type, screen)
+    }) else {
+        return;
+    };
+    if !has_structural_prompt_evidence(screen, &prompt) || prompt_is_composer_text(screen, &prompt)
+    {
+        return;
+    }
+    let decision = svc.prompt_detector.lock().evaluate_pty_output_parsed(
+        tab_id,
+        true,
+        true,
+        Some(crate::agent::prompt::ResolvedPrompt {
+            prompt,
+            explicit: false,
+        }),
+    );
+    svc.apply_prompt_decision_with_kind(&decision, Some(screen), prompt_kind, true);
+}
+
 fn decide_prompt_chain(
     status: TabStatus,
     classification: &TabStateClassification,
