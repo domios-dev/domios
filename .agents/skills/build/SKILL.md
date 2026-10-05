@@ -54,9 +54,10 @@ These flows are deliberately separate. Full rebuilds, dev instances, full
 suites and gates run from the warm canonical checkout under Orchestrator
 authority. A Worker lane may run isolated checks only; in this repository that
 means `tsc --noEmit`, a single node test file, `cargo fmt --check`, and
-`./build.sh test-one plan|pty <NAME>`. `check`, `check-tests` and
-`test-one app` compile the app crate, so they are full rebuilds and are
-deferred to the Orchestrator's canonical wave batch.
+`./build.sh test-one plan|pty <NAME>`. `check-tests` compiles app and CLI test
+targets without running them; its artifacts are reused by matching `test-one`
+app and CLI calls in the same worktree. These app builds are deferred to the
+Orchestrator's canonical wave batch.
 
 | Goal | Entry point | Touches production? | Read first |
 |---|---|---:|---|
