@@ -201,7 +201,7 @@ fn recovery_outcome(method: &str, params: &Option<Value>) -> Option<crate::plan:
     }
 }
 
-fn explicit_block_label(method: &str, params: &Option<Value>) -> Option<&str> {
+fn explicit_block_label<'a>(method: &str, params: &'a Option<Value>) -> Option<&'a str> {
     (method == "plan.task.update"
         && params
             .as_ref()
