@@ -106,7 +106,7 @@ pub fn classify(
             );
             let model = supporter::budgeted_model_with_activity(
                 model,
-                runtime,
+                supporter::runtime_with_notifications(svc),
                 config.calls_per_hour.unwrap_or(0),
                 VerdictKind::Sentinel,
                 Some(job.creator_tab_id.clone()),
