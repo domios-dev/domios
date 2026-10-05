@@ -24,6 +24,7 @@ fn send_text_body_without_source_agent_keeps_agent_reply_hint() {
     assert!(wrapped.contains(crate::service::messenger::Messenger::AGENT_REPLY_HINT_PREFIX));
     assert!(wrapped.contains(crate::service::messenger::Messenger::AGENT_REPLY_COMMAND));
     assert!(wrapped.contains("--mesh BLACKSTAR]"));
+    assert_eq!(wrapped.matches("<domios from=").count(), 1);
     assert!(wrapped.ends_with(codeterm_types::domios::DOMIOS_CLOSE_TAG));
 }
 

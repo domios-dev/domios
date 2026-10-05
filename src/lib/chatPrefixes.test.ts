@@ -37,7 +37,8 @@ console.log("detectChatPrefix");
 {
   const pasted =
     '<domios from="tab" label="Main" tab="12e450b4">' +
-    '<pasted_content id="claude-turn">\nHey from paste\n</pasted_content id="claude-turn"> [reply]</domios>';
+    '<pasted_content id="claude-turn">\nHey from paste\n</pasted_content id="claude-turn"> ' +
+    '[to reply, run: codeterm send "YOUR REPLY" --tab 12e450b4]</domios>';
   eq(detectChatPrefix(pasted)?.body, "Hey from paste", "Claude paste wrapper is hidden inside route frame");
 }
 

@@ -685,7 +685,7 @@ impl Messenger {
         let mut attrs = vec![("from", "reminder".to_string())];
         for (key, value) in [
             ("label", Some(label)),
-            ("tab", Some(tab)),
+            ("tab", Some(tab.to_string())),
             ("model", self.envelope.from_model.as_deref().map(str::trim).map(str::to_string)),
             ("set_at", set_at),
             ("fire_at", fire_at),
