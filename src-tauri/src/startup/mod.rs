@@ -18,6 +18,7 @@ mod servers;
 #[cfg(test)]
 mod stall_tests;
 mod state_incidents;
+mod storage;
 mod states;
 mod user_path;
 mod window;
@@ -42,5 +43,6 @@ pub(crate) use servers::start_servers;
 #[cfg(test)]
 pub(crate) use servers::FRONTEND_READINESS_DEADLINE_ELAPSED;
 pub(crate) use states::init_states;
+pub(crate) use storage::{shutdown_bounded, StorageAuthority};
 pub(crate) use user_path::run_user_path_repair_if_invoked;
 pub(crate) use window::{build_system_tray, setup_window_styling};

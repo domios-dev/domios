@@ -8,7 +8,9 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::Future;
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{mpsc, Arc};
 use std::task::{Context, Poll, Wake, Waker};
@@ -134,20 +136,29 @@ impl Probe {
 }
 
 pub(super) enum Backend {
+    #[cfg(test)]
     Legacy(PathBuf),
     Storage(Box<StorageCron>),
+    Unavailable(String),
 }
 
 impl Backend {
+    #[cfg(test)]
     pub(super) fn legacy_path(&self) -> Result<&Path, String> {
         match self {
             Backend::Legacy(path) => Ok(path),
             Backend::Storage(_) => Err(STAGED_ONLY.to_string()),
+            Backend::Unavailable(reason) => Err(reason.clone()),
         }
     }
 
     pub(super) fn require_legacy(&self) -> Result<(), String> {
-        self.legacy_path().map(|_| ())
+        match self {
+            #[cfg(test)]
+            Backend::Legacy(_) => Ok(()),
+            Backend::Storage(_) => Err(STAGED_ONLY.to_string()),
+            Backend::Unavailable(reason) => Err(reason.clone()),
+        }
     }
 }
 
@@ -187,6 +198,25 @@ struct Plan {
 }
 
 impl CronStore {
+    pub(crate) fn unavailable(reason: String, logs_root: PathBuf, clock: SharedClock) -> CronStore {
+        CronStore {
+            file: CronFile::default(),
+            backend: Backend::Unavailable(reason),
+            logs_root,
+            tab_owners: HashMap::new(),
+            clock,
+        }
+    }
+
+    pub(crate) fn unavailable_reason(&self) -> Option<&str> {
+        match &self.backend {
+            Backend::Unavailable(reason) => Some(reason),
+            Backend::Storage(storage) => storage.unavailable.as_deref(),
+            #[cfg(test)]
+            Backend::Legacy(_) => None,
+        }
+    }
+
     /// Blocking: hydrates the cache from committed rows. Call off the async runtime and
     /// outside every lock; an unreadable store is refused, never treated as empty.
     pub fn open_storage(
@@ -242,8 +272,7 @@ impl CronStore {
     }
 
     pub(crate) fn scheduler_unavailable(&self) -> bool {
-        self.storage()
-            .is_some_and(|storage| storage.unavailable.is_some())
+        self.unavailable_reason().is_some()
     }
 
     pub(crate) fn scheduler_settlement_ready(&self) -> bool {
@@ -258,8 +287,14 @@ impl CronStore {
     }
 
     pub(crate) fn mark_scheduler_unavailable(&mut self, reason: String) {
-        if let Some(storage) = self.storage_mut() {
-            storage.unavailable.get_or_insert(reason);
+        match &mut self.backend {
+            Backend::Storage(storage) => {
+                storage.unavailable.get_or_insert(reason);
+                storage.draft = None;
+            }
+            Backend::Unavailable(unavailable) => *unavailable = reason,
+            #[cfg(test)]
+            Backend::Legacy(_) => {}
         }
     }
 
@@ -276,6 +311,8 @@ impl CronStore {
     fn storage(&self) -> Option<&StorageCron> {
         match &self.backend {
             Backend::Storage(storage) => Some(storage),
+            Backend::Unavailable(_) => None,
+            #[cfg(test)]
             Backend::Legacy(_) => None,
         }
     }
@@ -283,6 +320,8 @@ impl CronStore {
     fn storage_mut(&mut self) -> Option<&mut StorageCron> {
         match &mut self.backend {
             Backend::Storage(storage) => Some(storage),
+            Backend::Unavailable(_) => None,
+            #[cfg(test)]
             Backend::Legacy(_) => None,
         }
     }
@@ -563,21 +602,33 @@ pub(crate) fn commit<T>(
     mut prepare: impl FnMut(&mut CronStore) -> Result<Prepared<T>, String>,
 ) -> Result<CronCommitted<T>, CronCommitError> {
     {
+        #[cfg(test)]
         let mut store = cron.lock();
+        #[cfg(not(test))]
+        let store = cron.lock();
         if store.backend.require_legacy().is_ok() {
-            let prepared = prepare(&mut store).map_err(CronCommitError::Refused)?;
-            let removed = legacy_removed(&store, &prepared.changes);
-            for change in &prepared.changes {
-                store.apply_change(change);
+            #[cfg(test)]
+            {
+                let prepared = prepare(&mut store).map_err(CronCommitError::Refused)?;
+                let removed = legacy_removed(&store, &prepared.changes);
+                for change in &prepared.changes {
+                    store.apply_change(change);
+                }
+                if !prepared.changes.is_empty() {
+                    store.save().map_err(CronCommitError::Unsaved)?;
+                }
+                return Ok(CronCommitted {
+                    value: prepared.value,
+                    removed,
+                    receipt: None,
+                });
             }
-            if !prepared.changes.is_empty() {
-                store.save().map_err(CronCommitError::Unsaved)?;
+            #[cfg(not(test))]
+            {
+                return Err(CronCommitError::NotApplied(
+                    "legacy cron backend is test-only".to_string(),
+                ));
             }
-            return Ok(CronCommitted {
-                value: prepared.value,
-                removed,
-                receipt: None,
-            });
         }
     }
     settle_fence(cron)?;
@@ -686,6 +737,7 @@ pub(crate) fn commit<T>(
     ))
 }
 
+#[cfg(test)]
 fn legacy_removed(store: &CronStore, changes: &[CronChange]) -> Vec<String> {
     let mut removed = Vec::new();
     for change in changes {
