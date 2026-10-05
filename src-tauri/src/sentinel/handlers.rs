@@ -465,7 +465,7 @@ impl Store {
             command_result: None,
             reason: None,
         };
-        if self.backend.json().is_none() {
+        if !self.backend.is_json() {
             return self.sqlite_claim(job, transition_id, claim);
         }
         let previous = self.jobs.clone();
@@ -478,7 +478,7 @@ impl Store {
             return Staged::ready(Err("transition missing".into()));
         };
         transition.handlers.push(claim.clone());
-        if let Err(error) = self.save() {
+        if let Err(error) = self.save_legacy() {
             self.jobs = previous;
             if let Some(cancelled) = self.active.get(&job.id) {
                 cancelled.store(true, std::sync::atomic::Ordering::SeqCst)
@@ -532,7 +532,7 @@ impl Store {
         claim: &ResultRecord,
         effect: Effect,
     ) -> Staged<()> {
-        let typed = self.backend.json().is_none();
+        let typed = !self.backend.is_json();
         let previous = if typed { Vec::new() } else { self.jobs.clone() };
         let Some(record) = self
             .jobs
@@ -553,7 +553,7 @@ impl Store {
             return self.sqlite_handler_result(source, transition_id, &updated);
         }
         apply_effect(record, effect);
-        if let Err(error) = self.save() {
+        if let Err(error) = self.save_legacy() {
             self.jobs = previous;
             return Staged::ready(Err(error));
         }
@@ -566,7 +566,7 @@ impl Store {
         transition_id: &str,
         handlers: &[Handler],
     ) -> Staged<()> {
-        let typed = self.backend.json().is_none();
+        let typed = !self.backend.is_json();
         let previous = if typed { Vec::new() } else { self.jobs.clone() };
         let Some(transition) = self
             .jobs
@@ -591,7 +591,7 @@ impl Store {
             return self.sqlite_skip(source, transition_id, &fenced);
         }
         transition.handlers.extend(fenced);
-        if let Err(error) = self.save() {
+        if let Err(error) = self.save_legacy() {
             self.jobs = previous;
             return Staged::ready(Err(error));
         }

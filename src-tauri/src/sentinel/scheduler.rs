@@ -104,12 +104,9 @@ pub(super) fn emit_changes(store: &Arc<Mutex<Store>>, app: &tauri::AppHandle) {
     }
 }
 
-pub fn start(svc: ServiceState, clock: SharedClock) {
+pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::Storage) {
     let mut handle = Handle {
-        store: Arc::new(Mutex::new(Store::new(
-            codeterm_paths::data_dir().join("sentinels.json"),
-            clock,
-        ))),
+        store: Arc::new(Mutex::new(Store::with_storage(storage, clock))),
         pending_run_bindings: Arc::new(Mutex::new(BTreeMap::new())),
         wake: Arc::new((std::sync::Mutex::new(0), std::sync::Condvar::new())),
         probe_owner: Arc::new(probe::owner::ProbeResourceOwner::new()),

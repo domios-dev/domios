@@ -41,6 +41,14 @@ fn app_state(fixture: &ServiceFixture, cron: &StorageCron) -> AppState {
     }
 }
 
+#[test]
+fn storage_cutover_cron_unavailable_read_maps_to_service_unavailable() {
+    assert_eq!(
+        super::cron_read_error("cron storage unavailable: database unavailable".into()).0,
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    );
+}
+
 /// One runtime thread: the parked disable may hold it only if the route blocks inline.
 #[tokio::test]
 #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]

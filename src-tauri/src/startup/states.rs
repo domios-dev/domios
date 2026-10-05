@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
+use super::storage::StorageAuthority;
 use crate::config::{self, ConfigState};
 use crate::lock_hold::{TimedMutex, TimedRwLock};
 use crate::multiplexer::commands::MuxState;
@@ -22,6 +23,8 @@ use crate::{
 
 /// All shared application states, grouped for easier passing between init functions.
 pub(crate) struct AppStates {
+    pub(crate) storage: StorageAuthority,
+    pub(crate) boot_resync: bool,
     pub(crate) config: ConfigState,
     pub(crate) pty: PtyState,
     pub(crate) mux: MuxState,
@@ -197,6 +200,7 @@ pub(crate) fn scrub_inherited_api_env(config_state: &ConfigState) {
 
 /// Create and initialize all application states.
 pub(crate) fn init_states() -> AppStates {
+    let mut storage = super::storage::open_instance_storage();
     let app_config = config::load_config();
     log::info!("Config loaded: theme={}", app_config.theme.name);
     let config_state: ConfigState = Arc::new(Mutex::new(app_config));
@@ -255,15 +259,29 @@ pub(crate) fn init_states() -> AppStates {
         download_total_bytes: None,
     }));
 
-    let ga_enabled = config_state.lock().general_agent.enabled;
+    let ga_enabled = storage.storage().is_some() && config_state.lock().general_agent.enabled;
     let mut bound_at_shutdown = Vec::new();
     let mut agent_panes_at_shutdown = Vec::new();
+    let desk_snapshot = match storage.storage() {
+        Some(storage_owner) => {
+            let adapter =
+                crate::session::store::StorageDeskAdapter::from_storage(storage_owner.clone());
+            match adapter.snapshot() {
+                Ok(snapshot) => Some(snapshot),
+                Err(error) => {
+                    storage.mark_unavailable(format!("desk restore failed: {error}"));
+                    None
+                }
+            }
+        }
+        None => None,
+    };
+    let mut boot_resync = false;
     let mux_state_inner = {
-        let last = session_state.lock().load_last();
-        match last {
-            Ok(Some(snapshot)) if !snapshot.workspaces.is_empty() => {
-                bound_at_shutdown = snapshot_role_bindings(&snapshot);
-                agent_panes_at_shutdown = snapshot_agent_panes(&snapshot);
+        match (storage.storage().is_some(), desk_snapshot.as_ref()) {
+            (true, Some(snapshot)) if !snapshot.workspaces.is_empty() => {
+                bound_at_shutdown = snapshot_role_bindings(snapshot);
+                agent_panes_at_shutdown = snapshot_agent_panes(snapshot);
                 log::info!(
                     "Restoring session with {} workspaces, {} tabs total",
                     snapshot.workspaces.len(),
@@ -281,19 +299,24 @@ pub(crate) fn init_states() -> AppStates {
                         ws.active_tab_id
                     );
                 }
-                MultiplexerState::from_session_snapshot(&snapshot)
+                MultiplexerState::from_session_snapshot(snapshot)
             }
-            _ => {
+            (true, _) => {
+                boot_resync = true;
                 if ga_enabled {
-                    log::info!(
-                        "No saved session, GA enabled — starting empty (General will be created)"
-                    );
+                    log::info!("Storage desk is empty, GA enabled — General will be created");
                     MultiplexerState::empty()
                 } else {
-                    log::info!("No saved session, creating default workspace");
+                    log::info!("Storage desk is empty, creating default workspace");
                     let (state, _) = MultiplexerState::new();
                     state
                 }
+            }
+            (false, _) => {
+                log::error!(
+                    "Storage unavailable — desk restore and default workspace creation skipped"
+                );
+                MultiplexerState::empty()
             }
         }
     };
@@ -304,17 +327,27 @@ pub(crate) fn init_states() -> AppStates {
 
     // Attach the durable closed-tab history store so reopen survives restarts.
     // On failure keep the in-memory default (history just won't persist).
-    match crate::multiplexer::state::ClosedTabsStore::open(&crate::paths::data_dir()) {
-        Ok(store) => mux_state_inner.attach_closed_store(store),
-        Err(e) => log::error!(
-            "[closed-history] open failed: {} — degrading to in-memory, reopen history will NOT survive restart",
-            e
-        ),
+    if storage.storage().is_some() {
+        match crate::multiplexer::state::ClosedTabsStore::open(&crate::paths::data_dir()) {
+            Ok(store) => mux_state_inner.attach_closed_store(store),
+            Err(e) => log::error!(
+                "[closed-history] open failed: {} — degrading to in-memory, reopen history will NOT survive restart",
+                e
+            ),
+        }
     }
-    let ghost_count = service::general_agent::purge_snapshot_ghosts(&mut mux_state_inner);
-    let retired = notif_state
-        .lock()
-        .retire_tabless_conditions(|tab_id| mux_state_inner.get_tab(tab_id).is_some());
+    let ghost_count = if storage.storage().is_some() {
+        service::general_agent::purge_snapshot_ghosts(&mut mux_state_inner)
+    } else {
+        0
+    };
+    let retired = if storage.storage().is_some() {
+        notif_state
+            .lock()
+            .retire_tabless_conditions(|tab_id| mux_state_inner.get_tab(tab_id).is_some())
+    } else {
+        Vec::new()
+    };
     if !retired.is_empty() {
         log::info!(
             "[notify-persist] resolved {} restored notice(s) whose Tab did not come back",
@@ -331,17 +364,25 @@ pub(crate) fn init_states() -> AppStates {
             (tab.id, role)
         })
         .collect::<Vec<_>>();
-    for (tab_id, role) in &restored_agent_tabs {
-        if let Err(error) = service::agent_pad::restore(&crate::paths::data_dir(), tab_id, *role) {
-            log::warn!("[agent-pad] restore failed for Tab {tab_id}: {error}");
+    if storage.storage().is_some() {
+        for (tab_id, role) in &restored_agent_tabs {
+            if let Err(error) =
+                service::agent_pad::restore(&crate::paths::data_dir(), tab_id, *role)
+            {
+                log::warn!("[agent-pad] restore failed for Tab {tab_id}: {error}");
+            }
         }
     }
     let live_agent_tabs = restored_agent_tabs
         .into_iter()
         .map(|(tab_id, _)| tab_id)
         .collect();
-    if let Err(error) = service::agent_pad::reconcile(&crate::paths::data_dir(), &live_agent_tabs) {
-        log::warn!("[agent-pad] startup reconciliation failed: {error}");
+    if storage.storage().is_some() {
+        if let Err(error) =
+            service::agent_pad::reconcile(&crate::paths::data_dir(), &live_agent_tabs)
+        {
+            log::warn!("[agent-pad] startup reconciliation failed: {error}");
+        }
     }
     if ghost_count > 0 {
         log::info!(
@@ -349,32 +390,38 @@ pub(crate) fn init_states() -> AppStates {
             ghost_count
         );
     }
-    for tab in mux_state_inner
-        .all_tabs()
-        .filter(|tab| tab.restored_from_snapshot)
-    {
-        service::supporter_notify::record_launch(&tab.id, true);
+    if storage.storage().is_some() {
+        for tab in mux_state_inner
+            .all_tabs()
+            .filter(|tab| tab.restored_from_snapshot)
+        {
+            service::supporter_notify::record_launch(&tab.id, true);
+        }
     }
     let restored_bindings = restored_role_bindings(&mux_state_inner);
-    crate::crash::lifecycle::note_restored_bindings(crate::crash::lifecycle::BindingEvidence {
-        bound_at_shutdown: bound_at_shutdown.len() as u32,
-        restored: restored_bindings.len() as u32,
-        bound_identities: bound_at_shutdown,
-        restored_identities: restored_bindings,
-    });
+    if storage.storage().is_some() {
+        crate::crash::lifecycle::note_restored_bindings(crate::crash::lifecycle::BindingEvidence {
+            bound_at_shutdown: bound_at_shutdown.len() as u32,
+            restored: restored_bindings.len() as u32,
+            bound_identities: bound_at_shutdown,
+            restored_identities: restored_bindings,
+        });
+    }
     // Nothing is observable yet — no PTY has materialized — so the wave is
     // armed here and settles on real launch transitions.
-    service::restore_exited_member::apply_restore_decisions(
-        crate::session::lifecycle::TabLifecycleJournal::shared(),
-        &mux_state_inner,
-        &mut agent_panes_at_shutdown,
-    );
-    if !agent_panes_at_shutdown.is_empty() {
+    if storage.storage().is_some() {
+        service::restore_exited_member::apply_restore_decisions(
+            crate::session::lifecycle::TabLifecycleJournal::shared(),
+            &mux_state_inner,
+            &mut agent_panes_at_shutdown,
+        );
+    }
+    if storage.storage().is_some() && !agent_panes_at_shutdown.is_empty() {
         let restored_pane_ids = restored_agent_pane_ids(&mux_state_inner);
         crate::crash::restore_report::arm(agent_panes_at_shutdown, &restored_pane_ids);
     }
     let mut duplicate_generals_closed = 0usize;
-    if general_config.enabled {
+    if storage.storage().is_some() && general_config.enabled {
         service::general_agent::ensure_directories();
         let mut general_config = general_config;
         if !general_config.first_run_complete
@@ -400,25 +447,23 @@ pub(crate) fn init_states() -> AppStates {
     if ghost_count + duplicate_generals_closed > 0 {
         // Deliberate boot cleanups re-sync with intent; kept conditional so an
         // unexplained load-time loss still hits the non-reducing guard.
-        let resync = session_state.lock().save_with_intent(
-            &mux_state_inner.to_session_snapshot(),
-            crate::session::store::SaveIntent::AuthorizedReduction,
-        );
-        if let Err(error) = resync {
-            log::warn!("[restore] boot cleanup desk resync failed: {error}");
-        }
+        boot_resync = true;
     }
 
-    for (tab_id, reason) in crate::session::scrollback_restore::load_restored_scrollback_tails(
-        &mut mux_state_inner,
-        &session_state,
-    ) {
-        log::debug!("[restore-scrollback] tab={tab_id} skipped reason={reason}");
+    if storage.storage().is_some() {
+        for (tab_id, reason) in crate::session::scrollback_restore::load_restored_scrollback_tails(
+            &mut mux_state_inner,
+            &session_state,
+        ) {
+            log::debug!("[restore-scrollback] tab={tab_id} skipped reason={reason}");
+        }
     }
 
     let mux_state: MuxState = Arc::new(TimedRwLock::new("mux", mux_state_inner));
 
     AppStates {
+        storage,
+        boot_resync,
         config: config_state,
         pty: pty_state,
         mux: mux_state,
