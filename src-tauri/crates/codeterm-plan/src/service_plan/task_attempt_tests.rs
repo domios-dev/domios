@@ -53,6 +53,67 @@ fn mark_bound_task_in_progress(store: &PlanStore, plan_id: &str, task_id: &str) 
         .unwrap();
 }
 
+#[test]
+fn report_target_write_timestamp_persists_across_store_reopen() {
+    let (dir, store, plan_id, task_id) = bound_report_store();
+    store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            worker_report(ReportStatus::InReview, Some("abc123")),
+            4,
+        )
+        .unwrap();
+    let attempt_id = store.get(&plan_id).unwrap().tasks[0].execution_attempts[0]
+        .id
+        .clone();
+
+    assert!(store
+        .mark_report_target_written(&plan_id, &task_id, &attempt_id, 5)
+        .unwrap());
+    let reopened = PlanStore::open(dir.path().join(".codeterm").join("plans.db")).unwrap();
+    assert_eq!(
+        reopened.get(&plan_id).unwrap().tasks[0].execution_attempts[0].report_target_written_at,
+        Some(5)
+    );
+}
+
+#[test]
+fn new_report_resets_report_target_write_timestamp() {
+    let (_dir, store, plan_id, task_id) = bound_report_store();
+    store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            worker_report(ReportStatus::InReview, Some("abc123")),
+            4,
+        )
+        .unwrap();
+    let attempt_id = store.get(&plan_id).unwrap().tasks[0].execution_attempts[0]
+        .id
+        .clone();
+    store
+        .mark_report_target_written(&plan_id, &task_id, &attempt_id, 5)
+        .unwrap();
+
+    store
+        .ingest_bound_worker_report(
+            &plan_id,
+            &task_id,
+            &AgentRef::from_tab("worker"),
+            worker_report(ReportStatus::InReview, Some("def456")),
+            6,
+        )
+        .unwrap();
+
+    assert_eq!(
+        store.get(&plan_id).unwrap().tasks[0].execution_attempts[0].report_target_written_at,
+        None
+    );
+}
+
 fn worker_report(status: ReportStatus, sha: Option<&str>) -> task_attempts::BoundWorkerReport {
     task_attempts::BoundWorkerReport {
         message: "CHANGES: report ingestion\nTESTS RUN: cargo test".into(),
@@ -314,6 +375,17 @@ fn partial_report_keeps_bound_task_actionable() {
 fn blocked_report_is_persisted_as_a_proposal_without_moving_the_task() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
     mark_bound_task_in_progress(&store, &plan_id, &task_id);
+    store
+        .with_plan(&plan_id, 3, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            task.status_label = Some("acknowledged".into());
+            Ok(())
+        })
+        .unwrap();
     let report = worker_report(ReportStatus::Blocked, None);
     let reason = report.message.clone();
     assert!(!store
