@@ -319,7 +319,7 @@ Create a cron job
 - `--description` — Description
 - `--jitter-max-ms` — Max jitter in milliseconds added to each scheduled fire. 0 = off. Omit for default (10% of interval, clamped to [1m, 30m])
 - `--model` — Model within the agent provider (e.g. "opus", "haiku", "gpt-5.4-mini"). Leave unset to use the provider default
-- `<name>` — Cron job name
+- `<name>` — Short meaningful cron job name
 - `--no-team` — Keep this job outside the calling tab's Team
 - `--once` — Oneshot: fire once at scheduled time, then auto-delete
 - `--reasoning-effort` — Reasoning-effort level advertised by the agent provider. Leave unset to use the provider default
@@ -2636,17 +2636,18 @@ Remove a channel cache and registry entry
 
 #### `codeterm plugin config`
 
-Configure a plugin by editing its self-documenting config.yaml (comments preserved, validated against the settings schema). Non-secret fields are written to the YAML; secret fields are reported for routing to the secret store (never written plaintext). Reload is live
+Configure plugin settings. Non-secret fields use the comment-preserving config.yaml; secret values are read from stdin and stored in the plugin bucket
 
 - `--grant` — Grant a permission, persisted to the plugin's grants.yaml so the decision survives (e.g. --grant spawn_agents). Repeatable. Takes effect on the plugin's next reload
 - `<id>`
 - `--revoke` — Revoke a previously granted permission (repeatable)
+- `--secret` — Set a declared secret field from stdin
 - `--set` — Set a field: --set key=value (repeatable)
 - `--values-json` — Set multiple fields from a JSON object (named --values-json so it does not collide with the global --json output flag)
 
 #### `codeterm plugin get`
 
-Show a plugin's agent-facing config: its self-documenting config.yaml (secret values redacted), settings schema, and installed/configured/ reload state. The agent's discover handle (§1.7)
+Show a plugin's agent-facing config: its config.yaml, settings schema, secret field presence, and installed/configured/reload state
 
 - `<id>`
 
@@ -2732,13 +2733,14 @@ Cheap hash-gated watchers with closed-set routes
 Classify a bounded probe or same-Team agent observation
 
 - `--buckets`
+- `--dry-run` — Validate and print the resulting graph without creating it
 - `--escalation-timeout-ms` — Bound how long an `other` escalation may hold this stage, in milliseconds
 - `--every` — Owner-requested cadence (minimum 10s)
 - `--handlers-file` — JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`
 - `--match` — Deterministic fallback when no Choice adapter is connected: bucket=regex
 - `--max-actions` — Finite action-attempt budget (maximum 1024)
 - `--max-transitions` — Finite accepted transition budget (maximum 256)
-- `--name` — Display name of the Sentinel scenario or stage
+- `--name` — Short meaningful name describing what is watched and what happens
 - `--observe` — Observe a same-Team agent tab or cron run
 - `--paused` — Create a dormant downstream stage; its lifetime starts now
 - `--probe`
@@ -2769,6 +2771,12 @@ Show immutable definition versions
 
 List sentinels scoped to the calling tab and its Team
 
+#### `codeterm sentinel recipe`
+
+List built-in graph skeletons or print one ready-to-edit recipe
+
+- `<name>`
+
 #### `codeterm sentinel show`
 
 Show one sentinel
@@ -2786,6 +2794,7 @@ Stop one sentinel
 Replace one definition at the expected version
 
 - `--cause`
+- `--dry-run` — Validate and print the resulting graph without updating it
 - `--expect-version`
 - `--from-file`
 - `<id>`
