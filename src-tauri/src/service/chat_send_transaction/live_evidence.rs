@@ -1,6 +1,6 @@
 use std::sync::{Arc, Weak};
 
-use super::{normalize_turn_evidence_with, ChatSendLedger, ChatSendState, ChatSendStatus};
+use super::{ChatSendLedger, ChatSendState, ChatSendStatus};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct TurnPosition {
@@ -152,7 +152,7 @@ impl ChatSendLedger {
         true
     }
 
-    pub(super) fn confirm_owned_live_turn(
+    pub(super) fn confirm_owned_live_turns(
         &self,
         tab_id: &str,
         session_id: &str,
@@ -160,31 +160,35 @@ impl ChatSendLedger {
         message: &crate::agent::chat_types::ChatMsg,
         position: TurnPosition,
         provenance: &LiveProvenance,
-    ) -> Option<ChatSendStatus> {
-        let nonce = nonce?;
-        let record_start = position.record_start?;
-        let incarnation = provenance.range.incarnation.as_ref()?;
+    ) -> Vec<ChatSendStatus> {
+        let Some(nonce) = nonce else { return Vec::new(); };
+        let Some(record_start) = position.record_start else { return Vec::new(); };
+        let Some(incarnation) = provenance.range.incarnation.as_ref() else {
+            return Vec::new();
+        };
         let source_witness = incarnation.absence_witness.as_ref();
+        let evidence_scope_id = source_witness
+            .cloned()
+            .unwrap_or_else(|| incarnation.id.clone());
         if provenance.source_session_id != session_id
             || provenance.source_binding_nonce.as_deref() != Some(nonce)
             || record_start < provenance.range.start_offset
             || record_start >= provenance.range.offset
         {
-            return None;
+            return Vec::new();
         }
-        let candidate = {
+        let candidates = {
             let state = self.state.lock();
-            let progress = state.live_evidence_progress_by_tab.get(tab_id)?;
-            let evidence_scope_id = source_witness
-                .cloned()
-                .unwrap_or_else(|| incarnation.id.clone());
+            let Some(progress) = state.live_evidence_progress_by_tab.get(tab_id) else {
+                return Vec::new();
+            };
             if progress.session_id != session_id
                 || progress.binding_nonce != nonce
                 || progress.incarnation_id != incarnation.id
                 || progress.evidence_scope_id != evidence_scope_id
                 || progress.end_offset != provenance.range.offset
             {
-                return None;
+                return Vec::new();
             }
             if state
                 .consumed_turn_by_tab
@@ -199,9 +203,9 @@ impl ChatSendLedger {
                                 && position.record_row <= watermark.record_row))
                 })
             {
-                return None;
+                return Vec::new();
             }
-            state.order.iter().find_map(|id| {
+            state.order.iter().filter_map(|id| {
                 let (authority, active) = state.owned.get(id)?;
                 let status = state.by_id.get(id)?;
                 let binding_matches = state.live_binding_by_id.get(id).is_none_or(|binding| {
@@ -236,7 +240,7 @@ impl ChatSendLedger {
                         binding.session_id.is_none()
                             && binding.binding_nonce.as_deref() == Some(nonce)
                     });
-                (*active
+                let eligible = *active
                     && authority.tab_id == tab_id
                     && authority.binding_nonce == nonce
                     && matches!(
@@ -244,34 +248,44 @@ impl ChatSendLedger {
                         ChatSendState::Written | ChatSendState::Unknown
                     )
                     && binding_matches
-                    && (anchored || absence_witness_matches || lazy_sessionless))
-                    .then(|| {
-                        (
-                            id.clone(),
-                            authority.clone(),
-                            *active,
-                            state.payload_by_id.get(id).cloned(),
-                            state.turn_normalization_by_id.get(id).copied(),
-                            evidence_scope_id.clone(),
-                        )
-                    })
+                    && (anchored || absence_witness_matches || lazy_sessionless);
+                if !eligible {
+                    return None;
+                }
+                Some((
+                    id.clone(),
+                    state.payload_by_id.get(id)?.clone(),
+                    state.turn_normalization_by_id.get(id).copied()?,
+                    authority.clone(),
+                ))
             })
-        }?;
-        let (send_id, authority, active, expected, normalization, evidence_scope_id) = candidate;
-        let text = normalize_turn_evidence_with(&message.content, normalization?);
-        if text.is_empty() || expected.as_deref() != Some(text.as_str()) {
-            return None;
+            .collect::<Vec<_>>()
+        };
+        let send_matches = candidates
+            .iter()
+            .map(|(send_id, expected, normalization, _)| {
+                (send_id.clone(), expected.clone(), *normalization)
+            })
+            .collect::<Vec<_>>();
+        let matching_ids = super::matching_turn_send_ids(&message.content, &send_matches);
+        if matching_ids.is_empty() {
+            return Vec::new();
         }
-        let owner = self.owner.lock().as_ref().and_then(Weak::upgrade)?;
-        if !active || !owner.user_authority_is_current_session(&authority, session_id, nonce) {
-            return None;
+        let owner = self.owner.lock().as_ref().and_then(Weak::upgrade);
+        let Some(owner) = owner else { return Vec::new(); };
+        let authorities = candidates
+            .iter()
+            .filter(|(send_id, _, _, _)| matching_ids.contains(send_id))
+            .collect::<Vec<_>>();
+        if authorities.len() != matching_ids.len()
+            || authorities.iter().any(|(_, _, _, authority)| {
+                !owner.user_authority_is_current_session(authority, session_id, nonce)
+            })
+        {
+            return Vec::new();
         }
 
         let mut state = self.state.lock();
-        let still_owned = state
-            .owned
-            .get(&send_id)
-            .is_some_and(|(current, active)| *active && current == &authority);
         let still_current =
             state
                 .live_evidence_progress_by_tab
@@ -283,10 +297,24 @@ impl ChatSendLedger {
                         && progress.evidence_scope_id == evidence_scope_id
                         && progress.end_offset == provenance.range.offset
                 });
+        let still_owned = authorities.iter().all(|(send_id, _, _, authority)| {
+            state
+                .owned
+                .get(send_id)
+                .is_some_and(|(current, active)| *active && current == authority)
+                && state.by_id.get(send_id).is_some_and(|status| {
+                    matches!(status.state, ChatSendState::Written | ChatSendState::Unknown)
+                })
+        });
         if !still_owned || !still_current {
-            return None;
+            return Vec::new();
         }
-        let status = Self::mark_sent(&mut state, &send_id)?;
+        let mut statuses = Vec::with_capacity(matching_ids.len());
+        for send_id in &matching_ids {
+            if let Some(status) = Self::mark_sent(&mut state, send_id) {
+                statuses.push(Self::with_retention_window(&state, status));
+            }
+        }
         state.consumed_turn_by_tab.insert(
             tab_id.to_string(),
             ConsumedTurnWatermark {
@@ -299,9 +327,8 @@ impl ChatSendLedger {
                 after: record_start.saturating_add(1),
             },
         );
-        let status = Self::with_retention_window(&state, status);
         drop(state);
         self.wake_owner(tab_id);
-        Some(status)
+        statuses
     }
 }

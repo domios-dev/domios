@@ -10,6 +10,7 @@ import {
 } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ExtendedState } from "../../store/multiplexer/tree";
+import { addChatSend } from "./chatSendStore";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -118,7 +119,13 @@ function muxActions(): MultiplexerActionsContextType {
   };
 }
 
-async function renderChat(): Promise<{ host: HTMLDivElement; root: Root }> {
+type ChatEventHandler = (event: { payload: unknown }) => void;
+
+async function renderChat(tabId = "delivery-tab"): Promise<{
+  host: HTMLDivElement;
+  root: Root;
+  dispatch: (event: string, payload: unknown) => void;
+}> {
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
   const { TabSessionChat } = await import("./TabSessionChat");
   __setInvokeForTest((async (command: string) => {
@@ -127,8 +134,8 @@ async function renderChat(): Promise<{ host: HTMLDivElement; root: Root }> {
         text: "",
         offset: 0,
         messages: [],
-        source_session_id: null,
-        session_binding_nonce: null,
+        source_session_id: "session-1",
+        session_binding_nonce: "nonce-1",
         subscription_id: "delivery-subscription",
       };
     }
@@ -136,17 +143,23 @@ async function renderChat(): Promise<{ host: HTMLDivElement; root: Root }> {
     return {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);
-  __setListenForTest(async () => () => {});
+  const listeners = new Map<string, Set<ChatEventHandler>>();
+  __setListenForTest(async (event: string, handler: ChatEventHandler) => {
+    const set = listeners.get(event) ?? new Set<ChatEventHandler>();
+    set.add(handler);
+    listeners.set(event, set);
+    return () => set.delete(handler);
+  });
 
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const store = createMuxStateStore(() => tabState("delivery-tab"));
+  const store = createMuxStateStore(() => tabState(tabId));
   await act(async () => {
     root.render(
       <MuxStateStoreContext.Provider value={store}>
         <MultiplexerActionsContext.Provider value={muxActions()}>
-          <TabSessionChat tabId="delivery-tab" chatBackend isVisible />
+          <TabSessionChat tabId={tabId} chatBackend isVisible />
         </MultiplexerActionsContext.Provider>
       </MuxStateStoreContext.Provider>,
     );
@@ -155,7 +168,13 @@ async function renderChat(): Promise<{ host: HTMLDivElement; root: Root }> {
     await Promise.resolve();
     await Promise.resolve();
   });
-  return { host, root };
+  return {
+    host,
+    root,
+    dispatch: (event, payload) => {
+      for (const handler of listeners.get(event) ?? []) handler({ payload });
+    },
+  };
 }
 
 function assertNoDeliveryUi(host: ParentNode): void {
@@ -172,6 +191,46 @@ test("Chat has no delivery status surface", async () => {
   const { host, root } = await renderChat();
 
   assertNoDeliveryUi(host);
+
+  await act(async () => root.unmount());
+  host.remove();
+});
+
+test("three optimistic sends render as one bubble when one glued provider turn arrives", async () => {
+  const tabId = "merged-delivery-tab";
+  const { host, root, dispatch } = await renderChat(tabId);
+  const bodies = ["opaque-first", "opaque-second", "opaque-third"];
+  const sentAtMs = Date.now();
+
+  await act(async () => {
+    bodies.forEach((content, index) => addChatSend(tabId, {
+      id: `send-${index}`,
+      content,
+      sentAtMs: sentAtMs + index,
+    }));
+  });
+  await act(async () => {
+    dispatch(`tab-chat-msg-${tabId}`, {
+      tab_id: tabId,
+      source_session_id: "session-1",
+      session_binding_nonce: "nonce-1",
+      messages: [{
+        id: "merged-provider-turn",
+        type: "user",
+        content: bodies.join(""),
+        timestamp: String(sentAtMs + 100),
+      }],
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  const bubbles = host.querySelectorAll('[data-testid="chat-message"][data-message-role="user"]');
+  assert(bubbles.length === 1, `one merged turn renders one user bubble, got ${bubbles.length}`);
+  assert(
+    bubbles[0]?.getAttribute("data-message-id") === "merged-provider-turn",
+    "the committed merged transcript row replaces all optimistic bubbles",
+  );
 
   await act(async () => root.unmount());
   host.remove();
