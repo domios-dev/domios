@@ -30,7 +30,6 @@ mod shell_markers;
 pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
 pub(super) use prompt_steps::write_bound_prompt_steps;
 use prompt_steps::write_prompt_steps;
-mod prompt_rendering;
 #[cfg(test)]
 pub(super) use manual_update::parse_manual_update_prompt;
 pub(super) use manual_update::{
@@ -971,9 +970,6 @@ impl ServiceContext {
                         .try_permission_auto_confirm(tab_id, screen_text)
                         .owns_prompt()
                 {
-                    return;
-                }
-                if self.is_second_prompt_rendering(tab_id, prompt, prompt_kind) {
                     return;
                 }
                 let identity = codeterm_types::pty::PromptIdentity::new(prompt_kind, prompt);

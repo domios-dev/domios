@@ -308,8 +308,12 @@ impl AgentProvider for ClaudeProvider {
         onboarding::parse(text)
             .map(|prompt| (prompt.question, prompt.options))
             .or_else(|| folder_trust::parse_prompt(text))
-            .or_else(|| crate::detector::parse_permission_prompt(text))
             .map(|(question, options)| crate::prompt::build_prompt(question, options))
+            .or_else(|| interactive::parse_screen_prompt(text))
+            .or_else(|| {
+                crate::detector::parse_permission_prompt(text)
+                    .map(|(question, options)| crate::prompt::build_prompt(question, options))
+            })
     }
 
     fn has_hooks(&self) -> bool {

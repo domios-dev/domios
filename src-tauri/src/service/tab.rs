@@ -704,6 +704,13 @@ impl ServiceContext {
                 return Ok(RespondPromptOutcome::StalePrompt);
             }
         }
+        if structured_prompt
+            .as_ref()
+            .or(tab.pending_prompt.as_ref())
+            .is_some_and(|prompt| prompt.multi_select == Some(true))
+        {
+            return Ok(RespondPromptOutcome::InvalidOption);
+        }
         let pending_option_count = structured_prompt
             .as_ref()
             .map(|prompt| prompt.options.len())
@@ -736,6 +743,12 @@ impl ServiceContext {
                 self.agent_registry.parse_interactive_prompt(at, &clean)
             })
         });
+        if provider_prompt
+            .as_ref()
+            .is_some_and(|(prompt, _)| prompt.multi_select == Some(true))
+        {
+            return Ok(RespondPromptOutcome::InvalidOption);
+        }
         if let Some(expected) = expected_identity {
             let current_identity = provider_prompt
                 .as_ref()
