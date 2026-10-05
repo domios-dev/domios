@@ -87,7 +87,7 @@ canonical_output="$(
   HOME="$FIXTURE/home" PATH="$FIXTURE/hostile:$PATH" \
     bash -c 'source "$1"; dc identify' _ "$LIB"
 )"
-if ! grep -q "^DEV_CLI_WON token=canonical-token port=7686 api_url=http://127.0.0.1:7686 data_dir=$FIXTURE/home/.codeterm-dev vite=1420 cdp=9223 socket=codeterm-dev.sock instance=\$" <<<"$canonical_output"; then
+if ! grep -Fqx "DEV_CLI_WON token=canonical-token port=7686 api_url=http://127.0.0.1:7686 data_dir=$FIXTURE/home/.codeterm-dev vite=1420 cdp=9223 socket=codeterm-dev.sock instance=" <<<"$canonical_output"; then
   echo "canonical dev CLI did not run: $canonical_output" >&2
   exit 1
 fi
@@ -129,7 +129,7 @@ named_output="$(
     HEALTH_INSTANCE=Named_Instance HEALTH_API_PORT=7788 HEALTH_VITE_PORT="$named_vite" HEALTH_CDP_PORT="$named_cdp" \
     bash -c 'source "$1"; dev_assert_restart_target; dc identify' _ "$LIB"
 )"
-if ! grep -q "^NAMED_DEV_CLI_WON token=named-token port=7788 api_url=http://127.0.0.1:7788 data_dir=$FIXTURE/home/.codeterm-dev-named-instance vite=$named_vite cdp=$named_cdp socket=codeterm-dev-named-instance.sock instance=Named_Instance$" <<<"$named_output"; then
+if ! grep -Fqx "NAMED_DEV_CLI_WON token=named-token port=7788 api_url=http://127.0.0.1:7788 data_dir=$FIXTURE/home/.codeterm-dev-named-instance vite=$named_vite cdp=$named_cdp socket=codeterm-dev-named-instance.sock instance=Named_Instance" <<<"$named_output"; then
   echo "named dev CLI or token selection failed: $named_output" >&2
   exit 1
 fi
@@ -171,11 +171,11 @@ if ! grep -q "instance='missing'" <<<"$missing_output"; then
   echo "resolution error did not name the requested instance: $missing_output" >&2
   exit 1
 fi
-if ! grep -q "resolved_path='$FIXTURE/home/.codeterm-dev-missing/config.toml'" <<<"$missing_output"; then
+if ! grep -Fq "resolved_path='$FIXTURE/home/.codeterm-dev-missing/config.toml'" <<<"$missing_output"; then
   echo "resolution error did not name the missing config path: $missing_output" >&2
   exit 1
 fi
-if ! grep -q "expected_data_dir='$FIXTURE/home/.codeterm-dev-missing'" <<<"$missing_output"; then
+if ! grep -Fq "expected_data_dir='$FIXTURE/home/.codeterm-dev-missing'" <<<"$missing_output"; then
   echo "resolution error did not name the CLI-expected data directory: $missing_output" >&2
   exit 1
 fi
