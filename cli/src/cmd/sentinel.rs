@@ -71,6 +71,14 @@ fn render_history(history: &Value) {
     }
 }
 
+fn escalation_resolved_message(transition_id: Option<&str>, result: &Value) -> String {
+    format!(
+        "Resolved escalation {} for {}.",
+        transition_id.unwrap_or("?"),
+        result["id"].as_str().unwrap_or("?")
+    )
+}
+
 pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: SentinelAction) {
     let (method, params) = request(
         action,
@@ -78,6 +86,7 @@ pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: Senti
         std::env::var("CODETERM_SESSION_BINDING_NONCE").ok(),
     )
     .unwrap_or_else(|error| fail(2, error));
+    let transition_id = params["transition_id"].as_str().map(str::to_owned);
     let result = client
         .call(method, Some(params))
         .unwrap_or_else(|error| fail(1, error.to_string()));
@@ -99,9 +108,8 @@ pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: Senti
     }
     if method == "sentinel.escalation.resolve" {
         println!(
-            "Resolved escalation {} for {}.",
-            result["transition_id"],
-            result["id"].as_str().unwrap_or("?")
+            "{}",
+            escalation_resolved_message(transition_id.as_deref(), &result)
         );
         return;
     }
@@ -330,6 +338,10 @@ fn declared_outputs(
                         ("notify" | "stop", None) => {}
                         ("sentinel" | "send" | "cron" | "escalate", Some(target))
                             if !target.trim().is_empty() => {}
+                        ("respond_prompt", Some(target))
+                            if !target.trim().is_empty()
+                                && target.len() <= 256
+                                && !target.chars().any(char::is_control) => {}
                         _ => return Err("unknown handler type or invalid parameters".into()),
                     }
                 }
@@ -414,6 +426,40 @@ mod tests {
             std::fs::write(&path, raw).unwrap();
             assert!(declared_outputs(Vec::new(), Some(&path)).is_err());
         }
+    }
+
+    #[test]
+    fn sentinel_handlers_file_accepts_respond_prompt_kind_parameter() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("handlers.json");
+        std::fs::write(
+            &path,
+            r#"{"prompt":[{"id":"answer","type":"respond_prompt","parameters":{"target":"permission"}}]}"#,
+        )
+        .unwrap();
+
+        let (_, handlers) = declared_outputs(Vec::new(), Some(&path)).unwrap();
+
+        assert_eq!(
+            handlers.unwrap()["prompt"][0],
+            json!({"id":"answer","type":"respond_prompt","parameters":{"target":"permission"}})
+        );
+        for parameters in ["{}", r#"{"target":"  "}"#, r#"{"target":"permission\n"}"#] {
+            std::fs::write(
+                &path,
+                format!(r#"{{"prompt":[{{"id":"answer","type":"respond_prompt","parameters":{parameters}}}]}}"#),
+            )
+            .unwrap();
+            assert!(declared_outputs(Vec::new(), Some(&path)).is_err());
+        }
+    }
+
+    #[test]
+    fn sentinel_escalation_resolve_message_prints_requested_transition_id() {
+        assert_eq!(
+            escalation_resolved_message(Some("transition_9"), &json!({"id":"sentinel_a"})),
+            "Resolved escalation transition_9 for sentinel_a."
+        );
     }
 
     #[test]

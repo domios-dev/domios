@@ -1,11 +1,11 @@
 //! Schema v4 graph fields: the guarded in-place upgrade, lossless round trips on both
-//! backends, versioned lineage and the creation refusal of not-yet-executable kinds.
+//! backends, versioned lineage and observed-tab prompt-response admission.
 
 use std::collections::BTreeSet;
 
 use super::*;
 use crate::sentinel::amend::{Amendment, MAX_AMENDMENTS};
-use crate::sentinel::machine::{EscalateTarget, SafeKind};
+use crate::sentinel::machine::SafeKind;
 use crate::sentinel::source::TabBinding;
 use crate::storage::{SentinelId, StorageError, MAX_SENTINEL_LINEAGE};
 
@@ -32,7 +32,7 @@ const GRAPH: &str = r#"{"id":"sentinel_graph","team_id":"team","creator_tab_id":
   {"id":"ask","action":{"kind":"escalate","target":{"agent":"helper-tab"}},
    "target":{"kind":"worker","id":"helper-tab","workspace_id":"workspace","team_id":"team",
     "owner_tab_id":null}},
-  {"id":"tell","action":{"kind":"escalate","target":"creator"},"target":null},
+  {"id":"tell","action":{"kind":"notify"},"target":null},
   {"id":"note","action":{"kind":"notify"},"target":null}],
  "escalation_timeout_ms":1800000,"definition_version":3,
  "amendments":[{"version":3,"replaced_version":2,"author_tab_id":"helper-tab",
@@ -311,7 +311,7 @@ fn sentinel_schema_v4_update_definition_appends_lineage_and_advances_generation_
 }
 
 #[test]
-fn sentinel_schema_v4_unexecutable_kinds_are_refused_at_creation_on_both_backends() {
+fn sentinel_schema_v4_prompt_response_requires_observed_tab_on_both_backends() {
     let root = temp_root();
     let clock = MockClock::starting_at(1000);
     let storage = open(root.path());
@@ -323,43 +323,6 @@ fn sentinel_schema_v4_unexecutable_kinds_are_refused_at_creation_on_both_backend
         .prepare(params(false, json!({})), owner(None), false)
         .expect("admitted definition");
 
-    let mut observed = base.clone();
-    observed.probe.clear();
-    observed.observe = Some(TabBinding::CronRun("cron-check".into()));
-    let mut answering = observed.clone();
-    answering.routes.insert(
-        "done".into(),
-        vec![Handler {
-            id: "answer".into(),
-            action: Route::RespondPrompt(SafeKind::Onboarding),
-            target: None,
-        }],
-    );
-    let mut escalating = base.clone();
-    escalating.on_other = vec![Handler {
-        id: "ask".into(),
-        action: Route::Escalate(EscalateTarget::Creator),
-        target: None,
-    }];
-    escalating.escalation_timeout_ms = Some(60_000);
-    let refused = [
-        (observed, "tab observation"),
-        (answering, "tab observation"),
-        (escalating, "escalation"),
-    ];
-    for (job, capability) in refused {
-        assert_eq!(job.pending_capability(), Some(capability));
-        for store in [&legacy, &typed_store] {
-            let before = storage.revision();
-            let error = commit(store, |current| current.stage_insert(job.clone())).unwrap_err();
-            assert!(
-                error.starts_with("sentinel_capability_unavailable"),
-                "{error}"
-            );
-            assert!(store.lock().get(&job.id).is_none());
-            assert_eq!(storage.revision(), before, "nothing was submitted");
-        }
-    }
     let mut shell_answer = base.clone();
     shell_answer.routes.insert(
         "done".into(),
@@ -370,18 +333,48 @@ fn sentinel_schema_v4_unexecutable_kinds_are_refused_at_creation_on_both_backend
         }],
     );
     assert_eq!(shell_answer.pending_capability(), Some("respond_prompt"));
-    assert!(!legacy_path.exists(), "the file store saved nothing");
-
-    assert!(Route::parse("respond_prompt:directory_trust").is_err());
-    assert!(Route::parse("escalate:creator").is_err());
-    for kind in ["respond_prompt", "escalate"] {
-        let handlers = json!({"done": [{"id": "graph", "type": kind, "parameters": {}}]});
-        let admitted = legacy
-            .lock()
-            .prepare(params(false, handlers), owner(None), false);
-        assert!(admitted.is_err(), "{kind} has no authoring surface yet");
+    for store in [&legacy, &typed_store] {
+        let before = storage.revision();
+        let error =
+            commit(store, |current| current.stage_insert(shell_answer.clone())).unwrap_err();
+        assert!(
+            error.starts_with("sentinel_capability_unavailable"),
+            "{error}"
+        );
+        assert!(store.lock().get(&shell_answer.id).is_none());
+        assert_eq!(storage.revision(), before, "nothing was submitted");
     }
+
+    let mut answering = base.clone();
+    answering.probe.clear();
+    answering.observe = Some(TabBinding::Tab("observed-agent".into()));
+    answering.routes.insert(
+        "done".into(),
+        vec![Handler {
+            id: "answer".into(),
+            action: Route::RespondPrompt(SafeKind::Onboarding),
+            target: None,
+        }],
+    );
+    assert_eq!(answering.pending_capability(), None);
+    for store in [&legacy, &typed_store] {
+        commit(store, |current| current.stage_insert(answering.clone()))
+            .expect("an observed tab can answer a prompt");
+        assert!(store.lock().get(&answering.id).is_some());
+    }
+
+    let shell_prompt = legacy.lock().prepare(
+        params(
+            false,
+            json!({"done": [{"id": "answer", "type": "respond_prompt", "parameters": {"target": "permission"}}]}),
+        ),
+        owner(None),
+        false,
+    );
+    assert!(
+        shell_prompt.is_err(),
+        "shell prompt responses have no tab source"
+    );
     assert_eq!(base.pending_capability(), None);
-    commit(&typed_store, |current| current.stage_insert(base)).expect("plain stage admitted");
     close(storage);
 }

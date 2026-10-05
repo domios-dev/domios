@@ -12,6 +12,20 @@ use std::future::Future;
 use std::sync::Arc;
 use tauri::Manager;
 
+pub(crate) fn cron_fired_payload(cron_id: &str, run_id: &str, tab_id: &str) -> serde_json::Value {
+    serde_json::json!({"cron_id": cron_id, "run_id": run_id, "tab_id": tab_id})
+}
+
+pub(crate) fn emit_cron_fired(
+    app: &tauri::AppHandle,
+    cron_id: &str,
+    run_id: &str,
+    tab_id: &str,
+) {
+    use tauri::Emitter;
+    let _ = app.emit("cron-fired", cron_fired_payload(cron_id, run_id, tab_id));
+}
+
 fn cron_report_delivery_label(result: Result<(), String>) -> String {
     match result {
         Ok(()) => "delivered".to_string(),
@@ -717,6 +731,7 @@ impl ServiceContext {
 
         if let Some(tab_id) = run_info.tab_id.as_deref() {
             self.sync_cron_owner_prompt_state(tab_id);
+            emit_cron_fired(&self.app_handle, id, &run_id, tab_id);
         }
         self.emit_cron_changed();
         Ok(run_info)
@@ -837,8 +852,9 @@ impl ServiceContext {
         if let Some(reason) = store.unavailable_reason() {
             return Err(format!("cron storage unavailable: {reason}"));
         }
-        let history = store.get_history(id);
-        if history.is_empty() && store.get(id).is_none() {
+        let job_id = resolve_cron_id_or_name(&store, id)?;
+        let history = store.get_history(job_id);
+        if history.is_empty() && store.get(job_id).is_none() {
             return Err(format!("Cron job not found: {id}"));
         }
         Ok(history.into_iter().cloned().collect())
@@ -850,6 +866,23 @@ impl ServiceContext {
             crate::api::events::emit_everywhere(&handle, "cron-run-finished", ());
         });
     }
+}
+
+fn resolve_cron_id_or_name<'a>(store: &'a CronStore, id_or_name: &'a str) -> Result<&'a str, String> {
+    if let Some(job) = store.get(id_or_name) {
+        return Ok(&job.id);
+    }
+    if !store.get_history(id_or_name).is_empty() {
+        return Ok(id_or_name);
+    }
+    let mut matches = store.list().iter().filter(|job| job.name == id_or_name);
+    let Some(job) = matches.next() else {
+        return Err(format!("Cron job not found: {id_or_name}"));
+    };
+    if matches.next().is_some() {
+        return Err(format!("Cron job name is ambiguous: {id_or_name}"));
+    }
+    Ok(&job.id)
 }
 
 fn dispatch_after_trigger_record<T>(

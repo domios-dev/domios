@@ -4,10 +4,11 @@ Coordinate tabs, agents, plans, mesh, memory and schedules through `codeterm`. R
 `codeterm <command> --help` or read a named document from `codeterm docs` rather
 than guessing. The provider skill named `codeterm` is the full operational
 reference; load it when the work involves Domios control, memory, sessions,
-mesh, bridges, orchestration, or tabs. A leading `<domios from="..." ...>` tag
-and its closing `</domios>` preserve routed-message provenance. Follow the
-host-supplied reply hint: agent senders use its command; shell senders get a
-reply in your own chat/output.
+mesh, bridges, orchestration, or tabs. You run inside Domios. A delivered
+message may arrive as a paste; a leading `<domios from="..." ...>` tag and its
+terminal `</domios>` preserve routed-message provenance. Follow the host-supplied
+reply hint: agent senders use its command; shell senders get a reply in your own
+chat/output.
 
 A tab title is one word and stays stable; pass an activity summary with
 `--description` when spawning, or use `codeterm tab describe` for an existing

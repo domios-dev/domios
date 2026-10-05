@@ -5,7 +5,7 @@ use super::{codec, finishing, Failure, Staged};
 use crate::sentinel::handlers::{ResultRecord, Transition};
 use crate::sentinel::run_binding::RunBindOutcome;
 use crate::sentinel::source::RunBinding;
-use crate::sentinel::store::{Lease, ScheduleChange, Sentinel, Store, MAX_ACTIVE};
+use crate::sentinel::store::{Lease, ScheduleChange, Sentinel, StopNotice, Store, MAX_ACTIVE};
 use crate::storage::{Fence, MutationOutcome, ScheduleUpdate};
 
 fn refused<T: Send + 'static>(error: String) -> Staged<T> {
@@ -152,7 +152,12 @@ impl Store {
     }
 
     /// The lease is already cancelled; a failed commit keeps the stop intent in memory.
-    pub(in crate::sentinel) fn sqlite_stop(&mut self, id: &str, reason: &str) -> Staged<Sentinel> {
+    pub(in crate::sentinel) fn sqlite_stop(
+        &mut self,
+        id: &str,
+        reason: &str,
+        notice: Option<StopNotice>,
+    ) -> Staged<Sentinel> {
         let stored = match codec::id(id) {
             Ok(stored) => stored,
             Err(error) => return refused(error),
@@ -163,11 +168,16 @@ impl Store {
             move |repo| repo.stop(stored, stop_reason),
             finishing(move |store, outcome| match outcome {
                 Ok(commit) => match commit.outcome {
-                    MutationOutcome::Applied => commit
-                        .sentinels
-                        .first()
-                        .map(codec::decode)
-                        .ok_or_else(|| "sentinel stop returned no committed state".to_string()),
+                    MutationOutcome::Applied => {
+                        if let Some(notice) = notice {
+                            store.pending_stop_notices.push(notice);
+                        }
+                        commit
+                            .sentinels
+                            .first()
+                            .map(codec::decode)
+                            .ok_or_else(|| "sentinel stop returned no committed state".to_string())
+                    }
                     MutationOutcome::Fenced(Fence::Missing) => {
                         Err(format!("sentinel not found: {id}"))
                     }
@@ -213,6 +223,7 @@ impl Store {
         leases: Vec<Lease>,
         changes: Vec<ScheduleChange>,
         consumed_wakes: Vec<String>,
+        stop_notices: Vec<StopNotice>,
     ) -> Staged<Vec<Lease>> {
         if changes.is_empty() {
             return Staged::ready(Ok(leases));
@@ -241,7 +252,10 @@ impl Store {
         self.submit(
             move |repo| repo.schedule(updates),
             finishing(move |store, outcome| match outcome {
-                Ok(_) => {
+                Ok(commit) => {
+                    if commit.outcome == MutationOutcome::Applied {
+                        store.pending_stop_notices.extend(stop_notices);
+                    }
                     for id in consumed_wakes {
                         store.wake_pending.remove(&id);
                     }

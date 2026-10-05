@@ -8,8 +8,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use parking_lot::Mutex;
-use tauri::Emitter;
-
 use super::store::{commit, finish_run, CronJob, CronRunInfo, CronRunStatus, CronStore};
 use crate::service::ServiceState;
 
@@ -336,14 +334,11 @@ fn fire_job(cron_state: &CronState, service: &ServiceState, spec: &FireSpec) -> 
                 );
             }
 
-            let _ = service.app_handle.emit(
-                "cron-fired",
-                serde_json::json!({
-                    "cron_id": job_id,
-                    "run_id": run_id,
-                    "tab_id": handle.tab_id,
-                    "tab_id": handle.tab_id,
-                }),
+            crate::service::cron::emit_cron_fired(
+                &service.app_handle,
+                job_id,
+                &run_id,
+                &handle.tab_id,
             );
         }
         Err(e) => {

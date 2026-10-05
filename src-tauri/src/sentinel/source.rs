@@ -99,13 +99,36 @@ pub(crate) fn validate_tab_scope(
     tab_id: &str,
 ) -> Result<Tab, String> {
     let tab = mux.get_tab(tab_id).ok_or("observation tab not found")?;
+    let exact_cron_run = matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
+        && job.run.as_ref().is_some_and(|run| run.tab_id == tab_id)
+        && tab.audience == crate::multiplexer::types::TabAudience::UserOwnedAutomation;
+    let creator_joined_team = job.team_id.is_none()
+        && job.creator_tab_id == tab_id
+        && tab.team_id.is_some();
     if tab.agent_type.is_none()
-        || tab.team_id != job.team_id
+        || (tab.team_id != job.team_id && !exact_cron_run && !creator_joined_team)
         || mux.find_workspace_for_tab(tab_id).as_deref() != Some(job.workspace_id.as_str())
     {
         return Err("observation tab must be an agent in the creator's Team and workspace".into());
     }
     Ok(tab.clone())
+}
+
+pub(super) fn validate_pending_cron_run_scope(
+    mux: &MultiplexerState,
+    job: &Sentinel,
+    cron_id: &str,
+    tab_id: &str,
+) -> Result<(), String> {
+    let tab = mux.get_tab(tab_id).ok_or("observation tab not found")?;
+    if job.observe != Some(TabBinding::CronRun(cron_id.into()))
+        || tab.agent_type.is_none()
+        || tab.audience != crate::multiplexer::types::TabAudience::UserOwnedAutomation
+        || mux.find_workspace_for_tab(tab_id).as_deref() != Some(job.workspace_id.as_str())
+    {
+        return Err("cron run tab is outside the verified observation scope".into());
+    }
+    Ok(())
 }
 
 const MAX_SCREEN_BYTES: usize = 4 * 1024;
@@ -133,8 +156,13 @@ pub(super) fn observe(
     };
     let tab = {
         let mux = svc.mux.read();
-        validate_tab_scope(&mux, job, tab_id)
-            .map_err(|_| ProbeFailure::new("sentinel_observation_scope_changed"))?
+        validate_tab_scope(&mux, job, tab_id).map_err(|error| {
+            if error == "observation tab not found" {
+                ProbeFailure::new("sentinel_observation_tab_removed")
+            } else {
+                ProbeFailure::new("sentinel_observation_scope_changed")
+            }
+        })?
     };
     let status = crate::multiplexer::state::tab_status_label(&tab, svc.resolved_tab_status(&tab));
     let screen = if tab.pending_prompt.is_none()

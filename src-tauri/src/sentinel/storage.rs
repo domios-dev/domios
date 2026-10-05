@@ -120,6 +120,7 @@ impl Store {
             admission_closed: false,
             committed_revisions,
             changes: BTreeMap::new(),
+            pending_stop_notices: Vec::new(),
         }
     }
 
@@ -587,6 +588,7 @@ impl Store {
             admission_closed: false,
             committed_revisions: BTreeMap::new(),
             changes: BTreeMap::new(),
+            pending_stop_notices: Vec::new(),
         };
         let installed = loaded
             .map_err(|error| error.to_string())
