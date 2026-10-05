@@ -17,57 +17,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 mod deferred_first_turn;
+mod turn_window;
+
+use turn_window::{structured_user_turns, window_user_turns, StructuredUserTurn};
 
 #[cfg(test)]
 #[path = "chat_send_evidence/deferred_first_turn_tests.rs"]
 mod deferred_first_turn_tests;
-
-fn window_user_turns(registry: &AgentRegistry, anchor: &SendEvidenceAnchor) -> Vec<String> {
-    match &anchor.window {
-        EvidenceWindow::Jsonl { transcript_offset } => {
-            let Some(path) = registry
-                .with_provider(&anchor.provider_id, |provider| {
-                    provider.session_jsonl_path(&anchor.cwd, &anchor.session_id)
-                })
-                .flatten()
-            else {
-                return Vec::new();
-            };
-            if !path.exists() {
-                return Vec::new();
-            }
-            registry
-                .with_provider(&anchor.provider_id, |provider| {
-                    provider.parse_session_delta(&path, *transcript_offset)
-                })
-                .map(|delta| {
-                    delta
-                        .messages
-                        .iter()
-                        .enumerate()
-                        .flat_map(|(index, rich)| {
-                            crate::service::tab_chat::rich_to_chat_msgs(rich, index)
-                        })
-                        .filter(|msg| msg.kind == "user")
-                        .map(|msg| msg.content)
-                        .collect()
-                })
-                .unwrap_or_default()
-        }
-        EvidenceWindow::Structured { cursor } => registry
-            .with_provider(&anchor.provider_id, |provider| {
-                provider.read_structured_chat(&anchor.cwd, &anchor.session_id, cursor.as_deref())
-            })
-            .map(|chat| {
-                chat.messages
-                    .into_iter()
-                    .filter(|msg| msg.kind == "user")
-                    .map(|msg| msg.content)
-                    .collect()
-            })
-            .unwrap_or_default(),
-    }
-}
 
 #[cfg(test)]
 pub(crate) fn contains_exact_user_turn(
@@ -203,10 +159,55 @@ pub(crate) fn scan_transcript_evidence(
     tab_id: &str,
     mut on_confirmed: impl FnMut(ChatSendStatus),
 ) {
-    for candidate in ledger.evidence_candidates(tab_id) {
-        for turn in window_user_turns(registry, &candidate.anchor) {
-            let confirmed =
-                ledger.confirm_merged_evidence_turn(tab_id, &candidate.anchor, &turn);
+    let candidates = ledger.evidence_candidates(tab_id);
+    let structured_windows = candidates
+        .iter()
+        .map(|candidate| structured_user_turns(registry, &candidate.anchor))
+        .collect::<Vec<_>>();
+    for (candidate_index, candidate) in candidates.iter().enumerate() {
+        let turns = structured_windows[candidate_index]
+            .as_ref()
+            .map(|turns| {
+                turns
+                    .iter()
+                    .cloned()
+                    .map(|turn| (turn, true))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_else(|| {
+                window_user_turns(registry, &candidate.anchor)
+                    .into_iter()
+                    .map(|content| (StructuredUserTurn::without_identity(content), false))
+                    .collect()
+            });
+        for (turn, has_structured_identity) in turns {
+            let eligible_send_ids = if has_structured_identity && turn.id.is_some() {
+                candidates
+                    .iter()
+                    .enumerate()
+                    .filter(|(index, other)| {
+                        same_evidence_source(&candidate.anchor, &other.anchor)
+                            && structured_windows[*index].as_ref().is_some_and(|window| {
+                                window.iter().any(|other_turn| {
+                                    other_turn.id == turn.id && other_turn.content == turn.content
+                                })
+                            })
+                    })
+                    .map(|(_, other)| other.send_id.clone())
+                    .collect::<Vec<_>>()
+            } else {
+                candidates
+                    .iter()
+                    .filter(|other| other.anchor == candidate.anchor)
+                    .map(|other| other.send_id.clone())
+                    .collect::<Vec<_>>()
+            };
+            let confirmed = ledger.confirm_merged_evidence_turn(
+                tab_id,
+                &candidate.anchor,
+                &turn.content,
+                &eligible_send_ids,
+            );
             for status in confirmed {
                 on_confirmed(status);
             }
@@ -214,7 +215,9 @@ pub(crate) fn scan_transcript_evidence(
     }
     for candidate in ledger.evidence_candidates(tab_id) {
         let anchor = &candidate.anchor;
-        let turn_contents = window_user_turns(registry, anchor);
+        let turn_contents = structured_user_turns(registry, anchor)
+            .map(|turns| turns.into_iter().map(|turn| turn.content).collect())
+            .unwrap_or_else(|| window_user_turns(registry, anchor));
         let mut matching_turns = 0;
         let mut seen_turns = HashMap::<String, usize>::new();
         for content in &turn_contents {
@@ -238,6 +241,13 @@ pub(crate) fn scan_transcript_evidence(
             }
         }
     }
+}
+
+fn same_evidence_source(left: &SendEvidenceAnchor, right: &SendEvidenceAnchor) -> bool {
+    left.provider_id == right.provider_id
+        && left.cwd == right.cwd
+        && left.session_id == right.session_id
+        && left.turn_normalization == right.turn_normalization
 }
 
 impl ServiceContext {
@@ -377,6 +387,9 @@ mod tests {
     use crate::service::chat_send_transaction::ChatSendState;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+
+    #[path = "chat_send_evidence/structured_sequential_tests.rs"]
+    mod structured_sequential_tests;
 
     /// Honest byte-window JSONL provider: parses `{"role":"user","content":..}`
     /// lines strictly from `from_offset`, so the boundary semantics under test
