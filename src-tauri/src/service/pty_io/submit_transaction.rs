@@ -363,7 +363,10 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     }
 
     fn has_exact_user_turn_evidence(&self) -> bool {
-        self.require_exact_session_turn
+        exact_session_turn_source_available(
+            self.require_exact_session_turn,
+            self.evidence_anchor.borrow().is_some(),
+        )
     }
 
     fn wait_turn_change(&self, turn_generation: u64, deadline: Instant) -> bool {
@@ -568,6 +571,10 @@ fn submit_key_readiness(
     composer_ready: bool,
 ) -> bool {
     composer_ready || !turn_was_started_at_claim || !turn_started_now
+}
+
+fn exact_session_turn_source_available(require_exact_session_turn: bool, has_anchor: bool) -> bool {
+    require_exact_session_turn && has_anchor
 }
 
 // Delivery never parses the screen for provider dialogs: heuristics misread
