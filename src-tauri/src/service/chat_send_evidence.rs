@@ -8,12 +8,18 @@
 
 use crate::agent::registry::AgentRegistry;
 use crate::service::chat_send_transaction::{
-    normalize_turn_evidence_with, ChatSendLedger, ChatSendStatus, EvidenceWindow,
-    SendEvidenceAnchor, SendLiveBinding,
+    normalize_turn_evidence_with, ChatSendLedger, ChatSendStatus, DeferredFirstTurnEvidence,
+    EvidenceWindow, SendEvidenceAnchor, SendLiveBinding,
 };
 use crate::service::tab_chat::registry::{JsonlSource, SourceCapture};
 use crate::service::ServiceContext;
 use std::sync::Arc;
+
+mod deferred_first_turn;
+
+#[cfg(test)]
+#[path = "chat_send_evidence/deferred_first_turn_tests.rs"]
+mod deferred_first_turn_tests;
 
 fn window_user_turns(registry: &AgentRegistry, anchor: &SendEvidenceAnchor) -> Vec<String> {
     match &anchor.window {
@@ -185,6 +191,7 @@ pub(crate) struct CapturedSendEvidence {
     pub(crate) turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
     pub(crate) absence_witness: Option<Arc<str>>,
     pub(crate) session_starts_on_first_user_turn: bool,
+    pub(crate) deferred_first_turn: Option<DeferredFirstTurnEvidence>,
 }
 
 /// One turn instance confirms at most one send: a scan may only confirm when
@@ -215,8 +222,8 @@ pub(crate) fn scan_transcript_evidence(
 }
 
 impl ServiceContext {
-    /// Capture the bound session plus its safe append-window anchor, if one
-    /// exists. An unbounded or not-yet-materialized store stays live-sink-only.
+    /// Capture an append-window anchor or capability-scoped first-turn evidence.
+    /// Sessionless evidence resolves only after the tab authenticates its launch session.
     pub(crate) fn chat_send_anchor(&self, tab_id: &str) -> CapturedSendEvidence {
         let captured = {
             let mux = self.mux.read();
@@ -253,6 +260,16 @@ impl ServiceContext {
                 })
             })
             .unwrap_or(false);
+        let deferred_first_turn = match (&provider_id, &session_id, &binding_nonce) {
+            (Some(provider_id), None, Some(binding_nonce)) if session_starts_on_first_user_turn => {
+                Some(DeferredFirstTurnEvidence {
+                    provider_id: provider_id.clone(),
+                    cwd: cwd.clone(),
+                    binding_nonce: binding_nonce.clone(),
+                })
+            }
+            _ => None,
+        };
         let (Some(provider_id), Some(session_id)) = (provider_id, session_id) else {
             return CapturedSendEvidence {
                 anchor: None,
@@ -260,6 +277,7 @@ impl ServiceContext {
                 turn_normalization,
                 absence_witness: None,
                 session_starts_on_first_user_turn,
+                deferred_first_turn,
             };
         };
         let structured = self
@@ -300,6 +318,7 @@ impl ServiceContext {
             turn_normalization,
             absence_witness,
             session_starts_on_first_user_turn,
+            deferred_first_turn,
         }
     }
 
@@ -319,6 +338,15 @@ impl ServiceContext {
                 crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
             },
         );
+        for (status, session_id) in deferred_first_turn::reconcile(self, tab_id) {
+            log::info!(
+                "[chat-send] send_id={} tab={} session={} confirmed by persisted session turn evidence",
+                status.send_id,
+                status.tab_id,
+                session_id
+            );
+            crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
+        }
     }
 }
 

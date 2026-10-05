@@ -76,6 +76,20 @@ pub(crate) struct SendLiveBinding {
     pub(crate) binding_nonce: Option<String>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct DeferredFirstTurnEvidence {
+    pub(crate) provider_id: String,
+    pub(crate) cwd: String,
+    pub(crate) binding_nonce: String,
+}
+
+pub(crate) struct DeferredFirstTurnCandidate {
+    pub(crate) send_id: String,
+    pub(crate) payload: String,
+    pub(crate) turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
+    pub(crate) evidence: DeferredFirstTurnEvidence,
+}
+
 pub(crate) struct EvidenceCandidate {
     pub(crate) send_id: String,
     pub(crate) payload: String,
@@ -102,6 +116,8 @@ struct ChatSendLedgerState {
     terminal_failures: HashSet<String>,
     absence_witness_by_id: HashMap<String, Arc<str>>,
     sessionless_first_turn_by_id: HashSet<String>,
+    deferred_first_turn_by_id: HashMap<String, DeferredFirstTurnEvidence>,
+    claimed_first_turn_by_tab: HashMap<String, (String, String)>,
     live_evidence_progress_by_tab: HashMap<String, LiveEvidenceProgress>,
     consumed_turn_by_tab: HashMap<String, ConsumedTurnWatermark>,
 }
@@ -124,6 +140,8 @@ impl Default for ChatSendLedgerState {
             terminal_failures: HashSet::new(),
             absence_witness_by_id: HashMap::new(),
             sessionless_first_turn_by_id: HashSet::new(),
+            deferred_first_turn_by_id: HashMap::new(),
+            claimed_first_turn_by_tab: HashMap::new(),
             live_evidence_progress_by_tab: HashMap::new(),
             consumed_turn_by_tab: HashMap::new(),
         }
@@ -188,6 +206,7 @@ impl ChatSendLedger {
         state.live_binding_by_id.remove(&status.send_id);
         state.absence_witness_by_id.remove(&status.send_id);
         state.sessionless_first_turn_by_id.remove(&status.send_id);
+        state.deferred_first_turn_by_id.remove(&status.send_id);
         state.terminal_failures.remove(&status.send_id);
         state.payload_by_id.remove(&status.send_id);
         state.by_id.insert(status.send_id.clone(), status.clone());
@@ -263,12 +282,47 @@ impl ChatSendLedger {
             state.anchor_by_id.insert(record.send_id.clone(), anchor);
             state.absence_witness_by_id.remove(&record.send_id);
             state.sessionless_first_turn_by_id.remove(&record.send_id);
+            state.deferred_first_turn_by_id.remove(&record.send_id);
         } else if let Some(witness) = absence_witness {
             state.absence_witness_by_id.insert(record.send_id.clone(), witness);
             state.sessionless_first_turn_by_id.remove(&record.send_id);
+            state.deferred_first_turn_by_id.remove(&record.send_id);
         } else if sessionless_first_turn {
             state.sessionless_first_turn_by_id.insert(record.send_id.clone());
+            if let Some(evidence) = evidence.deferred_first_turn {
+                if evidence.binding_nonce == record.authority.binding_nonce {
+                    state
+                        .deferred_first_turn_by_id
+                        .insert(record.send_id.clone(), evidence);
+                }
+            }
         }
+        true
+    }
+
+    pub(crate) fn set_deferred_first_turn_evidence(
+        &self,
+        send_id: &str,
+        evidence: DeferredFirstTurnEvidence,
+    ) -> bool {
+        let mut state = self.state.lock();
+        let Some(status) = state.by_id.get(send_id) else {
+            return false;
+        };
+        let binding_matches = state
+            .live_binding_by_id
+            .get(send_id)
+            .is_some_and(|binding| {
+                binding.session_id.is_none()
+                    && binding.binding_nonce.as_deref() == Some(evidence.binding_nonce.as_str())
+            });
+        if status.state == ChatSendState::Sent || !binding_matches {
+            return false;
+        }
+        state.sessionless_first_turn_by_id.insert(send_id.to_string());
+        state
+            .deferred_first_turn_by_id
+            .insert(send_id.to_string(), evidence);
         true
     }
 
@@ -295,6 +349,7 @@ impl ChatSendLedger {
         state.live_binding_by_id.remove(send_id);
         state.absence_witness_by_id.remove(send_id);
         state.sessionless_first_turn_by_id.remove(send_id);
+        state.deferred_first_turn_by_id.remove(send_id);
     }
 
     pub(crate) fn user_confirmed(&self, send_id: &str) -> bool {
@@ -654,6 +709,7 @@ impl ChatSendLedger {
             .latest_failure_by_tab
             .retain(|_, failed| failed != send_id);
         state.sessionless_first_turn_by_id.remove(send_id);
+        state.deferred_first_turn_by_id.remove(send_id);
         state.owned.remove(send_id);
         state.by_id.get(send_id).cloned()
     }
@@ -714,6 +770,83 @@ impl ChatSendLedger {
                 })
             })
             .collect()
+    }
+
+    pub(crate) fn deferred_first_turn_candidates(
+        &self,
+        tab_id: &str,
+    ) -> Vec<DeferredFirstTurnCandidate> {
+        let state = self.state.lock();
+        state
+            .order
+            .iter()
+            .filter_map(|send_id| {
+                let status = state.by_id.get(send_id)?;
+                if status.tab_id != tab_id
+                    || !matches!(status.state, ChatSendState::Written | ChatSendState::Unknown)
+                    || state.terminal_failures.contains(send_id)
+                    || state.owned.get(send_id).is_some_and(|(_, active)| !active)
+                {
+                    return None;
+                }
+                let payload = state.payload_by_id.get(send_id)?.clone();
+                if payload.is_empty() {
+                    return None;
+                }
+                Some(DeferredFirstTurnCandidate {
+                    send_id: send_id.clone(),
+                    payload,
+                    turn_normalization: state
+                        .turn_normalization_by_id
+                        .get(send_id)
+                        .copied()
+                        .unwrap_or_default(),
+                    evidence: state.deferred_first_turn_by_id.get(send_id)?.clone(),
+                })
+            })
+            .collect()
+    }
+
+    pub(crate) fn confirm_deferred_first_turn(
+        &self,
+        candidate: &DeferredFirstTurnCandidate,
+        session_id: &str,
+    ) -> Option<ChatSendStatus> {
+        let mut state = self.state.lock();
+        let status = state.by_id.get(&candidate.send_id)?;
+        if !matches!(status.state, ChatSendState::Written | ChatSendState::Unknown)
+            || state.terminal_failures.contains(&candidate.send_id)
+            || state.deferred_first_turn_by_id.get(&candidate.send_id)
+                != Some(&candidate.evidence)
+        {
+            return None;
+        }
+        let tab_id = status.tab_id.clone();
+        let claim = (session_id.to_string(), candidate.evidence.binding_nonce.clone());
+        if state.claimed_first_turn_by_tab.get(&tab_id) == Some(&claim) {
+            return None;
+        }
+        state.claimed_first_turn_by_tab.insert(tab_id.clone(), claim);
+        let same_launch = state
+            .deferred_first_turn_by_id
+            .iter()
+            .filter_map(|(send_id, evidence)| {
+                (evidence == &candidate.evidence
+                    && state
+                        .by_id
+                        .get(send_id)
+                        .is_some_and(|status| status.tab_id == tab_id))
+                .then(|| send_id.clone())
+            })
+            .collect::<Vec<_>>();
+        for send_id in same_launch {
+            state.deferred_first_turn_by_id.remove(&send_id);
+        }
+        let status = Self::mark_sent(&mut state, &candidate.send_id)?;
+        let status = Self::with_retention_window(&state, status);
+        drop(state);
+        self.wake_owner(&tab_id);
+        Some(status)
     }
 
     /// Sends already confirmed for this tab+session+payload — each one already
@@ -792,6 +925,7 @@ impl ChatSendLedger {
             state.live_binding_by_id.remove(&expired);
             state.absence_witness_by_id.remove(&expired);
             state.sessionless_first_turn_by_id.remove(&expired);
+            state.deferred_first_turn_by_id.remove(&expired);
             state.terminal_failures.remove(&expired);
             state.latest_by_tab.retain(|_, send_id| send_id != &expired);
             state
@@ -895,6 +1029,10 @@ impl crate::service::ServiceContext {
             evidence.live_binding.clone(),
             evidence.turn_normalization,
         )?;
+        if let Some(deferred) = evidence.deferred_first_turn.clone() {
+            self.chat_send_ledger
+                .set_deferred_first_turn_evidence(&pending.send_id, deferred);
+        }
         let pending = match client_token {
             Some(token) => self
                 .chat_send_ledger

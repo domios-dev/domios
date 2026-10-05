@@ -364,6 +364,49 @@
     }
 
     #[test]
+    fn late_lazy_session_first_turn_upgrades_written_once() {
+        let ledger = ChatSendLedger::default();
+        let pending = ledger
+            .try_start_scoped_with_normalization(
+                "tab-1",
+                "Codex first turn marker",
+                None,
+                Some(SendLiveBinding {
+                    session_id: None,
+                    binding_nonce: Some("launch-1".into()),
+                }),
+                Default::default(),
+            )
+            .unwrap();
+        assert!(ledger.set_deferred_first_turn_evidence(
+            &pending.send_id,
+            DeferredFirstTurnEvidence {
+                provider_id: "capability-provider".into(),
+                cwd: "/repo".into(),
+                binding_nonce: "launch-1".into(),
+            },
+        ));
+        ledger.state.lock().by_id.get_mut(&pending.send_id).unwrap().state =
+            ChatSendState::Written;
+
+        let candidate = ledger
+            .deferred_first_turn_candidates("tab-1")
+            .into_iter()
+            .next()
+            .unwrap();
+        let confirmed = ledger
+            .confirm_deferred_first_turn(&candidate, "session-1")
+            .expect("the current first user turn confirms the lazy first send");
+
+        assert_eq!(confirmed.send_id, pending.send_id);
+        assert_eq!(confirmed.state, ChatSendState::Sent);
+        assert!(ledger.deferred_first_turn_candidates("tab-1").is_empty());
+        assert!(ledger
+            .confirm_deferred_first_turn(&candidate, "session-1")
+            .is_none());
+    }
+
+    #[test]
     fn evidence_during_flight_wins_over_late_transport_failure() {
         let ledger = ChatSendLedger::default();
         let pending = ledger.try_start("tab-1", "restart dev", None).unwrap();
