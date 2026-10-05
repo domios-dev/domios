@@ -76,7 +76,7 @@ impl Definition {
             match (self.kind.as_str(), parameters.target) {
                 ("notify", None) => Route::Notify,
                 ("stop", None) => Route::Stop,
-                (kind @ ("sentinel" | "send" | "cron"), Some(target)) => {
+                (kind @ ("sentinel" | "send" | "cron" | "respond_prompt"), Some(target)) => {
                     Route::parse(&format!("{kind}:{target}"))?
                 }
                 ("escalate", Some(target)) => Route::parse(&format!("escalate:{target}"))?,

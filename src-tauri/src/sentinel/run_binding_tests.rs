@@ -6,6 +6,7 @@ use super::run_binding::{
 };
 use crate::cron::clock::MockClock;
 use crate::cron::store::{CronJob, CronRunInfo, CronRunStatus};
+use crate::sentinel::handlers::{Definition, Parameters};
 use crate::sentinel::source::{RunBinding, TabBinding};
 use crate::sentinel::storage::commit;
 use crate::sentinel::store::{Create, Owner, Sentinel, Store};
@@ -30,6 +31,29 @@ fn for_backends(mut run: impl FnMut(&Arc<Mutex<Store>>, &Arc<MockClock>)) {
 }
 
 fn insert(store: &Mutex<Store>) -> Sentinel {
+    insert_with_escalation(store, false)
+}
+
+fn insert_escalating(store: &Mutex<Store>) -> Sentinel {
+    insert_with_escalation(store, true)
+}
+
+fn insert_with_escalation(store: &Mutex<Store>, escalating: bool) -> Sentinel {
+    let handlers = escalating.then(|| {
+        [(
+            "other".to_string(),
+            vec![Definition {
+                id: "escalate".into(),
+                kind: "escalate".into(),
+                parameters: Parameters {
+                    target: Some("creator".into()),
+                    ..Parameters::default()
+                },
+            }],
+        )]
+        .into_iter()
+        .collect()
+    });
     let job = store
         .lock()
         .prepare(
@@ -41,14 +65,16 @@ fn insert(store: &Mutex<Store>) -> Sentinel {
                 buckets: vec!["waiting".into()],
                 every: "10s".into(),
                 routes: Default::default(),
-                matches: [("waiting".to_string(), ".*".to_string())].into_iter().collect(),
+                matches: [("waiting".to_string(), ".*".to_string())]
+                    .into_iter()
+                    .collect(),
                 until: None,
-                timeout: None,
+                timeout: escalating.then(|| "1h".into()),
                 paused: false,
-                handlers: None,
+                handlers,
                 max_transitions: None,
                 max_actions: None,
-                escalation_timeout_ms: None,
+                escalation_timeout_ms: escalating.then_some(5_000),
             },
             Owner {
                 creator_tab_id: "creator-tab".into(),
@@ -63,10 +89,24 @@ fn insert(store: &Mutex<Store>) -> Sentinel {
     job
 }
 
+fn persist_held(store: &Mutex<Store>, job: &Sentinel) {
+    let transition_id = format!("held-{}", job.id);
+    assert!(commit(store, |store| {
+        store.stage_accept_transition(job, crate::storage::OTHER_BUCKET, &transition_id)
+    })
+    .unwrap());
+    let mut outcome = store.lock().get(&job.id).unwrap().clone();
+    outcome.machine.last_hash = Some("episode-hash".into());
+    outcome.machine.last_bucket = Some(crate::storage::OTHER_BUCKET.into());
+    outcome.machine.held = Some(transition_id);
+    outcome.last_reason = Some("held".into());
+    assert!(commit(store, |store| store.stage_finish(&outcome)).unwrap());
+}
+
 #[test]
 fn sentinel_run_bind_replacement_resets_and_fences_old_lease_both_backends() {
-    for_backends(|store, clock| {
-        let job = insert(store);
+    for_backends(|store, _clock| {
+        let job = insert_escalating(store);
         assert!(commit(store, Store::stage_due).unwrap().is_empty());
         let first = commit(store, |store| {
             store.stage_bind_run(&job.id, "cron-nightly", "run-one", "tab-one")
@@ -75,19 +115,9 @@ fn sentinel_run_bind_replacement_resets_and_fences_old_lease_both_backends() {
         assert!(first.changed);
         assert!(first.replaced.is_none());
         assert!(store.lock().wake_pending.contains(&job.id));
-        let first_lease = commit(store, Store::stage_due).unwrap().pop().unwrap();
-        assert!(!store.lock().wake_pending.contains(&job.id));
-        let mut outcome = first_lease.job.clone();
-        outcome.machine.last_hash = Some("episode-hash".into());
-        outcome.machine.last_bucket = Some("waiting".into());
-        outcome.machine.held = Some("pending-escalation".into());
-        outcome.last_reason = Some("held".into());
-        assert!(commit(store, |store| store.stage_finish(&outcome)).unwrap());
-        store.lock().release(&job.id);
-        clock.advance_ms(10_000);
-
         let old_lease = commit(store, Store::stage_due).unwrap().pop().unwrap();
-        assert_eq!(old_lease.job.run.as_ref().unwrap().run_id, "run-one");
+        assert!(!store.lock().wake_pending.contains(&job.id));
+        persist_held(store, &old_lease.job);
         let old_revision = old_lease.job.revision;
         let replacement = commit(store, |store| {
             store.stage_bind_run(&job.id, "cron-nightly", "run-two", "tab-two")
@@ -125,7 +155,7 @@ fn sentinel_run_bind_finished_and_tab_gone_unbind_without_probing_both_backends(
             ("run-finished", "tab-finished", "cron_run_finished"),
             ("run-tab-gone", "tab-gone", "tab_gone"),
         ] {
-            let job = insert(store);
+            let job = insert_escalating(store);
             let binding = RunBinding {
                 run_id: run_id.into(),
                 tab_id: tab_id.into(),
@@ -139,11 +169,7 @@ fn sentinel_run_bind_finished_and_tab_gone_unbind_without_probing_both_backends(
                 .changed
             );
             let lease = commit(store, Store::stage_due).unwrap().pop().unwrap();
-            let mut outcome = lease.job.clone();
-            outcome.machine.last_hash = Some("episode-hash".into());
-            outcome.machine.last_bucket = Some("waiting".into());
-            outcome.machine.held = Some("pending-escalation".into());
-            assert!(commit(store, |store| store.stage_finish(&outcome)).unwrap());
+            persist_held(store, &lease.job);
             let unbound = commit(store, |store| {
                 store.stage_unbind_run(&job.id, &binding, reason)
             })

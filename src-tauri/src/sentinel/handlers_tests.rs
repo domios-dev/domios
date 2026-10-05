@@ -2,6 +2,7 @@ use super::machine::{self, Route};
 use super::provenance::{Classification, Scope};
 use super::store::{Create, Owner, Store};
 use serde_json::{json, Value};
+use std::collections::BTreeMap;
 
 fn owner() -> Owner {
     Owner {
@@ -123,6 +124,47 @@ fn sentinel_handlers_exact_sentinel_route_is_a_supported_closed_action() {
     ] {
         assert!(Route::parse(value).is_err(), "{value}");
     }
+}
+
+#[test]
+fn sentinel_respond_prompt_route_and_handlers_file_parse_safe_kinds() {
+    assert_eq!(
+        Route::parse("respond_prompt:onboarding").unwrap(),
+        Route::RespondPrompt(super::machine::SafeKind::Onboarding)
+    );
+    let definitions = BTreeMap::from([(
+        "done".into(),
+        vec![super::handlers::Definition {
+            id: "answer".into(),
+            kind: "respond_prompt".into(),
+            parameters: super::handlers::Parameters {
+                target: Some("permission".into()),
+                ..Default::default()
+            },
+        }],
+    )]);
+    let handlers =
+        super::handlers::definitions(&["done".into()], BTreeMap::new(), Some(definitions)).unwrap();
+    assert_eq!(
+        handlers["done"][0].action,
+        Route::RespondPrompt(super::machine::SafeKind::Permission)
+    );
+}
+
+#[test]
+fn sentinel_respond_prompt_shell_probe_source_is_refused() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = Store::new(
+        dir.path().join("sentinels.json"),
+        crate::cron::clock::MockClock::starting_at(1000),
+    );
+    let mut value = definition();
+    value["routes"] = json!({"done": "respond_prompt:onboarding"});
+    let params: Create = serde_json::from_value(value).unwrap();
+    assert!(store
+        .create(params, owner(), false)
+        .unwrap_err()
+        .contains("tab observation source"));
 }
 
 fn transition(store: &mut Store, job: &super::store::Sentinel) -> (super::store::Sentinel, String) {

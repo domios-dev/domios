@@ -234,7 +234,11 @@ fn owned_prompt_model_may_choose_any_declared_option() {
     assert_eq!(
         route(
             Some(&target),
-            &view(TRUST_OR_PERMISSION_PROMPT, 0.80, Some((refusal.as_str(), 0.80))),
+            &view(
+                TRUST_OR_PERMISSION_PROMPT,
+                0.80,
+                Some((refusal.as_str(), 0.80))
+            ),
             true,
         ),
         UnattendedRoute::Model
@@ -242,7 +246,11 @@ fn owned_prompt_model_may_choose_any_declared_option() {
     assert_eq!(
         route(
             Some(&target),
-            &view(TRUST_OR_PERMISSION_PROMPT, 0.99, Some(("not-a-declared-value", 0.99))),
+            &view(
+                TRUST_OR_PERMISSION_PROMPT,
+                0.99,
+                Some(("not-a-declared-value", 0.99))
+            ),
             true,
         ),
         UnattendedRoute::Fallback("abstain")
@@ -256,7 +264,11 @@ fn login_classification_never_authorizes_a_prompt_answer() {
     assert_eq!(
         route(
             Some(&target),
-            &view(LOGIN_OR_AUTH_REQUIRED, 0.99, Some((target.choice.as_str(), 0.99))),
+            &view(
+                LOGIN_OR_AUTH_REQUIRED,
+                0.99,
+                Some((target.choice.as_str(), 0.99))
+            ),
             true,
         ),
         UnattendedRoute::Fallback("not_prompt")
@@ -318,11 +330,7 @@ fn unattended_launch_prompt_other_or_low_confidence_falls_back() {
         UnattendedRoute::Fallback("not_prompt")
     );
     assert_eq!(
-        route(
-            None,
-            &view(TRUST_OR_PERMISSION_PROMPT, 0.99, None),
-            true
-        ),
+        route(None, &view(TRUST_OR_PERMISSION_PROMPT, 0.99, None), true),
         UnattendedRoute::Fallback("no_candidate")
     );
 }
@@ -533,4 +541,117 @@ fn unattended_launch_prompt_permission_prompt_untouched() {
         0
     );
     assert!(journal_rows(&fixture).is_empty());
+}
+
+#[test]
+fn sentinel_respond_prompt_permission_uses_provider_declared_target() {
+    use crate::agent::permission_request::PermissionRequestSignal;
+
+    let (mut mux, tab_id) = cron_tab();
+    let prompt = claude().parse_prompt(TOOL_PERMISSION).unwrap();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.pending_prompt = Some(prompt.clone());
+    tab.pending_prompt_kind = Some(codeterm_types::pty::PromptKind::Provider);
+    let (fixture, _guard) = fixture_for(mux);
+    fixture
+        .service
+        .prompt_detector
+        .lock()
+        .hook_detected_permission_request(
+            &tab_id,
+            PermissionRequestSignal {
+                tool_name: "Bash".into(),
+                tool_input: serde_json::json!({}),
+                permission_suggestions: Vec::new(),
+            },
+        );
+    let target = fixture
+        .service
+        .sentinel_safe_response_target(&tab_id, TOOL_PERMISSION, Kind::Permission)
+        .unwrap();
+    assert_eq!(target.kind, Kind::Permission);
+    assert_eq!(target.prompt, prompt);
+    assert!(authorized(
+        &target,
+        &Evidence {
+            observations: 2,
+            confidence: 0.99,
+            qualified: true,
+            current: true,
+            eligible: true,
+            model_choice: Some((&target.choice, 0.99)),
+        }
+    ));
+}
+
+#[test]
+fn owner_launched_sentinel_respond_prompt_is_refused_before_dispatch() {
+    let (mut mux, tab_id) = unattended_tab(crate::multiplexer::types::TabAudience::User, false);
+    let prompt = claude().parse_prompt(TOOL_PERMISSION).unwrap();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.pending_prompt = Some(prompt.clone());
+    tab.pending_prompt_kind = Some(codeterm_types::pty::PromptKind::Provider);
+    let (fixture, _guard) = fixture_for(mux);
+    let expected = serde_json::json!({
+        "kind": codeterm_types::pty::PromptKind::Provider,
+        "question": prompt.question,
+        "options": prompt.options,
+        "multi_select": prompt.multi_select,
+    });
+    assert_eq!(
+        fixture.service.request_safe_prompt_response(
+            &tab_id,
+            &crate::sentinel::machine::SafeKind::Permission,
+            &expected,
+            "sentinel_fixture",
+        ),
+        Err(crate::service::supporter_tab_state::sentinel_request::RequestRefusal::UnsafeTarget)
+    );
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test(&pty_of(&fixture, &tab_id)),
+        0
+    );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn sentinel_respond_prompt_login_is_refused_before_dispatch() {
+    let (mut mux, tab_id) = cron_tab();
+    let pty = pty_of_raw(&mux, &tab_id);
+    let prompt = claude().parse_prompt(ONBOARDING).unwrap();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.pending_prompt = Some(prompt.clone());
+    tab.pending_prompt_kind = Some(codeterm_types::pty::PromptKind::Provider);
+    let (fixture, _guard) = fixture_for(mux);
+    fixture.service.screen_state.lock().resize(&pty, 120, 40);
+    fixture.service.screen_state.lock().process(
+        &pty,
+        include_str!("../../../../../../plugins/provider-claude/tests/fixtures/tab-state/auth-login.txt")
+            .as_bytes(),
+    );
+    let expected = serde_json::json!({
+        "kind": codeterm_types::pty::PromptKind::Provider,
+        "question": prompt.question,
+        "options": prompt.options,
+        "multi_select": prompt.multi_select,
+    });
+    assert_eq!(
+        fixture.service.request_safe_prompt_response(
+            &tab_id,
+            &crate::sentinel::machine::SafeKind::Onboarding,
+            &expected,
+            "sentinel_fixture",
+        ),
+        Err(crate::service::supporter_tab_state::sentinel_request::RequestRefusal::UnsafeTarget)
+    );
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test(&pty),
+        0
+    );
+}
+
+fn pty_of_raw(mux: &crate::multiplexer::state::MultiplexerState, tab_id: &str) -> String {
+    mux.get_tab(tab_id)
+        .and_then(|tab| tab.pty_id.clone())
+        .unwrap()
 }

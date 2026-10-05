@@ -420,6 +420,7 @@ pub fn record(
         "confidence": outcome.verdict.as_ref().map(|v| v.confidence), "action": action, "reason": reason,
         "stage": stage.name(), "route_status": stage.route_status(),
         "route": outcome.route.as_ref().map(routes::action_name), "route_target": route_target,
+        "requested_by": outcome.route.as_ref().is_some_and(|route| matches!(route, machine::Route::RespondPrompt(_))).then_some(job.id.as_str()),
         "recipient_receipt": null,
         "asked": supporter::sentinel_questions(&job.id, &job.buckets, outcome.verdict.as_ref().map(|v| v.bucket.as_str()), outcome.reason),
     }))
@@ -665,6 +666,12 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
                         &handle.probe_owner,
                         &lease.cancelled,
                     ))
+                }
+                route @ machine::Route::RespondPrompt(_) => {
+                    if !handle.store.lock().action_permitted(job, transition) {
+                        return Err("respond_prompt handler source fenced".into());
+                    }
+                    super::actions::respond_prompt(svc, job, route, &output)
                 }
                 machine::Route::Stop => {
                     let staged = {

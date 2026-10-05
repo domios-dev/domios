@@ -192,6 +192,41 @@ fn supporter_first_opinion_safe_response_provider_option_order_and_focus() {
 }
 
 #[test]
+fn sentinel_respond_prompt_onboarding_uses_declared_provider_choice() {
+    let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
+    let screen = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
+    let target = provider_target(&provider, screen).unwrap();
+    assert_eq!(target.kind, Kind::Onboarding);
+    assert!(target.kind.label_matches(TRUST_OR_PERMISSION_PROMPT));
+    assert!(!target.kind.label_matches(LOGIN_OR_AUTH_REQUIRED));
+    assert!(!target.kind.label_matches(MODEL_UNAVAILABLE_OR_QUOTA));
+    assert!(authorized(
+        &target,
+        &Evidence {
+            observations: 2,
+            confidence: 0.99,
+            qualified: true,
+            current: true,
+            eligible: true,
+            model_choice: Some((&target.choice, 0.99)),
+        }
+    ));
+}
+
+#[test]
+fn sentinel_respond_prompt_login_and_quota_are_never_authorized() {
+    for kind in [
+        Kind::Update,
+        Kind::Onboarding,
+        Kind::DirectoryTrust,
+        Kind::Permission,
+    ] {
+        assert!(!kind.label_matches(LOGIN_OR_AUTH_REQUIRED));
+        assert!(!kind.label_matches(MODEL_UNAVAILABLE_OR_QUOTA));
+    }
+}
+
+#[test]
 fn supporter_first_opinion_safe_response_update_skip_order_focus_and_opaque_values() {
     let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
     for (screen, choice, step) in [

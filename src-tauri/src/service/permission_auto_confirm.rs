@@ -33,6 +33,22 @@ pub(crate) fn observation_revision(tab_id: &str) -> u64 {
     })
 }
 
+pub(crate) fn claim_safe_prompt_response(
+    tab_id: &str,
+    request_id: u64,
+    prompt: &PendingPrompt,
+) -> bool {
+    LEDGER
+        .lock()
+        .claim(
+            tab_id,
+            request_id,
+            &screen_fingerprint(prompt),
+            Instant::now(),
+        )
+        .is_ok()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Refusal {
     Disabled,
