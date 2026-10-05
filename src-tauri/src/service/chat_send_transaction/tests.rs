@@ -264,8 +264,18 @@
             Err(submit_unconfirmed("Enter swallowed"))
         });
 
-        assert_eq!(ledger.reconcile("tab-1"), vec![failed]);
-        assert_eq!(second.state, ChatSendState::Pending);
+        let retained = ledger.reconcile("tab-1");
+        assert_eq!(
+            retained
+                .iter()
+                .map(|status| status.send_id.as_str())
+                .collect::<Vec<_>>(),
+            [failed.send_id.as_str(), second.send_id.as_str()],
+        );
+        assert_eq!(
+            retained.iter().map(|status| status.state.clone()).collect::<Vec<_>>(),
+            [ChatSendState::Unknown, ChatSendState::Pending],
+        );
     }
 
     #[test]

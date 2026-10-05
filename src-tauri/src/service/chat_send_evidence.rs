@@ -851,8 +851,18 @@ mod tests {
             fx.scan("tab-1").is_empty(),
             "the single persisted turn was already claimed by the live path"
         );
-        assert_eq!(fx.ledger.reconcile("tab-1")[0].send_id, second.send_id);
-        assert_eq!(fx.ledger.reconcile("tab-1")[0].state, ChatSendState::Failed);
+        let retained = fx.ledger.reconcile("tab-1");
+        assert_eq!(
+            retained
+                .iter()
+                .map(|status| status.send_id.as_str())
+                .collect::<Vec<_>>(),
+            [first.send_id.as_str(), second.send_id.as_str()],
+        );
+        assert_eq!(
+            retained.iter().map(|status| status.state.clone()).collect::<Vec<_>>(),
+            [ChatSendState::Sent, ChatSendState::Failed],
+        );
     }
 
     #[test]
