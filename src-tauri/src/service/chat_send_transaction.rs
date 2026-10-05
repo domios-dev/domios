@@ -99,6 +99,7 @@ struct ChatSendLedgerState {
     latest_failure_by_tab: HashMap<String, String>,
     order: VecDeque<String>,
     owned: HashMap<String, (UserSendAuthority, bool)>,
+    terminal_failures: HashSet<String>,
     absence_witness_by_id: HashMap<String, Arc<str>>,
     sessionless_first_turn_by_id: HashSet<String>,
     live_evidence_progress_by_tab: HashMap<String, LiveEvidenceProgress>,
@@ -120,6 +121,7 @@ impl Default for ChatSendLedgerState {
             latest_failure_by_tab: HashMap::new(),
             order: VecDeque::new(),
             owned: HashMap::new(),
+            terminal_failures: HashSet::new(),
             absence_witness_by_id: HashMap::new(),
             sessionless_first_turn_by_id: HashSet::new(),
             live_evidence_progress_by_tab: HashMap::new(),
@@ -186,6 +188,7 @@ impl ChatSendLedger {
         state.live_binding_by_id.remove(&status.send_id);
         state.absence_witness_by_id.remove(&status.send_id);
         state.sessionless_first_turn_by_id.remove(&status.send_id);
+        state.terminal_failures.remove(&status.send_id);
         state.payload_by_id.remove(&status.send_id);
         state.by_id.insert(status.send_id.clone(), status.clone());
         if let Some(token) = &record.client_token {
@@ -425,6 +428,7 @@ impl ChatSendLedger {
     ) -> Option<ChatSendStatus> {
         let mut state = self.state.lock();
         let user_owned = state.owned.contains_key(send_id);
+        let terminal_failure = state.terminal_failures.contains(send_id);
         let result = if user_owned { Ok(()) } else { result };
         let failed_tab = {
             let status = state.by_id.get_mut(send_id)?;
@@ -435,6 +439,7 @@ impl ChatSendLedger {
                     status.pending_reason = None;
                     None
                 }
+                _ if terminal_failure => None,
                 _ if user_owned && status.pending_reason.is_some() => {
                     status.state = ChatSendState::Pending;
                     status.error = None;
@@ -476,6 +481,32 @@ impl ChatSendLedger {
                 .latest_failure_by_tab
                 .insert(tab_id, send_id.to_string());
         }
+        let status = state.by_id.get(send_id).cloned()?;
+        Some(Self::with_retention_window(&state, status))
+    }
+
+    pub(crate) fn expire_owned_before_write(
+        &self,
+        send_id: &str,
+        reason: &str,
+    ) -> Option<ChatSendStatus> {
+        let mut state = self.state.lock();
+        if state.owned.get(send_id).is_none_or(|(_, active)| *active) {
+            return None;
+        }
+        let tab_id = {
+            let status = state.by_id.get_mut(send_id)?;
+            if status.state != ChatSendState::Pending {
+                return None;
+            }
+            status.state = ChatSendState::Failed;
+            status.error = Some(reason.to_string());
+            status.pending_reason = None;
+            status.tab_id.clone()
+        };
+        state.owned.remove(send_id);
+        state.terminal_failures.insert(send_id.to_string());
+        state.latest_failure_by_tab.insert(tab_id, send_id.to_string());
         let status = state.by_id.get(send_id).cloned()?;
         Some(Self::with_retention_window(&state, status))
     }
@@ -547,7 +578,8 @@ impl ChatSendLedger {
                                     .as_deref()
                                     .is_none_or(|nonce| Some(nonce) == source_binding_nonce)
                         });
-                    if state.owned.contains_key(send_id) || status.tab_id != tab_id
+                    if state.owned.contains_key(send_id) || state.terminal_failures.contains(send_id)
+                        || status.tab_id != tab_id
                         || status.state == ChatSendState::Sent
                         || !binding_matches
                     {
@@ -581,6 +613,7 @@ impl ChatSendLedger {
             .iter()
             .find(|send_id| {
                 matching_ids.contains(*send_id)
+                    && !state.terminal_failures.contains(*send_id)
                     && !state.owned.contains_key(*send_id)
                     && state.by_id.get(*send_id).is_some_and(|status| {
                         status.tab_id == tab_id && status.state != ChatSendState::Sent
@@ -605,6 +638,9 @@ impl ChatSendLedger {
     }
 
     fn mark_sent(state: &mut ChatSendLedgerState, send_id: &str) -> Option<ChatSendStatus> {
+        if state.terminal_failures.contains(send_id) {
+            return None;
+        }
         {
             let status = state.by_id.get_mut(send_id)?;
             if status.state == ChatSendState::Sent {
@@ -658,6 +694,7 @@ impl ChatSendLedger {
             .filter_map(|send_id| {
                 let status = state.by_id.get(send_id)?;
                 if status.tab_id != tab_id || status.state == ChatSendState::Sent
+                    || state.terminal_failures.contains(send_id)
                     || state.owned.get(send_id).is_some_and(|(_, active)| !active) {
                     return None;
                 }
@@ -755,6 +792,7 @@ impl ChatSendLedger {
             state.live_binding_by_id.remove(&expired);
             state.absence_witness_by_id.remove(&expired);
             state.sessionless_first_turn_by_id.remove(&expired);
+            state.terminal_failures.remove(&expired);
             state.latest_by_tab.retain(|_, send_id| send_id != &expired);
             state
                 .latest_failure_by_tab

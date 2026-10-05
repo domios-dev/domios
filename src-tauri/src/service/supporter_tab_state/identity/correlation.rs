@@ -29,6 +29,7 @@ pub(crate) enum Producer {
     ParkedEdge,
     PromptEstablished,
     PromptConfirmation,
+    SentinelRequest,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +75,7 @@ impl Correlation {
                 | Producer::ParkedEdge
                 | Producer::PromptEstablished
                 | Producer::PromptConfirmation
+                | Producer::SentinelRequest
         )
     }
 
@@ -302,6 +304,12 @@ pub(crate) fn project(value: &Value) -> Option<Value> {
             Producer::OutputCandidate | Producer::ParkedEdge => {
                 correlation.decision_point != "prompt_candidate"
                     || correlation.parent_observation_id.is_some()
+            }
+            Producer::SentinelRequest => {
+                correlation.decision_point != "prompt_candidate"
+                    || correlation
+                        .parent_observation_id
+                        .is_some_and(|parent| parent == 0 || parent == correlation.observation_id)
             }
             Producer::LifecycleEvent => correlation.parent_observation_id.is_some(),
         }
