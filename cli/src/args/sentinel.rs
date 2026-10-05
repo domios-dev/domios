@@ -4,9 +4,9 @@ use clap::Subcommand;
 pub enum SentinelAction {
     /// Classify a bounded probe or same-Team agent observation
     Create {
-        /// Display name of the Sentinel scenario or stage
-        #[arg(long)]
-        name: Option<String>,
+        /// Short meaningful name describing what is watched and what happens
+        #[arg(long, value_parser = parse_sentinel_name)]
+        name: String,
         #[arg(long, conflicts_with = "observe", required_unless_present = "observe")]
         probe: Option<String>,
         /// Observe a same-Team agent tab or cron run
@@ -46,6 +46,9 @@ pub enum SentinelAction {
         /// Deterministic fallback when no Choice adapter is connected: bucket=regex
         #[arg(long = "match", value_parser = parse_assignment)]
         matches: Vec<String>,
+        /// Validate and print the resulting graph without creating it
+        #[arg(long)]
+        dry_run: bool,
     },
     /// List sentinels scoped to the calling tab and its Team
     List,
@@ -62,6 +65,9 @@ pub enum SentinelAction {
         from_file: std::path::PathBuf,
         #[arg(long)]
         cause: Option<String>,
+        /// Validate and print the resulting graph without updating it
+        #[arg(long)]
+        dry_run: bool,
     },
     /// Show immutable definition versions
     History { id: String },
@@ -84,6 +90,11 @@ fn parse_assignment(value: &str) -> Result<String, String> {
         return Err("bucket and value must be nonempty".into());
     }
     Ok(value.into())
+}
+
+fn parse_sentinel_name(value: &str) -> Result<String, String> {
+    codeterm_types::automation_name::validate_sentinel_name(value)?;
+    Ok(value.to_string())
 }
 
 fn parse_observe(value: &str) -> Result<String, String> {
@@ -126,6 +137,8 @@ mod tests {
             "codeterm",
             "sentinel",
             "create",
+            "--name",
+            "ci-result-watch",
             "--probe",
             "check-ci",
             "--question",
@@ -183,6 +196,8 @@ mod tests {
             "codeterm",
             "sentinel",
             "create",
+            "--name",
+            "agent-state-watch",
             "--observe",
             "tab:bound-agent",
             "--question",
@@ -205,6 +220,8 @@ mod tests {
             "codeterm",
             "sentinel",
             "create",
+            "--name",
+            "invalid-conflict-watch",
             "--probe",
             "check",
             "--observe",
@@ -247,6 +264,7 @@ mod tests {
                     expect_version,
                     from_file,
                     cause,
+                    ..
                 },
         } = cli.command
         else {
@@ -309,11 +327,32 @@ mod tests {
     }
 
     #[test]
+    fn sentinel_create_requires_a_short_non_raw_name() {
+        let base = [
+            "codeterm", "sentinel", "create", "--probe", "status", "--question", "state?",
+            "--buckets", "done",
+        ];
+        assert!(Cli::try_parse_from(base).is_err());
+        for name in ["ab", "sentinel_5d22889a8898"] {
+            assert!(Cli::try_parse_from([
+                "codeterm", "sentinel", "create", "--name", name, "--probe", "status",
+                "--question", "state?", "--buckets", "done",
+            ]).is_err());
+        }
+        assert!(Cli::try_parse_from([
+            "codeterm", "sentinel", "create", "--name", "ci-green-watch", "--probe", "status",
+            "--question", "state?", "--buckets", "done",
+        ]).is_ok());
+    }
+
+    #[test]
     fn sentinel_composition_flags_refuse_mixed_input_and_out_of_range_budgets() {
         let prefix = [
             "codeterm",
             "sentinel",
             "create",
+            "--name",
+            "budget-validation-watch",
             "--probe",
             "status",
             "--question",
