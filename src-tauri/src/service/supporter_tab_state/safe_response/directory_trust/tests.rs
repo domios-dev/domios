@@ -16,6 +16,9 @@ const TOOL_PERMISSION: &str = include_str!(
 const ONBOARDING: &str = include_str!(
     "../../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt"
 );
+const AUTH_LOGIN: &str = include_str!(
+    "../../../../../../plugins/provider-claude/tests/fixtures/tab-state/auth-login.txt"
+);
 const JOB_DIR: &str = "/srv/cron/nightly";
 
 fn claude() -> codeterm_plugin::agent_claude::ClaudeProvider {
@@ -207,7 +210,6 @@ fn unattended_launch_prompt_jev_chooses_among_declared_trust_options() {
                     0.95,
                     Some((target.choice.as_str(), 0.93))
                 ),
-                true,
             ),
             UnattendedRoute::Model
         );
@@ -239,7 +241,6 @@ fn owned_prompt_model_may_choose_any_declared_option() {
                 0.80,
                 Some((refusal.as_str(), 0.80))
             ),
-            true,
         ),
         UnattendedRoute::Model
     );
@@ -251,14 +252,13 @@ fn owned_prompt_model_may_choose_any_declared_option() {
                 0.99,
                 Some(("not-a-declared-value", 0.99))
             ),
-            true,
         ),
         UnattendedRoute::Fallback("abstain")
     );
 }
 
 #[test]
-fn login_classification_never_authorizes_a_prompt_answer() {
+fn structurally_detected_onboarding_uses_its_declared_classification() {
     let target = super::super::provider_target(&claude(), ONBOARDING).unwrap();
     assert_eq!(target.kind, Kind::Onboarding);
     assert_eq!(
@@ -269,9 +269,13 @@ fn login_classification_never_authorizes_a_prompt_answer() {
                 0.99,
                 Some((target.choice.as_str(), 0.99))
             ),
-            true,
         ),
-        UnattendedRoute::Fallback("not_prompt")
+        UnattendedRoute::Model
+    );
+    assert!(super::super::provider_target(&claude(), AUTH_LOGIN).is_none());
+    assert_eq!(
+        route(None, &view(LOGIN_OR_AUTH_REQUIRED, 0.99, None)),
+        UnattendedRoute::Fallback("no_candidate")
     );
 }
 
@@ -279,60 +283,82 @@ fn login_classification_never_authorizes_a_prompt_answer() {
 fn unattended_launch_prompt_other_or_low_confidence_falls_back() {
     let target = trust_target(NO_FIRST);
     let choice = target.choice.as_str();
-    for (verdict, calibrated, expected) in [
+    for (verdict, expected) in [
         (
             view(TRUST_OR_PERMISSION_PROMPT, 0.95, Some((OTHER, 0.95))),
-            true,
             UnattendedRoute::Fallback("abstain"),
         ),
         (
             view(TRUST_OR_PERMISSION_PROMPT, 0.95, None),
-            true,
             UnattendedRoute::Fallback("abstain"),
         ),
         (
             view(TRUST_OR_PERMISSION_PROMPT, 0.79, Some((choice, 0.99))),
-            true,
             UnattendedRoute::Fallback("low_confidence"),
         ),
         (
             view(TRUST_OR_PERMISSION_PROMPT, 0.99, Some((choice, 0.79))),
-            true,
             UnattendedRoute::Fallback("low_confidence"),
         ),
         (
             view(TRUST_OR_PERMISSION_PROMPT, f64::NAN, Some((choice, 0.99))),
-            true,
             UnattendedRoute::Fallback("low_confidence"),
         ),
         (
             view(READY_IDLE, 0.70, Some((choice, 0.99))),
-            true,
             UnattendedRoute::Fallback("not_prompt"),
         ),
         (
             view(TRUST_OR_PERMISSION_PROMPT, 0.95, Some((choice, 0.95))),
-            false,
-            UnattendedRoute::Fallback("uncalibrated"),
+            UnattendedRoute::Model,
         ),
         (
             view(READY_IDLE, 0.95, Some((choice, 0.95))),
-            true,
             UnattendedRoute::Fallback("not_prompt"),
         ),
     ] {
-        assert_eq!(route(Some(&target), &verdict, calibrated), expected);
+        assert_eq!(route(Some(&target), &verdict), expected);
     }
     let mut composer = view(TRUST_OR_PERMISSION_PROMPT, 0.95, Some((choice, 0.95)));
     composer.live_prompt = false;
     assert_eq!(
-        route(Some(&target), &composer, true),
+        route(Some(&target), &composer),
         UnattendedRoute::Fallback("not_prompt")
     );
     assert_eq!(
-        route(None, &view(TRUST_OR_PERMISSION_PROMPT, 0.99, None), true),
+        route(None, &view(TRUST_OR_PERMISSION_PROMPT, 0.99, None)),
         UnattendedRoute::Fallback("no_candidate")
     );
+}
+
+#[test]
+fn planner_completion_onboarding_enters_the_owned_candidate_path() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    mux.link_pty(&tab_id, "planner-onboarding".into());
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("claude".into());
+    tab.role = Some(codeterm_types::agent::AgentRole::Manager);
+    tab.role_profile = Some("planner".into());
+    let (fixture, _guard) = fixture_for(mux);
+    let target = fixture
+        .service
+        .model_safe_response_target(&tab_id, ONBOARDING)
+        .expect("planner completion keeps the provider-declared onboarding option");
+    assert_eq!(target.kind, Kind::Onboarding);
+    let gate = fixture
+        .service
+        .unattended_launch_gate(&tab_id, ONBOARDING)
+        .expect("planner onboarding is an owned launch prompt");
+    assert_eq!(gate.kind, Kind::Onboarding);
+    assert_eq!(gate.target, Some(target));
+    assert!(fixture
+        .service
+        .model_safe_response_target(&tab_id, AUTH_LOGIN)
+        .is_none());
+    assert!(fixture
+        .service
+        .unattended_launch_gate(&tab_id, AUTH_LOGIN)
+        .is_none());
 }
 
 #[test]
