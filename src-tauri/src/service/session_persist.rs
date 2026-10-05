@@ -104,6 +104,14 @@ impl PersistenceMailbox {
         Ok(())
     }
 
+    fn replay_before_pending(&self, mut messages: VecDeque<WorkerMessage>) {
+        let mut state = self.state.lock();
+        while let Some(message) = messages.pop_back() {
+            state.pending.push_front(message);
+        }
+        self.ready.notify_all();
+    }
+
     fn pop(&self) -> WorkerMessage {
         let mut state = self.state.lock();
         loop {
@@ -120,6 +128,7 @@ struct PersistenceContext {
 }
 
 enum PersistenceBackend {
+    Pending,
     Storage {
         adapter: crate::session::store::StorageDeskAdapter,
         revision: codeterm_storage::Revision,
@@ -221,15 +230,8 @@ fn ensure_worker(app: &tauri::AppHandle) -> Result<SessionPersistenceWorker, Str
         let thread_mailbox = mailbox.clone();
         match std::thread::Builder::new()
             .name("desk-persistence".into())
-            .spawn(move || {
-                run_worker(
-                    thread_mailbox,
-                    Some(context),
-                    PersistenceBackend::Unavailable(
-                        "Storage desk backend is not initialized".to_string(),
-                    ),
-                )
-            }) {
+            .spawn(move || run_worker(thread_mailbox, Some(context), PersistenceBackend::Pending))
+        {
             Ok(_) => Ok(worker),
             Err(error) => {
                 let reason = format!("desk persistence worker failed to start: {error}");
@@ -332,10 +334,15 @@ fn run_worker(
     let mut reported_errors = HashSet::new();
     let mut reported_orphan_teams = HashSet::new();
     let mut committed_desk = None;
+    let mut deferred = VecDeque::new();
     loop {
         let message = mailbox.pop();
         match message {
             WorkerMessage::Persist(request) => {
+                if matches!(&backend, PersistenceBackend::Pending) {
+                    defer_persist(&mut deferred, request);
+                    continue;
+                }
                 for (team_id, workspace_id) in
                     crate::session::store::orphan_teams(&request.snapshot)
                 {
@@ -416,28 +423,67 @@ fn run_worker(
                     };
                     last_error = None;
                     retry_after_error = false;
+                    mailbox.replay_before_pending(std::mem::take(&mut deferred));
                 }
                 Err(error) => {
                     let reason = format!("storage desk backend unavailable: {error}");
                     log::error!("[session-persist] {reason}");
                     backend = PersistenceBackend::Unavailable(reason);
                     committed_desk = None;
+                    mailbox.replay_before_pending(std::mem::take(&mut deferred));
                 }
             },
             WorkerMessage::Unavailable(reason) => {
                 backend = PersistenceBackend::Unavailable(reason);
                 committed_desk = None;
+                mailbox.replay_before_pending(std::mem::take(&mut deferred));
             }
             WorkerMessage::Flush(response) => {
+                if matches!(&backend, PersistenceBackend::Pending) {
+                    deferred.push_back(WorkerMessage::Flush(response));
+                    continue;
+                }
                 let result = last_error.clone().map_or(Ok(()), Err);
                 let _ = response.send(result);
             }
             WorkerMessage::Stop(response) => {
+                let reason =
+                    "desk persistence worker stopped before Storage desk backend initialized";
+                for message in deferred.drain(..) {
+                    match message {
+                        WorkerMessage::Persist(request) => {
+                            for response in request.responses {
+                                let _ = response.send(Err(reason.to_string()));
+                            }
+                        }
+                        WorkerMessage::Flush(response) => {
+                            let _ = response.send(Err(reason.to_string()));
+                        }
+                        _ => unreachable!(),
+                    }
+                }
                 drop(backend);
                 let _ = response.send(());
                 return;
             }
         }
+    }
+}
+
+fn defer_persist(deferred: &mut VecDeque<WorkerMessage>, mut request: PersistRequest) {
+    let coalesce = matches!(
+        deferred.back(),
+        Some(WorkerMessage::Persist(pending)) if pending.intent == request.intent
+    );
+    if coalesce {
+        let Some(WorkerMessage::Persist(pending)) = deferred.back_mut() else {
+            unreachable!();
+        };
+        pending.revision = request.revision;
+        pending.snapshot = request.snapshot;
+        pending.responses.append(&mut request.responses);
+    } else {
+        deferred.push_back(WorkerMessage::Persist(request));
     }
 }
 
@@ -462,10 +508,9 @@ fn commit_request(
 ) -> Result<SaveOutcome, String> {
     match backend {
         PersistenceBackend::Storage { adapter, revision } => {
-            let context =
-                context.ok_or_else(|| "Storage persistence context is unavailable".to_string())?;
-            commit_storage_snapshot(adapter, revision, request, &context.app)
+            commit_storage_snapshot(adapter, revision, request, context.map(|ctx| &ctx.app))
         }
+        PersistenceBackend::Pending => Err("Storage desk backend is not initialized".to_string()),
         PersistenceBackend::Unavailable(reason) => Err(reason.clone()),
         #[cfg(test)]
         PersistenceBackend::Test(writer) => writer(request.revision),
@@ -533,7 +578,7 @@ fn commit_storage_snapshot(
     adapter: &crate::session::store::StorageDeskAdapter,
     revision: &mut codeterm_storage::Revision,
     request: &PersistRequest,
-    app: &tauri::AppHandle,
+    app: Option<&tauri::AppHandle>,
 ) -> Result<SaveOutcome, String> {
     let identities = desk_agent_session_identities(&request.snapshot);
     let mut rebases = 0;
@@ -547,11 +592,13 @@ fn commit_storage_snapshot(
         match completion.wait(PERSISTENCE_DEADLINE) {
             Ok(committed) => {
                 *revision = committed.receipt.revision;
-                let _ = app.emit("desk-revision-committed", revision.to_string());
-                crate::session::scrollback_sync::sync_scrollback_sidecars_after_save(
-                    app,
-                    &SaveOutcome::Saved,
-                );
+                if let Some(app) = app {
+                    let _ = app.emit("desk-revision-committed", revision.to_string());
+                    crate::session::scrollback_sync::sync_scrollback_sidecars_after_save(
+                        app,
+                        &SaveOutcome::Saved,
+                    );
+                }
                 return Ok(SaveOutcome::Saved);
             }
             Err(error) => {

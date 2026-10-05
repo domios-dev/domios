@@ -176,6 +176,30 @@ fn compose_launch_instructions(
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum GeneralAgentSessionPlan {
+    FirstRunFresh,
+    ConfiguredFresh,
+    Restore(String),
+    Discover,
+}
+
+fn general_agent_session_plan(
+    resume_sessions_enabled: bool,
+    force_fresh_session: bool,
+    snapshot_session_id: Option<String>,
+) -> GeneralAgentSessionPlan {
+    if force_fresh_session {
+        GeneralAgentSessionPlan::FirstRunFresh
+    } else if !resume_sessions_enabled {
+        GeneralAgentSessionPlan::ConfiguredFresh
+    } else if let Some(session_id) = snapshot_session_id {
+        GeneralAgentSessionPlan::Restore(session_id)
+    } else {
+        GeneralAgentSessionPlan::Discover
+    }
+}
+
 /// Start the General Agent — called from start_servers on a background thread.
 ///
 /// 1. Ensure directories + instructions file
@@ -197,6 +221,7 @@ pub fn start_general_agent(
     };
     let general_config = config.lock().general_agent.clone();
     let provider_name = &general_config.agent_provider;
+    let resume_sessions_enabled = crate::config::resume_sessions_enabled(provider_name);
     let permission_bypass =
         match general_agent_permission_bypass(&svc.agent_registry, provider_name) {
             Ok(value) => value,
@@ -344,37 +369,53 @@ pub fn start_general_agent(
     };
     svc.emit_boot_stage(&tab_id, BootStage::PtyStarting, None);
     let force_fresh_session = state::take_fresh_session_requirement();
-    let session_id = if force_fresh_session {
-        svc.set_agent_session_id(&tab_id, None);
-        state::clear_session_id();
-        log::info!("[general-agent] First-run launch requires a fresh provider session");
-        None
-    } else if snapshot_session_id.is_some() {
-        snapshot_session_id
-    } else if let Some(stored) =
-        state::load_session_id(&svc.agent_registry, provider_name, &general_cwd)
-    {
-        svc.set_agent_session_id(&tab_id, Some(stored.clone()));
-        log::info!("[general-agent] Loaded durable session id: {}", stored);
-        Some(stored)
-    } else {
-        let exclude = mux.write().other_session_ids(&tab_id);
-        let detected = state::detect_owned_session_id(
-            &svc.agent_registry,
-            provider_name,
-            &general_cwd,
-            &exclude,
-            Some(std::time::Duration::from_secs(86400 * 7)), // 7 days max age
-        );
-        if let Some(ref sid) = detected {
-            svc.set_agent_session_id(&tab_id, Some(sid.clone()));
-            state::persist_session_id(provider_name, sid);
-            log::info!(
-                "[general-agent] Detected GA-owned session from filesystem: {}",
-                sid
-            );
+    let session_plan = general_agent_session_plan(
+        resume_sessions_enabled,
+        force_fresh_session,
+        snapshot_session_id.clone(),
+    );
+    let session_id = match session_plan {
+        GeneralAgentSessionPlan::FirstRunFresh => {
+            svc.set_agent_session_id(&tab_id, None);
+            state::clear_session_id();
+            log::info!("[general-agent] First-run launch requires a fresh provider session");
+            None
         }
-        detected
+        GeneralAgentSessionPlan::ConfiguredFresh => {
+            if snapshot_session_id.is_some() {
+                svc.set_agent_session_id(&tab_id, None);
+            }
+            state::clear_session_id();
+            None
+        }
+        GeneralAgentSessionPlan::Restore(session_id) => Some(session_id),
+        GeneralAgentSessionPlan::Discover => {
+            if let Some(stored) =
+                state::load_session_id(&svc.agent_registry, provider_name, &general_cwd)
+            {
+                svc.set_agent_session_id(&tab_id, Some(stored.clone()));
+                log::info!("[general-agent] Loaded durable session id: {}", stored);
+                Some(stored)
+            } else {
+                let exclude = mux.write().other_session_ids(&tab_id);
+                let detected = state::detect_owned_session_id(
+                    &svc.agent_registry,
+                    provider_name,
+                    &general_cwd,
+                    &exclude,
+                    Some(std::time::Duration::from_secs(86400 * 7)), // 7 days max age
+                );
+                if let Some(ref sid) = detected {
+                    svc.set_agent_session_id(&tab_id, Some(sid.clone()));
+                    state::persist_session_id(provider_name, sid);
+                    log::info!(
+                        "[general-agent] Detected GA-owned session from filesystem: {}",
+                        sid
+                    );
+                }
+                detected
+            }
+        }
     };
 
     let session_id = if let Some(ref id) = session_id {
