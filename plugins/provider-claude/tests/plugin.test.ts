@@ -243,6 +243,25 @@ assert(plugin.detect({ bytes: "", title: "claude" }), "plugin.detect delegates t
 
 const hostPlugin = loadHostPlugin();
 
+{
+  const fixturePath = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "fixtures",
+    "folder-trust",
+    "mcp-server.txt",
+  );
+  const screen = fs.readFileSync(fixturePath, "utf8");
+  const rows = screen.split(/\r?\n/);
+  const firstOption = rows.findIndex((row) => /^\s*(?:[❯>]\s*)?\d+\.[ ]+/.test(row));
+  const preambleRows = rows.slice(0, firstOption).map((row) => row.trim()).filter(Boolean);
+  const renderedQuestion = preambleRows[preambleRows.length - 1];
+  eq(
+    hostPlugin.parsePrompt(screen)?.question,
+    renderedQuestion,
+    "numbered prompt question comes from its rendered preamble",
+  );
+}
+
 eq(
   hostPlugin.describeSession(
     "/tmp/session.jsonl",

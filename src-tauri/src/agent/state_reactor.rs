@@ -11,7 +11,7 @@ use super::status::TabStatus;
 use super::tab_state::{
     Surface, TabState, TabStateAction, TabStateClassification, TabStateSnapshot,
 };
-use crate::service::ServiceState;
+use crate::service::ServiceContext;
 
 /// Minimum confidence an actionable verdict must clear — the no-false-positive gate.
 pub const GLOBAL_THRESHOLD: f32 = 0.8;
@@ -228,7 +228,7 @@ fn react_heuristic(
     }
 }
 
-pub(crate) fn classify_adopted_launch_screen(svc: &ServiceState, tab_id: &str, pty_id: &str) {
+pub(crate) fn classify_adopted_launch_screen(svc: &ServiceContext, tab_id: &str, pty_id: &str) {
     let (agent_type, session_id, cwd) = {
         let mux = svc.mux.read();
         let Some(tab) = mux.get_tab(tab_id) else {
