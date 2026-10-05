@@ -12928,7 +12928,7 @@
       "subcommands": [
         {
           "name": "create",
-          "about": "Classify a bounded probe or same-Team agent tab observation",
+          "about": "Classify a bounded probe or same-Team agent observation",
           "aliases": [],
           "args": [
             {
@@ -12939,6 +12939,16 @@
               "possible_values": [],
               "default": null,
               "help": null,
+              "aliases": []
+            },
+            {
+              "name": "escalation-timeout-ms",
+              "positional": false,
+              "required": false,
+              "value_name": "ESCALATION_TIMEOUT_MS",
+              "possible_values": [],
+              "default": null,
+              "help": "Bound how long an `other` escalation may hold this stage, in milliseconds",
               "aliases": []
             },
             {
@@ -13008,7 +13018,7 @@
               "value_name": "OBSERVE",
               "possible_values": [],
               "default": null,
-              "help": "Observe a same-Team agent tab and wake on prompt or status changes",
+              "help": "Observe a same-Team agent tab or cron run",
               "aliases": []
             },
             {
@@ -13073,6 +13083,42 @@
             }
           ],
           "subcommands": []
+        },
+        {
+          "name": "escalation",
+          "about": "Resolve an open escalation",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "resolve",
+              "about": "Release a held stage and re-evaluate its observation",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "transition_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TRANSITION_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
         },
         {
           "name": "history",
