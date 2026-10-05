@@ -166,6 +166,85 @@ fn quick_safety_prompt_and_response_native_js_parity() {
     }
 }
 
+fn focus_option(screen: &str, labels: &[String], target: &str) -> String {
+    screen
+        .lines()
+        .map(|line| {
+            let normalized = line.replace('│', "").replace('┃', "").replace('║', "");
+            let label = normalized
+                .trim()
+                .trim_start_matches(|character| character == '❯' || character == '>')
+                .trim();
+            if !labels.iter().any(|option| option == label) {
+                return line.to_string();
+            }
+            let mut row = line.replace('❯', " ").replace('>', " ");
+            if label == target {
+                let position = row.find(label).expect("parsed option remains on screen");
+                row.insert_str(position, "❯ ");
+            }
+            row
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+#[test]
+fn preapproved_folder_trust_selects_the_declared_option_from_live_focus() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let screen = std::fs::read_to_string(
+        fixtures_dir().join("trust-local-preapproved-no-first.txt"),
+    )
+    .expect("pre-approved folder trust fixture");
+    let native_prompt = native
+        .parse_directory_trust_prompt(&screen)
+        .expect("native parses pre-approved folder trust");
+    let js_prompt = js
+        .parse_directory_trust_prompt(&screen)
+        .expect("plugin parses pre-approved folder trust");
+    assert_eq!(native_prompt, js_prompt);
+    let affirmative = native_prompt
+        .options
+        .iter()
+        .position(|option| {
+            option.label.to_ascii_lowercase().starts_with("yes")
+                && option.label.to_ascii_lowercase().contains("trust")
+        })
+        .expect("declared affirmative option");
+    let down_enter = vec![b"j".to_vec(), b"\r".to_vec()];
+    assert_eq!(native.build_prompt_response(affirmative, &screen), down_enter);
+    assert_eq!(js.build_prompt_response(affirmative, &screen), down_enter);
+
+    let labels = native_prompt
+        .options
+        .iter()
+        .map(|option| option.label.clone())
+        .collect::<Vec<_>>();
+    let focused = focus_option(
+        &screen,
+        &labels,
+        &native_prompt.options[affirmative].label,
+    );
+    let enter = vec![b"\r".to_vec()];
+    assert_eq!(native.build_prompt_response(affirmative, &focused), enter);
+    assert_eq!(js.build_prompt_response(affirmative, &focused), enter);
+    assert_eq!(
+        native.directory_trust_prompt_response(&focused),
+        Some(DirectoryTrustPromptResponse::Answer {
+            step: b"\r".to_vec(),
+        })
+    );
+    assert_eq!(
+        js.directory_trust_prompt_response(&focused),
+        Some(DirectoryTrustPromptResponse::Answer {
+            step: b"\r".to_vec(),
+        })
+    );
+}
+
 #[test]
 fn numbered_trust_prompt_and_response_native_js_parity() {
     if require_plugins().is_none() {
