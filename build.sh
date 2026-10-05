@@ -268,6 +268,60 @@ run_workspace_lib_tests() {
   done
 }
 
+run_nextest_scope() {
+  [ "$#" -le 2 ] || {
+    echo "usage: ./build.sh nextest <scope> [filterset]" >&2
+    return 2
+  }
+  local scope="${1:?nextest requires a scope}"
+  local filterset="${2:-}"
+  local manifest="src-tauri/Cargo.toml"
+  local package=""
+  local targets=()
+  local filter_args=()
+
+  case "$scope" in
+    app|codeterm) package="codeterm"; targets+=(--lib --no-default-features) ;;
+    plan|codeterm-plan) package="codeterm-plan"; targets+=(--lib) ;;
+    pty|codeterm-pty) package="codeterm-pty" ;;
+    types|codeterm-types) package="codeterm-types"; targets+=(--all-targets) ;;
+    mem|codeterm-mem) package="codeterm-mem"; targets+=(--lib) ;;
+    mesh|codeterm-mesh) package="codeterm-mesh"; targets+=(--lib) ;;
+    plugin|codeterm-plugin) package="codeterm-plugin"; targets+=(--lib) ;;
+    plugins|codeterm-plugins) package="codeterm-plugins"; targets+=(--lib) ;;
+    cli|codeterm-cli) manifest="cli/Cargo.toml"; package="codeterm-cli"; targets+=(--all-targets) ;;
+    pty-fork) manifest="src-tauri/pty-fork/Cargo.toml" ;;
+    codeterm-*) package="$scope"; targets+=(--lib) ;;
+    *)
+      echo "Unknown nextest scope: $scope" >&2
+      return 2
+      ;;
+  esac
+
+  enter_build_gateway "$CMD $scope${filterset:+ $filterset}"
+  if [ "$scope" = "app" ] || [ "$scope" = "codeterm" ]; then
+    prepare_dev_frontend_dist "$(pwd -P)"
+    prepare_bundle_stubs
+    prepare_exceptional_worktree_target
+  fi
+
+  if [ -n "$filterset" ]; then
+    filter_args+=(--filter-expr "$filterset")
+  fi
+  if [ -n "$package" ]; then
+    if [[ "$filterset" == *"rdeps("* ]]; then
+      targets+=(--workspace)
+    else
+      targets+=(-p "$package")
+    fi
+  fi
+
+  CARGO_TEST_CMD="cargo nextest run" \
+    CARGO_TEST_BUILD_CMD="cargo nextest run" \
+    scripts/test-capped.sh --manifest-path "$manifest" \
+    "${targets[@]}" "${filter_args[@]}" --no-tests=fail
+}
+
 case "$CMD" in
   gateway-*|help) ;;
   *) setup_env ;;
@@ -1543,6 +1597,7 @@ CodeTerm build commands
   worktree-check              Isolated lane-safe Rust compile check
   test-one <app|plan|pty|pty-fork|types|mem|mesh|plugin|cli> NAME
                               Run one focused Rust test
+  nextest <scope> [filterset]  Compile then run Rust tests through nextest
   test                        Run the application Rust unit suite
   verify                      Run app/CLI tests, TypeScript check, and source gates
   qa-prep                     Prepare a worktree for QA
@@ -1745,6 +1800,9 @@ EOF
       cli) scripts/test-capped.sh --manifest-path cli/Cargo.toml --all-targets "$test_filter" ;;
       *) echo "Unknown test scope: $test_scope (expected app, plan, pty, pty-fork, types, mem, mesh, plugin, plugins, or cli)" >&2; exit 2 ;;
     esac
+    ;;
+  nextest)
+    run_nextest_scope "${@:2}"
     ;;
   verify)
     enter_build_gateway "$CMD ${*:2}"

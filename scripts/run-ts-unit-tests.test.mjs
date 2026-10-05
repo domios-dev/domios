@@ -13,6 +13,7 @@ import {
   resolveTsUnitTimeouts,
   runTsUnitTestMain,
   runTsUnitTests,
+  selectRelatedTests,
 } from "./run-ts-unit-tests.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -126,6 +127,27 @@ test("defaults to natural test and suite completion", () => {
     testTimeoutSeconds: undefined,
     suiteTimeoutSeconds: undefined,
   });
+});
+
+test("related selection includes colocated tests and direct importers", async (t) => {
+  const directory = await createFixtureDirectory(t);
+  const changedFile = path.join(directory, "src", "changed.ts");
+  const colocatedTest = path.join(directory, "src", "changed.test.ts");
+  const importingTest = path.join(directory, "tests", "imports.test.ts");
+  const unrelatedTest = path.join(directory, "tests", "unrelated.test.ts");
+  await writeFile(changedFile, "export const changed = true;\n");
+  await writeFile(colocatedTest, "import { changed } from './changed';\n");
+  await writeFile(importingTest, "import { changed } from '../src/changed';\n");
+  await writeFile(unrelatedTest, "export const unrelated = true;\n");
+
+  assert.deepEqual(
+    selectRelatedTests(
+      [colocatedTest, importingTest, unrelatedTest],
+      [changedFile],
+      directory,
+    ).map((file) => path.relative(directory, file).split(path.sep).join("/")),
+    ["src/changed.test.ts", "tests/imports.test.ts"],
+  );
 });
 
 test("retains explicit diagnostic deadlines", () => {
