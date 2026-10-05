@@ -181,6 +181,8 @@ pub struct TaskExecutionAttempt {
     #[serde(default)]
     pub reported_at: Option<u64>,
     #[serde(default)]
+    pub report_target_written_at: Option<u64>,
+    #[serde(default)]
     pub reviewed_at: Option<u64>,
     #[serde(default)]
     pub closed_at: Option<u64>,

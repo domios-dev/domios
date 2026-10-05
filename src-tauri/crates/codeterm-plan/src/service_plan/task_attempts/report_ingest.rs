@@ -46,6 +46,7 @@ impl PlanStore {
                     ..Default::default()
                 });
                 attempt.reported_at = Some(now_ms);
+                attempt.report_target_written_at = None;
                 if attempt.remote_dispatch_state.is_some() {
                     attempt.remote_dispatch_state =
                         Some(crate::plan::RemoteDispatchState::Reported);
@@ -130,7 +131,11 @@ impl PlanStore {
             if matches!(current, TaskStatus::Done | TaskStatus::Cancelled) {
                 return Ok(false);
             }
-            let accepted_transition = transition.clone();
+            let accepted_transition = if report.status == Some(ReportStatus::Blocked) {
+                None
+            } else {
+                transition
+            };
             let committed_review = accepted_transition == Some(TaskStatus::InReview);
             if let Some(next) = accepted_transition
                 .as_ref()
@@ -192,6 +197,7 @@ impl PlanStore {
                     loaded_plan_skills: attempt.loaded_plan_skills.clone(),
                 });
                 attempt.reported_at = Some(now_ms);
+                attempt.report_target_written_at = None;
                 if attempt.remote_dispatch_state.is_some() {
                     attempt.remote_dispatch_state =
                         Some(crate::plan::RemoteDispatchState::Reported);
@@ -219,5 +225,31 @@ impl PlanStore {
             }
             Ok(committed_review)
         })
+    }
+
+    pub fn mark_report_target_written(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        attempt_id: &str,
+        now_ms: u64,
+    ) -> Result<bool, PlanError> {
+        self.with_plan_if_changed(plan_id, now_ms, |plan| {
+            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let Some(attempt) = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == attempt_id)
+            else {
+                return Ok(None);
+            };
+            if attempt.report.is_none() || attempt.report_target_written_at.is_some() {
+                return Ok(None);
+            }
+            attempt.report_target_written_at = Some(now_ms);
+            Ok(Some(true))
+        })
+        .map(|written| written.unwrap_or(false))
     }
 }
