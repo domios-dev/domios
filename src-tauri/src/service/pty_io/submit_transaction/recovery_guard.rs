@@ -98,13 +98,7 @@ pub(super) fn submit_key_guard(
         let recovery_state = if allow_initial_key {
             Ok(())
         } else {
-            recovery_composer_guard(
-                provider,
-                &snapshot,
-                composer_ready,
-                transport.turn_started(),
-                pty_id,
-            )
+            recovery_dialog_guard(provider, &snapshot, composer_ready, pty_id)
         };
         Ok((
             provider_tui,
@@ -155,30 +149,14 @@ pub(super) fn submit_key_guard(
     }
 }
 
-pub(super) fn recovery_composer_guard(
+pub(super) fn recovery_dialog_guard(
     provider: &dyn codeterm_plugin::provider::AgentProvider,
     snapshot: &crate::agent::tab_state::TabStateSnapshot,
     composer_ready: bool,
-    turn_started: bool,
     pty_id: &str,
 ) -> Result<(), InjectionError> {
-    use codeterm_plugin::tab_state::TabState;
-
-    let Some(classification) = provider.classify_tab_state(snapshot) else {
-        return Err(InjectionError::AgentInputUnavailable {
-            pty_id: pty_id.to_string(),
-        });
-    };
-    if classification.state != TabState::Working
-        || provider.delivery_modal_visible(snapshot)
-        || turn_started
-    {
+    if !composer_ready && provider.delivery_modal_visible(snapshot) {
         return Err(InjectionError::AgentTuiPresent {
-            pty_id: pty_id.to_string(),
-        });
-    }
-    if !composer_ready {
-        return Err(InjectionError::AgentInputUnavailable {
             pty_id: pty_id.to_string(),
         });
     }

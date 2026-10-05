@@ -34,7 +34,35 @@ pub(super) fn notify_run_unbound(svc: &ServiceContext, notice: &StopNotice) {
     );
 }
 
+fn lifecycle_packet(notice: &StopNotice) -> String {
+    format!(
+        "Sentinel graph '{}' ended. Reason: {}.\nNext step: codeterm sentinel history {}",
+        notice.name, notice.reason, notice.sentinel_id
+    )
+}
+
 fn notify_lifecycle(svc: &ServiceContext, notice: &StopNotice, title: String) {
+    let creator_is_agent = svc
+        .mux
+        .read()
+        .get_tab(&notice.creator_tab_id)
+        .is_some_and(|tab| tab.agent_type.is_some());
+    if creator_is_agent {
+        if let Err(error) = svc.gateway_deliver(
+            &notice.creator_tab_id,
+            MessageEnvelope::codeterm_reminder(format!(
+                "sentinel:{}:lifecycle:{}",
+                notice.sentinel_id, notice.reason
+            )),
+            &lifecycle_packet(notice),
+            DeliveryClass::SystemNotice,
+        ) {
+            log::error!(
+                "[sentinel] lifecycle notice delivery failed: {error}; sentinel={}",
+                notice.sentinel_id
+            );
+        }
+    }
     svc.create_notification_ext(
         title,
         Some(format!("Reason: {}", notice.reason)),
@@ -163,7 +191,14 @@ fn send_file(
 fn escalation_packet(job: &Sentinel, transition_id: &str) -> String {
     serde_json::json!({
         "sentinel_id": job.id,
-        "transition_id": transition_id
+        "transition_id": transition_id,
+        "next_steps": [
+            format!("inspect: codeterm sentinel history {}", job.id),
+            format!(
+                "resolve: codeterm sentinel escalation resolve {} {}",
+                job.id, transition_id
+            )
+        ]
     })
     .to_string()
 }
@@ -260,7 +295,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sentinel_escalate_packet_contains_only_stage_and_transition_ids() {
+    fn sentinel_lifecycle_packet_names_graph_reason_and_history_command() {
+        let notice = StopNotice {
+            sentinel_id: "sentinel_budget".into(),
+            name: "Budget watch".into(),
+            creator_tab_id: "creator".into(),
+            reason: "transition_budget_exhausted".into(),
+        };
+
+        assert_eq!(
+            lifecycle_packet(&notice),
+            "Sentinel graph 'Budget watch' ended. Reason: transition_budget_exhausted.\nNext step: codeterm sentinel history sentinel_budget"
+        );
+    }
+
+    #[test]
+    fn sentinel_escalate_packet_includes_next_steps() {
         let root = tempfile::tempdir().unwrap();
         let mut store = super::super::store::Store::new(
             root.path().join("sentinels.json"),
@@ -289,9 +339,18 @@ mod tests {
         let packet: serde_json::Value =
             serde_json::from_str(&escalation_packet(&job, "transition_one")).unwrap();
 
-        assert_eq!(packet.as_object().unwrap().len(), 2);
         assert_eq!(packet["sentinel_id"], job.id);
         assert_eq!(packet["transition_id"], "transition_one");
+        assert_eq!(
+            packet["next_steps"],
+            serde_json::json!([
+                format!("inspect: codeterm sentinel history {}", job.id),
+                format!(
+                    "resolve: codeterm sentinel escalation resolve {} transition_one",
+                    job.id
+                )
+            ])
+        );
     }
 
     #[test]
@@ -301,6 +360,7 @@ mod tests {
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
         let notice = StopNotice {
             sentinel_id: "sentinel_budget".into(),
+            name: "budget watch".into(),
             creator_tab_id: creator_tab_id.clone(),
             reason: "transition_budget_exhausted".into(),
         };

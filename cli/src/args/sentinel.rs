@@ -21,9 +21,12 @@ pub enum SentinelAction {
         /// Owner-requested cadence (minimum 10s)
         #[arg(long, default_value = "20s")]
         every: String,
-        /// Inline routes: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop; use --handlers-file for command, respond_prompt and escalation handlers
+        /// Inline routes: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
         #[arg(long = "route", value_parser = parse_route)]
         routes: Vec<String>,
+        /// Route again when this bucket's output changes without changing buckets
+        #[arg(long = "rearm-on-change", value_name = "BUCKET")]
+        rearm_on_change: Vec<String>,
         /// JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`
         #[arg(long, conflicts_with = "routes")]
         handlers_file: Option<std::path::PathBuf>,
@@ -113,7 +116,8 @@ fn parse_observe(value: &str) -> Result<String, String> {
 fn parse_route(value: &str) -> Result<String, String> {
     let value = parse_assignment(value)?;
     let (_, action) = value.split_once('=').ok_or("use bucket=action")?;
-    if action == "notify"
+    if action == "none"
+        || action == "notify"
         || action == "stop"
         || action
             .strip_prefix("send:")
@@ -123,7 +127,10 @@ fn parse_route(value: &str) -> Result<String, String> {
     {
         Ok(value)
     } else {
-        Err("route must be notify, sentinel:<exact-id>, send:<tab>, cron:<name>, or stop".into())
+        Err(
+            "route must be notify, sentinel:<exact-id>, send:<tab>, cron:<name>, stop, or none"
+                .into(),
+        )
     }
 }
 
@@ -155,6 +162,12 @@ mod tests {
             "passed=send:Review",
             "--route",
             "failed=stop",
+            "--route",
+            "pending=none",
+            "--rearm-on-change",
+            "pending",
+            "--rearm-on-change",
+            "failed",
             "--match",
             "passed=^success$",
             "--until",
@@ -170,6 +183,7 @@ mod tests {
                 SentinelAction::Create {
                     buckets,
                     routes,
+                    rearm_on_change,
                     matches,
                     escalation_timeout_ms,
                     ..
@@ -179,7 +193,8 @@ mod tests {
             panic!("wrong command")
         };
         assert_eq!(buckets, ["pending", "passed", "failed"]);
-        assert_eq!(routes.len(), 2);
+        assert_eq!(routes.len(), 3);
+        assert_eq!(rearm_on_change, ["pending", "failed"]);
         assert_eq!(matches, ["passed=^success$"]);
         assert_eq!(escalation_timeout_ms, Some(5000));
         for args in [

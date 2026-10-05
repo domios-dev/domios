@@ -76,6 +76,7 @@ fn insert_with_options(
                 matches: [("waiting".to_string(), ".*".to_string())]
                     .into_iter()
                     .collect(),
+                rearm_on_change: Default::default(),
                 until: None,
                 timeout: escalating.then(|| "1h".into()),
                 paused: false,

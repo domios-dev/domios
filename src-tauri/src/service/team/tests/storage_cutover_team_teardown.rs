@@ -113,6 +113,7 @@ fn team_storage_fixture() -> TeamStorageFixture {
                 matches: [("waiting".to_string(), ".*".to_string())]
                     .into_iter()
                     .collect(),
+                rearm_on_change: Default::default(),
                 until: None,
                 timeout: Some("1h".into()),
                 paused: true,

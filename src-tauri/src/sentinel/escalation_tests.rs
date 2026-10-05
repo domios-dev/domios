@@ -225,6 +225,7 @@ fn sentinel_escalate_resolve_clears_hash_and_re_evaluates_once() {
                 status: Status::Completed,
                 execution_id: None,
                 command_result: None,
+                reason: None,
             })
         },
         |_, _, _| Ok(()),
@@ -469,6 +470,7 @@ fn sentinel_escalate_forbidden_on_other_kinds_fail_create_and_amend() {
         every: "10s".into(),
         routes: BTreeMap::new(),
         matches: job.matches.clone(),
+        rearm_on_change: Default::default(),
         until: None,
         handlers: None,
         on_other: vec![Definition {

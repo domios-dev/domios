@@ -82,6 +82,7 @@ pub(crate) async fn hook_provider_event(
                 "provider idle tab has no PTY status".to_string(),
             ));
         }
+        state.svc.schedule_session_model_refresh_after_stop(&tab_id);
     } else if turn_started && (pty_id.is_none() || !state.svc.mark_agent_turn_started(&tab_id)) {
         return Err((
             StatusCode::CONFLICT,

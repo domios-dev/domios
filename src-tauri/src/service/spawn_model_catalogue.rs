@@ -142,6 +142,7 @@ fn catalogue_model_identity(
     if let Some(model) = resolved {
         return Some(model.id);
     }
+    let requested_leaf = lookup.rsplit('/').next().unwrap_or(lookup.as_str());
     let matches = catalogue
         .iter()
         .filter(|model| model.available != Some(false))
@@ -150,7 +151,7 @@ fn catalogue_model_identity(
                 .id
                 .rsplit('/')
                 .next()
-                .is_some_and(|leaf| leaf.eq_ignore_ascii_case(requested.trim()))
+                .is_some_and(|leaf| leaf.eq_ignore_ascii_case(requested_leaf))
         })
         .collect::<Vec<_>>();
     (matches.len() == 1).then(|| matches[0].id.clone())
@@ -283,15 +284,7 @@ fn model_owners(registry: &AgentRegistry, model_id: &str) -> Vec<String> {
 }
 
 fn provider_lists_model(registry: &AgentRegistry, provider_id: &str, model_id: &str) -> bool {
-    if registry
-        .with_provider(provider_id, |provider| {
-            provider
-                .available_models()
-                .iter()
-                .any(|model| model.id.eq_ignore_ascii_case(model_id))
-        })
-        .unwrap_or(false)
-    {
+    if provider_declares_model(registry, provider_id, model_id) {
         return true;
     }
     crate::agent::model_catalog::resolve_live_models(provider_id).is_some_and(|models| {
@@ -299,6 +292,16 @@ fn provider_lists_model(registry: &AgentRegistry, provider_id: &str, model_id: &
             .iter()
             .any(|model| model.id.eq_ignore_ascii_case(model_id))
     })
+}
+
+fn provider_declares_model(registry: &AgentRegistry, provider_id: &str, model_id: &str) -> bool {
+    registry
+        .with_provider(provider_id, |provider| {
+            provider.available_models().iter().any(|model| {
+                model.available != Some(false) && model.id.eq_ignore_ascii_case(model_id)
+            })
+        })
+        .unwrap_or(false)
 }
 
 fn qualified_provider_model(model: &str, provider_ids: &[String]) -> Option<(String, String)> {
@@ -324,6 +327,11 @@ fn validate_provider_model(
     };
     let requested = normalize_requested_model(provider_id, raw_requested);
     let capability = model_catalogue_capability(registry, provider_id);
+    if capability.authority == ModelCatalogueAuthority::FreeForm
+        && provider_declares_model(registry, provider_id, &requested)
+    {
+        return Ok(());
+    }
     let live = crate::agent::model_catalog::has_live_snapshot(provider_id);
     if capability.authority != ModelCatalogueAuthority::Authoritative && !live {
         return Ok(());

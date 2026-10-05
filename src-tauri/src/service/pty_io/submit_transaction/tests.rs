@@ -789,10 +789,16 @@ fn routed_prefix_body_and_suffix_share_one_write_before_the_submit_key() {
 
     assert_eq!(trace.payload_writes.get(), 1);
     let expected_write = format!("{prefix}{body}{suffix}");
-    assert_eq!(trace.payload.borrow().as_deref(), Some(expected_write.as_str()));
+    assert_eq!(
+        trace.payload.borrow().as_deref(),
+        Some(expected_write.as_str())
+    );
     assert_eq!(trace.submit_key_writes.get(), 1);
     let writes = trace.observations.borrow();
-    let payload = writes.iter().position(|write| write == "write_paste").unwrap();
+    let payload = writes
+        .iter()
+        .position(|write| write == "write_paste")
+        .unwrap();
     let key = writes
         .iter()
         .position(|write| write == "write_submit_key")

@@ -91,11 +91,12 @@ fn parse_screen_option(line: &str, row: usize) -> Option<ScreenOption> {
                 matches!(marker, '☑' | '☒' | '✔'),
             )
         };
+        let label = normalize_option_label(label);
         if label.is_empty() {
             return None;
         }
         return Some(ScreenOption {
-            label: label.to_string(),
+            label,
             value: (row + 1).to_string(),
             line: row,
             checkbox: true,
@@ -106,14 +107,18 @@ fn parse_screen_option(line: &str, row: usize) -> Option<ScreenOption> {
     if number.is_empty() || !number.chars().all(|character| character.is_ascii_digit()) {
         return None;
     }
-    let label = label.trim();
+    let label = normalize_option_label(label);
     (!label.is_empty()).then(|| ScreenOption {
-        label: label.to_string(),
+        label,
         value: number.to_string(),
         line: row,
         checkbox: false,
         selected: false,
     })
+}
+
+fn normalize_option_label(label: &str) -> String {
+    label.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn parse_sections(line: &str) -> Vec<PromptSection> {
@@ -126,7 +131,9 @@ fn parse_sections(line: &str) -> Vec<PromptSection> {
         if !is_checkbox(marker) {
             continue;
         }
-        let start = characters.get(position).map_or(line.len(), |(index, _)| *index);
+        let start = characters
+            .get(position)
+            .map_or(line.len(), |(index, _)| *index);
         let stop = characters[position..]
             .iter()
             .position(|(_, character)| is_checkbox(*character) || *character == '→')
@@ -313,5 +320,19 @@ mod tests {
             ..Default::default()
         };
         assert!(parse_interactive_events(&msg).is_empty());
+    }
+
+    #[test]
+    fn screen_option_labels_collapse_internal_whitespace() {
+        let screen = [
+            "← ☐ Environment ☐ Scope ✔ Submit →",
+            "Which token should be set?",
+            "❯ 1. opaque-alpha      opaque-beta",
+            "  2. opaque-gamma",
+            "Enter to select · Esc to cancel",
+        ]
+        .join("\n");
+        let prompt = parse_screen_prompt(&screen).expect("interactive screen prompt");
+        assert_eq!(prompt.options[0].label, "opaque-alpha opaque-beta");
     }
 }

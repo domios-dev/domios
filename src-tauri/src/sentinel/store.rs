@@ -34,6 +34,8 @@ pub struct Create {
     pub routes: BTreeMap<String, String>,
     #[serde(default)]
     pub matches: BTreeMap<String, String>,
+    #[serde(default)]
+    pub rearm_on_change: BTreeSet<String>,
     pub until: Option<String>,
     pub timeout: Option<String>,
     #[serde(default)]
@@ -63,6 +65,8 @@ pub struct Sentinel {
     pub interval_ms: u64,
     pub routes: BTreeMap<String, Vec<Handler>>,
     pub matches: BTreeMap<String, String>,
+    #[serde(default)]
+    pub rearm_on_change: BTreeSet<String>,
     pub until: Option<String>,
     pub expires_at: Option<u64>,
     pub next_run: u64,
@@ -137,6 +141,7 @@ pub struct Store {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct StopNotice {
     pub(super) sentinel_id: String,
+    pub(super) name: String,
     pub(super) creator_tab_id: String,
     pub(super) reason: String,
 }
@@ -145,6 +150,7 @@ impl StopNotice {
     pub(super) fn new(job: &Sentinel, reason: &str) -> Self {
         Self {
             sentinel_id: job.id.clone(),
+            name: job.name.clone().unwrap_or_else(|| job.id.clone()),
             creator_tab_id: job.creator_tab_id.clone(),
             reason: reason.into(),
         }
@@ -221,6 +227,13 @@ pub(super) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
     let mut ids = std::collections::BTreeSet::new();
     for job in &jobs {
         machine::validate(&job.buckets, &job.matches, true, job.interval_ms)?;
+        if job
+            .rearm_on_change
+            .iter()
+            .any(|bucket| !job.buckets.contains(bucket))
+        {
+            return Err("rearm_on_change must name declared buckets".into());
+        }
         handlers::validate(&job.buckets, &job.routes)?;
         source::validate(job)?;
         escalation::validate(job)?;
@@ -424,6 +437,13 @@ impl Store {
         };
         let interval_ms = duration_ms(&params.every)?;
         machine::validate(&params.buckets, &params.matches, connected, interval_ms)?;
+        if params
+            .rearm_on_change
+            .iter()
+            .any(|bucket| !params.buckets.contains(bucket))
+        {
+            return Err("--rearm-on-change: name a declared bucket".into());
+        }
         if params.question.trim().is_empty() || params.question.len() > 4096 {
             return Err("--question must be nonempty and bounded to 4096 bytes".into());
         }
@@ -483,6 +503,7 @@ impl Store {
             interval_ms,
             routes,
             matches: params.matches,
+            rearm_on_change: params.rearm_on_change,
             until: params.until,
             expires_at,
             next_run: now,
@@ -617,14 +638,7 @@ impl Store {
         let Some(current) = self.get(id).cloned() else {
             return Staged::ready(Err(format!("sentinel not found: {id}")));
         };
-        let notice = (!current.machine.stopped
-            && matches!(
-                reason,
-                "transition_budget_exhausted"
-                    | "action_budget_exhausted"
-                    | "observed_tab_removed"
-            ))
-        .then(|| StopNotice::new(&current, reason));
+        let notice = (!current.machine.stopped).then(|| StopNotice::new(&current, reason));
         if let Some(cancelled) = self.active.remove(id) {
             cancelled.store(true, Ordering::SeqCst);
         }

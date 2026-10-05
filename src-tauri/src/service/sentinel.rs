@@ -502,6 +502,7 @@ mod tests {
             every: "10s".into(),
             routes: Default::default(),
             matches: Default::default(),
+            rearm_on_change: Default::default(),
             until: None,
             timeout: None,
             paused: false,

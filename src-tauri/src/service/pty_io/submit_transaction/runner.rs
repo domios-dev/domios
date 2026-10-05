@@ -272,7 +272,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
                             false
                         }
                     }
-                },
+                }
                 true => false,
             }
         } else {

@@ -21,7 +21,7 @@ pub(crate) use cycle::{
 use cycle::{retire_submit_cycle, CycleWait, SubmitCycle, SubmitCycleSignal};
 use evidence_watcher::watch_session_evidence;
 #[cfg(test)]
-use recovery_guard::{recovery_composer_guard, recovery_session_authorized};
+use recovery_guard::{recovery_dialog_guard, recovery_session_authorized};
 #[cfg(test)]
 use runner::run;
 #[cfg(test)]

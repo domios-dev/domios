@@ -2,6 +2,7 @@
 //! seams with a counting fake effect boundary; no probe, command, agent or model runs.
 
 use std::cell::Cell;
+use std::collections::BTreeSet;
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -395,6 +396,43 @@ fn storage_sentinel_definition_versions_are_independent_of_runtime_state() {
         done(repo.history(id)).value.len(),
         2,
         "operational changes are not versions"
+    );
+    close(storage);
+}
+
+#[test]
+fn storage_sentinel_rearm_configuration_survives_reopen_and_definition_history() {
+    let root = temp_root();
+    let storage = open(root.path());
+    let clock = MockClock::starting_at(1000);
+    let store = typed(&storage, &clock);
+    let mut definition = params(false, json!({}));
+    definition.rearm_on_change.insert("done".into());
+    let job = store
+        .lock()
+        .prepare(definition, owner(None), false)
+        .expect("rearm definition");
+    let id = job.id.clone();
+    commit(&store, |current| current.stage_insert(job)).expect("rearm definition committed");
+    close(storage);
+
+    let storage = open(root.path());
+    let restored = typed(&storage, &clock);
+    assert!(restored
+        .lock()
+        .get(&id)
+        .unwrap()
+        .rearm_on_change
+        .contains("done"));
+    let history = done(
+        storage
+            .sentinels()
+            .history(crate::storage::SentinelId::new(id).expect("sentinel id")),
+    )
+    .value;
+    assert_eq!(
+        history[0].definition.rearm_on_change,
+        BTreeSet::from(["done".into()])
     );
     close(storage);
 }

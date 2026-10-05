@@ -169,6 +169,8 @@ pub(crate) use task_lane_guard::refuse_unsafe_task_bound_mutating_lane;
 #[cfg(test)]
 pub(crate) mod test_fixture;
 #[cfg(test)]
+mod persistence_roundtrip_tests;
+#[cfg(test)]
 mod tests;
 pub mod tokens;
 pub mod transport;
@@ -676,6 +678,7 @@ impl ServiceContext {
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
+            self.schedule_session_persist_debounced();
             self.mux_emit_stats
                 .suppressed
                 .fetch_add(1, Ordering::Relaxed);
@@ -707,6 +710,15 @@ impl ServiceContext {
                     &pending,
                     std::time::Duration::from_millis(50),
                 );
+                if let Err(error) =
+                    crate::service::session_persist::submit_session_snapshot_with_intent(
+                        &handle,
+                        &mux,
+                        crate::session::store::SaveIntent::PreserveDesk,
+                    )
+                {
+                    log::warn!("[session-persist] coalesced desk submission failed: {error}");
+                }
                 stats.pending_since_ms.store(0, Ordering::Relaxed);
                 if !stats.frozen.load(Ordering::Acquire) {
                     stats.fires.fetch_add(1, Ordering::Relaxed);
@@ -726,6 +738,7 @@ impl ServiceContext {
     pub(crate) fn emit_mux_state_changed_empty(&self) {
         self.output_stream_mux_changed();
         self.mux_emit_stats.requests.fetch_add(1, Ordering::Relaxed);
+        self.schedule_session_persist_debounced();
         #[cfg(debug_assertions)]
         if self.mux_emit_stats.frozen.load(Ordering::Acquire) {
             self.mux_emit_stats
