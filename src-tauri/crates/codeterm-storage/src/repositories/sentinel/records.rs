@@ -11,7 +11,7 @@ pub const MAX_SENTINEL_LINEAGE: usize = 16;
 pub const OTHER_BUCKET: &str = "other";
 const MAX_BUCKETS: usize = 64;
 const MAX_HANDLERS_PER_BUCKET: usize = 64;
-const MAX_TRANSITIONS: usize = 1024;
+pub(super) const MAX_TRANSITIONS: usize = 65_536;
 const MAX_RESULTS: usize = 64;
 const MAX_CLEANUP: usize = 16;
 const MAX_ID_BYTES: usize = 256;
@@ -202,6 +202,7 @@ pub struct StageRuntime {
     /// The `other` transition whose escalation holds the stage.
     pub held: Option<String>,
     pub run: Option<RunRecord>,
+    pub run_transitions: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -324,6 +325,7 @@ pub struct RuntimeOutcome {
     pub stopped: bool,
     pub last_reason: Option<String>,
     pub held: Option<String>,
+    pub run_transitions: u16,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -679,6 +681,12 @@ impl StageRuntime {
         optional_text("runtime bucket", &self.last_bucket)?;
         optional_text("runtime reason", &self.last_reason)?;
         optional_identifier("held transition", &self.held)?;
+        if self.run_transitions > 256 {
+            return Err(StorageError::invalid(
+                "run transition count",
+                "exceeds the per-run transition limit",
+            ));
+        }
         if let Some(run) = &self.run {
             identifier("run id", &run.run_id)?;
             identifier("run tab", &run.tab_id)?;
@@ -807,7 +815,14 @@ impl RuntimeOutcome {
         optional_text("runtime hash", &self.last_hash)?;
         optional_text("runtime bucket", &self.last_bucket)?;
         optional_text("runtime reason", &self.last_reason)?;
-        optional_identifier("held transition", &self.held)
+        optional_identifier("held transition", &self.held)?;
+        if self.run_transitions > 256 {
+            return Err(StorageError::invalid(
+                "run transition count",
+                "exceeds the per-run transition limit",
+            ));
+        }
+        Ok(())
     }
 
     pub(super) fn cost(&self) -> usize {
@@ -840,6 +855,7 @@ impl SentinelCreate {
         self.identity.validate()?;
         self.definition.validate()?;
         self.runtime.validate()?;
+        validate_run_transition_count(&self.definition, &self.runtime)?;
         count(
             "scenario associations",
             self.associate.len(),
@@ -865,6 +881,7 @@ impl SentinelImport {
         self.identity.validate()?;
         self.definition.validate()?;
         self.runtime.validate()?;
+        validate_run_transition_count(&self.definition, &self.runtime)?;
         integer("definition version", self.version)?;
         match &self.amendment {
             Some(amendment) => {
@@ -916,6 +933,25 @@ impl SentinelImport {
                 .map(TransitionRecord::cost)
                 .sum::<usize>()
     }
+}
+
+fn validate_run_transition_count(
+    definition: &StageDefinition,
+    runtime: &StageRuntime,
+) -> Result<(), StorageError> {
+    let cron_run = definition
+        .observe
+        .as_ref()
+        .is_some_and(|source| source.kind == ObserveKind::CronRun);
+    if runtime.run_transitions > definition.max_transitions
+        || (runtime.run_transitions > 0 && (!cron_run || runtime.run.is_none()))
+    {
+        return Err(StorageError::invalid(
+            "run transition count",
+            "does not match the active CronRun allowance",
+        ));
+    }
+    Ok(())
 }
 
 impl ScheduleUpdate {

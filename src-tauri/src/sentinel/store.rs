@@ -14,6 +14,7 @@ use crate::cron::clock::SharedClock;
 
 pub(super) const MAX_SENTINELS: usize = 256;
 pub(super) const MAX_ACTIVE: usize = 64;
+pub(super) const MAX_LIFETIME_TRANSITIONS: usize = 65_536;
 
 pub(super) type ScopeKey = (String, Option<String>);
 
@@ -81,6 +82,8 @@ pub struct Sentinel {
     pub max_actions: u16,
     #[serde(default)]
     pub transitions: Vec<Transition>,
+    #[serde(default)]
+    pub run_transitions: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observe: Option<TabBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -128,6 +131,24 @@ pub struct Store {
     pub(super) admission_closed: bool,
     pub(super) committed_revisions: BTreeMap<ScopeKey, String>,
     pub(super) changes: BTreeMap<ScopeKey, String>,
+    pub(super) pending_stop_notices: Vec<StopNotice>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct StopNotice {
+    pub(super) sentinel_id: String,
+    pub(super) creator_tab_id: String,
+    pub(super) reason: String,
+}
+
+impl StopNotice {
+    pub(super) fn new(job: &Sentinel, reason: &str) -> Self {
+        Self {
+            sentinel_id: job.id.clone(),
+            creator_tab_id: job.creator_tab_id.clone(),
+            reason: reason.into(),
+        }
+    }
 }
 
 /// Operational scheduling changes staged by `due`; never authored definition versions.
@@ -208,7 +229,10 @@ pub(super) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
             || job.max_transitions > 256
             || job.max_actions == 0
             || job.max_actions > 1024
-            || job.transitions.len() > usize::from(job.max_transitions)
+            || job.transitions.len() > MAX_LIFETIME_TRANSITIONS
+            || job.run_transitions > job.max_transitions
+            || (!matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
+                && job.transitions.len() > usize::from(job.max_transitions))
             || job
                 .transitions
                 .iter()
@@ -343,6 +367,10 @@ impl Store {
         std::mem::take(&mut self.changes).into_iter().map(|((workspace_id,team_id),revision)| serde_json::json!({"workspace_id":workspace_id,"team_id":team_id,"revision":revision})).collect()
     }
 
+    pub(super) fn take_stop_notices(&mut self) -> Vec<StopNotice> {
+        std::mem::take(&mut self.pending_stop_notices)
+    }
+
     pub fn ensure_available(&self) -> Result<(), String> {
         if let Some(failure) = self.unavailable {
             return Err(failure.message());
@@ -471,6 +499,7 @@ impl Store {
             max_transitions,
             max_actions,
             transitions: Vec::new(),
+            run_transitions: 0,
             observe,
             run: None,
             on_other,
@@ -586,19 +615,35 @@ impl Store {
     }
 
     pub(crate) fn stage_stop(&mut self, id: &str, reason: &str) -> Staged<Sentinel> {
-        if self.get(id).is_none() {
+        let Some(current) = self.get(id).cloned() else {
             return Staged::ready(Err(format!("sentinel not found: {id}")));
-        }
+        };
+        let notice = (!current.machine.stopped
+            && matches!(
+                reason,
+                "transition_budget_exhausted"
+                    | "action_budget_exhausted"
+                    | "observed_tab_removed"
+            ))
+        .then(|| StopNotice::new(&current, reason));
         if let Some(cancelled) = self.active.remove(id) {
             cancelled.store(true, Ordering::SeqCst);
         }
         if !self.backend.is_json() {
-            return self.sqlite_stop(id, reason);
+            return self.sqlite_stop(id, reason, notice);
         }
         let Some(stopped) = self.apply_stop(id, reason) else {
             return Staged::ready(Err(format!("sentinel not found: {id}")));
         };
-        Staged::ready(self.save_legacy().map(|()| stopped))
+        match self.save_legacy() {
+            Ok(()) => {
+                if let Some(notice) = notice {
+                    self.pending_stop_notices.push(notice);
+                }
+                Staged::ready(Ok(stopped))
+            }
+            Err(error) => Staged::ready(Err(error)),
+        }
     }
 
     /// The in-memory stop; callers cancel the live lease themselves.
@@ -658,7 +703,8 @@ impl Store {
             let mut planned = self.jobs.clone();
             let (due, changes, consumed_wakes) =
                 plan_due(&mut planned, &mut self.active, &mut self.wake_pending, now);
-            return self.sqlite_due(due, changes, consumed_wakes);
+            let notices = scheduled_stop_notices(&planned, &changes);
+            return self.sqlite_due(due, changes, consumed_wakes, notices);
         }
         let previous = self.jobs.clone();
         let previous_wakes = self.wake_pending.clone();
@@ -679,6 +725,8 @@ impl Store {
                 return Staged::ready(Err(error));
             }
         }
+        self.pending_stop_notices
+            .extend(scheduled_stop_notices(&self.jobs, &changes));
         Staged::ready(Ok(due))
     }
 
@@ -1037,7 +1085,21 @@ fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Trans
     current.machine.stopped = job.machine.stopped;
     current.machine.held = job.machine.held.clone();
     current.last_reason = job.last_reason.clone();
+    current.run_transitions = job.run_transitions;
     current.transitions.extend(transition);
+}
+
+fn scheduled_stop_notices(jobs: &[Sentinel], changes: &[ScheduleChange]) -> Vec<StopNotice> {
+    changes
+        .iter()
+        .filter_map(|change| match change {
+            ScheduleChange::Stop { id, reason } => jobs
+                .iter()
+                .find(|job| job.id == *id)
+                .map(|job| StopNotice::new(job, reason)),
+            ScheduleChange::Advance { .. } => None,
+        })
+        .collect()
 }
 
 /// Expiry and budget stops, then due leases; registers each lease's ephemeral cancellation.
@@ -1071,7 +1133,7 @@ fn plan_due(
         if job.machine.held.is_some() {
             continue;
         }
-        let transitions_spent = job.transitions.len() >= usize::from(job.max_transitions);
+        let transitions_spent = transition_budget_spent(job);
         if !active.contains_key(&job.id)
             && (transitions_spent
                 || job
@@ -1129,4 +1191,15 @@ fn plan_due(
         }
     }
     (due, changes, consumed_wakes)
+}
+
+pub(super) fn transition_budget_spent(job: &Sentinel) -> bool {
+    if job.transitions.len() >= MAX_LIFETIME_TRANSITIONS {
+        return true;
+    }
+    if matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_))) {
+        job.run.is_some() && job.run_transitions >= job.max_transitions
+    } else {
+        job.transitions.len() >= usize::from(job.max_transitions)
+    }
 }

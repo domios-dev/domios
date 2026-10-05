@@ -174,6 +174,10 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
                 expire_escalations(&store, &svc);
                 match storage::commit(&store, Store::stage_due) {
                     Ok(leases) => {
+                        let notices = store.lock().take_stop_notices();
+                        for notice in notices {
+                            routes::notify_stop(&svc, &notice);
+                        }
                         for lease in leases {
                             let Some(owner) = probe_owner.upgrade() else {
                                 return;
@@ -433,8 +437,21 @@ fn record_failure(
     failure: &probe::process::ProbeFailure,
 ) {
     let mut job = lease.job.clone();
-    job.last_reason = Some(failure.reason());
-    if storage::commit(&handle.store, |store| store.stage_finish(&job)).unwrap_or(false) {
+    let removed_tab = failure.reason() == "sentinel_observation_tab_removed";
+    job.last_reason = Some(if removed_tab {
+        "observed_tab_removed".into()
+    } else {
+        failure.reason()
+    });
+    let recorded = if removed_tab {
+        storage::commit(&handle.store, |store| {
+            store.stage_stop(&job.id, "observed_tab_removed")
+        })
+        .map(|_| true)
+    } else {
+        storage::commit(&handle.store, |store| store.stage_finish(&job))
+    };
+    if recorded.unwrap_or(false) {
         let _ = journal(
             svc,
             &job,
@@ -587,25 +604,13 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         &output,
         || classify::classify(svc, &lease.job, &output.text, remaining),
         |job, transition, handler| {
-            let staged = {
-                let mux = svc.mux.read();
-                let live = mux
-                    .get_tab(&job.creator_tab_id)
-                    .is_some_and(|tab| tab.team_id == job.team_id)
-                    && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref()
-                        == Some(&job.workspace_id)
-                    && job
-                        .team_id
-                        .as_ref()
-                        .is_none_or(|id| mux.get_team(id).is_some());
-                if !live {
-                    return Ok(None);
-                }
-                handle
-                    .store
-                    .lock()
-                    .stage_claim_handler(job, transition, handler)
-            };
+            if !routes::creator_live(svc, job) {
+                return Ok(None);
+            }
+            let staged = handle
+                .store
+                .lock()
+                .stage_claim_handler(job, transition, handler);
             staged.settle(&handle.store)
         },
         |job, transition, handler, verdict| {
@@ -621,22 +626,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
             }
             match &handler.action {
                 machine::Route::Sentinel(target) => {
-                    let staged = {
-                        let mux = svc.mux.read();
-                        let live = mux
-                            .get_tab(&job.creator_tab_id)
-                            .is_some_and(|tab| tab.team_id == job.team_id)
-                            && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref()
-                                == Some(&job.workspace_id)
-                            && job
-                                .team_id
-                                .as_ref()
-                                .is_none_or(|id| mux.get_team(id).is_some());
-                        if !live {
-                            return Err("sentinel creator or Team is gone".into());
-                        }
-                        handle.store.lock().stage_activate(job, transition, target)
-                    };
+                    let staged = handle.store.lock().stage_activate(job, transition, target);
                     let changed = staged.settle(&handle.store)?;
                     if changed {
                         handle.notify();

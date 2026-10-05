@@ -138,7 +138,13 @@ pub(super) fn process_pending(svc: &ServiceContext, handle: &super::scheduler::H
         if job.observe != Some(TabBinding::CronRun(binding.cron_id.clone()))
             || job.team_id != cron.team_id
             || job.workspace_id != cron.workspace_id
-            || source::validate_tab_scope(&svc.mux.read(), &job, &binding.tab_id).is_err()
+            || source::validate_pending_cron_run_scope(
+                &svc.mux.read(),
+                &job,
+                &binding.cron_id,
+                &binding.tab_id,
+            )
+            .is_err()
         {
             continue;
         }
@@ -275,10 +281,19 @@ pub(super) fn reconcile_runs(svc: &ServiceContext, handle: &super::scheduler::Ha
         stale
     };
     for (job, cron_id, run, reason) in stale {
-        if let Err(error) = super::storage::commit(&handle.store, |store| {
+        match super::storage::commit(&handle.store, |store| {
             store.stage_unbind_run(&job.id, &run, reason)
         }) {
-            log::error!("[sentinel] cron run unbinding failed: {error}; cron={cron_id}");
+            Ok(outcome) if outcome.changed && reason == "tab_gone" => {
+                super::routes::notify_run_unbound(
+                    svc,
+                    &super::store::StopNotice::new(&job, reason),
+                );
+            }
+            Ok(_) => {}
+            Err(error) => {
+                log::error!("[sentinel] cron run unbinding failed: {error}; cron={cron_id}");
+            }
         }
     }
 }
@@ -457,6 +472,7 @@ fn reset_for_binding(
     reason: Option<String>,
 ) {
     job.run = run;
+    job.run_transitions = 0;
     job.revision = revision;
     job.next_run = now;
     job.machine.last_hash = None;

@@ -12,6 +12,20 @@ use std::future::Future;
 use std::sync::Arc;
 use tauri::Manager;
 
+pub(crate) fn cron_fired_payload(cron_id: &str, run_id: &str, tab_id: &str) -> serde_json::Value {
+    serde_json::json!({"cron_id": cron_id, "run_id": run_id, "tab_id": tab_id})
+}
+
+pub(crate) fn emit_cron_fired(
+    app: &tauri::AppHandle,
+    cron_id: &str,
+    run_id: &str,
+    tab_id: &str,
+) {
+    use tauri::Emitter;
+    let _ = app.emit("cron-fired", cron_fired_payload(cron_id, run_id, tab_id));
+}
+
 fn cron_report_delivery_label(result: Result<(), String>) -> String {
     match result {
         Ok(()) => "delivered".to_string(),
@@ -717,6 +731,7 @@ impl ServiceContext {
 
         if let Some(tab_id) = run_info.tab_id.as_deref() {
             self.sync_cron_owner_prompt_state(tab_id);
+            emit_cron_fired(&self.app_handle, id, &run_id, tab_id);
         }
         self.emit_cron_changed();
         Ok(run_info)

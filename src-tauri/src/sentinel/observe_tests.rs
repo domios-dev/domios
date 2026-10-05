@@ -108,6 +108,169 @@ fn sentinel_observe_source_requires_agent_in_creator_team_workspace() {
 }
 
 #[test]
+fn sentinel_direct_observation_survives_creator_joining_a_team() {
+    let (mut mux, creator) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&creator).unwrap();
+    mux.get_tab_mut(&creator).unwrap().agent_type = Some("fixture-provider".into());
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::new(
+        temp.path().join("sentinels.json"),
+        crate::cron::clock::MockClock::starting_at(1_000),
+    );
+    let job = store
+        .prepare(
+            Create {
+                name: None,
+                probe: None,
+                observe: Some(TabBinding::Tab(creator.clone())),
+                question: "state?".into(),
+                buckets: vec!["waiting".into()],
+                every: "10s".into(),
+                routes: BTreeMap::new(),
+                matches: BTreeMap::new(),
+                until: None,
+                timeout: None,
+                paused: false,
+                handlers: None,
+                escalation_timeout_ms: None,
+                max_transitions: None,
+                max_actions: None,
+            },
+            Owner {
+                creator_tab_id: creator.clone(),
+                team_id: None,
+                workspace_id: workspace,
+                cwd: ".".into(),
+            },
+            true,
+        )
+        .unwrap();
+    assert!(validate_tab_scope(&mux, &job, &creator).is_ok());
+    mux.get_tab_mut(&creator).unwrap().team_id = Some("formed-team".into());
+    assert!(validate_tab_scope(&mux, &job, &creator).is_ok());
+}
+
+#[test]
+fn sentinel_removed_observation_tab_stops_with_one_creator_notice() {
+    let (mux, creator) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&creator).unwrap();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let temp = tempfile::tempdir().unwrap();
+    let mut store = Store::new(
+        temp.path().join("sentinels.json"),
+        crate::cron::clock::MockClock::starting_at(1_000),
+    );
+    let job = store
+        .create(
+            Create {
+                name: None,
+                probe: None,
+                observe: Some(TabBinding::Tab("removed-tab".into())),
+                question: "state?".into(),
+                buckets: vec!["waiting".into()],
+                every: "10s".into(),
+                routes: BTreeMap::new(),
+                matches: BTreeMap::new(),
+                until: None,
+                timeout: None,
+                paused: false,
+                handlers: None,
+                escalation_timeout_ms: None,
+                max_transitions: None,
+                max_actions: None,
+            },
+            Owner {
+                creator_tab_id: creator.clone(),
+                team_id: None,
+                workspace_id: workspace,
+                cwd: ".".into(),
+            },
+            true,
+        )
+        .unwrap();
+
+    let binding = job.observe.as_ref().unwrap();
+    let failure = super::observe(&fixture.service, &job, binding).unwrap_err();
+    assert_eq!(failure.reason(), "sentinel_observation_tab_removed");
+
+    let store = std::sync::Arc::new(parking_lot::Mutex::new(store));
+    crate::sentinel::storage::commit(&store, |store| {
+        store.stage_stop(&job.id, "observed_tab_removed")
+    })
+    .unwrap();
+    let notices = store.lock().take_stop_notices();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].creator_tab_id, creator);
+    assert_eq!(notices[0].reason, "observed_tab_removed");
+}
+
+#[test]
+fn sentinel_cron_run_scope_accepts_only_its_verified_hidden_automation_tab() {
+    let (mut mux, creator) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&creator).unwrap();
+    let run_tab = mux.create_tab(&workspace).unwrap();
+    let tab = mux.get_tab_mut(&run_tab).unwrap();
+    tab.agent_type = Some("fixture-provider".into());
+    tab.audience = crate::multiplexer::types::TabAudience::UserOwnedAutomation;
+    tab.hidden = true;
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::new(
+        temp.path().join("sentinels.json"),
+        crate::cron::clock::MockClock::starting_at(1_000),
+    );
+    let mut job = store
+        .prepare(
+            Create {
+                name: None,
+                probe: None,
+                observe: Some(TabBinding::CronRun("cron-nightly".into())),
+                question: "run state?".into(),
+                buckets: vec!["waiting".into()],
+                every: "10s".into(),
+                routes: BTreeMap::new(),
+                matches: BTreeMap::new(),
+                until: None,
+                timeout: None,
+                paused: false,
+                handlers: None,
+                escalation_timeout_ms: None,
+                max_transitions: None,
+                max_actions: None,
+            },
+            Owner {
+                creator_tab_id: creator,
+                team_id: Some("creator-team".into()),
+                workspace_id: workspace.clone(),
+                cwd: ".".into(),
+            },
+            true,
+        )
+        .unwrap();
+    job.run = Some(RunBinding {
+        run_id: "run-current".into(),
+        tab_id: run_tab.clone(),
+        bound_at: 1_000,
+    });
+
+    assert!(validate_pending_cron_run_scope(
+        &mux,
+        &job,
+        "cron-nightly",
+        &run_tab
+    )
+    .is_ok());
+    assert!(validate_tab_scope(&mux, &job, &run_tab).is_ok());
+    assert!(validate_pending_cron_run_scope(&mux, &job, "cron-other", &run_tab).is_err());
+
+    let unbound_automation = mux.create_tab(&workspace).unwrap();
+    let tab = mux.get_tab_mut(&unbound_automation).unwrap();
+    tab.agent_type = Some("fixture-provider".into());
+    tab.audience = crate::multiplexer::types::TabAudience::UserOwnedAutomation;
+    tab.hidden = true;
+    assert!(validate_tab_scope(&mux, &job, &unbound_automation).is_err());
+}
+
+#[test]
 fn sentinel_observe_unchanged_tab_observation_makes_no_second_classify_call() {
     let value = build_observation(
         Some(&fixture_prompt()),

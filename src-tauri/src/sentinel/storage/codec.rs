@@ -420,6 +420,7 @@ fn runtime(job: &Sentinel) -> StageRuntime {
             tab_id: run.tab_id.clone(),
             bound_at: run.bound_at,
         }),
+        run_transitions: job.run_transitions,
     }
 }
 
@@ -488,6 +489,7 @@ pub(super) fn outcome(job: &Sentinel) -> RuntimeOutcome {
         stopped: job.machine.stopped,
         last_reason: job.last_reason.clone(),
         held: job.machine.held.clone(),
+        run_transitions: job.run_transitions,
     }
 }
 
@@ -540,6 +542,7 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
             held: runtime.held,
         },
         last_reason: runtime.last_reason,
+        run_transitions: runtime.run_transitions,
         revision: runtime.generation,
         agent_authored: record.identity.agent_authored,
         name: definition.name,
