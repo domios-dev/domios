@@ -355,7 +355,8 @@ fn disabled_resume_uses_a_fresh_command_and_keeps_session_binding_history() {
     .expect("disabled resume claims a fresh launch");
     let input = restored_snapshot_launch_input(&registry, launch.clone(), None, None);
     let command = restored_snapshot_launch_command(&registry, &tab_id, "snapshot-marked", &input);
-    let tab = mux.read().get_tab(&tab_id).unwrap();
+    let guard = mux.read();
+    let tab = guard.get_tab(&tab_id).unwrap();
 
     assert_eq!(launch.session_id, None);
     assert!(!command.contains("--resume"));
