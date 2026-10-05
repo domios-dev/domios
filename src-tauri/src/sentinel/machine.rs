@@ -327,6 +327,16 @@ pub fn evaluate_with_other(
 }
 
 pub fn regex_verdict(patterns: &BTreeMap<String, String>, output: &str) -> Verdict {
+    regex_verdict_if_matched(patterns, output).unwrap_or_else(|| Verdict {
+        bucket: "other".into(),
+        confidence: 0.0,
+    })
+}
+
+pub fn regex_verdict_if_matched(
+    patterns: &BTreeMap<String, String>,
+    output: &str,
+) -> Option<Verdict> {
     let matches: Vec<_> = patterns
         .iter()
         .filter_map(|(bucket, pattern)| {
@@ -336,15 +346,18 @@ pub fn regex_verdict(patterns: &BTreeMap<String, String>, output: &str) -> Verdi
                 .map(|_| bucket.clone())
         })
         .collect();
+    if matches.is_empty() {
+        return None;
+    }
     if matches.len() == 1 {
-        Verdict {
+        Some(Verdict {
             bucket: matches[0].clone(),
             confidence: 1.0,
-        }
+        })
     } else {
-        Verdict {
+        Some(Verdict {
             bucket: "other".into(),
             confidence: 0.0,
-        }
+        })
     }
 }

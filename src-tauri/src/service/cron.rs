@@ -837,8 +837,9 @@ impl ServiceContext {
         if let Some(reason) = store.unavailable_reason() {
             return Err(format!("cron storage unavailable: {reason}"));
         }
-        let history = store.get_history(id);
-        if history.is_empty() && store.get(id).is_none() {
+        let job_id = resolve_cron_id_or_name(&store, id)?;
+        let history = store.get_history(job_id);
+        if history.is_empty() && store.get(job_id).is_none() {
             return Err(format!("Cron job not found: {id}"));
         }
         Ok(history.into_iter().cloned().collect())
@@ -850,6 +851,23 @@ impl ServiceContext {
             crate::api::events::emit_everywhere(&handle, "cron-run-finished", ());
         });
     }
+}
+
+fn resolve_cron_id_or_name<'a>(store: &'a CronStore, id_or_name: &str) -> Result<&'a str, String> {
+    if let Some(job) = store.get(id_or_name) {
+        return Ok(&job.id);
+    }
+    if !store.get_history(id_or_name).is_empty() {
+        return Ok(id_or_name);
+    }
+    let mut matches = store.list().iter().filter(|job| job.name == id_or_name);
+    let Some(job) = matches.next() else {
+        return Err(format!("Cron job not found: {id_or_name}"));
+    };
+    if matches.next().is_some() {
+        return Err(format!("Cron job name is ambiguous: {id_or_name}"));
+    }
+    Ok(&job.id)
 }
 
 fn dispatch_after_trigger_record<T>(
