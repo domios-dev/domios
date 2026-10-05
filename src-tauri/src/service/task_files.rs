@@ -21,6 +21,10 @@ pub(crate) fn capture<T>(
 }
 
 pub(crate) fn release_tab(service: &ServiceContext, tab_id: &str) -> Vec<PathBuf> {
+    // Live-tab cleanup can race another launch's task-file read.
+    if service.mux.read().get_tab(tab_id).is_some() {
+        return Vec::new();
+    }
     let paths = service
         .launch_task_files
         .lock()
@@ -124,6 +128,36 @@ mod tests {
             .close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback)
             .expect("roll back failed launch");
         assert!(!path.exists());
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+    )]
+    fn active_launch_cleanup_preserves_task_files_until_tab_close() {
+        let (fixture, tab_id, first) = fixture_with_task_file();
+        let root = fixture
+            .service
+            .agent_pad_data_dir
+            .join("runtime")
+            .join("task-files");
+        let marker =
+            codeterm_util::task_files::instance_marker_for(&fixture.service.agent_pad_data_dir);
+        let second = capture(&fixture.service, &tab_id, || {
+            codeterm_util::task_files::write_at(
+                &root,
+                &marker,
+                &tab_id,
+                "concurrent launch payload",
+                Some(".ct-task.md"),
+            )
+            .expect("write concurrent launch task file")
+        });
+
+        assert!(release_tab(&fixture.service, &tab_id).is_empty());
+        assert!(first.exists());
+        assert!(second.exists());
     }
 
     #[test]

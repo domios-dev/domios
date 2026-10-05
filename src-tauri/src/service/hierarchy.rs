@@ -449,7 +449,9 @@ impl ServiceContext {
             )?;
             if matches!(
                 authority,
-                PlanOnlyReportAuthority::EvidenceReporter(_) | PlanOnlyReportAuthority::PlanOwner
+                PlanOnlyReportAuthority::EvidenceReporter(_)
+                    | PlanOnlyReportAuthority::PlanOwner
+                    | PlanOnlyReportAuthority::ParentMessage
             ) {
                 if details.status.is_some() {
                     return Err("PLAN EVIDENCE AUTHORITY REFUSED: a task-less plan evidence report cannot carry --status or transition any task".to_string().into());
@@ -468,27 +470,40 @@ impl ServiceContext {
 
         let mut notices: Vec<String> = Vec::new();
         let mut binding_refused = false;
-        let (eff_plan_id, eff_task_id) =
-            match resolve_plan_ctx(&self.plan_store, tab_id, plan_id, task_id, &mut notices) {
-                Ok(context) => context,
-                Err(cause) => {
-                    binding_refused = true;
-                    report_outcome = Some(ReportOutcomeClass::StaleBindingConflict);
-                    task_transition_refusal = Some(match task_transition_refusal {
-                        Some(existing) => format!("{existing}\n{cause}"),
-                        None => cause,
-                    });
-                    let fallback_plan = plan_id
-                        .map(str::trim)
-                        .filter(|id| !id.is_empty() && self.plan_store.owner_of(id).is_some())
-                        .map(str::to_string);
-                    let fallback_task = task_id
-                        .map(str::trim)
-                        .filter(|id| !id.is_empty())
-                        .map(str::to_string);
-                    (fallback_plan, fallback_task)
-                }
-            };
+        let report_plan_hint = if matches!(
+            plan_only_authority,
+            Some(PlanOnlyReportAuthority::ParentMessage)
+        ) {
+            None
+        } else {
+            plan_id
+        };
+        let (eff_plan_id, eff_task_id) = match resolve_plan_ctx(
+            &self.plan_store,
+            tab_id,
+            report_plan_hint,
+            task_id,
+            &mut notices,
+        ) {
+            Ok(context) => context,
+            Err(cause) => {
+                binding_refused = true;
+                report_outcome = Some(ReportOutcomeClass::StaleBindingConflict);
+                task_transition_refusal = Some(match task_transition_refusal {
+                    Some(existing) => format!("{existing}\n{cause}"),
+                    None => cause,
+                });
+                let fallback_plan = plan_id
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty() && self.plan_store.owner_of(id).is_some())
+                    .map(str::to_string);
+                let fallback_task = task_id
+                    .map(str::trim)
+                    .filter(|id| !id.is_empty())
+                    .map(str::to_string);
+                (fallback_plan, fallback_task)
+            }
+        };
         let mut persisted_task = None;
         let mut rejected_task_transition =
             task_transition_refusal.map(|cause| RejectedTaskTransition {
@@ -560,7 +575,10 @@ impl ServiceContext {
             .into());
         }
 
-        let foreign = is_explicit_plan_foreign(plan_id, eff_plan_id.as_deref());
+        let foreign = !matches!(
+            plan_only_authority,
+            Some(PlanOnlyReportAuthority::ParentMessage)
+        ) && is_explicit_plan_foreign(plan_id, eff_plan_id.as_deref());
         let homed_to_remote = if eff_plan_id.is_none() || foreign {
             let h_plan = plan_id.map(str::trim).filter(|s| !s.is_empty());
             let h_task = task_id.map(str::trim).filter(|s| !s.is_empty());

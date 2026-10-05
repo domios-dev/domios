@@ -8,7 +8,7 @@
 
 use crate::agent::reports::ReportDetails;
 use crate::multiplexer::state::MultiplexerState;
-use crate::multiplexer::types::Tab;
+use crate::multiplexer::types::{AgentRole, Tab};
 use crate::plan::{PlanEvidenceClass, PlannerRef, Task};
 use crate::service::plan::PlanStore;
 
@@ -32,6 +32,7 @@ pub(crate) enum PlanOnlyReportAuthority {
     Planner,
     PlanOwner,
     EvidenceReporter(PlanEvidenceClass),
+    ParentMessage,
 }
 
 /// Names what did NOT happen, so a caller cannot read the failure as a delivery
@@ -268,6 +269,14 @@ pub(crate) fn classify_plan_only_report_authority(
     }
     if current_owner == tab_id && owner.agent_session_id.as_deref() == supplied_session {
         return Ok(PlanOnlyReportAuthority::PlanOwner);
+    }
+    if tab.role == Some(AgentRole::Worker)
+        && tab.parent_tab_id.as_deref() == Some(current_owner)
+        && plan.team_id.as_deref().is_some_and(|team_id| {
+            owner.team_id.as_deref() == Some(team_id) && tab.team_id.as_deref() == Some(team_id)
+        })
+    {
+        return Ok(PlanOnlyReportAuthority::ParentMessage);
     }
     let grant = plan
         .evidence_reporters
