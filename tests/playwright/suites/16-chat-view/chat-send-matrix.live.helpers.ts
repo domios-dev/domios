@@ -508,56 +508,62 @@ export async function captureProviderEvidence(api: ApiClient, metrics: ProviderM
   const tabIds = [...new Set(metrics.records.map((record) => record.tabId))];
   for (const tabId of tabIds) {
     const records = metrics.records.filter((record) => record.tabId === tabId);
-    try {
-      const snapshot = await readChat(api, tabId);
-      const users = userMessages(snapshot);
-      for (const record of records) {
-        record.sessionBound = !snapshot.pending;
-        record.markerCount = users.reduce(
-          (count, message) => count + message.content.split(record.bubbleMarker).length - 1,
-          0,
-        );
-        record.receivedInSession = record.sessionBound && record.markerCount === 1;
-        if (record.receiptText !== undefined) {
-          record.receiptCount = users.filter((message) => message.content === record.receiptText).length;
+    const unreceived = records.filter((record) => record.receivedInSession !== true);
+    if (unreceived.length > 0) {
+      try {
+        const snapshot = await readChat(api, tabId);
+        const users = userMessages(snapshot);
+        for (const record of unreceived) {
+          record.sessionBound = !snapshot.pending;
+          record.markerCount = users.reduce(
+            (count, message) => count + message.content.split(record.bubbleMarker).length - 1,
+            0,
+          );
+          record.receivedInSession = record.sessionBound && record.markerCount === 1;
+          if (record.receiptText !== undefined) {
+            record.receiptCount = users.filter((message) => message.content === record.receiptText).length;
+          }
         }
+      } catch (error) {
+        metrics.errors ??= [];
+        metrics.errors.push(`session evidence for tab ${tabId}: ${error instanceof Error ? error.message : String(error)}`);
+        for (const record of unreceived) record.receivedInSession ??= false;
       }
-    } catch (error) {
-      metrics.errors ??= [];
-      metrics.errors.push(`session evidence for tab ${tabId}: ${error instanceof Error ? error.message : String(error)}`);
-      for (const record of records) record.receivedInSession ??= false;
     }
 
-    try {
-      const statuses = await api.get<ChatSendStatus[]>(`/tabs/${encodeURIComponent(tabId)}/chat-send`);
-      const unmatched = [...statuses];
-      for (const record of records) {
-        const statusIndex = unmatched.findIndex(
-          (candidate) =>
-            (record.sequence !== undefined && candidate.sequence === record.sequence) ||
-            (record.sendId !== undefined && candidate.send_id === record.sendId) ||
-            (record.sequence === undefined &&
-              candidate.sequence > (record.sequenceFloor ?? 0) &&
-              candidate.sequence === Math.min(
-                ...unmatched
-                  .filter((item) => item.sequence > (record.sequenceFloor ?? 0))
-                  .map((item) => item.sequence),
-              )),
-        );
-        const status = statusIndex >= 0 ? unmatched.splice(statusIndex, 1)[0] : undefined;
-        if (!status) {
-          record.confirmedStatus ??= false;
-          continue;
+    const unconfirmed = records.filter((record) => record.confirmedStatus !== true);
+    if (unconfirmed.length > 0) {
+      try {
+        const statuses = await api.get<ChatSendStatus[]>(`/tabs/${encodeURIComponent(tabId)}/chat-send`);
+        const unmatched = [...statuses];
+        for (const record of unconfirmed) {
+          const statusIndex = unmatched.findIndex(
+            (candidate) =>
+              (record.sequence !== undefined && candidate.sequence === record.sequence) ||
+              (record.sendId !== undefined && candidate.send_id === record.sendId) ||
+              (record.sequence === undefined &&
+                candidate.sequence > (record.sequenceFloor ?? 0) &&
+                candidate.sequence === Math.min(
+                  ...unmatched
+                    .filter((item) => item.sequence > (record.sequenceFloor ?? 0))
+                    .map((item) => item.sequence),
+                )),
+          );
+          const status = statusIndex >= 0 ? unmatched.splice(statusIndex, 1)[0] : undefined;
+          if (!status) {
+            record.confirmedStatus ??= false;
+            continue;
+          }
+          record.sendId = status.send_id;
+          record.sequence = status.sequence;
+          record.deliveryStatus = status.state;
+          record.confirmedStatus = status.state === "delivered";
         }
-        record.sendId = status.send_id;
-        record.sequence = status.sequence;
-        record.deliveryStatus = status.state;
-        record.confirmedStatus = status.state === "delivered";
+      } catch (error) {
+        metrics.errors ??= [];
+        metrics.errors.push(`delivery status for tab ${tabId}: ${error instanceof Error ? error.message : String(error)}`);
+        for (const record of unconfirmed) record.confirmedStatus ??= false;
       }
-    } catch (error) {
-      metrics.errors ??= [];
-      metrics.errors.push(`delivery status for tab ${tabId}: ${error instanceof Error ? error.message : String(error)}`);
-      for (const record of records) record.confirmedStatus ??= false;
     }
   }
 }
@@ -670,7 +676,7 @@ export function busyPrompt(gate: BusyGate): string {
     `await new Promise(resolve=>{const watcher=fs.watch(dir,()=>{if(fs.existsSync(release)){watcher.close();resolve();}});` +
     `if(fs.existsSync(release)){watcher.close();resolve();}});` +
     `console.log(marker);`;
-  return `Run this exact command with your terminal tool, then stop: ${encodedNodeCommand(`(async()=>{${source}})().catch(error=>{console.error(error);process.exitCode=1})`)}`;
+  return `Run this exact command with your terminal tool, then stop. Completion marker: ${gate.marker}\n${encodedNodeCommand(`(async()=>{${source}})().catch(error=>{console.error(error);process.exitCode=1})`)}`;
 }
 
 export async function waitForFile(filePath: string, timeoutMs: number, label: string): Promise<void> {
