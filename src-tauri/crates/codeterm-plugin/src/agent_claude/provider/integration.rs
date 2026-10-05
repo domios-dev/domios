@@ -679,10 +679,27 @@ mod tests {
 
     #[cfg(windows)]
     fn parse_generated_hook_command(command: &str) {
-        let bash_output = std::process::Command::new("bash")
+        let mut bash_candidates = Vec::new();
+        for root in [
+            std::env::var_os("ProgramFiles"),
+            std::env::var_os("ProgramFiles(x86)"),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let git = std::path::PathBuf::from(root).join("Git");
+            bash_candidates.push(git.join("bin").join("bash.exe"));
+            bash_candidates.push(git.join("usr").join("bin").join("bash.exe"));
+        }
+        bash_candidates.push(std::path::PathBuf::from(r"C:\msys64\usr\bin\bash.exe"));
+        let bash = bash_candidates
+            .into_iter()
+            .find(|candidate| candidate.is_file())
+            .expect("Git Bash is available through the repository toolchain");
+        let bash_output = std::process::Command::new(bash)
             .args(["-n", "-c", command])
             .output()
-            .expect("Bash parser is available through the repository toolchain");
+            .expect("Git Bash starts for parsing generated hook commands");
         assert!(
             bash_output.status.success(),
             "Bash rejected generated hook command: {}",
