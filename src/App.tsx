@@ -14,6 +14,7 @@ import type { AgentLevelChoice } from "./lib/types";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
 import { MeshPanel } from "./components/MeshPanel/MeshPanel";
 import { ExtensionsView } from "./components/Extensions/ExtensionsView";
+import { AnalyticsSupporterSection } from "./components/Supporter/AnalyticsSupporterSection";
 import { PluginView } from "./components/Extensions/PluginView";
 import { ANALYTICS_PLUGIN_ID, isAnalyticsAvailable } from "./components/Titlebar/analyticsTrayLogic";
 import { usePluginSnapshotStore } from "./lib/pluginSnapshotStore";
@@ -722,19 +723,22 @@ function AppInner() {
           {mountedAnalytics && analyticsAvailable && (
             <div
               data-testid="analytics-view"
-              className="absolute inset-0"
+              className="absolute inset-0 flex flex-col"
               style={viewLayerStyle(mainView === "analytics")}
               aria-hidden={mainView !== "analytics"}
               inert={mainView !== "analytics" || undefined}
             >
-              <PluginView
-                pluginId={ANALYTICS_PLUGIN_ID}
-                api={stableApiConfig}
-                active={mainView === "analytics"}
-                focusOnActive
-                kpiNotices
-                onClose={closeAnalytics}
-              />
+              <div className="relative min-h-0 flex-1">
+                <PluginView
+                  pluginId={ANALYTICS_PLUGIN_ID}
+                  api={stableApiConfig}
+                  active={mainView === "analytics"}
+                  focusOnActive
+                  kpiNotices
+                  onClose={closeAnalytics}
+                />
+              </div>
+              <AnalyticsSupporterSection api={stableApiConfig} />
             </div>
           )}
           {pluginViewId && (

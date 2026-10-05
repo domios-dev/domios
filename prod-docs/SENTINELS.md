@@ -4,22 +4,22 @@ A sentinel watches external status cheaply while an agent does useful work. It r
 requested cadence, hashes the captured result, and classifies only changed output. Use it to wait for CI or build
 completion instead of repeatedly asking an agent to run the same status check.
 
-## Model recurring actions as graphs
+## When to use a Sentinel graph
 
-When you would repeat an action (check, decide, act), describe it once as a Sentinel graph instead of spending your own
-turns on it:
+Before you repeat a check or wait on an external, agent or cron status, describe the loop once as a graph instead of spending turns on it. Unchanged output costs no model call and no agent turn; you wake only when a declared bucket routes to you. Observation and actions are deterministic, the model only picks one of your finite buckets (never a command, target or reply), and every action stays in the creator's Team, workspace and machine. `other` means no bucket fits.
 
-- Put routine observation and action in deterministic steps: bounded probes and the handlers below.
-- At each decision, declare a finite set of buckets, each with an exact handler you authored. The model only chooses a
-  bucket; it never writes a command, target or reply.
-- A graph acts with your authority and never beyond it. The model only selects among the actions you offered.
-- `other` means the graph cannot classify the case into a declared bucket. Optional reserved `other` handlers may notify
-  or escalate the case to the creator or an exact same-Team agent tab. An escalation carries only Sentinel and
-  transition IDs; it never forwards probe output.
-- An escalation holds that stage, so it does not classify again until someone resolves the exact transition, a new run
-  binding releases it, or its `escalation_timeout_ms` expires. Expiry is journaled as `escalation_expired`.
-- Use versioned updates to change a graph after an escalation. Updates retain immutable definition history and require
-  the current expected version.
+Make the probe print one stable verdict: no timestamps or durations (every changed byte costs a classifier call), the verdict before any long output (only the first 32 KiB is kept), and errors that cannot pass for a result. Deterministic `--match` patterns classify matching output first; a connected Choice adapter classifies output that matches no pattern. The `--question` names every bucket and what is `other`. After creating a graph, end your turn: a route wakes you, while a wait tool, `sleep` or background shell loop is still polling. Only agent tabs can be observed; a utility shell writes a status file instead.
+
+1. **CI or PR result.** `--probe "gh run view ID -R OWNER/REPO --json status,conclusion"`, buckets `passed,failed`, the question naming running CI and probe errors as `other` (without `-R` outside a checkout, gh's error can be read as `failed`); `--route passed=cron:<review>` and `failed=send:<fixer tab>`. The branch is decided once, no polling.
+2. **A Worker waiting on a prompt.** `--observe tab:<worker>`, buckets `prompt,busy` in `--handlers-file`: `prompt` to `send:<owner tab>` or `notify`, `"busy": []` for working or idle. Do not escalate `other` here: the hold would hide the next prompt until resolved. The tab is read, never typed into.
+3. **An agent finished its turn.** Instead of re-reading `tab get-text`: `--observe tab:<agent>`, buckets `working,idle,prompt`, `"working": []`, `idle` and `prompt` to `notify`, and `--until idle`.
+4. **Deploy or service health.** `--probe "curl -fsS --max-time 2 https://HOST/health"` (`curl.exe` on Windows), buckets `healthy,down`, `down=notify`. Only a change of bucket routes; an unassigned `healthy` uses `notify`, so you also wake on the first read and on recovery (`"healthy": []` keeps it silent). To wait for a server to come up, declare only `ready` with `--until ready`: refusals stay `other`.
+5. **Long build, test or QA batch.** Have the job write `passed` or `failed` to a status file; `--probe "cat out/test.status"`. While the file is missing the result is a quiet `other`; the default `notify` wakes the creator on each result instead of re-reading a log each turn.
+6. **Threshold.** Compute the verdict inside the probe and print one word, e.g. in PowerShell `if ((Get-PSDrive C).Free -lt 20GB) {"low"} else {"ok"}`, with `"ok": []` and `low` to `notify`: you wake when the value crosses, not on every reading.
+7. **Self-improving loop.** Escalate `other` to the owning agent (`escalate:agent:<tab>` in `--handlers-file`). It reads `sentinel history`, adds the missing bucket or handler with `sentinel update ... --cause TRANSITION_ID`, then resolves the escalation so the stage re-evaluates once. Each unknown case costs one turn, then stays a versioned branch. The update file is not the `history` definition: it takes `question`, `buckets`, `every`, `handlers` (the create file form), `on_other`, `escalation_timeout_ms`, `max_transitions` and `max_actions`; the probe or observed source cannot change.
+8. **Watching a whole Team.** A General Agent probes `codeterm tab status --tab <orchestrator-tab>` (it reports `not found` once the tab is gone; `orchestrator status` does not) and `codeterm orchestrator status --plan <plan> --tab <orchestrator-tab>` filtered to its `live_lanes` and `drift` lines (the reminder line changes every tick). Buckets `healthy,stuck,needs_owner,lost` in `--handlers-file`: `"healthy": []`; `stuck`, `needs_owner` and `lost` each `notify` the creator once per change; leave `other` quiet, since an escalation hold would hide later changes. A `send` target must share the creator's Team, so the General Agent relays `stuck` to the Team Orchestrator with `codeterm send` and takes `needs_owner` to the owner.
+
+A probe puts the creating instance's installed CLI directory first on `PATH` and receives that instance's API URL, configured token and socket path, so `codeterm` commands use the right daemon. A flapping source routes on every flip until the transition budget stops the graph silently, so keep `--max-transitions` small or use `--until`. A hung probe skips each tick without slowing other graphs. A removed observed tab leaves the stage skipping with `sentinel_observation_scope_changed` until it expires; nobody is told. A Team that forms after you create a graph (your first Worker spawn forms one) stops it without notice and hides it from `sentinel list`, so create graphs once your Team exists.
 
 ## Create a watch
 
@@ -27,10 +27,7 @@ turns on it:
 codeterm sentinel create --probe "gh run view 456 --json status,conclusion" --question "waiting while CI is in progress; finished when CI has completed with any conclusion" --buckets waiting,finished --every 20s --until finished --timeout 1h
 ```
 
-The first probe runs immediately. `--every` defaults to `20s` and must be at least `10s`. Durations accept `s`, `m`,
-`h`, `d`, and combinations such as `1h30m`; a bare number means minutes. The maximum duration is 366 days. `--timeout`
-bounds the lifetime. `--until` names one declared bucket and ends the watch after that bucket's first routed transition.
-`--route bucket=stop` ends it without sending a message.
+The first probe runs immediately. `--every` defaults to `20s` and must be at least `10s`. Durations accept `s`, `m`, `h`, `d`, and combinations such as `1h30m`; a bare number means minutes. The maximum duration is 366 days. `--timeout` bounds the lifetime. `--until` names one declared bucket and ends the watch after that bucket's first routed transition. `--route bucket=stop` ends it without sending a message.
 
 For quiet PR waiting, declare only terminal outcomes; classify still-running CI as `other`, and add an `other`
 escalation handler when it needs attention. With an existing same-Team cron and agent:
@@ -39,10 +36,7 @@ escalation handler when it needs attention. With an existing same-Team cron and 
 codeterm sentinel create --probe "gh run view 456 --json status,conclusion" --question "passed for completed successful CI; failed for completed unsuccessful CI; other while running" --buckets passed,failed --route passed=cron:review_pr --route failed=send:repair_worker --timeout 1h
 ```
 
-The creator's live tab supplies its cwd, workspace, and Team. Commands are executed as the daemon user in that cwd, with
-no interactive stdin. Each probe has a three-second runtime limit (ten seconds on Windows, where PowerShell starts
-slowly), or the remaining lifetime if shorter. Capture retains up to 32 KiB each of stdout and stderr. The exit status
-is part of the hashed result. A probe timeout or spawn failure records a skip.
+The creator's live tab supplies its cwd, workspace, and Team. Commands are executed as the daemon user in that cwd, with no interactive stdin, through `/bin/sh -c` on Unix and Windows PowerShell on Windows, where `curl` is an alias (use `curl.exe`) and `>` writes UTF-16. Each probe has a three-second runtime limit (ten seconds on Windows, where PowerShell starts slowly), or the remaining lifetime if shorter. Capture retains up to 32 KiB each of stdout and stderr. The exit status is part of the hashed result. A probe timeout or spawn failure records a skip.
 
 Use `--observe` to watch an agent tab or a cron run instead of running a shell probe:
 
@@ -52,23 +46,27 @@ codeterm sentinel create --observe cron-run:nightly --question "identify the cur
 
 The observed tab must be an agent in the creator's Team and workspace. A `cron-run:<id-or-name>` stage waits for a run,
 then observes the exact tab recorded for that run. A finished run or removed tab unbinds the stage; a replacement run
-starts a fresh observation episode.
+starts a fresh observation episode by resetting the observation hash, accepted bucket, and held state. The transition
+count is retained across runs.
 
 ## Classification and transitions
 
-A connected Supporter adapter with Choice capability gets one question over `--buckets` and the automatic `other`
-option, using the shared request budget and journal. Probe output is treated as untrusted data. Unchanged output never
-calls the model, including after a failed or budget-exhausted classification.
+A connected Supporter adapter with Choice capability classifies output that matches no deterministic pattern, using
+one question over `--buckets` and the automatic `other` option with the shared request budget and journal. Probe
+output is treated as untrusted data. Unchanged output never calls the model, including after a failed or
+budget-exhausted classification.
 
-Without a connected Choice adapter, supply deterministic patterns:
+Deterministic patterns are checked first, even when a Choice adapter is connected. One matching bucket is accepted at
+confidence 1; overlapping matches become `other`. Unmatched output uses the adapter when connected, or becomes
+`other` when no adapter is connected:
 
 ```bash
 codeterm sentinel create --probe "check-ci" --question "CI result" --buckets waiting,passed,failed --match 'passed=(?m)^success$' --match 'failed=(?m)^failure$' --every 20s --until passed --timeout 1h
 ```
 
 Patterns see the formatted result: exit status, stdout, then stderr. Match the status line with a multiline pattern such
-as `(?m)^success$` when the probe prints `success`. Exactly one matching bucket is accepted at confidence 1; zero or
-ambiguous matches become `other`. Create without either a connected Choice adapter or a pattern is refused.
+as `(?m)^success$` when the probe prints `success`. Create without either a connected Choice adapter or a pattern is
+refused.
 
 Routes run once when a new accepted bucket differs from the previous accepted bucket, including the first accepted
 result. Model confidence must be at least 0.80. `other` and low confidence can use the reserved `other` handlers;
@@ -77,8 +75,9 @@ bucket. Returning to a previously accepted bucket after another accepted bucket 
 
 ## Closed-set routes
 
-Repeat `--route bucket=action` to declare ordered handlers, including several for one bucket. Each receives a stable
-persisted ID. Unassigned buckets use `notify`.
+Repeat `--route bucket=action` for inline `notify`, `sentinel`, `send`, `cron`, or `stop` handlers. Use
+`--handlers-file` for `command`, `respond_prompt`, or `escalate` handlers and when explicit handler IDs are needed.
+Unassigned buckets use `notify`.
 
 | Action | Result |
 |---|---|
@@ -86,7 +85,7 @@ persisted ID. Unassigned buckets use `notify`.
 | `sentinel:<exact-id>` | Activates an existing dormant stage owned by the same creator, Team and workspace |
 | `send:<tab>` | Sends a result-file pointer through the existing tab message API |
 | `cron:<name>` | Triggers the uniquely named existing cron |
-| `respond_prompt:<kind>` | Requests a provider-declared safe answer on the observed unattended tab |
+| `respond_prompt:<kind>` | Requests an answer through the existing provider-declared safe-response path |
 | `stop` | Stops the sentinel |
 | `escalate:creator` or `escalate:agent:<tab>` | Sends a small escalation packet through the message gateway |
 
@@ -98,10 +97,13 @@ restart. Independent successes, failures, skips and unconfirmed outcomes stay vi
 operation, not recipient work or cron success. A failed handler does not erase earlier results or prevent later
 handlers; stop cancels the remaining handlers. A missing result after a crash is unconfirmed.
 
-`respond_prompt` requires an `--observe` tab or cron-run source and a kind of `directory_trust`, `onboarding`, `update`,
-or `permission`. It is refused for shell-probe stages, owner-facing tabs, changed prompts, and provider prompts without
-a matching declared safe option. Login, authentication and quota prompts are never answered. The request uses the
-existing bounded prompt answer path; Sentinel does not write keys or construct provider steps.
+`respond_prompt:<kind>` requires an `--observe` tab or cron-run source. The kind identifies a requested safe-response
+path; it does not authorize an answer or select an option. For example, `permission` can request a response to a
+per-tool permission prompt. The existing responder revalidates the exact current prompt and kind, then chooses only a
+provider-declared option through the existing safe-response writer. Changed prompts, unsupported kinds, unsafe targets,
+and prompts without a matching declared option are refused. Sentinel does not write raw PTY keys or construct provider
+steps. Each tab accepts at most one response per prompt occurrence, and Sentinel prompt-response requests are limited
+to 600 per rolling 60-second window.
 
 ## Compose a named Sentinel graph
 
@@ -125,9 +127,10 @@ Use `--handlers-file PATH` for explicit IDs and JSON bucket-to-array definitions
 ```
 
 The file form cannot be mixed with `--route`. Unknown fields or types, duplicate IDs and ambiguous targets are refused.
-At most 16 handlers fit each bucket and 64 fit one node. Composition definitions require `--timeout`. Finite budgets
-default to 64 accepted transitions and 256 action attempts; `--max-transitions` and `--max-actions` allow at most 256
-and 1024. Exhaustion records a stop reason. No model output constructs a handler, target or command. A fixed local
+At most 16 handlers fit each bucket and 64 fit one node. Composition definitions require `--timeout`. Each graph has
+a lifetime transition budget that defaults to 64 and can be set up to 256 with `--max-transitions`; a new cron run
+does not reset that count. Exhaustion stops the graph with `transition_budget_exhausted`. The action-attempt budget
+defaults to 256 and `--max-actions` allows up to 1024. No model output constructs a handler, target or command. A fixed local
 command is available only through `--handlers-file`, with creator-authored parameters:
 
 ```json
@@ -153,23 +156,25 @@ Put escalation actions only in the reserved `other` array, for example:
 {"other":[{"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}}]}
 ```
 
-It accepts only `notify` and `escalate` handlers, with at most one escalation. Creating a graph with `other` handlers
-requires positive `--escalation-timeout-ms`; updates must set a positive `escalation_timeout_ms` in the definition JSON.
-After an escalation the stage holds without classifying until resolution, a new run binding, or timeout. Resolve an open
-episode with:
+It accepts only `notify` and `escalate` handlers, with at most one escalation. An escalation packet carries only
+Sentinel and transition IDs, never probe output. Creating a graph with `other` handlers requires positive
+`--escalation-timeout-ms`; updates must set a positive `escalation_timeout_ms` in the definition JSON. After an
+escalation the stage holds without classifying until resolution, a new run binding, or timeout (journaled as
+`escalation_expired`). Resolve an open episode with:
 
 ```bash
 codeterm sentinel escalation resolve SENTINEL_ID TRANSITION_ID
 ```
 
 Resolution clears the observation hash and re-evaluates once. An escalation claim is persisted before delivery and is
-never replayed after restart. The same escalation cause may be delivered at most once per five minutes per Sentinel.
+never replayed after restart. The same cause escalates at most once per five minutes per Sentinel.
 
-Update a definition from JSON with the current version. Any caller in the same Team and workspace may amend it; each
-accepted update records version lineage:
+Update a definition from JSON with the current version. Add `--cause TRANSITION_ID` when the amendment addresses an
+escalation. Any caller in the same Team and workspace may amend it; each accepted update records version lineage:
 
 ```bash
 codeterm sentinel update SENTINEL_ID --expect-version VERSION --from-file definition.json
+codeterm sentinel update SENTINEL_ID --expect-version VERSION --from-file definition.json --cause TRANSITION_ID
 codeterm sentinel history SENTINEL_ID
 ```
 
@@ -194,11 +199,10 @@ independent sibling handlers; unconfirmed resource cleanup stops the source and 
 Peer-qualified handlers and remote Sentinel execution are unavailable; a graph belongs to one actual connected instance.
 Mesh transport does not provide a remote execution claimant or replay contract.
 
-Team Mission Control and the workspace automation entry list named Sentinels; opening an entry shows its internal graph.
-Nodes expose safe declared purpose, exact scope, state, expiry, independent handler results and connected targets.
-Cron-to-Worker edges require actual retained run and tab IDs. A missing live tab stays missing; probe text, task bodies,
-credentials and session secrets are excluded. The view may explicitly report truncation at its bounded read limit. Graph
-Stop uses authenticated host control and validates the exact node scope.
+Team Mission Control and the workspace automation entry list named Sentinels; an entry opens its graph. Nodes show
+declared purpose, exact scope, state, expiry, handler results and connected targets; cron-to-Worker edges need retained
+run and tab IDs. Probe text, task bodies, credentials and secrets are excluded, truncation at the read limit is reported,
+and graph Stop validates the exact node scope through authenticated host control.
 
 ## Inspect and stop
 
@@ -214,14 +218,12 @@ Team stops and removes all its sentinels, including in-flight route claims. A re
 watch. The store admits at most 64 active and 256 total sentinels; dormant stages count toward the total. Watches are
 local to the creator's machine; `--mesh` is refused.
 
-Stored single-route definitions from older builds and unreadable/corrupt files leave the Sentinel subsystem unavailable.
-Original file bytes stay in place; reads and mutations return an actionable load/format error, never an empty healthy
-graph. Other subsystems can start. An operator must preserve/export those definitions and choose to recreate them
-through current authoring; there is no automatic migration, reset or discard. Use fresh isolated dev data for
-demonstrations and keep production definitions untouched.
+Stored single-route definitions from older builds and unreadable/corrupt files leave the Sentinel subsystem unavailable
+while other subsystems start. Original bytes stay in place; reads and mutations return an actionable load/format error,
+never an empty healthy graph. Preserve those definitions and recreate them through current authoring; there is no
+automatic migration, reset or discard. Use fresh isolated dev data for demonstrations.
 
-A failed persistence write returns an error and holds Sentinel unavailable. Cancellation remains in memory; durability
-is unconfirmed until a valid store reload. Repair the filesystem before loading the store again. No stop success or
-claimed-handler replay is inferred from a failed write.
+A failed persistence write returns an error and holds Sentinel unavailable; cancellation stays in memory and durability
+is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.
 
-<!-- revision: 10 -->
+<!-- revision: 15 -->

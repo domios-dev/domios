@@ -6,13 +6,13 @@ A Sentinel graph is an agent's recurring action written once as a program. It ru
 
 A graph is made of deterministic steps and decision points. A decision point offers a finite set of options, each defined in code before the graph runs. The connected decision model chooses one, and code executes exactly the chosen option. The model never constructs an option, command, target, key sequence or text, and observed output never becomes one. Without a connected adapter, author-declared match rules choose; a graph with neither is refused.
 
-A stage may observe bounded probe output or an agent tab. A `cron-run:<id-or-name>` stage waits for a run, then binds to the exact tab recorded for that run. Run replacement starts a fresh episode; run completion or tab removal unbinds the stage.
+A stage may observe bounded probe output or an agent tab. A `cron-run:<id-or-name>` stage waits for a run, then binds to the exact tab recorded for that run. Run replacement resets the observation hash, accepted bucket and held state, but retains the graph's transition count; run completion or tab removal unbinds the stage.
 
 Probes have bounded runtime and output, and their cadence is requested work, not a sleep coordinating readiness. An unchanged observation never calls the model; a changed one costs one choice in the shared Supporter accounting. A transition acts once.
 
 ## What a graph may do
 
-A graph may act on anything its owning agent may: observe, run creator-authored commands, message tabs, trigger crons, activate stages, answer provider-declared prompt options under the [prompt-answer rule](supporter-agent.md#provider-declared-prompt-answers), and stop. It never exceeds that agent's authority or its creator, Team, workspace and machine scope. Timeouts and finite transition and action budgets bound every graph; exhausting one stops the graph with a recorded reason. Each action is claimed durably before it runs and is never replayed after a restart; an uncertain outcome stays unconfirmed.
+A graph may act on anything its owning agent may: observe, run creator-authored commands, message tabs, trigger crons, activate stages, request a prompt answer through the existing [safe prompt-answer path](supporter-agent.md#provider-declared-prompt-answers), and stop. That path revalidates the live prompt and kind, then chooses only a provider-declared option; the graph supplies neither an option nor PTY keys. It never exceeds the owning agent's authority or its creator, Team, workspace and machine scope. Timeouts and finite transition and action budgets bound every graph; exhausting one stops the graph with a recorded reason. Each action is claimed durably before it runs and is never replayed after a restart; an uncertain outcome stays unconfirmed.
 
 ## Other, escalation and rewrite
 
@@ -21,6 +21,10 @@ Any decision can resolve to `other`: an unknown outcome that fits none of the of
 An escalation holds that stage without another classification until the exact transition is resolved, a new run is bound, or the configured escalation timeout expires. Expiry is journaled. Each escalation cause can be delivered at most once per five minutes per Sentinel, and a durable claim is never replayed after restart. Resolution clears the observation hash and re-evaluates once.
 
 The owning Team may finish the case and amend the graph so it becomes an offered option with its own code-defined action. Graphs are versioned: an amendment names the version it expects to replace, a stale expectation is refused, and each version keeps its author, cause and replaced definition. Any caller in the same Team and workspace may amend. The decision model never rewrites a graph.
+
+## Budgets and request limits
+
+A graph's transition budget defaults to 64 and has a lifetime cap of 256. A verified run bind starts a fresh observation episode but does not reset that count; exhaustion stops the graph with `transition_budget_exhausted`. Prompt-response requests are limited to 600 per rolling 60-second window, with at most one response request per prompt occurrence on a tab. An escalation cause can be delivered at most once per five minutes per graph.
 
 ## Ownership and lifetime
 

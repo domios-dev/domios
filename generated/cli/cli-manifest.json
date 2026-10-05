@@ -1727,7 +1727,7 @@
               "value_name": "ID",
               "possible_values": [],
               "default": null,
-              "help": "Cron job ID",
+              "help": "Cron job ID or name",
               "aliases": []
             }
           ],
@@ -12968,7 +12968,7 @@
               "value_name": "HANDLERS_FILE",
               "possible_values": [],
               "default": null,
-              "help": "JSON bucket-to-array of {id,type,parameters} handlers, including fixed local command actions",
+              "help": "JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`",
               "aliases": []
             },
             {
@@ -13058,7 +13058,7 @@
               "value_name": "ROUTES",
               "possible_values": [],
               "default": null,
-              "help": "Closed-set route: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop",
+              "help": "Inline routes: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop; use --handlers-file for command, respond_prompt and escalation handlers",
               "aliases": []
             },
             {

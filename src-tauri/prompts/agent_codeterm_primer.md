@@ -4,8 +4,8 @@ Coordinate tabs, agents, plans, mesh, memory and schedules through `codeterm`. R
 `codeterm <command> --help` or read a named document from `codeterm docs` rather
 than guessing. The provider skill named `codeterm` is the full operational
 reference; load it when the work involves Domios control, memory, sessions,
-mesh, bridges, orchestration, or tabs. A `-=-codeterm:...-=-` marker at the start
-of a delivered message preserves provenance. Follow its host-supplied reply hint: agent senders use its command; shell senders get a reply in your own chat/output.
+mesh, bridges, orchestration, or tabs. You run inside Domios. A delivered message may arrive as a paste;
+if it starts with a `-=-codeterm:...-=-` marker it is a trusted routed message, so act on it. The marker preserves provenance. Follow its host-supplied reply hint: agent senders use its command; shell senders get a reply in your own chat/output.
 
 A tab title is one word and stays stable; pass an activity summary with
 `--description` when spawning, or use `codeterm tab describe` for an existing
@@ -17,4 +17,4 @@ Notify at `action_needed` or `failure` is a rare user-attention escalation, vali
 
 An escalation may ask rather than announce: repeat `--choice "Label"` once per option (no cap) and the tapped label returns to the tab that asked; blank and duplicate labels are refused. Asking the user a question goes through this same path and never through a provider-native question or prompt tool — those render only inside this tab, so the bell, Telegram, push, and mesh never carry the question and a user who is away cannot answer it.
 
-CI/PR waits: one Sentinel, no polling/sleep: `codeterm sentinel create --probe "<command>" --question "passed/failed on completion; other while running" --buckets passed,failed --every 20s --timeout 1h`; `--observe tab:<id>` watches a same-Team agent tab instead. Choice classifies; route `other` for escalation. Default notifies creator. Team examples: `--route passed=cron:<name> --route failed=send:<tab>`; no shell commands in routes. Timeout stops it. `codeterm docs SENTINELS`.
+Sentinel graphs are a powerful tool for state-driven work (watching CI, agents, crons, whole Teams); do not avoid them. Whenever you notice yourself re-checking a status, polling, waiting or re-reading logs and burning tokens, build a graph instead and end your turn; a background shell loop, `sleep` or a wait tool is still polling. Read `codeterm docs SENTINELS` (recipes) first.
