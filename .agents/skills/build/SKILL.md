@@ -341,6 +341,11 @@ reachable; the other selectors retain their existing ownership scopes. Each
 target is its own test binary and prints its own `test result` line, so a
 target reporting `0 passed` only means the filter matched nothing there. Judge
 the run by the per-test `... ok` lines of the target that owns the test.
+`nextest <scope> [filterset]` uses the build gateway, compiles with
+`cargo nextest run --no-run`, then runs through `scripts/test-capped.sh` with
+`--no-tests=fail`; it accepts the same scope names plus Cargo package names.
+Filtersets use nextest's `--filter-expr` syntax. A filterset containing
+`rdeps(...)` runs workspace targets so reverse dependents remain in scope.
 `verify` runs the standard
 check, full Rust workspace library suite, and source-size integration gate.
 Rust tests keep the repository-owned `scripts/test-capped.sh` wrapper but wait
