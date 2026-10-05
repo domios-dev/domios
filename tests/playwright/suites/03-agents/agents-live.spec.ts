@@ -270,6 +270,6 @@ test("@live two chat tabs exchange a cross-tab message, origin rendered", async 
 
   const onB = await waitChatContains(api, tabB, aToB);
   const onA = await waitChatContains(api, tabA, bToA);
-  expect(onB.content, "recipient B lost the cross-tab Domios frame").toContain('<domios from="tab"');
-  expect(onA.content, "recipient A lost the cross-tab Domios frame").toContain('<domios from="tab"');
+  expect(onB.content, "recipient B lost the cross-tab wire prefix").toContain("-=-codeterm:tab");
+  expect(onA.content, "recipient A lost the cross-tab wire prefix").toContain("-=-codeterm:tab");
 });

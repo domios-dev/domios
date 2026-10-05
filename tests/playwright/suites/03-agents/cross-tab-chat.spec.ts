@@ -79,8 +79,8 @@ test("@golden two chat tabs exchange a cross-tab message, origin rendered", asyn
   // the CodeTerm wire prefix — that is the cross-tab return-address.
   const onB = await waitChatContains(api, tabB, aToB);
   const onA = await waitChatContains(api, tabA, bToA);
-  expect(onB.content, "recipient B lost the cross-tab Domios frame").toContain('<domios from="tab"');
-  expect(onA.content, "recipient A lost the cross-tab Domios frame").toContain('<domios from="tab"');
+  expect(onB.content, "recipient B lost the cross-tab wire prefix").toContain("-=-codeterm:tab");
+  expect(onA.content, "recipient A lost the cross-tab wire prefix").toContain("-=-codeterm:tab");
 
   // The sidebar row keys off the tab's own id; panes no longer exist. Kept as a
   // lookup so a vanished tab fails here instead of as a selector timeout.
