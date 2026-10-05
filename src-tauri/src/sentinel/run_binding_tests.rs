@@ -39,6 +39,14 @@ fn insert_escalating(store: &Mutex<Store>) -> Sentinel {
 }
 
 fn insert_with_escalation(store: &Mutex<Store>, escalating: bool) -> Sentinel {
+    insert_with_options(store, escalating, None)
+}
+
+fn insert_with_options(
+    store: &Mutex<Store>,
+    escalating: bool,
+    max_transitions: Option<u16>,
+) -> Sentinel {
     let handlers = escalating.then(|| {
         [(
             "other".to_string(),
@@ -72,7 +80,7 @@ fn insert_with_escalation(store: &Mutex<Store>, escalating: bool) -> Sentinel {
                 timeout: escalating.then(|| "1h".into()),
                 paused: false,
                 handlers,
-                max_transitions: None,
+                max_transitions,
                 max_actions: None,
                 escalation_timeout_ms: escalating.then_some(5_000),
             },
@@ -87,6 +95,60 @@ fn insert_with_escalation(store: &Mutex<Store>, escalating: bool) -> Sentinel {
         .unwrap();
     let job = commit(store, |store| store.stage_insert(job)).unwrap();
     job
+}
+
+#[test]
+fn sentinel_cron_run_transition_budget_resets_without_dropping_history_both_backends() {
+    for_backends(|store, _| {
+        let job = insert_with_options(store, false, Some(1));
+        assert!(commit(store, |store| {
+            store.stage_bind_run(&job.id, "cron-nightly", "run-one", "tab-one")
+        })
+        .unwrap()
+        .changed);
+        let first = commit(store, Store::stage_due).unwrap().pop().unwrap();
+        assert!(commit(store, |store| {
+            store.stage_accept_transition(&first.job, "waiting", "transition-one")
+        })
+        .unwrap());
+        store.lock().release(&job.id);
+
+        let first_binding = RunBinding {
+            run_id: "run-one".into(),
+            tab_id: "tab-one".into(),
+            bound_at: 1_000,
+        };
+        assert!(commit(store, |store| {
+            store.stage_unbind_run(&job.id, &first_binding, "cron_run_finished")
+        })
+        .unwrap()
+        .changed);
+        assert!(commit(store, |store| {
+            store.stage_bind_run(&job.id, "cron-nightly", "run-two", "tab-two")
+        })
+        .unwrap()
+        .changed);
+
+        let second = commit(store, Store::stage_due).unwrap().pop().unwrap();
+        assert_eq!(second.job.run_transitions, 0);
+        assert!(commit(store, |store| {
+            store.stage_accept_transition(&second.job, "waiting", "transition-two")
+        })
+        .unwrap());
+        let current_store = store.lock();
+        let current = current_store.get(&job.id).unwrap();
+        assert_eq!(current.transitions.len(), 2);
+        assert_eq!(current.run_transitions, 1);
+        assert!(!current.machine.stopped);
+        drop(current_store);
+        store.lock().release(&job.id);
+        assert!(commit(store, Store::stage_due).unwrap().is_empty());
+        let notices = store.lock().take_stop_notices();
+        assert_eq!(notices.len(), 1);
+        assert_eq!(notices[0].creator_tab_id, "creator-tab");
+        assert_eq!(notices[0].reason, "transition_budget_exhausted");
+        assert!(store.lock().take_stop_notices().is_empty());
+    });
 }
 
 fn persist_held(store: &Mutex<Store>, job: &Sentinel) {

@@ -185,9 +185,17 @@ impl Update {
         {
             return Err("until must name a declared bucket".into());
         }
+        let used_transitions = if matches!(
+            current.observe.as_ref(),
+            Some(super::source::TabBinding::CronRun(_))
+        ) {
+            usize::from(current.run_transitions)
+        } else {
+            current.transitions.len()
+        };
         if self.max_transitions == 0
             || self.max_transitions > 256
-            || usize::from(self.max_transitions) < current.transitions.len()
+            || usize::from(self.max_transitions) < used_transitions
             || self.max_actions == 0
             || self.max_actions > 1024
             || usize::from(self.max_actions) < claimed_actions(current)

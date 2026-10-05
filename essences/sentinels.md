@@ -6,7 +6,7 @@ A Sentinel graph is an agent's recurring action written once as a program. It ru
 
 A graph is made of deterministic steps and decision points. A decision point offers a finite set of options, each defined in code before the graph runs. The connected decision model chooses one, and code executes exactly the chosen option. The model never constructs an option, command, target, key sequence or text, and observed output never becomes one. Without a connected adapter, author-declared match rules choose; a graph with neither is refused.
 
-A stage may observe bounded probe output or an agent tab. A `cron-run:<id-or-name>` stage waits for a run, then binds to the exact tab recorded for that run. Run replacement resets the observation hash, accepted bucket and held state, but retains the graph's transition count; run completion or tab removal unbinds the stage.
+A stage may observe bounded probe output or an agent tab. A `cron-run:<id-or-name>` stage waits for a run, then binds to the exact automation tab recorded for that run, including hidden tabs without Team membership. Run replacement resets the observation hash, accepted bucket, held state and per-run transition allowance while retaining transition history; run completion or tab removal unbinds the stage. A removed run tab notifies the creator, and the graph waits for another verified run.
 
 Probes have bounded runtime and output, and their cadence is requested work, not a sleep coordinating readiness. An unchanged observation never calls the model; a changed one costs one choice in the shared Supporter accounting. A transition acts once.
 
@@ -24,11 +24,11 @@ The owning Team may finish the case and amend the graph so it becomes an offered
 
 ## Budgets and request limits
 
-A graph's transition budget defaults to 64 and has a lifetime cap of 256. A verified run bind starts a fresh observation episode but does not reset that count; exhaustion stops the graph with `transition_budget_exhausted`. Prompt-response requests are limited to 600 per rolling 60-second window, with at most one response request per prompt occurrence on a tab. An escalation cause can be delivered at most once per five minutes per graph.
+A graph's transition budget defaults to 64 and has a cap of 256. Probe and direct-tab graphs spend it over their lifetime; each verified CronRun binding gets its own allowance. Accepted history is retained to a separate lifetime cap of 65,536 transitions. Budget exhaustion stops the graph with `transition_budget_exhausted` and notifies its creator once with the reason. Prompt-response requests are limited to 600 per rolling 60-second window, with at most one response request per prompt occurrence on a tab. An escalation cause can be delivered at most once per five minutes per graph.
 
 ## Ownership and lifetime
 
-A graph belongs to its creator and Team on one machine; remote execution is unavailable. It stops on its declared completion, timeout, budget exhaustion or stop, when its creator is removed or its Team changes, and it is removed when its Team closes. An unreadable store leaves Sentinels unavailable rather than presenting an empty healthy graph.
+A graph belongs to its creator and its creation scope on one machine; remote execution is unavailable. A graph created before its creator joins a Team remains owned and visible to that creator, without becoming visible to other Team members. It stops on its declared completion, timeout, budget exhaustion or stop, or when its creator is removed; Team-owned graphs are removed when their Team closes. An unreadable store leaves Sentinels unavailable rather than presenting an empty healthy graph.
 
 ```map
 anchors:

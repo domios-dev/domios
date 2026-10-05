@@ -1,7 +1,7 @@
 use tauri::Manager;
 
 use super::machine::{EscalateTarget, Route, Verdict};
-use super::store::Sentinel;
+use super::store::{Sentinel, StopNotice};
 use crate::service::message_gateway::DeliveryClass;
 use crate::service::messenger::MessageEnvelope;
 use crate::service::notification::{NotificationOrigin, PushIntent};
@@ -10,12 +10,41 @@ use crate::service::ServiceContext;
 pub fn creator_live(svc: &ServiceContext, job: &Sentinel) -> bool {
     let mux = svc.mux.read();
     mux.get_tab(&job.creator_tab_id)
-        .is_some_and(|tab| tab.team_id == job.team_id)
+        .is_some_and(|tab| job.team_id.is_none() || tab.team_id == job.team_id)
         && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref() == Some(&job.workspace_id)
         && job
             .team_id
             .as_ref()
             .is_none_or(|id| mux.get_team(id).is_some())
+}
+
+pub(super) fn notify_stop(svc: &ServiceContext, notice: &StopNotice) {
+    notify_lifecycle(
+        svc,
+        notice,
+        format!("Sentinel {} stopped", notice.sentinel_id),
+    );
+}
+
+pub(super) fn notify_run_unbound(svc: &ServiceContext, notice: &StopNotice) {
+    notify_lifecycle(
+        svc,
+        notice,
+        format!("Sentinel {} run observation ended", notice.sentinel_id),
+    );
+}
+
+fn notify_lifecycle(svc: &ServiceContext, notice: &StopNotice, title: String) {
+    svc.create_notification_ext(
+        title,
+        Some(format!("Reason: {}", notice.reason)),
+        Some("warning"),
+        None,
+        None,
+        NotificationOrigin::local_tab(notice.creator_tab_id.clone()),
+        PushIntent::default(),
+        None,
+    );
 }
 
 pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Route, String> {
@@ -262,5 +291,28 @@ mod tests {
         assert_eq!(packet.as_object().unwrap().len(), 2);
         assert_eq!(packet["sentinel_id"], job.id);
         assert_eq!(packet["transition_id"], "transition_one");
+    }
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    fn sentinel_stop_notice_is_delivered_to_creator_with_reason() {
+        let (mux, creator_tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let notice = StopNotice {
+            sentinel_id: "sentinel_budget".into(),
+            creator_tab_id: creator_tab_id.clone(),
+            reason: "transition_budget_exhausted".into(),
+        };
+
+        notify_stop(&fixture.service, &notice);
+
+        let notification_store = fixture.service.notif.lock();
+        let notifications = notification_store.list(false);
+        assert_eq!(notifications.len(), 1);
+        assert_eq!(notifications[0].tab_id.as_deref(), Some(creator_tab_id.as_str()));
+        assert_eq!(
+            notifications[0].body.as_deref(),
+            Some("Reason: transition_budget_exhausted")
+        );
     }
 }

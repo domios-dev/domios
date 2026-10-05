@@ -15,6 +15,18 @@ use crate::cron::store::{
 use crate::service::test_fixture::ServiceFixture;
 use crate::storage::{Fault, Storage, StorageConfig};
 
+#[test]
+fn cron_fired_payload_identifies_the_recorded_run_tab() {
+    assert_eq!(
+        super::cron_fired_payload("cron-nightly", "run-42", "tab-42"),
+        serde_json::json!({
+            "cron_id": "cron-nightly",
+            "run_id": "run-42",
+            "tab_id": "tab-42"
+        })
+    );
+}
+
 fn fixture() -> (
     ServiceFixture,
     crate::CronState,

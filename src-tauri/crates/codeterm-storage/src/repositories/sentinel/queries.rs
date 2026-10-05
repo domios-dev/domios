@@ -34,6 +34,7 @@ struct Header {
     run_id: Option<String>,
     run_tab_id: Option<String>,
     run_bound_at: Option<i64>,
+    run_transitions: Option<i64>,
 }
 
 fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
@@ -41,7 +42,7 @@ fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
         "SELECT s.ordinal, s.creator_tab_id, s.workspace_id, s.team_id, s.cwd, \
          s.agent_authored, s.scenario_id, s.revision, h.version, r.generation, r.next_run, \
          r.expires_at, r.paused, r.stopped, r.last_hash, r.last_bucket, r.last_reason, \
-         r.held, r.run_id, r.run_tab_id, r.run_bound_at \
+         r.held, r.run_id, r.run_tab_id, r.run_bound_at, r.run_transitions \
          FROM sentinels s LEFT JOIN sentinel_heads h ON h.sentinel_id = s.id \
          LEFT JOIN sentinel_runtime r ON r.sentinel_id = s.id WHERE s.id = ?1",
     )
@@ -70,6 +71,7 @@ fn header(conn: &Connection, id: &str) -> Result<Option<Header>, StorageError> {
                     run_id: row.get(18)?,
                     run_tab_id: row.get(19)?,
                     run_bound_at: row.get(20)?,
+                    run_transitions: row.get(21)?,
                 })
             })
             .optional()
@@ -110,6 +112,11 @@ pub(super) fn load_one(
         last_reason: header.last_reason,
         held: header.held,
         run,
+        run_transitions: u16::try_from(from_sql_u64(
+            "run transition count",
+            header.run_transitions.ok_or_else(missing)?,
+        )?)
+        .map_err(|_| corrupt("run transition count exceeds its bound"))?,
     };
     let identity = SentinelIdentity {
         id: SentinelId::trusted(id.to_string()),

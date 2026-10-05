@@ -8,6 +8,7 @@ use super::records::{
     DefinitionUpdate, Fence, HandlerResultRecord, HandlerStatus, MutationOutcome, NewTransition,
     RunRecord, RuntimeOutcome, ScheduleUpdate, SentinelCommit, SentinelCreate, SentinelId,
     SentinelIdentity, SentinelImport, StageRuntime, TransitionRecord, MAX_SENTINEL_RECORDS,
+    MAX_TRANSITIONS,
 };
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
@@ -86,12 +87,13 @@ struct Live {
     last_bucket: Option<String>,
     run_id: Option<String>,
     run_tab_id: Option<String>,
+    run_transitions: u16,
 }
 
 fn live(conn: &Connection, id: &str) -> Result<Option<Live>, StorageError> {
     let row = conn
         .prepare_cached(
-            "SELECT generation, paused, stopped, last_hash, last_bucket, run_id, run_tab_id \
+            "SELECT generation, paused, stopped, last_hash, last_bucket, run_id, run_tab_id, run_transitions \
              FROM sentinel_runtime WHERE sentinel_id = ?1",
         )
         .and_then(|mut statement| {
@@ -105,12 +107,13 @@ fn live(conn: &Connection, id: &str) -> Result<Option<Live>, StorageError> {
                         row.get::<_, Option<String>>(4)?,
                         row.get::<_, Option<String>>(5)?,
                         row.get::<_, Option<String>>(6)?,
+                        row.get::<_, i64>(7)?,
                     ))
                 })
                 .optional()
         })
         .map_err(|e| sqlite_error("read sentinel runtime", e))?;
-    let Some((generation, paused, stopped, last_hash, last_bucket, run_id, run_tab_id)) = row
+    let Some((generation, paused, stopped, last_hash, last_bucket, run_id, run_tab_id, run_transitions)) = row
     else {
         return Ok(None);
     };
@@ -122,6 +125,8 @@ fn live(conn: &Connection, id: &str) -> Result<Option<Live>, StorageError> {
         last_bucket,
         run_id,
         run_tab_id,
+        run_transitions: u16::try_from(from_sql_u64("run transition count", run_transitions)?)
+            .map_err(|_| corrupt("run transition count exceeds its bound"))?,
     }))
 }
 
@@ -314,8 +319,8 @@ fn insert_runtime(
         .transpose()?;
     cx.write(
         "INSERT INTO sentinel_runtime (sentinel_id, generation, next_run, expires_at, paused, \
-         stopped, last_hash, last_bucket, last_reason, held, run_id, run_tab_id, run_bound_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+         stopped, last_hash, last_bucket, last_reason, held, run_id, run_tab_id, run_bound_at, run_transitions) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
         params![
             id,
             to_sql_u64("generation", runtime.generation)?,
@@ -329,7 +334,8 @@ fn insert_runtime(
             runtime.held,
             run.map(|run| run.run_id.as_str()),
             run.map(|run| run.tab_id.as_str()),
-            bound_at
+            bound_at,
+            runtime.run_transitions
         ],
     )?;
     Ok(())
@@ -342,14 +348,15 @@ fn write_outcome(
 ) -> Result<(), StorageError> {
     cx.write(
         "UPDATE sentinel_runtime SET last_hash = ?2, last_bucket = ?3, stopped = ?4, \
-         last_reason = ?5, held = ?6 WHERE sentinel_id = ?1",
+         last_reason = ?5, held = ?6, run_transitions = ?7 WHERE sentinel_id = ?1",
         params![
             id,
             outcome.last_hash,
             outcome.last_bucket,
             outcome.stopped,
             outcome.last_reason,
-            outcome.held
+            outcome.held,
+            outcome.run_transitions
         ],
     )?;
     Ok(())
@@ -723,7 +730,7 @@ pub(super) fn set_run_binding(
     let changed = cx.write(
         "UPDATE sentinel_runtime SET generation = ?2, next_run = ?3, last_hash = NULL, \
          last_bucket = NULL, last_reason = ?4, held = NULL, run_id = ?5, run_tab_id = ?6, \
-         run_bound_at = ?7 WHERE sentinel_id = ?1 AND generation = ?8",
+         run_bound_at = ?7, run_transitions = 0 WHERE sentinel_id = ?1 AND generation = ?8",
         params![
             id,
             to_sql_u64("run generation", generation)?,
@@ -900,7 +907,13 @@ pub(super) fn accept_transition(
             id,
         )?;
         let (max_transitions, _) = definitions::head_budgets(cx.conn, id)?;
-        (from_sql_u64("transition count", accepted)? >= max_transitions).then_some(Fence::Budget)
+        let accepted = from_sql_u64("transition count", accepted)?;
+        let per_run_spent = if live.run_id.is_some() {
+            u64::from(live.run_transitions) >= max_transitions
+        } else {
+            accepted >= max_transitions
+        };
+        (per_run_spent || accepted >= MAX_TRANSITIONS as u64).then_some(Fence::Budget)
     };
     if let Some(fence) = fence {
         return fenced(cx.conn, fence, id);
