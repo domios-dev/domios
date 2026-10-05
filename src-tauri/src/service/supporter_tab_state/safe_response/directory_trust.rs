@@ -284,6 +284,14 @@ impl ServiceContext {
             super::super::super::provider_update::manual_prompt_observed(self, snapshot);
         }
         let identity = codeterm_types::pty::PromptIdentity::new(kind, &target.prompt);
+        let chain_fingerprint = self.prompt_chain_fingerprint(kind, &target.prompt);
+        if !self.begin_automatic_prompt_answer(
+            &snapshot.tab_id,
+            target.kind.context(),
+            chain_fingerprint,
+        ) {
+            return;
+        }
         let result = self.respond_prompt_with_identity(
             &snapshot.tab_id,
             &(option_index + 1).to_string(),
