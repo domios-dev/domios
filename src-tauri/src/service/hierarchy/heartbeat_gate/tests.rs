@@ -235,6 +235,28 @@ fn heartbeat_gate_other_or_low_confidence_suppresses() {
 }
 
 #[test]
+fn heartbeat_gate_blocked_is_declared_and_never_wakes() {
+    let request = questions(&healthy_snapshot());
+    let options = match &request.questions["tick"].question {
+        codeterm_types::decision::DecisionQuestion::Choice { options } => options,
+        _ => panic!("tick must remain a choice"),
+    };
+    assert!(options.contains_key("blocked"));
+
+    let model = FixtureModel {
+        tick: "blocked",
+        ..FixtureModel::healthy()
+    };
+    let mut snapshot = healthy_snapshot();
+    snapshot
+        .delta
+        .insert("task:fixture".into(), "opaque change".into());
+    let decision = tick(&Gate::default(), &snapshot, 100, Some(&model));
+    assert_eq!(decision.tick_label, "blocked");
+    assert!(!decision.wake);
+}
+
+#[test]
 fn heartbeat_gate_budget_exhausted_suppresses_without_fallback() {
     let model = FixtureModel {
         error: Some(DecisionError::Budget),

@@ -133,7 +133,7 @@ pub enum CronAction {
     },
     /// Show run history
     History {
-        /// Cron job ID
+        /// Cron job ID or name
         id: String,
     },
     /// Mark a cron run as complete (called by agent at end of task)

@@ -302,22 +302,13 @@ fn command_with_binding_nonce(
     binding_nonce: &str,
     startup_attempt_id: &str,
 ) -> String {
-    let local_cli = crate::paths::data_dir()
-        .join("bin")
-        .join(format!("codeterm{}", std::env::consts::EXE_SUFFIX));
-    let cli_path = if local_cli.exists() {
-        Some(local_cli.into_os_string())
-    } else if !crate::paths::is_dev_instance() {
-        std::env::var_os("CODETERM_CLI_PATH")
-    } else {
-        None
-    };
+    let cli_path = crate::service::pty_io::tab_env::instance_cli_binary_path();
     command_with_binding_nonce_for_shell(
         command,
         binding_nonce,
         startup_attempt_id,
         cfg!(windows),
-        cli_path.as_deref(),
+        cli_path.as_ref().map(|path| path.as_os_str()),
     )
 }
 
