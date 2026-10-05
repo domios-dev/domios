@@ -7,6 +7,7 @@ use super::store::Sentinel;
 #[serde(rename_all = "snake_case")]
 pub enum Source {
     Adapter,
+    #[serde(rename = "pattern")]
     Regex,
     Disconnected,
     NotAttempted,

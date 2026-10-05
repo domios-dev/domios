@@ -1,6 +1,7 @@
 //! The single launch-env stamper. Every PTY launch path composes here, so one
 //! tab record yields one identity map no matter which path built the PTY.
 use crate::multiplexer::types::Tab;
+use crate::service::instance_env::InstanceEnv;
 use crate::service::plan::PlanStore;
 use crate::service::ServiceContext;
 use std::collections::HashMap;
@@ -21,14 +22,6 @@ pub(crate) enum LaunchSurface {
 pub(crate) const FRONTEND_ONLY_ENV: &[(&str, &str)] =
     &[("CODETERM_VERSION", env!("CARGO_PKG_VERSION"))];
 
-/// Instance-wide launch vars — same for every tab of this daemon.
-pub(crate) struct InstanceEnv {
-    pub socket_path: String,
-    pub api_url: String,
-    pub api_port: String,
-    pub api_token: Option<String>,
-}
-
 /// Everything a launch stamps because a tab record exists. A PTY with no tab
 /// record yet composes without it and therefore carries no identity at all.
 pub(crate) struct TabLaunchEnv {
@@ -38,19 +31,6 @@ pub(crate) struct TabLaunchEnv {
     pub shell_nonce: String,
     pub identity: HashMap<String, String>,
     pub task: HashMap<String, String>,
-}
-
-impl InstanceEnv {
-    pub(crate) fn resolve() -> Self {
-        let api = crate::config::load_config().api;
-        let (api_url, api_port) = crate::config::api_callback_url(&api);
-        Self {
-            socket_path: crate::socket::server::socket_display_path(),
-            api_url,
-            api_port,
-            api_token: api.token,
-        }
-    }
 }
 
 pub(crate) fn compose_launch_env(

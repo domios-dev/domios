@@ -14,6 +14,7 @@ use crate::cron::clock::SharedClock;
 
 pub(super) const MAX_SENTINELS: usize = 256;
 pub(super) const MAX_ACTIVE: usize = 64;
+pub(super) const MAX_LIFETIME_TRANSITIONS: usize = 65_536;
 
 pub(super) type ScopeKey = (String, Option<String>);
 
@@ -81,6 +82,8 @@ pub struct Sentinel {
     pub max_actions: u16,
     #[serde(default)]
     pub transitions: Vec<Transition>,
+    #[serde(default)]
+    pub run_transitions: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observe: Option<TabBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -128,6 +131,24 @@ pub struct Store {
     pub(super) admission_closed: bool,
     pub(super) committed_revisions: BTreeMap<ScopeKey, String>,
     pub(super) changes: BTreeMap<ScopeKey, String>,
+    pub(super) pending_stop_notices: Vec<StopNotice>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct StopNotice {
+    pub(super) sentinel_id: String,
+    pub(super) creator_tab_id: String,
+    pub(super) reason: String,
+}
+
+impl StopNotice {
+    pub(super) fn new(job: &Sentinel, reason: &str) -> Self {
+        Self {
+            sentinel_id: job.id.clone(),
+            creator_tab_id: job.creator_tab_id.clone(),
+            reason: reason.into(),
+        }
+    }
 }
 
 /// Operational scheduling changes staged by `due`; never authored definition versions.
@@ -208,7 +229,10 @@ pub(super) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
             || job.max_transitions > 256
             || job.max_actions == 0
             || job.max_actions > 1024
-            || job.transitions.len() > usize::from(job.max_transitions)
+            || job.transitions.len() > MAX_LIFETIME_TRANSITIONS
+            || job.run_transitions > job.max_transitions
+            || (!matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
+                && job.transitions.len() > usize::from(job.max_transitions))
             || job
                 .transitions
                 .iter()
@@ -343,6 +367,10 @@ impl Store {
         std::mem::take(&mut self.changes).into_iter().map(|((workspace_id,team_id),revision)| serde_json::json!({"workspace_id":workspace_id,"team_id":team_id,"revision":revision})).collect()
     }
 
+    pub(super) fn take_stop_notices(&mut self) -> Vec<StopNotice> {
+        std::mem::take(&mut self.pending_stop_notices)
+    }
+
     pub fn ensure_available(&self) -> Result<(), String> {
         if let Some(failure) = self.unavailable {
             return Err(failure.message());
@@ -471,6 +499,7 @@ impl Store {
             max_transitions,
             max_actions,
             transitions: Vec::new(),
+            run_transitions: 0,
             observe,
             run: None,
             on_other,
@@ -586,19 +615,35 @@ impl Store {
     }
 
     pub(crate) fn stage_stop(&mut self, id: &str, reason: &str) -> Staged<Sentinel> {
-        if self.get(id).is_none() {
+        let Some(current) = self.get(id).cloned() else {
             return Staged::ready(Err(format!("sentinel not found: {id}")));
-        }
+        };
+        let notice = (!current.machine.stopped
+            && matches!(
+                reason,
+                "transition_budget_exhausted"
+                    | "action_budget_exhausted"
+                    | "observed_tab_removed"
+            ))
+        .then(|| StopNotice::new(&current, reason));
         if let Some(cancelled) = self.active.remove(id) {
             cancelled.store(true, Ordering::SeqCst);
         }
         if !self.backend.is_json() {
-            return self.sqlite_stop(id, reason);
+            return self.sqlite_stop(id, reason, notice);
         }
         let Some(stopped) = self.apply_stop(id, reason) else {
             return Staged::ready(Err(format!("sentinel not found: {id}")));
         };
-        Staged::ready(self.save_legacy().map(|()| stopped))
+        match self.save_legacy() {
+            Ok(()) => {
+                if let Some(notice) = notice {
+                    self.pending_stop_notices.push(notice);
+                }
+                Staged::ready(Ok(stopped))
+            }
+            Err(error) => Staged::ready(Err(error)),
+        }
     }
 
     /// The in-memory stop; callers cancel the live lease themselves.
@@ -658,7 +703,8 @@ impl Store {
             let mut planned = self.jobs.clone();
             let (due, changes, consumed_wakes) =
                 plan_due(&mut planned, &mut self.active, &mut self.wake_pending, now);
-            return self.sqlite_due(due, changes, consumed_wakes);
+            let notices = scheduled_stop_notices(&planned, &changes);
+            return self.sqlite_due(due, changes, consumed_wakes, notices);
         }
         let previous = self.jobs.clone();
         let previous_wakes = self.wake_pending.clone();
@@ -679,6 +725,8 @@ impl Store {
                 return Staged::ready(Err(error));
             }
         }
+        self.pending_stop_notices
+            .extend(scheduled_stop_notices(&self.jobs, &changes));
         Staged::ready(Ok(due))
     }
 
@@ -1037,96 +1085,10 @@ fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Trans
     current.machine.stopped = job.machine.stopped;
     current.machine.held = job.machine.held.clone();
     current.last_reason = job.last_reason.clone();
+    current.run_transitions = job.run_transitions;
     current.transitions.extend(transition);
 }
 
-/// Expiry and budget stops, then due leases; registers each lease's ephemeral cancellation.
-fn plan_due(
-    jobs: &mut [Sentinel],
-    active: &mut HashMap<String, Arc<Cancellation>>,
-    wake_pending: &mut BTreeSet<String>,
-    now: u64,
-) -> (Vec<Lease>, Vec<ScheduleChange>, Vec<String>) {
-    let mut due = Vec::new();
-    let mut changes = Vec::new();
-    let mut consumed_wakes = Vec::new();
-    for job in jobs.iter_mut() {
-        if job.machine.stopped {
-            continue;
-        }
-        if job.expires_at.is_some_and(|at| now >= at) {
-            wake_pending.remove(&job.id);
-            job.machine.stopped = true;
-            job.revision += 1;
-            job.last_reason = Some("timeout".into());
-            if let Some(cancelled) = active.remove(&job.id) {
-                cancelled.store(true, Ordering::SeqCst);
-            }
-            changes.push(ScheduleChange::Stop {
-                id: job.id.clone(),
-                reason: "timeout",
-            });
-            continue;
-        }
-        if job.machine.held.is_some() {
-            continue;
-        }
-        let transitions_spent = job.transitions.len() >= usize::from(job.max_transitions);
-        if !active.contains_key(&job.id)
-            && (transitions_spent
-                || job
-                    .transitions
-                    .iter()
-                    .flat_map(|t| &t.handlers)
-                    .filter(|r| r.claim_id.is_some())
-                    .count()
-                    >= usize::from(job.max_actions))
-        {
-            let reason = if transitions_spent {
-                "transition_budget_exhausted"
-            } else {
-                "action_budget_exhausted"
-            };
-            job.machine.stopped = true;
-            wake_pending.remove(&job.id);
-            job.revision += 1;
-            job.last_reason = Some(reason.into());
-            changes.push(ScheduleChange::Stop {
-                id: job.id.clone(),
-                reason,
-            });
-            continue;
-        }
-        if job.machine.paused {
-            continue;
-        }
-        if matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_))) && job.run.is_none() {
-            continue;
-        }
-        if (job.next_run <= now || wake_pending.contains(&job.id)) && !active.contains_key(&job.id)
-        {
-            if job.next_run <= now {
-                let missed = (now - job.next_run) / job.interval_ms;
-                job.next_run = job
-                    .next_run
-                    .saturating_add((missed + 1).saturating_mul(job.interval_ms));
-            } else {
-                job.next_run = now.saturating_add(job.interval_ms);
-            }
-            if wake_pending.remove(&job.id) {
-                consumed_wakes.push(job.id.clone());
-            }
-            let cancelled = Arc::new(Cancellation::new(false));
-            active.insert(job.id.clone(), cancelled.clone());
-            due.push(Lease {
-                job: job.clone(),
-                cancelled,
-            });
-            changes.push(ScheduleChange::Advance {
-                id: job.id.clone(),
-                next_run: job.next_run,
-            });
-        }
-    }
-    (due, changes, consumed_wakes)
-}
+mod due;
+use due::{plan_due, scheduled_stop_notices};
+pub(super) use due::transition_budget_spent;

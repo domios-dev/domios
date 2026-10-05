@@ -10,7 +10,7 @@ use codeterm_types::decision::{
 };
 use serde_json::Value;
 
-use super::provenance::{Scope, Stage};
+use super::provenance::{Classification, Scope, Stage};
 use super::store::Sentinel;
 use super::{classify, machine, scheduler};
 use crate::service::supporter::SupporterRuntime;
@@ -143,6 +143,7 @@ fn sentinel_provenance_route_stages_share_observation_without_recipient_claim() 
         "route_status",
         "route",
         "route_target",
+        "requested_by",
         "recipient_receipt",
         "asked",
         "budget",
@@ -175,6 +176,7 @@ fn sentinel_provenance_route_stages_share_observation_without_recipient_claim() 
             crate::service::supporter::criteria_hash(b"passed")
         );
         assert_eq!(row["route_target"], "opaque-target");
+        assert!(row["requested_by"].is_null());
         assert!(row["recipient_receipt"].is_null());
         assert!(row.get("probe_output").is_none());
         assert!(!row.to_string().contains("opaque-private-probe"));
@@ -271,15 +273,47 @@ fn sentinel_provenance_regex_and_disconnection_keep_actual_source() {
         scheduler::record(&runtime, &job, &outcome, Stage::Decision).unwrap();
     }
     let rows = rows(dir.path());
-    assert_eq!(rows[0]["classification_source"], "regex");
+    assert_eq!(rows[0]["classification_source"], "pattern");
     assert_eq!(rows[0]["classification_reason"], "transition");
-    assert_eq!(rows[1]["classification_source"], "regex");
+    assert_eq!(rows[1]["classification_source"], "pattern");
     assert_eq!(rows[1]["classification_reason"], "other");
     assert!(rows[1]["route"].is_null());
     assert_eq!(rows[2]["classification_source"], "disconnected");
     assert_eq!(rows[2]["classification_reason"], "adapter_disconnected");
     assert!(rows[2]["observation_id"].is_null());
     assert!(rows[2]["label"].is_null());
+}
+
+#[test]
+fn sentinel_provenance_journals_pattern_precedence_and_adapter_fallback() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().join("supporter"));
+    let mut job = job(dir.path());
+    job.matches
+        .insert("failed".into(), "^opaque-pattern$".into());
+    for output in ["opaque-pattern", "opaque-unmatched"] {
+        let classification = classify::with_pattern_precedence(&job, output, || {
+            Classification::adapter(Ok(machine::Verdict {
+                bucket: "passed".into(),
+                confidence: 0.9,
+            }))
+        });
+        let scope = Scope::from(&job);
+        let outcome = machine::evaluate(
+            &mut job.machine,
+            output.as_bytes(),
+            &job.buckets,
+            &job.routes,
+            None,
+            scope,
+            || classification,
+        );
+        scheduler::record(&runtime, &job, &outcome, Stage::Decision).unwrap();
+    }
+
+    let rows = rows(dir.path());
+    assert_eq!(rows[0]["classification_source"], "pattern");
+    assert_eq!(rows[1]["classification_source"], "adapter");
 }
 
 #[test]
