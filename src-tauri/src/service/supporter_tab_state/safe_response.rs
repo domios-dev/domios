@@ -20,7 +20,7 @@ impl Kind {
     fn label_matches(self, label: &str) -> bool {
         match self {
             Self::Update => label == PROVIDER_UPDATE_PROMPT,
-            Self::Onboarding => label == TRUST_OR_PERMISSION_PROMPT,
+            Self::Onboarding => label == LOGIN_OR_AUTH_REQUIRED,
             Self::DirectoryTrust | Self::Permission => label == TRUST_OR_PERMISSION_PROMPT,
         }
     }
@@ -454,7 +454,11 @@ impl ServiceContext {
             .agent_registry
             .provider_arc(tab.agent_type.as_deref()?)?;
         let target = provider_target(provider.as_ref(), screen)
-            .filter(|target| target.kind == Kind::Update)
+            .filter(|target| {
+                target.kind == Kind::Update
+                    || (target.kind == Kind::Onboarding
+                        && directory_trust::onboarding_target_applies(&tab))
+            })
             .or_else(|| {
                 directory_trust::target_applies(&tab)
                     .then(|| directory_trust::provider_target(provider.as_ref(), screen))
@@ -475,7 +479,7 @@ impl ServiceContext {
             })?;
         let applies = match target.kind {
             Kind::Update => true,
-            Kind::Onboarding => false,
+            Kind::Onboarding => directory_trust::onboarding_target_applies(&tab),
             Kind::DirectoryTrust => directory_trust::target_applies(&tab),
             Kind::Permission => true,
         };
@@ -516,8 +520,9 @@ impl ServiceContext {
                 )
             }
         }?;
-        (target.kind == kind && (kind != Kind::Onboarding || directory_trust::target_applies(&tab)))
-            .then_some(target)
+        (target.kind == kind
+            && (kind != Kind::Onboarding || directory_trust::onboarding_target_applies(&tab)))
+        .then_some(target)
     }
 
     pub(super) fn add_safe_response_metadata(
