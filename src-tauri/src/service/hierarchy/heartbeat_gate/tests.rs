@@ -247,7 +247,11 @@ fn heartbeat_gate_blocked_is_declared_and_never_wakes() {
         tick: "blocked",
         ..FixtureModel::healthy()
     };
-    let decision = tick(&Gate::default(), &healthy_snapshot(), 100, Some(&model));
+    let mut snapshot = healthy_snapshot();
+    snapshot
+        .delta
+        .insert("task:fixture".into(), "opaque change".into());
+    let decision = tick(&Gate::default(), &snapshot, 100, Some(&model));
     assert_eq!(decision.tick_label, "blocked");
     assert!(!decision.wake);
 }
