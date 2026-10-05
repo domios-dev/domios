@@ -703,7 +703,7 @@ pub(super) fn install(
             );
             return serde_json::json!({ "error": format!("exec denied: {bin}") }).to_string();
         }
-        super::host_exec::run_with_host_env(&opts_json, &super::host_exec::current_host_env())
+        super::host_exec::run_with_host_env(&opts_json, &super::host_exec::current_host_env(), &sb)
     });
 
     // Async exec (job-id + poll): same gate as `exec`, but the command runs off-thread so the VM lock is held only per start/poll.
@@ -721,6 +721,7 @@ pub(super) fn install(
             sb.plugin_id(),
             &opts_json,
             &super::host_exec::current_host_env(),
+            sb.clone(),
         )
     });
     let sb = sandbox.clone();
