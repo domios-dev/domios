@@ -1,27 +1,57 @@
-# Sentinels for external status
+# Sentinels for recurring actions
 
-Use `codeterm sentinel create --help` and `codeterm docs SENTINELS` when waiting
-for CI, a build, or another external status. Do useful work while the scheduled
-probe runs; avoid agent polling loops. Sentinels inherit the creator's cwd,
-workspace, and Team, and Team close removes them.
+Use `codeterm sentinel create --help` and `codeterm docs SENTINELS` to author a
+bounded graph instead of polling an agent. Sentinels inherit the creator's cwd,
+workspace, and Team; Team close removes them.
 
 ```bash
 codeterm sentinel create --probe "gh run view 456 --json status,conclusion" --question "waiting until CI completes, then finished regardless of conclusion" --buckets waiting,finished --every 20s --until finished --timeout 1h
+codeterm sentinel create --observe tab:AGENT_TAB --question "Which prompt state is present?" --buckets ready,other --every 10s --timeout 1h
 codeterm sentinel list --json
 codeterm sentinel show SENTINEL_ID --json
 codeterm sentinel stop SENTINEL_ID --json
 ```
 
-Cadence has a 10-second minimum. Each probe runs for at most three seconds and
-captures bounded output. Unchanged output never calls the Supporter. Changed
-output uses one Choice question, automatic `other`, and the shared budget;
-without a connected Choice adapter, add `--match bucket=regex`.
+Create with exactly one source: `--probe` or `--observe tab:<id>` /
+`--observe cron-run:<id-or-name>`. A CronRun stage binds to the exact tab
+verified by the cron store. Replacement resets the observation hash, accepted
+bucket and held state, but not the graph's transition count; finish or tab
+removal unbinds it. Use `--every` with its 10-second minimum; unchanged output
+never calls the Supporter. Without a Choice adapter, use `--match bucket=regex`.
 
-Only a new accepted bucket at confidence >= 0.80, or an unambiguous regex match,
-routes. Routes are `notify` (to the creator, default), `send:<tab>` (a same-Team
-agent, body via file), `cron:<name>` (an existing same-Team cron), and `stop`.
-Repeat `--route bucket=action` to configure buckets. `--until bucket` ends the
-watch after its first routed transition, and `--timeout duration` bounds its
-lifetime. Model verdicts never become arbitrary commands.
+Inline `--route bucket=action` supports `notify`, `sentinel:<id>`, `send:<tab>`,
+`cron:<name>` and `stop`. Use `--handlers-file` for command and prompt-response
+handlers, explicit handler IDs, and escalation handlers in the reserved `other`
+bucket. Only accepted transitions route. Probe output and model verdicts never
+become arbitrary commands or targets.
 
-<!-- revision: 1 -->
+A `respond_prompt:<kind>` handler requires an observed tab or CronRun. It only
+requests an answer: the existing safe-response path revalidates the live prompt
+and kind, then chooses a provider-declared option. This includes supported
+per-tool permission prompts. An unsupported kind, stale prompt or unsafe target
+is refused. Sentinel supplies no selected option, provider steps or raw PTY
+keys. Each tab accepts at most one response per prompt occurrence; Sentinel
+prompt-response requests are limited to 600 per rolling 60-second window.
+
+Reserve `other` handlers for `notify` and `escalate:creator` /
+`escalate:agent:<tab>`. An escalation holds the stage until resolution, a new
+run binding, or its timeout; its claim is never replayed. A cause can escalate
+at most once per five minutes per Sentinel. Resolve it with
+`codeterm sentinel escalation resolve SENTINEL_ID TRANSITION_ID`.
+
+Every action stays within the owning agent's authority and creator, Team,
+workspace, and machine scope. Graphs default to 64 transitions and cap the
+lifetime transition count at 256; a run binding does not reset it. Exhaustion
+stops with `transition_budget_exhausted`. Action attempts default to 256 and
+`--max-actions` caps them at 1024.
+
+Any caller in the same Team and workspace may amend a graph. Use the current
+version and retain lineage:
+
+```bash
+codeterm sentinel update SENTINEL_ID --expect-version VERSION --from-file definition.json
+codeterm sentinel update SENTINEL_ID --expect-version VERSION --from-file definition.json --cause TRANSITION_ID
+codeterm sentinel history SENTINEL_ID
+```
+
+<!-- revision: 2 -->
