@@ -17,6 +17,7 @@ export function ConfigureWithAiButton({ entry }: { entry: CatalogEntry }) {
         type="button"
         data-testid="extensions-configure-ai"
         data-plugin-id={entry.id}
+        aria-label={`Configure ${entry.displayName} with AI`}
         disabled={busy}
         onClick={() => {
           setBusy(true);
@@ -34,14 +35,14 @@ export function ConfigureWithAiButton({ entry }: { entry: CatalogEntry }) {
             }
           })();
         }}
-        className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11.5px] hover:bg-[var(--ct-bg-hover)]"
+        className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border px-2.5 py-1 text-[11.5px] hover:bg-[var(--ct-bg-hover)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ct-accent)]"
         style={{ borderColor: "var(--ct-border-default)", color: "var(--ct-fg)" }}
         title={`Configure ${entry.displayName} with an AI agent`}
       >
         <Sparkles size={13} style={{ color: "var(--ct-accent)" }} />
         {busy ? "Starting…" : "Configure with AI"}
       </button>
-      {error && <div role="alert" className="mt-1 text-[10px] text-[var(--ct-red)]">{error}</div>}
+      {error && <div role="alert" className="mt-1 max-w-full text-right text-[10px] text-[var(--ct-red)] [overflow-wrap:anywhere]">{error}</div>}
     </div>
   );
 }

@@ -81,6 +81,7 @@ export function PluginDetailPanel({
   const current = (config?.plugins?.[entry.id] ?? {}) as Record<string, unknown>;
   const perms = entry.grantedPermissions ?? [];
   const capKeys = capabilityKeys(entry.capabilities);
+  const metadata = `${entry.id} · ${catalogKindLabel(entry)}${entry.version ? ` · v${entry.version}` : ""}${entry.updateAvailable && entry.remoteVersion ? ` → v${entry.remoteVersion}` : ""}${entry.dev ? " · dev (workspace)" : entry.channel ? ` · ${channelLabel(entry.channel)}` : ""}`;
 
   const onPluginConfigChange = (id: string, patch: Partial<ProviderConfig>) => {
     for (const [k, v] of Object.entries(patch)) void onSave(id, k, v);
@@ -99,24 +100,21 @@ export function PluginDetailPanel({
 
   return (
     <div data-testid="extensions-plugin-detail" data-plugin-id={entry.id}>
-      <div style={{ display: "flex", alignItems: "flex-start", gap: 14, marginBottom: 16 }}>
+      <div data-testid="extensions-plugin-header" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, marginBottom: 16, minWidth: 0 }}>
         <div style={{ width: 44, height: 44, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", background: "var(--ct-bg-elev)", border: "1px solid var(--ct-border-subtle)" }}>
           <PluginIcon plugin={iconOf(entry)} size={22} />
         </div>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 17, fontWeight: 640 }}>{entry.displayName}</div>
-          <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10.5, color: "var(--ct-muted)", marginTop: 3 }}>
-            {entry.id} · {catalogKindLabel(entry)}
-            {entry.version ? ` · v${entry.version}` : ""}
-            {entry.updateAvailable && entry.remoteVersion ? ` → v${entry.remoteVersion}` : ""}
-            {entry.dev ? " · dev (workspace)" : entry.channel ? ` · ${channelLabel(entry.channel)}` : ""}
+        <div style={{ flex: "1 1 140px", minWidth: 0 }}>
+          <div data-testid="extensions-plugin-name" title={entry.displayName} style={{ fontSize: 17, fontWeight: 640, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{entry.displayName}</div>
+          <div data-testid="extensions-plugin-metadata" aria-label={metadata} title={metadata} style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10.5, color: "var(--ct-muted)", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {metadata}
           </div>
           <PluginActivityInline
             activity={activity}
             display={resolvePluginActivityDisplay(entry.id, activityDisplayMap)}
           />
         </div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", flex: "none" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end", flex: "0 0 auto", maxWidth: "100%", marginLeft: "auto" }}>
           {action.kind === "none" ? (
             <span style={{ fontSize: 11.5, color: "var(--ct-muted)", padding: "5px 0" }}>{action.label}</span>
           ) : (
