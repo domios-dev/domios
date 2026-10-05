@@ -500,6 +500,8 @@ mod tests {
         assert!(peer_protocol_allowed(0, "/api/mesh/sync"));
         assert!(!peer_protocol_allowed(0, "/api/events/stream"));
         assert!(!peer_protocol_allowed(0, "/api/config"));
+        assert!(peer_protocol_allowed(1, "/api/mesh/announce"));
+        assert!(!peer_protocol_allowed(1, "/api/tabs/abc/send"));
         assert!(peer_protocol_allowed(
             crate::mesh::types::RELAY_PROTOCOL_VERSION,
             "/api/events/stream"

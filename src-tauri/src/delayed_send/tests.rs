@@ -31,13 +31,9 @@ fn reminder_envelope_carries_creator_metadata() {
     };
     let envelope = reminder_envelope(&msg);
     assert_eq!(
-            format!(
-                "{}{}",
-                crate::service::messenger::Messenger::pty_prefix(&envelope),
-                msg.text
-            ),
-            "-=-codeterm:reminder from=Main tab=e8a0ac20 model=opus set_at=1000 fire_at=2000 id=dmsg-7-=-hi"
-        );
+        crate::service::messenger::Messenger::from(envelope).wrap(&msg.text),
+        "<domios from=\"reminder\" label=\"Main\" tab=\"e8a0ac20\" model=\"opus\" set_at=\"1000\" fire_at=\"2000\" id=\"dmsg-7\">hi</domios>"
+    );
 }
 
 #[test]

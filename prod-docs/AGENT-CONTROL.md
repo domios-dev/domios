@@ -48,7 +48,7 @@ Backward-compat alias: `Conductor` -> `Orchestrator`.
 
 **Briefs.** Pass a brief with `--task-file PATH` or `--task-file -` fed by a single-quoted heredoc. The CLI refuses a multiline or over-240-character inline `--task`, because the shell has already expanded its backticks, `$`, quotes and newlines; a short scalar such as `--task "run tests"` stays fine. Every Worker brief names its report command, or the Worker finishes without reporting.
 
-**Worker discipline.** A Worker executes its one task, reports with `codeterm agent report`, and stops: no spawning, sleeping or polling, and no "also do X" scope creep. A task too big for one Worker is reported `blocked` with the needed decomposition, so the Orchestrator splits it.
+**Worker discipline.** A Worker executes its one task, reports with `codeterm agent report`, and stops: no spawning, sleeping or polling, and no "also do X" scope creep. A task too big for one Worker is reported `partial` with the needed decomposition, so the Orchestrator splits it. A Worker `--status blocked` report proposes an owner decision for an external dependency, persists its reason and evidence, and leaves the task unchanged; only the Plan owner or Planner explicitly blocks the task.
 
 **Push-based reports:** Reports go to the spawning Orchestrator, auto-injected into its PTY as `[Report from Name] message\r`, so Claude sees them as user input -- no polling needed.
 
@@ -166,4 +166,4 @@ Domios tracks and restores terminal state across sessions:
 - **Cross-provider session search**: `codeterm sessions search` walks every registered provider's sessions (Claude JSONLs, Codex `~/.codex/sessions/YYYY/MM/DD/*.jsonl`, OpenCode's shared `opencode.db`) and names any provider store it could not fully search. `codeterm sessions resume` opens the tab in the correct cwd and hands the resume id to the right provider.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->

@@ -16,7 +16,8 @@
     "taskDelivery": "inline_flag",
     "paste": {
       "untrustedAboveLines": 4,
-      "typedFollowUp": " Handle the pasted message above as my request."
+      "typedFollowUp": " Handle the pasted message above as my request.",
+      "requiresTypedInstructionForRoutedMessages": true
     },
     "systemPromptDelivery": {
       "kind": "cli_flag",

@@ -65,6 +65,19 @@ impl PlanStore {
         live_tab: impl Fn(&str) -> bool,
         now_ms: u64,
     ) -> Result<StaleOwnerRetirement, PlanError> {
+        self.retire_stale_task_owner_with_label(plan_id, task_id, outcome, None, live_tab, now_ms)
+    }
+
+    pub fn retire_stale_task_owner_with_label(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        outcome: Option<TaskStatus>,
+        status_label: Option<&str>,
+        live_tab: impl Fn(&str) -> bool,
+        now_ms: u64,
+    ) -> Result<StaleOwnerRetirement, PlanError> {
+        let status_label = status_label.unwrap_or(OWNER_RETIRED_LABEL);
         let mut retirement = None;
         let write = self.with_plan(plan_id, now_ms, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
@@ -84,6 +97,7 @@ impl PlanStore {
                 && task.interruption.owner_session_id.is_none()
                 && recovered_status(&outcome, &task.status)
                     .is_none_or(|status| task.status == status)
+                && task.status_label.as_deref() == Some(status_label)
             {
                 retirement = Some(StaleOwnerRetirement {
                     retired_attempt_ids: Vec::new(),
@@ -115,7 +129,7 @@ impl PlanStore {
                 super::qa::normalize_task_review_fields(task);
                 super::review_gate::earn_review_credit(&mut plan.review_policy);
             }
-            task.status_label = Some(OWNER_RETIRED_LABEL.into());
+            task.status_label = Some(status_label.into());
             task.updated_at = now_ms;
             retirement = Some(StaleOwnerRetirement {
                 retired_attempt_ids: retired,
@@ -155,7 +169,7 @@ impl PlanStore {
                 || task.interruption.owner_session_id.is_some()
                 || task.interruption.handoff_required
                 || task.assigned_tab_id.is_some()
-                || task.status_label.as_deref() != Some(OWNER_RETIRED_LABEL)
+                || task.status_label.as_deref() != Some(status_label)
             {
                 return Err(Self::task_readback_error(
                     "task_owner_retire",

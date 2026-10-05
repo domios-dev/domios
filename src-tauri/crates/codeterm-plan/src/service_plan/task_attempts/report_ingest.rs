@@ -130,27 +130,18 @@ impl PlanStore {
             if matches!(current, TaskStatus::Done | TaskStatus::Cancelled) {
                 return Ok(false);
             }
-            let accepted_transition =
-                if current == TaskStatus::InReview && transition == Some(TaskStatus::Blocked) {
-                    None
-                } else {
-                    transition.clone()
-                };
+            let accepted_transition = transition.clone();
             let committed_review = accepted_transition == Some(TaskStatus::InReview);
-            let blocked_reason =
-                (accepted_transition == Some(TaskStatus::Blocked)).then(|| report.message.clone());
             if let Some(next) = accepted_transition
                 .as_ref()
                 .filter(|next| *next != &current)
             {
-                let incoming_label =
-                    (next == &TaskStatus::Blocked).then_some(Some(report.message.as_str()));
                 crate::service_plan::mutations::validate_task_status_transition(
                     plan,
                     &plan.tasks[task_index].id,
                     &current,
                     next,
-                    incoming_label,
+                    None,
                 )?;
             }
             let task = &mut plan.tasks[task_index];
@@ -165,6 +156,9 @@ impl PlanStore {
                 from: from.clone(),
                 kind: "worker_report".into(),
                 text: match report.status {
+                    Some(ReportStatus::Blocked) => {
+                        format!("BLOCK PROPOSAL: {}", report.message)
+                    }
                     Some(status) => format!("{}: {}", status.label(), report.message),
                     None => report.message.clone(),
                 },
@@ -208,9 +202,6 @@ impl PlanStore {
                 if &task.status != next {
                     task.status = next.clone();
                     task.status_changed_at = now_ms;
-                }
-                if next == &TaskStatus::Blocked {
-                    task.status_label = blocked_reason.clone();
                 }
             }
             if entering_review {

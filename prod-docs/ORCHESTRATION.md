@@ -89,7 +89,11 @@ the task, lane, dirty state, and recovery command. Treat it as an incident: tell
 the user, then recover with the named `codeterm plan task respawn` command.
 
 1. **Handle pushed reports.** Worker reports arrive automatically as incoming
-   messages. Accept or bounce them without polling an inbox.
+   messages. Accept or bounce them without polling an inbox. A Worker
+   `--status blocked` report arrives as a block proposal with its reason and
+   evidence; it leaves task state unchanged. Only the Plan owner or Planner
+   blocks with `codeterm plan task update <plan> <task> --status blocked
+   --status-label "<reason; owner trigger>"`.
 2. **Reconcile.** Run `codeterm plan reconcile <plan>`; fix only owned drift.
 3. **Re-derive the frontier.** Inspect all open tasks, not only the previous focus.
 4. **Give every actionable task an exit** under the task sequencing contract;
@@ -180,4 +184,4 @@ delivered heartbeat names a next step. Reports, owner messages, decisions and
 failure alerts still reach you through their own channels. Record deliberate
 holds with `plan review hold --note`.
 
-<!-- revision: 104 -->
+<!-- revision: 105 -->

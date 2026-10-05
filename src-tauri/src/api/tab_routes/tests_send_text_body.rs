@@ -20,10 +20,12 @@ fn send_text_body_without_source_agent_keeps_agent_reply_hint() {
         .mesh(body.source_peer.clone());
     let messenger: crate::service::messenger::Messenger = envelope.into();
     let wrapped = messenger.wrap("hello");
-    let hint = wrapped.rsplit('\n').next().unwrap();
-    assert!(hint.starts_with(crate::service::messenger::Messenger::AGENT_REPLY_HINT_PREFIX));
-    assert!(hint.contains(crate::service::messenger::Messenger::AGENT_REPLY_COMMAND));
-    assert!(hint.ends_with("--mesh BLACKSTAR]"));
+    assert!(wrapped.starts_with("<domios from=\"tab\""));
+    assert!(wrapped.contains(crate::service::messenger::Messenger::AGENT_REPLY_HINT_PREFIX));
+    assert!(wrapped.contains(crate::service::messenger::Messenger::AGENT_REPLY_COMMAND));
+    assert!(wrapped.contains("--mesh BLACKSTAR]"));
+    assert_eq!(wrapped.matches("<domios from=").count(), 1);
+    assert!(wrapped.ends_with(codeterm_types::domios::DOMIOS_CLOSE_TAG));
 }
 
 /// The plain text send always submits — the `enter` knob was removed. A legacy
@@ -167,11 +169,7 @@ fn render_send(
         let envelope =
             crate::service::messenger::MessageEnvelope::tab("Canvas Orchestrator", "073f64ae")
                 .model(Some("opus".into()));
-        format!(
-            "{}{}",
-            crate::service::messenger::Messenger::pty_prefix(&envelope),
-            body
-        )
+        crate::service::messenger::Messenger::from(envelope).wrap(body)
     } else {
         body.to_string()
     }
@@ -188,8 +186,8 @@ fn send_to_shell_tab_with_source_has_no_marker() {
     );
     assert_eq!(out, "cd /path && ./build.sh dev");
     assert!(
-        !out.contains("-=-codeterm:tab"),
-        "a bare shell must run raw text, never the return-address marker"
+        !out.contains("<domios from=\"tab\""),
+        "a bare shell must run raw text, never the return-address tag"
     );
 }
 
@@ -197,10 +195,12 @@ fn send_to_shell_tab_with_source_has_no_marker() {
 fn send_to_agent_tab_with_source_keeps_marker() {
     let out = render_send(true, true, TabInputTransport::Pty, "ship it");
     assert!(
-        out.contains("-=-codeterm:tab"),
-        "an agent Tab still gets the return-address marker"
+        out.starts_with("<domios from=\"tab\""),
+        "an agent Tab still gets the return-address tag"
     );
-    assert!(out.ends_with("ship it"));
+    let frame = codeterm_types::domios::parse_message(&out).expect("complete route frame parses");
+    assert_eq!(frame.body, "ship it");
+    assert!(frame.content.starts_with("ship it "));
 }
 
 #[test]
