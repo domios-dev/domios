@@ -8,27 +8,18 @@ completion instead of repeatedly asking an agent to run the same status check.
 
 Before you repeat a check or wait on an external, agent or cron status, describe the loop once as a graph instead of spending turns on it. Unchanged output costs no model call and no agent turn; you wake only when a declared bucket routes to you. Observation and actions are deterministic, the model only picks one of your finite buckets (never a command, target or reply), and every action stays in the creator's Team, workspace and machine. `other` means no bucket fits.
 
-1. **CI or PR result.** `--probe "gh run view ID --json status,conclusion"`, buckets `passed,failed`, running CI left
-   to `other`; `--route passed=cron:<review>` and `failed=send:<fixer tab>`. The branch is decided once, no polling.
-2. **A Worker waiting on a prompt.** `--observe tab:<worker>` with a `prompt` bucket routed to `notify` or
-   `send:<owner tab>`, and `other` escalated. The tab is read, never typed into; its owner wakes only on a stop.
-3. **Cron run failures.** `--observe cron-run:<name>`, buckets `ok,failed`, `failed=notify`. Each run is a fresh
-   episode, so one graph covers the schedule; the transition count spans runs, so raise `--max-transitions` (max 256).
-4. **Deploy or service health.** `--probe "curl -fsS --max-time 2 https://HOST/health" --every 1m` with
-   `--match 'healthy=(?m)^exit=0$' --match 'down=(?m)^exit=[1-9]'` and `down=notify`. Only a change of bucket routes,
-   not every probe. Stay under the probe limit: a timed-out probe is a skip, not `down`.
-5. **Long build or test.** Have the job write `passed` or `failed` to a status file; `--probe "cat out/test.status"`
-   with `--match 'passed=(?m)^passed' --match 'failed=(?m)^failed'`. While the file is missing the result is a quiet
-   `other`; the default `notify` wakes the creator once on completion, instead of re-reading a log each turn.
-6. **Self-improving loop.** Escalate `other` to the owning agent (`escalate:agent:<tab>` in `--handlers-file`). It
-   reads `sentinel history`, adds the missing bucket, pattern or handler with `sentinel update ... --cause
-   TRANSITION_ID`, then resolves the escalation so the stage re-evaluates once. Each unknown case costs one turn, then
-   stays a versioned, deterministic branch.
-7. **Watching a whole Team.** A General Agent probes existing state, e.g. `--probe "codeterm orchestrator status
-   --plan <plan> --tab <orchestrator-tab>"`, with buckets `healthy,stuck,needs_owner,lost` in `--handlers-file`:
-   `"healthy": []` does nothing; `stuck`, `needs_owner` and `lost` each `notify` the creator once per change; `other`
-   escalates to `creator`. A `send` target must share the creator's Team, so the General Agent relays `stuck` to the
-   Team Orchestrator once with `codeterm send` and takes `needs_owner` to the owner.
+Make the probe print one stable verdict: no timestamps or durations (every changed byte costs a classifier call), the verdict before any long output (only the first 32 KiB is kept), and errors that cannot pass for a result. With a connected Choice adapter the model classifies and `--match` patterns are ignored, so `--question` names every bucket and what is `other`. After creating a graph, end your turn: a route wakes you, while a wait tool, `sleep` or background shell loop is still polling. Only agent tabs can be observed; a utility shell writes a status file instead.
+
+1. **CI or PR result.** `--probe "gh run view ID -R OWNER/REPO --json status,conclusion"`, buckets `passed,failed`, the question naming running CI and probe errors as `other` (without `-R` outside a checkout, gh's error can be read as `failed`); `--route passed=cron:<review>` and `failed=send:<fixer tab>`. The branch is decided once, no polling.
+2. **A Worker waiting on a prompt.** `--observe tab:<worker>`, buckets `prompt,busy` in `--handlers-file`: `prompt` to `send:<owner tab>` or `notify`, `"busy": []` for working or idle. Do not escalate `other` here: the hold would hide the next prompt until resolved. The tab is read, never typed into.
+3. **An agent finished its turn.** Instead of re-reading `tab get-text`: `--observe tab:<agent>`, buckets `working,idle,prompt`, `"working": []`, `idle` and `prompt` to `notify`, and `--until idle`.
+4. **Deploy or service health.** `--probe "curl -fsS --max-time 2 https://HOST/health"` (`curl.exe` on Windows), buckets `healthy,down`, `down=notify`. Only a change of bucket routes; an unassigned `healthy` uses `notify`, so you also wake on the first read and on recovery (`"healthy": []` keeps it silent). To wait for a server to come up, declare only `ready` with `--until ready`: refusals stay `other`.
+5. **Long build, test or QA batch.** Have the job write `passed` or `failed` to a status file; `--probe "cat out/test.status"`. While the file is missing the result is a quiet `other`; the default `notify` wakes the creator on each result instead of re-reading a log each turn.
+6. **Threshold.** Compute the verdict inside the probe and print one word, e.g. in PowerShell `if ((Get-PSDrive C).Free -lt 20GB) {"low"} else {"ok"}`, with `"ok": []` and `low` to `notify`: you wake when the value crosses, not on every reading.
+7. **Self-improving loop.** Escalate `other` to the owning agent (`escalate:agent:<tab>` in `--handlers-file`). It reads `sentinel history`, adds the missing bucket or handler with `sentinel update ... --cause TRANSITION_ID`, then resolves the escalation so the stage re-evaluates once. Each unknown case costs one turn, then stays a versioned branch. The update file is not the `history` definition: it takes `question`, `buckets`, `every`, `handlers` (the create file form), `on_other`, `escalation_timeout_ms`, `max_transitions` and `max_actions`; the probe or observed source cannot change.
+8. **Watching a whole Team.** A General Agent probes `codeterm tab status --tab <orchestrator-tab>` (it reports `not found` once the tab is gone; `orchestrator status` does not) and `codeterm orchestrator status --plan <plan> --tab <orchestrator-tab>` filtered to its `live_lanes` and `drift` lines (the reminder line changes every tick). Buckets `healthy,stuck,needs_owner,lost` in `--handlers-file`: `"healthy": []`; `stuck`, `needs_owner` and `lost` each `notify` the creator once per change; leave `other` quiet, since an escalation hold would hide later changes. A `send` target must share the creator's Team, so the General Agent relays `stuck` to the Team Orchestrator with `codeterm send` and takes `needs_owner` to the owner.
+
+A probe runs `codeterm` from the daemon's PATH, which can be another build (`client protocol v1, server requires >=3`, or a timeout); call the path `(Get-Command codeterm).Source` or `command -v codeterm` prints in your tab. A flapping source routes on every flip until the transition budget stops the graph silently, so keep `--max-transitions` small or use `--until`. A hung probe skips each tick without slowing other graphs. A removed observed tab leaves the stage skipping with `sentinel_observation_scope_changed` until it expires; nobody is told. A Team that forms after you create a graph (your first Worker spawn forms one) stops it without notice and hides it from `sentinel list`, so create graphs once your Team exists.
 
 ## Create a watch
 
@@ -45,10 +36,7 @@ escalation handler when it needs attention. With an existing same-Team cron and 
 codeterm sentinel create --probe "gh run view 456 --json status,conclusion" --question "passed for completed successful CI; failed for completed unsuccessful CI; other while running" --buckets passed,failed --route passed=cron:review_pr --route failed=send:repair_worker --timeout 1h
 ```
 
-The creator's live tab supplies its cwd, workspace, and Team. Commands are executed as the daemon user in that cwd, with
-no interactive stdin. Each probe has a three-second runtime limit (ten seconds on Windows, where PowerShell starts
-slowly), or the remaining lifetime if shorter. Capture retains up to 32 KiB each of stdout and stderr. The exit status
-is part of the hashed result. A probe timeout or spawn failure records a skip.
+The creator's live tab supplies its cwd, workspace, and Team. Commands are executed as the daemon user in that cwd, with no interactive stdin, through `/bin/sh -c` on Unix and Windows PowerShell on Windows, where `curl` is an alias (use `curl.exe`) and `>` writes UTF-16. Each probe has a three-second runtime limit (ten seconds on Windows, where PowerShell starts slowly), or the remaining lifetime if shorter. Capture retains up to 32 KiB each of stdout and stderr. The exit status is part of the hashed result. A probe timeout or spawn failure records a skip.
 
 Use `--observe` to watch an agent tab or a cron run instead of running a shell probe:
 
@@ -67,7 +55,7 @@ A connected Supporter adapter with Choice capability gets one question over `--b
 option, using the shared request budget and journal. Probe output is treated as untrusted data. Unchanged output never
 calls the model, including after a failed or budget-exhausted classification.
 
-Without a connected Choice adapter, supply deterministic patterns:
+Without a connected Choice adapter, supply deterministic patterns; while one is connected, the model classifies and patterns are ignored:
 
 ```bash
 codeterm sentinel create --probe "check-ci" --question "CI result" --buckets waiting,passed,failed --match 'passed=(?m)^success$' --match 'failed=(?m)^failure$' --every 20s --until passed --timeout 1h
@@ -235,4 +223,4 @@ automatic migration, reset or discard. Use fresh isolated dev data for demonstra
 A failed persistence write returns an error and holds Sentinel unavailable; cancellation stays in memory and durability
 is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
