@@ -61,7 +61,7 @@ struct ObservationEnvelope {
     metadata: TabStateMetadata,
     permit: state::ObservationPermit,
     adapter: Arc<dyn DecisionModel>,
-    deadline: Instant,
+    configured_deadline_ms: u64,
     audit_only: bool,
 }
 
@@ -274,6 +274,7 @@ pub(super) fn connected<H: ShadowHost>(host: &H, config: &SupporterConfig, adapt
         &host.supporter_models(),
         &TokenSnapshot {
             usable: host.token_available(adapter),
+            acl_invalid: false,
         },
     )
 }
@@ -377,8 +378,6 @@ fn observe_guarded_inner<H: ShadowHost>(
         );
         return None;
     }
-    let deadline =
-        envelope.captured_at + Duration::from_millis(configured_deadline_ms.max(1)).min(DEADLINE);
     let admission = if matches!(trigger, ObservationTrigger::TabExit) {
         state::audit_permit(tab_id, &metadata.session_key, envelope.observation_id)
             .ok_or(state::PermitError::BusyAlreadyObserved)
@@ -445,7 +444,7 @@ fn observe_guarded_inner<H: ShadowHost>(
         metadata,
         permit,
         adapter,
-        deadline,
+        configured_deadline_ms,
         audit_only: matches!(trigger, ObservationTrigger::TabExit),
     };
     let model = supporter::budgeted_model_with_activity(
@@ -458,6 +457,7 @@ fn observe_guarded_inner<H: ShadowHost>(
         Some(supporter::ActivityContext::TabState {
             title: envelope.metadata.title.clone(),
             declared_safe_choice: envelope.metadata.declared_safe_choice.clone(),
+            decision_point: trigger.label().into(),
         }),
     );
     observe(host, &model, config, adapter_id, tab_id, trigger, envelope)
@@ -532,7 +532,12 @@ fn observe<H: ShadowHost>(
         return None;
     }
     let classified_frame_hash = envelope.metadata.envelope.as_ref()?.raw_tail_hash;
-    let response = model.decide_questions(&envelope.request, envelope.deadline);
+    let deadline = host.supporter_runtime().decision_deadline(
+        adapter_id,
+        envelope.configured_deadline_ms,
+        Instant::now(),
+    );
+    let response = model.decide_questions(&envelope.request, deadline);
     let model_verdict = response
         .as_ref()
         .ok()

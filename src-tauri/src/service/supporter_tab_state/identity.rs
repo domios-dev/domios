@@ -180,6 +180,10 @@ pub(crate) fn journal<'a>(
 ) -> Value {
     let observation = observation.into();
     let title = super::privacy::text(title);
+    let decision_point = observation
+        .decision_point()
+        .unwrap_or("tab_state")
+        .to_owned();
     let asked = match source {
         DecisionSource::Adapter | DecisionSource::Other | DecisionSource::LowConfidence => {
             super::super::supporter::tab_questions(&title, label)
@@ -187,6 +191,7 @@ pub(crate) fn journal<'a>(
         _ => super::super::supporter::ActivityContext::TabState {
             title: title.into(),
             declared_safe_choice: None,
+            decision_point: decision_point.clone(),
         }
         .failure(match source {
             DecisionSource::Timeout => "deadline",
