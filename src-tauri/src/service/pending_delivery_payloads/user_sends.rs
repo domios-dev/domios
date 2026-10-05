@@ -17,12 +17,14 @@ const MAX_DIRECTORY_ENTRIES: usize = (MAX_UNSETTLED + MAX_BODY_LEASES) * 3 + 4;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct UserSendAuthority {
     pub(crate) tab_id: String,
-    pub(crate) pty_id: String,
+    pub(crate) pty_id: Option<String>,
     pub(crate) binding_nonce: String,
     pub(crate) pty_session_generation: Option<u64>,
     pub(crate) provider_id: String,
     pub(crate) session_id: Option<String>,
     pub(crate) observed_session_id: Option<String>,
+    #[serde(default)]
+    pub(crate) prelaunch: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -170,13 +172,16 @@ impl UserSendStore {
     }
 
     pub(crate) fn latch_ready_launch(&self, authority: &UserSendAuthority) -> bool {
+        let Some(pty_id) = authority.pty_id.as_ref() else {
+            return false;
+        };
         let Some(pty_session_generation) = authority.pty_session_generation else {
             return false;
         };
         let tab = self.tab(&authority.tab_id);
         let mut ready_launch = tab.ready_launch.lock();
         let current = ReadyUserLaunch {
-            pty_id: authority.pty_id.clone(),
+            pty_id: pty_id.clone(),
             binding_nonce: authority.binding_nonce.clone(),
             pty_session_generation,
             provider_id: authority.provider_id.clone(),
@@ -186,11 +191,14 @@ impl UserSendStore {
     }
 
     pub(crate) fn ready_launch_is_latched(&self, authority: &UserSendAuthority) -> bool {
+        let Some(pty_id) = authority.pty_id.as_ref() else {
+            return false;
+        };
         let Some(pty_session_generation) = authority.pty_session_generation else {
             return false;
         };
         let current = ReadyUserLaunch {
-            pty_id: authority.pty_id.clone(),
+            pty_id: pty_id.clone(),
             binding_nonce: authority.binding_nonce.clone(),
             pty_session_generation,
             provider_id: authority.provider_id.clone(),
@@ -370,6 +378,30 @@ impl UserSendStore {
         self.persist(&tab, &next)?;
         loaded.index = next;
         Ok(Some(bound))
+    }
+
+    pub(crate) fn rebind_queued_authority(
+        &self,
+        record: &UserSendRecord,
+        authority: UserSendAuthority,
+    ) -> Result<Option<UserSendRecord>, String> {
+        let tab = self.tab(&record.authority.tab_id);
+        let mut data = tab.data.lock();
+        let loaded = self.load(&tab, &mut data)?;
+        let Some(current) = loaded.index.records.iter().find(|item| item.send_id == record.send_id) else {
+            return Ok(None);
+        };
+        if current.authority != record.authority || current.state != UserSendState::Queued {
+            return Ok(None);
+        }
+        let mut next = loaded.index.clone();
+        let current = next.records.iter_mut().find(|item| item.send_id == record.send_id)
+            .ok_or("user head disappeared")?;
+        current.authority = authority;
+        let rebound = current.clone();
+        self.persist(&tab, &next)?;
+        loaded.index = next;
+        Ok(Some(rebound))
     }
 
     pub(crate) fn eligible(&self, record: &UserSendRecord) -> bool {
