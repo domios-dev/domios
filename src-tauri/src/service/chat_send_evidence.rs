@@ -789,7 +789,12 @@ mod tests {
             })
             .collect::<Vec<_>>();
         for send in &sends {
-            fail_send(&fx.ledger, send);
+            fx.ledger
+                .finish(
+                    &send.send_id,
+                    Err("submit_unconfirmed: waiting for an exact user turn".into()),
+                )
+                .unwrap();
         }
         fx.append_user_turn("sess-a", "alphabeta");
 
@@ -798,9 +803,15 @@ mod tests {
         assert_eq!(confirmed.len(), 2);
         assert_eq!(confirmed[0].send_id, sends[0].send_id);
         assert_eq!(confirmed[1].send_id, sends[1].send_id);
-        assert_eq!(fx.ledger.reconcile("tab-1")[2].state, ChatSendState::Unknown);
+        assert_eq!(
+            fx.ledger.status(&sends[2].send_id).unwrap().state,
+            ChatSendState::Unknown
+        );
         assert!(fx.scan("tab-1").is_empty());
-        assert_eq!(fx.ledger.reconcile("tab-1")[2].state, ChatSendState::Unknown);
+        assert_eq!(
+            fx.ledger.status(&sends[2].send_id).unwrap().state,
+            ChatSendState::Unknown
+        );
     }
 
     #[test]
