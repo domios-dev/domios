@@ -5,6 +5,7 @@ pub mod network_host;
 pub mod persisted_state;
 pub mod plugin_grants;
 pub mod process_util;
+pub mod secret_file;
 pub mod shell;
 pub mod task_files;
 pub mod terminal;

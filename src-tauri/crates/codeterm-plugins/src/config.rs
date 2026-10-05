@@ -5,6 +5,7 @@
 
 use super::*;
 use codeterm_util::persisted_state::{write_atomic, Loaded, StateFile};
+use codeterm_util::secret_file::SecretFile;
 use serde_json::Value;
 
 /// `codeterm plugin get <id>` — the agent's discover handle.
@@ -26,7 +27,24 @@ pub(super) fn get_command(id: &str) -> Result<Value, String> {
     let yaml_path = dir.join("config.yaml");
     let raw_yaml = fs::read_to_string(&yaml_path).unwrap_or_default();
     let redacted = redact_yaml(&raw_yaml, &secret_keys);
-    let configured = yaml_has_content(&raw_yaml);
+    let bucket = plugin_secret_bucket(id.as_str());
+    if !secret_keys.is_empty() && !bucket.is_available() {
+        return Err("plugin secret bucket is unavailable".to_string());
+    }
+    let mut secret_status = serde_json::Map::new();
+    for key in &secret_keys {
+        let set = bucket
+            .has(key)
+            .map_err(|error| format!("read secret status for '{key}': {error}"))?;
+        secret_status.insert(
+            key.clone(),
+            Value::String(if set { "set" } else { "unset" }.to_string()),
+        );
+    }
+    let configured = yaml_has_content(&raw_yaml)
+        || secret_status
+            .values()
+            .any(|value| value.as_str() == Some("set"));
 
     Ok(serde_json::json!({
         "id": id.as_str(),
@@ -38,6 +56,7 @@ pub(super) fn get_command(id: &str) -> Result<Value, String> {
         "config_yaml": redacted,
         "settings_schema": schema,
         "secret_fields": secret_keys,
+        "secret_status": secret_status,
     }))
 }
 
@@ -49,11 +68,12 @@ const GRANTABLE_PERMS: &[&str] = &[
     "secrets",
 ];
 
-/// `codeterm plugin config <id> [--set k=v]... [--values-json '{…}'] [--grant P]... [--revoke P]...`.
+/// `codeterm plugin config <id> [--set k=v]... [--secret FIELD] [--values-json '{…}'] [--grant P]... [--revoke P]...`.
 pub(super) fn config_command(
     id: &str,
     sets: &[String],
     values_json: Option<&str>,
+    secret: Option<(&str, &PluginSecretValue)>,
     grants: &[String],
     revokes: &[String],
 ) -> Result<Value, String> {
@@ -66,11 +86,24 @@ pub(super) fn config_command(
     let (_schema, secret_keys) = load_schema(&dir, &manifest);
     let known_keys = known_keys(&dir, &manifest);
 
+    if secret.is_some()
+        && (!sets.is_empty() || values_json.is_some() || !grants.is_empty() || !revokes.is_empty())
+    {
+        return Err("--secret must be used by itself".to_string());
+    }
+    if let Some((field, _)) = secret {
+        if !secret_keys.iter().any(|key| key == field) {
+            return Err(format!(
+                "--secret FIELD must name a secret field declared in {id}'s settings schema"
+            ));
+        }
+    }
+
     let mut updates: Vec<(String, Value)> = Vec::new();
     for s in sets {
         let (k, v) = s
             .split_once('=')
-            .ok_or_else(|| format!("--set expects KEY=VALUE, got '{s}'"))?;
+            .ok_or_else(|| "--set expects KEY=VALUE".to_string())?;
         // Infer the scalar type so `enabled=false` writes a real YAML boolean, not the truthy string "false".
         updates.push((k.trim().to_string(), infer_scalar(v)));
     }
@@ -82,7 +115,7 @@ pub(super) fn config_command(
             updates.push((k, v));
         }
     }
-    if updates.is_empty() && grants.is_empty() && revokes.is_empty() {
+    if updates.is_empty() && grants.is_empty() && revokes.is_empty() && secret.is_none() {
         return Err(
             "nothing to do (use --set KEY=VALUE, --values-json, --grant P, or --revoke P)"
                 .to_string(),
@@ -100,6 +133,14 @@ pub(super) fn config_command(
         }
     }
 
+    for (key, _) in &updates {
+        if secret_keys.contains(key) {
+            return Err(format!(
+                "setting '{key}' is secret; use `codeterm plugin config {id} --secret {key}` with the value piped to stdin"
+            ));
+        }
+    }
+
     // Persist grant/revoke to grants.yaml; the host reads it fail-closed on next reload.
     let granted = apply_grants(&dir, grants, revokes)?;
 
@@ -110,31 +151,42 @@ pub(super) fn config_command(
         Err(e) => return Err(format!("read {}: {e}", yaml_path.display())),
     };
     let mut changed: Vec<String> = Vec::new();
-    let mut secrets_pending: Vec<String> = Vec::new();
     for (k, v) in &updates {
-        if secret_keys.contains(k) {
-            // Security invariant: a secret never lands in the YAML — report it for the secret store instead.
-            secrets_pending.push(k.clone());
-            continue;
-        }
         text = yaml_set_scalar(&text, k, v);
         changed.push(k.clone());
     }
-    if !updates.is_empty() {
+    if !changed.is_empty() {
         write_atomic(&yaml_path, text.as_bytes())
             .map_err(|e| format!("write {}: {e}", yaml_path.display()))?;
     }
+
+    let secret_fields_set = if let Some((field, value)) = secret {
+        let bucket = plugin_secret_bucket(id);
+        if !bucket.is_available() {
+            return Err("plugin secret bucket is unavailable".to_string());
+        }
+        bucket
+            .set(field, value.expose())
+            .map_err(|error| format!("store secret field '{field}': {error}"))?;
+        vec![field]
+    } else {
+        Vec::new()
+    };
 
     Ok(serde_json::json!({
         "ok": true,
         "id": id,
         "changed": changed,
-        "secrets_pending": secrets_pending,
+        "secret_fields_set": secret_fields_set,
         "grants_changed": granted,
         // config.yaml re-stamps live; grants apply on the plugin's next reload.
         "reload": if granted.is_empty() { "live" } else { "reload" },
         "config_path": yaml_path.display().to_string(),
     }))
+}
+
+fn plugin_secret_bucket(plugin_id: &str) -> SecretFile {
+    codeterm_util::secret_file::plugin_secret_bucket(data_root(), plugin_id)
 }
 
 pub(super) fn settings_command(
@@ -575,6 +627,85 @@ spawn_agents: [
         collect_all_keys(&schema, &mut all);
         assert!(all.contains(&"serverUrl".to_string()));
         assert!(all.contains(&"OPENAI_API_KEY".to_string()));
+    }
+
+    #[test]
+    fn secret_config_uses_plugin_bucket_and_reports_only_presence() {
+        let root = tempfile::tempdir().unwrap();
+        let id = "secret-fixture";
+        let dir = root.path().join("plugins").join(id);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("plugin.json"),
+            serde_json::json!({
+                "id": id,
+                "settingsSchema": "settings.schema.json"
+            })
+            .to_string(),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("settings.schema.json"),
+            serde_json::json!([{
+                "kind": "api_key",
+                "env_var": "SERVICE_TOKEN",
+                "label": "Service token"
+            }])
+            .to_string(),
+        )
+        .unwrap();
+        let ctx = PluginCtx {
+            data_root: root.path().to_path_buf(),
+            version: None,
+        };
+        let unset = crate::run(ctx.clone(), PluginAction::Get { id: id.into() }).unwrap();
+        assert_eq!(unset["secret_status"]["SERVICE_TOKEN"], "unset");
+
+        let value = format!("fixture-{}", uuid::Uuid::new_v4());
+        let mut stdin_value = value.as_bytes();
+        let secret_input = PluginSecretValue::read_from(&mut stdin_value, false).unwrap();
+        assert!(!format!("{secret_input:?}").contains(value.as_str()));
+        let configured = crate::run(
+            ctx.clone(),
+            PluginAction::Config {
+                id: id.into(),
+                set: Vec::new(),
+                values_json: None,
+                secret: Some(("SERVICE_TOKEN".into(), secret_input)),
+                grant: Vec::new(),
+                revoke: Vec::new(),
+            },
+        )
+        .unwrap();
+        assert_eq!(configured["secret_fields_set"][0], "SERVICE_TOKEN");
+        assert!(!configured.to_string().contains(value.as_str()));
+        let host_bucket = codeterm_util::secret_file::plugin_secret_bucket(root.path(), id);
+        let stored = host_bucket.get("SERVICE_TOKEN").unwrap();
+        assert!(stored.as_str() == value.as_str());
+        let other_bucket = codeterm_util::secret_file::plugin_secret_bucket(root.path(), "other");
+        assert!(other_bucket.get("SERVICE_TOKEN").is_err());
+
+        let shown = crate::run(ctx.clone(), PluginAction::Get { id: id.into() }).unwrap();
+        assert_eq!(shown["secret_status"]["SERVICE_TOKEN"], "set");
+        assert!(!shown.to_string().contains(value.as_str()));
+        assert!(!dir.join("config.yaml").exists());
+
+        let set_error = crate::run(
+            ctx,
+            PluginAction::Config {
+                id: id.into(),
+                set: vec![format!("SERVICE_TOKEN={stored}")],
+                values_json: None,
+                secret: None,
+                grant: Vec::new(),
+                revoke: Vec::new(),
+            },
+        )
+        .unwrap_err();
+        assert!(set_error.contains("--secret SERVICE_TOKEN"));
+        assert!(!set_error.contains(stored.as_str()));
+        let audit = fs::read_to_string(root.path().join("logs/plugin-events.log")).unwrap();
+        assert!(!audit.contains(stored.as_str()));
     }
 
     #[test]
