@@ -256,6 +256,30 @@ fn waiting_on_auth_with_no_surface_still_surfaces() {
 }
 
 #[test]
+fn rate_limit_in_prompt_chain_never_auto_acts() {
+    let c = classification(
+        TabState::RateLimited,
+        1.0,
+        Some(TabStateAction {
+            keys: Some(vec!["down".into(), "enter".into()]),
+            delayed_resume: Some(DelayedResume {
+                at: "2026-06-19T16:20:00+03:00".into(),
+                text: "continue your work".into(),
+                then_keys: Some(vec!["enter".into()]),
+            }),
+            surface: Some(Surface {
+                kind: "rate_limit".to_string(),
+                payload: serde_json::json!({ "reason": "quota" }),
+            }),
+        }),
+    );
+    assert_eq!(
+        decide_prompt_chain(TabStatus::Waiting, &c),
+        ReactorDecision::Ignore
+    );
+}
+
+#[test]
 fn high_confidence_keys_action_is_executed() {
     let action = keys_action(&["down", "enter"]);
     let c = classification(TabState::IdleStuck, GLOBAL_THRESHOLD, Some(action.clone()));

@@ -200,7 +200,16 @@ fn react_heuristic(
         .with_provider(agent_type, |provider| provider.classify_tab_state(snapshot))
         .unwrap_or(None);
 
-    match decide(status, classification.as_ref()) {
+    let decision = if svc.prompt_chain_blocks_keys(tab_id) {
+        classification
+            .as_ref()
+            .map_or(ReactorDecision::Ignore, |classification| {
+                decide_prompt_chain(status, classification)
+            })
+    } else {
+        decide(status, classification.as_ref())
+    };
+    match decision {
         ReactorDecision::Ignore => {}
         ReactorDecision::Surface(surface) => surface_to_user(svc, tab_id, surface),
         ReactorDecision::Act(action) => {
@@ -216,6 +225,23 @@ fn react_heuristic(
                 execute_action(svc, tab_id, action);
             }
         }
+    }
+}
+
+fn decide_prompt_chain(
+    status: TabStatus,
+    classification: &TabStateClassification,
+) -> ReactorDecision {
+    if matches!(
+        classification.state,
+        TabState::WaitingOnAuth
+            | TabState::RateLimited
+            | TabState::ClarifyingQuestion
+            | TabState::Unknown
+    ) {
+        ReactorDecision::Ignore
+    } else {
+        decide(status, Some(classification))
     }
 }
 

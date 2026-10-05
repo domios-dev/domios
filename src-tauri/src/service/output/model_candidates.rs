@@ -201,6 +201,29 @@ impl ServiceContext {
         {
             return;
         }
+        let launch_onboarding = {
+            let mux = self.mux.read();
+            mux.get_tab(&snapshot.tab_id).is_some_and(|tab| {
+                super::super::directory_trust::launch_onboarding_check_applies(
+                    tab,
+                    &snapshot.agent_type,
+                )
+            })
+        } && self
+            .agent_registry
+            .with_provider(&snapshot.agent_type, |provider| {
+                provider
+                    .launch_onboarding_response(&snapshot.screen_text)
+                    .is_some()
+            })
+            .unwrap_or(false);
+        if ((verdict.label == crate::service::supporter_tab_state::MODEL_UNAVAILABLE_OR_QUOTA)
+            || (verdict.label == crate::service::supporter_tab_state::LOGIN_OR_AUTH_REQUIRED
+                && !launch_onboarding))
+            && self.handle_prompt_chain_verdict(&snapshot.tab_id, &verdict.label, false)
+        {
+            return;
+        }
         if self.route_unattended_launch_prompt(snapshot, verdict) {
             return;
         }
@@ -219,6 +242,13 @@ impl ServiceContext {
         } else {
             None
         };
+        if self.handle_prompt_chain_verdict(
+            &snapshot.tab_id,
+            &verdict.label,
+            parsed.is_none() && verdict.live_prompt(),
+        ) {
+            return;
+        }
         let kind = if verdict.label == PROVIDER_UPDATE_PROMPT {
             PromptKind::ManualUpdate
         } else {
