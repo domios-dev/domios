@@ -1,7 +1,7 @@
 use super::machine::*;
 use super::provenance::{Classification, Failure, Scope};
 use std::cell::Cell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn buckets() -> Vec<String> {
     vec!["waiting".into(), "passed".into(), "failed".into()]
@@ -70,6 +70,58 @@ fn sentinel_transition_routes_once() {
         tick(&mut machine, b"5", "waiting", 0.9).route,
         Some(Route::Notify)
     );
+}
+
+#[test]
+fn sentinel_rearm_on_change_routes_only_changed_output_in_the_same_bucket() {
+    let routes = BTreeMap::from([(
+        "waiting".into(),
+        vec![super::handlers::Handler::notify("waiting")],
+    )]);
+    let enabled = BTreeSet::from(["waiting".into()]);
+    let mut machine = Machine::default();
+    let classify = || verdict("waiting", 0.9);
+
+    let initial = evaluate_with_other_rearm(
+        &mut machine,
+        b"first",
+        &buckets(),
+        &routes,
+        &enabled,
+        &[],
+        None,
+        scope(),
+        classify,
+    );
+    let unchanged = evaluate_with_other_rearm(
+        &mut machine,
+        b"first",
+        &buckets(),
+        &routes,
+        &enabled,
+        &[],
+        None,
+        scope(),
+        || panic!("unchanged output must not rearm"),
+    );
+    let changed = evaluate_with_other_rearm(
+        &mut machine,
+        b"second",
+        &buckets(),
+        &routes,
+        &enabled,
+        &[],
+        None,
+        scope(),
+        classify,
+    );
+
+    assert_eq!(initial.reason, "transition");
+    assert_eq!(initial.route, Some(Route::Notify));
+    assert_eq!(unchanged.reason, "unchanged");
+    assert_eq!(unchanged.route, None);
+    assert_eq!(changed.reason, "rearm_on_change");
+    assert_eq!(changed.route, Some(Route::Notify));
 }
 
 #[test]
@@ -180,6 +232,22 @@ fn sentinel_regex_fallback_without_adapter() {
 }
 
 #[test]
+fn sentinel_line_anchored_pattern_matches_crlf_probe_output() {
+    let patterns = BTreeMap::from([
+        ("passed".into(), "(?m)^passed$".into()),
+        ("waiting".into(), "(?m)^waiting$".into()),
+    ]);
+    let crlf = "exit=0\nstdout:\npassed\r\n\nstderr:\n";
+    assert_eq!(
+        regex_verdict_if_matched(&patterns, crlf),
+        Some(Verdict {
+            bucket: "passed".into(),
+            confidence: 1.0
+        })
+    );
+}
+
+#[test]
 fn sentinel_create_refused_without_adapter_or_pattern() {
     assert!(
         validate(&buckets(), &BTreeMap::new(), false, MIN_INTERVAL_MS)
@@ -215,6 +283,7 @@ fn create_params() -> super::store::Create {
         every: "10s".into(),
         routes: BTreeMap::new(),
         matches: BTreeMap::new(),
+        rearm_on_change: Default::default(),
         until: None,
         timeout: None,
         paused: false,
@@ -247,6 +316,27 @@ fn sentinel_create_requires_a_meaningful_name() {
 
     assert!(error.contains("Sentinel graph name is required"));
     assert!(store.list().is_empty());
+}
+
+#[test]
+fn sentinel_rearm_on_change_requires_a_declared_bucket() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut params = create_params();
+    params.rearm_on_change.insert("unlisted".into());
+    let store = store(dir.path(), crate::cron::clock::MockClock::starting_at(1000));
+
+    assert!(store
+        .prepare(
+            params,
+            super::store::Owner {
+                creator_tab_id: "creator".into(),
+                team_id: None,
+                workspace_id: "workspace".into(),
+                cwd: "/tmp".into(),
+            },
+            true,
+        )
+        .is_err());
 }
 
 #[test]
@@ -398,12 +488,7 @@ fn sentinel_probe_bounded_runtime_and_output() {
         "while ($true) { [Console]::Out.Write('x') }",
     );
     let started = std::time::Instant::now();
-    let trivial = super::probe::run(
-        "echo ok",
-        dir.path(),
-        super::probe::PROBE_RUNTIME,
-        &owner,
-    );
+    let trivial = super::probe::run("echo ok", dir.path(), super::probe::PROBE_RUNTIME, &owner);
     assert!(
         trivial.is_ok(),
         "trivial probe failed after {:?}: {:?}",
@@ -411,7 +496,10 @@ fn sentinel_probe_bounded_runtime_and_output() {
         trivial.err()
     );
     let trivial = trivial.unwrap();
-    assert_eq!(i32::from_le_bytes(trivial.bytes[..4].try_into().unwrap()), 0);
+    assert_eq!(
+        i32::from_le_bytes(trivial.bytes[..4].try_into().unwrap()),
+        0
+    );
     let normalized = trivial.text.replace("\r\n", "\n");
     assert!(
         normalized.contains("stdout:\nok\n"),
@@ -419,12 +507,7 @@ fn sentinel_probe_bounded_runtime_and_output() {
         trivial.text
     );
     let started = std::time::Instant::now();
-    let output = super::probe::run(
-        large,
-        dir.path(),
-        super::probe::PROBE_RUNTIME,
-        &owner,
-    )
+    let output = super::probe::run(large, dir.path(), super::probe::PROBE_RUNTIME, &owner)
         .unwrap_or_else(|error| {
             panic!("large probe failed after {:?}: {error}", started.elapsed())
         });
@@ -498,7 +581,9 @@ fn sentinel_probe_unconfirmed_cleanup_stops_watch_without_classification() {
     assert!(stopped.machine.stopped);
     assert_eq!(stopped.machine.last_hash, None);
     assert_eq!(stopped.machine.last_bucket, None);
-    assert!(matches!(store.lock().due(), Err(error) if error.starts_with("sentinel_store_load_failed:")));
+    assert!(
+        matches!(store.lock().due(), Err(error) if error.starts_with("sentinel_store_load_failed:"))
+    );
     assert!(lease.cancelled.load(std::sync::atomic::Ordering::SeqCst));
     crate::persisted_state::release_hold(&state_path);
 }

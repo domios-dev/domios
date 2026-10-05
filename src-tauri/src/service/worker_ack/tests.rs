@@ -542,6 +542,8 @@ fn task_bound_startup_supervision_completes_on_task_ack() {
         AgentStartupArm::AlreadyAcknowledged
     ));
     assert!(registry.startup_waiters.lock().is_empty());
+    assert!(registry.startup_supervisor("child").is_none());
+    assert!(!registry.startup_handshake_owed("child"));
 }
 
 #[test]

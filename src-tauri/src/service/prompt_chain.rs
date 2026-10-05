@@ -5,6 +5,7 @@ use std::sync::{Arc, LazyLock};
 use codeterm_plugin::tab_state::TabState;
 use codeterm_types::pty::{PendingPrompt, PromptKind};
 use parking_lot::Mutex;
+use tauri::Manager;
 
 const MAX_AUTOMATIC_ANSWERS: usize = 5;
 const MAX_TRACKED_LAUNCHES: usize = 256;
@@ -25,6 +26,7 @@ struct ChainProgress {
     answers: usize,
     active: bool,
     last_prompt: Option<String>,
+    last_step: Option<String>,
     notices: HashSet<String>,
 }
 
@@ -55,8 +57,20 @@ impl PromptChainBook {
         self.entries.get_mut(key).expect("inserted prompt chain")
     }
 
-    fn admit(&mut self, key: &ChainKey, fingerprint: String) -> Admission {
+    fn admit(
+        &mut self,
+        key: &ChainKey,
+        fingerprint: String,
+        response_step: Option<String>,
+    ) -> Admission {
         let progress = self.progress(key);
+        if progress.last_prompt.as_deref() == Some(fingerprint.as_str())
+            && progress.active
+            && progress.last_step != response_step
+        {
+            progress.last_step = response_step;
+            return Admission::Allowed;
+        }
         if progress.answers >= MAX_AUTOMATIC_ANSWERS {
             progress.active = false;
             return Admission::Limit;
@@ -67,6 +81,7 @@ impl PromptChainBook {
         }
         progress.answers += 1;
         progress.last_prompt = Some(fingerprint);
+        progress.last_step = response_step;
         progress.active = true;
         Admission::Allowed
     }
@@ -116,6 +131,31 @@ fn blocker_kind(prompt: &PendingPrompt) -> &'static str {
     }
 }
 
+fn prompt_notice_kind(prompt: &PendingPrompt) -> String {
+    format!("prompt:{}", blocker_kind(prompt))
+}
+
+fn prompt_parent_route_kind(prompt: &PendingPrompt) -> String {
+    format!("parent-route:{}", prompt_notice_kind(prompt))
+}
+
+fn notice_event_key(key: &ChainKey, dedupe_kind: &str) -> String {
+    let event_hash = hash_bytes(
+        serde_json::to_string(&(&key.launch_id, dedupe_kind))
+            .unwrap_or_default()
+            .as_bytes(),
+    );
+    format!("prompt-chain:{event_hash}")
+}
+
+fn notice_subject(tab_title: &str, cron_name: Option<&str>) -> String {
+    cron_name
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(|name| format!("cron:{name}"))
+        .unwrap_or_else(|| tab_title.to_string())
+}
+
 fn hash_bytes(bytes: &[u8]) -> String {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     bytes.hash(&mut hasher);
@@ -159,11 +199,101 @@ fn notice_body(subject: &str, kind: &str) -> String {
     }
 }
 
+fn notice_title(kind: &str) -> &'static str {
+    match kind {
+        "login" => "Agent login needs your attention",
+        "quota" | "unavailable_model" => "Agent model needs your attention",
+        "free_text" | "multi_select" | "too_many_options" | "unsupported_prompt" => {
+            "Agent prompt needs your attention"
+        }
+        kind if kind.starts_with("prompt:") => "Agent prompt needs your attention",
+        "repeated:prompt" | "answer_limit" => "Agent launch needs your attention",
+        _ => "Agent needs your attention",
+    }
+}
+
+pub(crate) fn owner_prompt_notice_title(prompt: &PendingPrompt) -> &'static str {
+    notice_title(&prompt_notice_kind(prompt))
+}
+
+pub(crate) fn owner_prompt_notice_actions() -> Vec<codeterm_types::notification::CallerAction> {
+    use codeterm_types::notification::CallerAction;
+
+    vec![
+        CallerAction::Answer {
+            label: "I will resolve it in Domios".into(),
+        },
+        CallerAction::Dismiss {
+            label: "Dismiss".into(),
+        },
+    ]
+}
+
+pub(crate) fn owner_prompt_condition_actions() -> Vec<codeterm_types::notification::NotificationAction>
+{
+    owner_prompt_notice_actions()
+        .into_iter()
+        .map(Into::into)
+        .collect()
+}
+
 impl super::ServiceContext {
     fn prompt_chain_key(&self, tab_id: &str) -> Option<ChainKey> {
         let mux = self.mux.read();
         let tab = mux.get_tab(tab_id)?;
         crate::service::unattended_launch::owns_prompt_answers(tab).then(|| key_for_tab(tab))
+    }
+
+    fn prompt_notice_key(&self, tab_id: &str) -> Option<ChainKey> {
+        self.mux.read().get_tab(tab_id).map(key_for_tab)
+    }
+
+    pub(crate) fn claim_pending_prompt_notice(
+        &self,
+        tab_id: &str,
+        prompt: &PendingPrompt,
+    ) -> bool {
+        let Some(key) = self.prompt_notice_key(tab_id) else {
+            return false;
+        };
+        let dedupe_kind = prompt_notice_kind(prompt);
+        CHAINS.lock().claim_notice(&key, &dedupe_kind)
+    }
+
+    pub(crate) fn claim_pending_prompt_parent_route(
+        &self,
+        tab_id: &str,
+        prompt: &PendingPrompt,
+    ) -> bool {
+        let Some(key) = self.prompt_notice_key(tab_id) else {
+            return false;
+        };
+        CHAINS
+            .lock()
+            .claim_notice(&key, &prompt_parent_route_kind(prompt))
+    }
+
+    pub(crate) fn pending_prompt_blocker_kind(prompt: &PendingPrompt) -> &'static str {
+        blocker_kind(prompt)
+    }
+
+    pub(crate) fn prompt_notice_subject(&self, tab_id: &str) -> String {
+        let title = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .map(|_| mux.display_label_for_tab(tab_id))
+        }
+        .filter(|title| !title.trim().is_empty())
+        .unwrap_or_else(|| tab_id.to_string());
+        let cron_name = self
+            .app_handle
+            .try_state::<crate::CronState>()
+            .and_then(|cron| {
+                let store = cron.lock();
+                let (job_id, _) = store.get_tab_owner(tab_id)?;
+                store.get(job_id).map(|job| job.name.clone())
+            });
+        notice_subject(&title, cron_name.as_deref())
     }
 
     pub(crate) fn prompt_chain_blocks_keys(&self, tab_id: &str) -> bool {
@@ -176,6 +306,7 @@ impl super::ServiceContext {
         tab_id: &str,
         kind: &str,
         prompt_fingerprint: String,
+        response_step: Option<String>,
     ) -> bool {
         let Some(key) = self.prompt_chain_key(tab_id) else {
             return true;
@@ -213,7 +344,7 @@ impl super::ServiceContext {
             })
             .map(|(prompt, kind)| fingerprint(kind, &prompt))
             .unwrap_or(prompt_fingerprint);
-        let admission = CHAINS.lock().admit(&key, prompt_fingerprint);
+        let admission = CHAINS.lock().admit(&key, prompt_fingerprint, response_step);
         match admission {
             Admission::Allowed => {
                 self.watch_prompt_chain(key, pty_id, agent_type, prior_screen);
@@ -278,12 +409,7 @@ impl super::ServiceContext {
         false
     }
 
-    pub(crate) fn handle_prompt_chain_blocker(
-        &self,
-        tab_id: &str,
-        prompt: &PendingPrompt,
-        kind: PromptKind,
-    ) -> bool {
+    pub(crate) fn handle_prompt_chain_blocker(&self, tab_id: &str, prompt: &PendingPrompt) -> bool {
         let Some(key) = self.prompt_chain_key(tab_id) else {
             return false;
         };
@@ -291,11 +417,7 @@ impl super::ServiceContext {
             return false;
         }
         self.finish_prompt_chain(&key);
-        self.notify_prompt_chain_once(
-            &key,
-            &format!("prompt:{kind:?}"),
-            blocker_kind(prompt),
-        );
+        self.notify_prompt_chain_once(&key, &prompt_notice_kind(prompt), blocker_kind(prompt));
         true
     }
 
@@ -312,29 +434,29 @@ impl super::ServiceContext {
         if !CHAINS.lock().claim_notice(key, dedupe_kind) {
             return;
         }
-        let subject = {
-            let mux = self.mux.read();
-            mux.get_tab(&key.tab_id)
-                .map(|_| mux.display_label_for_tab(&key.tab_id))
-                .filter(|title| !title.trim().is_empty())
-                .unwrap_or_else(|| key.tab_id.clone())
-        };
+        let subject = self.prompt_notice_subject(&key.tab_id);
         let body = notice_body(&subject, message_kind);
-        let event_hash = hash_bytes(
-            serde_json::to_string(&(&key.launch_id, dedupe_kind))
-                .unwrap_or_default()
-                .as_bytes(),
-        );
+        if dedupe_kind.starts_with("prompt:") {
+            self.create_condition_notification_with_key(
+                &key.tab_id,
+                crate::notification::dedupe::TabCondition::PendingPrompt,
+                notice_title(message_kind).into(),
+                Some(body),
+                Some(owner_prompt_condition_actions()),
+                notice_event_key(key, dedupe_kind),
+            );
+            return;
+        }
         self.create_notification_ext(
-            "Agent launch needs your attention".into(),
+            notice_title(message_kind).into(),
             Some(body),
             Some("warning"),
-            None,
+            Some(owner_prompt_notice_actions()),
             Some(true),
             crate::service::notification::NotificationOrigin::local_tab(key.tab_id.clone()),
             crate::service::notification::PushIntent {
                 level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
-                event_key: Some(format!("prompt-chain:{event_hash}")),
+                event_key: Some(notice_event_key(key, dedupe_kind)),
             },
             None,
         );
@@ -409,12 +531,12 @@ impl super::ServiceContext {
                                 &screen, prompt,
                             ))
                     });
-                if let Some((prompt, kind)) = prompt.as_ref() {
+                if let Some((prompt, _)) = prompt.as_ref() {
                     let unanswerable_shape = prompt.multi_select == Some(true)
                         || prompt.options.is_empty()
                         || prompt.options.len() > 10;
                     if unanswerable_shape
-                        && service.handle_prompt_chain_blocker(&key.tab_id, prompt, *kind)
+                        && service.handle_prompt_chain_blocker(&key.tab_id, prompt)
                     {
                         break;
                     }
@@ -500,7 +622,7 @@ mod tests {
     fn trust_then_login_keeps_one_answer_and_one_kind_notice() {
         let mut book = PromptChainBook::default();
         let key = key("trust-login");
-        assert_eq!(book.admit(&key, "trust".into()), Admission::Allowed);
+        assert_eq!(book.admit(&key, "trust".into(), None), Admission::Allowed);
         assert!(book.is_active(&key));
         assert!(book.blocks_keys(&key));
         book.finish(&key);
@@ -514,8 +636,11 @@ mod tests {
     fn trust_onboarding_ready_counts_two_answers_and_stops_observing() {
         let mut book = PromptChainBook::default();
         let key = key("trust-onboarding-ready");
-        assert_eq!(book.admit(&key, "trust".into()), Admission::Allowed);
-        assert_eq!(book.admit(&key, "onboarding".into()), Admission::Allowed);
+        assert_eq!(book.admit(&key, "trust".into(), None), Admission::Allowed);
+        assert_eq!(
+            book.admit(&key, "onboarding".into(), None),
+            Admission::Allowed
+        );
         assert_eq!(book.entries[&key].answers, 2);
         book.finish(&key);
         assert!(!book.is_active(&key));
@@ -525,30 +650,83 @@ mod tests {
     fn repeated_prompt_is_not_answered_again_and_five_is_the_limit() {
         let mut repeated = PromptChainBook::default();
         let repeated_key = key("repeat");
-        assert_eq!(repeated.admit(&repeated_key, "same".into()), Admission::Allowed);
-        assert_eq!(repeated.admit(&repeated_key, "same".into()), Admission::Repeated);
+        assert_eq!(
+            repeated.admit(&repeated_key, "same".into(), None),
+            Admission::Allowed
+        );
+        assert_eq!(
+            repeated.admit(&repeated_key, "same".into(), None),
+            Admission::Repeated
+        );
         assert_eq!(repeated.entries[&repeated_key].answers, 1);
 
         let mut bounded = PromptChainBook::default();
         let bounded_key = key("bounded");
         for index in 0..MAX_AUTOMATIC_ANSWERS {
             assert_eq!(
-                bounded.admit(&bounded_key, format!("prompt-{index}")),
+                bounded.admit(&bounded_key, format!("prompt-{index}"), None),
                 Admission::Allowed
             );
         }
         assert_eq!(
-            bounded.admit(&bounded_key, "sixth".into()),
+            bounded.admit(
+                &bounded_key,
+                format!("prompt-{}", MAX_AUTOMATIC_ANSWERS - 1),
+                Some("enter".into())
+            ),
+            Admission::Allowed
+        );
+        assert_eq!(bounded.entries[&bounded_key].answers, MAX_AUTOMATIC_ANSWERS);
+        assert_eq!(
+            bounded.admit(&bounded_key, "sixth".into(), None),
             Admission::Limit
         );
         assert_eq!(bounded.entries[&bounded_key].answers, MAX_AUTOMATIC_ANSWERS);
     }
 
     #[test]
-    fn cron_blocker_notice_uses_the_launch_title() {
-        let body = notice_body("cron:Nightly QA", "login");
+    fn cron_blocker_notice_uses_the_cron_name() {
+        let subject = notice_subject("Bizet", Some("Nightly QA"));
+        let body = notice_body(&subject, "login");
         assert!(body.contains("Nightly QA"));
         assert!(body.contains("login"));
+        assert!(!body.contains("Bizet"));
+    }
+
+    #[test]
+    fn login_notice_has_login_title_and_owner_choices() {
+        use codeterm_types::notification::CallerAction;
+
+        assert_eq!(notice_title("login"), "Agent login needs your attention");
+        assert_eq!(
+            notice_title("multi_select"),
+            "Agent prompt needs your attention"
+        );
+        let actions = owner_prompt_notice_actions();
+        assert_eq!(actions.len(), 2);
+        assert!(matches!(&actions[0], CallerAction::Answer { .. }));
+        assert!(matches!(&actions[1], CallerAction::Dismiss { .. }));
+    }
+
+    #[test]
+    fn move_then_enter_is_one_answer_and_completed_repeat_stays_blocked() {
+        let mut book = PromptChainBook::default();
+        let key = key("trust-steps");
+        assert_eq!(
+            book.admit(&key, "trust-prompt".into(), Some("down".into())),
+            Admission::Allowed
+        );
+        assert_eq!(
+            book.admit(&key, "trust-prompt".into(), Some("enter".into())),
+            Admission::Allowed
+        );
+        assert_eq!(book.entries[&key].answers, 1);
+        book.finish(&key);
+        assert_eq!(
+            book.admit(&key, "trust-prompt".into(), Some("enter".into())),
+            Admission::Repeated
+        );
+        assert_eq!(book.entries[&key].answers, 1);
     }
 
     #[test]
@@ -571,5 +749,43 @@ mod tests {
         assert_eq!(blocker_kind(&prompt), "too_many_options");
         prompt.multi_select = Some(true);
         assert_eq!(blocker_kind(&prompt), "multi_select");
+    }
+
+    #[test]
+    fn owner_prompt_notice_is_once_per_blocker_and_launch() {
+        let mut book = PromptChainBook::default();
+        let launch = key("notice-launch");
+        let repeated = PendingPrompt {
+            question: "opaque-question".into(),
+            options: Vec::new(),
+            sections: None,
+            multi_select: None,
+            submit_available: None,
+            selected_values: None,
+        };
+        let multi_select = PendingPrompt {
+            question: "another-question".into(),
+            multi_select: Some(true),
+            ..repeated.clone()
+        };
+        let free_text_kind = prompt_notice_kind(&repeated);
+        let multi_select_kind = prompt_notice_kind(&multi_select);
+        let updated_multi_select = PendingPrompt {
+            options: vec![codeterm_types::pty::PromptOption {
+                label: "updated-option".into(),
+                value: "updated-value".into(),
+            }],
+            ..multi_select.clone()
+        };
+
+        assert!(book.claim_notice(&launch, &free_text_kind));
+        assert!(!book.claim_notice(&launch, &free_text_kind));
+        assert!(book.claim_notice(&launch, &multi_select_kind));
+        assert_eq!(prompt_notice_kind(&updated_multi_select), multi_select_kind);
+        assert!(!book.claim_notice(&launch, &prompt_notice_kind(&updated_multi_select)));
+        let parent_route = prompt_parent_route_kind(&multi_select);
+        assert!(book.claim_notice(&launch, &parent_route));
+        assert!(!book.claim_notice(&launch, &prompt_parent_route_kind(&updated_multi_select)));
+        assert!(book.claim_notice(&key("next-launch"), &free_text_kind));
     }
 }

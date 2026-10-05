@@ -679,7 +679,10 @@ impl ServiceContext {
                 task_text,
                 role,
                 cwd,
-                workspace_id: (!workspace_id.is_empty()).then_some(workspace_id),
+                workspace_id: crate::cron::recovery::restored_spawn_workspace(
+                    &self.mux.read(),
+                    &workspace_id,
+                ),
                 team_id,
                 creator_tab_id,
                 report_target_tab_id,

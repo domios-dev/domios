@@ -67,7 +67,7 @@ pub(crate) fn open_instance_storage() -> StorageAuthority {
     open_instance_storage_at(crate::paths::data_dir())
 }
 
-fn open_instance_storage_at(root: impl AsRef<Path>) -> StorageAuthority {
+pub(crate) fn open_instance_storage_at(root: impl AsRef<Path>) -> StorageAuthority {
     let root = root.as_ref();
     let storage = match Storage::open(root, StorageConfig::default()) {
         Ok(storage) => storage,

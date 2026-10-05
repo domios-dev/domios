@@ -123,6 +123,11 @@ for (const f of ["structured-pending-prompt.txt", "active-terminal-choice.txt"])
   eq(r?.state, "clarifying_question", `${f}: state is clarifying_question`);
   assertSingleInputSurface(r, "clarifying_question", f);
 }
+{
+  const candidate = classify(plugin, fixture("recovery-dialog-lookalike.txt"));
+  eq(candidate?.state, "clarifying_question", "composer lookalike is a screen-only modal candidate");
+  assertSingleInputSurface(candidate, "clarifying_question", "composer lookalike candidate");
+}
 
 console.log("\n--- stale auth prose at ready or streaming tail is neither Question nor Auth ---\n");
 for (const f of ["stale-auth-ready-composer.txt", "stale-auth-streaming.txt"]) {

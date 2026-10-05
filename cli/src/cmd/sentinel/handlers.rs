@@ -31,6 +31,7 @@ pub(super) fn declared_outputs(
 
     let mut grouped: BTreeMap<String, Vec<Value>> = BTreeMap::new();
     let mut single = BTreeMap::new();
+    let mut silent = BTreeSet::new();
     let mut repeated = false;
     let mut ids = BTreeSet::new();
     for route in routes {
@@ -41,6 +42,9 @@ pub(super) fn declared_outputs(
         repeated |= single
             .insert(bucket.to_string(), action.to_string())
             .is_some();
+        if super::map_none_route(bucket, action, &mut grouped, &mut silent)? {
+            continue;
+        }
         let (kind, target) = action
             .split_once(':')
             .map(|(kind, target)| (kind, Some(target)))

@@ -21,6 +21,7 @@ const MIGRATIONS: &[&str] = &[
     // Sentinel graph v4 is the migration immediately after the desk migration.
     sentinel::GRAPH_SCHEMA,
     "ALTER TABLE sentinel_runtime ADD COLUMN run_transitions INTEGER NOT NULL DEFAULT 0 CHECK (run_transitions >= 0);",
+    "ALTER TABLE sentinel_buckets ADD COLUMN rearm_on_change INTEGER NOT NULL DEFAULT 0 CHECK (rearm_on_change IN (0, 1));",
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 

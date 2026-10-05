@@ -174,6 +174,10 @@ result. Model confidence must be at least 0.80. `other` and low confidence can u
 adapter failure and exhausted budgets never escalate. Unknown or weak observations do not reset the last accepted
 bucket. Returning to a previously accepted bucket after another accepted bucket is a new transition.
 
+Use `--rearm-on-change <bucket>` on create, or a `rearm_on_change` array in update JSON, to route again when the
+output hash changes but the confident result stays in that bucket. Each rearm is an accepted transition and
+consumes the configured budget.
+
 ## Closed-set routes
 
 Repeat `--route bucket=action` for inline `notify`, `sentinel`, `send`, `cron`, or `stop` handlers. Use
@@ -220,7 +224,8 @@ codeterm sentinel create --name "CI and review" --probe "check-ci" --question "p
 Replace `sentinel_DOWNSTREAM_ID` with the exact ID from the first response. The entry and its reachable stages appear as
 one named scenario. Shared targets retain their identity and results. Activating an already active stage is a noop: it
 does not reset its accepted result, schedule, expiry or running work. Missing, foreign, self, stopped and expired
-targets are refused. There is no rearm API, recursive scheduler execution, or cyclic-episode guarantee.
+targets are refused. Rearming is limited to `--rearm-on-change`; there is no recursive scheduler execution or
+cyclic-episode guarantee.
 
 Use `--handlers-file PATH` for JSON bucket-to-array definitions. Omit `id` to generate a meaningful handler-node name
 from its type and bucket (for example, `send-to-review-on-passed`). Explicit generic IDs such as `default_1` or

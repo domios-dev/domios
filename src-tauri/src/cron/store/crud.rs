@@ -1,6 +1,8 @@
 //! CronStore operations. Each `prepare_*` derives one authorized change from the cache
 //! without touching it; the backend commits that change before the cache sees it.
 
+use std::collections::HashSet;
+
 use super::{
     cap_jitter_max_ms_at, compute_backoff, compute_next_run_jittered_at, default_max_history,
     parse_oneshot_schedule_at, validate_tz, CronCreateParams, CronJob, CronRunInfo, CronRunStatus,
@@ -181,6 +183,24 @@ impl CronStore {
             .get(job_id)
             .map(|h| h.iter().collect())
             .unwrap_or_default()
+    }
+
+    pub(crate) fn active_runs(&self) -> Vec<(String, CronRunInfo)> {
+        let mut runs = Vec::new();
+        let mut seen = HashSet::new();
+        for job in &self.file.jobs {
+            for run in self.file.history.get(&job.id).into_iter().flatten() {
+                if is_active_run(run) && seen.insert(run.run_id.clone()) {
+                    runs.push((job.id.clone(), run.clone()));
+                }
+            }
+            if let Some(run) = job.last_run.as_ref().filter(|run| is_active_run(run)) {
+                if seen.insert(run.run_id.clone()) {
+                    runs.push((job.id.clone(), run.clone()));
+                }
+            }
+        }
+        runs
     }
 
     /// Locate a run by id across all jobs' history, without knowing its job_id
@@ -584,10 +604,24 @@ impl CronStore {
         status: CronRunStatus,
         session: Option<RunSession<'_>>,
     ) -> Result<Prepared<RunFinished>, String> {
+        self.prepare_finish_run_with_summary(job_id, run_id, status, session, None)
+    }
+
+    pub(crate) fn prepare_finish_run_with_summary(
+        &self,
+        job_id: &str,
+        run_id: &str,
+        status: CronRunStatus,
+        session: Option<RunSession<'_>>,
+        summary: Option<&str>,
+    ) -> Result<Prepared<RunFinished>, String> {
         let now = self.now_ms();
         let mut edit = self.edit_run(job_id, run_id);
         if let Some(session) = session {
             edit.each(|run| set_session(run, session));
+        }
+        if let Some(summary) = summary {
+            edit.each(|run| run.summary = Some(summary.to_string()));
         }
         let mut prior: Option<CronRunStatus> = None;
         let mut started_at: Option<u64> = None;
@@ -793,6 +827,13 @@ impl CronStore {
         let prepared = self.prepare_set_run_report(job_id, run_id, summary, &delivery);
         self.legacy(Ok(prepared))
     }
+}
+
+fn is_active_run(run: &CronRunInfo) -> bool {
+    matches!(
+        run.status,
+        CronRunStatus::Running | CronRunStatus::AwaitingOwnerPrompt
+    )
 }
 
 fn set_session(run: &mut CronRunInfo, session: RunSession<'_>) {

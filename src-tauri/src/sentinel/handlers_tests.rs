@@ -22,6 +22,18 @@ fn definition() -> Value {
 }
 
 #[test]
+fn sentinel_none_route_has_no_handler_and_does_not_fall_back_to_notify() {
+    let routes = super::handlers::definitions(
+        &["quiet".into()],
+        BTreeMap::from([("quiet".into(), "none".into())]),
+        None,
+    )
+    .unwrap();
+
+    assert!(routes["quiet"].is_empty());
+}
+
+#[test]
 fn sentinel_handlers_current_create_evaluate_and_reload_positive() {
     let dir = tempfile::tempdir().unwrap();
     let clock = crate::cron::clock::MockClock::starting_at(1000);
@@ -543,6 +555,7 @@ fn sentinel_handlers_real_execution_id_is_preserved_independently_from_durable_c
                 status: super::handlers::Status::Completed,
                 execution_id: Some("supplied-real-run-id".into()),
                 command_result: None,
+                reason: None,
             },
         )
         .unwrap();

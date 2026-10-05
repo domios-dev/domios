@@ -253,6 +253,30 @@ pub fn evaluate_with_other(
     scope: Scope,
     classify: impl FnOnce() -> Classification,
 ) -> Outcome {
+    evaluate_with_other_rearm(
+        machine,
+        output,
+        buckets,
+        routes,
+        &BTreeSet::new(),
+        on_other,
+        until,
+        scope,
+        classify,
+    )
+}
+
+pub fn evaluate_with_other_rearm(
+    machine: &mut Machine,
+    output: &[u8],
+    buckets: &[String],
+    routes: &BTreeMap<String, Vec<Handler>>,
+    rearm_on_change: &BTreeSet<String>,
+    on_other: &[Handler],
+    until: Option<&str>,
+    scope: Scope,
+    classify: impl FnOnce() -> Classification,
+) -> Outcome {
     let mut evidence = Evidence::new(scope, None);
     let skipped = |reason, evidence| Outcome {
         evidence,
@@ -289,14 +313,20 @@ pub fn evaluate_with_other(
     {
         "low_confidence"
     } else if machine.last_bucket.as_deref() == Some(&verdict.bucket) {
-        "same_bucket"
+        if rearm_on_change.contains(&verdict.bucket) {
+            "rearm_on_change"
+        } else {
+            "same_bucket"
+        }
     } else {
         "transition"
     };
-    let handlers = if reason == "transition" {
-        machine.last_bucket = Some(verdict.bucket.clone());
-        if until == Some(verdict.bucket.as_str()) {
-            machine.stopped = true;
+    let handlers = if matches!(reason, "transition" | "rearm_on_change") {
+        if reason == "transition" {
+            machine.last_bucket = Some(verdict.bucket.clone());
+            if until == Some(verdict.bucket.as_str()) {
+                machine.stopped = true;
+            }
         }
         routes
             .get(&verdict.bucket)
@@ -337,12 +367,14 @@ pub fn regex_verdict_if_matched(
     patterns: &BTreeMap<String, String>,
     output: &str,
 ) -> Option<Verdict> {
+    // Windows probes end lines with CRLF, and `(?m)$` only matches before `\n`.
+    let output = output.replace("\r\n", "\n");
     let matches: Vec<_> = patterns
         .iter()
         .filter_map(|(bucket, pattern)| {
             regex::Regex::new(pattern)
                 .ok()
-                .filter(|regex| regex.is_match(output))
+                .filter(|regex| regex.is_match(&output))
                 .map(|_| bucket.clone())
         })
         .collect();

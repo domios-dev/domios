@@ -69,6 +69,27 @@ impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDeliv
 impl ServiceFixture {
     pub(crate) fn new(mux: MultiplexerState) -> Self {
         let temp = tempfile::tempdir().unwrap();
+        Self::build(mux, temp, None)
+    }
+
+    pub(crate) fn new_at(mux: MultiplexerState, data_dir: &std::path::Path) -> Self {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(data_dir).unwrap();
+        Self::build(mux, temp, Some(data_dir.to_path_buf()))
+    }
+
+    fn build(
+        mut mux: MultiplexerState,
+        temp: tempfile::TempDir,
+        data_dir: Option<std::path::PathBuf>,
+    ) -> Self {
+        let persistent = data_dir.is_some();
+        let data_dir = data_dir.unwrap_or_else(|| temp.path().to_path_buf());
+        if persistent {
+            if let Ok(store) = crate::multiplexer::state::ClosedTabsStore::open(&data_dir) {
+                mux.attach_closed_store(store);
+            }
+        }
         let builder = tauri::Builder::default();
         #[cfg(windows)]
         let builder = builder.any_thread();
@@ -81,12 +102,16 @@ impl ServiceFixture {
             agent_registry.clone(),
             chatbackend_registry.clone(),
         ));
-        let plan_store = Arc::new(PlanStore::new_for_test(temp.path()));
+        let plan_store = Arc::new(PlanStore::new_for_test(&data_dir));
         let plan_turn_counter = Arc::new(crate::service::plan::reminders::TurnCounter::new());
         plan_store.bind_turn_counter(plan_turn_counter.clone());
-        let mem = crate::mem::MemManager::open_in_memory().unwrap();
+        let mem = if persistent {
+            crate::mem::MemManager::open_offline(&data_dir.join("mem")).unwrap()
+        } else {
+            crate::mem::MemManager::open_in_memory().unwrap()
+        };
         let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
-            temp.path().join("codeterm"),
+            data_dir.join("codeterm"),
             mem.db_path().to_path_buf(),
         ));
         let secret_registry = Arc::new(crate::secrets::SecretRegistry::new());
@@ -98,17 +123,17 @@ impl ServiceFixture {
             crate::bridge::manager::create_outbound_channel();
         let pending_delivery_payloads = Arc::new(
             crate::service::pending_delivery_payloads::PendingDeliveryPayloadStore::open(
-                temp.path(),
+                &data_dir,
                 &HashSet::new(),
             )
             .unwrap(),
         );
         let services_store = Arc::new(
-            crate::service::store::ServicesStore::open(&temp.path().join("services.db")).unwrap(),
+            crate::service::store::ServicesStore::open(&data_dir.join("services.db")).unwrap(),
         );
-        let usage_store = crate::usage::UsageStore::open(temp.path()).unwrap();
+        let usage_store = crate::usage::UsageStore::open(&data_dir).unwrap();
         let service = ServiceContext {
-            agent_pad_data_dir: temp.path().to_path_buf(),
+            agent_pad_data_dir: data_dir.clone(),
             launch_task_files: Arc::new(Mutex::new(HashMap::new())),
             mux: Arc::new(TimedRwLock::new("mux", mux)),
             pty: Arc::new(TimedMutex::new(
@@ -123,9 +148,14 @@ impl ServiceFixture {
                 "screen_state",
                 crate::pty::screen_state::ScreenState::new(),
             )),
-            notif: Arc::new(Mutex::new(
-                crate::notification::store::NotificationStore::new(10),
-            )),
+            notif: Arc::new(Mutex::new(if persistent {
+                crate::notification::store::NotificationStore::open_persisted(
+                    data_dir.join("notifications.json"),
+                    10,
+                )
+            } else {
+                crate::notification::store::NotificationStore::new(10)
+            })),
             events: Arc::new(crate::api::events::EventBroadcaster::new()),
             app_handle: app.handle().clone(),
             cartographer_attach_locks: Default::default(),
@@ -135,15 +165,26 @@ impl ServiceFixture {
                 crate::agent::status::TabStatusTracker::new(),
             )),
             shell_caps: Arc::new(Mutex::new(Default::default())),
-            report_store: Arc::new(Mutex::new(crate::agent::reports::ReportStore::new(10))),
-            kpi: crate::agent::kpi::KpiRecorder::disabled(),
+            report_store: Arc::new(Mutex::new(if persistent {
+                crate::agent::reports::ReportStore::with_ledger(
+                    10,
+                    Arc::new(crate::agent::ledger::OrchestrationLedger::open(&data_dir).unwrap()),
+                )
+            } else {
+                crate::agent::reports::ReportStore::new(10)
+            })),
+            kpi: if persistent {
+                crate::agent::kpi::KpiRecorder::with_ledger(Arc::new(
+                    crate::agent::kpi_ledger::KpiLedger::open(&data_dir).unwrap(),
+                ))
+            } else {
+                crate::agent::kpi::KpiRecorder::disabled()
+            },
             agent_registry: agent_registry.clone(),
             mem,
             mem_supervisor,
             activity: crate::mem::activity::ActivityRing::new(10),
-            workers: crate::mem::workers::GraphWorkerRegistry::load(
-                temp.path().join("workers.json"),
-            ),
+            workers: crate::mem::workers::GraphWorkerRegistry::load(data_dir.join("workers.json")),
             plugin_activity: Arc::new(crate::plugin::activity::PluginActivityRegistry::new()),
             worker_pool: Arc::new(crate::mem::worker_pool::WorkerPool::new(1)),
             prompt_detector: Arc::new(Mutex::new(crate::agent::prompt::PromptDetector::new())),
@@ -151,7 +192,13 @@ impl ServiceFixture {
             provider_tree_witnesses: Arc::new(Default::default()),
             agent_run_pty_map: Arc::new(Mutex::new(HashMap::new())),
             run_watcher: Arc::new(crate::agent::run_watcher::RunWatcherRegistry::new()),
-            remote_workers: Arc::new(crate::service::remote_workers::RemoteWorkerRegistry::new()),
+            remote_workers: Arc::new(if persistent {
+                crate::service::remote_workers::RemoteWorkerRegistry::load(
+                    data_dir.join("remote_workers.json"),
+                )
+            } else {
+                crate::service::remote_workers::RemoteWorkerRegistry::new()
+            }),
             bridge_outbound,
             bridge_outbound_rx: Arc::new(Mutex::new(Some(bridge_outbound_rx))),
             bridge_supervisor: Arc::new(crate::bridge::supervisor::BridgeSupervisor::new()),
@@ -161,7 +208,7 @@ impl ServiceFixture {
             restart_tracker: crate::service::agent_restart::new_restart_tracker(),
             chat_registry: crate::service::tab_chat::ChatRegistry::new(),
             delayed_send: crate::delayed_send::DelayedSendQueue::open(
-                temp.path().join("delayed-send.json"),
+                data_dir.join("delayed_send.json"),
             )
             .unwrap(),
             secrets,
@@ -184,7 +231,7 @@ impl ServiceFixture {
             webhook_registry: Arc::new(codeterm_plugin::WebhookRegistry::new()),
             tab_menu_registry: Arc::new(codeterm_plugin::tab_menu::TabMenuRegistry::new()),
             receiver_targets: Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(
-                temp.path().join("receiver-targets.json"),
+                data_dir.join("receiver-targets.json"),
             )),
             mux_emit_pending: Arc::new(AtomicBool::new(false)),
             mux_emit_stats: Arc::new(crate::service::MuxEmitStats::default()),
@@ -192,7 +239,7 @@ impl ServiceFixture {
             session_persist_pending: Arc::new(AtomicBool::new(false)),
             services_store,
             tokens: Arc::new(crate::service::tokens::TokenStore::new_with_root(
-                temp.path().join("tokens"),
+                data_dir.join("tokens"),
             )),
             pasteboard: crate::pasteboard::PasteboardState::new(),
             input_parser: Arc::new(crate::service::input_parser::InputParser::new(
