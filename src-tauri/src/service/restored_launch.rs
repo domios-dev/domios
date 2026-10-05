@@ -3,6 +3,13 @@ use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::types::RestorableLaunchParameters;
 use crate::service::SpawnAgentParams;
 
+pub(crate) fn restored_resume_session_id<'a>(
+    resume_sessions_enabled: bool,
+    session_id: Option<&'a str>,
+) -> Option<&'a str> {
+    session_id.filter(|_| resume_sessions_enabled)
+}
+
 pub(crate) struct RestorableLaunchCapture<'a> {
     pub provider_id: &'a str,
     pub requested_model: Option<String>,

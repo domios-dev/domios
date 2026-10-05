@@ -2,7 +2,9 @@ use std::io::Read;
 use tauri::AppHandle;
 
 use crate::multiplexer::commands::MuxState;
-use crate::service::restored_launch::{restored_fresh_launch_input, RestoredFreshLaunchInput};
+use crate::service::restored_launch::{
+    restored_fresh_launch_input, restored_resume_session_id, RestoredFreshLaunchInput,
+};
 use crate::service::{boot_stage::BootStage, ServiceState};
 use crate::{AgentTrackerState, OutputBufferState, PtyState, ScreenStateHandle};
 
@@ -165,9 +167,15 @@ pub async fn spawn_pty_core(
             return Ok(pty_id);
         };
         crate::service::mark_tab_agent_launch_started(mux_state, pid);
-        let session_id = restore.session_id;
-        let tab_cwd = restore.cwd;
         let stored_agent_type = restore.provider_id;
+        let restored_session_id = restore.session_id;
+        let resume_enabled = crate::config::resume_sessions_enabled(&stored_agent_type);
+        let session_id = restored_resume_session_id(resume_enabled, restored_session_id.as_deref())
+            .map(str::to_owned);
+        if !resume_enabled && restored_session_id.is_some() {
+            svc.set_agent_session_id(pid, None);
+        }
+        let tab_cwd = restore.cwd;
         let tab_model = restore.model;
         let launch_parameters = restore.launch_parameters;
         let tab_role = restore.role;
@@ -230,8 +238,6 @@ pub async fn spawn_pty_core(
                 svc.emit_state_changed();
             } else {
                 // Build the resume command from the persisted launch inputs.
-                let pc = crate::config::provider_config(&provider_id);
-                let resume_enabled = pc.resume_sessions.unwrap_or(true);
                 let permission_bypass_authorization =
                     crate::service::restored_launch::restore_permission_bypass_authorization(
                         &svc.agent_registry,
@@ -258,21 +264,7 @@ pub async fn spawn_pty_core(
                 );
                 let resume_cmd = input.command(svc.as_ref(), pid);
                 if let Some(cmd) = resume_cmd {
-                    if resume_enabled {
-                        dispatch_restored_snapshot_launch(
-                            svc.as_ref(),
-                            pid,
-                            &provider_id,
-                            &input,
-                            cmd,
-                        );
-                    } else {
-                        if let Some(tab) = mux_state.write().get_tab_mut(pid) {
-                            tab.agent_booting = false;
-                        }
-                        svc.clear_tab_restored_flag(pid);
-                        svc.emit_boot_stage(pid, BootStage::AgentReady, None);
-                    }
+                    dispatch_restored_snapshot_launch(svc.as_ref(), pid, &provider_id, &input, cmd);
                     should_fresh_launch = false;
                 } else {
                     log::warn!(

@@ -68,6 +68,8 @@ open_settings = "Ctrl+,"
 # idle_timeout_s: seconds of idle before treating agent as idle (used for output streaming).
 # resume_sessions: auto-resume agent sessions on restart; a saved session id whose
 #                  JSONL is missing on disk is cleared and the agent launches fresh.
+#                  Set false to launch restored agents fresh; [agents.<provider-id>]
+#                  can override this setting. The default is true.
 # continue_after_restart: one system continue per mid-turn agent tab after any stop.
 # full_access: one global permission choice for every agent provider.
 # Omit it until onboarding or the first agent launch asks the user.
@@ -239,4 +241,4 @@ Provisioning creates an isolated git worktree and launches the agent there; it i
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
 
-<!-- revision: 92 -->
+<!-- revision: 93 -->
