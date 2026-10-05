@@ -82,7 +82,10 @@ pub(super) fn dispatch(
             "canonical checkout is not on the task's requested destination branch",
         ));
     }
-    let repository_identity = crate::service::worker_lane::repository_identity(&canonical_cwd)
+    let repository_identity =
+        crate::service::worker_lane::legacy_repository_identity(&canonical_cwd)
+            .map_err(|error| invalid_dispatch(&error))?;
+    let repository_identities = crate::service::worker_lane::repository_identities(&canonical_cwd)
         .map_err(|error| invalid_dispatch(&error))?;
     let authorized_gates = dispatch_authorized_gates(p)?;
     let requested_model = owned_str(p, "model").or_else(|| detail.task.model.clone());
@@ -173,6 +176,7 @@ pub(super) fn dispatch(
         .ok_or_else(|| invalid_dispatch("mesh dispatch requires the origin Orchestrator tab"))?;
     let request = json!({
         "repository_identity": repository_identity,
+        "repository_identities": repository_identities,
         "base_commit": base,
         "plan_id": plan_id,
         "task_id": task_id,
@@ -390,7 +394,10 @@ pub(crate) fn merge_lane(
         crate::service::LaneProtection::Enforced,
     )
     .map_err(|error| invalid_dispatch(&error))?;
-    let repository_identity = crate::service::worker_lane::repository_identity(&canonical_cwd)
+    let repository_identity =
+        crate::service::worker_lane::legacy_repository_identity(&canonical_cwd)
+            .map_err(|error| invalid_dispatch(&error))?;
+    let repository_identities = crate::service::worker_lane::repository_identities(&canonical_cwd)
         .map_err(|error| invalid_dispatch(&error))?;
     let (peer_paired, peer_client) = {
         let mesh_state = app.state::<crate::MeshStateHandle>();
@@ -427,6 +434,7 @@ pub(crate) fn merge_lane(
     };
     let request = json!({
         "repository_identity": repository_identity,
+        "repository_identities": repository_identities,
         "branch": branch,
         "base_commit": base,
         "plan_id": plan_id,
