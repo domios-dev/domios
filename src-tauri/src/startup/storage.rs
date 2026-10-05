@@ -182,6 +182,48 @@ mod tests {
     }
 
     #[test]
+    fn restored_workspace_cwd_comes_from_state_db_after_cutover() {
+        const LEGACY_DESK: &[u8] = br#"{"version":"1","timestamp":1,"active_workspace_id":"ws-cwd","teams":[],"workspaces":[{"id":"ws-cwd","name":"Project","tabs":[],"active_tab_id":null,"cwd":"legacy-cwd","provisioned_cwd":null}]}"#;
+        let root = tempfile::tempdir().expect("instance root");
+        let legacy_path = root.path().join("sessions/last.json");
+        fs::create_dir_all(legacy_path.parent().expect("legacy directory")).unwrap();
+        fs::write(&legacy_path, LEGACY_DESK).expect("legacy snapshot");
+
+        let first = open_instance_storage_at(root.path());
+        let storage = first.storage().expect("ready storage");
+        let adapter = StorageDeskAdapter::from_storage(storage.clone());
+        let state = adapter.state().expect("database desk state");
+        let mut record = state.snapshot.workspaces[0].record.clone();
+        record.cwd = Some("database-cwd".into());
+        adapter
+            .update_workspace(record, state.workspace_revisions["ws-cwd"])
+            .expect("update database workspace cwd");
+        drop(state);
+        drop(adapter);
+        close(first);
+
+        fs::write(
+            &legacy_path,
+            br#"{"version":"1","timestamp":2,"active_workspace_id":"ws-cwd","teams":[],"workspaces":[{"id":"ws-cwd","name":"Edited JSON","tabs":[],"active_tab_id":null,"cwd":"late-json-cwd","provisioned_cwd":null}]}"#,
+        )
+        .expect("conflicting post-cutover JSON edit");
+        let second = open_instance_storage_at(root.path());
+        let storage = second.storage().expect("database remains authoritative");
+        let snapshot = StorageDeskAdapter::from_storage(storage.clone())
+            .snapshot()
+            .expect("restored database desk");
+        let restored =
+            crate::multiplexer::state::MultiplexerState::from_session_snapshot(&snapshot);
+
+        assert_eq!(
+            restored.list_workspaces()[0].cwd.as_deref(),
+            Some("database-cwd")
+        );
+        assert_eq!(restored.list_workspaces()[0].name, "Project");
+        close(second);
+    }
+
+    #[test]
     fn storage_cutover_startup_refuses_a_second_owner_for_the_same_root() {
         let root = tempfile::tempdir().expect("instance root");
         let first = open_instance_storage_at(root.path());

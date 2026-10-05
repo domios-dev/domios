@@ -24,6 +24,17 @@ fn test_worker(
     worker
 }
 
+fn pending_worker() -> SessionPersistenceWorker {
+    let mailbox = Arc::new(PersistenceMailbox::default());
+    let worker = SessionPersistenceWorker {
+        mailbox: mailbox.clone(),
+        next_revision: Arc::new(AtomicU64::new(0)),
+        submission_order: Arc::new(parking_lot::Mutex::new(())),
+    };
+    std::thread::spawn(move || run_worker(mailbox, None, PersistenceBackend::Pending));
+    worker
+}
+
 fn stop_test_worker(worker: &SessionPersistenceWorker) {
     let (response, completion) = mpsc::channel();
     worker.configure(WorkerMessage::Stop(response)).unwrap();
@@ -50,6 +61,50 @@ pub(crate) fn assert_unavailable_rejects_persistence_without_a_commit() {
         Err(TryRecvError::Empty | TryRecvError::Disconnected)
     ));
     stop_test_worker(&worker);
+}
+
+#[test]
+fn mutation_submitted_before_storage_init_is_committed_and_restored_after_restart() {
+    let root = tempfile::tempdir().expect("storage root");
+    let adapter =
+        crate::session::store::StorageDeskAdapter::open(root.path()).expect("Storage desk adapter");
+    let worker = pending_worker();
+    let (state, _) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace_id = state.list_workspaces()[0].id.clone();
+    let mux = Arc::new(codeterm_util::lock_hold::TimedRwLock::new(
+        "preinit-persistence-test",
+        state,
+    ));
+
+    mux.write()
+        .rename_workspace(&workspace_id, "Mutation before storage init")
+        .expect("pre-init mutation");
+    worker
+        .submit_current(&mux, SaveIntent::PreserveDesk, false)
+        .expect("retain first pre-init revision");
+    mux.write()
+        .rename_workspace(&workspace_id, "Latest pre-init mutation")
+        .expect("latest pre-init mutation");
+    worker
+        .submit_current(&mux, SaveIntent::PreserveDesk, false)
+        .expect("retain latest pre-init revision");
+
+    worker
+        .configure(WorkerMessage::InstallStorage(adapter))
+        .expect("initialize Storage desk backend");
+    worker.flush().expect("flush retained pre-init mutation");
+    stop_test_worker(&worker);
+
+    let restarted = crate::session::store::StorageDeskAdapter::open(root.path())
+        .expect("reopen Storage desk after restart");
+    let snapshot = restarted.snapshot().expect("restored Storage desk");
+    let restored = crate::multiplexer::state::MultiplexerState::from_session_snapshot(&snapshot);
+    assert_eq!(
+        restored.list_workspaces()[0].name,
+        "Latest pre-init mutation",
+        "the latest mutation submitted before backend initialization survives restart"
+    );
+    drop(restarted);
 }
 
 fn test_snapshot(revision: u64) -> crate::session::SessionSnapshot {

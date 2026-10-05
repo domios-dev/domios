@@ -16,6 +16,24 @@ use std::cell::Cell;
 use std::sync::Arc;
 use std::time::Duration;
 
+#[test]
+fn disabled_session_resume_skips_snapshot_and_discovered_session_candidates() {
+    use super::{general_agent_session_plan, GeneralAgentSessionPlan};
+
+    assert_eq!(
+        general_agent_session_plan(false, false, Some("snapshot-session".into())),
+        GeneralAgentSessionPlan::ConfiguredFresh
+    );
+    assert_eq!(
+        general_agent_session_plan(false, false, None),
+        GeneralAgentSessionPlan::ConfiguredFresh
+    );
+    assert_eq!(
+        general_agent_session_plan(true, false, Some("snapshot-session".into())),
+        GeneralAgentSessionPlan::Restore("snapshot-session".into())
+    );
+}
+
 /// Records what actually reached the PTY for one launch payload and mirrors the
 /// transaction's two-phase order: the submit key is written only once ingestion
 /// evidence rises, and a turn only counts once the provider acknowledges.

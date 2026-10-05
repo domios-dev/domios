@@ -1,6 +1,6 @@
 use super::{
-    restore_materialization_core, restored_snapshot_launch_command, restored_snapshot_launch_input,
-    RestoredLaunch, RestoredSnapshotLaunchInput,
+    claim_restored_launch, restore_materialization_core, restored_snapshot_launch_command,
+    restored_snapshot_launch_input, RestoredLaunch, RestoredSnapshotLaunchInput,
 };
 use crate::multiplexer::commands::MuxState;
 use crate::multiplexer::state::MultiplexerState;
@@ -321,6 +321,52 @@ fn restored_snapshot_resumes_the_tab_owned_session_for_each_provider() {
             "{provider}"
         );
     }
+}
+
+#[test]
+fn disabled_resume_uses_a_fresh_command_and_keeps_session_binding_history() {
+    use crate::service::restored_launch::restored_resume_session_id;
+
+    let registry = crate::agent::registry::AgentRegistry::new();
+    registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("snapshot-marked")
+            .with_launch_binary("snapshot-marked"),
+    ));
+    let (mut state, tab_id) = MultiplexerState::new();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("snapshot-marked".into());
+    tab.agent_session_id = Some("persisted-session".into());
+    tab.session_binding_nonce = Some("prior-launch-nonce".into());
+    tab.cwd = Some("fixture-cwd".into());
+    tab.restored_from_snapshot = true;
+    let mux = Arc::new(TimedRwLock::new("disabled-resume-history", state));
+    let session_id = restored_resume_session_id(false, Some("persisted-session"));
+    assert_eq!(session_id, None);
+
+    let launch = claim_restored_launch(
+        &mux,
+        &tab_id,
+        "snapshot-marked",
+        Some("persisted-session"),
+        Some("fixture-cwd"),
+        session_id.is_some(),
+    )
+    .unwrap()
+    .expect("disabled resume claims a fresh launch");
+    let input = restored_snapshot_launch_input(&registry, launch.clone(), None, None);
+    let command = restored_snapshot_launch_command(&registry, &tab_id, "snapshot-marked", &input);
+    let tab = mux.read().get_tab(&tab_id).unwrap();
+
+    assert_eq!(launch.session_id, None);
+    assert!(!command.contains("--resume"));
+    assert!(command.contains("--launch-marker"));
+    assert!(tab.agent_session_id.is_none());
+    assert_eq!(
+        tab.prior_session_binding_nonces
+            .last()
+            .and_then(|entry| entry.session_id.as_deref()),
+        Some("persisted-session")
+    );
 }
 
 #[test]
