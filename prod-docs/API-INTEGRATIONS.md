@@ -132,7 +132,7 @@ the event text; the host transcript is clipped to 64 KiB.
 
 Success: `{"ok": true, "status": "delivered"}` (`eventId` only when supplied by the receiver). Failure: `{"ok": false, "error": {"code": "...", "message": "..."}}`. Handler rejections, including 400/415, log status and code under `[pebble-webhook]` without the secret, headers, or payload.
 
-**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `-=-codeterm:` marker opening. The message gateway delivers it to the receiver's live bound tab (see *Receiver targets* below), otherwise to the General Agent, as `-=-codeterm:pebble source=Pebble plugin=<plugin-id>-=-` followed by the text on its own line, with no reply address. The stored chat-origin metadata carries the receiver id and its host-sanitized plugin SVG; the marker carries identity only. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
+**Delivery.** Before delivery the text loses ANSI and control characters (newline and tab stay) and every embedded `<domios` opening. The message gateway delivers it to the receiver's live bound tab (see *Receiver targets* below), otherwise to the General Agent, as `<domios from="pebble" source="Pebble" plugin="<plugin-id>">…</domios>`, with no reply address. The stored chat-origin metadata carries the receiver id and its host-sanitized plugin SVG; the tag carries identity only. Optional event ids are remembered in memory for the latest 512 deliveries of this daemon run; replaying an event whose delivery failed returns the same failure. CoreApp's unsigned form has no event id, so the plugin omits it and repeated requests are not deduplicated.
 
 #### Receiver targets and plugin tab menus
 
@@ -206,4 +206,4 @@ Recurring schedules must contain exactly five fields and have a fire time within
 
 Service registration, health, usage, logs, and activity: `codeterm docs API-SERVICES`. Notifications and webhooks: `codeterm docs API-TABS`. Secret storage and updates: `codeterm docs API-STATE`.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->

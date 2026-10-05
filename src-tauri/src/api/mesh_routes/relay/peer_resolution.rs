@@ -127,7 +127,7 @@ pub(super) fn resolve_relay_peer(
                 peer_name_ambiguous_error(&name, &candidates)
             }
         })?;
-    if peer.relay_protocol_version != crate::mesh::types::RELAY_PROTOCOL_VERSION {
+    if !crate::mesh::types::is_supported_relay_protocol(peer.relay_protocol_version) {
         return Err((
             StatusCode::UPGRADE_REQUIRED,
             format!(

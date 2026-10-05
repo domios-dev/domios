@@ -223,16 +223,6 @@ impl UserSendStore {
         *self.tab(tab_id).admission_wake.lock() = Some(wake);
     }
 
-    pub(crate) fn admit(
-        &self,
-        reservation: &UserReservation,
-        original: &str,
-        prepared: &str,
-        body: Option<PreparedUserBody>,
-    ) -> Result<UserSendRecord, String> {
-        self.admit_with_follow_up(reservation, original, prepared, body, None)
-    }
-
     pub(crate) fn final_transport(
         &self,
         reservation: &UserReservation,
@@ -246,6 +236,16 @@ impl UserSendStore {
             None => prepared.to_string(),
         };
         Ok(super::super::pty_io::sanitize_agent_prompt_input(&prepared))
+    }
+
+    pub(crate) fn admit(
+        &self,
+        reservation: &UserReservation,
+        original: &str,
+        prepared: &str,
+        body: Option<PreparedUserBody>,
+    ) -> Result<UserSendRecord, String> {
+        self.admit_with_follow_up(reservation, original, prepared, body, None)
     }
 
     pub(crate) fn admit_with_follow_up(

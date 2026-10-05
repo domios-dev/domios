@@ -458,12 +458,8 @@ fn kpi_hook_cost_on_the_send_path_is_bounded() {
     }
 
     let payload_ns = best(ROUNDS, ITERATIONS, |i| {
-        let text = format!(
-            "{}{} #{}",
-            crate::service::messenger::Messenger::pty_prefix(&envelope),
-            BODY,
-            i
-        );
+        let text = crate::service::messenger::Messenger::from(envelope.clone())
+            .wrap(&format!("{BODY} #{i}"));
         std::hint::black_box(text.len());
     });
 

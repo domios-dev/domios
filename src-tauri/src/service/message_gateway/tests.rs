@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Default)]
 struct FakeSeam {
-    enveloped: RefCell<Vec<(String, String, String)>>,
+    enveloped: RefCell<Vec<(String, String)>>,
     texts: RefCell<Vec<(String, String)>>,
     batches: RefCell<Vec<(String, usize)>>,
     keys: RefCell<Vec<(String, String, Vec<KeyStroke>)>>,
@@ -35,15 +35,12 @@ impl DeliverySeam for FakeSeam {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<Delivery, String> {
-        self.enveloped.borrow_mut().push((
-            to_tab.to_string(),
-            Messenger::pty_prefix(&envelope),
-            body.to_string(),
-        ));
+        let text = Messenger::from(envelope).wrap(body);
+        self.enveloped
+            .borrow_mut()
+            .push((to_tab.to_string(), text.clone()));
         self.guard()?;
-        Ok(Delivery::Pty {
-            text: format!("{}{}", Messenger::pty_prefix(&envelope), body),
-        })
+        Ok(Delivery::Pty { text })
     }
 
     fn deliver_enveloped_with_path(
@@ -169,7 +166,6 @@ fn enveloped_submit_forwards_envelope_and_body_byte_identical() {
     let gateway = MessageGateway::new();
     let fake = FakeSeam::default();
     let envelope = MessageEnvelope::tab("Edison", "e8a0ac20");
-    let expected_prefix = Messenger::pty_prefix(&envelope);
 
     let msg = OutboundMessage {
         target: "p1".to_string(),
@@ -187,8 +183,9 @@ fn enveloped_submit_forwards_envelope_and_body_byte_identical() {
     let calls = fake.enveloped.borrow();
     assert_eq!(calls.len(), 1, "exactly one enveloped delivery");
     assert_eq!(calls[0].0, "p1", "target forwarded unchanged");
-    assert_eq!(calls[0].1, expected_prefix, "envelope forwarded unchanged");
-    assert_eq!(calls[0].2, "hello", "body not mutated");
+    let parsed = codeterm_types::domios::parse_message(&calls[0].1).expect("complete route frame");
+    assert_eq!(parsed.attr("from"), Some("tab"));
+    assert_eq!(parsed.body, "hello");
     assert!(fake.texts.borrow().is_empty(), "not routed to plain text");
     assert!(!receipt.dedup_hit);
     assert!(matches!(receipt.delivery, Some(Delivery::Pty { .. })));
@@ -218,7 +215,7 @@ fn inbound_webhook_pebble_event_replay_is_a_noop_after_the_first_enveloped_deliv
     assert_eq!(fake.enveloped.borrow().len(), 1);
     assert_eq!(
         fake.enveloped.borrow()[0].1,
-        "-=-codeterm:pebble source=Pebble-=-"
+        "<domios from=\"pebble\" source=\"Pebble\">focus enabled</domios>"
     );
 }
 

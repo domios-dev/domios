@@ -21,6 +21,14 @@ export type {
   ToolRichResult,
 } from "./types";
 export { SYSTEM_ORIGIN_LABEL, systemOriginLabel } from "./originLabels";
+export {
+  DOMIOS_CLOSE_TAG,
+  DOMIOS_TYPED_INSTRUCTION,
+  buildDomiosOpeningTag,
+  buildDomiosMessage,
+  parseDomiosMessage,
+  type ParsedDomiosMessage,
+} from "./domios";
 export { localThumbnailSource, normalizeToolRichResult, type ThumbnailSource } from "./toolRichResult";
 export {
   shellCommandMessage,

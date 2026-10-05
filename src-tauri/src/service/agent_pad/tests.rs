@@ -358,6 +358,7 @@ fn mesh_received_long_send_lands_in_local_recipient_pad() {
         original.as_bytes()
     );
     assert!(text.contains(&path_token));
-    assert!(text.contains(&crate::service::messenger::Messenger::pty_prefix(&envelope)));
+    assert!(text.starts_with("<domios from=\"tab\""));
+    assert!(text.ends_with(codeterm_types::domios::DOMIOS_CLOSE_TAG));
     assert!(text.contains("peer-token"));
 }

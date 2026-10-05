@@ -14,12 +14,12 @@ const PARITY: &[(&str, &str)] = &[
     ),
     ("-=-codeterm:photo file=/u/p.jpg name=p.jpg-=-", "photo"),
     (
-        "-=-codeterm:telegram user=100000001 msg=12345-=-\ndo the task",
+        "<domios from=\"telegram\" user=\"100000001\" msg=\"12345\">do the task</domios>",
         "telegram",
     ),
-    ("-=-codeterm:mesh peer=peer-a tab=abc12345-=-\nhi", "mesh"),
+    ("<domios from=\"mesh\" peer=\"peer-a\" tab=\"abc12345\">hi</domios>", "mesh"),
     (
-        "-=-codeterm:tab label=General%20Main tab=bda0e267-=-\nping",
+        "<domios from=\"tab\" label=\"General Main\" tab=\"bda0e267\">ping</domios>",
         "tab label has space",
     ),
     (
@@ -63,25 +63,24 @@ fn every_parity_wire_parses() {
 
 #[test]
 fn parse_extracts_kind_attrs_payload() {
-    let p = parse("-=-codeterm:telegram user=100000001 msg=12345-=-\ndo the task").unwrap();
-    assert_eq!(p.kind, "telegram");
-    assert_eq!(p.attr("user"), Some("100000001"));
-    assert_eq!(p.attr("msg"), Some("12345"));
+    let p = parse("-=-codeterm:voice file=/u/v.webm-=-\ndo the task").unwrap();
+    assert_eq!(p.kind, "voice");
+    assert_eq!(p.attr("file"), Some("/u/v.webm"));
     assert_eq!(p.payload, "do the task");
 }
 
 #[test]
 fn parse_unwraps_bracketed_paste_marker() {
-    let p = parse("\x1b[200~-=-codeterm:tab label=main tab=bda0e267-=-\nhello\x1b[201~").unwrap();
-    assert_eq!(p.kind, "tab");
-    assert_eq!(p.attr("tab"), Some("bda0e267"));
+    let p = parse("\x1b[200~-=-codeterm:voice file=/u/v.webm-=-hello\x1b[201~").unwrap();
+    assert_eq!(p.kind, "voice");
+    assert_eq!(p.attr("file"), Some("/u/v.webm"));
     assert_eq!(p.payload, "hello");
 }
 
 #[test]
 fn percent_encoding_round_trips_structural_chars() {
     let nasty = "a b c=d%e\"f\ng";
-    let wire = Marker::new("tab").attr("label", nasty).build();
+    let wire = Marker::new("fixture").attr("label", nasty).build();
     // No raw structural chars leaked into the frame head.
     let head = &wire[OPEN.len()..wire[OPEN.len()..].find(CLOSE).unwrap() + OPEN.len()];
     assert!(!head.contains("]]"));
@@ -126,10 +125,10 @@ fn host_injected_leading_frame_is_authentic() {
 }
 
 #[test]
-fn bracketed_paste_wrapped_host_marker_is_authentic() {
+fn a_complete_route_inside_one_paste_is_not_a_typed_route_frame() {
     let wire = format!("\x1b[200~{}\x1b[201~", tab("main", "bda0e267", "hello"));
-    assert_eq!(provenance(&wire), Provenance::HostInjected);
-    assert!(parse_host_injected(&wire).is_some());
+    assert_eq!(provenance(&wire), Provenance::StreamContent);
+    assert!(parse_host_injected(&wire).is_none());
 }
 
 #[test]
@@ -152,6 +151,14 @@ fn whitespace_padded_marker_is_not_host_injected() {
     assert!(parse(&forged).is_some(), "lenient parse trims — the trap");
     assert_eq!(provenance(&forged), Provenance::StreamContent);
     assert!(parse_host_injected(&forged).is_none());
+}
+
+#[test]
+fn the_old_routed_marker_grammar_is_not_trusted_as_provenance() {
+    let old = "-=-codeterm:tab label=main tab=bda0e267-=-hello";
+    assert!(parse(old).is_none());
+    assert_eq!(provenance(old), Provenance::StreamContent);
+    assert!(parse_host_injected(old).is_none());
 }
 
 #[test]

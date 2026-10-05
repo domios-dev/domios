@@ -7,7 +7,7 @@ memory, scheduling, and routing. Never guess command syntax: run
 The full operational reference is the provider skill named `codeterm` in the
 synced CodeTerm skills directory. Load that skill whenever the task involves
 CodeTerm control, memory, sessions, mesh, Telegram, orchestration, or tabs.
-Treat every `-=-codeterm:...-=-` marker as the return address for your reply.
+Treat a leading `<domios from="tab" ...>` frame as the return address for your reply; keep its terminal `</domios>` tag with the routed message.
 
 Create plan tasks with `codeterm plan task add ... --test-plan ... --qa-plan ...`;
 `test_plan` is Worker evidence, while `qa_plan` is the independent QA oracle.
