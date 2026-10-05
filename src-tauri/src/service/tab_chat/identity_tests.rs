@@ -267,6 +267,32 @@ fn tab_chat_identity_codex_ordinary_rows_share_one_id_across_reads() {
     }
 }
 
+#[test]
+fn tab_chat_snapshot_preserves_a_12k_codex_user_turn() {
+    let root = TempDir::new().unwrap();
+    let registry = js_registry("provider-codex", "codex", root.path());
+    let expected = format!("paste-start:{}:paste-end", "x".repeat(12 * 1024));
+    let record = format!(
+        "{}\n",
+        serde_json::json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{ "type": "input_text", "text": expected.clone() }]
+            }
+        })
+    );
+    let path = root.path().join("long-turn.jsonl");
+    std::fs::write(&path, &record).unwrap();
+
+    let snapshot = session_window::snapshot(&registry, "codex", &path);
+    assert_eq!(snapshot.end_offset, record.len() as u64);
+    assert_eq!(snapshot.messages.len(), 1);
+    assert_eq!(snapshot.messages[0].kind, "user");
+    assert_eq!(snapshot.messages[0].content, expected);
+}
+
 fn row(
     role: &str,
     uuid: Option<&str>,
