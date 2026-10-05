@@ -11,7 +11,7 @@ import { focusEntry, focusLost } from "../Automation/focus";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
 import { ScenarioPanel } from "../Automation/ScenarioPanel";
 import { sentinelJobs, type SentinelJob } from "../Automation/scenarios";
-import { AUTOMATION_ROW, stateTone } from "../Automation/styles";
+import { AUTOMATION_ROW, AUTOMATION_TOOL, stateTone } from "../Automation/styles";
 import type { AutomationAttachment, AutomationGraphAdapter } from "../Automation/types";
 import { useAutomationGraph } from "../Automation/useAutomationGraph";
 import { DropdownMenu } from "../shared/DropdownMenu";
@@ -32,6 +32,7 @@ interface JobsViewProps {
   adapter?: AutomationGraphAdapter;
   initialScenarioId?: string;
   cronActionAdapter?: MeshResourceActionAdapter;
+  jobActionAdapter?: JobsActionAdapter;
   onClearStoppedChange?: (count: number, onClear: (() => void) | null) => void;
   clearStoppedButtonRef?: RefObject<HTMLButtonElement | null>;
 }

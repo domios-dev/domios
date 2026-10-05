@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { renderToStaticMarkup } from "react-dom/server";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -42,7 +43,7 @@ async function clickConfigAction() {
   });
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
   const focusEvents: Array<{ tabId?: string; workspaceId?: string }> = [];
-  win.addEventListener("codeterm:focus-tab", (event) => focusEvents.push((event as CustomEvent<{ tabId?: string; workspaceId?: string }>).detail));
+  win.addEventListener("codeterm:focus-tab", (event) => focusEvents.push((event as unknown as CustomEvent<{ tabId?: string; workspaceId?: string }>).detail));
   const g = globalThis as unknown as Record<string, unknown>;
   g.fetch = async (url: string, init: { body?: string }) => {
     requests.push({ url, body: JSON.parse(init.body ?? "{}") });

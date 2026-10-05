@@ -3,22 +3,31 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig, Workspace } from "../../lib/types";
 
-const workspace: Workspace = {
-  id: "workspace", name: "Workspace", tabs: [], active_tab_id: null, cwd: "/workspace",
-};
+const fixture = vi.hoisted(() => {
+  const workspace = {
+    id: "workspace", name: "Workspace", tabs: [] as string[], active_tab_id: null, cwd: "/workspace",
+  };
+  return {
+    workspace,
+    state: { workspaces: [workspace], active_workspace_id: workspace.id },
+    actions: {
+      spawnAgentTab: () => undefined,
+      createOrchestrationPair: () => undefined,
+      selectTabByTab: () => undefined,
+      addNotification: () => undefined,
+      createWorkspace: () => undefined,
+    },
+    providers: { providers: [] as never[], loading: false },
+  };
+});
+const workspace: Workspace = fixture.workspace;
 
 vi.mock("../../store/multiplexer", () => ({
-  useMuxState: () => ({ workspaces: [workspace], active_workspace_id: workspace.id }),
-  useMultiplexer: () => ({
-    spawnAgentTab: vi.fn(),
-    createOrchestrationPair: vi.fn(),
-    selectTabByTab: vi.fn(),
-    addNotification: vi.fn(),
-    createWorkspace: vi.fn(),
-  }),
+  useMuxState: () => fixture.state,
+  useMultiplexer: () => fixture.actions,
 }));
 vi.mock("../../hooks/useAgentProviders", () => ({
-  useAgentProviders: () => ({ providers: [], loading: false }),
+  useAgentProviders: () => fixture.providers,
 }));
 vi.mock("../../lib/providerInstallStatus", () => ({
   probeProviderInstallMap: vi.fn(async () => ({})),
