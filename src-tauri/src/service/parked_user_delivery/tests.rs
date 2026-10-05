@@ -721,72 +721,6 @@ fn readiness_latches_for_the_current_pty_generation() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
-fn ready_busy_owner_writes_each_send_without_waiting_for_prior_turn_evidence() {
-    let (fixture, tab) = queue_fixture(true, None);
-    append_turn(&fixture, "opaque-equal");
-    mark_ready(&fixture, &tab);
-    fixture.service.agent_tracker.lock().set_working("opaque-pty");
-    let (writes_tx, writes_rx) = mpsc::channel();
-    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |record, text| {
-        writes_tx.send((record.send_id.clone(), text.to_string())).unwrap();
-        Ok(())
-    }));
-
-    let first = fixture.service.start_chat_send(&tab, "opaque-equal".into(), None, Some("client-a".into())).unwrap();
-    let second = fixture.service.start_chat_send(&tab, "opaque-equal".into(), None, Some("client-b".into())).unwrap();
-    await_owner_idle(&fixture, &tab);
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), (first.send_id.clone(), "opaque-equal".into()));
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), (second.send_id.clone(), "opaque-equal".into()));
-    assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
-    assert!(!fixture.service.chat_send_ledger.user_confirmed(&first.send_id));
-    assert!(!fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
-    assert!(live_turn(&fixture, &tab, "other-session", "opaque-current-nonce", "wrong-session", "opaque-equal").is_empty());
-    assert!(live_turn(&fixture, &tab, "opaque-session", "old-nonce", "wrong-nonce", "opaque-equal").is_empty());
-    fixture.service.reconcile_chat_send_evidence(&tab);
-    assert!(!fixture.service.chat_send_ledger.user_confirmed(&first.send_id));
-    append_turn(&fixture, "opaque-equal");
-    assert_eq!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-a", "opaque-equal")[0].send_id, first.send_id);
-    append_turn(&fixture, "opaque-equal");
-    assert_eq!(live_turn(&fixture, &tab, "opaque-session", "opaque-current-nonce", "turn-b", "opaque-equal")[0].send_id, second.send_id);
-    assert!(fixture.service.chat_send_ledger.user_confirmed(&second.send_id));
-    assert_eq!(fixture.service.chat_send_ledger.status(&first.send_id).unwrap().state, ChatSendState::Sent);
-    assert_eq!(fixture.service.chat_send_ledger.status(&second.send_id).unwrap().state, ChatSendState::Sent);
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
-fn postwrite_uncertainty_does_not_block_later_send_and_rebind_never_replays() {
-    let (fixture, tab) = queue_fixture(true, None);
-    let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
-    let second = start_current_chat_send(&fixture, &tab, SECOND_PAYLOAD, "client-b");
-    let writes = Arc::new(AtomicUsize::new(0));
-    let count = writes.clone();
-    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |_, _| {
-        count.fetch_add(1, Ordering::SeqCst);
-        Err(DeliveryError::SubmitUnconfirmed { tab: "opaque-tab".into(), detail: "opaque-uncertainty".into() })
-    }));
-    let (listener, settled) = settled_listener(&fixture, &tab, &first.send_id);
-    mark_ready(&fixture, &tab);
-    fixture.service.wake_parked_user_send(&tab);
-    assert_eq!(receive_resolved_status(&settled).unwrap()["state"], "submit_unconfirmed");
-    fixture._app.unlisten(listener);
-    await_owner_idle(&fixture, &tab);
-    assert_eq!(writes.load(Ordering::SeqCst), 2);
-    append_turn(&fixture, FIRST_PAYLOAD);
-    append_turn(&fixture, SECOND_PAYLOAD);
-    fixture.service.reconcile_chat_send_evidence(&tab);
-    assert_eq!(fixture.service.chat_send_ledger.status(&first.send_id).unwrap().state, ChatSendState::Sent);
-    assert_eq!(fixture.service.chat_send_ledger.status(&second.send_id).unwrap().state, ChatSendState::Sent);
-    fixture.service.mux.write().get_tab_mut(&tab).unwrap().pty_id = Some("other-pty".into());
-    append_turn(&fixture, FIRST_PAYLOAD);
-    fixture.service.reconcile_chat_send_evidence(&tab);
-    fixture.service.drain_user_owner(&tab).unwrap();
-    assert_eq!(writes.load(Ordering::SeqCst), 2);
-    assert!(UserSendStore::open(fixture.temp.path()).unwrap().records(&tab).unwrap().is_empty());
-}
-
-#[test]
-#[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
 fn held_persistence_keeps_mux_ledger_and_unrelated_admission_available_without_false_acceptance() {
     let (fixture, tab) = queue_fixture(true, None);
     let (held_tx, held_rx) = mpsc::channel();
@@ -892,8 +826,8 @@ fn reversed_service_preparation_keeps_intake_order_before_first_handoff() {
     let first = fixture.service.reserve_user_send(&tab, Some("client-a".into())).unwrap();
     let second = fixture.service.reserve_user_send(&tab, Some("client-b".into())).unwrap();
     let (writes_tx, writes_rx) = mpsc::channel();
-    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |record, _| {
-        writes_tx.send(record.send_id.clone()).unwrap();
+    let _boundary = UserSubmitBoundary::install(&tab, Arc::new(move |record, text| {
+        writes_tx.send((record.send_id.clone(), text.to_string())).unwrap();
         Err(DeliveryError::SubmitUnconfirmed { tab: record.authority.tab_id.clone(), detail: "opaque-uncertainty".into() })
     }));
     mark_ready(&fixture, &tab);
@@ -901,12 +835,37 @@ fn reversed_service_preparation_keeps_intake_order_before_first_handoff() {
     await_owner_idle(&fixture, &tab);
     assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
     let a = fixture.service.prepare_and_admit_user_send(first, FIRST_PAYLOAD.into(), false).unwrap();
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), a.status.send_id);
-    assert_eq!(writes_rx.recv_timeout(TEST_DEADLINE).unwrap(), b.status.send_id);
+    let (first_write, first_text) = writes_rx.recv_timeout(TEST_DEADLINE).unwrap();
+    assert_eq!(first_write, a.status.send_id);
+    assert!(matches!(writes_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+    append_turn(&fixture, &first_text);
+    let first_confirmation = live_turn(
+        &fixture,
+        &tab,
+        "opaque-session",
+        "opaque-current-nonce",
+        "first-turn",
+        &first_text,
+    );
+    assert_eq!(first_confirmation.len(), 1);
+    assert_eq!(first_confirmation[0].send_id, a.status.send_id);
+    let (second_write, second_text) = writes_rx.recv_timeout(TEST_DEADLINE).unwrap();
+    assert_eq!(second_write, b.status.send_id);
+    append_turn(&fixture, &second_text);
+    let second_confirmation = live_turn(
+        &fixture,
+        &tab,
+        "opaque-session",
+        "opaque-current-nonce",
+        "second-turn",
+        &second_text,
+    );
+    assert_eq!(second_confirmation.len(), 1);
+    assert_eq!(second_confirmation[0].send_id, b.status.send_id);
     await_owner_idle(&fixture, &tab);
     assert!(fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap().is_empty());
-    assert_eq!(fixture.service.chat_send_ledger.status(&a.status.send_id).unwrap().state, ChatSendState::Unknown);
-    assert_eq!(fixture.service.chat_send_ledger.status(&b.status.send_id).unwrap().state, ChatSendState::Unknown);
+    assert_eq!(fixture.service.chat_send_ledger.status(&a.status.send_id).unwrap().state, ChatSendState::Sent);
+    assert_eq!(fixture.service.chat_send_ledger.status(&b.status.send_id).unwrap().state, ChatSendState::Sent);
 }
 
 #[test]
@@ -1108,49 +1067,51 @@ fn zero_write_refusal_keeps_new_readiness_or_admission_wakes_and_consumes_only_h
         idle_rx.recv_timeout(TEST_DEADLINE).unwrap();
         let expected = match reason {
             UserWake::Housekeeping => 1,
-            UserWake::Readiness => 3,
-            UserWake::Admission => 4,
+            UserWake::Readiness => 2,
+            UserWake::Admission => 2,
         };
         assert_eq!(attempts.load(Ordering::Acquire), expected);
         let expected_follow_ups = match (&reason, additional.as_ref()) {
             (UserWake::Housekeeping, _) => Vec::new(),
-            (UserWake::Readiness, _) => vec![first.send_id.clone(), second.send_id.clone()],
-            (UserWake::Admission, Some(additional)) => vec![
-                first.send_id.clone(),
-                second.send_id.clone(),
-                additional.send_id.clone(),
-            ],
+            (UserWake::Readiness, _) => vec![first.send_id.clone()],
+            (UserWake::Admission, Some(_)) => vec![first.send_id.clone()],
             (UserWake::Admission, None) => unreachable!(),
         };
         for (attempt, send_id) in expected_follow_ups.iter().enumerate() {
             assert_eq!(entered_rx.recv_timeout(TEST_DEADLINE).unwrap(), (attempt + 1, send_id.clone()));
         }
-        if expected == 1 {
+        if reason == UserWake::Housekeeping {
             let records = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
             assert_eq!(records[0].state, UserSendState::Queued);
             assert_eq!(records[1].state, UserSendState::Queued);
         } else {
-            assert!(fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap().is_empty());
+            let records = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
+            assert_eq!(records.len(), if additional.is_some() { 2 } else { 1 });
+            assert!(records.iter().all(|record| record.state == UserSendState::Queued));
         }
         if expected == 1 {
             fixture.service.wake_parked_user_send(&tab);
             idle_rx.recv_timeout(TEST_DEADLINE).unwrap();
-            assert_eq!(attempts.load(Ordering::Acquire), 3);
+            assert_eq!(attempts.load(Ordering::Acquire), 2);
             assert_eq!(entered_rx.recv_timeout(TEST_DEADLINE).unwrap(), (1, first.send_id.clone()));
-            assert_eq!(entered_rx.recv_timeout(TEST_DEADLINE).unwrap(), (2, second.send_id.clone()));
-            assert!(fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap().is_empty());
+            let records = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0].send_id, second.send_id);
         }
         if let Some(additional) = additional {
             let reopened = UserSendStore::open(fixture.temp.path()).unwrap();
-            assert!(reopened.records(&tab).unwrap().is_empty());
+            let records = reopened.records(&tab).unwrap();
+            assert_eq!(records.len(), if reason == UserWake::Admission { 2 } else { 1 });
             assert!(reopened.original(&tab, &first.send_id).is_err());
-            assert!(reopened.original(&tab, &second.send_id).is_err());
-            assert!(reopened.original(&tab, &additional.send_id).is_err());
-        } else if expected == 1 {
+            assert!(reopened.original(&tab, &second.send_id).is_ok());
+            if reason == UserWake::Admission {
+                assert!(reopened.original(&tab, &additional.send_id).is_ok());
+            }
+        } else if reason == UserWake::Housekeeping {
             let reopened = UserSendStore::open(fixture.temp.path()).unwrap();
-            assert!(reopened.records(&tab).unwrap().is_empty());
+            assert_eq!(reopened.records(&tab).unwrap().len(), 1);
             assert!(reopened.original(&tab, &first.send_id).is_err());
-            assert!(reopened.original(&tab, &second.send_id).is_err());
+            assert!(reopened.original(&tab, &second.send_id).is_ok());
         }
     }
 }
