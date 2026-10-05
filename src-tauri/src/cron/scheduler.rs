@@ -635,6 +635,10 @@ mod tests {
         );
         assert_eq!(attempts.load(Ordering::SeqCst), 1);
 
+        fixture
+            .cron
+            .lock()
+            .set_storage_deadline(CronStorageOptions::default().deadline);
         hold.release();
         settled_rx
             .recv_timeout(TEST_DEADLINE)
