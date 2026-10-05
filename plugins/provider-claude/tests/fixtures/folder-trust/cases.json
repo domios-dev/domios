@@ -1,4 +1,5 @@
 [
+  { "file": "trust-local-preapproved-no-first.txt", "expect": "move-down" },
   { "file": "quick-safety-no-first.txt", "expect": "move-down" },
   { "file": "quick-safety-yes-focused.txt", "expect": "enter" },
   { "file": "quick-safety-ambiguous-focus.txt", "expect": "hold" },
