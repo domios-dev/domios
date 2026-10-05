@@ -198,7 +198,9 @@ fn send_to_agent_tab_with_source_keeps_marker() {
         out.starts_with("<domios from=\"tab\""),
         "an agent Tab still gets the return-address tag"
     );
-    assert!(out.ends_with("ship it</domios>"));
+    let frame = codeterm_types::domios::parse_message(&out).expect("complete route frame parses");
+    assert_eq!(frame.body, "ship it");
+    assert!(frame.content.starts_with("ship it "));
 }
 
 #[test]
