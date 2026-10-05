@@ -38,11 +38,16 @@ impl CronStore {
                 .draft
                 .as_ref()
                 .map_or(self.file.jobs.as_slice(), |draft| draft.jobs.as_slice()),
+            Backend::Unavailable(_) => self.file.jobs.as_slice(),
+            #[cfg(test)]
             Backend::Legacy(_) => self.file.jobs.as_slice(),
         }
     }
 
     fn open_draft(&mut self) -> Result<&mut PortDraft, String> {
+        if let Some(reason) = self.unavailable_reason() {
+            return Err(format!("cron storage unavailable: {reason}"));
+        }
         let Backend::Storage(storage) = &mut self.backend else {
             return Err(STAGED_ONLY.to_string());
         };
@@ -55,6 +60,9 @@ impl CronStore {
 
     /// Legacy: an in-memory edit the port saves later. Storage: an edit of the draft.
     pub(crate) fn port_update(&mut self, job: CronJob) -> Result<(), String> {
+        if let Some(reason) = self.unavailable_reason() {
+            return Err(format!("cron storage unavailable: {reason}"));
+        }
         if self.backend.require_legacy().is_ok() {
             self.apply_change(&CronChange::Patch(job));
             return Ok(());
@@ -70,6 +78,9 @@ impl CronStore {
     }
 
     pub(crate) fn port_create(&mut self, params: CronCreateParams) -> Result<(), String> {
+        if let Some(reason) = self.unavailable_reason() {
+            return Err(format!("cron storage unavailable: {reason}"));
+        }
         if self.backend.require_legacy().is_ok() {
             return self.create(params).map(|_| ());
         }
@@ -79,6 +90,9 @@ impl CronStore {
     }
 
     pub(crate) fn port_delete(&mut self, id: &str) -> Result<(), String> {
+        if let Some(reason) = self.unavailable_reason() {
+            return Err(format!("cron storage unavailable: {reason}"));
+        }
         if self.backend.require_legacy().is_ok() {
             return self.delete(id);
         }
@@ -100,8 +114,14 @@ impl CronStore {
 
     /// Legacy saves the file; Storage commits the draft only at `settle_port`.
     pub(crate) fn port_save(&mut self) -> Result<(), String> {
+        if let Some(reason) = self.unavailable_reason() {
+            return Err(format!("cron storage unavailable: {reason}"));
+        }
         if self.backend.require_legacy().is_ok() {
+            #[cfg(test)]
             return self.save();
+            #[cfg(not(test))]
+            return Err("legacy cron writer is test-only".to_string());
         }
         Ok(())
     }

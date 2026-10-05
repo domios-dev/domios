@@ -8,117 +8,15 @@ pub(crate) mod scrollback_restore;
 pub(crate) mod scrollback_sync;
 pub mod store;
 
-use std::sync::Arc;
-
-use parking_lot::Mutex;
-
 use crate::multiplexer::commands::MuxState;
 pub use store::{SessionSnapshot, SessionStore};
 
+use std::sync::Arc;
+
+use parking_lot::Mutex;
+use tauri::Manager;
+
 pub type SessionState = Arc<Mutex<SessionStore>>;
-
-pub(crate) fn save_current_snapshot(
-    session: &SessionState,
-    mux: &MuxState,
-    intent: store::SaveIntent,
-) -> Result<store::SaveOutcome, String> {
-    save_current_snapshot_after_lock(session, mux, intent, || {})
-}
-
-fn save_current_snapshot_after_lock(
-    session: &SessionState,
-    mux: &MuxState,
-    intent: store::SaveIntent,
-    after_lock: impl FnOnce(),
-) -> Result<store::SaveOutcome, String> {
-    let store = session.lock();
-    after_lock();
-    let snapshot = mux.read().to_session_snapshot();
-    store
-        .save_with_intent(&snapshot, intent)
-        .map_err(|error| format!("save session: {error}"))
-}
-
-pub(crate) fn save_current_snapshot_named(
-    session: &SessionState,
-    mux: &MuxState,
-    name: &str,
-) -> Result<(), String> {
-    let store = session.lock();
-    let snapshot = mux.read().to_session_snapshot();
-    store
-        .save_named(name, &snapshot)
-        .map_err(|error| format!("save session: {error}"))
-}
-
-pub(crate) fn save_captured_snapshot_with_live_identities(
-    session: &SessionState,
-    mux: &MuxState,
-    captured: &SessionSnapshot,
-    intent: store::SaveIntent,
-) -> Result<store::SaveOutcome, String> {
-    let store = session.lock();
-    let live = mux.read().to_session_snapshot();
-    let mut snapshot = captured.clone();
-    merge_live_agent_identities(&mut snapshot, &live);
-    store
-        .save_with_intent(&snapshot, intent)
-        .map_err(|error| format!("save session: {error}"))
-}
-
-fn merge_live_agent_identities(snapshot: &mut SessionSnapshot, live: &SessionSnapshot) {
-    use std::collections::HashMap;
-    use store::{AgentIdentitySnapshot, SplitNodeSnapshot};
-
-    fn collect(node: &SplitNodeSnapshot, identities: &mut HashMap<String, AgentIdentitySnapshot>) {
-        match node {
-            SplitNodeSnapshot::Leaf {
-                tab_id,
-                agent_identity: Some(identity),
-                ..
-            } => {
-                identities.insert(tab_id.clone(), identity.clone());
-            }
-            SplitNodeSnapshot::Leaf { .. } => {}
-            SplitNodeSnapshot::Split { children, .. } => {
-                for child in children {
-                    collect(child, identities);
-                }
-            }
-        }
-    }
-
-    fn apply(node: &mut SplitNodeSnapshot, identities: &HashMap<String, AgentIdentitySnapshot>) {
-        match node {
-            SplitNodeSnapshot::Leaf {
-                tab_id,
-                agent_identity,
-                ..
-            } => {
-                if let Some(identity) = identities.get(tab_id) {
-                    *agent_identity = Some(identity.clone());
-                }
-            }
-            SplitNodeSnapshot::Split { children, .. } => {
-                for child in children {
-                    apply(child, identities);
-                }
-            }
-        }
-    }
-
-    let mut identities = HashMap::new();
-    for workspace in &live.workspaces {
-        for tab in &workspace.tabs {
-            collect(&tab.split_tree, &mut identities);
-        }
-    }
-    for workspace in &mut snapshot.workspaces {
-        for tab in &mut workspace.tabs {
-            apply(&mut tab.split_tree, &identities);
-        }
-    }
-}
 
 #[tauri::command]
 pub async fn save_session(
@@ -140,34 +38,89 @@ pub async fn save_session(
 }
 
 #[tauri::command]
-pub async fn save_session_named(
-    mux: tauri::State<'_, MuxState>,
-    session: tauri::State<'_, SessionState>,
-    name: String,
-) -> Result<(), String> {
-    let mux = mux.inner().clone();
-    let session = session.inner().clone();
-    tokio::task::spawn_blocking(move || save_current_snapshot_named(&session, &mux, &name))
-        .await
-        .map_err(|error| format!("named session save task failed: {error}"))?
-}
-
-#[tauri::command]
 pub fn list_saved_sessions(session: tauri::State<'_, SessionState>) -> Result<Vec<String>, String> {
     session.lock().list_saved()
 }
 
 #[tauri::command]
 pub fn load_session(
+    app: tauri::AppHandle,
     session: tauri::State<'_, SessionState>,
     name: Option<String>,
 ) -> Result<Option<SessionSnapshot>, String> {
-    let store = session.lock();
     match name {
-        Some(n) => store.load_named(&n),
-        None => store.load_last(),
+        Some(name) => session.lock().load_named(&name),
+        None => {
+            let authority = app
+                .try_state::<crate::startup::StorageAuthority>()
+                .ok_or_else(|| crate::startup::STORAGE_UNAVAILABLE_MESSAGE.to_string())?;
+            load_current_session_from_storage(authority.inner())
+        }
     }
 }
 
+fn load_current_session_from_storage(
+    authority: &crate::startup::StorageAuthority,
+) -> Result<Option<SessionSnapshot>, String> {
+    let storage = authority
+        .require_ready()
+        .map_err(|error| error.to_string())?;
+    crate::session::store::StorageDeskAdapter::from_storage(storage.clone())
+        .snapshot()
+        .map(Some)
+}
+
 #[cfg(test)]
-mod tests;
+mod storage_cutover_tests {
+    use super::load_current_session_from_storage;
+    use crate::startup::StorageAuthority;
+    use crate::storage::{Storage, StorageConfig};
+    use std::fs;
+    use std::time::Duration;
+
+    #[test]
+    fn storage_cutover_load_session_without_name_uses_storage_instead_of_legacy_json() {
+        let temp = tempfile::tempdir().unwrap();
+        let legacy_dir = temp.path().join("sessions");
+        fs::create_dir_all(&legacy_dir).unwrap();
+        fs::write(
+            legacy_dir.join("last.json"),
+            br#"{"version":"1","timestamp":1,"active_workspace_id":"legacy","teams":[],"workspaces":[{"id":"legacy","name":"Legacy desk","tabs":[],"active_tab_id":null}]}"#,
+        )
+        .unwrap();
+
+        let storage = Storage::open(temp.path(), StorageConfig::default()).unwrap();
+        let stored_snapshot = super::SessionSnapshot {
+            version: "storage-authority".into(),
+            timestamp: 42,
+            workspaces: Vec::new(),
+            active_workspace_id: None,
+            teams: Vec::new(),
+        };
+        crate::session::store::StorageDeskAdapter::from_storage(storage.clone())
+            .import_snapshot(&stored_snapshot, Vec::new())
+            .expect("persist Storage desk snapshot");
+        let authority = StorageAuthority::Ready(storage.clone());
+        let loaded = load_current_session_from_storage(&authority)
+            .unwrap()
+            .expect("Storage desk snapshot");
+
+        assert_eq!(loaded.version, "storage-authority");
+        assert_eq!(loaded.timestamp, 42);
+        assert!(loaded.workspaces.is_empty());
+        storage
+            .shutdown()
+            .wait(Duration::from_secs(30))
+            .expect("Storage shutdown");
+    }
+
+    #[test]
+    fn storage_cutover_load_session_without_name_reports_unavailable_authority() {
+        let authority = StorageAuthority::Unavailable {
+            storage: None,
+            reason: "database failed".into(),
+        };
+        let error = load_current_session_from_storage(&authority).unwrap_err();
+        assert_eq!(error, crate::startup::STORAGE_UNAVAILABLE_MESSAGE,);
+    }
+}

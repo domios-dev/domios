@@ -24,6 +24,12 @@ impl Kind {
             Self::DirectoryTrust | Self::Permission => label == TRUST_OR_PERMISSION_PROMPT,
         }
     }
+    fn sentinel_label_matches(self, label: &str) -> bool {
+        match self {
+            Self::Onboarding => label == TRUST_OR_PERMISSION_PROMPT,
+            kind => kind.label_matches(label),
+        }
+    }
     pub(super) fn context(self) -> &'static str {
         match self {
             Self::Update => "update",
@@ -635,7 +641,11 @@ impl ServiceContext {
             });
         let Some(target) = target.filter(|target| {
             requested_kind.is_none_or(|kind| target.kind == kind)
-                && target.kind.label_matches(&verdict.label)
+                && if requested_kind.is_some() {
+                    target.kind.sentinel_label_matches(&verdict.label)
+                } else {
+                    target.kind.label_matches(&verdict.label)
+                }
         }) else {
             cancel_for_correlation(tab_id, &envelope.correlation);
             return Progress::NotHandled;

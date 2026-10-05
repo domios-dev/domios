@@ -1,5 +1,5 @@
 import { chromium, test as base, type Browser, type Page } from "@playwright/test";
-import { ApiClient, readDevToken } from "./api-client";
+import { ApiClient, readDevToken, type ApiRequestOptions } from "./api-client";
 import { currentDevInstance, isDevTarget, type DevInstance } from "./dev-instance";
 import { apiReset, diffReset, snapshotBaseline } from "./reset";
 import {
@@ -34,6 +34,7 @@ export type TabCleanup = {
 
 export type SpawnAgent = <T extends { tab_id: string } = { tab_id: string }>(
   body: Record<string, unknown>,
+  options?: ApiRequestOptions,
 ) => Promise<T>;
 
 export type PollMarkerInDomOptions = {
@@ -254,8 +255,11 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   },
 
   spawnAgent: async ({ api, tabCleanup }, use) => {
-    await use(async <T extends { tab_id: string } = { tab_id: string }>(body: Record<string, unknown>) => {
-      const spawned = await api.post<T>("/agents/spawn", body);
+    await use(async <T extends { tab_id: string } = { tab_id: string }>(
+      body: Record<string, unknown>,
+      options?: ApiRequestOptions,
+    ) => {
+      const spawned = await api.post<T>("/agents/spawn", body, options);
       tabCleanup.track(spawned.tab_id);
       return spawned;
     });

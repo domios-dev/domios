@@ -13,15 +13,22 @@ use crate::api::{
 pub async fn list_workspaces(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let result =
         crate::dispatch::dispatch(&crate::dispatch::Command::WorkspaceList, state.svc.as_ref())
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    "Failed to list workspaces",
-                )
+            .map_err(|error| {
+                if error == crate::startup::STORAGE_UNAVAILABLE_MESSAGE {
+                    (
+                        StatusCode::SERVICE_UNAVAILABLE,
+                        crate::startup::STORAGE_UNAVAILABLE_MESSAGE.to_string(),
+                    )
+                } else {
+                    (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        "Failed to list workspaces".to_string(),
+                    )
+                }
             })?;
     Ok(Json(result.into_json()))
 }

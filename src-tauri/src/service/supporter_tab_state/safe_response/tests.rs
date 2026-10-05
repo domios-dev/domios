@@ -198,8 +198,15 @@ fn sentinel_respond_prompt_onboarding_uses_declared_provider_choice() {
     let target = provider_target(&provider, screen).unwrap();
     assert_eq!(target.kind, Kind::Onboarding);
     assert!(target.kind.label_matches(LOGIN_OR_AUTH_REQUIRED));
-    assert!(!target.kind.label_matches(TRUST_OR_PERMISSION_PROMPT));
     assert!(!target.kind.label_matches(MODEL_UNAVAILABLE_OR_QUOTA));
+    assert!(!target.kind.label_matches(TRUST_OR_PERMISSION_PROMPT));
+    assert!(target
+        .kind
+        .sentinel_label_matches(TRUST_OR_PERMISSION_PROMPT));
+    assert!(!target.kind.sentinel_label_matches(LOGIN_OR_AUTH_REQUIRED));
+    assert!(!target
+        .kind
+        .sentinel_label_matches(MODEL_UNAVAILABLE_OR_QUOTA));
     assert!(authorized(
         &target,
         &Evidence {
@@ -215,6 +222,15 @@ fn sentinel_respond_prompt_onboarding_uses_declared_provider_choice() {
 
 #[test]
 fn sentinel_respond_prompt_login_and_quota_are_never_authorized() {
+    for kind in [
+        Kind::Update,
+        Kind::Onboarding,
+        Kind::DirectoryTrust,
+        Kind::Permission,
+    ] {
+        assert!(!kind.sentinel_label_matches(LOGIN_OR_AUTH_REQUIRED));
+        assert!(!kind.sentinel_label_matches(MODEL_UNAVAILABLE_OR_QUOTA));
+    }
     for kind in [Kind::Update, Kind::DirectoryTrust, Kind::Permission] {
         assert!(!kind.label_matches(LOGIN_OR_AUTH_REQUIRED));
         assert!(!kind.label_matches(MODEL_UNAVAILABLE_OR_QUOTA));

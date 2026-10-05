@@ -13,7 +13,7 @@ pub fn cron_list(
     svc: tauri::State<'_, crate::service::ServiceState>,
     workspace_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
-    let jobs = svc.cron_list(&cron, workspace_id.as_deref());
+    let jobs = svc.cron_list(&cron, workspace_id.as_deref())?;
     serde_json::to_value(jobs).map_err(|e| e.to_string())
 }
 

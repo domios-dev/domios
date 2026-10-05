@@ -104,7 +104,13 @@ pub(super) fn dispatch(
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
-            let jobs = svc.cron_list(&cron_state, ws_id);
+            let jobs = svc
+                .cron_list(&cron_state, ws_id)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
             serde_json::to_value(&jobs).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
@@ -121,11 +127,17 @@ pub(super) fn dispatch(
                     message: "Cron not initialized".into(),
                     data: None,
                 })?;
-            let job = svc.cron_get(&cron_state, &id).map_err(|e| JsonRpcError {
-                code: -32602,
-                message: e,
-                data: None,
-            })?;
+            let job = svc
+                .cron_get(&cron_state, &id)
+                .map_err(|message| JsonRpcError {
+                    code: if message.starts_with("cron storage unavailable:") {
+                        -32603
+                    } else {
+                        -32602
+                    },
+                    message,
+                    data: None,
+                })?;
             serde_json::to_value(&job).map_err(|e| JsonRpcError {
                 code: -32603,
                 message: e.to_string(),
@@ -353,7 +365,11 @@ pub(super) fn dispatch(
             let history = svc
                 .cron_history(&cron_state, &id)
                 .map_err(|message| JsonRpcError {
-                    code: -32602,
+                    code: if message.starts_with("cron storage unavailable:") {
+                        -32603
+                    } else {
+                        -32602
+                    },
                     message,
                     data: Some(serde_json::json!({ "code": "not_found" })),
                 })?;
