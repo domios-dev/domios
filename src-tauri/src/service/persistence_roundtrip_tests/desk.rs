@@ -69,6 +69,72 @@ fn tab_create_round_trip_expected_red() {
     not(windows),
     ignore = "the real Tauri service fixture requires Windows"
 )]
+fn orphan_team_does_not_block_tab_commit_and_is_dropped_on_restart() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut mux, anchor_tab_id) = MultiplexerState::new();
+    let main_workspace_id = mux.find_workspace_for_tab(&anchor_tab_id).unwrap();
+    let valid_team_id = mux
+        .resolve_or_mint_team_for_parent(&anchor_tab_id)
+        .unwrap()
+        .team_id;
+    let orphan_workspace_id = mux.create_workspace("Removed workspace".into(), None).id;
+    let orphan_tab_id = mux.create_tab(&orphan_workspace_id).unwrap();
+    let orphan_team_id = mux
+        .resolve_or_mint_team_for_parent(&orphan_tab_id)
+        .unwrap()
+        .team_id;
+    mux.close_workspace(&orphan_workspace_id).unwrap();
+    assert!(mux.get_team(&orphan_team_id).is_some());
+
+    let instance = super::ServiceInstance::open_with_mux(root.path(), mux);
+    let created_workspace = instance
+        .fixture
+        .service
+        .create_workspace("Committed workspace".into(), None, false)
+        .expect("create workspace beside orphan Team");
+    let created_tab = instance
+        .fixture
+        .service
+        .create_tab_with_activate(&main_workspace_id, false)
+        .expect("create tab while orphan Team is present");
+    crate::service::session_persist::flush_session_persistence(instance.fixture._app.handle())
+        .expect("flush tab and workspace changes");
+    let saved = StorageDeskAdapter::from_storage(instance.storage.clone())
+        .state()
+        .expect("read committed desk");
+
+    assert!(saved.tab_revisions.contains_key(&created_tab));
+    assert!(saved
+        .snapshot
+        .workspaces
+        .iter()
+        .any(|workspace| workspace.record.id.as_str() == created_workspace.id.as_str()));
+    assert!(saved
+        .snapshot
+        .teams
+        .iter()
+        .any(|team| team.id.as_str() == valid_team_id.as_str()));
+    assert!(!saved
+        .snapshot
+        .teams
+        .iter()
+        .any(|team| team.id.as_str() == orphan_team_id.as_str()));
+
+    let restarted = instance.restart(root.path());
+    let restored_mux = restarted.fixture.service.mux.read();
+    assert!(restored_mux.get_tab(&created_tab).is_some());
+    assert!(restored_mux.get_workspace(&created_workspace.id).is_some());
+    assert!(restored_mux.get_team(&valid_team_id).is_some());
+    assert!(restored_mux.get_team(&orphan_team_id).is_none());
+    drop(restored_mux);
+    close(restarted);
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri service fixture requires Windows"
+)]
 fn tab_rename_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());

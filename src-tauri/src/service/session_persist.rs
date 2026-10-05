@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
@@ -328,11 +328,21 @@ fn run_worker(
     let mut committed_submission = 0;
     let mut last_outcome = SaveOutcome::Saved;
     let mut last_error = None;
+    let mut reported_orphan_teams = HashSet::new();
     let mut committed_desk = None;
     loop {
         let message = mailbox.pop();
         match message {
             WorkerMessage::Persist(request) => {
+                for (team_id, workspace_id) in
+                    crate::session::store::orphan_teams(&request.snapshot)
+                {
+                    if reported_orphan_teams.insert(team_id.clone()) {
+                        log::warn!(
+                            "[session-persist] dropped orphan Team {team_id}: workspace {workspace_id} is missing"
+                        );
+                    }
+                }
                 let latest = &request;
                 let projected = project_request_desk(&backend, latest);
                 let result = if latest.revision <= committed_submission {
@@ -369,12 +379,14 @@ fn run_worker(
                         last_error = None;
                     }
                     Err(error) => {
+                        if last_error.as_deref() != Some(error.as_str()) {
+                            log::warn!(
+                                "[session-persist] revision {} was not committed: {}",
+                                latest.revision,
+                                error
+                            );
+                        }
                         last_error = Some(error.clone());
-                        log::warn!(
-                            "[session-persist] revision {} was not committed: {}",
-                            latest.revision,
-                            error
-                        );
                     }
                 }
                 for response in request.responses {
