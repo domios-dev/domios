@@ -117,5 +117,4 @@ pub(crate) fn archive_mem_item_conn(
 }
 
 #[cfg(test)]
-#[path = "archive_tests.rs"]
 mod tests;

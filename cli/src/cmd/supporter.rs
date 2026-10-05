@@ -251,5 +251,4 @@ pub fn handle_supporter(json_mode: bool, action: SupporterAction) {
 }
 
 #[cfg(test)]
-#[path = "supporter_tests.rs"]
 mod tests;

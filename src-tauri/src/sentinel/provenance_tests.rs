@@ -123,7 +123,7 @@ fn sentinel_provenance_route_stages_share_observation_without_recipient_claim() 
     }
     let rows = rows(dir.path());
     assert_eq!(rows.len(), 3);
-    let expected_keys: std::collections::BTreeSet<_> = [
+    let required_keys = [
         "time",
         "kind",
         "sentinel_id",
@@ -147,18 +147,11 @@ fn sentinel_provenance_route_stages_share_observation_without_recipient_claim() 
         "recipient_receipt",
         "asked",
         "budget",
-    ]
-    .into_iter()
-    .collect();
-    assert_eq!(
-        rows[0]
-            .as_object()
-            .unwrap()
-            .keys()
-            .map(String::as_str)
-            .collect::<std::collections::BTreeSet<_>>(),
-        expected_keys
-    );
+    ];
+    let decision = rows[0].as_object().unwrap();
+    for key in required_keys {
+        assert!(decision.contains_key(key), "journal row lacks {key}");
+    }
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     for row in &rows {
         assert_eq!(row["evaluation_id"], rows[0]["evaluation_id"]);

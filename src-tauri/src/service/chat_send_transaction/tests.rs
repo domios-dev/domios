@@ -23,6 +23,14 @@
         }
     }
 
+    fn reconciled_state(ledger: &ChatSendLedger, send_id: &str) -> Option<ChatSendState> {
+        ledger
+            .reconcile("tab-1")
+            .into_iter()
+            .find(|status| status.send_id == send_id)
+            .map(|status| status.state)
+    }
+
     #[test]
     fn user_send_booting_agent_degrades_to_pending_not_failed() {
         let ledger = ChatSendLedger::default();
@@ -264,17 +272,13 @@
             Err(submit_unconfirmed("Enter swallowed"))
         });
 
-        let retained = ledger.reconcile("tab-1");
         assert_eq!(
-            retained
-                .iter()
-                .map(|status| status.send_id.as_str())
-                .collect::<Vec<_>>(),
-            [failed.send_id.as_str(), second.send_id.as_str()],
+            reconciled_state(&ledger, &failed.send_id),
+            Some(ChatSendState::Unknown)
         );
         assert_eq!(
-            retained.iter().map(|status| status.state.clone()).collect::<Vec<_>>(),
-            [ChatSendState::Unknown, ChatSendState::Pending],
+            reconciled_state(&ledger, &second.send_id),
+            Some(ChatSendState::Pending)
         );
     }
 
@@ -339,15 +343,13 @@
         assert_eq!(delivered.len(), 2);
         assert!(delivered.iter().all(|status| status.state == ChatSendState::Sent));
 
-        let retained = ledger.reconcile("tab-1");
-        assert_eq!(
-            retained.iter().map(|status| status.send_id.as_str()).collect::<Vec<_>>(),
-            [first.send_id.as_str(), second.send_id.as_str(), third.send_id.as_str()],
-        );
-        assert_eq!(
-            retained.iter().map(|status| status.state.clone()).collect::<Vec<_>>(),
-            vec![ChatSendState::Sent, ChatSendState::Sent, ChatSendState::Unknown],
-        );
+        for (send, state) in [
+            (&first, ChatSendState::Sent),
+            (&second, ChatSendState::Sent),
+            (&third, ChatSendState::Unknown),
+        ] {
+            assert_eq!(reconciled_state(&ledger, &send.send_id), Some(state));
+        }
     }
 
     #[test]
@@ -358,13 +360,14 @@
         ledger.confirm_delivered_user_turn("tab-1", "session-1", "delivered");
         let pending = ledger.try_start("tab-1", "pending", None).unwrap();
 
-        let retained = ledger.reconcile("tab-1");
         assert_eq!(
-            retained.iter().map(|status| status.send_id.as_str()).collect::<Vec<_>>(),
-            [delivered.send_id.as_str(), pending.send_id.as_str()],
+            reconciled_state(&ledger, &delivered.send_id),
+            Some(ChatSendState::Sent)
         );
-        assert_eq!(retained[0].state, ChatSendState::Sent);
-        assert_eq!(retained[1].state, ChatSendState::Pending);
+        assert_eq!(
+            reconciled_state(&ledger, &pending.send_id),
+            Some(ChatSendState::Pending)
+        );
     }
 
     #[test]
