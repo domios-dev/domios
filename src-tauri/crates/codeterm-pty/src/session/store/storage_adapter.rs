@@ -350,6 +350,13 @@ fn to_desk_snapshot(
     })
 }
 
+pub fn project_snapshot(
+    snapshot: &SessionSnapshot,
+    agent_session_identities: Vec<DeskAgentSessionIdentity>,
+) -> Result<DeskSnapshot, String> {
+    to_desk_snapshot(snapshot, agent_session_identities)
+}
+
 fn to_layout(node: &SplitNodeSnapshot) -> Result<DeskLayoutNode, String> {
     match node {
         SplitNodeSnapshot::Leaf { tab_id, cwd, .. } => {
