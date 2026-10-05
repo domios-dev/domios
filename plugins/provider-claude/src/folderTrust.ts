@@ -137,6 +137,8 @@ function findTrustHeader(rows: string[]): TrustHeader | null {
 }
 
 function trustHeader(rows: string[], start: number): TrustHeader | null {
+  // A Windows drive path ("D:\repo") carries a colon but is never a dialog title.
+  if (isPathRow(rows[start])) return null;
   const colon = rows[start].indexOf(":");
   if (colon < 1) return null;
   const title = rows[start].slice(0, colon).trim();

@@ -1324,6 +1324,7 @@ function findTrustHeader(rows) {
   return null;
 }
 function trustHeader(rows, start) {
+  if (isPathRow(rows[start])) return null;
   const colon = rows[start].indexOf(":");
   if (colon < 1) return null;
   const title = rows[start].slice(0, colon).trim();
