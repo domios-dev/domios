@@ -9,6 +9,7 @@ mod validate;
 
 use crate::args::plugin::{PluginAction, PluginChannelAction};
 use codeterm_plugins::{PluginAction as Action, PluginChannelAction as ChannelAction, PluginCtx};
+use std::io::IsTerminal;
 
 fn plugin_ctx() -> PluginCtx {
     PluginCtx {
@@ -36,7 +37,10 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
         PluginAction::ReceiverTarget { id, set, clear } => {
             receiver_target::run_over_socket(&id, set.as_deref(), clear)
         }
-        other => codeterm_plugins::run(ctx, convert_action(other)),
+        other => match convert_action(other) {
+            Ok(action) => codeterm_plugins::run(ctx, action),
+            Err(error) => Err(error),
+        },
     };
 
     match result {
@@ -53,61 +57,74 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
     }
 }
 
-fn convert_action(action: PluginAction) -> Action {
+fn convert_action(action: PluginAction) -> Result<Action, String> {
     match action {
-        PluginAction::List => Action::List,
+        PluginAction::List => Ok(Action::List),
         PluginAction::Install {
             id,
             from_dir,
             id_override,
             channel,
-        } => Action::Install {
+        } => Ok(Action::Install {
             id,
             from_dir,
             id_override,
             channel,
-        },
-        PluginAction::Update { id } => Action::Update { id },
-        PluginAction::UpdateSystem { id } => Action::UpdateSystem { id },
+        }),
+        PluginAction::Update { id } => Ok(Action::Update { id }),
+        PluginAction::UpdateSystem { id } => Ok(Action::UpdateSystem { id }),
         PluginAction::Remove {
             id,
             force,
             remove_data,
-        } => Action::Remove {
+        } => Ok(Action::Remove {
             id,
             force,
             remove_data,
-        },
-        PluginAction::Channel { command } => Action::Channel(convert_channel(command)),
-        PluginAction::Get { id } => Action::Get { id },
+        }),
+        PluginAction::Channel { command } => Ok(Action::Channel(convert_channel(command))),
+        PluginAction::Get { id } => Ok(Action::Get { id }),
         PluginAction::Config {
             id,
             set,
             values_json,
+            secret,
             grant,
             revoke,
-        } => Action::Config {
-            id,
-            set,
-            values_json,
-            grant,
-            revoke,
-        },
+        } => {
+            let secret = secret
+                .map(|field| read_secret_stdin().map(|value| (field, value)))
+                .transpose()?;
+            Ok(Action::Config {
+                id,
+                set,
+                values_json,
+                secret,
+                grant,
+                revoke,
+            })
+        }
         PluginAction::Settings {
             id,
             allow_host,
             disallow_host,
-        } => Action::Settings {
+        } => Ok(Action::Settings {
             id,
             allow_host,
             disallow_host,
-        },
-        PluginAction::Pass(parts) => Action::Pass(parts),
+        }),
+        PluginAction::Pass(parts) => Ok(Action::Pass(parts)),
         // Handled in handle_plugin — no codeterm-plugins counterpart.
         PluginAction::Validate { .. } | PluginAction::ReceiverTarget { .. } => {
             unreachable!("validate and receiver-target never reach the plugins crate")
         }
     }
+}
+
+fn read_secret_stdin() -> Result<codeterm_plugins::PluginSecretValue, String> {
+    let stdin = std::io::stdin();
+    let mut input = stdin.lock();
+    codeterm_plugins::PluginSecretValue::read_from(&mut input, stdin.is_terminal())
 }
 
 fn convert_channel(action: PluginChannelAction) -> ChannelAction {

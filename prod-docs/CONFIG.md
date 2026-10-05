@@ -135,6 +135,8 @@ Toggle it live with `codeterm config set diagnostics.terminal_transport true|fal
 
 Plugin-defined settings live under `config.plugins.<id>` and are preserved as a plugin-specific settings bag. The Extensions list and titlebar Plugins button open installed plugin pages; view plugins render their embedded page there.
 
+Agent-facing plugin settings use `codeterm plugin get <id>` and `codeterm plugin config <id>`. `get` reports each declared secret field as `set` or `unset` and never returns its value. Use `--set KEY=VALUE` for non-secret fields. For a schema-declared secret field, pipe the credential to `codeterm plugin config <id> --secret FIELD`; this reads stdin, refuses terminal input and empty input, and stores the value in that plugin's secret bucket. `--set` and `--values-json` reject secret fields with a pointer to `--secret`. Keep secret values out of command arguments, `config.yaml`, and logs.
+
 The API listens only on loopback by default. A non-loopback `host` requires a non-empty Bearer token. The existing Mesh switch is the only network-access control: Mesh off rejects every remote request while localhost remains available; Mesh on permits authenticated remote access. The installed app's WebView origins are always allowed to reach its local daemon. Other cross-origin clients remain closed unless `cors = true` and every allowed HTTP(S) origin is named in `cors_allow_origins`; `*` is never accepted. Authenticated `GET /api/config` redacts the token and reports both the configured address and the listener policy the process actually owns. `localhost`, `::1`, and `[::1]` are canonicalized to bindable loopback socket addresses; other hostnames are rejected in favor of an explicit numeric address.
 
 Named development instances may explicitly set `api.mesh_tailnet_host` to a locally assigned Tailscale IPv4 address. This adds an authenticated listener while retaining the loopback primary; the default is absent. Production and unnamed instances refuse this option. A restart is required. Both sockets must bind and pass health checks before remote readiness is published; startup never falls back to a LAN or wildcard bind. If the extra listener exits after readiness, loopback remains serving, remote readiness is withdrawn, and broadcasting stops. `api_listener.ready_addresses` is the live health-proven set, not the configured request; `requested_mesh_tailnet_address` records the startup request only.
@@ -237,4 +239,4 @@ Provisioning creates an isolated git worktree and launches the agent there; it i
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
 
-<!-- revision: 91 -->
+<!-- revision: 92 -->
