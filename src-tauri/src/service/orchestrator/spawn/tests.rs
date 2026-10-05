@@ -687,7 +687,11 @@ fn external_idle_manager_bootstrap_keeps_the_team_starter_turn() {
         "a provider without system prompts still needs the CodeTerm envelope turn"
     );
     assert_eq!(params.task.as_deref(), Some(bootstrap.as_str()));
-    assert!(team_bootstrap_payload(false, bootstrap).contains("<domios from=\"system\""));
+    let fallback = team_bootstrap_payload(false, bootstrap);
+    assert_eq!(
+        codeterm_types::message_markers::parse_host_injected(&fallback).map(|frame| frame.kind),
+        Some("system".to_string())
+    );
 }
 
 #[test]
@@ -766,22 +770,23 @@ fn native_planner_startup_keeps_manager_contract_and_onboarding() {
 
     assert!(payload.starts_with("system contract"));
     assert!(payload.ends_with("planner startup"));
-    assert!(!payload.contains("<domios from=\"system\""));
+    assert!(!payload.contains(codeterm_types::domios::DOMIOS_CLOSE_TAG));
 }
 
 #[test]
 fn team_bootstrap_marks_only_the_fallback_transport() {
     let system_prompt = team_bootstrap_payload(true, "system contract".into());
     assert_eq!(system_prompt, "system contract");
-    assert!(!system_prompt.contains("<domios from=\"system\""));
 
     let fallback = team_bootstrap_payload(false, "fallback contract".into());
+    let frame = codeterm_types::domios::parse_message(&fallback).expect("fallback is one frame");
+    assert_eq!(frame.attr("from"), Some("system"));
+    assert_eq!(frame.attr("context"), Some("team-bootstrap"));
+    assert_eq!(frame.attr("tab"), None);
     assert_eq!(
-        fallback,
-        "<domios from=\"system\" context=\"team-bootstrap\">fallback contract</domios>"
+        frame.content, "fallback contract",
+        "no reply hint or typed suffix"
     );
-    assert!(!fallback.contains("tab="));
-    assert!(!fallback.contains("[to reply"));
 }
 
 #[test]

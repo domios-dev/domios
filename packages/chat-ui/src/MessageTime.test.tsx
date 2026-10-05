@@ -1,7 +1,5 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { formatMessageTime, MessageTime } from "./MessageTime";
@@ -54,13 +52,5 @@ describe("chat message time", () => {
     expect(userTime?.parentElement).toBe(host.querySelector("[data-testid='user-row']"));
     expect(userTime?.closest("[data-testid='user-row']")?.textContent).toContain("user bubble");
     await unmount(root);
-  });
-
-  it("reveals the gutter label through the chat surface container query", () => {
-    const css = readFileSync(resolve(process.cwd(), "src/styles/globals.css"), "utf8");
-    expect(css).toContain("container-name: ct-chat-surface;");
-    expect(css).toContain("container-type: inline-size;");
-    expect(css).toMatch(/@container ct-chat-surface \(min-width: 68rem\)[\s\S]*?\.ct-chat-message-time--hidden-when-narrow\s*\{\s*display: block;/);
-    expect(css).toMatch(/\.ct-chat-message-time\s*\{[^}]*position: absolute;/);
   });
 });

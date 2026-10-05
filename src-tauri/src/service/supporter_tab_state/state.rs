@@ -369,5 +369,4 @@ fn apply_verdict_to_state(state: &mut EpisodeState, label: &str, confidence: f64
 }
 
 #[cfg(test)]
-#[path = "state_tests.rs"]
 mod tests;

@@ -299,5 +299,4 @@ impl ServiceContext {
 }
 
 #[cfg(test)]
-#[path = "tab_conditions_tests.rs"]
 mod tests;

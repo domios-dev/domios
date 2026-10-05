@@ -47,7 +47,7 @@ case "${1:-all}" in
       plugins/provider-opencode/tests/lifecycle.test.ts
       plugins/provider-cursor/tests/plugin.test.ts
       plugins/chat-preprocessor/tests/plugin.test.ts
-      src/lib/plugins/__tests__/registry.test.ts
+      src/lib/plugins/registry.test.ts
       packages/chat-ui/src/codeterm/recognize.test.ts
       packages/chat-ui/src/codeterm/templates.test.ts
       packages/chat-ui/src/codeterm/planRefs.test.ts

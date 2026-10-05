@@ -656,9 +656,7 @@ pub(super) fn platform_key() -> &'static str {
 }
 
 #[cfg(test)]
-#[path = "command_tests.rs"]
 mod tests;
 
 #[cfg(test)]
-#[path = "tests/process_fixture.rs"]
 mod process_fixture;
