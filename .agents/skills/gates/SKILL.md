@@ -16,9 +16,10 @@ Two shapes, and picking the wrong one is what costs hours.
 | A release | Delegate, then verify its SHA yourself |
 
 A per-task Rust test-profile change uses `.\build.ps1 check-tests`, which
-compiles all targets in both the app and CLI workspaces. `.\build.ps1 check`
-does not compile `#[cfg(test)]` code, so a green `check` alone does not cover
-test-only Rust changes.
+compiles all test targets in both the app and CLI workspaces without running
+them. A following `test-one app` or `test-one cli` reuses those artifacts.
+`.\build.ps1 check` does not compile `#[cfg(test)]` code, so a green `check`
+alone does not cover test-only Rust changes.
 
 A focused check is one test module, one type check, one file's lint. It
 answers in seconds and you read its output directly. Anything that takes
