@@ -158,6 +158,7 @@ fn request(
             buckets,
             every,
             routes,
+            rearm_on_change,
             handlers_file,
             escalation_timeout_ms,
             paused,
@@ -171,7 +172,7 @@ fn request(
             let observe = observe
                 .map(|source| observation_binding(&source))
                 .transpose()?;
-            params["create"] = json!({ "name": name, "probe": probe, "observe": observe, "question": question, "buckets": buckets, "every": every, "routes": routes, "handlers": handlers, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
+            params["create"] = json!({ "name": name, "probe": probe, "observe": observe, "question": question, "buckets": buckets, "every": every, "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
             "sentinel.create"
         }
         SentinelAction::List => "sentinel.list",
@@ -357,25 +358,27 @@ fn declared_outputs(
     }
     let mut grouped: BTreeMap<String, Vec<HandlerDefinition>> = BTreeMap::new();
     let mut single = BTreeMap::new();
+    let mut silent = std::collections::BTreeSet::<String>::new();
     let mut repeated = false;
     for (index, route) in routes.into_iter().enumerate() {
         let (bucket, action) = route.split_once('=').ok_or("use bucket=action")?;
         repeated |= single.insert(bucket.into(), action.into()).is_some();
+        if map_none_route(bucket, action, &mut grouped, &mut silent)? {
+            continue;
+        }
+        let handlers = grouped.entry(bucket.into()).or_default();
         let (kind, target) = action
             .split_once(':')
             .map(|(k, t)| (k, Some(t.to_string())))
             .unwrap_or((action, None));
-        grouped
-            .entry(bucket.into())
-            .or_default()
-            .push(HandlerDefinition {
-                id: format!("handler_{}", index + 1),
-                kind: kind.into(),
-                parameters: HandlerParameters {
-                    target,
-                    ..Default::default()
-                },
-            });
+        handlers.push(HandlerDefinition {
+            id: format!("handler_{}", index + 1),
+            kind: kind.into(),
+            parameters: HandlerParameters {
+                target,
+                ..Default::default()
+            },
+        });
     }
     if repeated {
         Ok((
@@ -385,6 +388,27 @@ fn declared_outputs(
     } else {
         Ok((single, None))
     }
+}
+
+fn map_none_route(
+    bucket: &str,
+    action: &str,
+    grouped: &mut BTreeMap<String, Vec<HandlerDefinition>>,
+    silent: &mut std::collections::BTreeSet<String>,
+) -> Result<bool, String> {
+    let handlers = grouped.entry(bucket.into()).or_default();
+    if action == "none" {
+        if !handlers.is_empty() || !silent.insert(bucket.into()) {
+            return Err(
+                "route none cannot be combined with another route for the same bucket".into(),
+            );
+        }
+        return Ok(true);
+    }
+    if silent.contains(bucket) {
+        return Err("route none cannot be combined with another route for the same bucket".into());
+    }
+    Ok(false)
 }
 
 #[cfg(test)]
@@ -403,6 +427,29 @@ mod tests {
                 {"id":"handler_2","type":"stop","parameters":{}}
             ]})
         );
+    }
+
+    #[test]
+    fn sentinel_none_route_is_an_empty_handler_array_and_can_mix_with_routes() {
+        let (routes, handlers) = declared_outputs(vec!["quiet=none".into()], None).unwrap();
+        assert_eq!(routes, BTreeMap::from([("quiet".into(), "none".into())]));
+        assert!(handlers.is_none());
+
+        let (routes, handlers) = declared_outputs(
+            vec![
+                "quiet=none".into(),
+                "done=notify".into(),
+                "done=stop".into(),
+            ],
+            None,
+        )
+        .unwrap();
+        assert!(routes.is_empty());
+        let handlers = handlers.unwrap();
+        assert_eq!(handlers["quiet"], json!([]));
+        assert_eq!(handlers["done"].as_array().unwrap().len(), 2);
+
+        assert!(declared_outputs(vec!["done=none".into(), "done=notify".into()], None).is_err());
     }
 
     #[test]
@@ -515,6 +562,8 @@ mod tests {
             "done=notify",
             "--route",
             "done=sentinel:sentinel_child",
+            "--rearm-on-change",
+            "done",
             "--paused",
             "--timeout",
             "1h",
@@ -542,6 +591,7 @@ mod tests {
         assert_eq!(create["max_transitions"], 7);
         assert_eq!(create["max_actions"], 9);
         assert_eq!(create["routes"], json!({}));
+        assert_eq!(create["rearm_on_change"], json!(["done"]));
         assert_eq!(
             create["handlers"]["done"][1],
             json!({"id":"handler_2","type":"sentinel","parameters":{"target":"sentinel_child"}})

@@ -37,6 +37,7 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
                 every: "20s".into(),
                 routes: Default::default(),
                 matches: [("waiting".to_string(), ".*".to_string())].into_iter().collect(),
+                rearm_on_change: Default::default(),
                 until: None,
                 timeout: Some("1h".into()),
                 paused: true,

@@ -23,6 +23,7 @@ fn fixture() -> (tempfile::TempDir, Store, Sentinel) {
                 every: "10s".into(),
                 routes: BTreeMap::new(),
                 matches: BTreeMap::from([("done".into(), "done".into())]),
+                rearm_on_change: Default::default(),
                 until: None,
                 timeout: None,
                 paused: false,
@@ -51,6 +52,7 @@ fn update(question: &str) -> Update {
         every: "30s".into(),
         routes: BTreeMap::from([("done".into(), "notify".into())]),
         matches: BTreeMap::from([("done".into(), "done".into())]),
+        rearm_on_change: Default::default(),
         until: None,
         handlers: None,
         on_other: Vec::new(),
@@ -60,6 +62,27 @@ fn update(question: &str) -> Update {
         cause: Some("transition_4".into()),
         note: Some("tightened completion rule".into()),
     }
+}
+
+#[test]
+fn sentinel_update_versions_rearm_bucket_configuration() {
+    let (_root, store, job) = fixture();
+    let store = Arc::new(Mutex::new(store));
+    let mut revision = update("Keep watching the same state");
+    revision.rearm_on_change.insert("done".into());
+
+    let amended = apply(&store, &job, 1, "creator", revision).expect("definition update");
+    let history = store.lock().history(&job.id).expect("definition history");
+
+    assert!(amended.rearm_on_change.contains("done"));
+    assert!(history.versions[1]
+        .definition
+        .rearm_on_change
+        .contains("done"));
+    assert!(!history.versions[0]
+        .definition
+        .rearm_on_change
+        .contains("done"));
 }
 
 fn apply(
