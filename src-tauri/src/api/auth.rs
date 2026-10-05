@@ -58,7 +58,7 @@ pub(crate) const PUBLIC_PATHS: &[&str] = &[
 ];
 
 fn peer_protocol_allowed(version: u16, path: &str) -> bool {
-    version == crate::mesh::types::RELAY_PROTOCOL_VERSION
+    crate::mesh::types::is_supported_relay_protocol(version)
         || matches!(path, "/api/mesh/announce" | "/api/mesh/sync")
 }
 
@@ -517,17 +517,30 @@ mod tests {
     }
 
     #[test]
-    fn old_peer_protocol_can_only_bootstrap_compatibility_state() {
-        assert!(peer_protocol_allowed(0, "/api/mesh/announce"));
-        assert!(peer_protocol_allowed(0, "/api/mesh/sync"));
-        assert!(!peer_protocol_allowed(0, "/api/events/stream"));
-        assert!(!peer_protocol_allowed(0, "/api/config"));
-        assert!(peer_protocol_allowed(1, "/api/mesh/announce"));
-        assert!(!peer_protocol_allowed(1, "/api/tabs/abc/send"));
+    fn ancient_peer_protocol_can_only_bootstrap_compatibility_state() {
+        let ancient_protocol = crate::mesh::types::RELAY_PROTOCOL_VERSION - 1;
         assert!(peer_protocol_allowed(
-            crate::mesh::types::RELAY_PROTOCOL_VERSION,
+            ancient_protocol,
+            "/api/mesh/announce"
+        ));
+        assert!(peer_protocol_allowed(ancient_protocol, "/api/mesh/sync"));
+        assert!(!peer_protocol_allowed(
+            ancient_protocol,
             "/api/events/stream"
         ));
+        assert!(!peer_protocol_allowed(ancient_protocol, "/api/config"));
+        assert!(!peer_protocol_allowed(
+            ancient_protocol,
+            "/api/tabs/abc/send"
+        ));
+
+        for version in crate::mesh::types::RELAY_PROTOCOL_VERSION
+            ..=crate::mesh::types::MAX_SUPPORTED_RELAY_PROTOCOL_VERSION
+        {
+            assert!(peer_protocol_allowed(version, "/api/mesh/announce"));
+            assert!(peer_protocol_allowed(version, "/api/events/stream"));
+            assert!(peer_protocol_allowed(version, "/api/tabs/abc/send"));
+        }
     }
 
     #[test]

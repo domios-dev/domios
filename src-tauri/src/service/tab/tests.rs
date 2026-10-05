@@ -139,11 +139,12 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
         crate::storage::StorageConfig::default(),
     )
     .unwrap();
-    crate::service::session_persist::install_storage_desk_adapter(
-        &app,
-        crate::session::store::StorageDeskAdapter::from_storage(storage.clone()),
-    )
-    .unwrap();
+    let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+    let snapshot = fixture.service.mux.read().to_session_snapshot();
+    adapter
+        .import_snapshot(&snapshot, Vec::new())
+        .expect("seed the Storage desk before persistence starts");
+    crate::service::session_persist::install_storage_desk_adapter(&app, adapter).unwrap();
     let released = fixture
         .service
         .release_remote_ownership(&tab_id, Some(&orchestrator))
