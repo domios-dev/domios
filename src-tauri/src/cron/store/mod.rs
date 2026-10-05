@@ -36,7 +36,7 @@ pub use schedule::{
 };
 
 pub(crate) use crud::{CronChange, CronScope, Prepared, RunSession};
-pub(crate) use storage::{commit, finish_run};
+pub(crate) use storage::{commit, finish_run, finish_run_with_summary};
 pub use storage::{
     decode_legacy_cron_file, read_legacy_cron_file, settle_port, CronCommitError, CronCommitted,
     CronStorageOptions, LegacyCronError, PortSettlement,
