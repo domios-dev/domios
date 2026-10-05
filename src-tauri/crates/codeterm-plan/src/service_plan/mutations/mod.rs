@@ -444,11 +444,7 @@ fn validate_task_status_transition_for(
                 .flatten()
                 .map(str::trim)
                 .filter(|l| !l.is_empty());
-            let existing = task
-                .and_then(|t| t.status_label.as_deref())
-                .map(str::trim)
-                .filter(|l| !l.is_empty());
-            if incoming.is_none() && existing.is_none() {
+            if incoming.is_none() {
                 return Err(PlanError::BlockedRequiresLabel);
             }
         }

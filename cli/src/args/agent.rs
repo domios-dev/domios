@@ -82,7 +82,7 @@ pub struct ReportArgs {
     /// Task id to append this report to (if available)
     #[arg(long, env = "CODETERM_TASK_ID")]
     pub task: Option<String>,
-    /// Task outcome: in_review | blocked | partial | done
+    /// Report outcome: in_review | blocked (proposes a task block) | partial | done
     #[arg(long)]
     pub status: Option<ReportStatusArg>,
     /// Git branch the work landed on

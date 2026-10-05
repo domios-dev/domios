@@ -6,7 +6,7 @@ State transitions, group closeout, and dispatch mechanics for the Orchestrator.
 
 ```text
 pending → in_progress → in_review → done
-              ↘ blocked
+              ↘ blocked (owner or Planner decision)
 pending/in_progress/blocked → paused   (system holds only)
 any open state → cancelled
 ```
@@ -22,6 +22,11 @@ any open state → cancelled
 - `codeterm agent report --status in_review` atomically records the handoff,
   moves the bound task to `in_review`, and pushes the report into the
   Orchestrator tab. Workers never poll or separately update task status.
+- `codeterm agent report --status blocked` persists the Worker's report and
+  evidence as one block proposal notice; it leaves the task status, assignment,
+  and lane unchanged. Only the Plan owner or Planner blocks explicitly with
+  `codeterm plan task update <plan> <task> --status blocked --status-label
+  "<reason; owner trigger>"`. A block label must be supplied with that update.
 - The Orchestrator alone accepts, bounces, or holds an `in_review` task. `hold`
   records a reason while preserving its assignment and lane; `bounce` returns it
   to the assigned Worker when its continuation is available. If the Worker is
@@ -77,4 +82,4 @@ Pause only when an owner decision blocks all tasks. Ask once with
 Paused plans have no heartbeat or reminders. Resume with
 `codeterm plan resume <plan_id>` and continue the frontier.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
