@@ -42,6 +42,15 @@ export function entryIsLegacyPaneCodetermHook(entry: HookEntry): boolean {
   });
 }
 
+export function isCurrentHookCommand(command: string, platform: string): boolean {
+  const executable = platform === "windows" ? "curl.exe " : "curl ";
+  return command.indexOf(executable) === 0
+    && command.indexOf(" --request POST ") !== -1
+    && command.indexOf(" --data-binary ") !== -1
+    && command.indexOf("if [") === -1
+    && command.indexOf("|| true") === -1;
+}
+
 function commandIsCurrentUnmarked(command: string): boolean {
   if (command.indexOf("$CODETERM_API_URL") === -1) return false;
   if (command.indexOf("$CODETERM_TAB_ID") === -1) return false;
