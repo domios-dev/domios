@@ -1,3 +1,4 @@
+pub mod automation_name;
 pub mod agent;
 pub mod config;
 pub mod decision;
