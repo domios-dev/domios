@@ -40,6 +40,7 @@ mod identity;
 mod observer;
 mod privacy;
 pub(super) mod scheduler;
+pub(crate) mod sentinel_request;
 
 pub(crate) use identity::correlation::project_diagnostics as project_observation_diagnostics;
 #[cfg(test)]
@@ -103,6 +104,7 @@ pub(crate) enum ObservationTrigger {
     ParkedEdge,
     PromptEstablished,
     PromptConfirmation,
+    SentinelRequest,
     WorkerIdle,
     BusyNoOutput,
     TabExit,
@@ -119,7 +121,8 @@ impl ObservationTrigger {
             | Self::OutputCandidate
             | Self::ParkedEdge
             | Self::PromptEstablished
-            | Self::PromptConfirmation => ObservationEvent::PromptCandidate,
+            | Self::PromptConfirmation
+            | Self::SentinelRequest => ObservationEvent::PromptCandidate,
             Self::WorkerIdle => ObservationEvent::WorkerIdle,
             Self::BusyNoOutput => ObservationEvent::BusyNoOutput,
             Self::TabExit => ObservationEvent::TabExit,
@@ -136,7 +139,8 @@ impl ObservationTrigger {
             | Self::OutputCandidate
             | Self::ParkedEdge
             | Self::PromptEstablished
-            | Self::PromptConfirmation => "prompt_candidate",
+            | Self::PromptConfirmation
+            | Self::SentinelRequest => "prompt_candidate",
             Self::WorkerIdle => "worker_idle_without_report",
             Self::BusyNoOutput => "busy_without_output",
             Self::TabExit => "tab_exit",
@@ -155,6 +159,7 @@ impl ObservationTrigger {
             Self::ParkedEdge => Producer::ParkedEdge,
             Self::PromptEstablished => Producer::PromptEstablished,
             Self::PromptConfirmation => Producer::PromptConfirmation,
+            Self::SentinelRequest => Producer::SentinelRequest,
             _ => Producer::LifecycleEvent,
         }
     }
@@ -167,11 +172,15 @@ impl ObservationTrigger {
                 | Self::ParkedEdge
                 | Self::PromptEstablished
                 | Self::PromptConfirmation
+                | Self::SentinelRequest
         )
     }
 
     fn is_internal_candidate(self) -> bool {
-        matches!(self, Self::PromptEstablished | Self::PromptConfirmation)
+        matches!(
+            self,
+            Self::PromptEstablished | Self::PromptConfirmation | Self::SentinelRequest
+        )
     }
 
     fn after_startup_deadline(self) -> bool {
@@ -297,7 +306,12 @@ impl ShadowHost for ServiceContext {
                 .tab_snapshot
                 .as_ref()
                 .and_then(|snapshot| snapshot.pty_id.as_deref())
-                .is_none_or(|pty_id| !self.pty.lock().session_generation_matches(pty_id, generation))
+                .is_none_or(|pty_id| {
+                    !self
+                        .pty
+                        .lock()
+                        .session_generation_matches(pty_id, generation)
+                })
         }) {
             return false;
         }
@@ -319,7 +333,11 @@ impl ShadowHost for ServiceContext {
                     .tab_snapshot
                     .as_ref()
                     .and_then(|snapshot| snapshot.pty_id.as_deref())
-                    .is_some_and(|pty_id| self.pty.lock().session_generation_matches(pty_id, generation))
+                    .is_some_and(|pty_id| {
+                        self.pty
+                            .lock()
+                            .session_generation_matches(pty_id, generation)
+                    })
             })
     }
 
@@ -509,7 +527,11 @@ impl ShadowHost for ServiceContext {
             prompt_options,
         };
         if trigger.is_prompt_candidate() {
-            self.add_safe_response_metadata(tab_id, screen, &mut metadata);
+            if trigger == ObservationTrigger::SentinelRequest {
+                self.add_sentinel_safe_response_metadata(tab_id, screen, &mut metadata);
+            } else {
+                self.add_safe_response_metadata(tab_id, screen, &mut metadata);
+            }
         }
         Ok(metadata)
     }
@@ -809,8 +831,16 @@ impl UserDeliveryReadiness {
         if first.observation_id == second.observation_id {
             return Err("observations_not_distinct");
         }
-        let first_local = first.metadata.envelope.as_ref().and_then(|envelope| envelope.local.as_ref());
-        let second_local = second.metadata.envelope.as_ref().and_then(|envelope| envelope.local.as_ref());
+        let first_local = first
+            .metadata
+            .envelope
+            .as_ref()
+            .and_then(|envelope| envelope.local.as_ref());
+        let second_local = second
+            .metadata
+            .envelope
+            .as_ref()
+            .and_then(|envelope| envelope.local.as_ref());
         if first.tab_id != second.tab_id
             || first.adapter_id != second.adapter_id
             || !Arc::ptr_eq(&first.adapter, &second.adapter)
@@ -831,7 +861,9 @@ impl UserDeliveryReadiness {
                 .or_else(|| second.pending_reason())
                 .unwrap_or("supporter_verdict_not_ready_idle"));
         }
-        Ok(Self { observations: [first, second] })
+        Ok(Self {
+            observations: [first, second],
+        })
     }
 
     pub(crate) fn current_observation(&self) -> &UserDeliveryObservation {
@@ -849,7 +881,9 @@ fn user_delivery_pair_has_same_generation(
 ) -> bool {
     first_id != second_id
         && first_pty_session_generation == second_pty_session_generation
-        && first.zip(second).is_some_and(|(first, second)| first == second)
+        && first
+            .zip(second)
+            .is_some_and(|(first, second)| first == second)
 }
 
 impl UserDeliveryObservation {
@@ -877,8 +911,12 @@ impl UserDeliveryObservation {
             identity::DecisionSource::LowConfidence => Some("supporter_low_confidence"),
         };
         source_reason
-            .or_else(|| (self.verdict.label != READY_IDLE).then_some("supporter_verdict_not_ready_idle"))
-            .or_else(|| (self.verdict.confidence < 0.90).then_some("supporter_confidence_below_threshold"))
+            .or_else(|| {
+                (self.verdict.label != READY_IDLE).then_some("supporter_verdict_not_ready_idle")
+            })
+            .or_else(|| {
+                (self.verdict.confidence < 0.90).then_some("supporter_confidence_below_threshold")
+            })
             .or_else(|| {
                 (self.verdict.reported_prompt_visible > 0.10).then_some("supporter_prompt_visible")
             })
