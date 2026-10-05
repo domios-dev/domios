@@ -25,7 +25,9 @@ pub struct Handler {
 impl Handler {
     pub fn notify(bucket: &str) -> Self {
         Self {
-            id: format!("{bucket}_notify"),
+            id: codeterm_types::automation_name::generated_handler_id(
+                "notify", None, None, bucket, 1,
+            ),
             action: Route::Notify,
             target: None,
         }
@@ -109,28 +111,63 @@ pub fn definitions(
             result.insert(bucket, handlers);
         }
     } else {
-        for (index, (bucket, route)) in routes.into_iter().enumerate() {
+        for (bucket, route) in routes {
+            let action = Route::parse(&route)?;
+            let id = unique_generated_id(&result, &bucket, &action);
             result.insert(
                 bucket.clone(),
                 vec![Handler {
-                    id: format!("route_{}", index + 1),
-                    action: Route::parse(&route)?,
+                    id,
+                    action,
                     target: None,
                 }],
             );
         }
     }
-    for (index, bucket) in buckets.iter().enumerate() {
-        result.entry(bucket.clone()).or_insert_with(|| {
-            vec![Handler {
-                id: format!("default_{}", index + 1),
-                action: Route::Notify,
+    for bucket in buckets {
+        if !result.contains_key(bucket) {
+            let action = Route::Notify;
+            let id = unique_generated_id(&result, bucket, &action);
+            result.insert(bucket.clone(), vec![Handler {
+                id,
+                action,
                 target: None,
-            }]
-        });
+            }]);
+        }
     }
     validate(buckets, &result)?;
     Ok(result)
+}
+
+fn generated_id(bucket: &str, action: &Route, ordinal: usize) -> String {
+    let (kind, target, label) = match action {
+        Route::Notify => ("notify", None, None),
+        Route::Stop => ("stop", None, None),
+        Route::Send(target) => ("send", Some(target.as_str()), None),
+        Route::Cron(target) => ("cron", Some(target.as_str()), None),
+        Route::Sentinel(target) => ("sentinel", Some(target.as_str()), None),
+        Route::RespondPrompt(kind) => ("respond_prompt", Some(kind.as_str()), None),
+        Route::Escalate(super::machine::EscalateTarget::Creator) => {
+            ("escalate", Some("creator"), None)
+        }
+        Route::Escalate(super::machine::EscalateTarget::Agent(target)) => {
+            ("escalate", Some(target.as_str()), None)
+        }
+        Route::Command(parameters) => ("command", None, Some(parameters.label.as_str())),
+    };
+    codeterm_types::automation_name::generated_handler_id(kind, target, label, bucket, ordinal)
+}
+
+fn unique_generated_id(
+    existing: &BTreeMap<String, Vec<Handler>>,
+    bucket: &str,
+    action: &Route,
+) -> String {
+    let used: BTreeSet<_> = existing.values().flatten().map(|handler| handler.id.as_str()).collect();
+    (1..)
+        .map(|ordinal| generated_id(bucket, action, ordinal))
+        .find(|id| !used.contains(id.as_str()))
+        .unwrap()
 }
 
 pub fn definitions_with_other(
