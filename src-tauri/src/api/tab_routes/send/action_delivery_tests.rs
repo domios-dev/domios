@@ -291,7 +291,7 @@ fn assert_plain_text_is_held_until_provider_dialog_clears(dialog: ProviderDialog
                 screen_text: service
                     .screen_state
                     .lock()
-                    .get_screen_text(&record.authority.pty_id)
+                    .get_screen_text(record.authority.pty_id.as_deref().unwrap())
                     .unwrap_or_default(),
             };
             let modal = service

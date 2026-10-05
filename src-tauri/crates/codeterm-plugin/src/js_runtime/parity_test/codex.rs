@@ -711,6 +711,43 @@ fn parse_session_delta_maps_response_items() {
 }
 
 #[test]
+fn parse_session_delta_preserves_a_12k_user_turn() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let expected = format!("paste-start:{}:paste-end", "x".repeat(12 * 1024));
+    let jsonl = format!(
+        "{}\n",
+        serde_json::json!({
+            "type": "response_item",
+            "payload": {
+                "type": "message",
+                "role": "user",
+                "content": [{ "type": "input_text", "text": expected.clone() }]
+            }
+        })
+    );
+    let tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(tmp.path(), &jsonl).unwrap();
+
+    let delta = codex().parse_session_delta(tmp.path(), 0);
+    assert_eq!(delta.new_offset, jsonl.len() as u64);
+    let user = delta
+        .messages
+        .iter()
+        .find(|message| message.role == "user")
+        .expect("long Codex user record is parsed");
+    assert_eq!(user.blocks.len(), 1);
+    assert_eq!(
+        user.blocks[0]
+            .data
+            .get("text")
+            .and_then(|text| text.as_str()),
+        Some(expected.as_str())
+    );
+}
+
+#[test]
 fn parse_session_messages_keeps_only_text_messages() {
     if require_plugins().is_none() {
         return;

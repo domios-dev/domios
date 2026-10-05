@@ -309,6 +309,28 @@ impl ChatSendLedger {
         }
     }
 
+    pub(crate) fn rebind_queued_user_authority(
+        &self,
+        send_id: &str,
+        previous: &UserSendAuthority,
+        current: &UserSendAuthority,
+    ) -> bool {
+        let mut state = self.state.lock();
+        let Some((authority, active)) = state.owned.get_mut(send_id) else {
+            return false;
+        };
+        if authority != previous || *active {
+            return false;
+        }
+        *authority = current.clone();
+        if let Some(held_authority) = state.held_before_readiness_by_id.get_mut(send_id) {
+            if held_authority == previous {
+                *held_authority = current.clone();
+            }
+        }
+        true
+    }
+
     pub(crate) fn store_user_submit_claim(
         &self,
         send_id: &str,
@@ -1140,8 +1162,10 @@ impl crate::service::ServiceContext {
         crate::api::events::emit_everywhere(&self.app_handle, "chat-send-status", &status);
         let tab = record.authority.tab_id.clone();
         if self.user_authority_is_ready(&record.authority) {
-            let claim = super::pty_io::submit_transaction::claim_submit_cycle(&record.authority.pty_id);
-            self.chat_send_ledger.store_user_submit_claim(&record.send_id, claim);
+            if let Some(pty_id) = record.authority.pty_id.as_deref() {
+                let claim = super::pty_io::submit_transaction::claim_submit_cycle(pty_id);
+                self.chat_send_ledger.store_user_submit_claim(&record.send_id, claim);
+            }
         }
         drop(reservation);
         self.wake_user_owner(&tab, super::parked_user_delivery::UserWake::Admission);
