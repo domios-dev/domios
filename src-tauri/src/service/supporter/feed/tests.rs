@@ -12,6 +12,49 @@ fn supporter_feed_safe_step_preserves_narrative_and_observation() {
         assert!(!projected.to_string().contains("private-value"));
     }
 }
+
+#[test]
+fn supporter_feed_projects_only_sanitized_error_categories_for_error_fallbacks() {
+    for category in [
+        "transport",
+        "http",
+        "unavailable",
+        "unsupported",
+        "parse",
+        "invalid_observation",
+    ] {
+        let value = serde_json::json!({
+            "time": 1,
+            "kind": "tab_state",
+            "action": "classification",
+            "label": "other",
+            "reason": "model_answer",
+            "decided_by": "fallback(error)",
+            "error_category": category,
+            "observation_id": 42,
+        });
+        let projected = entry(&value).unwrap();
+        assert_eq!(projected["error_category"], category);
+    }
+
+    let mut invalid = serde_json::json!({
+        "time": 1,
+        "kind": "tab_state",
+        "action": "classification",
+        "label": "other",
+        "reason": "model_answer",
+        "decided_by": "fallback(error)",
+        "error_category": "token=private-value",
+        "observation_id": 42,
+    });
+    let projected = entry(&invalid).unwrap();
+    assert!(projected.get("error_category").is_none());
+    assert!(!projected.to_string().contains("private-value"));
+
+    invalid["decided_by"] = serde_json::json!("fallback(timeout)");
+    let projected = entry(&invalid).unwrap();
+    assert!(projected.get("error_category").is_none());
+}
 use crate::service::supporter::narrative::{self, QuestionAnswer};
 
 fn record(asked: Value) -> Value {

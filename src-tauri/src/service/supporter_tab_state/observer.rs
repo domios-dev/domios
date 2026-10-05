@@ -135,7 +135,7 @@ fn enqueue_prepared_with_completion<H: ShadowHost>(
                     envelope.observation_id,
                     &envelope.correlation,
                 ),
-                identity::DecisionSource::Error,
+                identity::DecisionSource::unavailable(),
                 OTHER,
                 None,
                 &prepared.1.title,
@@ -166,7 +166,7 @@ fn enqueue_prepared_with_completion<H: ShadowHost>(
         questions,
         move || {
             let mut queued = queued;
-            queued.source = identity::DecisionSource::Error;
+            queued.source = identity::DecisionSource::unavailable();
             let _restore = restore;
             let result = observe_guarded_inner(
                 &host,
@@ -322,7 +322,7 @@ fn observe_guarded_inner<H: ShadowHost>(
                     envelope.observation_id,
                     &envelope.correlation,
                 ),
-                identity::DecisionSource::Error,
+                identity::DecisionSource::unavailable(),
                 OTHER,
                 None,
                 prepared
@@ -350,7 +350,7 @@ fn observe_guarded_inner<H: ShadowHost>(
                 envelope.observation_id,
                 &envelope.correlation,
             ),
-            identity::DecisionSource::Error,
+            identity::DecisionSource::unavailable(),
             OTHER,
             None,
             &captured_title,
@@ -370,7 +370,7 @@ fn observe_guarded_inner<H: ShadowHost>(
                 envelope.observation_id,
                 &envelope.correlation,
             ),
-            identity::DecisionSource::Error,
+            identity::DecisionSource::unavailable(),
             OTHER,
             None,
             &captured_title,
@@ -396,7 +396,7 @@ fn observe_guarded_inner<H: ShadowHost>(
                     &envelope.correlation,
                 ),
                 if matches!(trigger, ObservationTrigger::TabExit) {
-                    identity::DecisionSource::Error
+                    identity::DecisionSource::unavailable()
                 } else {
                     identity::DecisionSource::Budget
                 },
@@ -417,7 +417,7 @@ fn observe_guarded_inner<H: ShadowHost>(
                 permit.observation_id,
                 &envelope.correlation,
             ),
-            identity::DecisionSource::Error,
+            identity::DecisionSource::unavailable(),
             OTHER,
             None,
             &captured_title,
@@ -523,7 +523,7 @@ fn observe<H: ShadowHost>(
                 envelope.permit.observation_id,
                 &envelope.metadata,
             ),
-            identity::DecisionSource::Error,
+            identity::DecisionSource::unavailable(),
             OTHER,
             None,
             &title,
@@ -550,7 +550,7 @@ fn observe<H: ShadowHost>(
                 &envelope.metadata,
             )
             .with_model_verdict(model_verdict.clone()),
-            identity::DecisionSource::Error,
+            identity::DecisionSource::unavailable(),
             OTHER,
             None,
             &title,
@@ -768,7 +768,7 @@ pub(crate) fn prepare_observation_with_parent_and_identity<H: ShadowHost>(
         observation_id: state::next_observation_id(),
         correlation: None,
         pending: true,
-        source: identity::DecisionSource::Error,
+        source: identity::DecisionSource::unavailable(),
     };
     let captured_at = Instant::now();
     let local = host.local_identity(tab_id);

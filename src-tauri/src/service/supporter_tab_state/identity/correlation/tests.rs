@@ -282,7 +282,7 @@ fn supporter_first_opinion_passive_candidate_evidence_does_not_invent_an_alterna
         json!({"status":"unavailable"})
     );
     for source in [
-        DecisionSource::Error,
+        DecisionSource::unavailable(),
         DecisionSource::Budget,
         DecisionSource::Timeout,
         DecisionSource::NoAdapter,
