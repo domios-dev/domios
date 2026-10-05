@@ -255,12 +255,10 @@ impl super::ServiceContext {
         {
             self.gateway.require_worker_report(target);
         }
-        Ok((
-            receipt.delivery.unwrap_or(Delivery::Pty {
-                text: body.to_string(),
-            }),
-            receipt.pad_file,
-        ))
+        let delivery = receipt
+            .delivery
+            .ok_or_else(|| "message gateway returned no delivery outcome".to_string())?;
+        Ok((delivery, receipt.pad_file))
     }
 }
 

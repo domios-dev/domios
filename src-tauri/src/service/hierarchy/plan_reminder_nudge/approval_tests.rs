@@ -274,14 +274,20 @@ impl ReminderHost for FakeHost {
         }
     }
 
-    fn emit(&self, plan_id: &str, scope: &Scope, emission: &Emission) -> Result<(), String> {
+    fn emit(
+        &self,
+        plan_id: &str,
+        scope: &Scope,
+        emission: &Emission,
+        _observer: Option<crate::service::messenger::DeliveryWriteObserver>,
+    ) -> Result<bool, String> {
         assert!(self.gate.unlocked(), "gate lock held across the emitter");
         self.emits.lock().push(Emitted {
             plan_id: plan_id.into(),
             scope: scope.clone(),
             emission: emission.clone(),
         });
-        self.emit_error.lock().clone().map_or(Ok(()), Err)
+        self.emit_error.lock().clone().map_or(Ok(true), Err)
     }
 
     fn notify_blocked(&self, owner_tab: &str, notice: &BlockedNotice) {

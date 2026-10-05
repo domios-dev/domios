@@ -482,6 +482,33 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    fn delivery_modal_visible(&self, snapshot: &crate::tab_state::TabStateSnapshot) -> bool {
+        use crate::tab_state::TabState;
+
+        if crate::detector::has_active_turn_marker(&snapshot.screen_text) {
+            return false;
+        }
+        match self.classify_tab_state(snapshot) {
+            Some(classification) if classification.state == TabState::Working => false,
+            Some(classification)
+                if classification.confidence >= 0.8
+                    && matches!(
+                        classification.state,
+                        TabState::WaitingOnAuth
+                            | TabState::UpdatePrompt
+                            | TabState::RateLimited
+                            | TabState::ClarifyingQuestion
+                    ) =>
+            {
+                true
+            }
+            Some(classification) if classification.state == TabState::Unknown => {
+                crate::detector::detect_interactive_prompt(&snapshot.screen_text)
+            }
+            _ => crate::detector::detect_interactive_prompt(&snapshot.screen_text),
+        }
+    }
+
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
     fn is_output_noise(&self, text: &str) -> bool {
         let _ = text;

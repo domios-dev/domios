@@ -305,6 +305,122 @@ pub(crate) fn sanitize_agent_prompt_input(text: &str) -> String {
 }
 
 impl ServiceContext {
+    pub(crate) fn pin_agent_delivery_binding(
+        &self,
+        tab_id: &str,
+        payload: &mut super::super::messenger::AgentDeliveryPayload,
+    ) -> Result<(), String> {
+        let binding = self.queued_agent_binding(tab_id).ok_or_else(|| {
+            "agent_unavailable: recipient has no authenticated PTY session".to_string()
+        })?;
+        if payload
+            .expected_pty_id
+            .as_deref()
+            .is_some_and(|expected| expected != binding.0)
+            || payload
+                .expected_session_id
+                .as_deref()
+                .is_some_and(|expected| expected != binding.1)
+            || payload
+                .expected_binding_nonce
+                .as_deref()
+                .is_some_and(|expected| expected != binding.2)
+        {
+            return Err("agent_unavailable: recipient session binding changed".into());
+        }
+        payload.expected_pty_id = Some(binding.0);
+        payload.expected_session_id = Some(binding.1);
+        payload.expected_binding_nonce = Some(binding.2);
+        Ok(())
+    }
+
+    pub(crate) fn agent_delivery_binding_matches(
+        &self,
+        tab_id: &str,
+        payload: &super::super::messenger::AgentDeliveryPayload,
+    ) -> bool {
+        let Some(binding) = self.queued_agent_binding(tab_id) else {
+            return false;
+        };
+        payload.expected_pty_id.as_deref() == Some(binding.0.as_str())
+            && payload.expected_session_id.as_deref() == Some(binding.1.as_str())
+            && payload.expected_binding_nonce.as_deref() == Some(binding.2.as_str())
+    }
+
+    fn queued_agent_binding(&self, tab_id: &str) -> Option<(String, String, String)> {
+        let mux = self.mux.read();
+        let resolved = mux.resolve_tab_id(tab_id)?;
+        let tab = mux.get_tab(&resolved)?;
+        if tab.agent_type.is_none()
+            || !matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty)
+        {
+            return None;
+        }
+        let pty_id = tab.pty_id.clone()?;
+        let session_id = tab.agent_session_id.clone()?;
+        let binding_nonce = tab.session_binding_nonce.clone()?;
+        (tab.reported_session_binding_nonce.as_deref() == Some(binding_nonce.as_str())).then_some((
+            pty_id,
+            session_id,
+            binding_nonce,
+        ))
+    }
+
+    pub(crate) fn send_queued_agent_payload(
+        &self,
+        tab_id: &str,
+        payload: &super::super::messenger::AgentDeliveryPayload,
+    ) -> Result<(), String> {
+        let Some(expected_pty_id) = payload.expected_pty_id.as_deref() else {
+            return Err(DeliveryError::TabBusyRefused {
+                tab: tab_id.to_string(),
+                detail: "queued agent delivery has no PTY authority".into(),
+            }
+            .ledger_message());
+        };
+        let Some(expected_session_id) = payload.expected_session_id.as_deref() else {
+            return Err(DeliveryError::TabBusyRefused {
+                tab: tab_id.to_string(),
+                detail: "queued agent delivery has no session authority".into(),
+            }
+            .ledger_message());
+        };
+        let Some(expected_binding_nonce) = payload.expected_binding_nonce.as_deref() else {
+            return Err(DeliveryError::TabBusyRefused {
+                tab: tab_id.to_string(),
+                detail: "queued agent delivery has no binding authority".into(),
+            }
+            .ledger_message());
+        };
+        let delivery = self.authenticated_pty_delivery(
+            tab_id,
+            Some(expected_pty_id),
+            expected_session_id,
+            expected_binding_nonce,
+        )?;
+        match &payload.transport {
+            super::super::messenger::QueuedAgentPayload::Text { text } => self
+                .send_authenticated_delivery_with_options(
+                    delivery,
+                    text,
+                    super::submit_transaction::PtySubmitEntry::Messenger,
+                    true,
+                ),
+            super::super::messenger::QueuedAgentPayload::RoutedFrame {
+                opening_tag,
+                body,
+                suffix,
+            } => self.send_authenticated_delivery_with_routed_frame(
+                delivery,
+                codeterm_types::domios::DomiosFrame {
+                    opening_tag: opening_tag.clone(),
+                    body: body.clone(),
+                    suffix: suffix.clone(),
+                },
+            ),
+        }
+    }
+
     fn authenticated_pty_delivery(
         &self,
         tab_id: &str,
@@ -336,102 +452,6 @@ impl ServiceContext {
             provider_id,
             permit,
         })
-    }
-
-    pub(crate) fn send_to_agent_when_ready_detached(&self, tab_id: &str, text: &str) {
-        let svc = self.clone();
-        let tab = tab_id.to_string();
-        let text = text.to_string();
-        std::thread::spawn(move || {
-            let pty_claim = svc.pty_ownership.acquire(&tab);
-            let pty_id = {
-                let mux = svc.mux.read();
-                let target = mux
-                    .get_tab(&tab)
-                    .filter(|tab| tab.agent_type.is_some())
-                    .ok_or_else(|| {
-                        "agent_unavailable: recipient is no longer an agent".to_string()
-                    });
-                target.and_then(|tab| {
-                    tab.pty_id
-                        .clone()
-                        .ok_or_else(|| "agent_unavailable: recipient PTY missing".to_string())
-                })
-            };
-            let result = pty_id.and_then(|pty_id| svc.send_text_to_pty(&pty_id, &text));
-            drop(pty_claim);
-            if let Err(error) = result {
-                if delivery_is_unknown(&error) {
-                    log::warn!("[send-async] agent delivery to Tab {tab} remains unknown");
-                    return;
-                }
-                log::warn!("[send-async] agent delivery to Tab {tab} failed: {error}");
-                crate::api::events::emit_everywhere(
-                    &svc.app_handle,
-                    "chat-send-failed",
-                    serde_json::json!({
-                        "tab_id": &tab,
-                        "error": &error,
-                    }),
-                );
-            }
-        });
-    }
-
-    pub(crate) fn send_routed_to_agent_when_ready_detached(
-        &self,
-        tab_id: &str,
-        frame: codeterm_types::domios::DomiosFrame,
-    ) {
-        let svc = self.clone();
-        let tab = tab_id.to_string();
-        std::thread::spawn(move || {
-            let pty_claim = svc.pty_ownership.acquire(&tab);
-            let target = {
-                let mux = svc.mux.read();
-                mux.get_tab(&tab)
-                    .filter(|target| target.agent_type.is_some())
-                    .and_then(|target| target.pty_id.clone().zip(target.agent_type.clone()))
-                    .ok_or_else(|| "agent_unavailable: routed recipient is no longer an agent".to_string())
-            };
-            let result = target.and_then(|(pty_id, provider_id)| {
-                svc.send_routed_frame_to_pty(&pty_id, &provider_id, frame)
-            });
-            drop(pty_claim);
-            if let Err(error) = result {
-                if delivery_is_unknown(&error) {
-                    log::warn!("[send-async] routed delivery to Tab {tab} remains unknown");
-                    return;
-                }
-                log::warn!("[send-async] routed delivery to Tab {tab} failed: {error}");
-                crate::api::events::emit_everywhere(
-                    &svc.app_handle,
-                    "chat-send-failed",
-                    serde_json::json!({ "tab_id": &tab, "error": &error }),
-                );
-            }
-        });
-    }
-
-    pub(crate) fn send_to_authenticated_agent_session(
-        &self,
-        tab_id: &str,
-        expected_session_id: &str,
-        expected_binding_nonce: &str,
-        text: &str,
-    ) -> Result<(), String> {
-        let delivery = self.authenticated_pty_delivery(
-            tab_id,
-            None,
-            expected_session_id,
-            expected_binding_nonce,
-        )?;
-        self.send_authenticated_delivery_with_options(
-            delivery,
-            text,
-            super::submit_transaction::PtySubmitEntry::Planner,
-            true,
-        )
     }
 
     pub(crate) fn send_to_authenticated_agent_session_pinned(
@@ -475,7 +495,9 @@ impl ServiceContext {
                 expected_session_id,
                 expected_binding_nonce,
             )
-            .and_then(|delivery| self.send_authenticated_delivery_with_routed_frame(delivery, frame));
+            .and_then(|delivery| {
+                self.send_authenticated_delivery_with_routed_frame(delivery, frame)
+            });
         drop(pty_claim);
         result
     }
@@ -585,47 +607,6 @@ impl ServiceContext {
         )
         .and_then(|result| require_submission_result(result, track_exact_session_turn))
         .map_err(|error| DeliveryError::from_injection(&delivery.pty_id, error).ledger_message())
-    }
-
-    fn send_routed_frame_to_pty(
-        &self,
-        pty_id: &str,
-        provider_id: &str,
-        frame: codeterm_types::domios::DomiosFrame,
-    ) -> Result<(), String> {
-        let strategy = self
-            .agent_registry
-            .with_provider(provider_id, |provider| provider.verify_submit_strategy())
-            .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
-        let suffix = self.routed_frame_suffix(provider_id, &frame.suffix)?;
-        let body = sanitize_agent_prompt_input(&frame.body);
-        let track_exact_session_turn = !body.is_empty()
-            && matches!(
-                &strategy,
-                crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
-            );
-        let claim = super::submit_transaction::claim_submit_cycle(pty_id);
-        super::submit_transaction::submit_text_with_key_claimed_and_frame(
-            self,
-            pty_id,
-            &body,
-            Some(&frame.opening_tag),
-            Some(&suffix),
-            true,
-            b"\r",
-            strategy,
-            crate::service::inject_verify::VerifyOpts {
-                require_prompt_first: false,
-                verify_echo: true,
-                verify_submit: true,
-                ..Default::default()
-            },
-            None,
-            track_exact_session_turn,
-            claim,
-        )
-        .and_then(|result| require_submission_result(result, track_exact_session_turn))
-        .map_err(|error| DeliveryError::from_injection(pty_id, error).ledger_message())
     }
 
     /// Send text to a tab (chatBackend or PTY). Agent PTYs complete only after
