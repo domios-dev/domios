@@ -21,8 +21,8 @@ import type {
   WebhookReceiveContext,
   WebhookReceiverCapability,
   WebhookReceiver,
-} from "../capabilities";
-import type { Host, Backend, TabRef, UsageSnapshot } from "../host";
+} from "./capabilities";
+import type { Host, Backend, TabRef, UsageSnapshot } from "./host";
 
 const backend: ChatBackend = {
   openSession: (ctx) => ({ sessionId: ctx.tabId }),

@@ -331,5 +331,4 @@ pub fn system_prompt(body: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "message_markers_tests.rs"]
 mod tests;

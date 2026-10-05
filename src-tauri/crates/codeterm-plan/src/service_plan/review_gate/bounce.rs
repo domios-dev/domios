@@ -2,7 +2,6 @@ use super::*;
 use std::collections::HashSet;
 
 #[cfg(test)]
-#[path = "cleaned_bounce_tests.rs"]
 mod cleaned_bounce_tests;
 
 enum ClosedReviewAttempt {

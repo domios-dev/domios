@@ -755,7 +755,6 @@ impl ServiceContext {
 }
 
 #[cfg(test)]
-#[path = "lifecycle_recovery_tests.rs"]
 mod lifecycle_recovery_tests;
 
 #[cfg(test)]

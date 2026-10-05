@@ -837,5 +837,4 @@ fn local_start_of_day_ms(ms: i64) -> i64 {
 }
 
 #[cfg(test)]
-#[path = "projection_tests.rs"]
 mod tests;
