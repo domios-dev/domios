@@ -2729,22 +2729,34 @@ Cheap hash-gated watchers with closed-set routes
 
 #### `codeterm sentinel create`
 
-Classify a bounded probe or same-Team agent tab observation
+Classify a bounded probe or same-Team agent observation
 
 - `--buckets`
+- `--escalation-timeout-ms` — Bound how long an `other` escalation may hold this stage, in milliseconds
 - `--every` — Owner-requested cadence (minimum 10s)
 - `--handlers-file` — JSON bucket-to-array of {id,type,parameters} handlers, including fixed local command actions
 - `--match` — Deterministic fallback when no Choice adapter is connected: bucket=regex
 - `--max-actions` — Finite action-attempt budget (maximum 1024)
 - `--max-transitions` — Finite accepted transition budget (maximum 256)
 - `--name` — Display name of the Sentinel scenario or stage
-- `--observe` — Observe a same-Team agent tab and wake on prompt or status changes
+- `--observe` — Observe a same-Team agent tab or cron run
 - `--paused` — Create a dormant downstream stage; its lifetime starts now
 - `--probe`
 - `--question`
 - `--route` — Closed-set route: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop
 - `--timeout` — End the sentinel after this duration
 - `--until` — Stop after this bucket's first confident transition
+
+#### `codeterm sentinel escalation`
+
+Resolve an open escalation
+
+#### `codeterm sentinel escalation resolve`
+
+Release a held stage and re-evaluate its observation
+
+- `<id>`
+- `<transition_id>`
 
 #### `codeterm sentinel history`
 
