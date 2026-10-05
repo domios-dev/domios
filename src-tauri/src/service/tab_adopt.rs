@@ -1,3 +1,4 @@
+use tauri::Manager;
 use serde::Serialize;
 
 use crate::multiplexer::types::{Tab, TabBacking};
@@ -252,7 +253,9 @@ impl ServiceContext {
             apply_boot_stage(tab, BootStage::AgentReady, None);
         }
         let (previous, current) = identity_states(outcome)?;
-        crate::agent::state_reactor::classify_adopted_launch_screen(self, tab_id, &pty_id);
+        if let Some(service) = self.app_handle.try_state::<super::ServiceState>() {
+            crate::agent::state_reactor::classify_adopted_launch_screen(service.inner(), tab_id, &pty_id);
+        }
         let status = if previous.provider == current.provider {
             RepairFieldStatus::Kept
         } else {
