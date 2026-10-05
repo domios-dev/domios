@@ -178,6 +178,11 @@ fn admit_claimed(
 ) -> ReminderOutcome {
     let gate = host.gate();
     let supporter = host.supporter();
+    let soft_cooldown = if scope.kind == ReminderKind::Worker {
+        0
+    } else {
+        host.interval()
+    };
     let (Some(model), Some(adapter)) = (supporter.connected(&scope.tab_id), supporter.generation())
     else {
         return suppress(gate, claim, "no_adapter");
@@ -197,7 +202,7 @@ fn admit_claimed(
         now,
         Some(model.as_ref()),
         supporter.deadline(),
-        host.interval(),
+        soft_cooldown,
     );
     let Ok(mut decision) = decided else {
         return suppress(gate, claim, "gate_unavailable");
