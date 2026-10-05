@@ -204,11 +204,11 @@ function commandObject(command: string | undefined): string | undefined {
 }
 
 function reportFields(inv: CodetermInvocation, result?: string): Array<{ label: string; value: string }> {
-  const rawBody = resolvedText(result) ?? flagText(inv, "text") ?? inv.positionals.find((value) => /(?:^|\n|\\n)(?:STATUS|CHANGES|TESTS RUN|GATES REQUESTED|FOLLOWUP):/i.test(value));
+  const rawBody = resolvedText(result) ?? flagText(inv, "text") ?? inv.positionals.find((value) => /(?:^|\n|\\n)(?:STATUS|CHANGES|TESTS RUN|TESTS COVERING CHANGES|GATES REQUESTED|FOLLOWUP):/i.test(value));
   const body = rawBody ? decodeCliMessageText(rawBody) : undefined;
   const fields = new Map<string, string>();
   for (const line of body?.split(/\r?\n/) ?? []) {
-    const match = /^(STATUS|CHANGES|TESTS RUN|GATES REQUESTED|FOLLOWUP):\s*(.*)$/i.exec(line.trim());
+    const match = /^(STATUS|CHANGES|TESTS RUN|TESTS COVERING CHANGES|GATES REQUESTED|FOLLOWUP):\s*(.*)$/i.exec(line.trim());
     if (match) fields.set(match[1].toLowerCase().replace(" run", ""), match[2]);
   }
   const status = flagText(inv, "status") ?? fields.get("status");
