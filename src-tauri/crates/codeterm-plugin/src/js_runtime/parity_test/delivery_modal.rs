@@ -105,6 +105,22 @@ fn provider_prompt_fixtures_remain_visible_to_recovery_guards() {
         "Codex /model picker is a provider-declared prompt"
     );
 
+    let codex_lookalike = std::fs::read_to_string(
+        root.join("provider-codex/tests/fixtures/tab-state/recovery-dialog-lookalike.txt"),
+    )
+    .expect("Codex recovery lookalike fixture");
+    let codex_lookalike_snapshot = crate::tab_state::TabStateSnapshot {
+        tab_id: "codex-composer-tab".into(),
+        agent_type: "codex".into(),
+        session_id: Some("codex-composer-session".into()),
+        cwd: Some("/fixture".into()),
+        screen_text: codex_lookalike,
+    };
+    assert!(
+        codex_js.delivery_modal_visible(&codex_lookalike_snapshot),
+        "screen-only classification recognizes the modal-shaped composer fixture"
+    );
+
     let unclassified = super::load_inline_js(
         "unclassified-dialog-fixture",
         "module.exports.default = {};",

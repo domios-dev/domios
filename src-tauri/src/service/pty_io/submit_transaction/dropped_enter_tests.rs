@@ -482,7 +482,7 @@ fn assert_prompt_fixture_stops_recovery(
             if initial_key {
                 Ok(())
             } else {
-                recovery_composer_guard(&provider, &snapshot, true, false, "same-pty")
+                recovery_dialog_guard(&provider, &snapshot, false, "same-pty")
             }
         },
     )
@@ -567,7 +567,7 @@ fn plain_unconfirmed_composer_keeps_its_bounded_key_schedule() {
             if initial_key {
                 Ok(())
             } else {
-                recovery_composer_guard(&provider, &snapshot, true, false, "same-pty")
+                recovery_dialog_guard(&provider, &snapshot, false, "same-pty")
             }
         },
     )
@@ -605,7 +605,7 @@ fn unbound_recovery_requires_a_provider_capability() {
 }
 
 #[test]
-fn recovery_requires_a_provider_composer_verdict_and_live_cursor() {
+fn recovery_stops_on_provider_modal_without_using_screen_turn_state() {
     use codeterm_plugin::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
 
     let snapshot = TabStateSnapshot {
@@ -615,26 +615,7 @@ fn recovery_requires_a_provider_composer_verdict_and_live_cursor() {
         cwd: Some("/fixture".into()),
         screen_text: "screen".into(),
     };
-    let missing = crate::agent::test_provider::MockProvider::new("fixture");
-    assert!(matches!(
-        recovery_composer_guard(&missing, &snapshot, true, false, "same-pty"),
-        Err(InjectionError::AgentInputUnavailable { .. })
-    ));
-
-    let prompt = crate::agent::test_provider::MockProvider::new("fixture").with_tab_state(
-        TabStateClassification {
-            state: TabState::Unknown,
-            confidence: 1.0,
-            data: None,
-            action: None,
-        },
-    );
-    assert!(matches!(
-        recovery_composer_guard(&prompt, &snapshot, true, false, "same-pty"),
-        Err(InjectionError::AgentTuiPresent { .. })
-    ));
-
-    let composer = crate::agent::test_provider::MockProvider::new("fixture").with_tab_state(
+    let working = crate::agent::test_provider::MockProvider::new("fixture").with_tab_state(
         TabStateClassification {
             state: TabState::Working,
             confidence: 0.0,
@@ -642,14 +623,26 @@ fn recovery_requires_a_provider_composer_verdict_and_live_cursor() {
             action: None,
         },
     );
-    assert!(recovery_composer_guard(&composer, &snapshot, true, false, "same-pty").is_ok());
     assert!(matches!(
-        recovery_composer_guard(&composer, &snapshot, false, false, "same-pty"),
-        Err(InjectionError::AgentInputUnavailable { .. })
+        recovery_dialog_guard(&working, &snapshot, false, "same-pty"),
+        Ok(())
+    ));
+
+    let prompt = crate::agent::test_provider::MockProvider::new("fixture").with_tab_state(
+        TabStateClassification {
+            state: TabState::ClarifyingQuestion,
+            confidence: 1.0,
+            data: None,
+            action: None,
+        },
+    );
+    assert!(matches!(
+        recovery_dialog_guard(&prompt, &snapshot, false, "same-pty"),
+        Err(InjectionError::AgentTuiPresent { .. })
     ));
     assert!(matches!(
-        recovery_composer_guard(&composer, &snapshot, true, true, "same-pty"),
-        Err(InjectionError::AgentTuiPresent { .. })
+        recovery_dialog_guard(&prompt, &snapshot, true, "same-pty"),
+        Ok(())
     ));
 }
 

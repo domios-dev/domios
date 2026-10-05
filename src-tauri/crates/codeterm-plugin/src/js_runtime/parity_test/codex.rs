@@ -365,7 +365,17 @@ fn resume_with_context_keeps_the_conservative_default() {
     assert!(!command.contains("parity-sentinel-91c3"));
     assert!(command.contains("--no-daemon"));
     assert!(command.contains("gpt-6-sol"));
-    assert!(command.contains("model_reasoning_effort=\"high\""));
+    let reasoning_arg = if cfg!(windows) {
+        r#"model_reasoning_effort=\"high\""#
+    } else {
+        r#"model_reasoning_effort="high""#
+    };
+    assert!(
+        command.contains(reasoning_arg),
+        "reasoning effort arg is preserved: {command}"
+    );
+    assert!(!command.contains("--dangerously-bypass-approvals-and-sandbox"));
+    assert!(!command.contains("--dangerously-bypass-hook-trust"));
     if cfg!(windows) {
         assert!(command.contains("--profile $ctProfileName"));
     } else {

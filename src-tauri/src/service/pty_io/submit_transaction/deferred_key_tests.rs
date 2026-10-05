@@ -21,6 +21,8 @@ struct State {
     deferred_ready_seen: bool,
     draft_visible: bool,
     paste_marks_working: bool,
+    working_after_swallowed_key: bool,
+    modal_after_swallowed_key: bool,
     pause_after_paste: bool,
 }
 
@@ -61,6 +63,8 @@ impl EventTransport {
                     deferred_ready_seen: false,
                     draft_visible: false,
                     paste_marks_working: false,
+                    working_after_swallowed_key: false,
+                    modal_after_swallowed_key: false,
                     pause_after_paste: false,
                 }),
                 event_tx,
@@ -261,6 +265,14 @@ impl SubmitTransport for EventTransport {
         state.generation += 1;
         if state.swallowed_keys > 0 {
             state.swallowed_keys -= 1;
+            if state.working_after_swallowed_key {
+                state.busy = true;
+                state.turn_started = true;
+            }
+            if state.modal_after_swallowed_key {
+                state.dialog = true;
+                state.composer_ready = true;
+            }
             return Ok(());
         }
         state.draft_visible = false;
@@ -316,14 +328,16 @@ fn run_with_readiness_guard_and_follow_up(
         typed_follow_up,
         tui_strategy(),
         opts(),
-        |_initial_key, turn_was_started| {
+        |initial_key, turn_was_started| {
             let state = transport.state.lock().unwrap();
-            if state.dialog {
+            if state.dialog && !state.composer_ready {
                 return Err(InjectionError::AgentTuiPresent {
                     pty_id: "test-pty".into(),
                 });
             }
-            if !submit_key_readiness(turn_was_started, state.turn_started, state.composer_ready) {
+            if initial_key
+                && !submit_key_readiness(turn_was_started, state.turn_started, state.composer_ready)
+            {
                 return Err(InjectionError::AgentInputUnavailable {
                     pty_id: "test-pty".into(),
                 });
@@ -439,8 +453,78 @@ fn active_turn_deadline_never_submits_into_a_dialog() {
     transport.state.lock().unwrap().dialog = true;
 
     let result = join(send, "active turn modal guard").unwrap().unwrap_err();
-    assert!(matches!(result, InjectionError::SubmitNeverConfirmed { .. }));
+    assert!(matches!(
+        result,
+        InjectionError::SubmitNeverConfirmed { .. }
+    ));
     assert_eq!(transport.state.lock().unwrap().writes, ["paste:busy"]);
+}
+
+#[test]
+fn swallowed_enter_retries_after_working_status_without_turn_evidence() {
+    let (transport, paste_rx, _, _) = EventTransport::new(false, 1);
+    transport.state.lock().unwrap().working_after_swallowed_key = true;
+    let send_transport = Arc::clone(&transport);
+    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "message"));
+
+    paste_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the payload reaches the composer once");
+    let result = join(send, "working status submit retry").unwrap().unwrap();
+
+    assert!(result.submit_observed);
+    assert!(!result.submit_anomaly);
+    assert_eq!(result.submit_key_writes, 2);
+    let state = transport.state.lock().unwrap();
+    assert!(state.exact_turn_seen);
+    assert!(!state.draft_visible);
+    assert_eq!(state.writes, ["paste:message", "enter", "enter"]);
+}
+
+#[test]
+fn swallowed_enter_retries_past_a_codex_prompt_lookalike_in_the_ready_composer() {
+    const CODEX_COMPOSER_FIXTURE: &str =
+        include_str!("../../../../../plugins/provider-codex/tests/fixtures/tab-state/recovery-dialog-lookalike.txt");
+
+    let (transport, paste_rx, _, _) = EventTransport::new(false, 1);
+    {
+        let mut state = transport.state.lock().unwrap();
+        state.working_after_swallowed_key = true;
+        state.modal_after_swallowed_key = true;
+    }
+    let send_transport = Arc::clone(&transport);
+    let send = std::thread::spawn(move || {
+        run_with_readiness_guard(&send_transport, CODEX_COMPOSER_FIXTURE)
+    });
+
+    paste_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the Codex prompt-shaped payload reaches the composer once");
+    let result = join(send, "Codex composer modal lookalike retry")
+        .unwrap()
+        .unwrap();
+
+    assert!(result.submit_observed);
+    assert!(!result.submit_anomaly);
+    assert_eq!(result.submit_key_writes, 2);
+    let state = transport.state.lock().unwrap();
+    assert!(
+        state.dialog,
+        "the provider still reports the screen-shaped modal"
+    );
+    assert!(
+        state.composer_ready,
+        "VT cursor evidence locates the composer"
+    );
+    assert!(state.exact_turn_seen);
+    assert_eq!(
+        state.writes,
+        [
+            format!("paste:{CODEX_COMPOSER_FIXTURE}"),
+            "enter".into(),
+            "enter".into()
+        ]
+    );
 }
 
 #[test]
@@ -576,7 +660,7 @@ fn start_claimed_send_with_recovery_window(
             options,
             |_initial_key, turn_was_started| {
                 let state = transport.state.lock().unwrap();
-                if state.dialog {
+                if state.dialog && !state.composer_ready {
                     return Err(InjectionError::AgentTuiPresent {
                         pty_id: "test-pty".into(),
                     });
@@ -675,7 +759,7 @@ fn deferred_key_is_not_written_when_the_readiness_event_is_a_dialog() {
     {
         let mut state = transport.state.lock().unwrap();
         state.dialog = true;
-        state.composer_ready = true;
+        state.composer_ready = false;
     }
     transport.signal();
     let result = join(send, "dialog readiness send").unwrap().unwrap();
