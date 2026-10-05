@@ -507,6 +507,15 @@ fn stale_task_report_absent_hint_still_transitions_the_held_task() {
 )]
 fn blocked_worker_report_is_one_persisted_proposal_and_keeps_task_in_progress() {
     let h = worker_harness();
+    let attempt_id = h.task(&h.held).execution_attempts[0].id.clone();
+    h.fx.service
+        .plan_store
+        .acknowledge_task_attempt(&h.plan_id, &h.held, &h.caller, &attempt_id, 6)
+        .expect("the Worker has started its assigned task");
+    let before = h.task(&h.held);
+    assert_eq!(before.status, TaskStatus::InProgress);
+    assert_eq!(before.status_label.as_deref(), Some("acknowledged"));
+
     let mut details = h.details(ReportStatus::Blocked);
     details.test_cmd = Some("dependency-probe".into());
     details.test_result = Some("dependency unavailable".into());
@@ -533,6 +542,7 @@ fn blocked_worker_report_is_one_persisted_proposal_and_keeps_task_in_progress() 
 
     let task = h.task(&h.held);
     assert_eq!(task.status, TaskStatus::InProgress);
+    assert_eq!(task.status_label, before.status_label);
     assert_eq!(task.milestones.len(), 1);
     assert!(task.milestones[0].text.starts_with("BLOCK PROPOSAL: "));
     let snapshot = task.execution_attempts[0].report.as_ref().unwrap();
