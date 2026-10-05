@@ -115,6 +115,25 @@ codeterm sentinel create --name cron-run-finished-watch --observe 'cron-run:<CRO
 ```
 <!-- /sentinel-recipe -->
 
+<!-- sentinel-recipe:launch-prompt-gate -->
+#### launch-prompt-gate
+
+**Purpose:** Answer each scheduled run's launch prompts through the safe-response path; escalate any other prompt to the creator.
+
+```json
+{"clear":[],"trust":[{"type":"respond_prompt","parameters":{"target":"directory_trust"}}],"provider":[{"type":"respond_prompt","parameters":{"target":"onboarding"}},{"type":"respond_prompt","parameters":{"target":"permission"}}],"update":[{"type":"respond_prompt","parameters":{"target":"update"}}],"other":[{"type":"escalate","parameters":{"target":"creator"}}]}
+```
+
+```bash
+codeterm sentinel create --name launch-prompt-gate --observe 'cron-run:<CRON_NAME_OR_ID>' --question classify-launch-prompt --buckets clear,trust,provider,update --match 'clear=\x22prompt\x22:null' --match 'trust=\x22kind\x22:\x22directory_trust\x22' --match 'provider=\x22kind\x22:\x22provider\x22' --match 'update=\x22kind\x22:\x22manual_update\x22' --rearm-on-change trust --rearm-on-change provider --rearm-on-change update --handlers-file handlers.json --escalation-timeout-ms 1800000 --timeout 30d --dry-run
+```
+<!-- /sentinel-recipe -->
+
+Patterns match the observed prompt kind (`\x22` is a shell-safe regex quote); rearm answers each new prompt. Onboarding
+and permission share `provider`, so the handler not matching the live screen records `sentinel_prompt_target_refused`.
+Owned launch tabs answer trust and onboarding without a graph through the same writer, one answer per prompt; the graph
+adds a journaled branch per prompt and escalates the rest.
+
 <!-- sentinel-recipe:all-finished -->
 #### Several agents or jobs all finished
 
@@ -341,4 +360,4 @@ automatic migration, reset or discard. Use fresh isolated dev data for demonstra
 A failed persistence write returns an error and holds Sentinel unavailable; cancellation stays in memory and durability
 is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
