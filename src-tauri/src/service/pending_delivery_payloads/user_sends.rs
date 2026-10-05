@@ -676,7 +676,7 @@ fn rebase_prepared_pointer(prepared: &str, returned: &Path, durable: &Path) -> R
     Ok(format!("Read and follow the message in {}", codeterm_paths::strip_verbatim_prefix(durable)))
 }
 
-fn digest(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
+pub(super) fn digest(bytes: &[u8]) -> String { format!("{:x}", Sha256::digest(bytes)) }
 fn io_error(error: std::io::Error) -> String { format!("user send persistence: {error}") }
 
 pub(crate) fn read_bounded(path: &Path, maximum: u64) -> Result<Vec<u8>, String> {
@@ -723,7 +723,7 @@ fn validate_owner_directory(metadata: &fs::Metadata) -> Result<(), String> {
     Ok(())
 }
 
-fn owner_directory(path: &Path) -> Result<(), String> {
+pub(super) fn owner_directory(path: &Path) -> Result<(), String> {
     let existed = match fs::symlink_metadata(path) {
         Ok(metadata) => { validate_owner_directory(&metadata)?; true },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
@@ -748,7 +748,7 @@ fn owner_directory(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(super) fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -758,18 +758,18 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<(), String> {
     file.sync_all().map_err(io_error)
 }
 
-fn write_replace(path: &Path, bytes: &[u8]) -> Result<(), String> {
+pub(super) fn write_replace(path: &Path, bytes: &[u8]) -> Result<(), String> {
     if path.exists() { fs::remove_file(path).map_err(io_error)?; }
     write_new(path, bytes)
 }
 
 #[cfg(not(windows))]
-fn atomic_replace(from: &Path, to: &Path) -> Result<(), String> {
+pub(super) fn atomic_replace(from: &Path, to: &Path) -> Result<(), String> {
     fs::rename(from, to).map_err(io_error)
 }
 
 #[cfg(windows)]
-fn atomic_replace(from: &Path, to: &Path) -> Result<(), String> {
+pub(super) fn atomic_replace(from: &Path, to: &Path) -> Result<(), String> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::{MoveFileExW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH};
     let from: Vec<u16> = from.as_os_str().encode_wide().chain(Some(0)).collect();
@@ -780,12 +780,12 @@ fn atomic_replace(from: &Path, to: &Path) -> Result<(), String> {
 }
 
 #[cfg(unix)]
-fn sync_directory(path: &Path) -> Result<(), String> {
+pub(super) fn sync_directory(path: &Path) -> Result<(), String> {
     std::fs::File::open(path).map_err(io_error)?.sync_all().map_err(io_error)
 }
 
 #[cfg(not(unix))]
-fn sync_directory(_: &Path) -> Result<(), String> { Ok(()) }
+pub(super) fn sync_directory(_: &Path) -> Result<(), String> { Ok(()) }
 
 #[cfg(test)]
 mod tests;

@@ -2,6 +2,8 @@
 //! typed XML tag around a bracketed body paste; chatBackend keeps structured
 //! host-side transcript metadata.
 
+use serde::{Deserialize, Serialize};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MessageKind {
     /// A direct message from one tab (or peer) to another.
@@ -36,6 +38,56 @@ pub struct MessageEnvelope {
     pub every_ms: Option<u64>,
     pub next_at_ms: Option<u64>,
     pub skipped_ticks: Option<u64>,
+    pub(crate) delivery_observer: Option<DeliveryWriteObserver>,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub(crate) enum DeliveryWriteObserver {
+    Report {
+        report_id: String,
+        plan_id: Option<String>,
+        task_id: Option<String>,
+        attempt_id: Option<String>,
+    },
+    PlanRole {
+        plan_id: String,
+        role: String,
+    },
+    PlanReminder {
+        plan_id: Option<String>,
+        tab_id: String,
+        reminder_kind: String,
+        state_key: Option<String>,
+        complete_wrapup_plan_id: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "transport", rename_all = "snake_case")]
+pub(crate) enum QueuedAgentPayload {
+    Text {
+        text: String,
+    },
+    RoutedFrame {
+        opening_tag: String,
+        body: String,
+        suffix: String,
+    },
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub(crate) struct AgentDeliveryPayload {
+    pub(crate) transport: QueuedAgentPayload,
+    pub(crate) observer: Option<DeliveryWriteObserver>,
+    #[serde(default)]
+    pub(crate) idempotency_key: Option<String>,
+    #[serde(default)]
+    pub(crate) expected_pty_id: Option<String>,
+    #[serde(default)]
+    pub(crate) expected_session_id: Option<String>,
+    #[serde(default)]
+    pub(crate) expected_binding_nonce: Option<String>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -47,6 +99,13 @@ pub struct Messenger {
 pub enum Delivery {
     Pty { text: String },
     ChatBackend { message_id: String },
+    Pending { delivery_id: String },
+}
+
+impl Delivery {
+    pub(crate) fn is_written(&self) -> bool {
+        !matches!(self, Self::Pending { .. })
+    }
 }
 
 impl MessageKind {
@@ -360,7 +419,10 @@ impl Messenger {
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
         let kind = envelope.kind;
         let result = Self::deliver_inner(svc, to_tab, envelope, body);
-        if result.is_ok() {
+        if result
+            .as_ref()
+            .is_ok_and(|(delivery, _)| delivery.is_written())
+        {
             svc.record_kpi_delivery(to_tab, kind, body.len());
         }
         result
@@ -439,19 +501,48 @@ impl Messenger {
             DeliveryTransport::Pty,
             || unreachable!(),
             || {
-                crate::service::pty_io::submit_transaction::submit_entry(entry, &text, |_| {
-                    if pty_agent_target {
-                        if let Some(frame) = routed_frame {
-                            svc.send_routed_to_agent_when_ready_detached(&resolved_target, frame);
+                let delivery =
+                    crate::service::pty_io::submit_transaction::submit_entry(entry, &text, |_| {
+                        if pty_agent_target {
+                            let transport = match routed_frame {
+                                Some(frame) => QueuedAgentPayload::RoutedFrame {
+                                    opening_tag: frame.opening_tag,
+                                    body: frame.body,
+                                    suffix: frame.suffix,
+                                },
+                                None => QueuedAgentPayload::Text { text: text.clone() },
+                            };
+                            svc.deliver_agent_payload(
+                                &resolved_target,
+                                AgentDeliveryPayload {
+                                    transport,
+                                    observer: envelope.delivery_observer.clone(),
+                                    idempotency_key: envelope.id.clone(),
+                                    expected_pty_id: None,
+                                    expected_session_id: None,
+                                    expected_binding_nonce: None,
+                                },
+                                &text,
+                            )
                         } else {
-                            svc.send_to_agent_when_ready_detached(&resolved_target, &text);
+                            if let Err(error) = svc.send_text(&resolved_target, &text) {
+                                if !crate::service::delivery_error::DeliveryError::from_opaque(
+                                    &resolved_target,
+                                    error.clone(),
+                                )
+                                .bytes_written()
+                                {
+                                    return Err(error);
+                                }
+                                log::warn!(
+                                    "[messenger] target={} outcome=written_submit_unconfirmed",
+                                    resolved_target
+                                );
+                            }
+                            Ok(Delivery::Pty { text: text.clone() })
                         }
-                    } else {
-                        svc.send_text_detached(&resolved_target, &text);
-                    }
-                    Ok::<(), String>(())
-                })?;
-                Ok((Delivery::Pty { text }, pad_file))
+                    })?;
+                Ok((delivery, pad_file))
             },
         )
     }
@@ -495,6 +586,8 @@ impl Messenger {
             tab.backing.clone()
         };
         if matches!(backing, crate::multiplexer::types::TabBacking::Pty) {
+            let observer = envelope.delivery_observer.clone();
+            let idempotency_key = envelope.id.clone().or(Some(message_id.clone()));
             let messenger = Self::from(envelope);
             let mut frame = messenger.routed_frame(body);
             let wrapped = frame.to_message();
@@ -502,14 +595,20 @@ impl Messenger {
                 svc.substitute_paste_limited_body(to_tab, body.to_string(), wrapped.len())?;
             frame.body = body;
             let text = frame.to_message();
-            svc.send_to_authenticated_agent_session_pinned_routed(
-                to_tab,
-                &svc.resolve_pty_id(to_tab)?,
-                expected_session_id,
-                expected_binding_nonce,
-                frame,
-            )?;
-            return Ok(Delivery::Pty { text });
+            let pty_id = svc.resolve_pty_id(to_tab)?;
+            let payload = AgentDeliveryPayload {
+                transport: QueuedAgentPayload::RoutedFrame {
+                    opening_tag: frame.opening_tag,
+                    body: frame.body,
+                    suffix: frame.suffix,
+                },
+                observer,
+                idempotency_key,
+                expected_pty_id: Some(pty_id),
+                expected_session_id: Some(expected_session_id.to_string()),
+                expected_binding_nonce: Some(expected_binding_nonce.to_string()),
+            };
+            return svc.deliver_agent_payload(to_tab, payload, &text);
         }
         let (plugin_id, session_id) = svc
             .tab_chat_backing(to_tab)

@@ -56,6 +56,9 @@ fn has_selector_prefix(trimmed: &str) -> bool {
 }
 
 pub fn detect_interactive_prompt(text: &str) -> bool {
+    if has_active_turn_marker(text) {
+        return false;
+    }
     let lines: Vec<&str> = text.lines().collect();
     if lines.len() < 3 {
         return false;
@@ -118,6 +121,21 @@ pub fn detect_interactive_prompt(text: &str) -> bool {
     } else {
         false
     }
+}
+
+pub fn has_active_turn_marker(text: &str) -> bool {
+    text.lines().rev().take(20).any(|line| {
+        let line = line.trim().to_lowercase();
+        line.contains("esc to interrupt")
+            || [
+                "ctrl+c to cancel",
+                "ctrl+c to stop",
+                "ctrl+c to interrupt",
+                "ctrl+c to quit",
+            ]
+            .iter()
+            .any(|marker| line.contains(marker))
+    })
 }
 
 /// Parse an interactive prompt with numbered options from terminal output.

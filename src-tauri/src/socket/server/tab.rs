@@ -427,12 +427,17 @@ fn gateway_send_response(
     let mut value = match delivery {
         crate::service::messenger::Delivery::Pty { .. } => serde_json::json!({
             "ok": true,
-            "delivery": "pending",
-            "bytes_written": false,
+            "delivery": "sent",
+            "bytes_written": true,
         }),
         crate::service::messenger::Delivery::ChatBackend { .. } => serde_json::json!({
             "ok": true,
             "delivery": "sent",
+        }),
+        crate::service::messenger::Delivery::Pending { .. } => serde_json::json!({
+            "ok": true,
+            "delivery": "pending",
+            "bytes_written": false,
         }),
     };
     if let Some(path) = pad_file {
@@ -530,13 +535,30 @@ mod tests {
     }
 
     #[test]
-    fn enveloped_pty_send_remains_pending_until_background_write() {
+    fn enveloped_pty_send_reports_a_completed_write() {
         assert_eq!(
             gateway_send_response(
                 Delivery::Pty {
                     text: "body".into()
                 },
                 None
+            ),
+            serde_json::json!({
+                "ok": true,
+                "delivery": "sent",
+                "bytes_written": true,
+            }),
+        );
+    }
+
+    #[test]
+    fn queued_agent_delivery_reports_pending_without_written_bytes() {
+        assert_eq!(
+            gateway_send_response(
+                Delivery::Pending {
+                    delivery_id: "delivery-1".into(),
+                },
+                None,
             ),
             serde_json::json!({
                 "ok": true,

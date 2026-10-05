@@ -311,15 +311,16 @@ fn chat_send_and_gateway_deliveries_substitute_too() {
 
     let gateway_body = "gateway content\nend marker".repeat(400);
     let envelope = MessageEnvelope::tab("Sender", sender);
-    let (delivery, gateway_file) =
+    let error =
         Messenger::deliver_with_pad_file(&fixture.service, &recipient, envelope, &gateway_body)
-            .unwrap();
-    let gateway_file = gateway_file.unwrap();
-    assert_eq!(fs::read(&gateway_file).unwrap(), gateway_body.as_bytes());
-    let crate::service::messenger::Delivery::Pty { text } = delivery else {
-        panic!("PTY delivery expected")
-    };
-    assert!(text.contains(gateway_file.to_str().unwrap()));
+            .expect_err("an unbound agent cannot report a completed PTY write");
+    assert!(error.contains("no authenticated PTY session"));
+    let pad = AgentPad::open(fixture.temp.path(), &recipient).unwrap();
+    let files = pad.list().unwrap();
+    assert!(files.iter().any(|file| {
+        pad.read_utf8(file)
+            .is_ok_and(|content| content == gateway_body)
+    }));
 }
 
 #[cfg(windows)]

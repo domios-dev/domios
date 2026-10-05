@@ -128,7 +128,16 @@ fn run_reminder_tick(
                 .gate()
                 .mode_changed(&approval::scope_key(&plan.id, owner), &mode)
         {
-            let request = ReminderRequest::owner(&plan.id, owner, ReminderKind::ModeChange);
+            let mut request = ReminderRequest::owner(&plan.id, owner, ReminderKind::ModeChange);
+            request.delivery_observer = Some(
+                crate::service::messenger::DeliveryWriteObserver::PlanReminder {
+                    plan_id: Some(plan.id.clone()),
+                    tab_id: owner.to_string(),
+                    reminder_kind: "mode_change".into(),
+                    state_key: Some(mode.clone()),
+                    complete_wrapup_plan_id: None,
+                },
+            );
             if let Err(error) = deliver_reminder(host, &request, now) {
                 log::warn!("[heartbeat-gate] mode transition unavailable: {error}");
             }
@@ -157,7 +166,16 @@ fn send_due_complete_wrapup_reminders(
         {
             continue;
         }
-        let request = ReminderRequest::owner(&plan_id, &tab_id, ReminderKind::CompleteWrapup);
+        let mut request = ReminderRequest::owner(&plan_id, &tab_id, ReminderKind::CompleteWrapup);
+        request.delivery_observer = Some(
+            crate::service::messenger::DeliveryWriteObserver::PlanReminder {
+                plan_id: Some(plan_id.clone()),
+                tab_id: tab_id.clone(),
+                reminder_kind: "complete_wrapup".into(),
+                state_key: None,
+                complete_wrapup_plan_id: Some(plan_id.clone()),
+            },
+        );
         match deliver_reminder(host, &request, now) {
             Ok(true) => {
                 counter.mark_complete_wrapup_sent(&plan_id);
@@ -192,7 +210,21 @@ fn deliver_target(
     {
         return Ok(false);
     }
-    let delivered = deliver_reminder(host, &target.request(tab_id, kind), now)?;
+    let mut request = target.request(tab_id, kind);
+    let plan_id = match target {
+        PlanReminderTarget::Owner { plan_id } => Some(plan_id.clone()),
+        PlanReminderTarget::Worker => None,
+    };
+    request.delivery_observer = Some(
+        crate::service::messenger::DeliveryWriteObserver::PlanReminder {
+            plan_id,
+            tab_id: tab_id.to_string(),
+            reminder_kind: format!("{kind:?}"),
+            state_key: Some(state_key.clone()),
+            complete_wrapup_plan_id: None,
+        },
+    );
+    let delivered = deliver_reminder(host, &request, now)?;
     if delivered {
         counter.mark_reminder_content_delivered(tab_id, state_key, now);
     }
@@ -470,7 +502,13 @@ impl ReminderHost for LiveHost<'_> {
             .compose_plan_reminder(plan, scope, snapshot, decision)
     }
 
-    fn emit(&self, plan_id: &str, scope: &Scope, emission: &Emission) -> Result<(), String> {
+    fn emit(
+        &self,
+        plan_id: &str,
+        scope: &Scope,
+        emission: &Emission,
+        observer: Option<crate::service::messenger::DeliveryWriteObserver>,
+    ) -> Result<bool, String> {
         let tab_id = scope.tab_id.as_str();
         match &emission.transport {
             Transport::Heartbeat {
@@ -485,17 +523,22 @@ impl ReminderHost for LiveHost<'_> {
                 learning_ids.as_deref(),
                 *plain,
                 *mode_transition,
+                observer,
             )
-            .map(|_| {
-                self.svc.record_kpi_event(
-                    tab_id,
-                    crate::agent::kpi_ledger::KpiEventKind::Nudge,
-                    emission.text.len(),
-                );
+            .map(|delivery| {
+                if delivery.is_written() {
+                    self.svc.record_kpi_event(
+                        tab_id,
+                        crate::agent::kpi_ledger::KpiEventKind::Nudge,
+                        emission.text.len(),
+                    );
+                }
+                delivery.is_written()
             }),
-            Transport::Automated => self
-                .svc
-                .deliver_automated_plan_reminder(tab_id, &emission.text),
+            Transport::Automated => {
+                self.svc
+                    .deliver_automated_plan_reminder(tab_id, &emission.text, observer)
+            }
         }
     }
 
@@ -636,15 +679,24 @@ impl ServiceContext {
         }
     }
 
-    fn deliver_automated_plan_reminder(&self, tab_id: &str, text: &str) -> Result<(), String> {
-        let envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
+    fn deliver_automated_plan_reminder(
+        &self,
+        tab_id: &str,
+        text: &str,
+        observer: Option<crate::service::messenger::DeliveryWriteObserver>,
+    ) -> Result<bool, String> {
+        let mut envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder("system");
+        envelope.delivery_observer = observer;
         crate::service::messenger::Messenger::deliver(self, tab_id, envelope, text)
-            .map(|_| {
-                self.record_kpi_event(
-                    tab_id,
-                    crate::agent::kpi_ledger::KpiEventKind::Nudge,
-                    text.len(),
-                );
+            .map(|delivery| {
+                if delivery.is_written() {
+                    self.record_kpi_event(
+                        tab_id,
+                        crate::agent::kpi_ledger::KpiEventKind::Nudge,
+                        text.len(),
+                    );
+                }
+                delivery.is_written()
             })
             .map_err(|e| {
                 log::warn!("[plan-reminder] deliver to {} failed: {}", tab_id, e);

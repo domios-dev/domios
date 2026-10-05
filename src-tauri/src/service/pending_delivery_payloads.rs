@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use sha2::{Digest, Sha256};
 
+pub(crate) mod agent_deliveries;
 pub(crate) mod user_sends;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -38,6 +39,7 @@ pub(crate) struct PendingDeliveryPayloadStore {
     dir: PathBuf,
     sink: Arc<dyn LogPayloadEventSink>,
     pub(crate) user_sends: Arc<user_sends::UserSendStore>,
+    pub(crate) agent_deliveries: Arc<agent_deliveries::AgentDeliveryStore>,
 }
 
 pub(crate) trait LogPayloadEventSink: Send + Sync {
@@ -76,13 +78,18 @@ impl PendingDeliveryPayloadStore {
         live_digests: &HashSet<String>,
         sink: Arc<dyn LogPayloadEventSink>,
     ) -> Result<Self, PayloadStoreError> {
-        let store = Self {
-            dir: data_dir.join("pending-delivery-payloads"),
-            sink,
-            user_sends: Arc::new(user_sends::UserSendStore::open(data_dir).map_err(|message| {
-                PayloadStoreError::Io { digest: "user-store".into(), message }
-            })?),
-        };
+        let store =
+            Self {
+                dir: data_dir.join("pending-delivery-payloads"),
+                sink,
+                user_sends: Arc::new(user_sends::UserSendStore::open(data_dir).map_err(
+                    |message| PayloadStoreError::Io {
+                        digest: "user-store".into(),
+                        message,
+                    },
+                )?),
+                agent_deliveries: Arc::new(agent_deliveries::AgentDeliveryStore::open(data_dir)),
+            };
         fs::create_dir_all(&store.dir).map_err(|error| store.io("store", error))?;
         store.restrict_dir_permissions()?;
         store.sweep_orphans(live_digests)?;
