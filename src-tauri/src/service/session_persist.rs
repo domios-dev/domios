@@ -35,6 +35,7 @@ enum WorkerMessage {
     Persist(PersistRequest),
     InstallStorage(crate::session::store::StorageDeskAdapter),
     Unavailable(String),
+    Flush(Sender<Result<(), String>>),
     Stop(Sender<()>),
 }
 
@@ -63,6 +64,9 @@ impl PersistenceMailbox {
                 }
                 WorkerMessage::Stop(response) => {
                     let _ = response.send(());
+                }
+                WorkerMessage::Flush(response) => {
+                    let _ = response.send(Err(error.to_string()));
                 }
                 WorkerMessage::InstallStorage(_) | WorkerMessage::Unavailable(_) => {}
             }
@@ -198,6 +202,10 @@ pub(crate) fn stop_worker(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|error| format!("desk persistence worker shutdown was not confirmed: {error}"))
 }
 
+pub(crate) fn flush_session_persistence(app: &tauri::AppHandle) -> Result<(), String> {
+    ensure_worker(app)?.flush()
+}
+
 fn ensure_worker(app: &tauri::AppHandle) -> Result<SessionPersistenceWorker, String> {
     if let Some(worker) = app.try_state::<SessionPersistenceWorker>() {
         return Ok(worker.inner().clone());
@@ -290,6 +298,14 @@ impl SessionPersistenceWorker {
         let _submission = self.submission_order.lock();
         self.mailbox.push(message)
     }
+
+    fn flush(&self) -> Result<(), String> {
+        let (response, completion) = mpsc::channel();
+        self.configure(WorkerMessage::Flush(response))?;
+        completion
+            .recv_timeout(PERSISTENCE_DEADLINE)
+            .map_err(|error| format!("desk persistence flush was not confirmed: {error}"))?
+    }
 }
 
 fn wait_for_completion(
@@ -311,29 +327,55 @@ fn run_worker(
 ) {
     let mut committed_submission = 0;
     let mut last_outcome = SaveOutcome::Saved;
+    let mut last_error = None;
+    let mut committed_desk = None;
     loop {
         let message = mailbox.pop();
         match message {
             WorkerMessage::Persist(request) => {
                 let latest = &request;
+                let projected = project_request_desk(&backend, latest);
                 let result = if latest.revision <= committed_submission {
                     Ok(last_outcome.clone())
                 } else {
-                    commit_request(context.as_ref(), &mut backend, latest)
+                    match &projected {
+                        Ok(Some(desk)) => {
+                            let mut desk = desk.clone();
+                            desk.timestamp = 0;
+                            if committed_desk.as_ref() == Some(&(latest.intent, desk)) {
+                                Ok(SaveOutcome::Saved)
+                            } else {
+                                commit_request(context.as_ref(), &mut backend, latest)
+                            }
+                        }
+                        Ok(None) => commit_request(context.as_ref(), &mut backend, latest),
+                        Err(error) => Err(error.clone()),
+                    }
                 };
                 match &result {
                     Ok(SaveOutcome::Saved) => {
                         committed_submission = latest.revision;
                         last_outcome = SaveOutcome::Saved;
+                        last_error = None;
+                        if let Some(mut desk) =
+                            projected.as_ref().ok().and_then(|desk| desk.clone())
+                        {
+                            desk.timestamp = 0;
+                            committed_desk = Some((latest.intent, desk));
+                        }
                     }
                     Ok(outcome @ SaveOutcome::RefusedReduction(_)) => {
                         last_outcome = outcome.clone();
+                        last_error = None;
                     }
-                    Err(error) => log::warn!(
-                        "[session-persist] revision {} was not committed: {}",
-                        latest.revision,
-                        error
-                    ),
+                    Err(error) => {
+                        last_error = Some(error.clone());
+                        log::warn!(
+                            "[session-persist] revision {} was not committed: {}",
+                            latest.revision,
+                            error
+                        );
+                    }
                 }
                 for response in request.responses {
                     let _ = response.send(result.clone());
@@ -341,6 +383,9 @@ fn run_worker(
             }
             WorkerMessage::InstallStorage(adapter) => match adapter.state() {
                 Ok(state) => {
+                    let mut desk = state.snapshot;
+                    desk.timestamp = 0;
+                    committed_desk = Some((SaveIntent::PreserveDesk, desk));
                     if let Some(context) = context.as_ref() {
                         let _ = context
                             .app
@@ -350,15 +395,22 @@ fn run_worker(
                         adapter,
                         revision: state.revision,
                     };
+                    last_error = None;
                 }
                 Err(error) => {
                     let reason = format!("storage desk backend unavailable: {error}");
                     log::error!("[session-persist] {reason}");
                     backend = PersistenceBackend::Unavailable(reason);
+                    committed_desk = None;
                 }
             },
             WorkerMessage::Unavailable(reason) => {
                 backend = PersistenceBackend::Unavailable(reason);
+                committed_desk = None;
+            }
+            WorkerMessage::Flush(response) => {
+                let result = last_error.clone().map_or(Ok(()), Err);
+                let _ = response.send(result);
             }
             WorkerMessage::Stop(response) => {
                 drop(backend);
@@ -367,6 +419,20 @@ fn run_worker(
             }
         }
     }
+}
+
+fn project_request_desk(
+    backend: &PersistenceBackend,
+    request: &PersistRequest,
+) -> Result<Option<codeterm_storage::DeskSnapshot>, String> {
+    let PersistenceBackend::Storage { .. } = backend else {
+        return Ok(None);
+    };
+    crate::session::store::project_snapshot(
+        &request.snapshot,
+        desk_agent_session_identities(&request.snapshot),
+    )
+    .map(Some)
 }
 
 fn commit_request(
@@ -568,487 +634,4 @@ impl super::ServiceContext {
 }
 
 #[cfg(test)]
-pub(crate) mod tests {
-    use super::*;
-    use crate::storage::{Storage, StorageConfig};
-    use std::sync::mpsc::TryRecvError;
-    use std::sync::Arc;
-
-    fn test_adapter(root: &std::path::Path) -> crate::session::store::StorageDeskAdapter {
-        let storage = Storage::open(root, StorageConfig::default()).expect("Storage owner");
-        crate::session::store::StorageDeskAdapter::from_storage(storage)
-    }
-
-    fn test_worker(
-        writer: impl FnMut(u64) -> Result<SaveOutcome, String> + Send + 'static,
-    ) -> SessionPersistenceWorker {
-        let mailbox = Arc::new(PersistenceMailbox::default());
-        let worker = SessionPersistenceWorker {
-            mailbox: mailbox.clone(),
-            next_revision: Arc::new(AtomicU64::new(0)),
-            submission_order: Arc::new(parking_lot::Mutex::new(())),
-        };
-        std::thread::spawn(move || {
-            run_worker(mailbox, None, PersistenceBackend::Test(Box::new(writer)))
-        });
-        worker
-    }
-
-    fn stop_test_worker(worker: &SessionPersistenceWorker) {
-        let (response, completion) = mpsc::channel();
-        worker.configure(WorkerMessage::Stop(response)).unwrap();
-        completion.recv_timeout(Duration::from_secs(5)).unwrap();
-    }
-
-    pub(crate) fn assert_unavailable_rejects_persistence_without_a_commit() {
-        let (commit_tx, commit_rx) = mpsc::channel();
-        let worker = test_worker(move |revision| {
-            commit_tx.send(revision).unwrap();
-            Ok(SaveOutcome::Saved)
-        });
-        worker
-            .configure(WorkerMessage::Unavailable("Storage unavailable".into()))
-            .unwrap();
-
-        let error = worker
-            .submit_snapshot(test_snapshot(1), SaveIntent::PreserveDesk, true)
-            .unwrap_err();
-
-        assert_eq!(error, "Storage unavailable");
-        assert!(matches!(
-            commit_rx.try_recv(),
-            Err(TryRecvError::Empty | TryRecvError::Disconnected)
-        ));
-        stop_test_worker(&worker);
-    }
-
-    fn test_snapshot(revision: u64) -> crate::session::SessionSnapshot {
-        let mut snapshot = desk_delta_snapshot(0);
-        snapshot.timestamp = revision;
-        snapshot
-    }
-
-    fn queue_barrier(
-        worker: &SessionPersistenceWorker,
-        snapshot: crate::session::SessionSnapshot,
-    ) -> Receiver<Result<SaveOutcome, String>> {
-        let _submission = worker.submission_order.lock();
-        let (response, completion) = mpsc::channel();
-        let revision = worker.next_revision.fetch_add(1, Ordering::Relaxed) + 1;
-        worker
-            .mailbox
-            .push(WorkerMessage::Persist(PersistRequest {
-                revision,
-                snapshot,
-                intent: SaveIntent::PreserveDesk,
-                responses: vec![response],
-            }))
-            .unwrap();
-        completion
-    }
-
-    #[test]
-    fn desk_facade_coalesces_by_revision() {
-        let (entered_tx, entered_rx) = mpsc::channel();
-        let (release_tx, release_rx) = mpsc::channel();
-        let (written_tx, written_rx) = mpsc::channel();
-        let writer = move |revision| {
-            written_tx.send(revision).unwrap();
-            if revision == 1 {
-                entered_tx.send(()).unwrap();
-                release_rx
-                    .recv_timeout(Duration::from_secs(5))
-                    .map_err(|error| error.to_string())?;
-            }
-            Ok(SaveOutcome::Saved)
-        };
-        let worker = test_worker(writer);
-
-        assert!(worker
-            .submit_snapshot(test_snapshot(1), SaveIntent::PreserveDesk, false)
-            .unwrap()
-            .is_none());
-        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        worker
-            .submit_snapshot(test_snapshot(2), SaveIntent::PreserveDesk, false)
-            .unwrap();
-        worker
-            .submit_snapshot(test_snapshot(3), SaveIntent::PreserveDesk, false)
-            .unwrap();
-        release_tx.send(()).unwrap();
-
-        assert_eq!(written_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 1);
-        assert_eq!(written_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 3);
-        stop_test_worker(&worker);
-    }
-
-    #[test]
-    fn desk_facade_flush_barrier_waits_off_runtime() {
-        let (started_tx, started_rx) = mpsc::channel();
-        let (release_tx, release_rx) = mpsc::channel();
-        let writer = move |_revision| {
-            started_tx.send(()).unwrap();
-            release_rx
-                .recv_timeout(Duration::from_secs(5))
-                .map_err(|error| error.to_string())?;
-            Ok(SaveOutcome::Saved)
-        };
-        let worker = test_worker(writer);
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let barrier_worker = worker.clone();
-        let barrier = runtime.spawn_blocking(move || {
-            barrier_worker.submit_snapshot(test_snapshot(1), SaveIntent::PreserveDesk, true)
-        });
-
-        runtime.block_on(async move {
-            tokio::task::spawn_blocking(move || {
-                started_rx.recv_timeout(Duration::from_secs(5)).unwrap()
-            })
-            .await
-            .unwrap();
-            assert!(!barrier.is_finished());
-            release_tx.send(()).unwrap();
-            assert!(matches!(
-                barrier.await.unwrap(),
-                Ok(Some(SaveOutcome::Saved))
-            ));
-        });
-        stop_test_worker(&worker);
-    }
-
-    #[test]
-    fn desk_facade_held_writer_keeps_ipc_responsive() {
-        let (started_tx, started_rx) = mpsc::channel();
-        let (release_tx, release_rx) = mpsc::channel();
-        let (written_tx, written_rx) = mpsc::channel();
-        let writer = move |revision| {
-            written_tx.send(revision).unwrap();
-            if revision == 1 {
-                started_tx.send(()).unwrap();
-                release_rx
-                    .recv_timeout(Duration::from_secs(5))
-                    .map_err(|error| error.to_string())?;
-            }
-            Ok(SaveOutcome::Saved)
-        };
-        let worker = test_worker(writer);
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-
-        runtime.block_on(async {
-            assert!(worker
-                .submit_snapshot(test_snapshot(1), SaveIntent::PreserveDesk, false)
-                .unwrap()
-                .is_none());
-            tokio::task::spawn_blocking(move || {
-                started_rx.recv_timeout(Duration::from_secs(5)).unwrap()
-            })
-            .await
-            .unwrap();
-            assert!(worker
-                .submit_snapshot(test_snapshot(2), SaveIntent::PreserveDesk, false)
-                .unwrap()
-                .is_none());
-            let (ipc_tx, ipc_rx) = tokio::sync::oneshot::channel();
-            tokio::spawn(async move {
-                let _ = ipc_tx.send(());
-            });
-            ipc_rx.await.unwrap();
-        });
-
-        release_tx.send(()).unwrap();
-        assert_eq!(written_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 1);
-        assert_eq!(written_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 2);
-        stop_test_worker(&worker);
-    }
-
-    #[test]
-    fn desk_facade_never_reports_durable_before_commit() {
-        let (started_tx, started_rx) = mpsc::channel();
-        let (release_tx, release_rx) = mpsc::channel();
-        let writer = move |_revision| {
-            started_tx.send(()).unwrap();
-            release_rx
-                .recv_timeout(Duration::from_secs(5))
-                .map_err(|error| error.to_string())?;
-            Ok(SaveOutcome::Saved)
-        };
-        let worker = test_worker(writer);
-        let completion = queue_barrier(&worker, test_snapshot(1));
-        started_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-
-        assert!(matches!(completion.try_recv(), Err(TryRecvError::Empty)));
-        release_tx.send(()).unwrap();
-        assert!(matches!(
-            completion.recv_timeout(Duration::from_secs(5)).unwrap(),
-            Ok(SaveOutcome::Saved)
-        ));
-        stop_test_worker(&worker);
-    }
-
-    #[test]
-    fn storage_desk_app_adapter_imports_and_flushes_exact_selection() {
-        let root = tempfile::tempdir().unwrap();
-        let adapter = test_adapter(root.path());
-        let snapshot = crate::session::store::SessionSnapshot {
-            version: "test".into(),
-            timestamp: 17,
-            active_workspace_id: Some("ws-a".into()),
-            teams: vec![],
-            workspaces: vec![crate::session::store::WorkspaceSnapshot {
-                id: "ws-a".into(),
-                name: "Alpha".into(),
-                tabs: vec![],
-                active_tab_id: None,
-                cwd: None,
-                provisioned_cwd: None,
-                protected: true,
-                sort_order: 8,
-                task_keys: Default::default(),
-            }],
-        };
-
-        adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
-        let initial = adapter.state().unwrap();
-        let workspace_revision = initial.workspace_revisions["ws-a"];
-        let committed_revision = adapter
-            .rename_workspace("ws-a".into(), workspace_revision, "Renamed".into())
-            .unwrap();
-        assert!(committed_revision > initial.revision);
-        assert!(adapter
-            .rename_workspace("ws-a".into(), workspace_revision, "Stale".into())
-            .is_err());
-        let mut backup = snapshot.clone();
-        backup.timestamp = 99;
-        backup.active_workspace_id = Some("ws-b".into());
-        backup.workspaces[0].name = "Stale backup".into();
-        backup
-            .workspaces
-            .push(crate::session::store::WorkspaceSnapshot {
-                id: "ws-b".into(),
-                name: "Restored".into(),
-                tabs: vec![],
-                active_tab_id: None,
-                cwd: None,
-                provisioned_cwd: None,
-                protected: false,
-                sort_order: 19,
-                task_keys: Default::default(),
-            });
-        adapter.additive_restore(&backup, Vec::new()).unwrap();
-        adapter.additive_restore(&backup, Vec::new()).unwrap();
-        adapter.flush().unwrap();
-        let restored = adapter.snapshot().unwrap();
-
-        assert_eq!(restored.active_workspace_id, Some("ws-a".into()));
-        assert_eq!(restored.workspaces[0].active_tab_id, None);
-        assert_eq!(restored.workspaces[0].name, "Renamed");
-        assert_eq!(restored.workspaces[0].cwd, None);
-        assert_eq!(restored.workspaces[0].provisioned_cwd, None);
-        assert_eq!(restored.workspaces[0].sort_order, 8);
-        assert!(restored.workspaces[0].protected);
-        assert_eq!(restored.timestamp, 17);
-        assert_eq!(restored.workspaces.len(), 2);
-        assert_eq!(restored.workspaces[1].name, "Restored");
-    }
-
-    #[test]
-    fn storage_desk_restores_live_provider_sessions_for_each_provider() {
-        let root = tempfile::tempdir().unwrap();
-        let adapter = test_adapter(root.path());
-        let (mut mux, parent_id) = crate::multiplexer::state::MultiplexerState::new();
-        let workspace_id = mux.find_workspace_for_tab(&parent_id).unwrap();
-        let providers = ["claude", "codex", "opencode", "grok"];
-        let mut expected = Vec::new();
-
-        for provider in providers {
-            let tab_id = mux.create_tab(&workspace_id).unwrap();
-            mux.set_tab_role(
-                &tab_id,
-                crate::multiplexer::types::AgentRole::Worker,
-                Some(&parent_id),
-            )
-            .unwrap();
-            let session_id = format!("{provider}-session");
-            let nonce = format!("{provider}-nonce");
-            let tab = mux.get_tab_mut(&tab_id).unwrap();
-            tab.agent_type = Some(provider.into());
-            tab.agent_type_locked = true;
-            tab.agent_session_id = Some(session_id.clone());
-            tab.session_binding_nonce = Some(nonce.clone());
-            tab.reported_session_binding_nonce = Some(nonce);
-            expected.push((tab_id, provider, session_id));
-        }
-
-        let snapshot = mux.to_session_snapshot();
-        let identities = desk_agent_session_identities(&snapshot);
-        adapter.import_snapshot(&snapshot, identities).unwrap();
-        adapter.flush().unwrap();
-        assert_eq!(adapter.identity_catalog().unwrap().len(), providers.len());
-        let restored_snapshot = adapter.snapshot().unwrap();
-        let restored =
-            crate::multiplexer::state::MultiplexerState::from_session_snapshot(&restored_snapshot);
-
-        for (tab_id, provider, session_id) in expected {
-            let tab = restored.get_tab(&tab_id).expect("restored agent tab");
-            assert_eq!(tab.agent_type.as_deref(), Some(provider));
-            assert_eq!(tab.agent_session_id.as_deref(), Some(session_id.as_str()));
-            assert!(tab.agent_type_locked);
-        }
-    }
-
-    fn desk_delta_snapshot(workspace_count: usize) -> crate::session::store::SessionSnapshot {
-        crate::session::store::SessionSnapshot {
-            version: "test".into(),
-            timestamp: 17,
-            active_workspace_id: None,
-            teams: vec![],
-            workspaces: (0..workspace_count)
-                .map(|index| crate::session::store::WorkspaceSnapshot {
-                    id: format!("ws-{index}"),
-                    name: format!("Workspace {index}"),
-                    tabs: vec![],
-                    active_tab_id: None,
-                    cwd: None,
-                    provisioned_cwd: None,
-                    protected: false,
-                    sort_order: index as i32,
-                    task_keys: Default::default(),
-                })
-                .collect(),
-        }
-    }
-
-    #[test]
-    fn desk_delta_rename_touches_three_rows_in_a_large_inventory() {
-        let root = tempfile::tempdir().unwrap();
-        let adapter = test_adapter(root.path());
-        let mut snapshot = desk_delta_snapshot(512);
-        adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
-        let initial = adapter.state().unwrap();
-        snapshot.workspaces[255].name = "Renamed".into();
-
-        let committed = adapter
-            .delta_snapshot(
-                &snapshot,
-                Vec::new(),
-                initial.revision,
-                crate::session::store::SaveIntent::PreserveDesk,
-            )
-            .unwrap()
-            .wait(std::time::Duration::from_secs(30))
-            .unwrap();
-
-        assert_eq!(committed.receipt.rows_written, 3);
-        let saved = adapter.state().unwrap();
-        assert_eq!(saved.snapshot.workspaces.len(), 512);
-        assert_eq!(saved.snapshot.workspaces[255].record.name, "Renamed");
-    }
-
-    #[test]
-    fn desk_delta_adjacent_reorder_touches_constant_rows_in_a_large_inventory() {
-        let root = tempfile::tempdir().unwrap();
-        let adapter = test_adapter(root.path());
-        let mut snapshot = desk_delta_snapshot(512);
-        adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
-        let initial = adapter.state().unwrap();
-        snapshot.workspaces.swap(255, 256);
-        snapshot.workspaces[255].sort_order = 255;
-        snapshot.workspaces[256].sort_order = 256;
-
-        let committed = adapter
-            .delta_snapshot(
-                &snapshot,
-                Vec::new(),
-                initial.revision,
-                crate::session::store::SaveIntent::PreserveDesk,
-            )
-            .unwrap()
-            .wait(std::time::Duration::from_secs(30))
-            .unwrap();
-
-        assert_eq!(committed.receipt.rows_written, 7);
-        let saved = adapter.state().unwrap();
-        assert_eq!(saved.snapshot.workspaces[255].record.id.as_str(), "ws-256");
-        assert_eq!(saved.snapshot.workspaces[256].record.id.as_str(), "ws-255");
-    }
-
-    #[test]
-    fn desk_delta_preserves_omissions_and_rejects_stale_reduction() {
-        let root = tempfile::tempdir().unwrap();
-        let adapter = test_adapter(root.path());
-        let mut snapshot = desk_delta_snapshot(2);
-        adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
-        let initial = adapter.state().unwrap();
-        snapshot.workspaces.pop();
-
-        adapter
-            .delta_snapshot(
-                &snapshot,
-                Vec::new(),
-                initial.revision,
-                crate::session::store::SaveIntent::PreserveDesk,
-            )
-            .unwrap()
-            .wait(std::time::Duration::from_secs(30))
-            .unwrap();
-        assert_eq!(adapter.state().unwrap().snapshot.workspaces.len(), 2);
-
-        let mut newer = desk_delta_snapshot(2);
-        newer.workspaces[0].name = "Current".into();
-        adapter
-            .delta_snapshot(
-                &newer,
-                Vec::new(),
-                initial.revision,
-                crate::session::store::SaveIntent::PreserveDesk,
-            )
-            .unwrap()
-            .wait(std::time::Duration::from_secs(30))
-            .unwrap();
-        let stale = adapter
-            .delta_snapshot(
-                &snapshot,
-                Vec::new(),
-                initial.revision,
-                crate::session::store::SaveIntent::PreserveDesk,
-            )
-            .unwrap()
-            .wait(std::time::Duration::from_secs(30));
-
-        assert!(stale.is_err());
-        let saved = adapter.state().unwrap();
-        assert_eq!(saved.snapshot.workspaces.len(), 2);
-        assert_eq!(saved.snapshot.workspaces[0].record.name, "Current");
-    }
-
-    #[test]
-    fn desk_delta_authorized_reduction_applies_a_workspace_close() {
-        let root = tempfile::tempdir().unwrap();
-        let adapter = test_adapter(root.path());
-        let mut snapshot = desk_delta_snapshot(2);
-        adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
-        let initial = adapter.state().unwrap();
-        snapshot.workspaces.pop();
-
-        adapter
-            .delta_snapshot(
-                &snapshot,
-                Vec::new(),
-                initial.revision,
-                crate::session::store::SaveIntent::AuthorizedReduction,
-            )
-            .unwrap()
-            .wait(std::time::Duration::from_secs(30))
-            .unwrap();
-
-        let saved = adapter.state().unwrap();
-        assert_eq!(saved.snapshot.workspaces.len(), 1);
-        assert_eq!(saved.snapshot.workspaces[0].record.id.as_str(), "ws-0");
-    }
-}
+pub(crate) mod tests;

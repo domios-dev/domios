@@ -900,7 +900,7 @@ pub mod legacy_decode;
 mod retention;
 mod storage_adapter;
 
-pub use storage_adapter::StorageDeskAdapter;
+pub use storage_adapter::{project_snapshot, StorageDeskAdapter};
 
 #[cfg(test)]
 mod tests;
