@@ -1,4 +1,4 @@
-use crate::service::launch_readiness::{self, LaunchAttempt, LaunchSettlement};
+use crate::service::launch_readiness::{self, LaunchAttempt, LaunchExitProof};
 use crate::service::process_tree::{ProcessIdentity, ProviderProcessTreeSnapshot, ProviderTreeKey};
 use crate::service::test_fixture::ServiceFixture;
 use std::collections::HashSet;
@@ -220,14 +220,14 @@ fn restore_relaunch_in_flight_with_unseen_provider_keeps_identity() {
     not(windows),
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
 )]
-fn restored_without_relaunch_absent_provider_clears_identity() {
+fn restored_without_relaunch_absent_provider_keeps_identity_without_exit_marker() {
     let (fixture, tab_id, pty_id, _, key) = restored_opencode_fixture_with_launch(false);
     fixture
         .service
         .provider_tree_witnesses
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
 
-    assert!(fixture
+    assert!(!fixture
         .service
         .clear_tab_restored_identity_if_absent(&tab_id, "restored without a live agent"));
     assert!(fixture
@@ -235,7 +235,7 @@ fn restored_without_relaunch_absent_provider_clears_identity() {
         .mux
         .read()
         .get_tab(&tab_id)
-        .is_some_and(|tab| tab.agent_type.is_none()));
+        .is_some_and(|tab| tab.agent_type.as_deref() == Some("opencode")));
     fixture
         .service
         .pty
@@ -249,7 +249,7 @@ fn restored_without_relaunch_absent_provider_clears_identity() {
     not(windows),
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
 )]
-fn expired_provisional_launch_stages_allow_clear_in_surviving_shell() {
+fn expired_provisional_launch_stages_keep_identity_without_exit_marker() {
     for stage in [
         codeterm_types::pty::BootStage::LaunchDeadlineElapsed,
         codeterm_types::pty::BootStage::LaunchBindingUnconfirmed,
@@ -274,7 +274,7 @@ fn expired_provisional_launch_stages_allow_clear_in_surviving_shell() {
             .service
             .provider_tree_witnesses
             .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
-        assert!(fixture
+        assert!(!fixture
             .service
             .clear_tab_restored_identity_if_absent(&tab_id, "restored without a live agent"));
         assert!(fixture
@@ -282,7 +282,7 @@ fn expired_provisional_launch_stages_allow_clear_in_surviving_shell() {
             .mux
             .read()
             .get_tab(&tab_id)
-            .is_some_and(|tab| tab.agent_type.is_none()));
+            .is_some_and(|tab| tab.agent_type.as_deref() == Some("opencode")));
         assert!(fixture.service.pty.lock().get_session(&pty_id).is_some());
     }
 }
@@ -292,7 +292,7 @@ fn expired_provisional_launch_stages_allow_clear_in_surviving_shell() {
     not(windows),
     ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
 )]
-fn lifecycle_identity_clear_requires_provider_gone_from_tab_tree() {
+fn lifecycle_identity_clear_refuses_process_tree_absence_without_exit_marker() {
     let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
     let cause = "restored without a live agent";
 
@@ -320,30 +320,65 @@ fn lifecycle_identity_clear_requires_provider_gone_from_tab_tree() {
         .service
         .provider_tree_witnesses
         .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
-    assert!(fixture
+    assert!(!fixture
         .service
         .clear_tab_agent_identity_for_lifecycle_exit_during(&tab_id, cause, None));
-    let settlement = fixture
-        .service
-        .observe_launch_readiness(attempt.clone(), std::time::Duration::ZERO, false)
-        .recv()
-        .expect("published exit settles the waiter");
-    let LaunchSettlement::Failed { reason, .. } = settlement else {
-        panic!("one absent snapshot after seeing the provider proves the exit");
-    };
-    assert!(reason.contains("exit_code=unknown"));
-    assert!(fixture
-        .service
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .is_some_and(|tab| tab.agent_type.is_none()));
+    assert_opencode_identity(&fixture, &tab_id);
+    assert!(launch_readiness::take_published_failure(&attempt).is_none());
     fixture
         .service
         .pty
         .lock()
         .kill(&pty_id)
         .expect("stop the tab's PTY shell");
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri AppHandle harness requires an interactive desktop runtime"
+)]
+fn finished_marker_cannot_clear_identity_after_the_pty_child_dies() {
+    let (fixture, tab_id, pty_id, attempt, key) = restored_opencode_fixture();
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, live_opencode_process());
+    let _ = fixture
+        .service
+        .observe_provider_process_tree(&tab_id, &pty_id)
+        .expect("observe the live provider tree");
+    fixture
+        .service
+        .provider_tree_witnesses
+        .script_snapshot(&key, ProviderProcessTreeSnapshot::Absent);
+    let gone = fixture
+        .service
+        .observe_provider_process_tree(&tab_id, &pty_id)
+        .expect("observe the provider exit marker evidence");
+    let proof = LaunchExitProof::from_finished_marker(&attempt, &gone, None, false, None)
+        .expect("provider tree exit evidence");
+    fixture
+        .service
+        .pty
+        .lock()
+        .kill(&pty_id)
+        .expect("kill the PTY child before marker handling");
+
+    assert!(!fixture
+        .service
+        .clear_tab_agent_identity_after_exit_with_proof(
+            &tab_id,
+            "provider exit marker after PTY death",
+            &proof,
+        ));
+    assert_opencode_identity(&fixture, &tab_id);
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .is_some_and(|tab| tab.agent_session_id.as_deref() == Some("restored-opencode-session")));
 }
 
 #[test]

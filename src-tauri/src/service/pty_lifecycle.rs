@@ -352,6 +352,7 @@ fn handle_pty_death(svc: &ServiceState, pty_id: &str, generation: u64) {
 enum PtyDeathOutcome {
     StaleEof,
     PreservedForShutdown,
+    PreservedForRecovery,
     NoOwningTab,
     NotRoleBearing,
     Pruned,
@@ -403,9 +404,21 @@ fn handle_pty_death_with_cause(
     let ga_snapshot = svc.mux.read().get_tab(pid).cloned();
     svc.run_watcher
         .fail_cron_on_process_exit(svc, pty_id, "cron PTY process exited".into());
+    let has_agent_identity = ga_snapshot
+        .as_ref()
+        .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_session_id.is_some());
+    if has_agent_identity {
+        log::info!(
+            "[backend-reader] preserving Tab agent identity after PTY death without an exit marker: {}",
+            pid
+        );
+        svc.settle_restore_report();
+        let prev = svc.reconciled_tab_status_for_id(pid, raw_prev);
+        svc.emit_tab_status_if_changed(pty_id, prev, crate::agent::status::TabStatus::Dead);
+        return PtyDeathOutcome::PreservedForRecovery;
+    }
     {
         svc.observe_captured_tab_exit(pid, captured_exit);
-        svc.clear_tab_agent_identity_after_confirmed_exit(pid, "pty process died");
         if let Some(tab) = ga_snapshot.as_ref() {
             svc.general_agent_watchdog_event(tab, super::general_agent::WatchdogEvent::PtyDeath);
         }
@@ -887,6 +900,46 @@ mod tests {
     )]
     fn restart_shutdown_pty_death_does_not_prune_role_tabs() {
         assert_shutdown_death_preserves_role_tabs(ShutdownReason::Restart);
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn abrupt_pty_death_preserves_live_provider_sessions_for_restore() {
+        for provider in ["claude", "codex", "opencode", "grok"] {
+            let (fixture, tab_id, generation) = role_pty_fixture(AgentRole::Worker);
+            let session_id = format!("{provider}-session");
+            let nonce = format!("{provider}-nonce");
+            {
+                let mut mux = fixture.service.mux.write();
+                let tab = mux.get_tab_mut(&tab_id).expect("worker tab");
+                tab.agent_type = Some(provider.into());
+                tab.agent_session_id = Some(session_id.clone());
+                tab.session_binding_nonce = Some(nonce.clone());
+                tab.reported_session_binding_nonce = Some(nonce);
+            }
+
+            let outcome =
+                super::handle_pty_death_with_cause(&fixture.service, ROLE_PTY, generation, None);
+
+            assert_eq!(
+                outcome,
+                super::PtyDeathOutcome::PreservedForRecovery,
+                "{provider}"
+            );
+            let snapshot = fixture.service.mux.read().to_session_snapshot();
+            let restored =
+                crate::multiplexer::state::MultiplexerState::from_session_snapshot(&snapshot);
+            let restored_tab = restored.get_tab(&tab_id).expect("restored worker tab");
+            assert_eq!(restored_tab.agent_type.as_deref(), Some(provider));
+            assert_eq!(
+                restored_tab.agent_session_id.as_deref(),
+                Some(session_id.as_str())
+            );
+            assert_eq!(restored_tab.role, Some(AgentRole::Worker));
+        }
     }
 
     #[test]

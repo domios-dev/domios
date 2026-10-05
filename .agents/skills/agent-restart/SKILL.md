@@ -220,9 +220,9 @@ the shell PTY, launches the provider from the recorded spawn without resuming
 the unverified session, and reports `action=fresh_launch`. If the provider or
 recorded launch cannot be used, the command fails instead of reporting success.
 
-## Internal references
+## Implementation sources
 
-Moved out of the embedded `codeterm docs` pages because they describe Domios's own source:
-
-- [references/lifecycle.md](references/lifecycle.md) — restore, liveness and lifecycle-journal internals
-- [references/shell-integration.md](references/shell-integration.md) — per-shell cwd integration
+- `src-tauri/src/service/agent_restart/exit_recovery.rs` — in-place recovery of an exited agent session
+- `src-tauri/src/service/pty_io/lifecycle.rs` — restored agent materialization and PTY lifecycle
+- `src-tauri/src/service/tab/lifecycle_exit.rs` — identity retirement after observed exits
+- `src-tauri/src/crash/restore_report.rs` — startup restore outcomes and liveness classification
