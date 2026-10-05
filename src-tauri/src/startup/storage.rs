@@ -4,6 +4,19 @@ use std::time::Duration;
 use crate::storage::{ImportOutcome, Storage, StorageConfig};
 
 const STARTUP_DEADLINE: Duration = Duration::from_secs(30);
+pub(crate) const STORAGE_UNAVAILABLE_MESSAGE: &str =
+    "Storage unavailable, your data is preserved, see the incident.";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct StorageUnavailableError;
+
+impl std::fmt::Display for StorageUnavailableError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(STORAGE_UNAVAILABLE_MESSAGE)
+    }
+}
+
+impl std::error::Error for StorageUnavailableError {}
 
 #[derive(Clone)]
 pub(crate) enum StorageAuthority {
@@ -15,6 +28,10 @@ pub(crate) enum StorageAuthority {
 }
 
 impl StorageAuthority {
+    pub(crate) fn require_ready(&self) -> Result<&Storage, StorageUnavailableError> {
+        self.storage().ok_or(StorageUnavailableError)
+    }
+
     pub(crate) fn storage(&self) -> Option<&Storage> {
         match self {
             StorageAuthority::Ready(storage) => Some(storage),
@@ -61,9 +78,15 @@ fn open_instance_storage_at(root: impl AsRef<Path>) -> StorageAuthority {
         Ok(_) => match crate::storage::cutover_import_live(&storage) {
             Ok(ImportOutcome::Committed(receipt)) => {
                 if let Err(error) = receipt.archive {
-                    unavailable(Some(storage), format!("storage import archive check failed: {error:?}"))
+                    unavailable(
+                        Some(storage),
+                        format!("storage import archive check failed: {error:?}"),
+                    )
                 } else if let Err(error) = receipt.comparison {
-                    unavailable(Some(storage), format!("storage import comparison failed: {error:?}"))
+                    unavailable(
+                        Some(storage),
+                        format!("storage import comparison failed: {error:?}"),
+                    )
                 } else {
                     StorageAuthority::Ready(storage)
                 }
@@ -71,7 +94,10 @@ fn open_instance_storage_at(root: impl AsRef<Path>) -> StorageAuthority {
             Ok(ImportOutcome::AlreadyCommitted(_)) => StorageAuthority::Ready(storage),
             Err(error) => unavailable(Some(storage), format!("storage import failed: {error}")),
         },
-        Err(error) => unavailable(Some(storage), format!("storage marker read failed: {error}")),
+        Err(error) => unavailable(
+            Some(storage),
+            format!("storage marker read failed: {error}"),
+        ),
     }
 }
 
@@ -101,7 +127,8 @@ mod tests {
     use crate::session::store::StorageDeskAdapter;
     use std::fs;
 
-    const EMPTY_DESK: &[u8] = br#"{"version":"1","timestamp":1,"workspaces":[],"active_workspace_id":null,"teams":[]}"#;
+    const EMPTY_DESK: &[u8] =
+        br#"{"version":"1","timestamp":1,"workspaces":[],"active_workspace_id":null,"teams":[]}"#;
     const LATE_EDIT_DESK: &[u8] = br#"{"version":"1","timestamp":2,"workspaces":[{"id":"late-workspace","name":"Late workspace","tabs":[],"active_tab_id":null}],"active_workspace_id":"late-workspace","teams":[]}"#;
 
     fn close(authority: StorageAuthority) {
@@ -177,5 +204,20 @@ mod tests {
             .is_some_and(|reason| reason.contains("storage import failed")));
         assert_eq!(source_bytes(&source), original);
         close(authority);
+    }
+
+    #[test]
+    fn storage_cutover_unavailable_authority_returns_a_typed_error() {
+        let authority = StorageAuthority::Unavailable {
+            storage: None,
+            reason: "database failed".into(),
+        };
+
+        let error = match authority.require_ready() {
+            Ok(_) => panic!("unavailable authority must not expose Storage"),
+            Err(error) => error,
+        };
+        assert_eq!(error, StorageUnavailableError);
+        assert_eq!(error.to_string(), STORAGE_UNAVAILABLE_MESSAGE);
     }
 }

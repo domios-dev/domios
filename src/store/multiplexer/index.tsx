@@ -59,6 +59,13 @@ export { useMuxState, useMuxSelector } from "./selectorStore";
 export { highestTitleLevel } from "./tree";
 
 const HYDRATED_GENERATION = 0.5;
+export const STORAGE_UNAVAILABLE_MESSAGE =
+  "Storage unavailable, your data is preserved, see the incident.";
+
+export function isStorageUnavailableError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.includes(STORAGE_UNAVAILABLE_MESSAGE);
+}
 
 /** True when the web boot path paints sync cached mux state before reconcile. */
 export function webBootHasSyncCache(): boolean {
@@ -78,6 +85,7 @@ function buildInitialState(): ExtendedState {
     activeTabIds: {},
     generation: 0,
     pendingCloses: [],
+    storageUnavailable: false,
   };
   if (!IS_WEB) return empty;
   const cached = loadCachedStateSync();
@@ -234,6 +242,10 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       // Back-pressure, not failure: rethrow so the coalescer records it and
       // the next event's request retries. Never logged as an error.
       if (isSnapshotRefusal(e)) throw e;
+      if (isStorageUnavailableError(e)) {
+        dispatch({ type: "STORAGE_UNAVAILABLE" });
+        return false;
+      }
       if (!(e instanceof DOMException && e.name === "AbortError")) {
         console.warn("Failed to refresh state:", e);
       }

@@ -108,13 +108,26 @@ function deferred<T>(): Deferred<T> {
 
 /** `mux_get_state` responses stay pending until explicitly resolved; calls
  * are counted synchronously at invocation, before any settling. */
-async function mountProvider(options: { refuseInitialMux?: boolean; refuseInitialOrdinary?: boolean } = {}) {
+async function mountProvider(options: {
+  refuseInitialMux?: boolean;
+  refuseInitialOrdinary?: boolean;
+  storageUnavailableInitialMux?: boolean;
+} = {}) {
   (globalThis as unknown as { localStorage: FakeStorage }).localStorage.clear();
   (globalThis as unknown as { sessionStorage: FakeStorage }).sessionStorage.clear();
 
   const { act, createRoot, React, window } = await setupHappyDom();
   const { __setInvokeForTest, __setListenForTest } = await import("../../lib/bridge");
-  const { MultiplexerProvider } = await import("./index");
+  const { MultiplexerProvider, STORAGE_UNAVAILABLE_MESSAGE, useMuxState } = await import("./index");
+
+  function StorageStatusProbe() {
+    const state = useMuxState();
+    return React.createElement(
+      "div",
+      { "data-testid": "storage-unavailable-probe" },
+      state.storageUnavailable ? STORAGE_UNAVAILABLE_MESSAGE : "",
+    );
+  }
 
   let muxGetStateCalls = 0;
   let ordinaryTabsCalls = 0;
@@ -128,6 +141,10 @@ async function mountProvider(options: { refuseInitialMux?: boolean; refuseInitia
       if (options.refuseInitialMux && !refusedInitialMux) {
         refusedInitialMux = true;
         return Promise.reject(new Error("state snapshot unavailable while tab state is initializing or changing"));
+      }
+      if (options.storageUnavailableInitialMux && !refusedInitialMux) {
+        refusedInitialMux = true;
+        return Promise.reject(new Error(STORAGE_UNAVAILABLE_MESSAGE));
       }
       const d = deferred<unknown>();
       pendingMuxGetState.push(d);
@@ -167,7 +184,7 @@ async function mountProvider(options: { refuseInitialMux?: boolean; refuseInitia
   window.document.body.appendChild(host);
   const root = createRoot(host as unknown as Element);
   await act(async () => {
-    root.render(React.createElement(MultiplexerProvider, null, null));
+    root.render(React.createElement(MultiplexerProvider, null, React.createElement(StorageStatusProbe)));
   });
 
   const settleMuxGetState = async () => {
@@ -189,6 +206,7 @@ async function mountProvider(options: { refuseInitialMux?: boolean; refuseInitia
   return {
     act,
     window,
+    host,
     get muxGetStateCalls() {
       return muxGetStateCalls;
     },
@@ -209,6 +227,20 @@ async function mountProvider(options: { refuseInitialMux?: boolean; refuseInitia
     },
   };
 }
+
+test("Storage unavailable snapshot exposes its preservation status to the UI", async () => {
+  const harness = await mountProvider({ storageUnavailableInitialMux: true });
+  const { STORAGE_UNAVAILABLE_MESSAGE } = await import("./index");
+  await waitUntil(
+    () => harness.host.querySelector("[data-testid='storage-unavailable-probe']")?.textContent === STORAGE_UNAVAILABLE_MESSAGE,
+    harness.act,
+  );
+  assert(
+    harness.host.querySelector("[data-testid='storage-unavailable-probe']")?.textContent === STORAGE_UNAVAILABLE_MESSAGE,
+    "the unavailable read must produce explicit preserved-data status",
+  );
+  await harness.unmount();
+});
 
 test("healthy stream: no renewal interval, no growth from non-resync events", async () => {
   const harness = await mountProvider();
