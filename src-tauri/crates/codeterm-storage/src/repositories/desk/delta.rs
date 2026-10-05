@@ -2,7 +2,10 @@ use super::super::records::{
     DeskAgentSessionIdentity, DeskSnapshot, DeskTab, DeskTeam, DeskWorkspace,
 };
 use super::super::{queries, DeskRepository};
-use super::{insert_identity, insert_layout, insert_tab, insert_team, insert_workspace};
+use super::{
+    insert_identity, insert_layout, insert_tab, insert_team, insert_workspace, park_ordered_rows,
+    OrderedTable,
+};
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
 use crate::repositories::{expect_matches, to_sql_u64, Committed, Completion, Expect, Revision};
@@ -289,6 +292,18 @@ fn apply_tabs(
     target: &DeskSnapshot,
 ) -> Result<(), StorageError> {
     let current_tabs = indexed_tabs(current);
+    let mut moved = Vec::new();
+    for workspace in &target.workspaces {
+        let owner = workspace.record.id.as_str();
+        for (ordinal, tab) in workspace.tabs.iter().enumerate() {
+            if let Some((old_workspace, old_ordinal, _)) = current_tabs.get(tab.id.as_str()) {
+                if *old_workspace != owner || *old_ordinal != ordinal {
+                    moved.push(tab.id.clone());
+                }
+            }
+        }
+    }
+    park_ordered_rows(cx, OrderedTable::Tabs, &moved)?;
     for workspace in &target.workspaces {
         for (ordinal, tab) in workspace.tabs.iter().enumerate() {
             let owner = workspace.record.id.as_str();
@@ -463,16 +478,12 @@ fn apply_teams(
     let current_order: Vec<&str> = current_ordinals.iter().map(|(id, _)| id.as_str()).collect();
     let target_order: Vec<&str> = target.teams.iter().map(|team| team.id.as_str()).collect();
     let moved = moved_ids(&current_order, &target_order);
-    for id in &moved {
-        let ordinal = current_ordinals
-            .iter()
-            .find_map(|(current_id, ordinal)| (current_id == id).then_some(*ordinal))
-            .ok_or_else(|| corrupt(format!("Team {id} has no ordinal")))?;
-        cx.write(
-            "UPDATE desk_teams SET ordinal = -1 - ordinal WHERE id = ?1 AND ordinal = ?2",
-            params![id, ordinal],
-        )?;
-    }
+    let moved_order: Vec<String> = target_order
+        .iter()
+        .filter(|id| moved.contains(**id))
+        .map(|id| (*id).to_owned())
+        .collect();
+    park_ordered_rows(cx, OrderedTable::Teams, &moved_order)?;
     for (ordinal, team) in target.teams.iter().enumerate() {
         let was_present = current_ids.contains(team.id.as_str());
         let record_changed = current
@@ -591,16 +602,12 @@ fn apply_workspaces(
         .collect();
     let order_changed = current_order != target_order;
     let moved = moved_ids(&current_order, &target_order);
-    for id in &moved {
-        let ordinal = current_ordinals
-            .iter()
-            .find_map(|(current_id, ordinal)| (current_id == id).then_some(*ordinal))
-            .ok_or_else(|| corrupt(format!("workspace {id} has no ordinal")))?;
-        cx.write(
-            "UPDATE workspaces SET ordinal = -1 - ordinal WHERE id = ?1 AND ordinal = ?2",
-            params![id, ordinal],
-        )?;
-    }
+    let moved_order: Vec<String> = target_order
+        .iter()
+        .filter(|id| moved.contains(**id))
+        .map(|id| (*id).to_owned())
+        .collect();
+    park_ordered_rows(cx, OrderedTable::Workspaces, &moved_order)?;
 
     let current_workspaces: HashMap<&str, &DeskWorkspace> = current
         .snapshot

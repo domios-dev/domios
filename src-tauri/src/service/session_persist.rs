@@ -328,6 +328,8 @@ fn run_worker(
     let mut committed_submission = 0;
     let mut last_outcome = SaveOutcome::Saved;
     let mut last_error = None;
+    let mut retry_after_error = false;
+    let mut reported_errors = HashSet::new();
     let mut reported_orphan_teams = HashSet::new();
     let mut committed_desk = None;
     loop {
@@ -352,7 +354,9 @@ fn run_worker(
                         Ok(Some(desk)) => {
                             let mut desk = desk.clone();
                             desk.timestamp = 0;
-                            if committed_desk.as_ref() == Some(&(latest.intent, desk)) {
+                            if !retry_after_error
+                                && committed_desk.as_ref() == Some(&(latest.intent, desk))
+                            {
                                 Ok(SaveOutcome::Saved)
                             } else {
                                 commit_request(context.as_ref(), &mut backend, latest)
@@ -367,6 +371,7 @@ fn run_worker(
                         committed_submission = latest.revision;
                         last_outcome = SaveOutcome::Saved;
                         last_error = None;
+                        retry_after_error = false;
                         if let Some(mut desk) =
                             projected.as_ref().ok().and_then(|desk| desk.clone())
                         {
@@ -377,9 +382,10 @@ fn run_worker(
                     Ok(outcome @ SaveOutcome::RefusedReduction(_)) => {
                         last_outcome = outcome.clone();
                         last_error = None;
+                        retry_after_error = false;
                     }
                     Err(error) => {
-                        if last_error.as_deref() != Some(error.as_str()) {
+                        if reported_errors.insert(error.clone()) {
                             log::warn!(
                                 "[session-persist] revision {} was not committed: {}",
                                 latest.revision,
@@ -387,6 +393,7 @@ fn run_worker(
                             );
                         }
                         last_error = Some(error.clone());
+                        retry_after_error = true;
                     }
                 }
                 for response in request.responses {
@@ -408,6 +415,7 @@ fn run_worker(
                         revision: state.revision,
                     };
                     last_error = None;
+                    retry_after_error = false;
                 }
                 Err(error) => {
                     let reason = format!("storage desk backend unavailable: {error}");
