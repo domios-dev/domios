@@ -143,6 +143,7 @@ fn sentinel_provenance_route_stages_share_observation_without_recipient_claim() 
         "route_status",
         "route",
         "route_target",
+        "requested_by",
         "recipient_receipt",
         "asked",
         "budget",
@@ -175,6 +176,7 @@ fn sentinel_provenance_route_stages_share_observation_without_recipient_claim() 
             crate::service::supporter::criteria_hash(b"passed")
         );
         assert_eq!(row["route_target"], "opaque-target");
+        assert!(row["requested_by"].is_null());
         assert!(row["recipient_receipt"].is_null());
         assert!(row.get("probe_output").is_none());
         assert!(!row.to_string().contains("opaque-private-probe"));
