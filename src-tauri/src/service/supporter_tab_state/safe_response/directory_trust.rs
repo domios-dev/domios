@@ -141,9 +141,7 @@ impl ServiceContext {
                 || !crate::agent::state_reactor::prompt_is_composer_text(screen, prompt)
         });
         let kind = target.as_ref().map(|target| target.kind).or_else(|| {
-            if crate::service::output::manual_update_prompt_candidate(screen) {
-                Some(Kind::Update)
-            } else if !tab.launch_session_authenticated()
+            if !tab.launch_session_authenticated()
                 && parse_prompt_safely(|| provider.parse_directory_trust_prompt(screen)).is_some()
             {
                 Some(Kind::DirectoryTrust)
