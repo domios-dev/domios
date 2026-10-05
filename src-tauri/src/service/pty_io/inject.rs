@@ -38,6 +38,7 @@ impl ServiceContext {
     /// (see `build_spawn_dispatch` — bash 3.2 can't interpret paste markers).
     pub fn send_shell_spawn(&self, pty_id: &str, cmd: &str) -> Result<(), String> {
         self.await_shell_ready(pty_id);
+        self.feed_input_parser(pty_id, cmd, true);
         self.write_spawn_dispatch(pty_id, cmd).map(|_| ())
     }
 
