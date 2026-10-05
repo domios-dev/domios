@@ -285,6 +285,38 @@ fn exact_turn_matches_typed_route_with_wrapped_body_only() {
 }
 
 #[test]
+fn exact_turn_evidence_matches_a_12k_user_paste() {
+    let fx = Fixture::new();
+    let body = format!("paste-start:{}:paste-end", "x".repeat(12 * 1024));
+    let mut anchor = fx.anchor_now("sess-a");
+    anchor.turn_normalization = crate::agent::provider::TurnEvidenceNormalization {
+        unwrap_pasted_content_wrapper: true,
+        collapse_horizontal_whitespace: true,
+        drop_supplementary_characters: false,
+    };
+    let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
+    let suffix = format!(
+        " [reply] {}{}",
+        codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION,
+        codeterm_types::domios::DOMIOS_CLOSE_TAG
+    );
+    let expected = format!("{open}{body}{suffix}");
+    let observed = format!(
+        "{open}<pasted_content id=\"long-paste\">\n{body}\n</pasted_content id=\"long-paste\">{suffix}"
+    );
+    fx.append_user_turn("sess-a", &observed);
+
+    assert!(body.len() >= 12 * 1024);
+    assert!(contains_exact_user_turn(&fx.registry, &anchor, &expected));
+    assert!(contains_exact_user_turn_since(
+        &fx.registry,
+        &anchor,
+        &expected,
+        &mut ExactTurnCursor::for_anchor(Some(&anchor)),
+    ));
+}
+
+#[test]
 fn submit_turn_cursor_reads_only_appended_jsonl_since_last_wake() {
     let fx = Fixture::new();
     let anchor = fx.anchor_now("sess-a");

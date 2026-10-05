@@ -45,6 +45,68 @@ pub(crate) enum UserDrain {
 
 type UserReadiness = super::supporter_tab_state::UserDeliveryReadiness;
 
+fn is_prelaunch_stage(stage: Option<codeterm_types::pty::BootStage>) -> bool {
+    matches!(
+        stage,
+        None | Some(
+            codeterm_types::pty::BootStage::PtyStarting
+                | codeterm_types::pty::BootStage::PtySpawned
+                | codeterm_types::pty::BootStage::ReaderReady
+                | codeterm_types::pty::BootStage::ShellReady
+                | codeterm_types::pty::BootStage::AgentLaunching
+        )
+    )
+}
+
+fn is_launch_written_or_later(stage: Option<codeterm_types::pty::BootStage>) -> bool {
+    matches!(
+        stage,
+        Some(
+            codeterm_types::pty::BootStage::LaunchWritten
+                | codeterm_types::pty::BootStage::ProviderReady
+                | codeterm_types::pty::BootStage::PreparingRoleInstructions
+                | codeterm_types::pty::BootStage::DeliveringInstructions
+                | codeterm_types::pty::BootStage::AgentReady
+        )
+    )
+}
+
+fn prelaunch_authority_matches_current_launch(
+    tab: &crate::multiplexer::types::Tab,
+    authority: &UserSendAuthority,
+) -> bool {
+    let same_pty = tab.pty_id.as_deref() == authority.pty_id.as_deref();
+    let same_provider = tab.agent_type.as_deref() == Some(authority.provider_id.as_str());
+    let same_nonce = tab.session_binding_nonce.as_deref()
+        == Some(authority.binding_nonce.as_str());
+    let nonce_was_just_rotated = tab.prior_session_binding_nonces.last()
+        .is_some_and(|prior| prior.nonce == authority.binding_nonce);
+    authority.prelaunch
+        && same_provider
+        && (authority.pty_id.is_none() || same_pty)
+        && tab.boot_stage != Some(codeterm_types::pty::BootStage::SpawnFailed)
+        && (is_prelaunch_stage(tab.boot_stage) || is_launch_written_or_later(tab.boot_stage))
+        && (same_nonce || nonce_was_just_rotated)
+}
+
+fn prelaunch_authority_matches_failed_launch(
+    tab: &crate::multiplexer::types::Tab,
+    authority: &UserSendAuthority,
+) -> bool {
+    let same_pty = tab.pty_id.as_deref() == authority.pty_id.as_deref();
+    let same_provider = tab.agent_type.as_deref() == Some(authority.provider_id.as_str());
+    let same_nonce = tab.session_binding_nonce.as_deref() == Some(authority.binding_nonce.as_str());
+    let nonce_was_just_rotated = tab
+        .prior_session_binding_nonces
+        .last()
+        .is_some_and(|prior| prior.nonce == authority.binding_nonce);
+    authority.prelaunch
+        && same_provider
+        && (authority.pty_id.is_none() || same_pty)
+        && tab.boot_stage == Some(codeterm_types::pty::BootStage::SpawnFailed)
+        && (same_nonce || nonce_was_just_rotated)
+}
+
 fn requires_observed_session_id_for_readiness(
     observed_session_id: Option<&str>,
     session_starts_on_first_user_turn: bool,
@@ -74,7 +136,7 @@ pub(crate) enum UserWake {
 
 impl super::ServiceContext {
     pub(crate) fn user_send_authority(&self, tab_id: &str) -> Result<UserSendAuthority, String> {
-        let (pty_id, binding_nonce, provider_id, session_id, observed_session_id) = {
+        let (pty_id, binding_nonce, provider_id, session_id, observed_session_id, prelaunch) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id).ok_or("user send tab is absent")?;
             if !matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty) {
@@ -82,14 +144,17 @@ impl super::ServiceContext {
             }
             let session_id = tab.agent_session_id.clone();
             (
-                tab.pty_id.clone().ok_or("user send has no exact PTY authority")?,
+                tab.pty_id.clone(),
                 tab.session_binding_nonce.clone().ok_or("user send has no launch nonce")?,
                 tab.agent_type.clone().ok_or("user send has no agent identity")?,
                 tab.launch_session_authenticated().then(|| session_id.clone()).flatten(),
                 session_id,
+                (tab.pty_id.is_none() || tab.agent_booting) && is_prelaunch_stage(tab.boot_stage),
             )
         };
-        let pty_session_generation = self.pty.lock().get_session(&pty_id).map(|session| session.generation);
+        let pty_session_generation = pty_id.as_deref().and_then(|pty_id| {
+            self.pty.lock().get_session(pty_id).map(|session| session.generation)
+        });
         Ok(UserSendAuthority {
             tab_id: tab_id.to_string(),
             pty_id,
@@ -98,6 +163,7 @@ impl super::ServiceContext {
             provider_id,
             session_id,
             observed_session_id,
+            prelaunch,
         })
     }
 
@@ -127,10 +193,11 @@ impl super::ServiceContext {
     }
 
     fn rearm_user_input_for_authority(&self, authority: &UserSendAuthority) -> bool {
+        let Some(pty_id) = authority.pty_id.as_deref() else { return false; };
         let Some(generation) = authority.pty_session_generation else { return false; };
         let pty = self.pty.lock();
-        pty.session_generation_matches(&authority.pty_id, generation)
-            && pty.rearm_guarded_input(&authority.pty_id).is_ok()
+        pty.session_generation_matches(pty_id, generation)
+            && pty.rearm_guarded_input(pty_id).is_ok()
     }
 
     pub(crate) fn user_authority_is_current_session(
@@ -155,23 +222,83 @@ impl super::ServiceContext {
         authority: &UserSendAuthority,
     ) -> bool {
         matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty)
-            && tab.pty_id.as_deref() == Some(authority.pty_id.as_str())
+            && tab.pty_id.as_deref() == authority.pty_id.as_deref()
             && tab.session_binding_nonce.as_deref() == Some(authority.binding_nonce.as_str())
             && tab.agent_type.as_deref() == Some(authority.provider_id.as_str())
     }
 
     fn user_authority_is_from_ended_launch(&self, authority: &UserSendAuthority) -> bool {
-        self.user_send_authority(&authority.tab_id).is_ok_and(|current| {
-            current.pty_id != authority.pty_id
-                || current.binding_nonce != authority.binding_nonce
-                || current.provider_id != authority.provider_id
-        })
+        let mux = self.mux.read();
+        let Some(tab) = mux.get_tab(&authority.tab_id) else { return false; };
+        let same_pty = tab.pty_id.as_deref() == authority.pty_id.as_deref();
+        let same_provider = tab.agent_type.as_deref() == Some(authority.provider_id.as_str());
+        let in_flight_prelaunch = prelaunch_authority_matches_current_launch(tab, authority);
+        prelaunch_authority_matches_failed_launch(tab, authority)
+            || (!in_flight_prelaunch
+                && (!same_pty
+                    || tab.session_binding_nonce.as_deref()
+                        != Some(authority.binding_nonce.as_str())
+                    || !same_provider))
     }
 
     fn user_authority_pty_generation_is_current(&self, authority: &UserSendAuthority) -> bool {
-        authority.pty_session_generation.is_some_and(|generation| {
-            self.pty.lock().session_generation_matches(&authority.pty_id, generation)
-        })
+        let (Some(pty_id), Some(generation)) =
+            (authority.pty_id.as_deref(), authority.pty_session_generation)
+        else {
+            return false;
+        };
+        self.pty.lock().session_generation_matches(pty_id, generation)
+    }
+
+    fn advance_prelaunch_user_authority(
+        &self,
+        record: &UserSendRecord,
+    ) -> Result<Option<UserSendRecord>, String> {
+        if !record.authority.prelaunch {
+            return Ok(None);
+        }
+        let stage = {
+            let mux = self.mux.read();
+            let Some(tab) = mux.get_tab(&record.authority.tab_id) else { return Ok(None); };
+            if !matches!(&tab.backing, crate::multiplexer::types::TabBacking::Pty)
+                || !prelaunch_authority_matches_current_launch(tab, &record.authority)
+            {
+                return Ok(None);
+            }
+            tab.boot_stage
+        };
+        let current = self.user_send_authority(&record.authority.tab_id)?;
+        let Some(pty_id) = current.pty_id.as_deref() else { return Ok(None); };
+        let Some(session) = self.pty.lock().get_session(pty_id) else { return Ok(None); };
+        let mut authority = current;
+        authority.pty_session_generation = Some(session.generation);
+        authority.prelaunch = !is_launch_written_or_later(stage);
+        let still_current = {
+            let mux = self.mux.read();
+            mux.get_tab(&record.authority.tab_id).is_some_and(|tab| {
+                prelaunch_authority_matches_current_launch(tab, &record.authority)
+                    && self.user_authority_matches_launch(tab, &authority)
+            })
+        };
+        if !still_current {
+            return Ok(None);
+        }
+        if authority == record.authority {
+            return Ok(None);
+        }
+        let Some(rebound) = self.pending_delivery_payloads.user_sends
+            .rebind_queued_authority(record, authority.clone())?
+        else {
+            return Ok(None);
+        };
+        if !self.chat_send_ledger.rebind_queued_user_authority(
+            &record.send_id,
+            &record.authority,
+            &authority,
+        ) {
+            return Err("durable user authority changed without a matching ledger admission".into());
+        }
+        Ok(Some(rebound))
     }
 
     fn pending_user_send(&self, record: &UserSendRecord, reason: &str) -> UserDrain {
@@ -329,13 +456,17 @@ impl super::ServiceContext {
         let store = &self.pending_delivery_payloads.user_sends;
         for _ in 0..super::pending_delivery_payloads::user_sends::MAX_UNSETTLED * 2 {
             let Some(mut head) = store.queued(tab_id)?.into_iter().next() else { return Ok(UserDrain::Idle); };
+            if let Some(rebound) = self.advance_prelaunch_user_authority(&head)? {
+                head = rebound;
+            }
             let same_launch = self
                 .mux
                 .read()
                 .get_tab(tab_id)
                 .is_some_and(|tab| self.user_authority_matches_launch(tab, &head.authority));
-            if head.state == UserSendState::Queued && !same_launch {
-                if self.user_authority_is_from_ended_launch(&head.authority) {
+            let ended_launch = self.user_authority_is_from_ended_launch(&head.authority);
+            if head.state == UserSendState::Queued && (!same_launch || ended_launch) {
+                if ended_launch {
                     match store.discard_queued_from_ended_launch(&head) {
                         Ok(true) => {
                             const REASON: &str = "launch_ended_before_write";
@@ -382,7 +513,10 @@ impl super::ServiceContext {
                 return Ok(self.pending_user_send(&head, "user_launch_identity_unavailable"));
             }
             if head.authority.pty_session_generation.is_none() && head.state == UserSendState::Queued {
-                let generation = self.pty.lock().get_session(&head.authority.pty_id)
+                let Some(pty_id) = head.authority.pty_id.as_deref() else {
+                    return Ok(self.pending_user_send(&head, "pty_authority_pending"));
+                };
+                let generation = self.pty.lock().get_session(pty_id)
                     .map(|session| session.generation);
                 let Some(generation) = generation else {
                     return Ok(self.pending_user_send(&head, "pty_session_generation_unavailable"));
@@ -646,22 +780,25 @@ impl super::ServiceContext {
         if !self.user_authority_is_ready(authority) && !self.rearm_user_input_for_authority(authority) {
             return Err(DeliveryError::TabBusyRefused { tab: tab_id.into(), detail: "user owner readiness changed before guarded input".into() });
         }
+        let pty_id = authority.pty_id.as_deref().ok_or_else(|| DeliveryError::PtyUnavailable {
+            tab: tab_id.into(), detail: "user owner has no resolved PTY authority".into(),
+        })?;
         // Resolved after readiness was observed, so a hook installed before readiness is never missed.
         let permit = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id).ok_or_else(|| DeliveryError::TabBusyRefused {
                 tab: tab_id.into(), detail: "user owner tab closed".into(),
             })?;
-            if tab.pty_id.as_deref() != Some(authority.pty_id.as_str())
+            if tab.pty_id.as_deref() != Some(pty_id)
                 || authority.pty_session_generation.is_none_or(|generation| {
-                    !self.pty.lock().session_generation_matches(&authority.pty_id, generation)
+                    !self.pty.lock().session_generation_matches(pty_id, generation)
                 })
                 || tab.session_binding_nonce.as_deref() != Some(authority.binding_nonce.as_str())
                 || tab.agent_type.as_deref() != Some(authority.provider_id.as_str())
                 || self.pending_delivery_payloads.user_sends.tab(tab_id).revoked.load(Ordering::Acquire) {
                 return Err(DeliveryError::TabBusyRefused { tab: tab_id.into(), detail: "user owner launch changed".into() });
             }
-            self.pty.lock().issue_guarded_input_permit(&authority.pty_id).map_err(|detail| DeliveryError::PtyUnavailable {
+            self.pty.lock().issue_guarded_input_permit(pty_id).map_err(|detail| DeliveryError::PtyUnavailable {
                 tab: tab_id.into(), detail,
             })?
         };
@@ -672,7 +809,7 @@ impl super::ServiceContext {
             return Err(DeliveryError::TabBusyRefused { tab: tab_id.into(), detail: "user owner revoked before submit cycle".into() });
         }
         let claim = self.chat_send_ledger.take_user_submit_claim(&record.send_id)
-            .unwrap_or_else(|| super::pty_io::submit_transaction::claim_submit_cycle(&authority.pty_id));
+            .unwrap_or_else(|| super::pty_io::submit_transaction::claim_submit_cycle(pty_id));
         if !self.user_send_readiness_is_current(authority, readiness) {
             return Err(DeliveryError::TabBusyRefused { tab: tab_id.into(), detail: "user owner readiness changed before payload write".into() });
         }
@@ -709,7 +846,7 @@ impl super::ServiceContext {
             write_service.mark_user_send_written(&write_record);
         });
         super::pty_io::submit_transaction::submit_text_with_key_claimed_and_follow_up_revalidated(
-            self, &authority.pty_id, text, record.typed_follow_up.as_deref(), true, b"\r", strategy,
+            self, pty_id, text, record.typed_follow_up.as_deref(), true, b"\r", strategy,
             super::inject_verify::VerifyOpts { require_prompt_first: false, verify_echo: true, verify_submit: true, ..Default::default() },
             Some(permit), track_turn, claim, Some(pre_write_guard),
             true, Some(payload_queued),

@@ -3,12 +3,13 @@ use super::*;
 fn authority() -> UserSendAuthority {
     UserSendAuthority {
         tab_id: "opaque-tab".into(),
-        pty_id: "opaque-pty".into(),
+        pty_id: Some("opaque-pty".into()),
         binding_nonce: "opaque-nonce".into(),
         pty_session_generation: Some(1),
         provider_id: "opaque-provider".into(),
         session_id: Some("opaque-session".into()),
         observed_session_id: Some("opaque-session".into()),
+        prelaunch: false,
     }
 }
 
