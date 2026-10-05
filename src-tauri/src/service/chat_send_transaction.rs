@@ -117,7 +117,7 @@ struct ChatSendLedgerState {
     terminal_failures: HashSet<String>,
     consumed_merged_turns: HashMap<String, usize>,
     consumed_merged_turn_order: VecDeque<String>,
-    held_before_readiness_by_id: HashSet<String>,
+    held_before_readiness_by_id: HashMap<String, UserSendAuthority>,
     absence_witness_by_id: HashMap<String, Arc<str>>,
     sessionless_first_turn_by_id: HashSet<String>,
     deferred_first_turn_by_id: HashMap<String, DeferredFirstTurnEvidence>,
@@ -144,7 +144,7 @@ impl Default for ChatSendLedgerState {
             terminal_failures: HashSet::new(),
             consumed_merged_turns: HashMap::new(),
             consumed_merged_turn_order: VecDeque::new(),
-            held_before_readiness_by_id: HashSet::new(),
+            held_before_readiness_by_id: HashMap::new(),
             absence_witness_by_id: HashMap::new(),
             sessionless_first_turn_by_id: HashSet::new(),
             deferred_first_turn_by_id: HashMap::new(),
@@ -246,7 +246,10 @@ impl ChatSendLedger {
         };
         state.owned.insert(record.send_id.clone(), (record.authority.clone(), false));
         if record.held_before_readiness {
-            state.held_before_readiness_by_id.insert(record.send_id.clone());
+            state.held_before_readiness_by_id.insert(
+                record.send_id.clone(),
+                record.authority.clone(),
+            );
         } else {
             state.held_before_readiness_by_id.remove(&record.send_id);
         }
@@ -282,14 +285,27 @@ impl ChatSendLedger {
     ) -> bool {
         let Some(generation) = authority.pty_session_generation else { return false; };
         let mut state = self.state.lock();
-        let Some((current, _)) = state.owned.get_mut(send_id) else { return false; };
+        let Some(current) = state
+            .owned
+            .get(send_id)
+            .map(|(authority, _)| authority.clone())
+        else {
+            return false;
+        };
         let mut unbound = authority.clone();
         unbound.pty_session_generation = None;
-        if *current == unbound {
-            current.pty_session_generation = Some(generation);
+        if current == unbound {
+            if let Some((current, _)) = state.owned.get_mut(send_id) {
+                current.pty_session_generation = Some(generation);
+            } else {
+                return false;
+            }
+            if let Some(held_authority) = state.held_before_readiness_by_id.get_mut(send_id) {
+                held_authority.pty_session_generation = Some(generation);
+            }
             true
         } else {
-            current == authority
+            &current == authority
         }
     }
 
@@ -390,7 +406,10 @@ impl ChatSendLedger {
             return None;
         }
         let status = state.by_id.get_mut(send_id)?;
-        if matches!(status.state, ChatSendState::Sent | ChatSendState::Failed) {
+        if matches!(
+            status.state,
+            ChatSendState::Written | ChatSendState::Sent | ChatSendState::Failed
+        ) {
             return None;
         }
         status.state = ChatSendState::Written;
@@ -553,15 +572,17 @@ impl ChatSendLedger {
                     None
                 }
                 _ if terminal_failure => None,
-                _ if user_owned && status.pending_reason.is_some() => {
-                    status.state = ChatSendState::Pending;
-                    status.error = None;
-                    None
-                }
-                _ if user_owned && status.state == ChatSendState::Written => {
+                _ if user_owned
+                    && matches!(status.state, ChatSendState::Written | ChatSendState::Unknown) =>
+                {
                     status.state = ChatSendState::Unknown;
                     status.error = None;
                     status.pending_reason = None;
+                    None
+                }
+                _ if user_owned && status.pending_reason.is_some() => {
+                    status.state = ChatSendState::Pending;
+                    status.error = None;
                     None
                 }
                 _ if user_owned => {
@@ -632,7 +653,13 @@ impl ChatSendLedger {
     ) -> Option<ChatSendStatus> {
         let mut state = self.state.lock();
         let status = state.by_id.get_mut(send_id)?;
-        if matches!(status.state, ChatSendState::Sent | ChatSendState::Failed) {
+        if matches!(
+            status.state,
+            ChatSendState::Written
+                | ChatSendState::Unknown
+                | ChatSendState::Sent
+                | ChatSendState::Failed
+        ) {
             return None;
         }
         let reason = reason.map(str::to_string);
@@ -663,7 +690,6 @@ impl ChatSendLedger {
         state.sessionless_first_turn_by_id.remove(send_id);
         state.deferred_first_turn_by_id.remove(send_id);
         state.owned.remove(send_id);
-        state.held_before_readiness_by_id.remove(send_id);
         state.by_id.get(send_id).cloned()
     }
 

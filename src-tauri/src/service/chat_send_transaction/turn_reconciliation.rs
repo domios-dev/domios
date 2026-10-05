@@ -45,7 +45,6 @@ impl ChatSendLedger {
         &self,
         authority: &UserSendAuthority,
         sequence: u64,
-        held_before_readiness_only: bool,
     ) -> bool {
         let state = self.state.lock();
         state.order.iter().any(|send_id| {
@@ -63,8 +62,26 @@ impl ChatSendLedger {
             same_launch
                 && status.sequence < sequence
                 && matches!(status.state, ChatSendState::Written | ChatSendState::Unknown)
-                && (!held_before_readiness_only
-                    || state.held_before_readiness_by_id.contains(send_id))
+        })
+    }
+
+    pub(crate) fn has_held_user_send_before(
+        &self,
+        authority: &UserSendAuthority,
+        sequence: u64,
+    ) -> bool {
+        let state = self.state.lock();
+        state.order.iter().any(|send_id| {
+            let Some(status) = state.by_id.get(send_id) else {
+                return false;
+            };
+            state.held_before_readiness_by_id.get(send_id) == Some(authority)
+                && status.tab_id == authority.tab_id
+                && status.sequence < sequence
+                && matches!(
+                    status.state,
+                    ChatSendState::Written | ChatSendState::Unknown | ChatSendState::Sent
+                )
         })
     }
 
