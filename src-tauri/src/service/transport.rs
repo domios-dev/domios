@@ -376,6 +376,32 @@ impl ServiceContext {
         })?;
         let _ = self.focus_tab(&tab_id);
 
+        let persistence =
+            crate::service::session_persist::write_session_snapshot(&self.app_handle, &self.mux)
+                .and_then(|outcome| match outcome {
+                    crate::session::store::SaveOutcome::Saved => Ok(()),
+                    crate::session::store::SaveOutcome::RefusedReduction(refusal) => {
+                        Err(format!("desk persistence refused the new Tab: {refusal:?}"))
+                    }
+                });
+        if let Err(error) = persistence {
+            self.rollback_provisional_tab(&ws_id, &tab_id);
+            let _ = self.revoke_agent_pad(&tab_id);
+            self.emit_state_changed();
+            if let Err(rollback_error) =
+                crate::service::session_persist::write_session_snapshot_with_intent(
+                    &self.app_handle,
+                    &self.mux,
+                    crate::session::store::SaveIntent::AuthorizedReduction,
+                )
+            {
+                return Err(format!(
+                    "desk persistence failed before launch: {error}; provisional Tab cleanup failed: {rollback_error}"
+                ));
+            }
+            return Err(format!("desk persistence failed before launch: {error}"));
+        }
+
         // The tab is already created/activated/focused; roll it back on launch failure so the user isn't left on a blank tab.
         let launch_command = finish_launch(
             transport.launch(
