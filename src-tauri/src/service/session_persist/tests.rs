@@ -58,6 +58,29 @@ fn test_snapshot(revision: u64) -> crate::session::SessionSnapshot {
     snapshot
 }
 
+#[test]
+fn session_persist_projection_drops_only_orphan_teams_deterministically() {
+    let mut snapshot = desk_delta_snapshot(1);
+    let valid_team = codeterm_types::team::Team::new("ws-0", 1);
+    let orphan_team = codeterm_types::team::Team::new("removed-workspace", 2);
+    let valid_id = valid_team.id.clone();
+    snapshot.teams = vec![valid_team, orphan_team];
+
+    let first = crate::session::store::project_snapshot(&snapshot, Vec::new()).unwrap();
+    let second = crate::session::store::project_snapshot(&snapshot, Vec::new()).unwrap();
+
+    assert_eq!(first, second);
+    assert_eq!(first.workspaces.len(), 1);
+    assert_eq!(
+        first
+            .teams
+            .iter()
+            .map(|team| team.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![valid_id.as_str()]
+    );
+}
+
 fn queue_barrier(
     worker: &SessionPersistenceWorker,
     snapshot: crate::session::SessionSnapshot,

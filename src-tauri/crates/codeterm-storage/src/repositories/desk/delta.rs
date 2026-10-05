@@ -29,10 +29,11 @@ impl DeskRepository {
 
     fn submit_delta(
         &self,
-        snapshot: DeskSnapshot,
+        mut snapshot: DeskSnapshot,
         expected: Revision,
         reduce: bool,
     ) -> Completion<Committed<()>> {
+        retain_orphan_teams(&mut snapshot);
         let cost = match snapshot.validate() {
             Ok(cost) => cost,
             Err(error) => return Completion::settled(Err(error)),
@@ -54,11 +55,12 @@ fn apply_delta(
         Expect::At(expected),
         Some(current.revision),
     )?;
-    let target = if reduce {
+    let mut target = if reduce {
         submitted
     } else {
         preserve_missing(&current.snapshot, submitted)
     };
+    retain_orphan_teams(&mut target);
     target.validate()?;
     validate_references(&target)?;
 
@@ -67,15 +69,14 @@ fn apply_delta(
     let identity_revisions = queries::load_identity_revisions(cx.conn)?;
     insert_workspace_stubs(cx, &current.snapshot, &target)?;
     apply_tabs(cx, &current.snapshot, &current.tab_revisions, &target)?;
-    if reduce {
-        delete_missing(
-            cx,
-            &current,
-            &workspace_record_revisions,
-            &identity_revisions,
-            &target,
-        )?;
-    }
+    delete_missing(
+        cx,
+        &current,
+        &workspace_record_revisions,
+        &identity_revisions,
+        &target,
+        reduce,
+    )?;
     apply_teams(cx, &current.snapshot, &current.team_revisions, &target)?;
     apply_identities(cx, &current.snapshot, &identity_revisions, &target)?;
     let workspace_order_changed =
@@ -195,10 +196,7 @@ where
     F: for<'a> Fn(&'a T) -> &'a str,
 {
     let current_ids: HashSet<&str> = current.iter().map(|item| id(item)).collect();
-    let incoming_by_id: HashMap<&str, &T> = incoming
-        .iter()
-        .map(|item| (id(item), item))
-        .collect();
+    let incoming_by_id: HashMap<&str, &T> = incoming.iter().map(|item| (id(item), item)).collect();
     let slots: Vec<usize> = current
         .iter()
         .enumerate()
@@ -250,17 +248,18 @@ fn validate_references(snapshot: &DeskSnapshot) -> Result<(), StorageError> {
             ));
         }
     }
-    if snapshot
-        .teams
-        .iter()
-        .any(|team| !workspace_ids.contains(team.workspace_id.as_str()))
-    {
-        return Err(StorageError::invalid(
-            "Team workspace",
-            "must name a desk workspace",
-        ));
-    }
     Ok(())
+}
+
+fn retain_orphan_teams(snapshot: &mut DeskSnapshot) {
+    let workspace_ids: HashSet<String> = snapshot
+        .workspaces
+        .iter()
+        .map(|workspace| workspace.record.id.as_str().to_owned())
+        .collect();
+    snapshot
+        .teams
+        .retain(|team| workspace_ids.contains(team.workspace_id.as_str()));
 }
 
 fn insert_workspace_stubs(
@@ -346,53 +345,58 @@ fn delete_missing(
     workspace_revisions: &HashMap<String, Revision>,
     identity_revisions: &HashMap<(String, String), Revision>,
     target: &DeskSnapshot,
+    reduce: bool,
 ) -> Result<(), StorageError> {
-    let target_tabs: HashSet<&str> = target
-        .workspaces
-        .iter()
-        .flat_map(|workspace| workspace.tabs.iter().map(|tab| tab.id.as_str()))
-        .collect();
-    for tab in current
-        .snapshot
-        .workspaces
-        .iter()
-        .flat_map(|workspace| workspace.tabs.iter())
-        .filter(|tab| !target_tabs.contains(tab.id.as_str()))
-    {
-        let expected = current.tab_revisions[&tab.id];
-        delete_tab(cx, &tab.id, expected)?;
-    }
-
     let target_workspaces: HashSet<&str> = target
         .workspaces
         .iter()
         .map(|workspace| workspace.record.id.as_str())
         .collect();
-    for workspace in &current.snapshot.workspaces {
-        let id = workspace.record.id.as_str();
-        if target_workspaces.contains(id) {
-            continue;
+    if reduce {
+        let target_tabs: HashSet<&str> = target
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.tabs.iter().map(|tab| tab.id.as_str()))
+            .collect();
+        for tab in current
+            .snapshot
+            .workspaces
+            .iter()
+            .flat_map(|workspace| workspace.tabs.iter())
+            .filter(|tab| !target_tabs.contains(tab.id.as_str()))
+        {
+            let expected = current.tab_revisions[&tab.id];
+            delete_tab(cx, &tab.id, expected)?;
         }
-        let state_revision = current.workspace_revisions[id];
-        let record_revision = workspace_revisions[id];
-        let deleted_state = cx.write(
-            "DELETE FROM desk_workspace_state WHERE workspace_id = ?1 AND revision = ?2",
-            params![id, to_sql_u64("desk workspace revision", state_revision.0)?],
-        )?;
-        require_one(deleted_state, &format!("workspace {id}"), state_revision)?;
-        let deleted_record = cx.write(
-            "DELETE FROM workspaces WHERE id = ?1 AND revision = ?2",
-            params![
-                id,
-                to_sql_u64("workspace record revision", record_revision.0)?
-            ],
-        )?;
-        require_one(deleted_record, &format!("workspace {id}"), record_revision)?;
+
+        for workspace in &current.snapshot.workspaces {
+            let id = workspace.record.id.as_str();
+            if target_workspaces.contains(id) {
+                continue;
+            }
+            let state_revision = current.workspace_revisions[id];
+            let record_revision = workspace_revisions[id];
+            let deleted_state = cx.write(
+                "DELETE FROM desk_workspace_state WHERE workspace_id = ?1 AND revision = ?2",
+                params![id, to_sql_u64("desk workspace revision", state_revision.0)?],
+            )?;
+            require_one(deleted_state, &format!("workspace {id}"), state_revision)?;
+            let deleted_record = cx.write(
+                "DELETE FROM workspaces WHERE id = ?1 AND revision = ?2",
+                params![
+                    id,
+                    to_sql_u64("workspace record revision", record_revision.0)?
+                ],
+            )?;
+            require_one(deleted_record, &format!("workspace {id}"), record_revision)?;
+        }
     }
 
     let target_teams: HashSet<&str> = target.teams.iter().map(|team| team.id.as_str()).collect();
     for team in &current.snapshot.teams {
-        if target_teams.contains(team.id.as_str()) {
+        if target_teams.contains(team.id.as_str())
+            || (!reduce && target_workspaces.contains(team.workspace_id.as_str()))
+        {
             continue;
         }
         let expected = current.team_revisions[&team.id];
@@ -401,6 +405,10 @@ fn delete_missing(
             params![team.id, to_sql_u64("desk Team revision", expected.0)?],
         )?;
         require_one(deleted, &format!("Team {}", team.id), expected)?;
+    }
+
+    if !reduce {
+        return Ok(());
     }
 
     let target_identities: HashSet<(&str, &str)> = target

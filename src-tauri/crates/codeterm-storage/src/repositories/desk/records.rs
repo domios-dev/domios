@@ -273,6 +273,12 @@ impl DeskSnapshot {
                     "empty or duplicate identity",
                 ));
             }
+            if !workspaces.contains(team.workspace_id.as_str()) {
+                return Err(StorageError::invalid(
+                    "Team workspace",
+                    "must name a desk workspace",
+                ));
+            }
             cost = cost
                 .saturating_add(team.id.len())
                 .saturating_add(team.workspace_id.len())

@@ -143,6 +143,23 @@ fn restored_role_bindings(
         .collect()
 }
 
+fn reconcile_startup_teams(
+    snapshot: &mut crate::session::store::SessionSnapshot,
+    boot_resync: &mut bool,
+) {
+    let orphans = crate::session::store::prune_orphan_teams(snapshot);
+    for team in &orphans {
+        log::warn!(
+            "[restore] dropped orphan Team {}: workspace {} is missing",
+            team.id,
+            team.workspace_id
+        );
+    }
+    if !orphans.is_empty() {
+        *boot_resync = true;
+    }
+}
+
 const INHERITED_IDENTITY_ENV_VARS: &[&str] = &[
     "CODETERM_ATTEMPT_ID",
     "CODETERM_LANE_BASE",
@@ -262,7 +279,7 @@ pub(crate) fn init_states() -> AppStates {
     let ga_enabled = storage.storage().is_some() && config_state.lock().general_agent.enabled;
     let mut bound_at_shutdown = Vec::new();
     let mut agent_panes_at_shutdown = Vec::new();
-    let desk_snapshot = match storage.storage() {
+    let mut desk_snapshot = match storage.storage() {
         Some(storage_owner) => {
             let adapter =
                 crate::session::store::StorageDeskAdapter::from_storage(storage_owner.clone());
@@ -277,6 +294,9 @@ pub(crate) fn init_states() -> AppStates {
         None => None,
     };
     let mut boot_resync = false;
+    if let Some(snapshot) = desk_snapshot.as_mut() {
+        reconcile_startup_teams(snapshot, &mut boot_resync);
+    }
     let mux_state_inner = match (storage.storage().is_some(), desk_snapshot.as_ref()) {
         (true, Some(snapshot)) if !snapshot.workspaces.is_empty() => {
             bound_at_shutdown = snapshot_role_bindings(snapshot);
@@ -487,6 +507,34 @@ fn initial_empty_desk_state(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn startup_drops_orphan_teams_and_requests_durable_resync() {
+        let (mux, _) = MultiplexerState::new();
+        let mut snapshot = mux.to_session_snapshot();
+        let workspace_id = snapshot.workspaces[0].id.clone();
+        let valid_team = codeterm_types::team::Team::new(workspace_id, 1);
+        let orphan_team = codeterm_types::team::Team::new("removed-workspace", 2);
+        let orphan_id = orphan_team.id.clone();
+        let valid_id = valid_team.id.clone();
+        snapshot.teams = vec![orphan_team, valid_team];
+        let mut boot_resync = false;
+
+        reconcile_startup_teams(&mut snapshot, &mut boot_resync);
+        let restored = MultiplexerState::from_session_snapshot(&snapshot);
+
+        assert!(boot_resync);
+        assert_eq!(
+            snapshot
+                .teams
+                .iter()
+                .map(|team| team.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![valid_id.as_str()]
+        );
+        assert!(restored.get_team(&orphan_id).is_none());
+        assert!(restored.get_team(&valid_id).is_some());
+    }
 
     #[test]
     fn storage_cutover_unavailable_startup_skips_default_workspace_and_rejects_persistence() {
