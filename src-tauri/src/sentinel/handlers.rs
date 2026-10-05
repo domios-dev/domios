@@ -332,7 +332,7 @@ impl Store {
         {
             return Staged::ready(Ok(false));
         }
-        if current.transitions.len() >= usize::from(current.max_transitions) {
+        if super::store::transition_budget_spent(current) {
             return self
                 .stage_stop(&job.id, "transition_budget_exhausted")
                 .map(|_| false);
@@ -344,7 +344,15 @@ impl Store {
             terminal: job.machine.stopped,
             handlers: Vec::new(),
         };
-        self.stage_finish_with(job, Some(transition))
+        let mut accepted = job.clone();
+        if matches!(
+            current.observe.as_ref(),
+            Some(super::source::TabBinding::CronRun(_))
+        ) && current.run.is_some()
+        {
+            accepted.run_transitions = current.run_transitions.saturating_add(1);
+        }
+        self.stage_finish_with(&accepted, Some(transition))
     }
 
     #[cfg(test)]

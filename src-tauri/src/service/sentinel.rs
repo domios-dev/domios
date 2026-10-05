@@ -22,12 +22,14 @@ pub(crate) struct SentinelCaller {
 impl SentinelCaller {
     fn owns(&self, job: &Sentinel) -> bool {
         job.creator_tab_id == self.tab
-            && job.team_id == self.team
+            && (job.team_id == self.team || (job.team_id.is_none() && self.team.is_some()))
             && job.workspace_id == self.workspace
     }
 
     fn can_amend(&self, job: &Sentinel) -> bool {
-        job.team_id == self.team && job.workspace_id == self.workspace
+        (job.team_id == self.team
+            || (job.team_id.is_none() && self.team.is_some() && job.creator_tab_id == self.tab))
+            && job.workspace_id == self.workspace
     }
 }
 
@@ -501,6 +503,36 @@ mod tests {
             ..caller.clone()
         }
         .can_amend(&job));
+
+        let solo = store
+            .create(
+                serde_json::from_value(serde_json::json!({
+                    "probe": "status",
+                    "question": "state",
+                    "buckets": ["done"],
+                    "every": "10s"
+                }))
+                .unwrap(),
+                crate::sentinel::store::Owner {
+                    creator_tab_id: "creator".into(),
+                    team_id: None,
+                    workspace_id: "workspace".into(),
+                    cwd: "/tmp".into(),
+                },
+                true,
+            )
+            .unwrap();
+        let formed_team_creator = SentinelCaller {
+            team: Some("formed-team".into()),
+            ..caller
+        };
+        assert!(formed_team_creator.owns(&solo));
+        assert!(formed_team_creator.can_amend(&solo));
+        assert!(!SentinelCaller {
+            tab: "worker".into(),
+            ..formed_team_creator
+        }
+        .can_amend(&solo));
     }
     #[test]
     fn sentinel_graph_tab_caller_keeps_current_nonce_and_creator_scope() {
