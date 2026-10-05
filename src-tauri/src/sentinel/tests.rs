@@ -180,6 +180,22 @@ fn sentinel_regex_fallback_without_adapter() {
 }
 
 #[test]
+fn sentinel_line_anchored_pattern_matches_crlf_probe_output() {
+    let patterns = BTreeMap::from([
+        ("passed".into(), "(?m)^passed$".into()),
+        ("waiting".into(), "(?m)^waiting$".into()),
+    ]);
+    let crlf = "exit=0\nstdout:\npassed\r\n\nstderr:\n";
+    assert_eq!(
+        regex_verdict_if_matched(&patterns, crlf),
+        Some(Verdict {
+            bucket: "passed".into(),
+            confidence: 1.0
+        })
+    );
+}
+
+#[test]
 fn sentinel_create_refused_without_adapter_or_pattern() {
     assert!(
         validate(&buckets(), &BTreeMap::new(), false, MIN_INTERVAL_MS)
