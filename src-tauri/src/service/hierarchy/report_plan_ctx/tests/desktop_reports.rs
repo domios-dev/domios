@@ -1,5 +1,6 @@
 use super::*;
 
+#[test]
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn authorized_taskless_reporter_persists_plan_evidence_and_reaches_owner_without_task_mutation() {
     let h = plan_evidence_harness();

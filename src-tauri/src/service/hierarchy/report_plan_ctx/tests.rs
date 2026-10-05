@@ -1071,5 +1071,3 @@ fn plan_evidence_harness() -> PlanEvidenceHarness {
         task_id,
     }
 }
-
-#[test]
