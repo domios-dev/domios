@@ -86,6 +86,7 @@ pub const REPORT_NEXT_COMMANDS: &[&str] = &[
     "STATUS: in_review",
     "CHANGES: files touched or 'none'",
     "TESTS RUN: exact isolated commands with counts and raw exits, or 'none'",
+    "TESTS COVERING CHANGES: covering-test commands with counts",
     "GATES REQUESTED: exact deferred selectors for canonical QA, or 'none'",
     "FOLLOWUP: Orchestrator reviews and closes the task",
     "EOF",

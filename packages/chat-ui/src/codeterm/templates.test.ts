@@ -120,6 +120,7 @@ const TASK = "task_" + "b".repeat(32);
     "STATUS: in_review",
     "CHANGES: cli/src/cmd/report_body.rs",
     "TESTS RUN: deferred to canonical QA",
+    "TESTS COVERING CHANGES: build test-one cli report_body 4 passed",
     "GATES REQUESTED: build test-one cli report_echo",
     "FOLLOWUP: orchestrator closes the task",
   ].join("\n");
@@ -127,6 +128,7 @@ const TASK = "task_" + "b".repeat(32);
     { label: "status", value: "in_review" },
     { label: "changes", value: "cli/src/cmd/report_body.rs" },
     { label: "tests", value: "deferred to canonical QA" },
+    { label: "tests covering changes", value: "build test-one cli report_body 4 passed" },
     { label: "gates requested", value: "build test-one cli report_echo" },
     { label: "followup", value: "orchestrator closes the task" },
     { label: "sha", value: "a56ee3e3b" },
@@ -151,7 +153,7 @@ const TASK = "task_" + "b".repeat(32);
   const ESCAPED = BODY.replace(/\n/g, "\\n");
   const escapedToday = describeAction(inv(`codeterm agent report --status in_review --sha a56ee3e3b "${ESCAPED}"`), "report_r1 recorded");
   const escapedEchoed = describeAction(inv(`codeterm agent report --status in_review --sha a56ee3e3b "${ESCAPED}"`), `report_r1 recorded\nCODETERM_RESOLVED_TEXT=${JSON.stringify(ESCAPED)}`);
-  assert(JSON.stringify(escapedToday.fields) === EXPECTED && JSON.stringify(escapedEchoed.fields) === EXPECTED, "an inline body carrying literal \\n escapes renders the same five fields with and without the echo");
+  assert(JSON.stringify(escapedToday.fields) === EXPECTED && JSON.stringify(escapedEchoed.fields) === EXPECTED, "an inline body carrying literal \\n escapes renders the same body fields with and without the echo");
 
   const redacted = describeAction(inv(`codeterm agent report --status in_review --from-pad report.md`), `ok\nCODETERM_RESOLVED_TEXT=${JSON.stringify("STATUS: in_review\nCHANGES: API_TOKEN=***REDACTED***")}`);
   assert(redacted.fields?.some((f) => f.label === "changes" && f.value === "API_TOKEN=***REDACTED***"), "the card renders whatever the CLI redacted, never a second unredacted source");

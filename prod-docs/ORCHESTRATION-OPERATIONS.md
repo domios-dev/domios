@@ -24,8 +24,8 @@ parallel writers apart and diffs reviewable, while canonical stays warm for the
 runs that rebuild everything.
 
 Workers in lanes implement source, author coverage, and may run isolated checks
-that do not rebuild the whole project: a type check, a single test file, a
-linter, or the focused tests of a small standalone package, through the
+that do not rebuild the whole project: a type check, the tests covering the
+change, a linter, or the focused tests of a small standalone package, through the
 project's build queue when it has one. A check that needs the whole project or
 its main application unit built is a full rebuild and is left to canonical. The
 Worker judges this per project, names each check's category, and reports exact
@@ -49,6 +49,12 @@ integration branch and reports its commit ids with a clean tree; the CLI checks
 the SHA against canonical for this placement, and any dirty report is refused,
 even with `--acknowledge-dirty`; that is a bounce. Accept or bounce it before
 merging any lane.
+
+Before accepting, read the report's TESTS COVERING CHANGES line. A missing
+line, or a covering test the Worker left broken or unlisted, is a bounce whose
+note names the test and its failure (`plan review bounce <plan> <task> --note`),
+so the reason stays recorded on the task. Its author fixes it in the same lane;
+you do not patch it, and it is never a follow-up task.
 
 Judge the report and the diff, accept on review, and real-merge. Then rerun the
 deferred and focused selectors of the whole merged wave as one canonical QA
@@ -231,4 +237,4 @@ advises only `codeterm team adopt-plan <team-id> <plan>`, which clears the flag.
 A workspace close passes its `force` through as `force_busy`. A workspace with
 no tabs and no Teams closes for any caller, even without tab identity.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
