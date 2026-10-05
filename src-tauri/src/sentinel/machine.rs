@@ -337,12 +337,14 @@ pub fn regex_verdict_if_matched(
     patterns: &BTreeMap<String, String>,
     output: &str,
 ) -> Option<Verdict> {
+    // Windows probes end lines with CRLF, and `(?m)$` only matches before `\n`.
+    let output = output.replace("\r\n", "\n");
     let matches: Vec<_> = patterns
         .iter()
         .filter_map(|(bucket, pattern)| {
             regex::Regex::new(pattern)
                 .ok()
-                .filter(|regex| regex.is_match(output))
+                .filter(|regex| regex.is_match(&output))
                 .map(|_| bucket.clone())
         })
         .collect();
