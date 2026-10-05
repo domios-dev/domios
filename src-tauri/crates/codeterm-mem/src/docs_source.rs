@@ -42,6 +42,7 @@ macro_rules! embedded_docs {
 
 const DOCS: &[EmbeddedDoc] = embedded_docs![
     "SENTINELS",
+    "SENTINEL-RECIPES",
     "CONFIG",
     "NOTIFICATIONS",
     "INTEGRATIONS",
