@@ -124,6 +124,7 @@ pub struct HandlerDefinition {
 pub struct BucketDefinition {
     pub name: String,
     pub match_pattern: Option<String>,
+    pub rearm_on_change: bool,
     pub handlers: Vec<HandlerDefinition>,
 }
 

@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::Ordering;
 
 use serde::{Deserialize, Serialize};
@@ -23,6 +23,8 @@ pub struct DefinitionSnapshot {
     pub buckets: Vec<String>,
     pub routes: BTreeMap<String, Vec<Handler>>,
     pub matches: BTreeMap<String, String>,
+    #[serde(default)]
+    pub rearm_on_change: BTreeSet<String>,
     pub until: Option<String>,
     pub max_transitions: u16,
     pub max_actions: u16,
@@ -78,6 +80,8 @@ pub struct Update {
     pub routes: BTreeMap<String, String>,
     #[serde(default)]
     pub matches: BTreeMap<String, String>,
+    #[serde(default)]
+    pub rearm_on_change: BTreeSet<String>,
     pub until: Option<String>,
     pub handlers: Option<BTreeMap<String, Vec<Definition>>>,
     #[serde(default)]
@@ -122,8 +126,12 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
                 .previous_definition
                 .as_ref()
                 .is_some_and(|definition| {
-                    serde_json::to_vec(definition)
-                        .map_or(true, |bytes| bytes.len() > MAX_UPDATE_BYTES)
+                    definition
+                        .rearm_on_change
+                        .iter()
+                        .any(|bucket| !definition.buckets.contains(bucket))
+                        || serde_json::to_vec(definition)
+                            .map_or(true, |bytes| bytes.len() > MAX_UPDATE_BYTES)
                 })
         {
             return Err("invalid sentinel amendment lineage".into());
@@ -152,6 +160,7 @@ impl DefinitionSnapshot {
             buckets: job.buckets.clone(),
             routes: job.routes.clone(),
             matches: job.matches.clone(),
+            rearm_on_change: job.rearm_on_change.clone(),
             until: job.until.clone(),
             max_transitions: job.max_transitions,
             max_actions: job.max_actions,
@@ -178,6 +187,13 @@ impl Update {
         }
         let interval_ms = super::store::duration_ms(&self.every)?;
         machine::validate(&self.buckets, &self.matches, connected, interval_ms)?;
+        if self
+            .rearm_on_change
+            .iter()
+            .any(|bucket| !self.buckets.contains(bucket))
+        {
+            return Err("rearm_on_change must name declared buckets".into());
+        }
         if self
             .until
             .as_ref()
@@ -229,6 +245,7 @@ impl Update {
         job.interval_ms = interval_ms;
         job.routes = routes;
         job.matches = self.matches;
+        job.rearm_on_change = self.rearm_on_change;
         job.until = self.until;
         job.max_transitions = self.max_transitions;
         job.max_actions = self.max_actions;
@@ -301,6 +318,7 @@ impl Store {
         next.interval_ms = update.job.interval_ms;
         next.routes = update.job.routes;
         next.matches = update.job.matches;
+        next.rearm_on_change = update.job.rearm_on_change;
         next.until = update.job.until;
         next.max_transitions = update.job.max_transitions;
         next.max_actions = update.job.max_actions;
