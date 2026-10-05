@@ -37,10 +37,13 @@ pub async fn cron_list(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Query(query): Query<std::collections::HashMap<String, String>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let ws_id = query.get("workspace_id").map(|s| s.as_str());
-    let jobs = state.svc.cron_list(&state.cron, ws_id);
+    let jobs = state
+        .svc
+        .cron_list(&state.cron, ws_id)
+        .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error))?;
     Ok(Json(serde_json::to_value(jobs).unwrap()))
 }
 
@@ -48,12 +51,12 @@ pub async fn cron_get(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let job = state
         .svc
         .cron_get(&state.cron, &id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
+        .map_err(|error| cron_read_error(error))?;
     Ok(Json(serde_json::to_value(job).unwrap()))
 }
 
@@ -189,13 +192,21 @@ pub async fn cron_history(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let history = state
         .svc
         .cron_history(&state.cron, &id)
-        .map_err(|_| (StatusCode::NOT_FOUND, "Cron job not found"))?;
+        .map_err(cron_read_error)?;
     Ok(Json(serde_json::to_value(history).unwrap()))
+}
+
+fn cron_read_error(error: String) -> (StatusCode, String) {
+    if error.starts_with("cron storage unavailable:") {
+        (StatusCode::SERVICE_UNAVAILABLE, error)
+    } else {
+        (StatusCode::NOT_FOUND, error)
+    }
 }
 
 #[cfg(test)]

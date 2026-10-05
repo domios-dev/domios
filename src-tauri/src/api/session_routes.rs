@@ -272,17 +272,22 @@ async fn persisted_resume_identity(
     provider: &str,
     session_id: &str,
 ) -> Option<ResumableIdentity> {
-    let session = state
+    let storage = state
         .svc
         .app_handle
-        .try_state::<crate::session::SessionState>()?
+        .try_state::<crate::startup::StorageAuthority>()?
         .inner()
+        .storage()?
         .clone();
+    let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage);
     let provider = provider.to_string();
     let session_id = session_id.to_string();
     let persisted = tokio::task::spawn_blocking(move || {
-        let store = session.lock();
-        store.load_agent_session_identity(&provider, &session_id)
+        adapter
+            .identity_catalog()
+            .ok()?
+            .into_iter()
+            .find(|identity| identity.provider == provider && identity.session_id == session_id)
     })
     .await
     .ok()??;

@@ -8,7 +8,6 @@ use tauri::{Emitter, Manager};
 
 use crate::multiplexer::commands::MuxState;
 use crate::session::store::{SaveIntent, SaveOutcome};
-use crate::session::SessionState;
 
 const PERSISTENCE_DEADLINE: Duration = Duration::from_secs(30);
 
@@ -114,12 +113,9 @@ impl PersistenceMailbox {
 
 struct PersistenceContext {
     app: tauri::AppHandle,
-    mux: MuxState,
-    session: SessionState,
 }
 
 enum PersistenceBackend {
-    Json,
     Storage {
         adapter: crate::session::store::StorageDeskAdapter,
         revision: codeterm_storage::Revision,
@@ -158,6 +154,21 @@ pub(crate) fn submit_session_snapshot_with_intent(
     worker.submit_current(mux, intent, false).map(|_| ())
 }
 
+pub(crate) fn write_captured_snapshot_with_live_identities(
+    app: &tauri::AppHandle,
+    mux: &MuxState,
+    captured: &crate::session::SessionSnapshot,
+    intent: SaveIntent,
+) -> Result<SaveOutcome, String> {
+    let live = mux.read().to_session_snapshot();
+    let mut snapshot = captured.clone();
+    merge_live_agent_identities(&mut snapshot, &live);
+    let worker = ensure_worker(app)?;
+    worker
+        .submit_snapshot(snapshot, intent, true)?
+        .ok_or_else(|| "desk persistence barrier returned no outcome".to_string())
+}
+
 pub(crate) fn install_storage_desk_adapter(
     app: &tauri::AppHandle,
     adapter: crate::session::store::StorageDeskAdapter,
@@ -191,21 +202,7 @@ fn ensure_worker(app: &tauri::AppHandle) -> Result<SessionPersistenceWorker, Str
     if let Some(worker) = app.try_state::<SessionPersistenceWorker>() {
         return Ok(worker.inner().clone());
     }
-    let mux = app
-        .try_state::<MuxState>()
-        .ok_or_else(|| "Multiplexer state not registered".to_string())?
-        .inner()
-        .clone();
-    let session = app
-        .try_state::<SessionState>()
-        .ok_or_else(|| "SessionState not registered".to_string())?
-        .inner()
-        .clone();
-    let context = PersistenceContext {
-        app: app.clone(),
-        mux,
-        session,
-    };
+    let context = PersistenceContext { app: app.clone() };
     let mailbox = Arc::new(PersistenceMailbox::default());
     let worker = SessionPersistenceWorker {
         mailbox: mailbox.clone(),
@@ -216,8 +213,15 @@ fn ensure_worker(app: &tauri::AppHandle) -> Result<SessionPersistenceWorker, Str
         let thread_mailbox = mailbox.clone();
         match std::thread::Builder::new()
             .name("desk-persistence".into())
-            .spawn(move || run_worker(thread_mailbox, Some(context), PersistenceBackend::Json))
-        {
+            .spawn(move || {
+                run_worker(
+                    thread_mailbox,
+                    Some(context),
+                    PersistenceBackend::Unavailable(
+                        "Storage desk backend is not initialized".to_string(),
+                    ),
+                )
+            }) {
             Ok(_) => Ok(worker),
             Err(error) => {
                 let reason = format!("desk persistence worker failed to start: {error}");
@@ -247,7 +251,6 @@ impl SessionPersistenceWorker {
         wait_for_completion(completion)
     }
 
-    #[cfg(test)]
     fn submit_snapshot(
         &self,
         snapshot: crate::session::SessionSnapshot,
@@ -316,11 +319,7 @@ fn run_worker(
                 let result = if latest.revision <= committed_submission {
                     Ok(last_outcome.clone())
                 } else {
-                    commit_request(
-                        context.as_ref(),
-                        &mut backend,
-                        latest,
-                    )
+                    commit_request(context.as_ref(), &mut backend, latest)
                 };
                 match &result {
                     Ok(SaveOutcome::Saved) => {
@@ -340,29 +339,24 @@ fn run_worker(
                     let _ = response.send(result.clone());
                 }
             }
-            WorkerMessage::InstallStorage(adapter) => {
-                backend = PersistenceBackend::Unavailable(
-                    "storage desk backend is initializing".to_string(),
-                );
-                match adapter.state() {
-                    Ok(state) => {
-                        if let Some(context) = context.as_ref() {
-                            let _ = context
-                                .app
-                                .emit("desk-revision-committed", state.revision.to_string());
-                        }
-                        backend = PersistenceBackend::Storage {
-                            adapter,
-                            revision: state.revision,
-                        };
+            WorkerMessage::InstallStorage(adapter) => match adapter.state() {
+                Ok(state) => {
+                    if let Some(context) = context.as_ref() {
+                        let _ = context
+                            .app
+                            .emit("desk-revision-committed", state.revision.to_string());
                     }
-                    Err(error) => {
-                        let reason = format!("storage desk backend unavailable: {error}");
-                        log::error!("[session-persist] {reason}");
-                        backend = PersistenceBackend::Unavailable(reason);
-                    }
+                    backend = PersistenceBackend::Storage {
+                        adapter,
+                        revision: state.revision,
+                    };
                 }
-            }
+                Err(error) => {
+                    let reason = format!("storage desk backend unavailable: {error}");
+                    log::error!("[session-persist] {reason}");
+                    backend = PersistenceBackend::Unavailable(reason);
+                }
+            },
             WorkerMessage::Unavailable(reason) => {
                 backend = PersistenceBackend::Unavailable(reason);
             }
@@ -381,29 +375,71 @@ fn commit_request(
     request: &PersistRequest,
 ) -> Result<SaveOutcome, String> {
     match backend {
-        PersistenceBackend::Json => {
-            let context = context
-                .ok_or_else(|| "JSON persistence context is unavailable".to_string())?;
-            let outcome = crate::session::save_captured_snapshot_with_live_identities(
-                &context.session,
-                &context.mux,
-                &request.snapshot,
-                request.intent,
-            )?;
-            crate::session::scrollback_sync::sync_scrollback_sidecars_after_save(
-                &context.app,
-                &outcome,
-            );
-            Ok(outcome)
-        }
         PersistenceBackend::Storage { adapter, revision } => {
-            let context = context
-                .ok_or_else(|| "Storage persistence context is unavailable".to_string())?;
+            let context =
+                context.ok_or_else(|| "Storage persistence context is unavailable".to_string())?;
             commit_storage_snapshot(adapter, revision, request, &context.app)
         }
         PersistenceBackend::Unavailable(reason) => Err(reason.clone()),
         #[cfg(test)]
         PersistenceBackend::Test(writer) => writer(request.revision),
+    }
+}
+
+fn merge_live_agent_identities(
+    snapshot: &mut crate::session::SessionSnapshot,
+    live: &crate::session::SessionSnapshot,
+) {
+    use crate::session::store::{AgentIdentitySnapshot, SplitNodeSnapshot};
+    use std::collections::HashMap;
+
+    fn collect(node: &SplitNodeSnapshot, identities: &mut HashMap<String, AgentIdentitySnapshot>) {
+        match node {
+            SplitNodeSnapshot::Leaf {
+                tab_id,
+                agent_identity: Some(identity),
+                ..
+            } => {
+                identities.insert(tab_id.clone(), identity.clone());
+            }
+            SplitNodeSnapshot::Leaf { .. } => {}
+            SplitNodeSnapshot::Split { children, .. } => {
+                for child in children {
+                    collect(child, identities);
+                }
+            }
+        }
+    }
+
+    fn apply(node: &mut SplitNodeSnapshot, identities: &HashMap<String, AgentIdentitySnapshot>) {
+        match node {
+            SplitNodeSnapshot::Leaf {
+                tab_id,
+                agent_identity,
+                ..
+            } => {
+                if let Some(identity) = identities.get(tab_id) {
+                    *agent_identity = Some(identity.clone());
+                }
+            }
+            SplitNodeSnapshot::Split { children, .. } => {
+                for child in children {
+                    apply(child, identities);
+                }
+            }
+        }
+    }
+
+    let mut identities = HashMap::new();
+    for workspace in &live.workspaces {
+        for tab in &workspace.tabs {
+            collect(&tab.split_tree, &mut identities);
+        }
+    }
+    for workspace in &mut snapshot.workspaces {
+        for tab in &mut workspace.tabs {
+            apply(&mut tab.split_tree, &identities);
+        }
     }
 }
 
@@ -532,18 +568,15 @@ impl super::ServiceContext {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
-    use crate::lock_hold::TimedRwLock;
-    use crate::multiplexer::state::MultiplexerState;
-    use crate::session::store::SessionStore;
-    use parking_lot::Mutex;
+    use crate::storage::{Storage, StorageConfig};
     use std::sync::mpsc::TryRecvError;
     use std::sync::Arc;
-    use tempfile::TempDir;
 
-    fn test_store(dir: &TempDir) -> SessionStore {
-        SessionStore::for_test_dir(dir.path().to_path_buf())
+    fn test_adapter(root: &std::path::Path) -> crate::session::store::StorageDeskAdapter {
+        let storage = Storage::open(root, StorageConfig::default()).expect("Storage owner");
+        crate::session::store::StorageDeskAdapter::from_storage(storage)
     }
 
     fn test_worker(
@@ -555,16 +588,38 @@ mod tests {
             next_revision: Arc::new(AtomicU64::new(0)),
             submission_order: Arc::new(parking_lot::Mutex::new(())),
         };
-        std::thread::spawn(move || run_worker(mailbox, None, PersistenceBackend::Test(Box::new(writer))));
+        std::thread::spawn(move || {
+            run_worker(mailbox, None, PersistenceBackend::Test(Box::new(writer)))
+        });
         worker
     }
 
     fn stop_test_worker(worker: &SessionPersistenceWorker) {
         let (response, completion) = mpsc::channel();
-        worker
-            .configure(WorkerMessage::Stop(response))
-            .unwrap();
+        worker.configure(WorkerMessage::Stop(response)).unwrap();
         completion.recv_timeout(Duration::from_secs(5)).unwrap();
+    }
+
+    pub(crate) fn assert_unavailable_rejects_persistence_without_a_commit() {
+        let (commit_tx, commit_rx) = mpsc::channel();
+        let worker = test_worker(move |revision| {
+            commit_tx.send(revision).unwrap();
+            Ok(SaveOutcome::Saved)
+        });
+        worker
+            .configure(WorkerMessage::Unavailable("Storage unavailable".into()))
+            .unwrap();
+
+        let error = worker
+            .submit_snapshot(test_snapshot(1), SaveIntent::PreserveDesk, true)
+            .unwrap_err();
+
+        assert_eq!(error, "Storage unavailable");
+        assert!(matches!(
+            commit_rx.try_recv(),
+            Err(TryRecvError::Empty | TryRecvError::Disconnected)
+        ));
+        stop_test_worker(&worker);
     }
 
     fn test_snapshot(revision: u64) -> crate::session::SessionSnapshot {
@@ -645,11 +700,7 @@ mod tests {
             .unwrap();
         let barrier_worker = worker.clone();
         let barrier = runtime.spawn_blocking(move || {
-            barrier_worker.submit_snapshot(
-                test_snapshot(1),
-                SaveIntent::PreserveDesk,
-                true,
-            )
+            barrier_worker.submit_snapshot(test_snapshot(1), SaveIntent::PreserveDesk, true)
         });
 
         runtime.block_on(async move {
@@ -741,49 +792,9 @@ mod tests {
     }
 
     #[test]
-    fn rename_workspace_persisted_promptly_to_disk() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(Mutex::new(test_store(&dir)));
-        let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
-        let ws = mux.write().create_workspace("before".to_string(), None);
-
-        mux.write()
-            .rename_workspace(&ws.id, "after-rename")
-            .unwrap();
-        let snapshot = mux.read().to_session_snapshot();
-        store.lock().save(&snapshot).unwrap();
-
-        let loaded = store.lock().load_last().unwrap().expect("snapshot on disk");
-        let ws_snap = loaded
-            .workspaces
-            .iter()
-            .find(|w| w.id == ws.id)
-            .expect("workspace in snapshot");
-        assert_eq!(ws_snap.name, "after-rename");
-    }
-
-    #[test]
-    fn rename_tab_persisted_promptly_to_disk() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = Arc::new(Mutex::new(test_store(&dir)));
-        let mux: MuxState = Arc::new(TimedRwLock::new("mux", MultiplexerState::empty()));
-        let ws = mux.write().create_workspace("ws".to_string(), None);
-        let tab_id = mux.write().create_tab(&ws.id).unwrap();
-
-        mux.write().rename_tab(&tab_id, "renamed-tab").unwrap();
-        let snapshot = mux.read().to_session_snapshot();
-        store.lock().save(&snapshot).unwrap();
-
-        let loaded = store.lock().load_last().unwrap().expect("snapshot on disk");
-        let ws_snap = loaded.workspaces.iter().find(|w| w.id == ws.id).unwrap();
-        let tab = ws_snap.tabs.iter().find(|t| t.id == tab_id).unwrap();
-        assert_eq!(tab.title, "renamed-tab");
-    }
-
-    #[test]
     fn storage_desk_app_adapter_imports_and_flushes_exact_selection() {
         let root = tempfile::tempdir().unwrap();
-        let adapter = crate::session::store::StorageDeskAdapter::open(root.path()).unwrap();
+        let adapter = test_adapter(root.path());
         let snapshot = crate::session::store::SessionSnapshot {
             version: "test".into(),
             timestamp: 17,
@@ -871,7 +882,7 @@ mod tests {
     #[test]
     fn desk_delta_rename_touches_three_rows_in_a_large_inventory() {
         let root = tempfile::tempdir().unwrap();
-        let adapter = crate::session::store::StorageDeskAdapter::open(root.path()).unwrap();
+        let adapter = test_adapter(root.path());
         let mut snapshot = desk_delta_snapshot(512);
         adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
         let initial = adapter.state().unwrap();
@@ -897,7 +908,7 @@ mod tests {
     #[test]
     fn desk_delta_adjacent_reorder_touches_constant_rows_in_a_large_inventory() {
         let root = tempfile::tempdir().unwrap();
-        let adapter = crate::session::store::StorageDeskAdapter::open(root.path()).unwrap();
+        let adapter = test_adapter(root.path());
         let mut snapshot = desk_delta_snapshot(512);
         adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
         let initial = adapter.state().unwrap();
@@ -925,7 +936,7 @@ mod tests {
     #[test]
     fn desk_delta_preserves_omissions_and_rejects_stale_reduction() {
         let root = tempfile::tempdir().unwrap();
-        let adapter = crate::session::store::StorageDeskAdapter::open(root.path()).unwrap();
+        let adapter = test_adapter(root.path());
         let mut snapshot = desk_delta_snapshot(2);
         adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
         let initial = adapter.state().unwrap();
@@ -974,7 +985,7 @@ mod tests {
     #[test]
     fn desk_delta_authorized_reduction_applies_a_workspace_close() {
         let root = tempfile::tempdir().unwrap();
-        let adapter = crate::session::store::StorageDeskAdapter::open(root.path()).unwrap();
+        let adapter = test_adapter(root.path());
         let mut snapshot = desk_delta_snapshot(2);
         adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
         let initial = adapter.state().unwrap();

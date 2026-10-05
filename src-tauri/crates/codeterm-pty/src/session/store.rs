@@ -1,5 +1,6 @@
 use codeterm_types::team::Team;
 use serde::{Deserialize, Serialize};
+#[cfg(test)]
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -110,6 +111,7 @@ pub struct PersistedAgentSessionIdentity {
     pub can_spawn: bool,
 }
 
+#[cfg(test)]
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct AgentSessionIdentityCatalog {
     #[serde(default)]
@@ -236,6 +238,7 @@ pub enum SplitNodeSnapshot {
     },
 }
 
+#[cfg(test)]
 const MAX_REDUCED_QUARANTINE: usize = 20;
 
 /// Whether a snapshot that drops workspaces/tabs vs the persisted state may be
@@ -302,10 +305,12 @@ impl SessionStore {
         Self { session_dir: dir }
     }
 
+    #[cfg(test)]
     pub fn save(&self, snapshot: &SessionSnapshot) -> Result<SaveOutcome, String> {
         self.save_with_intent(snapshot, SaveIntent::PreserveDesk)
     }
 
+    #[cfg(test)]
     pub fn save_with_intent(
         &self,
         snapshot: &SessionSnapshot,
@@ -333,6 +338,7 @@ impl SessionStore {
     /// Some(refusal) when `snapshot` drops workspaces/tabs vs the persisted
     /// `last.json`; the rejected snapshot is quarantined next to it and the
     /// refusal logged at error before returning.
+    #[cfg(test)]
     fn detect_reducing_snapshot(&self, snapshot: &SessionSnapshot) -> Option<ReductionRefusal> {
         let path = self.session_dir.join("last.json");
         let Ok(json) = fs::read_to_string(&path) else {
@@ -382,6 +388,7 @@ impl SessionStore {
         Some(refusal)
     }
 
+    #[cfg(test)]
     fn quarantine_reduced_snapshot(&self, snapshot: &SessionSnapshot) -> String {
         let epoch_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -402,6 +409,7 @@ impl SessionStore {
         }
     }
 
+    #[cfg(test)]
     fn evict_old_reduced_quarantine(&self) {
         let mut entries: Vec<_> = fs::read_dir(&self.session_dir)
             .into_iter()
@@ -423,6 +431,7 @@ impl SessionStore {
         }
     }
 
+    #[cfg(test)]
     pub fn load_agent_session_identity(
         &self,
         provider: &str,
@@ -434,6 +443,7 @@ impl SessionStore {
             .cloned()
     }
 
+    #[cfg(test)]
     fn merge_agent_session_identities(&self, snapshot: &SessionSnapshot) -> Result<(), String> {
         let mut catalog = self.load_agent_session_identity_catalog();
         for workspace in &snapshot.workspaces {
@@ -462,6 +472,7 @@ impl SessionStore {
         Ok(())
     }
 
+    #[cfg(test)]
     fn load_agent_session_identity_catalog(&self) -> AgentSessionIdentityCatalog {
         let path = self.session_dir.join("agent-session-identities.json");
         let backup = self.session_dir.join("agent-session-identities.json.bak");
@@ -481,6 +492,7 @@ impl SessionStore {
         AgentSessionIdentityCatalog::default()
     }
 
+    #[cfg(test)]
     fn rotate_backup(&self, last_json: &std::path::Path) -> Result<(), String> {
         let backup_dir = self.session_dir.join("backups");
         let _ = fs::create_dir_all(&backup_dir);
@@ -496,6 +508,7 @@ impl SessionStore {
         Ok(())
     }
 
+    #[cfg(test)]
     fn evict_old_backups(&self, backup_dir: &std::path::Path) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -615,6 +628,7 @@ impl SessionStore {
         Ok(None)
     }
 
+    #[cfg(test)]
     pub fn save_named(&self, name: &str, snapshot: &SessionSnapshot) -> Result<(), String> {
         let safe_name = name.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|'], "_");
         if safe_name == "agent-session-identities" {
@@ -659,6 +673,7 @@ impl SessionStore {
             .collect())
     }
 
+    #[cfg(test)]
     pub fn delete_saved(&self, name: &str) -> Result<(), String> {
         if name == "agent-session-identities" {
             return Err("reserved session identity catalog".into());
@@ -671,10 +686,12 @@ impl SessionStore {
     }
 }
 
+#[cfg(test)]
 fn agent_session_identity_key(provider: &str, session_id: &str) -> String {
     format!("{}:{provider}{session_id}", provider.len())
 }
 
+#[cfg(test)]
 fn collect_agent_session_identities(
     node: &SplitNodeSnapshot,
     sessions: &mut HashMap<String, PersistedAgentSessionIdentity>,
@@ -879,6 +896,7 @@ fn parse_tab_record(
 }
 
 pub mod legacy_decode;
+#[cfg(test)]
 mod retention;
 mod storage_adapter;
 

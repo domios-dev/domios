@@ -145,8 +145,11 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     }
 
     fn workspace_tabs_json(&self, workspace_id: &str) -> String {
-        let tabs: Vec<serde_json::Value> = self
-            .list_workspaces()
+        let workspaces = match self.list_workspaces() {
+            Ok(workspaces) => workspaces,
+            Err(error) => return err(error),
+        };
+        let tabs: Vec<serde_json::Value> = workspaces
             .into_iter()
             .find(|w| w.id == workspace_id)
             .map(|w| {

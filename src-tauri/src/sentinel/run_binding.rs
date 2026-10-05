@@ -1,10 +1,10 @@
-use tauri::Manager;
 use super::source::{self, RunBinding, TabBinding};
 use super::storage::Staged;
 use super::store::{Sentinel, Store};
 use crate::cron::store::{CronJob, CronRunInfo, CronRunStatus};
 use crate::service::ServiceContext;
 use serde_json::{json, Value};
+use tauri::Manager;
 
 const MAX_CRON_EVENT_BYTES: usize = 1024;
 
@@ -342,7 +342,7 @@ impl Store {
             tab_id: tab_id.to_string(),
             bound_at: now,
         };
-        if self.backend.json().is_none() {
+        if !self.backend.is_json() {
             return self.sqlite_set_run_binding(
                 id,
                 current.revision,
@@ -359,7 +359,7 @@ impl Store {
         let previous_wake = self.wake_pending.remove(id);
         let previous = self.jobs[position].clone();
         reset_for_binding(&mut self.jobs[position], Some(run), revision, now, reason);
-        if let Err(error) = self.save() {
+        if let Err(error) = self.save_legacy() {
             self.jobs[position] = previous;
             if previous_wake {
                 self.wake_pending.insert(id.to_string());
@@ -404,7 +404,7 @@ impl Store {
         };
         let bound = bound.clone();
         let now = self.clock.now_ms();
-        if self.backend.json().is_none() {
+        if !self.backend.is_json() {
             let staged = self.sqlite_set_run_binding(
                 id,
                 current.revision,
@@ -428,7 +428,7 @@ impl Store {
             now,
             Some(reason.to_string()),
         );
-        if let Err(error) = self.save() {
+        if let Err(error) = self.save_legacy() {
             self.jobs[position] = previous;
             if previous_wake {
                 self.wake_pending.insert(id.to_string());

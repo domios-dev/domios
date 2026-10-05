@@ -504,7 +504,7 @@ impl Store {
             Ok(ids) => ids,
             Err(error) => return Staged::ready(Err(error)),
         };
-        if self.backend.json().is_none() {
+        if !self.backend.is_json() {
             return self.sqlite_insert(job, &association_ids);
         }
         let previous = self.jobs.clone();
@@ -516,7 +516,7 @@ impl Store {
             child.scenario_id = job.scenario_id.clone();
         }
         self.jobs.push(job.clone());
-        if let Err(error) = self.save() {
+        if let Err(error) = self.save_legacy() {
             self.jobs = previous;
             return Staged::ready(Err(error));
         }
@@ -592,13 +592,13 @@ impl Store {
         if let Some(cancelled) = self.active.remove(id) {
             cancelled.store(true, Ordering::SeqCst);
         }
-        if self.backend.json().is_none() {
+        if !self.backend.is_json() {
             return self.sqlite_stop(id, reason);
         }
         let Some(stopped) = self.apply_stop(id, reason) else {
             return Staged::ready(Err(format!("sentinel not found: {id}")));
         };
-        Staged::ready(self.save().map(|()| stopped))
+        Staged::ready(self.save_legacy().map(|()| stopped))
     }
 
     /// The in-memory stop; callers cancel the live lease themselves.
@@ -626,7 +626,7 @@ impl Store {
                 cancelled.store(true, Ordering::SeqCst);
             }
         }
-        if self.backend.json().is_none() {
+        if !self.backend.is_json() {
             return self.sqlite_remove_team(team);
         }
         let removed: BTreeSet<_> = self
@@ -637,7 +637,7 @@ impl Store {
             .collect();
         self.jobs.retain(|job| job.team_id.as_deref() != Some(team));
         self.wake_pending.retain(|id| !removed.contains(id));
-        Staged::ready(self.save())
+        Staged::ready(self.save_legacy())
     }
 
     #[cfg(test)]
@@ -654,7 +654,7 @@ impl Store {
             return Staged::ready(Err(error));
         }
         let now = self.clock.now_ms();
-        if self.backend.json().is_none() {
+        if !self.backend.is_json() {
             let mut planned = self.jobs.clone();
             let (due, changes, consumed_wakes) =
                 plan_due(&mut planned, &mut self.active, &mut self.wake_pending, now);
@@ -669,7 +669,7 @@ impl Store {
             now,
         );
         if !changes.is_empty() {
-            if let Err(error) = self.save() {
+            if let Err(error) = self.save_legacy() {
                 for lease in &due {
                     lease.cancelled.store(true, Ordering::SeqCst);
                     self.active.remove(&lease.job.id);
@@ -765,13 +765,13 @@ impl Store {
         {
             return Staged::ready(Ok(false));
         }
-        if self.backend.json().is_none() {
+        if !self.backend.is_json() {
             return self.sqlite_finish(job, transition);
         }
         if let Some(current) = self.jobs.iter_mut().find(|current| current.id == job.id) {
             apply_finish(current, job, transition);
         }
-        if let Err(error) = self.save() {
+        if let Err(error) = self.save_legacy() {
             if let Some(current) = self.jobs.iter_mut().find(|current| current.id == job.id) {
                 current.machine.stopped = true;
                 current.last_reason = Some("persistence_failed".into());
@@ -841,7 +841,7 @@ impl Store {
             Ok(false) => return Staged::ready(Ok(false)),
             Err(error) => return Staged::ready(Err(error)),
         }
-        if self.backend.json().is_none() {
+        if !self.backend.is_json() {
             return self.sqlite_activate(source, transition, id);
         }
         let previous = self.jobs.clone();
@@ -850,7 +850,7 @@ impl Store {
         };
         target.machine.paused = false;
         target.revision += 1;
-        if let Err(error) = self.save() {
+        if let Err(error) = self.save_legacy() {
             self.jobs = previous;
             return Staged::ready(Err(error));
         }
