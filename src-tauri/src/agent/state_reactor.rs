@@ -11,7 +11,7 @@ use super::status::TabStatus;
 use super::tab_state::{
     Surface, TabState, TabStateAction, TabStateClassification, TabStateSnapshot,
 };
-use crate::service::ServiceContext;
+use crate::service::{ServiceContext, ServiceState};
 
 /// Minimum confidence an actionable verdict must clear — the no-false-positive gate.
 pub const GLOBAL_THRESHOLD: f32 = 0.8;
@@ -295,7 +295,7 @@ pub(crate) fn classify_adopted_launch_screen(svc: &ServiceContext, tab_id: &str,
     }
 }
 
-fn surface_adopted_screen_prompt(svc: &ServiceState, tab_id: &str, agent_type: &str, screen: &str) {
+fn surface_adopted_screen_prompt(svc: &ServiceContext, tab_id: &str, agent_type: &str, screen: &str) {
     let Some((prompt, prompt_kind)) = crate::agent::prompt::parse_prompt_safely(|| {
         svc.agent_registry
             .parse_interactive_prompt(agent_type, screen)
@@ -336,7 +336,7 @@ fn decide_prompt_chain(
 }
 
 fn route_classified_prompt(
-    svc: &ServiceState,
+    svc: &ServiceContext,
     tab_id: &str,
     agent_type: &str,
     screen: &str,
@@ -593,7 +593,7 @@ fn schedule_resume(svc: &ServiceState, tab_id: &str, resume: &super::tab_state::
 }
 
 /// Surface a verdict to the user as a chat-card event.
-fn surface_to_user(svc: &ServiceState, tab_id: &str, surface: Option<Surface>) {
+fn surface_to_user(svc: &ServiceContext, tab_id: &str, surface: Option<Surface>) {
     let (kind, payload) = match &surface {
         Some(s) => (s.kind.clone(), s.payload.clone()),
         None => ("tab_state".to_string(), serde_json::Value::Null),
