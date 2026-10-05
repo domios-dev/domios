@@ -53,11 +53,12 @@ fn enriched_message_orders_segments() {
 #[test]
 fn inbound_webhook_pebble_pty_and_chatbackend_metadata_are_originated_as_pebble() {
     let envelope = MessageEnvelope::pebble();
-    let marker = Messenger::from(envelope.clone()).build();
-    let parsed = codeterm_types::domios::parse_message(&marker).expect("pebble tag parses");
+    let marker = Messenger::from(envelope.clone()).wrap("focus enabled");
+    let parsed = codeterm_types::domios::parse_message(&marker).expect("pebble frame parses");
     assert_eq!(parsed.attr("from"), Some("pebble"));
     assert_eq!(parsed.attr("source"), Some("Pebble"));
     assert_eq!(parsed.attr("trust"), None);
+    assert_eq!(parsed.body, "focus enabled");
 
     let (msg, marked) = build_chatbackend_inbound(&envelope, "focus enabled", "pebble-1".into());
     assert_eq!(msg.inbound_kind.as_deref(), Some("pebble"));
@@ -72,10 +73,11 @@ fn inbound_webhook_pebble_pty_and_chatbackend_metadata_are_originated_as_pebble(
 fn plugin_icon_svg_webhook_metadata_preserves_id_and_sanitized_icon_for_chatbackend() {
     let icon = "<svg viewBox=\"0 0 1 1\" fill=\"currentColor\"><path d=\"M0 0\"/></svg>";
     let envelope = MessageEnvelope::plugin("pebble", Some(icon.into()));
-    let marker = Messenger::from(envelope.clone()).build();
-    let parsed = codeterm_types::domios::parse_message(&marker).expect("plugin tag parses");
+    let marker = Messenger::from(envelope.clone()).wrap("focus enabled");
+    let parsed = codeterm_types::domios::parse_message(&marker).expect("plugin frame parses");
     assert_eq!(parsed.attr("from"), Some("pebble"));
     assert_eq!(parsed.attr("plugin"), Some("pebble"));
+    assert_eq!(parsed.body, "focus enabled");
 
     let (msg, marked) = build_chatbackend_inbound(&envelope, "focus enabled", "plugin-1".into());
     assert_eq!(msg.inbound_kind.as_deref(), Some("plugin"));
