@@ -85,8 +85,36 @@ fn orphan_team_does_not_block_tab_commit_and_is_dropped_on_restart() {
         .team_id;
     mux.close_workspace(&orphan_workspace_id).unwrap();
     assert!(mux.get_team(&orphan_team_id).is_some());
+    let second_workspace_id = mux
+        .create_workspace("Second Team workspace".into(), None)
+        .id;
+    let second_tab_id = mux.create_tab(&second_workspace_id).unwrap();
+    let second_valid_team_id = mux
+        .resolve_or_mint_team_for_parent(&second_tab_id)
+        .unwrap()
+        .team_id;
 
     let instance = super::ServiceInstance::open_with_mux(root.path(), mux);
+    crate::service::session_persist::flush_session_persistence(instance.fixture._app.handle())
+        .expect("flush startup resync with orphan Team");
+    let startup_saved = StorageDeskAdapter::from_storage(instance.storage.clone())
+        .state()
+        .expect("read startup resync");
+    assert!(startup_saved
+        .snapshot
+        .teams
+        .iter()
+        .any(|team| team.id.as_str() == valid_team_id.as_str()));
+    assert!(startup_saved
+        .snapshot
+        .teams
+        .iter()
+        .any(|team| team.id.as_str() == second_valid_team_id.as_str()));
+    assert!(!startup_saved
+        .snapshot
+        .teams
+        .iter()
+        .any(|team| team.id.as_str() == orphan_team_id.as_str()));
     let created_workspace = instance
         .fixture
         .service
@@ -125,6 +153,7 @@ fn orphan_team_does_not_block_tab_commit_and_is_dropped_on_restart() {
     assert!(restored_mux.get_tab(&created_tab).is_some());
     assert!(restored_mux.get_workspace(&created_workspace.id).is_some());
     assert!(restored_mux.get_team(&valid_team_id).is_some());
+    assert!(restored_mux.get_team(&second_valid_team_id).is_some());
     assert!(restored_mux.get_team(&orphan_team_id).is_none());
     drop(restored_mux);
     close(restarted);

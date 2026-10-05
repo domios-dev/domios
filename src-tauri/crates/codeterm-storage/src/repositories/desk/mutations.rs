@@ -10,6 +10,63 @@ use std::collections::HashSet;
 #[path = "delta.rs"]
 mod delta;
 
+#[derive(Clone, Copy)]
+enum OrderedTable {
+    Teams,
+    Workspaces,
+    Tabs,
+}
+
+impl OrderedTable {
+    fn max_ordinal_sql(self) -> &'static str {
+        match self {
+            Self::Teams => "SELECT COALESCE(MAX(ordinal), -1) FROM desk_teams",
+            Self::Workspaces => "SELECT COALESCE(MAX(ordinal), -1) FROM workspaces",
+            Self::Tabs => "SELECT COALESCE(MAX(ordinal), -1) FROM desk_tabs",
+        }
+    }
+
+    fn update_ordinal_sql(self) -> &'static str {
+        match self {
+            Self::Teams => "UPDATE desk_teams SET ordinal = ?2 WHERE id = ?1",
+            Self::Workspaces => "UPDATE workspaces SET ordinal = ?2 WHERE id = ?1",
+            Self::Tabs => "UPDATE desk_tabs SET ordinal = ?2 WHERE id = ?1",
+        }
+    }
+}
+
+fn park_ordered_rows(
+    cx: &mut WriteCx<'_>,
+    table: OrderedTable,
+    ids: &[String],
+) -> Result<(), StorageError> {
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let maximum: i64 = cx
+        .conn
+        .query_row(table.max_ordinal_sql(), [], |row| row.get(0))
+        .map_err(|error| sqlite_error("read ordered row range", error))?;
+    let first = maximum.checked_add(1).ok_or_else(|| {
+        StorageError::invalid("desk ordinal", "non-negative parking range is exhausted")
+    })?;
+    for (offset, id) in ids.iter().enumerate() {
+        let offset = i64::try_from(offset).map_err(|_| {
+            StorageError::invalid("desk ordinal", "too many rows to park in ordinal range")
+        })?;
+        let ordinal = first.checked_add(offset).ok_or_else(|| {
+            StorageError::invalid("desk ordinal", "non-negative parking range is exhausted")
+        })?;
+        let changed = cx.write(table.update_ordinal_sql(), params![id, ordinal])?;
+        if changed != 1 {
+            return Err(StorageError::Corrupt {
+                detail: format!("ordered row {id} disappeared while being parked"),
+            });
+        }
+    }
+    Ok(())
+}
+
 pub(super) fn import(cx: &mut WriteCx<'_>, snapshot: DeskSnapshot) -> Result<(), StorageError> {
     import_empty(cx, snapshot)
 }
@@ -254,6 +311,13 @@ pub(super) fn reorder_tabs(
         return Ok(());
     }
     let revision = sql_revision(cx)?;
+    let moved: Vec<String> = order
+        .iter()
+        .enumerate()
+        .filter(|(ordinal, id)| current.get(*ordinal) != Some(*id))
+        .map(|(_, id)| id.clone())
+        .collect();
+    park_ordered_rows(cx, OrderedTable::Tabs, &moved)?;
     for (ordinal, id) in order.iter().enumerate() {
         if current.iter().position(|current_id| current_id == id) != Some(ordinal) {
             cx.write(
@@ -290,12 +354,8 @@ pub(super) fn reorder_workspaces(
         return Ok(());
     }
     let revision = sql_revision(cx)?;
-    for (id, _) in &moved {
-        cx.write(
-            "UPDATE workspaces SET ordinal = -1 - ordinal WHERE id = ?1",
-            [id],
-        )?;
-    }
+    let moved_ids: Vec<String> = moved.iter().map(|(id, _)| id.clone()).collect();
+    park_ordered_rows(cx, OrderedTable::Workspaces, &moved_ids)?;
     for (id, target) in &moved {
         cx.write(
             "UPDATE workspaces SET ordinal = ?2, revision = ?3 WHERE id = ?1",
