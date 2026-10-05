@@ -6,30 +6,27 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { expect, test } from "../../helpers/fixtures";
+import { expect, test, type SpawnAgent } from "../../helpers/fixtures";
 import { isDevTarget } from "../../helpers/dev-instance";
 import {
   HEAVY_OUTPUT_BYTES,
   HEAVY_TURNS,
   LARGE_SIZES,
+  ProviderSpawnError,
   TabEvents,
   TEST_TIMEOUT_MS,
   TURN_TIMEOUT_MS,
-  agentState,
   assertFinalStatuses,
   auditTranscript,
-  busyPrompt,
   captureProviderEvidence,
   completeCase,
-  createBusyGate,
   createWorkspace,
   disposeAgent,
+  sendBusyMarkerWithRetry,
   makeLargePayload,
   openAgent,
   readChat,
   recordMetrics,
-  releaseBusyGate,
-  removeBusyGate,
   repeatCount,
   submitBatch,
   submitLarge,
@@ -39,13 +36,12 @@ import {
   verifyLargeReceipt,
   waitDelivered,
   waitForAndAuditRecords,
-  waitForFile,
   waitForIdle,
   waitForWorking,
+  withSpawnMetrics,
 } from "./chat-send-matrix.live.helpers";
 import type {
   AgentUi,
-  BusyGate,
   ChatSendStatus,
   ProviderMetrics,
   SendRecord,
@@ -64,6 +60,7 @@ function hasProviderFailures(metrics: Map<string, ProviderMetrics>): boolean {
     (entry) =>
       !entry.skipped &&
       (Boolean(entry.errors?.length) ||
+        Boolean(entry.spawnErrors?.length) ||
         entry.records.some(
           (record) =>
             record.receivedInSession !== true ||
@@ -116,7 +113,13 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
   expect(runnable.length, "at least one PTY provider is available or capability-unknown").toBeGreaterThan(0);
   const ownedTabs: string[] = [];
   const openStreams = new Set<TabEvents>();
-  const busyGates = new Set<BusyGate>();
+  const spawnByProvider = new Map<string, SpawnAgent>();
+  for (const provider of runnable) {
+    spawnByProvider.set(
+      provider.id,
+      withSpawnMetrics(spawnAgent, metrics.get(provider.id)!, ownedTabs),
+    );
+  }
   let workspaceId: string | undefined;
 
   try {
@@ -125,11 +128,7 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
     for (const [providerIndex, provider] of runnable.entries()) {
       const entry = metrics.get(provider.id)!;
       const providerOwnedTabStart = ownedTabs.length;
-      const spawnProviderAgent: typeof spawnAgent = async (body) => {
-        const launched = await spawnAgent(body);
-        ownedTabs.push(launched.tab_id);
-        return launched;
-      };
+      const spawnProviderAgent = spawnByProvider.get(provider.id)!;
 
       try {
       const fresh = await openAgent(
@@ -163,59 +162,32 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
         `pw-send-${providerIndex}-busy`,
       );
       openStreams.add(busy.events);
-      const firstMarker = uniqueMarker(runId, provider, "BUSY_WORK", 0);
-      const busyGate = createBusyGate(busy, firstMarker);
-      busyGates.add(busyGate);
-      const first = await submitTextWithoutAudit(
+      const busyPair = await sendBusyMarkerWithRetry(
+        api,
         busy,
-        provider,
         entry,
-        busyPrompt(busyGate),
-        firstMarker,
+        runId,
+        "BUSY",
+        "BUSY",
+        0,
       );
-      await waitDelivered(busy, first);
-      await waitForFile(busyGate.readyPath, TURN_TIMEOUT_MS, "busy command readiness");
-      await expect(agentState(busy), "first long prompt is actively running").toHaveAttribute(
-        "data-agent-state",
-        "working",
-        { timeout: TURN_TIMEOUT_MS },
-      );
-      const busyRecords = [first, ...(await submitBatch(
-        busy,
-        provider,
-        entry,
-        Array.from({ length: repeats }, (_, index) => {
-          const marker = uniqueMarker(runId, provider, "BUSY", index);
-          return { text: `Queue this marker behind current work and preserve order: ${marker}`, marker };
-        }),
-        true,
-      ))];
+      const busyRecords = [...busyPair.setupRecords, busyPair.followup];
+      if (repeats > 1) {
+        busyRecords.push(...(await submitBatch(
+          busy,
+          provider,
+          entry,
+          Array.from({ length: repeats - 1 }, (_, index) => {
+            const marker = uniqueMarker(runId, provider, "BUSY", index + 1);
+            return { text: `Queue this marker behind current work and preserve order: ${marker}`, marker };
+          }),
+          true,
+        )));
+      }
       await Promise.all(busyRecords.map((record) => waitDelivered(busy, record)));
-      const beforeBusyFinish = await readChat(api, busy.tabId);
-      expect(
-        beforeBusyFinish.messages.some(
-          (message) => message.type === "tool_result" && message.content.includes(firstMarker),
-        ),
-        "busy follow-up receipts precede the long prompt tool result",
-      ).toBe(false);
-      await expect(agentState(busy), "busy send receipts arrive before the first long turn completes").toHaveAttribute(
-        "data-agent-state",
-        "working",
-        { timeout: 15_000 },
-      );
       await assertFinalStatuses(api, busy, busyRecords);
       await auditTranscript(api, busy, busyRecords, entry);
-      releaseBusyGate(busyGate);
       await waitForIdle(busy, api, "busy queued sends");
-      const completedBusy = await readChat(api, busy.tabId);
-      expect(
-        completedBusy.messages.filter(
-          (message) => message.type === "tool_result" && message.content.includes(firstMarker),
-        ),
-        "released busy command completes once",
-      ).toHaveLength(1);
-      removeBusyGate(busyGate);
-      busyGates.delete(busyGate);
       await disposeAgent(api, busy);
       openStreams.delete(busy.events);
 
@@ -307,58 +279,34 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
       );
       await waitForAndAuditRecords(api, heavy, heavyRepeat, entry);
 
-      const heavyBusyMarker = uniqueMarker(runId, provider, "HEAVY_BUSY_WORK", 0);
-      const heavyBusyGate = createBusyGate(heavy, heavyBusyMarker);
-      busyGates.add(heavyBusyGate);
-      const heavyBusy = await submitTextWithoutAudit(
+      const heavyBusyPair = await sendBusyMarkerWithRetry(
+        api,
         heavy,
-        provider,
         entry,
-        busyPrompt(heavyBusyGate),
-        heavyBusyMarker,
+        runId,
+        "HEAVY_BUSY",
+        "HEAVY_BUSY",
+        0,
       );
-      await waitDelivered(heavy, heavyBusy);
-      await waitForFile(heavyBusyGate.readyPath, TURN_TIMEOUT_MS, "heavy-context busy command readiness");
-      await waitForWorking(heavy, "heavy-context busy turn");
-      const heavyBusyRecords = await submitBatch(
-        heavy,
-        provider,
-        entry,
-        Array.from({ length: repeats }, (_, index) => {
-          const marker = uniqueMarker(runId, provider, "HEAVY_BUSY", index);
-          return { text: `Busy heavy-context send ${index}: ${marker}`, marker };
-        }),
-        true,
-      );
+      const heavyBusyRecords = [...heavyBusyPair.setupRecords, heavyBusyPair.followup];
+      if (repeats > 1) {
+        heavyBusyRecords.push(...(await submitBatch(
+          heavy,
+          provider,
+          entry,
+          Array.from({ length: repeats - 1 }, (_, index) => {
+            const marker = uniqueMarker(runId, provider, "HEAVY_BUSY", index + 1);
+            return { text: `Busy heavy-context send ${index + 1}: ${marker}`, marker };
+          }),
+          true,
+        )));
+      }
       const busyPayload = makeLargePayload(LARGE_SIZES[1], runId, provider, 0, "HEAVY_BUSY_LARGE");
       const busyLarge = await submitLarge(api, heavy, provider, entry, ui, busyPayload);
-      await waitDelivered(heavy, heavyBusy);
       await Promise.all(heavyBusyRecords.map((record) => waitDelivered(heavy, record)));
-      const beforeHeavyBusyFinish = await readChat(api, heavy.tabId);
-      expect(
-        beforeHeavyBusyFinish.messages.some(
-          (message) => message.type === "tool_result" && message.content.includes(heavyBusyMarker),
-        ),
-        "heavy-context follow-up receipts precede the long prompt tool result",
-      ).toBe(false);
-      await expect(agentState(heavy), "heavy-context sends are received while work is active").toHaveAttribute(
-        "data-agent-state",
-        "working",
-        { timeout: 15_000 },
-      );
-      await assertFinalStatuses(api, heavy, [heavyBusy, ...heavyBusyRecords, busyLarge]);
-      await auditTranscript(api, heavy, [heavyBusy, ...heavyBusyRecords, busyLarge], entry);
-      releaseBusyGate(heavyBusyGate);
+      await assertFinalStatuses(api, heavy, [...heavyBusyRecords, busyLarge]);
+      await auditTranscript(api, heavy, [...heavyBusyRecords, busyLarge], entry);
       await waitForIdle(heavy, api, "heavy-context busy queue");
-      const completedHeavyBusy = await readChat(api, heavy.tabId);
-      expect(
-        completedHeavyBusy.messages.filter(
-          (message) => message.type === "tool_result" && message.content.includes(heavyBusyMarker),
-        ),
-        "released heavy-context command completes once",
-      ).toHaveLength(1);
-      removeBusyGate(heavyBusyGate);
-      busyGates.delete(heavyBusyGate);
       await verifyLargeReceipt(api, heavy, provider, entry, busyLarge, busyPayload, runId);
       await auditTranscript(
         api,
@@ -450,14 +398,11 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
         await api.closeTab(heavy.tabId).catch(() => {});
       }
       } catch (error) {
-        entry.errors ??= [];
-        entry.errors.push(error instanceof Error ? error.message : String(error));
-        await captureProviderEvidence(api, entry);
-        for (const gate of [...busyGates]) {
-          releaseBusyGate(gate);
-          removeBusyGate(gate);
-          busyGates.delete(gate);
+        if (!(error instanceof ProviderSpawnError)) {
+          entry.errors ??= [];
+          entry.errors.push(error instanceof Error ? error.message : String(error));
         }
+        await captureProviderEvidence(api, entry);
         for (const events of [...openStreams]) {
           await events.close().catch(() => {});
           openStreams.delete(events);
@@ -480,7 +425,7 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
     const soak = await openAgent(
       api,
       ui,
-      spawnAgent,
+      spawnByProvider.get(soakProvider.id)!,
       soakProvider,
       workspaceId,
       "pw-send-100-soak",
@@ -506,7 +451,7 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
         openAgent(
           api,
           ui,
-          spawnAgent,
+          spawnByProvider.get(provider.id)!,
           provider,
           workspaceId!,
           `pw-send-parallel-${index}`,
@@ -564,6 +509,7 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
         lost: number;
         unconfirmed: number;
         errors?: string[];
+        spawn_errors?: string[];
       };
       if (summary.skipped) return [];
       const reasons: string[] = [];
@@ -576,18 +522,13 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
       if (summary.confirmed_status !== summary.sent) {
         reasons.push(`${summary.confirmed_status}/${summary.sent} confirmed status`);
       }
+      for (const error of summary.spawn_errors ?? []) reasons.push(`spawn error: ${error}`);
       for (const error of summary.errors ?? []) reasons.push(error);
       return reasons.map((reason) => `${summary.provider}: ${reason}`);
     });
     expect(failures, "all selected providers complete with exact-once receipt and confirmed status").toEqual([]);
   } finally {
-    for (const gate of busyGates) releaseBusyGate(gate);
-    await Promise.all(
-      [...busyGates].map((gate) => waitForIdle(gate.agent, api, "busy command cleanup").catch(() => {})),
-    );
     for (const tabId of ownedTabs.reverse()) await api.closeTab(tabId).catch(() => {});
-    for (const gate of busyGates) removeBusyGate(gate);
-    busyGates.clear();
     for (const events of openStreams) await events.close();
     if (workspaceId) {
       await api.closeWorkspace(workspaceId).catch(() => {});

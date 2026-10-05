@@ -1,9 +1,6 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, watch, writeFileSync } from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { performance } from "node:perf_hooks";
-import { expect, type ManagedUiSession } from "../../helpers/fixtures";
+import { expect, type ManagedUiSession, type SpawnAgent } from "../../helpers/fixtures";
 import type { ApiClient, Provider } from "../../helpers/api-client";
 export type ChatMessage = { id: string; type: string; content: string };
 export type ChatSnapshot = { messages: ChatMessage[]; count: number; pending: boolean };
@@ -47,13 +44,15 @@ export type ProviderMetrics = {
   records: SendRecord[];
   skipped?: string;
   errors?: string[];
-};
-export type BusyGate = {
-  agent: AgentUi;
-  directory: string;
-  readyPath: string;
-  releasePath: string;
-  marker: string;
+  spawnErrors?: string[];
+  spawnLatenciesMs?: Array<{ title: string; durationMs: number }>;
+  busyAttempts?: Array<{
+    attempt: number;
+    setupSendId: string | null;
+    outcome: "not_busy" | "sent_while_working";
+    followupSendId?: string;
+    statusWhenChecked?: string;
+  }>;
 };
 export type AgentUi = {
   tabId: string;
@@ -67,9 +66,43 @@ export type AgentUi = {
 export const SEND_TIMEOUT_MS = 120_000;
 export const TURN_TIMEOUT_MS = 240_000;
 export const TEST_TIMEOUT_MS = 7_200_000;
+export const SPAWN_TIMEOUT_MS = 180_000;
+export const SLOW_SPAWN_THRESHOLD_MS = 15_000;
+export const BUSY_WORKING_TIMEOUT_MS = 60_000;
 export const LARGE_SIZES = [8 * 1024, 40 * 1024] as const;
 export const HEAVY_TURNS = 12;
 export const HEAVY_OUTPUT_BYTES = 4 * 1024;
+
+export class ProviderSpawnError extends Error {
+  constructor(providerId: string, detail: string) {
+    super(`${providerId} spawn failed: ${detail}`);
+    this.name = "ProviderSpawnError";
+  }
+}
+
+export function withSpawnMetrics(
+  spawnAgent: SpawnAgent,
+  metrics: ProviderMetrics,
+  ownedTabs: string[],
+): SpawnAgent {
+  return async <T extends { tab_id: string } = { tab_id: string }>(body: Record<string, unknown>) => {
+    const startedAt = performance.now();
+    const title = typeof body.title === "string" ? body.title : "untitled";
+    try {
+      const spawned = await spawnAgent<T>(body, { timeoutMs: SPAWN_TIMEOUT_MS });
+      ownedTabs.push(spawned.tab_id);
+      return spawned;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      metrics.spawnErrors ??= [];
+      metrics.spawnErrors.push(detail);
+      throw new ProviderSpawnError(metrics.provider.id, detail);
+    } finally {
+      metrics.spawnLatenciesMs ??= [];
+      metrics.spawnLatenciesMs.push({ title, durationMs: performance.now() - startedAt });
+    }
+  };
+}
 
 export class TabEvents {
   private readonly controller = new AbortController();
@@ -134,6 +167,20 @@ export class TabEvents {
       if (arrived) finish(undefined, arrived);
       else if (this.failure) finish(this.failure);
     });
+  }
+
+  latestSequence(): number {
+    return this.frames.length === 0 ? 0 : this.frames[this.frames.length - 1].seq;
+  }
+
+  latestTabStatus(tabId: string): string | undefined {
+    for (let index = this.frames.length - 1; index >= 0; index--) {
+      const event = this.frames[index];
+      if (event.event_type === "tab-status-changed" && event.data.tab_id === tabId) {
+        return typeof event.data.status === "string" ? event.data.status : undefined;
+      }
+    }
+    return undefined;
   }
 
   private async read(): Promise<void> {
@@ -448,6 +495,53 @@ export async function waitDelivered(agent: AgentUi, record: SendRecord): Promise
   record.confirmedStatus = true;
 }
 
+export async function submitTextWhileWorking(
+  api: ApiClient,
+  agent: AgentUi,
+  provider: Provider,
+  metrics: ProviderMetrics,
+  text: string,
+  bubbleMarker: string,
+): Promise<SendRecord | undefined> {
+  await agent.activate();
+  await assertComposerBelongsToTab(agent);
+  await agent.composer.fill(text);
+  await expect(agent.composer).toHaveValue(text, { timeout: 15_000 });
+  const tabStatus = await api.get<{ status: string }>(`/tabs/${encodeURIComponent(agent.tabId)}/status`);
+  const eventStatus = agent.events.latestTabStatus(agent.tabId);
+  if (tabStatus.status !== "Working" || eventStatus !== "Working") {
+    await agent.composer.fill("");
+    return undefined;
+  }
+
+  const submittedAt = performance.now();
+  await agent.composer.press("Enter");
+  const record = makeRecord(provider.id, agent, text, bubbleMarker, submittedAt);
+  metrics.records.push(record);
+  await expect(agent.composer, "Chat composer clears after submit").toHaveValue("", {
+    timeout: 15_000,
+  });
+  const status = await agent.events.waitFor(
+    (event) =>
+      statusEvent(event, agent.tabId) &&
+      typeof event.data.sequence === "number" &&
+      event.data.sequence > agent.nextSendSequence,
+    SEND_TIMEOUT_MS,
+    `busy send admission ${bubbleMarker}`,
+  );
+  const data = status.data as ChatSendStatus;
+  record.sendId = data.send_id;
+  record.sequence = data.sequence;
+  record.firstStatus = data.state;
+  record.deliveryStatus = data.state;
+  record.confirmedStatus = data.state === "delivered";
+  record.firstStatusAt = status.receivedAt;
+  agent.nextSendSequence = data.sequence;
+  expect(data.state, `busy send ${bubbleMarker} was not refused`).not.toBe("failed");
+  expect(data.error, `busy send ${bubbleMarker} did not report a delivery failure`).toBeNull();
+  return record;
+}
+
 export async function assertFinalStatuses(api: ApiClient, agent: AgentUi, records: SendRecord[]): Promise<void> {
   const statuses = await api.get<ChatSendStatus[]>(`/tabs/${encodeURIComponent(agent.tabId)}/chat-send`);
   for (const record of records) {
@@ -586,6 +680,22 @@ export function agentState(agent: AgentUi) {
   return agent.chat.locator('[data-testid="agent-state"]');
 }
 
+export async function waitForWorkingEvent(
+  agent: AgentUi,
+  label: string,
+  afterSequence: number,
+): Promise<void> {
+  await agent.events.waitFor(
+    (event) =>
+      event.seq > afterSequence &&
+      event.event_type === "tab-status-changed" &&
+      event.data.tab_id === agent.tabId &&
+      event.data.status === "Working",
+    BUSY_WORKING_TIMEOUT_MS,
+    `${label} tab status Working`,
+  );
+}
+
 export async function waitForWorking(agent: AgentUi, label: string): Promise<void> {
   await expect(agentState(agent), `${label} enters working state`).toHaveAttribute(
     "data-agent-state",
@@ -658,60 +768,92 @@ export function toolOutputPrompt(marker: string, bytes: number): string {
   return `Run this exact command with your terminal tool, then stop: ${encodedNodeCommand(source)}`;
 }
 
-export function createBusyGate(agent: AgentUi, marker: string): BusyGate {
-  const directory = mkdtempSync(path.join(os.tmpdir(), "pw-send-busy-"));
-  const readyPath = path.join(directory, "ready.marker");
-  const releasePath = path.join(directory, "release.marker");
-  return { agent, directory, readyPath, releasePath, marker };
+export function longAnswerPrompt(marker: string): string {
+  return `Write exactly 400 short numbered list items, numbered 1 through 400, one per line. Do not use tools or stop early. Include this unique reference in your opening line: ${marker}`;
 }
 
-export function busyPrompt(gate: BusyGate): string {
-  const source =
-    `const fs=require("node:fs");` +
-    `const dir=${JSON.stringify(gate.directory)};` +
-    `const ready=${JSON.stringify(gate.readyPath)};` +
-    `const release=${JSON.stringify(gate.releasePath)};` +
-    `const marker=${JSON.stringify(gate.marker)};` +
-    `fs.writeFileSync(ready,marker,{flag:"wx"});` +
-    `await new Promise(resolve=>{const watcher=fs.watch(dir,()=>{if(fs.existsSync(release)){watcher.close();resolve();}});` +
-    `if(fs.existsSync(release)){watcher.close();resolve();}});` +
-    `console.log(marker);`;
-  return `Run this exact command with your terminal tool, then stop. Completion marker: ${gate.marker}\n${encodedNodeCommand(`(async()=>{${source}})().catch(error=>{console.error(error);process.exitCode=1})`)}`;
-}
+export async function sendBusyMarkerWithRetry(
+  api: ApiClient,
+  agent: AgentUi,
+  metrics: ProviderMetrics,
+  runId: string,
+  setupScenario: string,
+  followupScenario: string,
+  followupIndex: number,
+): Promise<{ setupRecords: SendRecord[]; followup: SendRecord }> {
+  const provider = metrics.provider;
+  const setupRecords: SendRecord[] = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const setupMarker = uniqueMarker(runId, provider, `${setupScenario}_WORK`, attempt);
+    const statusSequenceFloor = agent.events.latestSequence();
+    const setup = await submitTextWithoutAudit(
+      agent,
+      provider,
+      metrics,
+      longAnswerPrompt(setupMarker),
+      setupMarker,
+    );
+    setupRecords.push(setup);
 
-export async function waitForFile(filePath: string, timeoutMs: number, label: string): Promise<void> {
-  if (existsSync(filePath)) return;
-  const signal = AbortSignal.timeout(timeoutMs);
-  const watcher = watch(path.dirname(filePath));
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const finish = (error?: Error) => {
-        signal.removeEventListener("abort", onAbort);
-        watcher.close();
-        if (error) reject(error);
-        else resolve();
-      };
-      const onAbort = () => finish(new Error(`${label} timed out after ${timeoutMs}ms`));
-      signal.addEventListener("abort", onAbort, { once: true });
-      const checkReady = () => {
-        if (existsSync(filePath)) finish();
-      };
-      watcher.on("change", checkReady);
-      watcher.on("error", (error) => finish(error));
-      if (existsSync(filePath)) finish();
+    try {
+      await waitForWorkingEvent(agent, `${setupScenario} attempt ${attempt}`, statusSequenceFloor);
+    } catch (error) {
+      const status = await api.get<{ status: string }>(`/tabs/${encodeURIComponent(agent.tabId)}/status`);
+      const timedOut = error instanceof Error && error.message.includes("event timed out");
+      if (!timedOut) throw error;
+      if (status.status !== "Idle") {
+        throw new Error(`${setupScenario} did not reach Working; backend status is ${status.status}`);
+      }
+      await waitDelivered(agent, setup);
+      metrics.busyAttempts ??= [];
+      metrics.busyAttempts.push({
+        attempt,
+        setupSendId: setup.sendId ?? null,
+        outcome: "not_busy",
+        statusWhenChecked: status.status,
+      });
+      if (attempt === 0) continue;
+      throw new Error(`${setupScenario} remained idle after one busy setup retry`);
+    }
+
+    const followupMarker = uniqueMarker(runId, provider, followupScenario, followupIndex);
+    const followup = await submitTextWhileWorking(
+      api,
+      agent,
+      provider,
+      metrics,
+      `Queue this marker while the long answer is working: ${followupMarker}`,
+      followupMarker,
+    );
+    if (!followup) {
+      const status = await api.get<{ status: string }>(`/tabs/${encodeURIComponent(agent.tabId)}/status`);
+      if (status.status !== "Idle") {
+        throw new Error(`${setupScenario} lost its Working event while backend status is ${status.status}`);
+      }
+      await waitDelivered(agent, setup);
+      metrics.busyAttempts ??= [];
+      metrics.busyAttempts.push({
+        attempt,
+        setupSendId: setup.sendId ?? null,
+        outcome: "not_busy",
+        statusWhenChecked: status.status,
+      });
+      if (attempt === 0) continue;
+      throw new Error(`${setupScenario} finished before the second send after one setup retry`);
+    }
+
+    metrics.busyAttempts ??= [];
+    metrics.busyAttempts.push({
+      attempt,
+      setupSendId: setup.sendId ?? null,
+      outcome: "sent_while_working",
+      followupSendId: followup.sendId,
+      statusWhenChecked: "Working",
     });
-  } finally {
-    watcher.close();
+    await Promise.all([waitDelivered(agent, setup), waitDelivered(agent, followup)]);
+    return { setupRecords, followup };
   }
-}
-
-export function releaseBusyGate(gate: BusyGate): void {
-  mkdirSync(gate.directory, { recursive: true });
-  writeFileSync(gate.releasePath, gate.marker, { flag: "w" });
-}
-
-export function removeBusyGate(gate: BusyGate): void {
-  rmSync(gate.directory, { recursive: true, force: true });
+  throw new Error(`${setupScenario} busy setup exhausted`);
 }
 
 export function extractAbsolutePath(content: string): string | undefined {
@@ -871,11 +1013,17 @@ export function recordMetrics(metrics: ProviderMetrics): Record<string, unknown>
   const latencies = metrics.records
     .filter((record) => record.deliveredAt !== undefined)
     .map((record) => record.deliveredAt! - record.submittedAt);
+  const spawnLatencies = metrics.spawnLatenciesMs ?? [];
   return {
     provider: metrics.provider.display_name ?? metrics.provider.id,
     providerId: metrics.provider.id,
     skipped: metrics.skipped,
     errors: metrics.errors,
+    spawn_errors: metrics.spawnErrors,
+    spawn_latencies_ms: spawnLatencies,
+    slow_spawn_count: spawnLatencies.filter((latency) => latency.durationMs > SLOW_SPAWN_THRESHOLD_MS).length,
+    max_spawn_latency_ms: Math.max(0, ...spawnLatencies.map((latency) => latency.durationMs)),
+    busy_attempts: metrics.busyAttempts ?? [],
     sent: metrics.records.length,
     received_in_session: receivedInSession,
     confirmed_status: confirmedStatus,
