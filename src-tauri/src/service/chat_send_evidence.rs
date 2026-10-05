@@ -215,32 +215,67 @@ pub(crate) fn scan_transcript_evidence(
     }
     for candidate in ledger.evidence_candidates(tab_id) {
         let anchor = &candidate.anchor;
-        let turn_contents = structured_user_turns(registry, anchor)
-            .map(|turns| turns.into_iter().map(|turn| turn.content).collect())
-            .unwrap_or_else(|| window_user_turns(registry, anchor));
-        let mut matching_turns = 0;
-        let mut seen_turns = HashMap::<String, usize>::new();
-        for content in &turn_contents {
-            if normalize_turn_evidence_with(content, anchor.turn_normalization)
-                != candidate.payload
-            {
-                continue;
-            }
-            let occurrence = seen_turns.entry(content.clone()).or_default();
-            *occurrence += 1;
-            if *occurrence
-                > ledger.consumed_merged_turn_count(tab_id, anchor, content)
-            {
-                matching_turns += 1;
-            }
-        }
-        let claimed = ledger.claimed_turn_count(tab_id, &anchor.session_id, &candidate.payload);
-        if matching_turns > claimed {
+        let matching_turns =
+            unconsumed_matching_turns(registry, ledger, tab_id, anchor, &candidate.payload);
+        let claimed =
+            ledger.claimed_turn_anchors(tab_id, &anchor.session_id, &candidate.payload);
+        let assignable = matching_turns > claimed.len()
+            || nested_windows_assign_every_send(
+                claimed
+                    .iter()
+                    .map(|claimed| {
+                        unconsumed_matching_turns(
+                            registry,
+                            ledger,
+                            tab_id,
+                            claimed,
+                            &candidate.payload,
+                        )
+                    })
+                    .chain(std::iter::once(matching_turns))
+                    .collect(),
+            );
+        if assignable {
             if let Some(status) = ledger.confirm_send(&candidate.send_id) {
                 on_confirmed(status);
             }
         }
     }
+}
+
+fn unconsumed_matching_turns(
+    registry: &AgentRegistry,
+    ledger: &ChatSendLedger,
+    tab_id: &str,
+    anchor: &SendEvidenceAnchor,
+    payload: &str,
+) -> usize {
+    let turn_contents = structured_user_turns(registry, anchor)
+        .map(|turns| turns.into_iter().map(|turn| turn.content).collect())
+        .unwrap_or_else(|| window_user_turns(registry, anchor));
+    let mut matching_turns = 0;
+    let mut seen_turns = HashMap::<String, usize>::new();
+    for content in &turn_contents {
+        if normalize_turn_evidence_with(content, anchor.turn_normalization) != payload {
+            continue;
+        }
+        let occurrence = seen_turns.entry(content.clone()).or_default();
+        *occurrence += 1;
+        if *occurrence > ledger.consumed_merged_turn_count(tab_id, anchor, content) {
+            matching_turns += 1;
+        }
+    }
+    matching_turns
+}
+
+/// Same-session append windows are nested suffixes, so every send owns a distinct
+/// turn iff the k-th smallest window holds at least k matching turns.
+fn nested_windows_assign_every_send(mut window_turns: Vec<usize>) -> bool {
+    window_turns.sort_unstable();
+    window_turns
+        .iter()
+        .enumerate()
+        .all(|(rank, turns)| *turns > rank)
 }
 
 fn same_evidence_source(left: &SendEvidenceAnchor, right: &SendEvidenceAnchor) -> bool {

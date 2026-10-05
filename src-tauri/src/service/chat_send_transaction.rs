@@ -828,15 +828,14 @@ impl ChatSendLedger {
         Some(status)
     }
 
-    /// Sends already confirmed for this tab+session+payload — each one already
-    /// consumed a matching transcript turn, so a scan must find MORE matching
-    /// turns than this count before it may confirm another send.
-    pub(crate) fn claimed_turn_count(
+    /// Anchors of sends already confirmed for this tab+session+payload — each
+    /// one already consumed a matching transcript turn inside its own window.
+    pub(crate) fn claimed_turn_anchors(
         &self,
         tab_id: &str,
         session_id: &str,
         payload: &str,
-    ) -> usize {
+    ) -> Vec<SendEvidenceAnchor> {
         let state = self.state.lock();
         state
             .by_id
@@ -845,13 +844,10 @@ impl ChatSendLedger {
             .filter(|status| {
                 state.payload_by_id.get(&status.send_id).map(String::as_str) == Some(payload)
             })
-            .filter(|status| {
-                state
-                    .anchor_by_id
-                    .get(&status.send_id)
-                    .is_some_and(|anchor| anchor.session_id == session_id)
-            })
-            .count()
+            .filter_map(|status| state.anchor_by_id.get(&status.send_id))
+            .filter(|anchor| anchor.session_id == session_id)
+            .cloned()
+            .collect()
     }
 
     pub(crate) fn reconcile(&self, tab_id: &str) -> Vec<ChatSendStatus> {
