@@ -4,6 +4,7 @@ use crate::multiplexer::types::Tab;
 use crate::service::plan::PlanStore;
 use crate::service::ServiceContext;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// Which launch surface is composing. Identity is identical for both surfaces;
 /// the only permitted difference is `FRONTEND_ONLY_ENV`.
@@ -50,6 +51,19 @@ impl InstanceEnv {
             api_port,
             api_token: api.token,
         }
+    }
+}
+
+pub(crate) fn instance_cli_binary_path() -> Option<PathBuf> {
+    let local_cli = crate::paths::data_dir()
+        .join("bin")
+        .join(format!("codeterm{}", std::env::consts::EXE_SUFFIX));
+    if local_cli.exists() {
+        Some(local_cli)
+    } else if !crate::paths::is_dev_instance() {
+        std::env::var_os("CODETERM_CLI_PATH").map(PathBuf::from)
+    } else {
+        None
     }
 }
 

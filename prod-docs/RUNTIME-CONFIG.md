@@ -88,7 +88,7 @@ Jitter is applied on top of recurring cron fire times. A job with `0 * * * *` an
 
 ### Hidden spawn
 
-Cron runs spawn agents in **hidden tabs** — no separate visible tab. Observe progress via the cron tabl in the sidebar, the frontend log viewer, or `codeterm cron history ID`. Use `cron_read_log` (Tauri IPC) / the live tab fallback to tail a running run's output.
+Cron runs spawn agents in **hidden tabs** — no separate visible tab. Observe progress via the cron tabl in the sidebar, the frontend log viewer, or `codeterm cron history ID-or-name`. Use `cron_read_log` (Tauri IPC) / the live tab fallback to tail a running run's output.
 
 ## UI feature gates
 
@@ -219,4 +219,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Both builds can run simultaneously.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->

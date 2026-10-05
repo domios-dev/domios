@@ -8,7 +8,7 @@ use codeterm_types::decision::{
 use serde_json::json;
 use tauri::Manager;
 
-use super::machine::{regex_verdict, Verdict};
+use super::machine::{regex_verdict, regex_verdict_if_matched, Verdict};
 use super::provenance::{Classification, Failure, Source};
 use super::store::Sentinel;
 use crate::mem::decision::token_store::TokenStore;
@@ -91,36 +91,49 @@ pub fn classify(
     output: &str,
     remaining: Duration,
 ) -> Classification {
-    if remaining.is_zero() {
-        return Classification {
-            source: Source::NotAttempted,
-            result: Err(Failure::Timeout),
-        };
-    }
-    if let Some((model, config)) = connected_model(svc) {
-        let request = request(job, output);
-        let version =
-            supporter::criteria_hash(&serde_json::to_vec(&request.question).unwrap_or_default());
-        let model = supporter::budgeted_model_with_activity(
-            model,
-            supporter::runtime_with_notifications(svc),
-            config.calls_per_hour.unwrap_or(0),
-            VerdictKind::Sentinel,
-            Some(job.creator_tab_id.clone()),
-            Some(version),
-            Some(supporter::ActivityContext::Sentinel {
-                job: job.id.clone(),
-                buckets: job.buckets.clone(),
-            }),
-        );
-        decide(
-            model,
-            &request,
-            Instant::now() + Duration::from_millis(config.deadline_ms).min(remaining),
-        )
-    } else {
-        fallback(job, output)
-    }
+    with_pattern_precedence(job, output, || {
+        if remaining.is_zero() {
+            return Classification {
+                source: Source::NotAttempted,
+                result: Err(Failure::Timeout),
+            };
+        }
+        if let Some((model, config)) = connected_model(svc) {
+            let request = request(job, output);
+            let version = supporter::criteria_hash(
+                &serde_json::to_vec(&request.question).unwrap_or_default(),
+            );
+            let model = supporter::budgeted_model_with_activity(
+                model,
+                supporter::runtime_with_notifications(svc),
+                config.calls_per_hour.unwrap_or(0),
+                VerdictKind::Sentinel,
+                Some(job.creator_tab_id.clone()),
+                Some(version),
+                Some(supporter::ActivityContext::Sentinel {
+                    job: job.id.clone(),
+                    buckets: job.buckets.clone(),
+                }),
+            );
+            decide(
+                model,
+                &request,
+                Instant::now() + Duration::from_millis(config.deadline_ms).min(remaining),
+            )
+        } else {
+            fallback(job, output)
+        }
+    })
+}
+
+pub fn with_pattern_precedence(
+    job: &Sentinel,
+    output: &str,
+    classify_adapter: impl FnOnce() -> Classification,
+) -> Classification {
+    regex_verdict_if_matched(&job.matches, output)
+        .map(Classification::regex)
+        .unwrap_or_else(classify_adapter)
 }
 
 pub fn fallback(job: &Sentinel, output: &str) -> Classification {
@@ -131,5 +144,56 @@ pub fn fallback(job: &Sentinel, output: &str) -> Classification {
             source: Source::Disconnected,
             result: Err(Failure::Disconnected),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn sentinel_patterns_precede_connected_adapter() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = crate::sentinel::tests::store(
+            dir.path(),
+            crate::cron::clock::MockClock::starting_at(1000),
+        );
+        let mut job = crate::sentinel::tests::create(&mut store, "team");
+        job.matches.insert("failed".into(), "^failed$".into());
+        let calls = Cell::new(0);
+
+        let classification = with_pattern_precedence(&job, "failed", || {
+            calls.set(calls.get() + 1);
+            Classification::adapter(Ok(Verdict {
+                bucket: "passed".into(),
+                confidence: 1.0,
+            }))
+        });
+
+        assert_eq!(classification.source, Source::Regex);
+        assert_eq!(classification.result.unwrap().bucket, "failed");
+        assert_eq!(calls.get(), 0);
+    }
+
+    #[test]
+    fn sentinel_adapter_classifies_output_with_no_matching_pattern() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = crate::sentinel::tests::store(
+            dir.path(),
+            crate::cron::clock::MockClock::starting_at(1000),
+        );
+        let mut job = crate::sentinel::tests::create(&mut store, "team");
+        job.matches.insert("failed".into(), "^failed$".into());
+
+        let classification = with_pattern_precedence(&job, "still running", || {
+            Classification::adapter(Ok(Verdict {
+                bucket: "waiting".into(),
+                confidence: 0.9,
+            }))
+        });
+
+        assert_eq!(classification.source, Source::Adapter);
+        assert_eq!(classification.result.unwrap().bucket, "waiting");
     }
 }
