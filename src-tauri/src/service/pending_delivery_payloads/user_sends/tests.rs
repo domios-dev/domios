@@ -104,6 +104,30 @@ fn proven_zero_write_returns_send_to_queued_without_settlement_state() {
 }
 
 #[test]
+fn ended_launch_discards_only_never_written_queued_records() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = UserSendStore::open(dir.path()).unwrap();
+    let queued = admit(&store, 1, "opaque-stale");
+    let restarted = UserSendStore::open(dir.path()).unwrap();
+    let mut records = restarted.records("opaque-tab").unwrap();
+    let queued_after_restart = records.remove(0);
+    assert_ne!(queued.owner_epoch, queued_after_restart.owner_epoch);
+    assert!(restarted.discard_queued_from_ended_launch(&queued_after_restart).unwrap());
+    assert!(restarted.records("opaque-tab").unwrap().is_empty());
+    assert!(restarted.original("opaque-tab", &queued.send_id).is_err());
+
+    let handed = admit(&restarted, 2, "opaque-handed");
+    assert!(restarted.claim(&handed, "opaque-session").unwrap());
+    restarted.finish_handoff(&handed, false).unwrap();
+    let next_owner = UserSendStore::open(dir.path()).unwrap();
+    let mut records = next_owner.records("opaque-tab").unwrap();
+    let handed_after_restart = records.remove(0);
+    assert!(!next_owner.discard_queued_from_ended_launch(&handed_after_restart).unwrap());
+    assert_eq!(handed_after_restart.state, UserSendState::Uncertain);
+    assert_eq!(next_owner.original("opaque-tab", &handed.send_id).unwrap(), "opaque-handed");
+}
+
+#[test]
 fn record_capacity_refuses_without_evicting_any_accepted_original() {
     let dir = tempfile::tempdir().unwrap();
     let store = UserSendStore::open(dir.path()).unwrap();
