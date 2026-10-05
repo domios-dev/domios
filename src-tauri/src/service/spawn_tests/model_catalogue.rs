@@ -81,6 +81,83 @@ fn free_form_provider_refuses_unknown_ids_when_live_models_are_published() {
 }
 
 #[test]
+fn free_form_provider_keeps_declared_model_when_live_snapshot_omits_it() {
+    let provider_id = "live-free-form-seed-fixture";
+    let registry = registry_with(ModelProvider::new(
+        provider_id,
+        &["opencode/deepseek-v4-flash-free"],
+    ));
+    crate::agent::model_catalog::put_live(
+        provider_id,
+        vec![crate::agent::provider::ModelInfo {
+            id: "opencode/big-pickle".into(),
+            display_name: "OpenCode Big Pickle".into(),
+            ..Default::default()
+        }],
+        None,
+    );
+
+    assert!(validate_agent_model(
+        &registry,
+        provider_id,
+        Some("opencode/deepseek-v4-flash-free")
+    )
+    .is_ok());
+    assert!(validate_agent_model(&registry, provider_id, Some("not-advertised")).is_err());
+    crate::agent::model_catalog::unregister(provider_id);
+}
+
+#[test]
+fn qualified_model_alias_matches_only_unique_catalogue_leaf() {
+    let provider_id = "live-qualified-leaf-fixture";
+    let registry = registry_with(ModelProvider::new(provider_id, &[]));
+    crate::agent::model_catalog::put_live(
+        provider_id,
+        vec![crate::agent::provider::ModelInfo {
+            id: "deepseek-v4-pro".into(),
+            display_name: "DeepSeek V4 Pro".into(),
+            ..Default::default()
+        }],
+        None,
+    );
+
+    assert!(catalogue_models_match(
+        &registry,
+        provider_id,
+        "deepseek/deepseek-v4-pro",
+        "deepseek-v4-pro"
+    ));
+    crate::agent::model_catalog::unregister(provider_id);
+
+    let provider_id = "live-ambiguous-leaf-fixture";
+    let registry = registry_with(ModelProvider::new(provider_id, &[]));
+    crate::agent::model_catalog::put_live(
+        provider_id,
+        vec![
+            crate::agent::provider::ModelInfo {
+                id: "deepseek-cloud/deepseek-v4-pro".into(),
+                display_name: "DeepSeek Cloud V4 Pro".into(),
+                ..Default::default()
+            },
+            crate::agent::provider::ModelInfo {
+                id: "deepseek-local/deepseek-v4-pro".into(),
+                display_name: "DeepSeek Local V4 Pro".into(),
+                ..Default::default()
+            },
+        ],
+        None,
+    );
+
+    assert!(!catalogue_models_match(
+        &registry,
+        provider_id,
+        "deepseek/deepseek-v4-pro",
+        "deepseek-v4-pro"
+    ));
+    crate::agent::model_catalog::unregister(provider_id);
+}
+
+#[test]
 fn spawn_model_validation_refuses_a_foreign_provider_alias() {
     let registry = crate::agent::registry::AgentRegistry::new();
     registry.register_provider(Box::new(ModelProvider::new("claude", &["sonnet", "opus"])));
