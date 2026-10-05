@@ -6,10 +6,10 @@ use super::*;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
 use crate::sentinel::machine::regex_verdict;
 
-const SENTINELS_DOC: &str = include_str!("../../../prod-docs/SENTINELS.md");
+const RECIPES_DOC: &str = include_str!("../../../prod-docs/SENTINEL-RECIPES.md");
 
 fn recipe_matches() -> BTreeMap<String, String> {
-    let (_, block) = SENTINELS_DOC
+    let (_, block) = RECIPES_DOC
         .split_once("<!-- sentinel-recipe:launch-prompt-gate -->")
         .expect("launch-prompt-gate recipe");
     let (block, _) = block.split_once("<!-- /sentinel-recipe -->").unwrap();

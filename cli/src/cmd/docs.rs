@@ -30,6 +30,11 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
         "../../../prod-docs/SENTINELS.md"
     ),
     doc!(
+        "SENTINEL-RECIPES",
+        "Sentinel graph use-case patterns and built-in recipe skeletons",
+        "../../../prod-docs/SENTINEL-RECIPES.md"
+    ),
+    doc!(
         "CONFIG",
         "Application configuration reference",
         "../../../prod-docs/CONFIG.md"
