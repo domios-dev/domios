@@ -151,6 +151,10 @@ impl ServiceContext {
         }
         self.ensure_workspace_plans_loaded(cwd.as_deref());
         self.emit_state_changed();
+        let _ = session_persist::persist_session_after_mutation(
+            self,
+            SessionPersistUrgency::Prompt,
+        );
         Ok(ws)
     }
 
@@ -615,6 +619,10 @@ impl ServiceContext {
         };
         self.record_kpi_tab_created(&result, crate::agent::kpi_ledger::TabCreatedKind::Terminal);
         self.emit_state_changed();
+        let _ = session_persist::persist_session_after_mutation(
+            self,
+            SessionPersistUrgency::Prompt,
+        );
         Ok(result)
     }
 

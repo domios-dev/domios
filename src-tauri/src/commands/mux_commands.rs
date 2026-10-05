@@ -215,7 +215,7 @@ pub fn mux_rename_team_core(
 }
 
 pub(crate) fn mux_rename_team_service_core(
-    svc: &ServiceState,
+    svc: &crate::service::ServiceContext,
     team_id: String,
     name: String,
     caller_tab_id: Option<String>,

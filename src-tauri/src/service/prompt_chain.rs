@@ -105,6 +105,14 @@ impl PromptChainBook {
     fn claim_notice(&mut self, key: &ChainKey, kind: &str) -> bool {
         self.progress(key).notices.insert(kind.to_string())
     }
+
+    fn clear_parent_routes(&mut self, key: &ChainKey) {
+        if let Some(progress) = self.entries.get_mut(key) {
+            progress
+                .notices
+                .retain(|kind| !kind.starts_with("parent-route:"));
+        }
+    }
 }
 
 fn fingerprint(kind: PromptKind, prompt: &PendingPrompt) -> String {
@@ -253,11 +261,23 @@ impl super::ServiceContext {
         tab_id: &str,
         prompt: &PendingPrompt,
     ) -> bool {
+        self.claim_pending_prompt_notice_event_key(tab_id, prompt)
+            .is_some()
+    }
+
+    pub(crate) fn claim_pending_prompt_notice_event_key(
+        &self,
+        tab_id: &str,
+        prompt: &PendingPrompt,
+    ) -> Option<String> {
         let Some(key) = self.prompt_notice_key(tab_id) else {
-            return false;
+            return None;
         };
         let dedupe_kind = prompt_notice_kind(prompt);
-        CHAINS.lock().claim_notice(&key, &dedupe_kind)
+        CHAINS
+            .lock()
+            .claim_notice(&key, &dedupe_kind)
+            .then(|| notice_event_key(&key, &dedupe_kind))
     }
 
     pub(crate) fn claim_pending_prompt_parent_route(
@@ -271,6 +291,13 @@ impl super::ServiceContext {
         CHAINS
             .lock()
             .claim_notice(&key, &prompt_parent_route_kind(prompt))
+    }
+
+    pub(crate) fn clear_pending_prompt_parent_routes(&self, tab_id: &str) {
+        let Some(key) = self.prompt_notice_key(tab_id) else {
+            return;
+        };
+        CHAINS.lock().clear_parent_routes(&key);
     }
 
     pub(crate) fn pending_prompt_blocker_kind(prompt: &PendingPrompt) -> &'static str {
@@ -786,6 +813,8 @@ mod tests {
         let parent_route = prompt_parent_route_kind(&multi_select);
         assert!(book.claim_notice(&launch, &parent_route));
         assert!(!book.claim_notice(&launch, &prompt_parent_route_kind(&updated_multi_select)));
+        book.clear_parent_routes(&launch);
+        assert!(book.claim_notice(&launch, &parent_route));
         assert!(book.claim_notice(&key("next-launch"), &free_text_kind));
     }
 }

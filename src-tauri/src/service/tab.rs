@@ -342,6 +342,7 @@ impl ServiceContext {
             .write()
             .rename_tab_at_level(tab_id, title, TitleLevel::Agent)?;
         self.emit_state_changed();
+        let _ = session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
         Ok(())
     }
 
@@ -349,6 +350,7 @@ impl ServiceContext {
         let description = normalize_tab_description(description)?;
         self.mux.write().set_tab_description(tab_id, description)?;
         self.emit_state_changed();
+        let _ = session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
         Ok(())
     }
 

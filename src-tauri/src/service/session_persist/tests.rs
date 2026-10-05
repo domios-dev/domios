@@ -520,7 +520,7 @@ fn service_created_tab_is_committed_and_restores_from_a_fresh_storage_owner() {
         .expect("create through ServiceContext");
     fixture
         .service
-        .rename_tab(&tab_id, "Committed agent")
+        .rename_tab(&tab_id, "CommittedAgent")
         .expect("rename through ServiceContext");
     let moved_workspace = fixture
         .service
@@ -694,7 +694,10 @@ fn service_created_tab_is_committed_and_restores_from_a_fresh_storage_owner() {
         .expect("change workspace state through ServiceContext");
     flush_mutation();
     let committed = adapter.state().expect("all committed desk domains");
-    assert_eq!(committed.snapshot.active_workspace_id, moved_workspace.id);
+    assert_eq!(
+        committed.snapshot.active_workspace_id,
+        Some(moved_workspace.id.clone())
+    );
     fixture.service.emit_state_changed();
     event_rx
         .recv_timeout(Duration::from_secs(5))
@@ -741,12 +744,15 @@ fn service_created_tab_is_committed_and_restores_from_a_fresh_storage_owner() {
         .flat_map(|workspace| &workspace.tabs)
         .find(|tab| tab.id == tab_id)
         .expect("renamed and moved tab restored");
-    assert_eq!(restored_tab.title, "Committed agent");
+    assert_eq!(restored_tab.title, "CommittedAgent");
     assert_eq!(
         restored_tab.description.as_deref(),
         Some("desk description")
     );
-    assert_eq!(restored.snapshot.active_workspace_id, moved_workspace.id);
+    assert_eq!(
+        restored.snapshot.active_workspace_id,
+        Some(moved_workspace.id.clone())
+    );
     let restored_layout = restored
         .snapshot
         .workspaces

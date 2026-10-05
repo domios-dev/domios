@@ -9,6 +9,26 @@ use super::{
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
 
+fn trust_prompt() -> PendingPrompt {
+    PendingPrompt {
+        question: "directory trust question".into(),
+        options: vec![
+            PromptOption {
+                label: "Trust once".into(),
+                value: "1".into(),
+            },
+            PromptOption {
+                label: "Trust always".into(),
+                value: "2".into(),
+            },
+        ],
+        sections: None,
+        multi_select: None,
+        submit_available: None,
+        selected_values: None,
+    }
+}
+
 fn state_with_tab(cwd: Option<&str>, provisioned: Option<&str>) -> (MultiplexerState, String) {
     let (mut state, _root) = MultiplexerState::new();
     let ws_id = state.list_workspaces()[0].id.clone();
@@ -306,6 +326,7 @@ fn trusted_sibling_prompt_uses_the_bound_directory_trust_responder() {
                 step: b"\r".to_vec(),
             },
         )
+        .with_directory_trust_prompt(trust_prompt())
         .with_directory_trusted_path(r"C:\Users\owner\Trusted"),
     ));
 
@@ -493,7 +514,8 @@ fn provisioned_directory_trust_still_uses_provenance_without_shared_trust() {
             DirectoryTrustPromptResponse::Answer {
                 step: b"\r".to_vec(),
             },
-        ),
+        )
+        .with_directory_trust_prompt(trust_prompt()),
     ));
     let decision = fixture
         .service
@@ -523,6 +545,7 @@ fn trust_trusted_dir_by_provenance_auto_answers_no_notification() {
                 step: b"\r".to_vec(),
             },
         )
+        .with_directory_trust_prompt(trust_prompt())
         .with_directory_trust_state(codeterm_plugin::provider::DirectoryTrustState::Untrusted),
     ));
     let decision = fixture

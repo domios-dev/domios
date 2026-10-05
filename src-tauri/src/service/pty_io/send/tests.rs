@@ -359,7 +359,7 @@ fn shell_spawn_command_locks_the_detected_agent_type() {
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
     tab.backing = crate::multiplexer::types::TabBacking::Pty;
-    tab.pty_id = Some("pty-cli-launch".into());
+    mux.link_pty(&tab_id, "pty-cli-launch".into());
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     fixture.service.agent_registry.register_provider(Box::new(
         crate::agent::test_provider::MockProvider::new("claude"),

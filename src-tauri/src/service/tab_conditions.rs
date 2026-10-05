@@ -12,14 +12,17 @@ pub(crate) fn is_user_facing(tab: &Tab) -> bool {
     !tab.hidden && tab.audience == TabAudience::User
 }
 
-fn owner_prompt_notice_body(subject: &str, prompt: &PendingPrompt) -> String {
+fn owner_prompt_notice_body(tab_id: &str, subject: &str, prompt: &PendingPrompt) -> String {
     let need = match ServiceContext::pending_prompt_blocker_kind(prompt) {
         "free_text" => "free-text input",
         "multi_select" => "a multi-select answer",
         "too_many_options" => "an owner choice from more than ten options",
         _ => "a response to the prompt",
     };
-    format!("{subject} needs {need}.\nPrompt: {}", prompt.question)
+    format!(
+        "{subject} needs {need}.\nTab: {tab_id}\nPrompt: {}",
+        prompt.question
+    )
 }
 
 fn parent_prompt_report_body(tab_id: &str, prompt: &PendingPrompt) -> String {
@@ -209,14 +212,18 @@ impl ServiceContext {
             )
         };
 
-        if owner == Some(ConditionOwner::User) {
-            if let Some(event_key) = self.claim_pending_prompt_notice(tab_id, prompt) {
+        if owner == Some(ConditionOwner::User)
+            && kind != codeterm_types::pty::PromptKind::DirectoryTrust
+        {
+            if let Some(event_key) =
+                self.claim_pending_prompt_notice_event_key(tab_id, prompt)
+            {
                 let subject = self.prompt_notice_subject(tab_id);
                 self.create_condition_notification_with_key(
                     tab_id,
                     TabCondition::PendingPrompt,
                     crate::service::prompt_chain::owner_prompt_notice_title(prompt).into(),
-                    Some(owner_prompt_notice_body(&subject, prompt)),
+                    Some(owner_prompt_notice_body(tab_id, &subject, prompt)),
                     Some(crate::service::prompt_chain::owner_prompt_condition_actions()),
                     event_key,
                 );

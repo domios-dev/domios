@@ -53,6 +53,10 @@ impl ServiceContext {
             // The binding commit shuts this tab's tailer down, and chat reads
             // its authority from the tab record: no broadcast, no re-attach.
             self.emit_state_changed();
+            let _ = crate::service::session_persist::persist_session_after_mutation(
+                self,
+                crate::service::session_persist::SessionPersistUrgency::Prompt,
+            );
             self.invalidate_guarded_agent_input(tab_id);
         }
         if session_bound {

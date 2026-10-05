@@ -2743,7 +2743,8 @@ Classify a bounded probe or same-Team agent observation
 - `--paused` — Create a dormant downstream stage; its lifetime starts now
 - `--probe`
 - `--question`
-- `--route` — Inline routes: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop; use --handlers-file for command, respond_prompt and escalation handlers
+- `--rearm-on-change` — Route again when this bucket's output changes without changing buckets
+- `--route` — Inline routes: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
 - `--timeout` — End the sentinel after this duration
 - `--until` — Stop after this bucket's first confident transition
 
