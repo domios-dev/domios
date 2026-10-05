@@ -45,6 +45,13 @@ pub(crate) enum UserDrain {
 
 type UserReadiness = super::supporter_tab_state::UserDeliveryReadiness;
 
+fn requires_observed_session_id_for_readiness(
+    observed_session_id: Option<&str>,
+    session_starts_on_first_user_turn: bool,
+) -> bool {
+    observed_session_id.is_none() && !session_starts_on_first_user_turn
+}
+
 fn supporter_pending_reason(error: &str) -> &'static str {
     match error {
         "supporter_adapter_unavailable" => "supporter_adapter_unavailable",
@@ -200,7 +207,18 @@ impl super::ServiceContext {
             return Err("pty_session_generation_unavailable_or_changed");
         }
         if binding_authenticated { return Err("exact_binding_present_stage_pending"); }
-        if authority.observed_session_id.is_none() { return Err("resume_session_unknown"); }
+        let session_starts_on_first_user_turn = self
+            .agent_registry
+            .with_provider(&authority.provider_id, |provider| {
+                provider.session_starts_on_first_user_turn()
+            })
+            .unwrap_or(false);
+        if requires_observed_session_id_for_readiness(
+            authority.observed_session_id.as_deref(),
+            session_starts_on_first_user_turn,
+        ) {
+            return Err("resume_session_unknown");
+        }
         let first = self
             .observe_user_delivery_readiness(&authority.tab_id, None)
             .map_err(|error| supporter_pending_reason(&error))?;
