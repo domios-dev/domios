@@ -19,10 +19,10 @@ pub enum SentinelAction {
         /// Owner-requested cadence (minimum 10s)
         #[arg(long, default_value = "20s")]
         every: String,
-        /// Closed-set route: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop
+        /// Inline routes: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop; use --handlers-file for command, respond_prompt and escalation handlers
         #[arg(long = "route", value_parser = parse_route)]
         routes: Vec<String>,
-        /// JSON bucket-to-array of {id,type,parameters} handlers, including fixed local command actions
+        /// JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`
         #[arg(long, conflicts_with = "routes")]
         handlers_file: Option<std::path::PathBuf>,
         /// Bound how long an `other` escalation may hold this stage, in milliseconds

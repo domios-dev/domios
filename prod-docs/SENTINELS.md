@@ -4,22 +4,30 @@ A sentinel watches external status cheaply while an agent does useful work. It r
 requested cadence, hashes the captured result, and classifies only changed output. Use it to wait for CI or build
 completion instead of repeatedly asking an agent to run the same status check.
 
-## Model recurring actions as graphs
+## When to use a Sentinel graph
 
-When you would repeat an action (check, decide, act), describe it once as a Sentinel graph instead of spending your own
-turns on it:
+Before you repeat a check or wait on an external, agent or cron status, describe the loop once as a graph instead of
+spending turns on it. Unchanged output costs no model call and no agent turn; you wake only when a declared bucket
+routes to you. Observation and actions are deterministic, the model only picks one of your finite buckets (never a
+command, target or reply), and every action stays in the creator's Team, workspace and machine. `other` means no
+bucket fits.
 
-- Put routine observation and action in deterministic steps: bounded probes and the handlers below.
-- At each decision, declare a finite set of buckets, each with an exact handler you authored. The model only chooses a
-  bucket; it never writes a command, target or reply.
-- A graph acts with your authority and never beyond it. The model only selects among the actions you offered.
-- `other` means the graph cannot classify the case into a declared bucket. Optional reserved `other` handlers may notify
-  or escalate the case to the creator or an exact same-Team agent tab. An escalation carries only Sentinel and
-  transition IDs; it never forwards probe output.
-- An escalation holds that stage, so it does not classify again until someone resolves the exact transition, a new run
-  binding releases it, or its `escalation_timeout_ms` expires. Expiry is journaled as `escalation_expired`.
-- Use versioned updates to change a graph after an escalation. Updates retain immutable definition history and require
-  the current expected version.
+1. **CI or PR result.** `--probe "gh run view ID --json status,conclusion"`, buckets `passed,failed`, running CI left
+   to `other`; `--route passed=cron:<review>` and `failed=send:<fixer tab>`. The branch is decided once, no polling.
+2. **A Worker waiting on a prompt.** `--observe tab:<worker>` with a `prompt` bucket routed to `notify` or
+   `send:<owner tab>`, and `other` escalated. The tab is read, never typed into; its owner wakes only on a stop.
+3. **Cron run failures.** `--observe cron-run:<name>`, buckets `ok,failed`, `failed=notify`. Each run is a fresh
+   episode, so one graph covers the schedule; the transition count spans runs, so raise `--max-transitions` (max 256).
+4. **Deploy or service health.** `--probe "curl -fsS --max-time 2 https://HOST/health" --every 1m` with
+   `--match 'healthy=(?m)^exit=0$' --match 'down=(?m)^exit=[1-9]'` and `down=notify`. Only a change of bucket routes,
+   not every probe. Stay under the probe limit: a timed-out probe is a skip, not `down`.
+5. **Long build or test.** Have the job write `passed` or `failed` to a status file; `--probe "cat out/test.status"`
+   with `--match 'passed=(?m)^passed' --match 'failed=(?m)^failed'`. While the file is missing the result is a quiet
+   `other`; the default `notify` wakes the creator once on completion, instead of re-reading a log each turn.
+6. **Self-improving loop.** Escalate `other` to the owning agent (`escalate:agent:<tab>` in `--handlers-file`). It
+   reads `sentinel history`, adds the missing bucket, pattern or handler with `sentinel update ... --cause
+   TRANSITION_ID`, then resolves the escalation so the stage re-evaluates once. Each unknown case costs one turn, then
+   stays a versioned, deterministic branch.
 
 ## Create a watch
 
@@ -52,7 +60,8 @@ codeterm sentinel create --observe cron-run:nightly --question "identify the cur
 
 The observed tab must be an agent in the creator's Team and workspace. A `cron-run:<id-or-name>` stage waits for a run,
 then observes the exact tab recorded for that run. A finished run or removed tab unbinds the stage; a replacement run
-starts a fresh observation episode.
+starts a fresh observation episode by resetting the observation hash, accepted bucket, and held state. The transition
+count is retained across runs.
 
 ## Classification and transitions
 
@@ -77,8 +86,9 @@ bucket. Returning to a previously accepted bucket after another accepted bucket 
 
 ## Closed-set routes
 
-Repeat `--route bucket=action` to declare ordered handlers, including several for one bucket. Each receives a stable
-persisted ID. Unassigned buckets use `notify`.
+Repeat `--route bucket=action` for inline `notify`, `sentinel`, `send`, `cron`, or `stop` handlers. Use
+`--handlers-file` for `command`, `respond_prompt`, or `escalate` handlers and when explicit handler IDs are needed.
+Unassigned buckets use `notify`.
 
 | Action | Result |
 |---|---|
@@ -86,7 +96,7 @@ persisted ID. Unassigned buckets use `notify`.
 | `sentinel:<exact-id>` | Activates an existing dormant stage owned by the same creator, Team and workspace |
 | `send:<tab>` | Sends a result-file pointer through the existing tab message API |
 | `cron:<name>` | Triggers the uniquely named existing cron |
-| `respond_prompt:<kind>` | Requests a provider-declared safe answer on the observed unattended tab |
+| `respond_prompt:<kind>` | Requests an answer through the existing provider-declared safe-response path |
 | `stop` | Stops the sentinel |
 | `escalate:creator` or `escalate:agent:<tab>` | Sends a small escalation packet through the message gateway |
 
@@ -98,10 +108,13 @@ restart. Independent successes, failures, skips and unconfirmed outcomes stay vi
 operation, not recipient work or cron success. A failed handler does not erase earlier results or prevent later
 handlers; stop cancels the remaining handlers. A missing result after a crash is unconfirmed.
 
-`respond_prompt` requires an `--observe` tab or cron-run source and a kind of `directory_trust`, `onboarding`, `update`,
-or `permission`. It is refused for shell-probe stages, owner-facing tabs, changed prompts, and provider prompts without
-a matching declared safe option. Login, authentication and quota prompts are never answered. The request uses the
-existing bounded prompt answer path; Sentinel does not write keys or construct provider steps.
+`respond_prompt:<kind>` requires an `--observe` tab or cron-run source. The kind identifies a requested safe-response
+path; it does not authorize an answer or select an option. For example, `permission` can request a response to a
+per-tool permission prompt. The existing responder revalidates the exact current prompt and kind, then chooses only a
+provider-declared option through the existing safe-response writer. Changed prompts, unsupported kinds, unsafe targets,
+and prompts without a matching declared option are refused. Sentinel does not write raw PTY keys or construct provider
+steps. Each tab accepts at most one response per prompt occurrence, and Sentinel prompt-response requests are limited
+to 600 per rolling 60-second window.
 
 ## Compose a named Sentinel graph
 
@@ -125,9 +138,10 @@ Use `--handlers-file PATH` for explicit IDs and JSON bucket-to-array definitions
 ```
 
 The file form cannot be mixed with `--route`. Unknown fields or types, duplicate IDs and ambiguous targets are refused.
-At most 16 handlers fit each bucket and 64 fit one node. Composition definitions require `--timeout`. Finite budgets
-default to 64 accepted transitions and 256 action attempts; `--max-transitions` and `--max-actions` allow at most 256
-and 1024. Exhaustion records a stop reason. No model output constructs a handler, target or command. A fixed local
+At most 16 handlers fit each bucket and 64 fit one node. Composition definitions require `--timeout`. Each graph has
+a lifetime transition budget that defaults to 64 and can be set up to 256 with `--max-transitions`; a new cron run
+does not reset that count. Exhaustion stops the graph with `transition_budget_exhausted`. The action-attempt budget
+defaults to 256 and `--max-actions` allows up to 1024. No model output constructs a handler, target or command. A fixed local
 command is available only through `--handlers-file`, with creator-authored parameters:
 
 ```json
@@ -153,23 +167,25 @@ Put escalation actions only in the reserved `other` array, for example:
 {"other":[{"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}}]}
 ```
 
-It accepts only `notify` and `escalate` handlers, with at most one escalation. Creating a graph with `other` handlers
-requires positive `--escalation-timeout-ms`; updates must set a positive `escalation_timeout_ms` in the definition JSON.
-After an escalation the stage holds without classifying until resolution, a new run binding, or timeout. Resolve an open
-episode with:
+It accepts only `notify` and `escalate` handlers, with at most one escalation. An escalation packet carries only
+Sentinel and transition IDs, never probe output. Creating a graph with `other` handlers requires positive
+`--escalation-timeout-ms`; updates must set a positive `escalation_timeout_ms` in the definition JSON. After an
+escalation the stage holds without classifying until resolution, a new run binding, or timeout (journaled as
+`escalation_expired`). Resolve an open episode with:
 
 ```bash
 codeterm sentinel escalation resolve SENTINEL_ID TRANSITION_ID
 ```
 
 Resolution clears the observation hash and re-evaluates once. An escalation claim is persisted before delivery and is
-never replayed after restart. The same escalation cause may be delivered at most once per five minutes per Sentinel.
+never replayed after restart. The same cause escalates at most once per five minutes per Sentinel.
 
-Update a definition from JSON with the current version. Any caller in the same Team and workspace may amend it; each
-accepted update records version lineage:
+Update a definition from JSON with the current version. Add `--cause TRANSITION_ID` when the amendment addresses an
+escalation. Any caller in the same Team and workspace may amend it; each accepted update records version lineage:
 
 ```bash
 codeterm sentinel update SENTINEL_ID --expect-version VERSION --from-file definition.json
+codeterm sentinel update SENTINEL_ID --expect-version VERSION --from-file definition.json --cause TRANSITION_ID
 codeterm sentinel history SENTINEL_ID
 ```
 
@@ -194,11 +210,10 @@ independent sibling handlers; unconfirmed resource cleanup stops the source and 
 Peer-qualified handlers and remote Sentinel execution are unavailable; a graph belongs to one actual connected instance.
 Mesh transport does not provide a remote execution claimant or replay contract.
 
-Team Mission Control and the workspace automation entry list named Sentinels; opening an entry shows its internal graph.
-Nodes expose safe declared purpose, exact scope, state, expiry, independent handler results and connected targets.
-Cron-to-Worker edges require actual retained run and tab IDs. A missing live tab stays missing; probe text, task bodies,
-credentials and session secrets are excluded. The view may explicitly report truncation at its bounded read limit. Graph
-Stop uses authenticated host control and validates the exact node scope.
+Team Mission Control and the workspace automation entry list named Sentinels; an entry opens its graph. Nodes show
+declared purpose, exact scope, state, expiry, handler results and connected targets; cron-to-Worker edges need retained
+run and tab IDs. Probe text, task bodies, credentials and secrets are excluded, truncation at the read limit is reported,
+and graph Stop validates the exact node scope through authenticated host control.
 
 ## Inspect and stop
 
@@ -214,14 +229,12 @@ Team stops and removes all its sentinels, including in-flight route claims. A re
 watch. The store admits at most 64 active and 256 total sentinels; dormant stages count toward the total. Watches are
 local to the creator's machine; `--mesh` is refused.
 
-Stored single-route definitions from older builds and unreadable/corrupt files leave the Sentinel subsystem unavailable.
-Original file bytes stay in place; reads and mutations return an actionable load/format error, never an empty healthy
-graph. Other subsystems can start. An operator must preserve/export those definitions and choose to recreate them
-through current authoring; there is no automatic migration, reset or discard. Use fresh isolated dev data for
-demonstrations and keep production definitions untouched.
+Stored single-route definitions from older builds and unreadable/corrupt files leave the Sentinel subsystem unavailable
+while other subsystems start. Original bytes stay in place; reads and mutations return an actionable load/format error,
+never an empty healthy graph. Preserve those definitions and recreate them through current authoring; there is no
+automatic migration, reset or discard. Use fresh isolated dev data for demonstrations.
 
-A failed persistence write returns an error and holds Sentinel unavailable. Cancellation remains in memory; durability
-is unconfirmed until a valid store reload. Repair the filesystem before loading the store again. No stop success or
-claimed-handler replay is inferred from a failed write.
+A failed persistence write returns an error and holds Sentinel unavailable; cancellation stays in memory and durability
+is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.
 
-<!-- revision: 10 -->
+<!-- revision: 12 -->
