@@ -1028,7 +1028,7 @@ fn full_user_owner_refuses_new_admission_without_consuming_backend_ledger_capaci
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires the shared interactive desktop ServiceContext fixture")]
-fn zero_write_refusal_keeps_new_readiness_or_admission_wakes_and_consumes_only_housekeeping() {
+fn zero_write_refusal_retries_head_then_writes_following_sends_after_uncertainty() {
     for reason in [UserWake::Housekeeping, UserWake::Readiness, UserWake::Admission] {
         let (fixture, tab) = queue_fixture(false, None);
         let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
@@ -1065,53 +1065,43 @@ fn zero_write_refusal_keeps_new_readiness_or_admission_wakes_and_consumes_only_h
         };
         release_tx.send(()).unwrap();
         idle_rx.recv_timeout(TEST_DEADLINE).unwrap();
-        let expected = match reason {
-            UserWake::Housekeeping => 1,
-            UserWake::Readiness => 2,
-            UserWake::Admission => 2,
+        let mut expected_follow_ups = match reason {
+            UserWake::Housekeeping => Vec::new(),
+            UserWake::Readiness => vec![first.send_id.clone(), second.send_id.clone()],
+            UserWake::Admission => vec![
+                first.send_id.clone(),
+                second.send_id.clone(),
+                additional.as_ref().unwrap().send_id.clone(),
+            ],
         };
-        assert_eq!(attempts.load(Ordering::Acquire), expected);
-        let expected_follow_ups = match (&reason, additional.as_ref()) {
-            (UserWake::Housekeeping, _) => Vec::new(),
-            (UserWake::Readiness, _) => vec![first.send_id.clone()],
-            (UserWake::Admission, Some(_)) => vec![first.send_id.clone()],
-            (UserWake::Admission, None) => unreachable!(),
-        };
-        for (attempt, send_id) in expected_follow_ups.iter().enumerate() {
-            assert_eq!(entered_rx.recv_timeout(TEST_DEADLINE).unwrap(), (attempt + 1, send_id.clone()));
-        }
         if reason == UserWake::Housekeeping {
+            assert_eq!(attempts.load(Ordering::Acquire), 1);
             let records = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
             assert_eq!(records[0].state, UserSendState::Queued);
             assert_eq!(records[1].state, UserSendState::Queued);
-        } else {
-            let records = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
-            assert_eq!(records.len(), if additional.is_some() { 2 } else { 1 });
-            assert!(records.iter().all(|record| record.state == UserSendState::Queued));
-        }
-        if expected == 1 {
             fixture.service.wake_parked_user_send(&tab);
             idle_rx.recv_timeout(TEST_DEADLINE).unwrap();
-            assert_eq!(attempts.load(Ordering::Acquire), 2);
-            assert_eq!(entered_rx.recv_timeout(TEST_DEADLINE).unwrap(), (1, first.send_id.clone()));
-            let records = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
-            assert_eq!(records.len(), 1);
-            assert_eq!(records[0].send_id, second.send_id);
+            expected_follow_ups = vec![first.send_id.clone(), second.send_id.clone()];
         }
-        if let Some(additional) = additional {
-            let reopened = UserSendStore::open(fixture.temp.path()).unwrap();
-            let records = reopened.records(&tab).unwrap();
-            assert_eq!(records.len(), if reason == UserWake::Admission { 2 } else { 1 });
-            assert!(reopened.original(&tab, &first.send_id).is_err());
-            assert!(reopened.original(&tab, &second.send_id).is_ok());
-            if reason == UserWake::Admission {
-                assert!(reopened.original(&tab, &additional.send_id).is_ok());
-            }
-        } else if reason == UserWake::Housekeeping {
-            let reopened = UserSendStore::open(fixture.temp.path()).unwrap();
-            assert_eq!(reopened.records(&tab).unwrap().len(), 1);
-            assert!(reopened.original(&tab, &first.send_id).is_err());
-            assert!(reopened.original(&tab, &second.send_id).is_ok());
+        assert_eq!(attempts.load(Ordering::Acquire), expected_follow_ups.len() + 1);
+        for (attempt, send_id) in expected_follow_ups.iter().enumerate() {
+            assert_eq!(entered_rx.recv_timeout(TEST_DEADLINE).unwrap(), (attempt + 1, send_id.clone()));
+        }
+        let records = fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap();
+        assert!(records.is_empty());
+        for send_id in std::iter::once(&first.send_id)
+            .chain(std::iter::once(&second.send_id))
+            .chain(additional.iter().map(|status| &status.send_id))
+        {
+            assert_eq!(fixture.service.chat_send_ledger.status(send_id).unwrap().state, ChatSendState::Unknown);
+        }
+        let reopened = UserSendStore::open(fixture.temp.path()).unwrap();
+        assert!(reopened.records(&tab).unwrap().is_empty());
+        for send_id in std::iter::once(&first.send_id)
+            .chain(std::iter::once(&second.send_id))
+            .chain(additional.iter().map(|status| &status.send_id))
+        {
+            assert!(reopened.original(&tab, send_id).is_err());
         }
     }
 }
