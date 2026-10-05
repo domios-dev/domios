@@ -311,6 +311,53 @@
     }
 
     #[test]
+    fn reconcile_keeps_delivered_sends_alongside_unconfirmed_history() {
+        let ledger = ChatSendLedger::default();
+        let first = ledger.try_start("tab-1", "alpha", None).unwrap();
+        let second = ledger.try_start("tab-1", "beta", None).unwrap();
+        let third = ledger.try_start("tab-1", "gamma", None).unwrap();
+        for (pending, body) in [(&first, "alpha"), (&second, "beta"), (&third, "gamma")] {
+            run_chat_send(&ledger, pending.clone(), body, |_| Ok(()));
+        }
+
+        let delivered = ledger.confirm_delivered_user_turns_scoped(
+            "tab-1",
+            "session-1",
+            Some("nonce-1"),
+            "alpha\n\nbeta",
+        );
+        assert_eq!(delivered.len(), 2);
+        assert!(delivered.iter().all(|status| status.state == ChatSendState::Sent));
+
+        let retained = ledger.reconcile("tab-1");
+        assert_eq!(
+            retained.iter().map(|status| status.send_id.as_str()).collect::<Vec<_>>(),
+            [first.send_id.as_str(), second.send_id.as_str(), third.send_id.as_str()],
+        );
+        assert_eq!(
+            retained.iter().map(|status| status.state.clone()).collect::<Vec<_>>(),
+            vec![ChatSendState::Sent, ChatSendState::Sent, ChatSendState::Unknown],
+        );
+    }
+
+    #[test]
+    fn reconcile_keeps_latest_pending_send_with_delivered_history() {
+        let ledger = ChatSendLedger::default();
+        let delivered = ledger.try_start("tab-1", "delivered", None).unwrap();
+        run_chat_send(&ledger, delivered.clone(), "delivered", |_| Ok(()));
+        ledger.confirm_delivered_user_turn("tab-1", "session-1", "delivered");
+        let pending = ledger.try_start("tab-1", "pending", None).unwrap();
+
+        let retained = ledger.reconcile("tab-1");
+        assert_eq!(
+            retained.iter().map(|status| status.send_id.as_str()).collect::<Vec<_>>(),
+            [delivered.send_id.as_str(), pending.send_id.as_str()],
+        );
+        assert_eq!(retained[0].state, ChatSendState::Sent);
+        assert_eq!(retained[1].state, ChatSendState::Pending);
+    }
+
+    #[test]
     fn reconciliation_exposes_the_backend_retention_window() {
         let ledger = ChatSendLedger::default();
         for index in 0..=MAX_RESULTS {
