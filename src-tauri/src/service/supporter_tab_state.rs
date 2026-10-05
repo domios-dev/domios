@@ -904,7 +904,7 @@ impl UserDeliveryObservation {
             identity::DecisionSource::Adapter => None,
             identity::DecisionSource::NoAdapter => Some("supporter_no_adapter"),
             identity::DecisionSource::Timeout => Some("supporter_timeout"),
-            identity::DecisionSource::Error => Some("supporter_error"),
+            identity::DecisionSource::Error(_) => Some("supporter_error"),
             identity::DecisionSource::Budget => Some("supporter_budget"),
             identity::DecisionSource::Other => Some("supporter_other"),
             identity::DecisionSource::LowConfidence => Some("supporter_low_confidence"),
