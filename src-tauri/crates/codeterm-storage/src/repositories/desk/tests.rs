@@ -92,7 +92,7 @@ fn desk() -> DeskSnapshot {
             name: Some("A".into()),
             lifecycle: DeskTeamLifecycle::Closing,
             created_at: 7,
-            workspace_id: "missing-workspace".into(),
+            workspace_id: "ws-a".into(),
         }],
         agent_session_identities: vec![DeskAgentSessionIdentity {
             provider: "codex".into(),
@@ -104,6 +104,17 @@ fn desk() -> DeskSnapshot {
             can_spawn: false,
         }],
     }
+}
+
+#[test]
+fn storage_desk_validation_rejects_team_without_a_workspace() {
+    let mut snapshot = desk();
+    snapshot.teams[0].workspace_id = "missing-workspace".into();
+
+    let error = snapshot.validate().unwrap_err().to_string();
+
+    assert!(error.contains("Team workspace"));
+    assert!(error.contains("must name a desk workspace"));
 }
 
 #[test]
@@ -209,6 +220,54 @@ fn storage_desk_rename_is_revision_fenced_and_keeps_unrelated_entities() {
         .rename_workspace("ws-a".into(), workspace_revision, "Stale".into())
         .wait(Duration::from_secs(5))
         .is_err());
+}
+
+#[test]
+fn storage_desk_delta_drops_orphan_team_and_commits_valid_changes() {
+    let (_root, storage) = storage();
+    let initial = desk();
+    storage
+        .desk()
+        .import(initial.clone())
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let before = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let mut submitted = initial;
+    submitted.workspaces[0].record.name = "Updated".into();
+    submitted.teams.push(DeskTeam {
+        id: "team-orphan".into(),
+        name: Some("Orphan".into()),
+        lifecycle: DeskTeamLifecycle::Active,
+        created_at: 8,
+        workspace_id: "removed-workspace".into(),
+    });
+
+    storage
+        .desk()
+        .save_preserving(submitted, before.value.revision)
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let after = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+
+    assert_eq!(after.value.snapshot.workspaces[0].record.name, "Updated");
+    assert_eq!(
+        after
+            .value
+            .snapshot
+            .teams
+            .iter()
+            .map(|team| team.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["team-a"]
+    );
 }
 
 #[test]

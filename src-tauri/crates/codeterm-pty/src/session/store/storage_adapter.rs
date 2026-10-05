@@ -7,11 +7,20 @@ use codeterm_storage::{
     DeskState, DeskTab, DeskTeam, DeskTeamLifecycle, DeskWorkspace, Revision, Storage,
 };
 use codeterm_types::plan::task_key::WorkspaceTaskKeys;
+use std::collections::HashSet;
 #[cfg(test)]
 use std::path::Path;
 use std::time::Duration;
 
 const COMPLETION_DEADLINE: Duration = Duration::from_secs(30);
+
+fn snapshot_workspace_ids(snapshot: &SessionSnapshot) -> HashSet<String> {
+    snapshot
+        .workspaces
+        .iter()
+        .map(|workspace| workspace.id.clone())
+        .collect()
+}
 
 /// Blocking, dormant bridge from legacy snapshots to typed desk rows; use off the async runtime.
 pub struct StorageDeskAdapter {
@@ -291,6 +300,7 @@ fn to_desk_snapshot(
     snapshot: &SessionSnapshot,
     agent_session_identities: Vec<DeskAgentSessionIdentity>,
 ) -> Result<DeskSnapshot, String> {
+    let workspace_ids = snapshot_workspace_ids(snapshot);
     let workspaces = snapshot
         .workspaces
         .iter()
@@ -334,6 +344,7 @@ fn to_desk_snapshot(
         teams: snapshot
             .teams
             .iter()
+            .filter(|team| workspace_ids.contains(team.workspace_id.as_str()))
             .map(|team| DeskTeam {
                 id: team.id.clone(),
                 name: team.name.clone(),
@@ -355,6 +366,34 @@ pub fn project_snapshot(
     agent_session_identities: Vec<DeskAgentSessionIdentity>,
 ) -> Result<DeskSnapshot, String> {
     to_desk_snapshot(snapshot, agent_session_identities)
+}
+
+pub fn prune_orphan_teams(snapshot: &mut SessionSnapshot) -> Vec<codeterm_types::team::Team> {
+    let workspace_ids = snapshot_workspace_ids(snapshot);
+    let mut orphans: Vec<_> = snapshot
+        .teams
+        .iter()
+        .filter(|team| !workspace_ids.contains(team.workspace_id.as_str()))
+        .cloned()
+        .collect();
+    orphans.sort_by(|left, right| left.id.cmp(&right.id));
+    let orphan_ids: HashSet<&str> = orphans.iter().map(|team| team.id.as_str()).collect();
+    snapshot
+        .teams
+        .retain(|team| !orphan_ids.contains(team.id.as_str()));
+    orphans
+}
+
+pub fn orphan_teams(snapshot: &SessionSnapshot) -> Vec<(String, String)> {
+    let workspace_ids = snapshot_workspace_ids(snapshot);
+    let mut orphans: Vec<_> = snapshot
+        .teams
+        .iter()
+        .filter(|team| !workspace_ids.contains(team.workspace_id.as_str()))
+        .map(|team| (team.id.clone(), team.workspace_id.clone()))
+        .collect();
+    orphans.sort_unstable();
+    orphans
 }
 
 fn to_layout(node: &SplitNodeSnapshot) -> Result<DeskLayoutNode, String> {
