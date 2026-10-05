@@ -247,7 +247,7 @@ fn socket_resolution_handles_each_environment_combination() {
 
     for (socket, instance, port, expected) in cases {
         let resolved = resolve_socket_selection(socket, instance, port).unwrap();
-        assert_eq!(resolved.map(|value| value.path), expected);
+        assert_eq!(resolved.map(|value| value.path).as_deref(), expected);
         if socket.is_some() {
             assert_eq!(
                 resolve_socket_selection(socket, instance, port)

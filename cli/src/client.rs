@@ -740,9 +740,9 @@ fn resolve_socket_selection(
         }
     }
 
-    if let (Some(instance), Some("7685" | "7686")) = (instance, api_port) {
+    if let (Some(instance), Some(port @ ("7685" | "7686"))) = (instance, api_port) {
         return Err(format!(
-            "Conflicting CodeTerm target selectors: CODETERM_INSTANCE='{instance}' selects a named development instance, but CODETERM_API_PORT='{api_port}' selects a default instance."
+            "Conflicting CodeTerm target selectors: CODETERM_INSTANCE='{instance}' selects a named development instance, but CODETERM_API_PORT='{port}' selects a default instance."
         ));
     }
 
