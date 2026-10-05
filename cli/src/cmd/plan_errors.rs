@@ -242,7 +242,11 @@ Use spec/plan sections for plan rules or mem for durable preferences:\n\
             task = task_id.unwrap_or("<task_id>")
         )),
         "blocked_requires_label" => Some(format!(
-            "✗ blocked is a claim, not an operator hold.\nfix: say what unblocks it, or open a decision gate:\n  codeterm plan task update {plan_id} {} --status blocked --status-label \"<what unblocks it>\"\n  codeterm plan decision ask {plan_id} \"<question>\"",
+            "✗ a task block needs a fresh reason and owner trigger.\nfix: explicitly block it with:\n  codeterm plan task update {plan_id} {} --status blocked --status-label \"<reason; owner trigger>\"\nA Worker report with --status blocked is only a proposal.",
+            task_id.unwrap_or("<task_id>")
+        )),
+        "task_block_authority_required" => Some(format!(
+            "✗ only the live Plan Orchestrator or Planner may block a task.\nfix: a Worker sends a proposal with `codeterm agent report --status blocked`; the Plan owner or Planner applies the decision with:\n  codeterm plan task update {plan_id} {} --status blocked --status-label \"<reason; owner trigger>\"",
             task_id.unwrap_or("<task_id>")
         )),
         "task_paused_system_only" => Some(
