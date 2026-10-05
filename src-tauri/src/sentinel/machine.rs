@@ -108,8 +108,22 @@ impl Route {
             }
             _ => {
                 let (kind, target) = value.split_once(':').ok_or(
-                    "route: use notify, sentinel:<exact-id>, send:<tab>, cron:<name>, stop, or escalate:creator|agent:<tab>",
+                    "route: use notify, sentinel:<exact-id>, send:<tab>, cron:<name>, respond_prompt:<kind>, stop, or escalate:creator|agent:<tab>",
                 )?;
+                if kind == "respond_prompt" {
+                    if target.trim().is_empty()
+                        || target.len() > 256
+                        || target.chars().any(char::is_control)
+                    {
+                        return Err(
+                            "route: respond_prompt kind must be nonempty and bounded".into()
+                        );
+                    }
+                    return Ok(Self::RespondPrompt(
+                        serde_json::from_value(serde_json::Value::String(target.into()))
+                            .map_err(|_| "route: invalid respond_prompt kind")?,
+                    ));
+                }
                 if target.trim().is_empty()
                     || target.len() > 256
                     || target.chars().any(char::is_control)

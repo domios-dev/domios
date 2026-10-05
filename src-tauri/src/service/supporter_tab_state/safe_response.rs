@@ -20,11 +20,11 @@ impl Kind {
     fn label_matches(self, label: &str) -> bool {
         match self {
             Self::Update => label == PROVIDER_UPDATE_PROMPT,
-            Self::Onboarding => false,
+            Self::Onboarding => label == TRUST_OR_PERMISSION_PROMPT,
             Self::DirectoryTrust | Self::Permission => label == TRUST_OR_PERMISSION_PROMPT,
         }
     }
-    fn context(self) -> &'static str {
+    pub(super) fn context(self) -> &'static str {
         match self {
             Self::Update => "update",
             Self::Onboarding => "onboarding",
@@ -32,7 +32,7 @@ impl Kind {
             Self::Permission => "tool_permission",
         }
     }
-    fn prompt_kind(self) -> codeterm_types::pty::PromptKind {
+    pub(super) fn prompt_kind(self) -> codeterm_types::pty::PromptKind {
         match self {
             Self::Update => codeterm_types::pty::PromptKind::ManualUpdate,
             Self::Onboarding => codeterm_types::pty::PromptKind::Provider,
@@ -378,6 +378,21 @@ impl ServiceContext {
     pub(super) fn followup_scope(&self, tab_id: &str, screen: &str) -> Option<String> {
         let tab = self.mux.read().get_tab(tab_id)?.clone();
         let target = self.model_safe_response_target(tab_id, screen)?;
+        self.followup_scope_for_target(tab_id, tab, target)
+    }
+
+    fn followup_scope_for_kind(&self, tab_id: &str, screen: &str, kind: Kind) -> Option<String> {
+        let tab = self.mux.read().get_tab(tab_id)?.clone();
+        let target = self.sentinel_safe_response_target(tab_id, screen, kind)?;
+        self.followup_scope_for_target(tab_id, tab, target)
+    }
+
+    fn followup_scope_for_target(
+        &self,
+        tab_id: &str,
+        tab: crate::multiplexer::types::Tab,
+        target: Target,
+    ) -> Option<String> {
         let prompt = identity::prompt_hash(&tab)?;
         if tab.pending_prompt.as_ref() != Some(&target.prompt)
             || tab.pending_prompt_kind != Some(target.kind.prompt_kind())
@@ -467,6 +482,44 @@ impl ServiceContext {
         applies.then_some(target)
     }
 
+    pub(super) fn sentinel_safe_response_target(
+        &self,
+        tab_id: &str,
+        screen: &str,
+        kind: Kind,
+    ) -> Option<Target> {
+        let tab = self.mux.read().get_tab(tab_id)?.clone();
+        if !crate::service::unattended_launch::owns_prompt_answers(&tab) {
+            return None;
+        }
+        let provider = self
+            .agent_registry
+            .provider_arc(tab.agent_type.as_deref()?)?;
+        let target = match kind {
+            Kind::Update | Kind::Onboarding => {
+                provider_target(provider.as_ref(), screen).filter(|target| target.kind == kind)
+            }
+            Kind::DirectoryTrust => directory_trust::target_applies(&tab)
+                .then(|| directory_trust::provider_target(provider.as_ref(), screen))
+                .flatten(),
+            Kind::Permission => {
+                let (_, signal) = self
+                    .prompt_detector
+                    .lock()
+                    .pending_permission_request(tab_id)?;
+                let prompt = parse_prompt_safely(|| provider.parse_prompt(screen))?;
+                directory_trust::permission_target(
+                    provider.as_ref(),
+                    screen,
+                    prompt,
+                    &signal.tool_name,
+                )
+            }
+        }?;
+        (target.kind == kind && (kind != Kind::Onboarding || directory_trust::target_applies(&tab)))
+            .then_some(target)
+    }
+
     pub(super) fn add_safe_response_metadata(
         &self,
         tab: &str,
@@ -491,10 +544,62 @@ impl ServiceContext {
             .collect();
     }
 
+    pub(super) fn add_sentinel_safe_response_metadata(
+        &self,
+        tab: &str,
+        screen: &str,
+        metadata: &mut TabStateMetadata,
+    ) {
+        let target = [
+            Kind::Update,
+            Kind::Onboarding,
+            Kind::DirectoryTrust,
+            Kind::Permission,
+        ]
+        .into_iter()
+        .find_map(|kind| self.sentinel_safe_response_target(tab, screen, kind));
+        let Some(target) = target else {
+            return;
+        };
+        metadata.context["safe_response_kind"] = serde_json::json!(target.kind.context());
+        metadata.declared_safe_choice = Some(target.choice);
+        metadata.prompt_options = target
+            .prompt
+            .options
+            .iter()
+            .enumerate()
+            .map(|(index, option)| NumberedPromptOption {
+                number: index + 1,
+                label: option.label.clone(),
+                value: option.value.clone(),
+            })
+            .collect();
+    }
+
     pub(crate) fn try_model_safe_response(
         &self,
         snapshot: &crate::agent::tab_state::TabStateSnapshot,
         verdict: &CandidateVerdict,
+    ) -> Progress {
+        self.try_model_safe_response_inner(snapshot, verdict, None, None)
+    }
+
+    pub(super) fn try_sentinel_safe_response(
+        &self,
+        snapshot: &crate::agent::tab_state::TabStateSnapshot,
+        verdict: &CandidateVerdict,
+        kind: Kind,
+        requested_by: &str,
+    ) -> Progress {
+        self.try_model_safe_response_inner(snapshot, verdict, Some(kind), Some(requested_by))
+    }
+
+    fn try_model_safe_response_inner(
+        &self,
+        snapshot: &crate::agent::tab_state::TabStateSnapshot,
+        verdict: &CandidateVerdict,
+        requested_kind: Option<Kind>,
+        requested_by: Option<&str>,
     ) -> Progress {
         let tab_id = &snapshot.tab_id;
         let Some(receipt) = verdict.receipt.as_ref() else {
@@ -513,21 +618,32 @@ impl ServiceContext {
             cancel_for_correlation(tab_id, &envelope.correlation);
             return Progress::NotHandled;
         }
-        let Some(target) = self
-            .model_safe_response_target(tab_id, &snapshot.screen_text)
-            .filter(|target| target.kind.label_matches(&verdict.label))
-        else {
+        let target = requested_kind
+            .and_then(|kind| {
+                self.sentinel_safe_response_target(tab_id, &snapshot.screen_text, kind)
+            })
+            .or_else(|| {
+                requested_kind
+                    .is_none()
+                    .then(|| self.model_safe_response_target(tab_id, &snapshot.screen_text))
+                    .flatten()
+            });
+        let Some(target) = target.filter(|target| {
+            requested_kind.is_none_or(|kind| target.kind == kind)
+                && target.kind.label_matches(&verdict.label)
+        }) else {
             cancel_for_correlation(tab_id, &envelope.correlation);
             return Progress::NotHandled;
         };
-        if target.kind == Kind::Permission {
+        if target.kind == Kind::Permission && requested_kind.is_none() {
             cancel_for_correlation(tab_id, &envelope.correlation);
             return Progress::NotHandled;
         }
         if !verdict.live_prompt()
             || receipt.metadata.declared_safe_choice.as_deref() != Some(&target.choice)
             || !candidates::allows_prompt(verdict, &snapshot.screen_text, &target.prompt)
-            || self.prompt_detector.lock().active_prompt_explicit(tab_id) == Some(true)
+            || (requested_kind != Some(Kind::Permission)
+                && self.prompt_detector.lock().active_prompt_explicit(tab_id) == Some(true))
         {
             cancel_for_correlation(tab_id, &envelope.correlation);
             return Progress::NotHandled;
@@ -569,7 +685,11 @@ impl ServiceContext {
             return Progress::NotHandled;
         }
         let qualified = receipt_qualified(receipt, target.kind);
-        let Some(scope) = self.followup_scope(tab_id, &snapshot.screen_text) else {
+        let scope = requested_kind.map_or_else(
+            || self.followup_scope(tab_id, &snapshot.screen_text),
+            |kind| self.followup_scope_for_kind(tab_id, &snapshot.screen_text, kind),
+        );
+        let Some(scope) = scope else {
             cancel_for_correlation(tab_id, &envelope.correlation);
             return Progress::NotHandled;
         };
@@ -591,7 +711,20 @@ impl ServiceContext {
                 cancel_for_correlation(tab_id, &envelope.correlation);
                 return Progress::NotHandled;
             }
-            let queued = if directory_trust::confirms_unattended(target.kind, tab.as_ref()) {
+            let queued = if let (Some(kind), Some(requested_by)) = (requested_kind, requested_by) {
+                let Some(local) = envelope.local.as_ref() else {
+                    cancel_for_correlation(tab_id, &envelope.correlation);
+                    return Progress::NotHandled;
+                };
+                self.observe_sentinel_prompt_candidate(
+                    snapshot.clone(),
+                    local,
+                    kind,
+                    requested_by,
+                    Some(envelope.observation_id),
+                )
+                .is_some()
+            } else if directory_trust::confirms_unattended(target.kind, tab.as_ref()) {
                 self.observe_unattended_candidate(snapshot, envelope.local.as_ref())
             } else {
                 self.observe_scrape_candidate_from(
@@ -644,7 +777,17 @@ impl ServiceContext {
             Kind::DirectoryTrust => {
                 super::super::directory_trust::claim_model_trust_step(tab_id, &screen)
             }
-            Kind::Permission => false,
+            Kind::Permission => self
+                .prompt_detector
+                .lock()
+                .pending_permission_request(tab_id)
+                .is_some_and(|(instance, _)| {
+                    super::super::permission_auto_confirm::claim_safe_prompt_response(
+                        tab_id,
+                        instance.id,
+                        &target.prompt,
+                    )
+                }),
         };
         if !claimed {
             return Progress::NotHandled;
@@ -658,13 +801,13 @@ impl ServiceContext {
             Kind::DirectoryTrust => {
                 super::super::directory_trust::model_trust_step_revision(&screen)
             }
-            Kind::Permission => frame_hash(&target.frame_key),
+            Kind::Permission => super::super::permission_auto_confirm::observation_revision(tab_id),
         };
         let mut unchanged = ledgers.clone();
         match target.kind {
             Kind::Update => unchanged.update = envelope.ledgers.update,
             Kind::Onboarding | Kind::DirectoryTrust => unchanged.trust = envelope.ledgers.trust,
-            Kind::Permission => unchanged.prompt = envelope.ledgers.prompt,
+            Kind::Permission => unchanged.permission = envelope.ledgers.permission,
         }
         let service = self.clone();
         let tab = tab_id.clone();
@@ -673,6 +816,7 @@ impl ServiceContext {
         let label = verdict.label.clone();
         let correlation = envelope.correlation.clone();
         let observation_id = envelope.observation_id;
+        let requested_by = requested_by.map(str::to_owned);
         super::super::output::write_bound_prompt_steps(
             self.pty.clone(),
             pty,
@@ -686,7 +830,18 @@ impl ServiceContext {
                 let current = own_ledger_current
                     && unchanged == receipt.metadata.envelope.as_ref().unwrap().ledgers
                     && receipt.current(&service, &tab, &ledgers)
-                    && service.model_safe_response_target(&tab, &screen).as_ref() == Some(&target);
+                    && requested_kind.map_or_else(
+                        || {
+                            service.model_safe_response_target(&tab, &screen).as_ref()
+                                == Some(&target)
+                        },
+                        |kind| {
+                            service
+                                .sentinel_safe_response_target(&tab, &screen, kind)
+                                .as_ref()
+                                == Some(&target)
+                        },
+                    );
                 match target.kind {
                     Kind::Onboarding => {
                         super::super::directory_trust::finish_model_onboarding_step(
@@ -724,6 +879,9 @@ impl ServiceContext {
                 } else {
                     "provider_safe_step_stale"
                 });
+                if let Some(requested_by) = requested_by.as_deref() {
+                    event["requested_by"] = serde_json::json!(requested_by);
+                }
                 let context = supporter::ActivityContext::TabState {
                     title: receipt.metadata.title.clone(),
                     declared_safe_choice: Some(target.choice.clone()),
