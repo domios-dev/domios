@@ -209,13 +209,20 @@ pub fn validate_api_trust_boundary(api: &schema::ApiConfig) -> Result<(), String
 /// that previously read `cfg.agent.resume_sessions` should call this with
 /// the actual provider id of the tab.
 pub fn provider_config(provider_id: &str) -> schema::ProviderConfig {
-    let cfg = load_config();
-    let mut out = cfg.agents.get(provider_id).cloned().unwrap_or_default();
+    provider_config_from(&load_config(), provider_id)
+}
+
+fn provider_config_from(config: &schema::AppConfig, provider_id: &str) -> schema::ProviderConfig {
+    let mut out = config.agents.get(provider_id).cloned().unwrap_or_default();
     // Back-compat: fall through to global [agent] for any field not set in the per-provider section. Lets existing configs keep working without an explicit [agents.<id>] block.
     if out.resume_sessions.is_none() {
-        out.resume_sessions = Some(cfg.agent.resume_sessions);
+        out.resume_sessions = Some(config.agent.resume_sessions);
     }
     out
+}
+
+pub fn resume_sessions_enabled(provider_id: &str) -> bool {
+    provider_config(provider_id).resume_sessions.unwrap_or(true)
 }
 
 /// Whether the usage tracker should probe this provider's `/usage` endpoint.
@@ -334,6 +341,38 @@ fn apply_theme_with_overrides(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn provider_resume_setting_uses_override_then_global_and_defaults_to_enabled() {
+        let mut config = schema::AppConfig::default();
+        config.agent.resume_sessions = true;
+        config.agents.insert(
+            "codex".into(),
+            schema::ProviderConfig {
+                resume_sessions: Some(false),
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(
+            provider_config_from(&config, "codex").resume_sessions,
+            Some(false)
+        );
+        assert_eq!(
+            provider_config_from(&config, "claude").resume_sessions,
+            Some(true)
+        );
+
+        config.agent.resume_sessions = false;
+        assert_eq!(
+            provider_config_from(&config, "claude").resume_sessions,
+            Some(false)
+        );
+        assert_eq!(
+            provider_config_from(&schema::AppConfig::default(), "codex").resume_sessions,
+            Some(true)
+        );
+    }
 
     #[test]
     fn concurrent_load_on_tokenless_config_yields_one_stable_token() {

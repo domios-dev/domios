@@ -535,8 +535,12 @@ impl ServiceContext {
         let Some(provider_id) = provider_id else {
             return Ok(());
         };
-        let session_valid = session_id
-            .as_deref()
+        let resume_enabled = crate::config::resume_sessions_enabled(&provider_id);
+        let resume_session_id = crate::service::restored_launch::restored_resume_session_id(
+            resume_enabled,
+            session_id.as_deref(),
+        );
+        let session_valid = resume_session_id
             .zip(cwd.as_deref())
             .map(|(sid, dir)| {
                 self.agent_registry
