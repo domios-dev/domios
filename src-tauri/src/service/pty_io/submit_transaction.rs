@@ -630,23 +630,53 @@ fn exact_session_turn_source_available(require_exact_session_turn: bool, has_anc
     require_exact_session_turn && has_anchor
 }
 
-// Delivery never parses the screen for provider dialogs: heuristics misread
-// transcript text as modals and silently dropped the owner's messages.
 fn pty_owner_guard(svc: &ServiceContext, pty_id: &str) -> Result<(), InjectionError> {
-    let mux = svc.mux.read();
-    let owns_pty = mux
-        .tab_id_for_pty(pty_id)
-        .and_then(|tab_id| {
-            mux.get_tab(&tab_id)
-                .map(|tab| tab.pty_id.as_deref() == Some(pty_id))
+    let target = {
+        let mux = svc.mux.read();
+        mux.tab_id_for_pty(pty_id).and_then(|tab_id| {
+            mux.get_tab(&tab_id).and_then(|tab| {
+                (tab.pty_id.as_deref() == Some(pty_id)).then(|| {
+                    (
+                        tab_id,
+                        tab.agent_type.clone(),
+                        tab.agent_session_id.clone(),
+                        tab.cwd.clone(),
+                    )
+                })
+            })
+        })
+    };
+    let Some((tab_id, provider_id, session_id, cwd)) = target else {
+        return Err(InjectionError::AgentInputUnavailable {
+            pty_id: pty_id.to_string(),
+        });
+    };
+    let Some(provider_id) = provider_id else {
+        return Ok(());
+    };
+    let snapshot = crate::agent::tab_state::TabStateSnapshot {
+        tab_id,
+        agent_type: provider_id.clone(),
+        session_id,
+        cwd,
+        screen_text: svc
+            .screen_state
+            .lock()
+            .get_screen_text(pty_id)
+            .unwrap_or_default(),
+    };
+    let modal_visible = svc
+        .agent_registry
+        .with_provider(&provider_id, |provider| {
+            provider.delivery_modal_visible(&snapshot)
         })
         .unwrap_or(false);
-    if owns_pty {
-        Ok(())
-    } else {
-        Err(InjectionError::AgentInputUnavailable {
+    if modal_visible {
+        Err(InjectionError::AgentTuiPresent {
             pty_id: pty_id.to_string(),
         })
+    } else {
+        Ok(())
     }
 }
 

@@ -290,8 +290,13 @@ impl ServiceContext {
                 {
                     return Err("agent_unavailable".into());
                 }
-                let envelope =
+                let mut envelope =
                     crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
+                envelope.delivery_observer =
+                    Some(crate::service::messenger::DeliveryWriteObserver::PlanRole {
+                        plan_id: plan_id.to_string(),
+                        role: "planner".into(),
+                    });
                 crate::service::messenger::Messenger::deliver_planner_session(
                     self,
                     target,
@@ -301,9 +306,9 @@ impl ServiceContext {
                     body,
                     message_id,
                 )
-                .map(|_| ())
             },
         )
+        .map(|_| ())
     }
 
     pub(crate) fn acknowledge_planner_request(
@@ -751,7 +756,7 @@ impl ServiceContext {
         );
         if rejected_task_transition.is_some() {
             notices.push(format!(
-                "task transition was rejected and this report is NOT attributed to that task; the report itself was recorded and delivered to '{storage_key}', resolved live from this tab's own hierarchy - so do not resend it"
+                "task transition was rejected and this report is NOT attributed to that task; the report itself was recorded for delivery to '{storage_key}', resolved live from this tab's own hierarchy - do not resend it while delivery is pending"
             ));
         }
         let report = self
@@ -808,9 +813,17 @@ impl ServiceContext {
                 );
             }
             ReportTarget::Local(target_id) => {
-                let envelope =
+                let mut envelope =
                     crate::service::messenger::MessageEnvelope::report(&from_title, tab_id)
                         .model(model.clone());
+                envelope.id = Some(report.id.clone());
+                envelope.delivery_observer =
+                    Some(crate::service::messenger::DeliveryWriteObserver::Report {
+                        report_id: report.id.clone(),
+                        plan_id: report.plan_id.clone(),
+                        task_id: report.task_id.clone(),
+                        attempt_id: report.attempt_id.clone(),
+                    });
                 // Echo scraping can't decide delivery on a screen-owning TUI (it
                 // reflows/collapses input) — the store+broadcast above is the guarantee.
                 match self.gateway_deliver(
@@ -819,9 +832,20 @@ impl ServiceContext {
                     &report.inject_body(),
                     crate::service::message_gateway::DeliveryClass::AgentTraffic,
                 ) {
+                    Ok(crate::service::messenger::Delivery::Pending { delivery_id }) => {
+                        log::warn!(
+                            "[report] target={} outcome=pending delivery={}",
+                            target_id,
+                            delivery_id
+                        );
+                    }
                     Ok(delivery) => {
                         self.report_store.lock().mark_delivered(&report.id);
-                        log::info!("[report] target={} delivered via {:?}", target_id, delivery)
+                        log::info!(
+                            "[report] target={} outcome=written via {:?}",
+                            target_id,
+                            delivery
+                        )
                     }
                     Err(error) => {
                         self.report_store.lock().release_delivery(&report.id);

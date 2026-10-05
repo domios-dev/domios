@@ -32,11 +32,11 @@ impl super::hierarchy::HierarchyReportDelivery for RecordingHierarchyReportDeliv
         &self,
         recipient_tab_id: &str,
         report: &crate::agent::reports::AgentReport,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         self.writes
             .lock()
             .push((recipient_tab_id.to_string(), report.id.clone()));
-        Ok(())
+        Ok(true)
     }
 }
 
@@ -51,7 +51,7 @@ impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDeliv
         &self,
         recipient_tab_id: &str,
         report: &crate::agent::reports::AgentReport,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         let write = (recipient_tab_id.to_string(), report.id.clone());
         let fail = {
             let mut attempts = self.attempts.lock();
@@ -62,7 +62,7 @@ impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDeliv
             return Err("delivery deferred".into());
         }
         self.writes.lock().push(write);
-        Ok(())
+        Ok(true)
     }
 }
 

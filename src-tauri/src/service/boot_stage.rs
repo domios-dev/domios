@@ -505,6 +505,7 @@ impl ServiceContext {
     /// be accepted, so it is the only place the parked text is delivered.
     fn schedule_parked_user_send(&self, tab_id: &str) {
         self.deliver_parked_user_send(tab_id);
+        self.wake_agent_deliveries_on_state_change(tab_id);
     }
 
     /// Proven health for the recovery record: every exact role binding has a
