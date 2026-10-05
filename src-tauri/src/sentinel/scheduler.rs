@@ -728,11 +728,12 @@ pub(super) fn advance(
     }
     let mut job = lease.job.clone();
     let scope = Scope::from(&job);
-    let outcome = machine::evaluate_with_other(
+    let outcome = machine::evaluate_with_other_rearm(
         &mut job.machine,
         &output.bytes,
         &job.buckets,
         &job.routes,
+        &job.rearm_on_change,
         &job.on_other,
         job.until.as_deref(),
         scope,
@@ -740,7 +741,7 @@ pub(super) fn advance(
     );
     job.last_reason = Some(outcome.reason.into());
     let transition_bucket = match outcome.reason {
-        "transition" => outcome
+        "transition" | "rearm_on_change" => outcome
             .verdict
             .as_ref()
             .map(|verdict| verdict.bucket.as_str()),

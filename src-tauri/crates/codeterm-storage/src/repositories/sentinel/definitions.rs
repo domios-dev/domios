@@ -279,6 +279,7 @@ pub(super) fn insert_version(
             ordinal,
             &bucket.name,
             bucket.match_pattern.as_deref(),
+            bucket.rearm_on_change,
             &bucket.handlers,
         )?;
     }
@@ -292,6 +293,7 @@ pub(super) fn insert_version(
             ordinal,
             OTHER_BUCKET,
             None,
+            false,
             &definition.on_other,
         )?;
     }
@@ -305,12 +307,13 @@ fn insert_bucket(
     ordinal: i64,
     bucket: &str,
     match_pattern: Option<&str>,
+    rearm_on_change: bool,
     handlers: &[HandlerDefinition],
 ) -> Result<(), StorageError> {
     cx.write(
-        "INSERT INTO sentinel_buckets (sentinel_id, version, ordinal, bucket, match_pattern) \
-         VALUES (?1, ?2, ?3, ?4, ?5)",
-        params![id, version, ordinal, bucket, match_pattern],
+        "INSERT INTO sentinel_buckets (sentinel_id, version, ordinal, bucket, match_pattern, rearm_on_change) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        params![id, version, ordinal, bucket, match_pattern, rearm_on_change],
     )?;
     for (position, handler) in (0_i64..).zip(handlers) {
         let columns = action_columns(&handler.action)?;
@@ -537,7 +540,7 @@ fn load_buckets(
     let mut buckets: Vec<BucketDefinition> = {
         let mut statement = conn
             .prepare_cached(
-                "SELECT bucket, match_pattern FROM sentinel_buckets \
+                "SELECT bucket, match_pattern, rearm_on_change FROM sentinel_buckets \
                  WHERE sentinel_id = ?1 AND version = ?2 ORDER BY ordinal",
             )
             .map_err(|e| sqlite_error("read sentinel buckets", e))?;
@@ -546,6 +549,7 @@ fn load_buckets(
                 Ok(BucketDefinition {
                     name: row.get(0)?,
                     match_pattern: row.get(1)?,
+                    rearm_on_change: row.get(2)?,
                     handlers: Vec::new(),
                 })
             })

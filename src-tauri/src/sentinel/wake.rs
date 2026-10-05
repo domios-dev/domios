@@ -69,6 +69,7 @@ mod tests {
                     every: "20s".into(),
                     routes: BTreeMap::new(),
                     matches: BTreeMap::from([("waiting".into(), ".*".into())]),
+                    rearm_on_change: BTreeSet::new(),
                     until: None,
                     timeout: None,
                     paused: false,

@@ -1,7 +1,7 @@
 use super::machine::*;
 use super::provenance::{Classification, Failure, Scope};
 use std::cell::Cell;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 fn buckets() -> Vec<String> {
     vec!["waiting".into(), "passed".into(), "failed".into()]
@@ -70,6 +70,58 @@ fn sentinel_transition_routes_once() {
         tick(&mut machine, b"5", "waiting", 0.9).route,
         Some(Route::Notify)
     );
+}
+
+#[test]
+fn sentinel_rearm_on_change_routes_only_changed_output_in_the_same_bucket() {
+    let routes = BTreeMap::from([(
+        "waiting".into(),
+        vec![super::handlers::Handler::notify("waiting")],
+    )]);
+    let enabled = BTreeSet::from(["waiting".into()]);
+    let mut machine = Machine::default();
+    let classify = || verdict("waiting", 0.9);
+
+    let initial = evaluate_with_other_rearm(
+        &mut machine,
+        b"first",
+        &buckets(),
+        &routes,
+        &enabled,
+        &[],
+        None,
+        scope(),
+        classify,
+    );
+    let unchanged = evaluate_with_other_rearm(
+        &mut machine,
+        b"first",
+        &buckets(),
+        &routes,
+        &enabled,
+        &[],
+        None,
+        scope(),
+        || panic!("unchanged output must not rearm"),
+    );
+    let changed = evaluate_with_other_rearm(
+        &mut machine,
+        b"second",
+        &buckets(),
+        &routes,
+        &enabled,
+        &[],
+        None,
+        scope(),
+        classify,
+    );
+
+    assert_eq!(initial.reason, "transition");
+    assert_eq!(initial.route, Some(Route::Notify));
+    assert_eq!(unchanged.reason, "unchanged");
+    assert_eq!(unchanged.route, None);
+    assert_eq!(changed.reason, "rearm_on_change");
+    assert_eq!(changed.route, Some(Route::Notify));
 }
 
 #[test]
@@ -215,6 +267,7 @@ fn create_params() -> super::store::Create {
         every: "10s".into(),
         routes: BTreeMap::new(),
         matches: BTreeMap::new(),
+        rearm_on_change: Default::default(),
         until: None,
         timeout: None,
         paused: false,
@@ -223,6 +276,27 @@ fn create_params() -> super::store::Create {
         max_transitions: None,
         max_actions: None,
     }
+}
+
+#[test]
+fn sentinel_rearm_on_change_requires_a_declared_bucket() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut params = create_params();
+    params.rearm_on_change.insert("unlisted".into());
+    let store = store(dir.path(), crate::cron::clock::MockClock::starting_at(1000));
+
+    assert!(store
+        .prepare(
+            params,
+            super::store::Owner {
+                creator_tab_id: "creator".into(),
+                team_id: None,
+                workspace_id: "workspace".into(),
+                cwd: "/tmp".into(),
+            },
+            true,
+        )
+        .is_err());
 }
 
 pub(super) fn store(

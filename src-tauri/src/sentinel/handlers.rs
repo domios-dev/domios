@@ -110,6 +110,10 @@ pub fn definitions(
         }
     } else {
         for (index, (bucket, route)) in routes.into_iter().enumerate() {
+            if route == "none" {
+                result.insert(bucket, Vec::new());
+                continue;
+            }
             result.insert(
                 bucket.clone(),
                 vec![Handler {
