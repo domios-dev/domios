@@ -150,7 +150,7 @@ pub fn should_proactive_sync(
 
 // ── Live address announce ───────────────────────────────────────────
 
-pub const RELAY_PROTOCOL_VERSION: u16 = 1;
+pub const RELAY_PROTOCOL_VERSION: u16 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "transport", rename_all = "snake_case")]

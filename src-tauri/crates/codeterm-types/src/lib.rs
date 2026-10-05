@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod config;
 pub mod decision;
+pub mod domios;
 pub mod mesh;
 pub mod message_markers;
 pub mod notification;

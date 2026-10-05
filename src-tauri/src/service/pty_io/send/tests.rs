@@ -36,6 +36,20 @@ fn post_write_uncertainty_is_not_a_user_facing_delivery_failure() {
 }
 
 #[test]
+fn routed_suffix_has_a_closing_tag_for_plain_and_capable_targets() {
+    use codeterm_types::domios::{DOMIOS_CLOSE_TAG, DOMIOS_TYPED_INSTRUCTION};
+
+    let plain = super::compose_routed_suffix(" [reply]", false);
+    assert_eq!(plain, format!(" [reply]{DOMIOS_CLOSE_TAG}"));
+
+    let capable = super::compose_routed_suffix(" [reply]", true);
+    assert_eq!(
+        capable,
+        format!(" [reply] {DOMIOS_TYPED_INSTRUCTION}{DOMIOS_CLOSE_TAG}")
+    );
+}
+
+#[test]
 fn stuck_after_write_reports_submit_unconfirmed_not_ok() {
     let error = require_submission_result(
         crate::service::inject_verify::InjectionResult {

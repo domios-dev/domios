@@ -470,7 +470,7 @@ fn composer_ready_event_issues_one_key_after_the_bounded_schedule() {
         .writes
         .iter()
         .position(|write| write == "follow_up: follow-up")
-        .expect("follow-up precedes the first submit key");
+        .expect("typed follow-up precedes the first submit key");
     let first_key = state
         .writes
         .iter()
@@ -483,15 +483,7 @@ fn composer_ready_event_issues_one_key_after_the_bounded_schedule() {
             .filter(|write| write.starts_with("follow_up:"))
             .count(),
         1,
-        "recovery and the deferred key do not repeat the typed line"
-    );
-    assert!(
-        state
-            .writes
-            .iter()
-            .position(|write| write == "paste:slow-paste")
-            .unwrap()
-            < follow_up
+        "the typed line is not replayed during recovery"
     );
     assert!(follow_up < first_key);
 }

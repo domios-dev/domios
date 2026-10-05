@@ -506,10 +506,7 @@ mod tests {
     fn long_paste_with_scrolled_out_prefix_matches_via_suffix() {
         // 5000-char paste: only the trailing portion fits into the 8-row tail window. Echo verify must still confirm via suffix match.
         let body: String = "A".repeat(4900);
-        let expected = format!(
-            "-=-codeterm:mesh peer=peer-a tab=abc12345-=-{} TAIL_TOKEN_END",
-            body
-        );
+        let expected = mesh_route(&format!("{body} TAIL_TOKEN_END"), "peer-a");
         // Tail captured by screen_state contains only the last ~640 chars of the paste.
         let visible_tail: String = expected
             .chars()
@@ -539,10 +536,7 @@ mod tests {
     #[test]
     fn bracketed_paste_placeholder_counts_as_echo_for_long_input() {
         let screen = "> [Pasted text #7 +1 line]\n  Press Enter to send";
-        let expected = format!(
-            "-=-codeterm:mesh peer=PEER tab=abc12345-=-{}",
-            "x".repeat(500)
-        );
+        let expected = mesh_route(&"x".repeat(500), "PEER");
         assert!(
             screen_contains_echo(screen, &expected),
             "long single-line paste replaced by placeholder must count as echo"
@@ -553,10 +547,7 @@ mod tests {
     fn bracketed_paste_placeholder_without_lines_suffix_counts_as_echo() {
         // required the suffix and missed this case entirely, which is why the v1.1.18 smoke test failed for ~4.7KB single-line mesh messages.
         let screen = "> [Pasted text #1]";
-        let expected = format!(
-            "-=-codeterm:mesh peer=PEER tab=abc12345-=-{}",
-            "x".repeat(4500)
-        );
+        let expected = mesh_route(&"x".repeat(4500), "PEER");
         assert!(
             screen_contains_echo(screen, &expected),
             "single-line paste without `+N lines` suffix must still count as echo"
@@ -591,6 +582,13 @@ mod tests {
         // A count is required; bare prose in brackets must not match.
         assert!(!screen_has_paste_placeholder("[Pasted lines]"));
         assert!(!screen_has_paste_placeholder("[Pasted ~ lines]"));
+    }
+
+    fn mesh_route(body: &str, peer: &str) -> String {
+        let envelope = crate::service::messenger::MessageEnvelope::tab(peer, "abc12345")
+            .peer(Some(peer.to_string()))
+            .mesh(Some(peer.to_string()));
+        crate::service::messenger::Messenger::from(envelope).wrap(body)
     }
 
     #[test]
