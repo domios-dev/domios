@@ -207,7 +207,7 @@ fn sentinel_routes_are_closed_set() {
 
 fn create_params() -> super::store::Create {
     super::store::Create {
-        name: None,
+        name: Some("ci-result-watch".into()),
         probe: Some("check-ci".into()),
         observe: None,
         question: "CI result?".into(),
@@ -223,6 +223,55 @@ fn create_params() -> super::store::Create {
         max_transitions: None,
         max_actions: None,
     }
+}
+
+#[test]
+fn sentinel_create_requires_a_meaningful_name() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = store(dir.path(), crate::cron::clock::MockClock::starting_at(1000));
+    let mut params = create_params();
+    params.name = None;
+
+    let error = store
+        .prepare(
+            params,
+            crate::sentinel::store::Owner {
+                creator_tab_id: "creator".into(),
+                team_id: None,
+                workspace_id: "workspace".into(),
+                cwd: "/tmp".into(),
+            },
+            true,
+        )
+        .unwrap_err();
+
+    assert!(error.contains("Sentinel graph name is required"));
+    assert!(store.list().is_empty());
+}
+
+#[test]
+fn create_preview_preparation_does_not_persist_or_admit_a_graph() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sentinels.json");
+    let store = store(dir.path(), crate::cron::clock::MockClock::starting_at(1000));
+    let disk_before = std::fs::read(&path).ok();
+    let preview = store
+        .prepare(
+            create_params(),
+            crate::sentinel::store::Owner {
+                creator_tab_id: "creator".into(),
+                team_id: Some("team".into()),
+                workspace_id: "workspace".into(),
+                cwd: "/tmp".into(),
+            },
+            true,
+        )
+        .unwrap();
+
+    assert_eq!(preview.name.as_deref(), Some("ci-result-watch"));
+    assert!(preview.routes.contains_key("passed"));
+    assert!(store.list().is_empty());
+    assert_eq!(std::fs::read(&path).ok(), disk_before);
 }
 
 pub(super) fn store(

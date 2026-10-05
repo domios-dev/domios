@@ -66,7 +66,7 @@ fn insert_with_options(
         .lock()
         .prepare(
             Create {
-                name: None,
+                name: Some("cron-run-watch".into()),
                 probe: None,
                 observe: Some(TabBinding::CronRun("cron-nightly".into())),
                 question: "Which run state?".into(),
