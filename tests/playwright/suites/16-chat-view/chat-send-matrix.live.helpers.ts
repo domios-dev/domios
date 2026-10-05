@@ -7,7 +7,7 @@ import { expect, type ManagedUiSession } from "../../helpers/fixtures";
 import type { ApiClient, Provider } from "../../helpers/api-client";
 export type ChatMessage = { id: string; type: string; content: string };
 export type ChatSnapshot = { messages: ChatMessage[]; count: number; pending: boolean };
-export type ChatSendState = "held" | "written" | "accepted" | "unknown" | "confirmed" | "failed";
+export type ChatSendState = "held" | "written" | "submit_unconfirmed" | "delivered" | "failed";
 export type ChatSendStatus = {
   send_id: string;
   tab_id: string;
@@ -372,7 +372,7 @@ export async function submitText(
   record.sequence = data.sequence;
   record.firstStatus = data.state;
   record.deliveryStatus = data.state;
-  record.confirmedStatus = data.state === "confirmed";
+  record.confirmedStatus = data.state === "delivered";
   record.firstStatusAt = status.receivedAt;
   agent.nextSendSequence = data.sequence;
   expect(data.state, `send ${bubbleMarker} was not refused`).not.toBe("failed");
@@ -419,7 +419,7 @@ export async function submitPaste(
   record.sequence = data.sequence;
   record.firstStatus = data.state;
   record.deliveryStatus = data.state;
-  record.confirmedStatus = data.state === "confirmed";
+  record.confirmedStatus = data.state === "delivered";
   record.firstStatusAt = status.receivedAt;
   agent.nextSendSequence = data.sequence;
   expect(data.state, `large paste ${bubbleMarker} was not refused`).not.toBe("failed");
@@ -429,9 +429,9 @@ export async function submitPaste(
 
 export async function waitDelivered(agent: AgentUi, record: SendRecord): Promise<void> {
   expect(record.sequence, `send ${record.bubbleMarker} has an API ledger sequence`).toBeTruthy();
-  if (record.firstStatus === "confirmed") {
+  if (record.firstStatus === "delivered") {
     record.deliveredAt = record.firstStatusAt;
-    record.deliveryStatus = "confirmed";
+    record.deliveryStatus = "delivered";
     record.confirmedStatus = true;
     return;
   }
@@ -439,12 +439,12 @@ export async function waitDelivered(agent: AgentUi, record: SendRecord): Promise
     (event) =>
       statusEvent(event, agent.tabId) &&
       event.data.sequence === record.sequence &&
-      event.data.state === "confirmed",
+      event.data.state === "delivered",
     SEND_TIMEOUT_MS,
     `provider session receipt ${record.bubbleMarker}`,
   );
   record.deliveredAt = delivered.receivedAt;
-  record.deliveryStatus = "confirmed";
+  record.deliveryStatus = "delivered";
   record.confirmedStatus = true;
 }
 
@@ -455,10 +455,10 @@ export async function assertFinalStatuses(api: ApiClient, agent: AgentUi, record
     if (status) {
       record.sendId = status.send_id;
       record.deliveryStatus = status.state;
-      record.confirmedStatus = status.state === "confirmed";
+      record.confirmedStatus = status.state === "delivered";
     }
     expect(status, `send ${record.bubbleMarker} remains in the delivery ledger`).toBeTruthy();
-    expect(status!.state, `send ${record.bubbleMarker} reaches delivered`).toBe("confirmed");
+    expect(status!.state, `send ${record.bubbleMarker} reaches delivered`).toBe("delivered");
     expect(status!.error, `send ${record.bubbleMarker} has no submit_unconfirmed result`).toBeNull();
   }
 }
@@ -552,7 +552,7 @@ export async function captureProviderEvidence(api: ApiClient, metrics: ProviderM
         record.sendId = status.send_id;
         record.sequence = status.sequence;
         record.deliveryStatus = status.state;
-        record.confirmedStatus = status.state === "confirmed";
+        record.confirmedStatus = status.state === "delivered";
       }
     } catch (error) {
       metrics.errors ??= [];
