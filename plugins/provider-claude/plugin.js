@@ -1002,222 +1002,6 @@ function subAgentUsageSources(sessionFilePath, sessionId) {
   return entries.filter((entry) => entry && entry.isFile && AGENT_LOG_RE.test(entry.name)).map((entry) => entry.path).sort();
 }
 
-// plugins/provider-claude/src/classify.ts
-var CLASSIFY_THRESHOLD = 0.8;
-var RESUME_BUFFER_MS = 60 * 1e3;
-function classifyClaudeTabState(snapshot) {
-  const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
-  if (!screen.trim()) return null;
-  if (looksBusy(screen)) return { state: "working", confidence: 0 };
-  const activeChoice = activeTerminalChoiceBlock(screen);
-  const authConfidence = activeChoice ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n")) : 0;
-  if (authConfidence >= CLASSIFY_THRESHOLD) {
-    return {
-      state: "waiting_on_auth",
-      confidence: authConfidence,
-      action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
-    };
-  }
-  const rl = scoreRateLimit(screen, host.unixNowMs());
-  if (rl.confidence >= CLASSIFY_THRESHOLD && rl.waitKeys && rl.waitKeys.length > 0) {
-    const action = { keys: rl.waitKeys };
-    const data = {};
-    if (rl.resetAtMs !== null) {
-      data.resetAt = new Date(rl.resetAtMs).toISOString();
-      action.delayedResume = {
-        at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
-        text: "continue your work",
-        thenKeys: ["enter"]
-      };
-    } else {
-      action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
-    }
-    return {
-      state: "rate_limited",
-      confidence: rl.confidence,
-      data: rl.resetAtMs !== null ? data : void 0,
-      action
-    };
-  }
-  const cq = scoreClarifyingQuestion(screen);
-  if (cq.confidence >= CLASSIFY_THRESHOLD && cq.questions.length > 0) {
-    return {
-      state: "clarifying_question",
-      confidence: cq.confidence,
-      data: { questions: cq.questions },
-      action: { surface: { kind: "clarifying_question", payload: { questions: cq.questions } } }
-    };
-  }
-  const partial = rl.confidence > cq.confidence ? rl.confidence : cq.confidence;
-  if (partial > 0) return { state: "unknown", confidence: partial };
-  return { state: "working", confidence: 0 };
-}
-var CLAUDE_MENU_OPTION_RE = /^[ \t]*([>❯▶➤])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
-function parseClaudeMenuOptions(screen) {
-  const lines = String(screen || "").split("\n");
-  const options = [];
-  for (let i = 0; i < lines.length; i++) {
-    const m = CLAUDE_MENU_OPTION_RE.exec(lines[i]);
-    if (!m) continue;
-    options.push({ highlighted: !!m[1], label: m[3] });
-  }
-  return options;
-}
-function navigationKeys(options, targetIdx) {
-  let highlightIdx = -1;
-  for (let i = 0; i < options.length; i++) {
-    if (options[i].highlighted) {
-      highlightIdx = i;
-      break;
-    }
-  }
-  if (highlightIdx === -1) highlightIdx = 0;
-  const keys = [];
-  const delta = targetIdx - highlightIdx;
-  if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
-  else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
-  keys.push("enter");
-  return keys;
-}
-function looksBusy(screen) {
-  const s = String(screen || "");
-  return /\besc to interrupt\b/i.test(s) || /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) || /\bWorking[….]/.test(s) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(s);
-}
-function scoreRateLimit(screen, nowMs) {
-  const options = parseClaudeMenuOptions(screen);
-  let waitIdx = -1;
-  let hasUpgradeOption = false;
-  for (let i = 0; i < options.length; i++) {
-    const label = options[i].label;
-    if (/\bupgrade\b/i.test(label)) hasUpgradeOption = true;
-    if (waitIdx === -1 && /\b(?:wait|stop and wait)\b/i.test(label) && !/\bupgrade\b/i.test(label)) {
-      waitIdx = i;
-    }
-  }
-  const sigWaitUpgradeMenu = waitIdx !== -1 && hasUpgradeOption;
-  const sigLimitWord = /\b(?:session|usage|rate|message|weekly)\s+limit\b/i.test(screen) || /\blimit\b[\s\S]{0,40}\breset/i.test(screen);
-  const sigResetClock = /\breset[s]?\b[\s\S]{0,40}\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(screen);
-  const sigConfirmFooter = /\bto confirm\b/i.test(screen) && /\bto (?:cancel|exit)\b/i.test(screen);
-  let confidence = 0;
-  if (sigWaitUpgradeMenu) confidence += 0.5;
-  if (sigLimitWord) confidence += 0.25;
-  if (sigResetClock) confidence += 0.15;
-  if (sigConfirmFooter) confidence += 0.1;
-  if (confidence > 1) confidence = 1;
-  const waitKeys = sigWaitUpgradeMenu ? navigationKeys(options, waitIdx) : null;
-  const resetAtMs = parseResetClock(screen, nowMs);
-  return { confidence, waitKeys, resetAtMs };
-}
-function parseResetClock(screen, nowMs) {
-  const m = /\breset[s]?\b[^\n]{0,40}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
-  if (!m) return null;
-  return usageParseTodayClock(m[1], nowMs);
-}
-function scoreClarifyingQuestion(screen) {
-  const block = activeClarifyingPromptBlock(screen);
-  const options = block?.options ?? [];
-  const questions = block?.questions ?? [];
-  const sigMenu = options.length >= 2;
-  const sigQuestion = questions.length > 0;
-  const sigConfirmFooter = !!block;
-  let confidence = 0;
-  if (sigMenu) confidence += 0.35;
-  if (sigQuestion) confidence += 0.3;
-  if (sigConfirmFooter) confidence += 0.35;
-  if (confidence > 1) confidence = 1;
-  return { confidence, questions };
-}
-function activeTerminalChoiceBlock(screen) {
-  const lines = String(screen || "").split("\n");
-  for (let footerIdx = lines.length - 1; footerIdx >= 0; footerIdx--) {
-    if (!isActiveChoiceFooter(lines[footerIdx])) continue;
-    if (lastMeaningfulLineIndex(lines) > footerIdx) return null;
-    const options = contiguousOptionsAbove(lines, footerIdx);
-    if (options.length >= 2 && options.some((option) => option.highlighted)) {
-      return { footerIdx, options };
-    }
-  }
-  return null;
-}
-function activeClarifyingPromptBlock(screen) {
-  const lines = String(screen || "").split("\n");
-  const choice = activeTerminalChoiceBlock(screen);
-  if (!choice || !isClarifyingConfirmFooter(lines[choice.footerIdx])) return null;
-  const questions = questionsAbove(lines, choice.footerIdx);
-  if (questions.length === 0) {
-    const prompt = promptAboveOptions(lines, choice.footerIdx);
-    if (prompt) questions.push(prompt);
-  }
-  return questions.length > 0 ? { questions, options: choice.options } : null;
-}
-function isActiveChoiceFooter(line) {
-  return /\b(?:press\s+)?enter\s+to\b/i.test(line);
-}
-function isClarifyingConfirmFooter(line) {
-  return /\bto (?:confirm|submit|select)\b/i.test(line);
-}
-function lastMeaningfulLineIndex(lines) {
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    if (isDividerLine(line)) continue;
-    return i;
-  }
-  return -1;
-}
-function isDividerLine(line) {
-  const stripped = line.replace(/\s/g, "");
-  return stripped.length >= 8 && /^[─━═-]+$/.test(stripped);
-}
-function contiguousOptionsAbove(lines, footerIdx) {
-  const options = [];
-  for (let i = footerIdx - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line) {
-      if (options.length > 0) break;
-      continue;
-    }
-    const m = CLAUDE_MENU_OPTION_RE.exec(lines[i]);
-    if (!m) {
-      if (options.length > 0) break;
-      continue;
-    }
-    options.push({ highlighted: !!m[1], label: m[3] });
-  }
-  return options.reverse();
-}
-function promptAboveOptions(lines, footerIdx) {
-  for (let i = footerIdx - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (!line || CLAUDE_MENU_OPTION_RE.test(lines[i]) || isDividerLine(line)) continue;
-    return line;
-  }
-  return null;
-}
-function questionsAbove(lines, footerIdx) {
-  const out = [];
-  for (let i = footerIdx - 1; i >= 0; i--) {
-    const line = lines[i].trim();
-    if (line.length > 1 && line.charAt(line.length - 1) === "?") out.push(line);
-    if (out.length > 0 && CLAUDE_MENU_OPTION_RE.test(line)) continue;
-    if (out.length > 0 && !line) break;
-  }
-  return out.reverse();
-}
-function scoreAuthPrompt(screen) {
-  const s = String(screen || "");
-  let score = 0;
-  if (/\bsign[ -]?in\b/i.test(s)) score += 0.5;
-  if (/\blog[ -]?in\b/i.test(s)) score += 0.5;
-  if (/\bauthenticat(?:e|ion|ing)\b/i.test(s)) score += 0.5;
-  if (/\bo\s?auth\b/i.test(s)) score += 0.6;
-  if (/\bapi key\b/i.test(s)) score += 0.6;
-  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(s)) score += 0.6;
-  if (/\bauthorization code\b/i.test(s)) score += 0.6;
-  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
-  return score > 1 ? 1 : score;
-}
-
 // plugins/provider-claude/src/folderTrust.ts
 var FRAME_EDGES = /^[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+|[\s│┃║╭╮╰╯┌┐└┘╔╗╚╝─━═]+$/g;
 var ENTER = "DQ==";
@@ -1287,7 +1071,7 @@ function claudeFolderTrustPrompt(screen) {
   if (!prompt || prompt.hasPath) return null;
   const options = prompt.choices.options;
   if (options.length !== 2) return null;
-  if (options.filter((option) => option.focused).length !== 1 || !trustChoices(options)) return null;
+  if (options.filter((option) => option.focused).length !== 1 || !hasFolderTrustPromptChoices(options)) return null;
   return {
     question: prompt.header.question,
     options: options.map((option, index) => [option.label, String(index + 1)])
@@ -1297,7 +1081,7 @@ function claudeFolderTrustHighlightedOptionIndex(screen) {
   const rows = String(screen || "").split("\n").map(frameContent);
   const prompt = pathlessPrompt(rows);
   if (!prompt || prompt.hasPath || prompt.choices.options.length !== 2) return null;
-  if (prompt.choices.options.filter((option) => option.focused).length !== 1 || !trustChoices(prompt.choices.options)) return null;
+  if (prompt.choices.options.filter((option) => option.focused).length !== 1 || !hasFolderTrustPromptChoices(prompt.choices.options)) return null;
   return prompt.choices.options.findIndex((option) => option.focused);
 }
 function pathlessPrompt(rows) {
@@ -1368,6 +1152,9 @@ function trustChoices(options) {
   const no = options.findIndex((option) => leadsWith(option.label, "no"));
   return hasFolderTrustAffirmative(options) && no >= 0 && options[no].label.toLowerCase().indexOf("exit") !== -1;
 }
+function hasFolderTrustPromptChoices(options) {
+  return hasFolderTrustAffirmative(options) && options.some((option) => leadsWith(option.label, "no"));
+}
 function hasFolderTrustAffirmative(options) {
   const yes = options.findIndex((option) => leadsWith(option.label, "yes"));
   return yes >= 0 && /\btrust\b/i.test(options[yes].label);
@@ -1387,7 +1174,7 @@ function parseClaudeWizardPrompt(text2) {
   const sections = parseWizardSections(tabLine);
   if (sections.length < 2) return null;
   const body = wizardBody(raw, tabLine);
-  const options = parseWizardOptions(body);
+  const options = parseWizardScreenOptions(body);
   if (options.length < 2) return null;
   const question = parseWizardQuestion(body) || "Choose an option";
   const multiSelect = options.some((opt) => opt.selected) || /\[[ xX]\]|☐|☑|☒/.test(body);
@@ -1433,13 +1220,19 @@ function wizardBody(text2, knownTabLine) {
   return text2.slice(text2.indexOf(tabLine) + tabLine.length);
 }
 function parseWizardQuestion(body) {
-  const beforeOptions = body.split(/(?:❯\s*)?\d+\./)[0] || "";
+  const optionStart = /^(?:\s*[❯>]\s*)?(?:\[[ xX]\]|☐|☑|☒|✔|\d+\.)/gm.exec(body)?.index;
+  const beforeOptions = optionStart === void 0 ? body : body.slice(0, optionStart);
   return beforeOptions.replace(/^[\s←→☐☑☒✔A-Za-z]*Submit\s*→?/, "").replace(/─+/g, " ").replace(/\s+/g, " ").trim();
 }
 function parseWizardOptions(body) {
-  const checkbox = parseCheckboxOptions(body);
-  if (checkbox.length >= 2) return checkbox;
+  const checkboxes = parseCheckboxOptions(body);
+  if (checkboxes.length >= 2) return checkboxes;
   return parseNumberedOptions(body);
+}
+function parseWizardScreenOptions(body) {
+  const options = [...parseCheckboxOptions(body), ...parseNumberedOptions(body)];
+  options.sort((left, right) => left.line - right.line);
+  return options;
 }
 function parseNumberedOptions(text2) {
   const options = [];
@@ -1452,7 +1245,8 @@ function parseNumberedOptions(text2) {
       label,
       value: m[1],
       highlighted: m[0].indexOf("\u276F") !== -1 || m[0].indexOf(">") !== -1,
-      selected: false
+      selected: false,
+      line: text2.slice(0, m.index).split("\n").length - 1
     });
   }
   return options;
@@ -1469,20 +1263,21 @@ function parseCheckboxOptions(text2) {
       label,
       value: String(options.length + 1),
       highlighted: m[0].indexOf("\u276F") !== -1 || m[0].indexOf(">") !== -1,
-      selected: mark === "\u2611" || mark === "\u2612" || mark === "\u2714" || /\[[xX]\]/.test(mark)
+      selected: mark === "\u2611" || mark === "\u2612" || mark === "\u2714" || /\[[xX]\]/.test(mark),
+      line: text2.slice(0, m.index).split("\n").length - 1
     });
   }
   return options;
 }
 function cleanOptionLabel(value) {
-  return String(value || "").replace(/─+/g, " ").replace(/\bChat\s*about\s*this\b[\s\S]*$/i, "").replace(/\s+/g, " ").trim();
+  return String(value || "").replace(/─+/g, " ").replace(/\s+/g, " ").trim();
 }
 function parseClaudeNumberedPrompt(text2) {
   const raw = String(text2 || "");
   if (!/(Esc\s*to\s*cancel|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend|❯)/i.test(raw)) return null;
   const options = parseNumberedOptions(raw);
   if (options.length < 2) return null;
-  const firstOption = raw.search(/(?:^|[\s❯>])\d+\.[ ]+/);
+  const firstOption = raw.search(/^[ \t]*(?:[❯>][ \t]*)?\d+\.[ ]+/m);
   const before = firstOption >= 0 ? raw.slice(0, firstOption) : raw;
   const question = findQuestion(before) || "Choose an option";
   return {
@@ -1517,7 +1312,8 @@ function parseClaudeLetteredPrompt(text2) {
       label: cleanOptionLabel(parts.join(" ")),
       value: start.letter,
       highlighted: false,
-      selected: false
+      selected: false,
+      line: start.index
     });
   }
   const groups = groupLetteredOptions(lines, optionStarts);
@@ -1691,6 +1487,226 @@ function buildWizardSubmitResponse(screen) {
   for (let i = 0; i < moves; i++) steps.push("G1tD");
   steps.push("DQ==");
   return steps;
+}
+
+// plugins/provider-claude/src/classify.ts
+var CLASSIFY_THRESHOLD = 0.8;
+var RESUME_BUFFER_MS = 60 * 1e3;
+function classifyClaudeTabState(snapshot) {
+  const screen = String(snapshot && snapshot.screenText || "").replace(/\r\n?/g, "\n");
+  if (!screen.trim()) return null;
+  if (looksBusy(screen)) return { state: "working", confidence: 0 };
+  const activeChoice = activeTerminalChoiceBlock(screen);
+  const authConfidence = activeChoice ? scoreAuthPrompt(activeChoice.options.map((option) => option.label).join("\n")) : 0;
+  if (authConfidence >= CLASSIFY_THRESHOLD) {
+    return {
+      state: "waiting_on_auth",
+      confidence: authConfidence,
+      action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
+    };
+  }
+  const rl = scoreRateLimit(screen, host.unixNowMs());
+  if (rl.confidence >= CLASSIFY_THRESHOLD && rl.waitKeys && rl.waitKeys.length > 0) {
+    const action = { keys: rl.waitKeys };
+    const data = {};
+    if (rl.resetAtMs !== null) {
+      data.resetAt = new Date(rl.resetAtMs).toISOString();
+      action.delayedResume = {
+        at: new Date(rl.resetAtMs + RESUME_BUFFER_MS).toISOString(),
+        text: "continue your work",
+        thenKeys: ["enter"]
+      };
+    } else {
+      action.surface = { kind: "rate_limit", payload: { reason: "reset_time_unparsed" } };
+    }
+    return {
+      state: "rate_limited",
+      confidence: rl.confidence,
+      data: rl.resetAtMs !== null ? data : void 0,
+      action
+    };
+  }
+  const cq = scoreClarifyingQuestion(screen);
+  if (cq.confidence >= CLASSIFY_THRESHOLD && cq.questions.length > 0) {
+    return {
+      state: "clarifying_question",
+      confidence: cq.confidence,
+      data: { questions: cq.questions },
+      action: { surface: { kind: "clarifying_question", payload: { questions: cq.questions } } }
+    };
+  }
+  const partial = rl.confidence > cq.confidence ? rl.confidence : cq.confidence;
+  if (partial > 0) return { state: "unknown", confidence: partial };
+  return { state: "working", confidence: 0 };
+}
+var CLAUDE_MENU_OPTION_RE = /^[ \t]*([>❯▶➤])?[ \t]*(\d+)[.)][ \t]+(.+?)[ \t]*$/;
+function parseClaudeMenuOptions(screen) {
+  const lines = String(screen || "").split("\n");
+  const options = [];
+  for (let i = 0; i < lines.length; i++) {
+    const m = CLAUDE_MENU_OPTION_RE.exec(lines[i]);
+    if (!m) continue;
+    options.push({ highlighted: !!m[1], label: m[3] });
+  }
+  return options;
+}
+function navigationKeys(options, targetIdx) {
+  let highlightIdx = -1;
+  for (let i = 0; i < options.length; i++) {
+    if (options[i].highlighted) {
+      highlightIdx = i;
+      break;
+    }
+  }
+  if (highlightIdx === -1) highlightIdx = 0;
+  const keys = [];
+  const delta = targetIdx - highlightIdx;
+  if (delta > 0) for (let i = 0; i < delta; i++) keys.push("down");
+  else if (delta < 0) for (let i = 0; i < -delta; i++) keys.push("up");
+  keys.push("enter");
+  return keys;
+}
+function looksBusy(screen) {
+  const s = String(screen || "");
+  return /\besc to interrupt\b/i.test(s) || /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(s) || /\bWorking[….]/.test(s) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(s);
+}
+function scoreRateLimit(screen, nowMs) {
+  const options = parseClaudeMenuOptions(screen);
+  let waitIdx = -1;
+  let hasUpgradeOption = false;
+  for (let i = 0; i < options.length; i++) {
+    const label = options[i].label;
+    if (/\bupgrade\b/i.test(label)) hasUpgradeOption = true;
+    if (waitIdx === -1 && /\b(?:wait|stop and wait)\b/i.test(label) && !/\bupgrade\b/i.test(label)) {
+      waitIdx = i;
+    }
+  }
+  const sigWaitUpgradeMenu = waitIdx !== -1 && hasUpgradeOption;
+  const sigLimitWord = /\b(?:session|usage|rate|message|weekly)\s+limit\b/i.test(screen) || /\blimit\b[\s\S]{0,40}\breset/i.test(screen);
+  const sigResetClock = /\breset[s]?\b[\s\S]{0,40}\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/i.test(screen);
+  const sigConfirmFooter = /\bto confirm\b/i.test(screen) && /\bto (?:cancel|exit)\b/i.test(screen);
+  let confidence = 0;
+  if (sigWaitUpgradeMenu) confidence += 0.5;
+  if (sigLimitWord) confidence += 0.25;
+  if (sigResetClock) confidence += 0.15;
+  if (sigConfirmFooter) confidence += 0.1;
+  if (confidence > 1) confidence = 1;
+  const waitKeys = sigWaitUpgradeMenu ? navigationKeys(options, waitIdx) : null;
+  const resetAtMs = parseResetClock(screen, nowMs);
+  return { confidence, waitKeys, resetAtMs };
+}
+function parseResetClock(screen, nowMs) {
+  const m = /\breset[s]?\b[^\n]{0,40}?(\d{1,2}(?::\d{2})?\s*(?:am|pm))\b/i.exec(String(screen || ""));
+  if (!m) return null;
+  return usageParseTodayClock(m[1], nowMs);
+}
+function scoreClarifyingQuestion(screen) {
+  const wizardPrompt = parseClaudeWizardPrompt(screen);
+  if (wizardPrompt?.multiSelect === true) {
+    return { confidence: 1, questions: [wizardPrompt.question] };
+  }
+  const block = activeClarifyingPromptBlock(screen);
+  const options = block?.options ?? [];
+  const questions = block?.questions ?? [];
+  const sigMenu = options.length >= 2;
+  const sigQuestion = questions.length > 0;
+  const sigConfirmFooter = !!block;
+  let confidence = 0;
+  if (sigMenu) confidence += 0.35;
+  if (sigQuestion) confidence += 0.3;
+  if (sigConfirmFooter) confidence += 0.35;
+  if (confidence > 1) confidence = 1;
+  return { confidence, questions };
+}
+function activeTerminalChoiceBlock(screen) {
+  const lines = String(screen || "").split("\n");
+  for (let footerIdx = lines.length - 1; footerIdx >= 0; footerIdx--) {
+    if (!isActiveChoiceFooter(lines[footerIdx])) continue;
+    if (lastMeaningfulLineIndex(lines) > footerIdx) return null;
+    const options = contiguousOptionsAbove(lines, footerIdx);
+    if (options.length >= 2 && options.some((option) => option.highlighted)) {
+      return { footerIdx, options };
+    }
+  }
+  return null;
+}
+function activeClarifyingPromptBlock(screen) {
+  const lines = String(screen || "").split("\n");
+  const choice = activeTerminalChoiceBlock(screen);
+  if (!choice || !isClarifyingConfirmFooter(lines[choice.footerIdx])) return null;
+  const questions = questionsAbove(lines, choice.footerIdx);
+  if (questions.length === 0) {
+    const prompt = promptAboveOptions(lines, choice.footerIdx);
+    if (prompt) questions.push(prompt);
+  }
+  return questions.length > 0 ? { questions, options: choice.options } : null;
+}
+function isActiveChoiceFooter(line) {
+  return /\b(?:press\s+)?enter\s+to\b/i.test(line);
+}
+function isClarifyingConfirmFooter(line) {
+  return /\bto (?:confirm|submit|select)\b/i.test(line);
+}
+function lastMeaningfulLineIndex(lines) {
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    if (isDividerLine(line)) continue;
+    return i;
+  }
+  return -1;
+}
+function isDividerLine(line) {
+  const stripped = line.replace(/\s/g, "");
+  return stripped.length >= 8 && /^[─━═-]+$/.test(stripped);
+}
+function contiguousOptionsAbove(lines, footerIdx) {
+  const options = [];
+  for (let i = footerIdx - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line) {
+      if (options.length > 0) break;
+      continue;
+    }
+    const m = CLAUDE_MENU_OPTION_RE.exec(lines[i]);
+    if (!m) {
+      if (options.length > 0) break;
+      continue;
+    }
+    options.push({ highlighted: !!m[1], label: m[3] });
+  }
+  return options.reverse();
+}
+function promptAboveOptions(lines, footerIdx) {
+  for (let i = footerIdx - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (!line || CLAUDE_MENU_OPTION_RE.test(lines[i]) || isDividerLine(line)) continue;
+    return line;
+  }
+  return null;
+}
+function questionsAbove(lines, footerIdx) {
+  const out = [];
+  for (let i = footerIdx - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (line.length > 1 && line.charAt(line.length - 1) === "?") out.push(line);
+    if (out.length > 0 && CLAUDE_MENU_OPTION_RE.test(line)) continue;
+    if (out.length > 0 && !line) break;
+  }
+  return out.reverse();
+}
+function scoreAuthPrompt(screen) {
+  const s = String(screen || "");
+  let score = 0;
+  if (/\bsign[ -]?in\b/i.test(s)) score += 0.5;
+  if (/\blog[ -]?in\b/i.test(s)) score += 0.5;
+  if (/\bauthenticat(?:e|ion|ing)\b/i.test(s)) score += 0.5;
+  if (/\bo\s?auth\b/i.test(s)) score += 0.6;
+  if (/\bapi key\b/i.test(s)) score += 0.6;
+  if (/paste\b[^\n]*\b(token|key|code|credential)/i.test(s)) score += 0.6;
+  if (/\bauthorization code\b/i.test(s)) score += 0.6;
+  if (/enter your\b[^\n]*\b(api key|token|credential)/i.test(s)) score += 0.6;
+  return score > 1 ? 1 : score;
 }
 
 // plugins/provider-claude/src/permissionPrompt.ts

@@ -446,6 +446,17 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
   eq(hostPlugin.buildPromptResponse(1, unnumbered), ["ag==", "DQ=="], "responding with option two moves off refusal before confirming");
   eq(hostPlugin.permissionPromptResponse("Bash", parsed, unnumbered), null, "directory trust is never a tool permission approval");
 
+  const continueWithoutPermissions = fs.readFileSync(
+    path.join(dir, "trust-continue-without-permissions.txt"),
+    "utf8",
+  );
+  assert(Boolean(hostPlugin.parsePrompt(continueWithoutPermissions)), "continue-without-permissions remains visible as a prompt");
+  eq(
+    hostPlugin.directoryTrustPromptResponse(continueWithoutPermissions),
+    [],
+    "continue-without-permissions is never auto-advanced",
+  );
+
   const wrapped = fs.readFileSync(path.join(dir, "quick-safety-wrapped-header.txt"), "utf8");
   const wrappedPrompt = hostPlugin.parsePrompt(wrapped);
   assert(Boolean(wrappedPrompt?.question.trim()), "wrapped trust header remains one parsed question");

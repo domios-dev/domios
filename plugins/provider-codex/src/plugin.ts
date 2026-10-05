@@ -134,7 +134,8 @@ function windowsProfileCommand(parts: string[], taskPath: string | null, instanc
   const profileValue = taskPath
     ? "('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson)"
     : "('# codeterm-instance: ' + $ctInstanceId)";
-  const prefix = "$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; "
+  const prefix = "$PSNativeCommandArgumentPassing = 'Standard'; "
+    + "$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; "
     + taskSetup
     + "$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; "
     + "$ctProfileName = 'codeterm-' + $ctProfileSuffix; "
@@ -159,6 +160,11 @@ function windowsProfileCommand(parts: string[], taskPath: string | null, instanc
     + "$ctProfileReleased = [bool]$ctRelease.released } } catch { Write-Warning 'Codex profile retained because project trust could not be persisted'; }; "
     + "} } } finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue } }";
   return prefix + parts.join(" ") + suffix;
+}
+
+function quoteCodexArg(value: string, platform: string): string {
+  const argument = platform === "windows" ? value.replace(/"/g, '\\"') : value;
+  return host.shell.quoteFor(argument, platform);
 }
 
 function hasPromptAndStatusFooter(screen: string): boolean {
@@ -316,7 +322,7 @@ const plugin: PluginModule = {
     }
     if (p.args && p.args.length > 0) {
       // Quote each caller-supplied arg to prevent shell injection.
-      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+      for (let i = 0; i < p.args.length; i++) parts.push(quoteCodexArg(String(p.args[i]), host.platform()));
     }
     if (p.task?.trim()) {
       const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId)
@@ -371,7 +377,7 @@ const plugin: PluginModule = {
     const uuid = extractSessionUuid(String(p.sessionId || "")) || String(p.sessionId || "");
     parts.push(host.shell.quoteFor(uuid, platform), "--no-daemon");
     if (Array.isArray(p.args)) {
-      for (const arg of p.args) parts.push(host.shell.quoteFor(String(arg), platform));
+      for (const arg of p.args) parts.push(quoteCodexArg(String(arg), platform));
     }
     if (platform === "windows") {
       const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId)

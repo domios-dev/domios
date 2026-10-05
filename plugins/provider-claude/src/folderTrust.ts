@@ -95,7 +95,7 @@ export function claudeFolderTrustPrompt(screen: string): { question: string; opt
   if (!prompt || prompt.hasPath) return null;
   const options = prompt.choices.options;
   if (options.length !== 2) return null;
-  if (options.filter((option) => option.focused).length !== 1 || !trustChoices(options)) return null;
+  if (options.filter((option) => option.focused).length !== 1 || !hasFolderTrustPromptChoices(options)) return null;
   return {
     question: prompt.header.question,
     options: options.map((option, index): [string, string] => [option.label, String(index + 1)]),
@@ -106,7 +106,10 @@ export function claudeFolderTrustHighlightedOptionIndex(screen: string): number 
   const rows = String(screen || "").split("\n").map(frameContent);
   const prompt = pathlessPrompt(rows);
   if (!prompt || prompt.hasPath || prompt.choices.options.length !== 2) return null;
-  if (prompt.choices.options.filter((option) => option.focused).length !== 1 || !trustChoices(prompt.choices.options)) return null;
+  if (
+    prompt.choices.options.filter((option) => option.focused).length !== 1
+    || !hasFolderTrustPromptChoices(prompt.choices.options)
+  ) return null;
   return prompt.choices.options.findIndex((option) => option.focused);
 }
 
@@ -187,6 +190,11 @@ function trustChoices(options: OptionRow[]): boolean {
   return hasFolderTrustAffirmative(options)
     && no >= 0
     && options[no].label.toLowerCase().indexOf("exit") !== -1;
+}
+
+function hasFolderTrustPromptChoices(options: OptionRow[]): boolean {
+  return hasFolderTrustAffirmative(options)
+    && options.some((option) => leadsWith(option.label, "no"));
 }
 
 function hasFolderTrustAffirmative(options: OptionRow[]): boolean {

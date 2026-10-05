@@ -425,6 +425,25 @@ fn active_turn_wait_expires_without_an_idle_event() {
 }
 
 #[test]
+fn active_turn_deadline_never_submits_into_a_dialog() {
+    let (transport, paste_rx, _, event_wait_rx) = EventTransport::new(true, 0);
+    let send_transport = Arc::clone(&transport);
+    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "busy"));
+
+    paste_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the payload reaches the composer once");
+    event_wait_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the first key waits for turn end");
+    transport.state.lock().unwrap().dialog = true;
+
+    let result = join(send, "active turn modal guard").unwrap().unwrap_err();
+    assert!(matches!(result, InjectionError::SubmitNeverConfirmed { .. }));
+    assert_eq!(transport.state.lock().unwrap().writes, ["paste:busy"]);
+}
+
+#[test]
 fn composer_ready_event_issues_one_key_after_the_bounded_schedule() {
     let (transport, paste_rx, deferred_wait_rx, _) =
         EventTransport::new(false, MAX_SUBMIT_KEY_WRITES);

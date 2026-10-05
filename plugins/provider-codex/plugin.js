@@ -2351,7 +2351,6 @@ function classifyCodexTabState(snapshot, nowMs) {
       action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
     };
   }
-  if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
   const update = scoreUpdatePrompt(screen);
   if (update.confidence >= CLASSIFY_THRESHOLD) {
     return {
@@ -2419,10 +2418,6 @@ function scoreUpdatePrompt(screen) {
 }
 function looksBusy(screen) {
   return /\bctrl\+c to (?:cancel|stop|interrupt|quit)\b/i.test(screen) || /\bWorking[….]/.test(screen) || /\((?:esc|ctrl\+c) to interrupt\)/i.test(screen);
-}
-function looksLikeModelPicker(screen) {
-  if (!/\bselect\s+(?:model|reasoning)\b/i.test(screen)) return false;
-  return /\bpress\s+enter\s+to\s+confirm\b/i.test(screen) && /\besc\s+to\s+go\s+back\b/i.test(screen);
 }
 function scoreRateLimit(screen, nowMs) {
   let confidence = 0;
@@ -3561,9 +3556,13 @@ function windowsProfileCommand(parts, taskPath, instanceId) {
   const quotedInstanceId = host.shell.quoteFor(instanceId, host.platform());
   const taskSetup = taskPath ? `$ctTaskInstructions = [System.IO.File]::ReadAllText(${host.shell.quoteFor(taskPath, host.platform())}, [System.Text.Encoding]::UTF8); $ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); ` : "$ctTaskJson = $null; ";
   const profileValue = taskPath ? "('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson)" : "('# codeterm-instance: ' + $ctInstanceId)";
-  const prefix = "$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; " + taskSetup + `$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); $ctInstanceId = ${quotedInstanceId}; if (Test-Path -LiteralPath $ctProfilePath) { $ctPriorReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { $ctPriorReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; $ctPriorRelease = Invoke-RestMethod -Method Post -Uri $ctPriorReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; $ctPriorReleased = [bool]$ctPriorRelease.released } } catch { Write-Warning 'Codex project trust carry-over was not confirmed'; }; if (-not $ctPriorReleased) { $ctOwnsPriorProfile = $false; try { $ctOwnsPriorProfile = ([System.IO.File]::ReadAllLines($ctProfilePath) | Select-Object -First 1) -eq ('# codeterm-instance: ' + $ctInstanceId) } catch {}; if ($ctOwnsPriorProfile) { $ctPreservedProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '-preserved.config.toml'); $ctExistingPreserved = Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE '.codex') -Filter ($ctProfileName + '-preserved*.config.toml') -File -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $ctExistingPreserved -and -not (Test-Path -LiteralPath $ctPreservedProfilePath)) { try { [System.IO.File]::Move($ctProfilePath, $ctPreservedProfilePath); Write-Warning 'Unreleased Codex profile was preserved'; } catch {} } }; if ((Test-Path -LiteralPath $ctProfilePath) -or -not $ctOwnsPriorProfile) { $ctProfileName = $ctProfileName + '-retry-' + $PID + '-' + [DateTime]::UtcNow.Ticks; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Write-Warning 'Unreleased Codex profile was retained; using a separate profile for this launch'; } } }; [System.IO.File]::WriteAllText($ctProfilePath, ${profileValue}, [System.Text.UTF8Encoding]::new($false)); $ctProfileReleased = $false; try { try { `;
+  const prefix = "$PSNativeCommandArgumentPassing = 'Standard'; $ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; " + taskSetup + `$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); $ctInstanceId = ${quotedInstanceId}; if (Test-Path -LiteralPath $ctProfilePath) { $ctPriorReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { $ctPriorReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; $ctPriorRelease = Invoke-RestMethod -Method Post -Uri $ctPriorReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; $ctPriorReleased = [bool]$ctPriorRelease.released } } catch { Write-Warning 'Codex project trust carry-over was not confirmed'; }; if (-not $ctPriorReleased) { $ctOwnsPriorProfile = $false; try { $ctOwnsPriorProfile = ([System.IO.File]::ReadAllLines($ctProfilePath) | Select-Object -First 1) -eq ('# codeterm-instance: ' + $ctInstanceId) } catch {}; if ($ctOwnsPriorProfile) { $ctPreservedProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '-preserved.config.toml'); $ctExistingPreserved = Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE '.codex') -Filter ($ctProfileName + '-preserved*.config.toml') -File -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $ctExistingPreserved -and -not (Test-Path -LiteralPath $ctPreservedProfilePath)) { try { [System.IO.File]::Move($ctProfilePath, $ctPreservedProfilePath); Write-Warning 'Unreleased Codex profile was preserved'; } catch {} } }; if ((Test-Path -LiteralPath $ctProfilePath) -or -not $ctOwnsPriorProfile) { $ctProfileName = $ctProfileName + '-retry-' + $PID + '-' + [DateTime]::UtcNow.Ticks; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Write-Warning 'Unreleased Codex profile was retained; using a separate profile for this launch'; } } }; [System.IO.File]::WriteAllText($ctProfilePath, ${profileValue}, [System.Text.UTF8Encoding]::new($false)); $ctProfileReleased = $false; try { try { `;
   const suffix = " } finally { if (Test-Path -LiteralPath $ctProfilePath) { $ctProfileReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { $ctReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; $ctRelease = Invoke-RestMethod -Method Post -Uri $ctReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; $ctProfileReleased = [bool]$ctRelease.released } } catch { Write-Warning 'Codex profile retained because project trust could not be persisted'; }; } } } finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue } }";
   return prefix + parts.join(" ") + suffix;
+}
+function quoteCodexArg(value, platform) {
+  const argument = platform === "windows" ? value.replace(/"/g, '\\"') : value;
+  return host.shell.quoteFor(argument, platform);
 }
 function hasPromptAndStatusFooter(screen) {
   if (screen.indexOf("\u203A") === -1) return false;
@@ -3675,7 +3674,7 @@ var plugin = {
       parts.push("--dangerously-bypass-hook-trust");
     }
     if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+      for (let i = 0; i < p.args.length; i++) parts.push(quoteCodexArg(String(p.args[i]), host.platform()));
     }
     if (p.task?.trim()) {
       const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId) ? p.instanceId : null;
@@ -3725,7 +3724,7 @@ var plugin = {
     const uuid = extractSessionUuid(String(p.sessionId || "")) || String(p.sessionId || "");
     parts.push(host.shell.quoteFor(uuid, platform), "--no-daemon");
     if (Array.isArray(p.args)) {
-      for (const arg of p.args) parts.push(host.shell.quoteFor(String(arg), platform));
+      for (const arg of p.args) parts.push(quoteCodexArg(String(arg), platform));
     }
     if (platform === "windows") {
       const instanceId = typeof p.instanceId === "string" && /^[A-Za-z0-9_-]+$/.test(p.instanceId) ? p.instanceId : null;
