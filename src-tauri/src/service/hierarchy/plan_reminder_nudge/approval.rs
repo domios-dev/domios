@@ -8,6 +8,7 @@ use crate::service::hierarchy::heartbeat_gate::{
 use codeterm_plan::service_plan::state::orchestrator_actionable_task_ids;
 
 use super::non_empty;
+use super::BlockedNotice;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ReminderRequest {
@@ -91,6 +92,13 @@ pub(crate) trait ReminderHost {
         previous: &Observation,
         now: u64,
     ) -> (Snapshot, Observation);
+    fn observe_worker(
+        &self,
+        plan: &Plan,
+        scope: &Scope,
+        previous: &Observation,
+        now: u64,
+    ) -> (Snapshot, Observation);
     fn compose(
         &self,
         plan: &Plan,
@@ -99,6 +107,7 @@ pub(crate) trait ReminderHost {
         decision: &Decision,
     ) -> Emission;
     fn emit(&self, plan_id: &str, scope: &Scope, emission: &Emission) -> Result<(), String>;
+    fn notify_blocked(&self, owner_tab: &str, notice: &BlockedNotice);
 }
 
 pub(crate) fn scope_key(plan_id: &str, tab_id: &str) -> String {
@@ -196,15 +205,36 @@ fn admit_claimed(
     decision.adapter = Some(model.id().to_string());
     decision.model = model.model_id();
     heartbeat_gate::journal(&supporter.runtime, &decision, &plan.id, now);
-    if !decision.wake {
-        return suppress(gate, claim, decision.reason);
-    }
     let current = |plan_id: &str| match resolve(host, request, Some(plan_id)) {
         Ok((plan, fresh)) if fresh == scope && connected_as(host, &supporter, &adapter) => {
             Some(plan)
         }
         _ => None,
     };
+    if decision.tick_label == "blocked" {
+        if decision.reason != "model_answer" || decision.decided_by == "cache" {
+            return suppress(gate, claim, decision.reason);
+        }
+        let Some(plan) = current(&plan.id) else {
+            return suppress(gate, claim, "stale_scope");
+        };
+        let (mut fresh, _) = observe(host, &plan, &scope, &previous, now);
+        fresh.scope = snapshot.scope.clone();
+        if fresh.hash() != decision.snapshot_hash {
+            return suppress(gate, claim, "stale_observation");
+        }
+        if let Some(owner_tab) = non_empty(plan.owner.tab_id.as_deref()) {
+            for notice in super::blocked_notices(&plan, &scope, &fresh) {
+                if gate.claim_blocker_notice(&notice.event_key) {
+                    host.notify_blocked(owner_tab, &notice);
+                }
+            }
+        }
+        return suppress(gate, claim, "recipient_blocked");
+    }
+    if !decision.wake {
+        return suppress(gate, claim, decision.reason);
+    }
     let Some(plan) = current(&plan.id) else {
         return suppress(gate, claim, "stale_scope");
     };
@@ -213,6 +243,16 @@ fn admit_claimed(
     fresh.scope = snapshot.scope.clone();
     if fresh.hash() != decision.snapshot_hash {
         return suppress(gate, claim, "stale_observation");
+    }
+    if scope.kind == ReminderKind::Worker
+        && scope.task_id.as_deref().is_some_and(|task_id| {
+            plan.tasks
+                .iter()
+                .find(|task| task.id == task_id)
+                .is_some_and(|task| task.status == crate::plan::TaskStatus::Blocked)
+        })
+    {
+        return suppress(gate, claim, "recipient_not_actionable");
     }
     let emission = host.compose(&plan, &scope, &snapshot, &decision);
     // Re-observation and compose can take IO time; the last check is bound to the handoff.
@@ -246,7 +286,7 @@ fn observe(
     now: u64,
 ) -> (Snapshot, Observation) {
     match scope.kind {
-        ReminderKind::Worker => heartbeat_gate::collect_worker_scope(plan, scope, previous),
+        ReminderKind::Worker => host.observe_worker(plan, scope, previous, now),
         _ => host.observe_owner(plan, &scope.tab_id, previous, now),
     }
 }
