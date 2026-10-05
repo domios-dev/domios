@@ -116,7 +116,8 @@ impl ServiceContext {
         if attempt_model_unknown {
             self.persist_current_attempt_session_model(tab_id);
         }
-        false
+        self.schedule_session_model_refresh_for_current_tab(tab_id);
+        true
     }
 
     /// The model this tab's own claimed session is running. Runtime evidence first,
@@ -529,9 +530,12 @@ impl ServiceContext {
             provider_resolved_model.as_deref(),
             current_fallback.clone(),
             &model,
-            requested_model.as_deref().is_none_or(|requested| {
-                session_model_matches(&self.agent_registry, agent_id, requested, &model)
-            }),
+            (current_model.is_some()
+                && current_mismatch.is_none()
+                && current_fallback.is_none())
+                || requested_model.as_deref().is_none_or(|requested| {
+                    session_model_matches(&self.agent_registry, agent_id, requested, &model)
+                }),
         );
         let mismatch_changed = identity_update.mismatch != current_mismatch;
         let fallback_changed = identity_update.fallback != current_fallback;

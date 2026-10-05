@@ -351,6 +351,31 @@ fn pinned_resume_send_writes_no_payload_when_the_pty_changed() {
 }
 
 #[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the ServiceFixture requires an interactive desktop runtime"
+)]
+fn shell_spawn_command_locks_the_detected_agent_type() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = crate::multiplexer::types::TabBacking::Pty;
+    tab.pty_id = Some("pty-cli-launch".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("claude"),
+    ));
+
+    fixture
+        .service
+        .feed_input_parser("pty-cli-launch", "claude --resume session", true);
+
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.agent_type.as_deref(), Some("claude"));
+    assert!(tab.agent_type_locked);
+}
+
+#[test]
 fn provider_readiness_overrides_generic_tui_glyphs() {
     assert!(!provider_or_generic_tui(Some(false), true));
     assert!(provider_or_generic_tui(Some(true), false));

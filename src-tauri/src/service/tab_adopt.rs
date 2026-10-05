@@ -74,7 +74,7 @@ pub(crate) fn screen_allows_adopt(
         return Ok(());
     }
     let has_tui = screen_has_agent_tui(screen) || any_provider_tui;
-    if has_tui && !screen_has_bare_shell_prompt(screen) {
+    if has_tui && (!screen_has_bare_shell_prompt(screen) || any_provider_tui) {
         return Ok(());
     }
     Err(TabAdoptError::new(
@@ -311,6 +311,13 @@ mod tests {
     #[test]
     fn agent_tui_screen_is_accepted_without_force() {
         assert!(screen_allows_adopt(tui_screen(), false, false).is_ok());
+    }
+
+    #[test]
+    fn provider_tui_is_accepted_when_its_cursor_looks_like_a_shell_prompt() {
+        let screen = "assistant output\n⏵⏵ bypass permissions on (shift+tab to cycle)\n❯ ";
+        assert!(screen_has_bare_shell_prompt(screen));
+        assert!(screen_allows_adopt(screen, false, true).is_ok());
     }
 
     #[test]
