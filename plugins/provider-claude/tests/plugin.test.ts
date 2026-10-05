@@ -381,6 +381,28 @@ console.log("\n--- wizard parsePrompt + buildPromptResponse ---\n");
     eq(hostPlugin.directoryTrustPromptResponse(screen), keys[c.expect], `folder trust ${c.file} -> ${c.expect}`);
   }
 
+  const preapproved = fs.readFileSync(path.join(dir, "trust-local-preapproved-no-first.txt"), "utf8");
+  const preapprovedPrompt = hostPlugin.parseDirectoryTrustPrompt(preapproved);
+  assert(Boolean(preapprovedPrompt), "pre-approved folder trust exposes provider-declared options");
+  const preapprovedOptions = preapprovedPrompt?.options ?? [];
+  const affirmativeIndex = preapprovedOptions.findIndex(([label]) =>
+    /^yes(?:$|[, .])/i.test(label) && /\btrust\b/i.test(label),
+  );
+  assert(affirmativeIndex >= 0, "the parsed trust option identifies the affirmative choice");
+  eq(hostPlugin.directoryTrustPromptResponse(preapproved), ["ag=="], "pre-approved trust advances away from the focused refusal");
+  eq(hostPlugin.buildPromptResponse(affirmativeIndex, preapproved), ["ag==", "DQ=="], "pre-approved trust selection moves down then confirms");
+  const focusedAffirmative = preapproved.split(/\r?\n/).map((row) => {
+    const normalized = row.replace(/[│┃║]/g, "").trim();
+    const label = normalized.replace(/^[❯>]\s*/, "").trim();
+    if (!preapprovedOptions.some(([option]) => option === label)) return row;
+    const withoutFocus = row.replace(/[❯>](?=\s)/, " ");
+    if (label !== preapprovedOptions[affirmativeIndex]?.[0]) return withoutFocus;
+    const position = withoutFocus.indexOf(label);
+    return `${withoutFocus.slice(0, position)}❯ ${withoutFocus.slice(position)}`;
+  }).join("\n");
+  eq(hostPlugin.directoryTrustPromptResponse(focusedAffirmative), ["DQ=="], "focused affirmative trust confirms without moving");
+  eq(hostPlugin.buildPromptResponse(affirmativeIndex, focusedAffirmative), ["DQ=="], "focused affirmative selection only confirms");
+
   const unnumbered = fs.readFileSync(path.join(dir, "quick-safety-no-first.txt"), "utf8");
   const parsed = hostPlugin.parsePrompt(unnumbered);
   const trustPrompt = hostPlugin.parseDirectoryTrustPrompt(unnumbered);

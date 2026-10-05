@@ -7,6 +7,9 @@ const NO_FIRST: &str = include_str!(
 const YES_FOCUSED: &str = include_str!(
     "../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/quick-safety-yes-focused.txt"
 );
+const PREAPPROVED_LOCAL_NO_FIRST: &str = include_str!(
+    "../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/trust-local-preapproved-no-first.txt"
+);
 const RULE_AFFIRMATIVE: &str = include_str!(
     "../../../../../../plugins/provider-claude/tests/fixtures/folder-trust/trust-rule-focus-affirmative.txt"
 );
@@ -163,7 +166,7 @@ fn journal_rows(fixture: &crate::service::test_fixture::ServiceFixture) -> Vec<s
 #[test]
 fn unattended_launch_prompt_jev_chooses_among_declared_trust_options() {
     let provider = claude();
-    for screen in [NO_FIRST, YES_FOCUSED, RULE_AFFIRMATIVE] {
+    for screen in [NO_FIRST, YES_FOCUSED, RULE_AFFIRMATIVE, PREAPPROVED_LOCAL_NO_FIRST] {
         let target = trust_target(screen);
         assert_eq!(target.kind, Kind::DirectoryTrust);
         assert_eq!(
@@ -515,7 +518,7 @@ fn owner_launched_directory_trust_prompt_remains_owner_facing() {
     let (mux, tab_id) = unattended_tab(crate::multiplexer::types::TabAudience::User, false);
     let (fixture, _guard) = fixture_for(mux);
     let pty = pty_of(&fixture, &tab_id);
-    let target = trust_target(NO_FIRST);
+    let target = trust_target(PREAPPROVED_LOCAL_NO_FIRST);
     let verdict = adapter_verdict(
         TRUST_OR_PERMISSION_PROMPT,
         Some(target.choice.as_str()),
@@ -523,14 +526,14 @@ fn owner_launched_directory_trust_prompt_remains_owner_facing() {
     );
     assert!(!fixture
         .service
-        .route_unattended_launch_prompt(&snapshot(&tab_id, NO_FIRST), &verdict));
+        .route_unattended_launch_prompt(&snapshot(&tab_id, PREAPPROVED_LOCAL_NO_FIRST), &verdict));
     assert!(fixture
         .service
-        .model_safe_response_target(&tab_id, NO_FIRST)
+        .model_safe_response_target(&tab_id, PREAPPROVED_LOCAL_NO_FIRST)
         .is_none());
     fixture
         .service
-        .resolve_unobserved_launch_gate(&snapshot(&tab_id, NO_FIRST));
+        .resolve_unobserved_launch_gate(&snapshot(&tab_id, PREAPPROVED_LOCAL_NO_FIRST));
     assert_eq!(
         crate::service::output::prompt_step_dispatch_count_for_test(&pty),
         0
@@ -608,6 +611,63 @@ fn sentinel_respond_prompt_permission_uses_provider_declared_target() {
             model_choice: Some((&target.choice, 0.99)),
         }
     ));
+}
+
+#[test]
+fn sentinel_respond_prompt_preapproved_folder_trust_uses_declared_target() {
+    let (mut mux, tab_id) = cron_tab();
+    let prompt = claude()
+        .parse_directory_trust_prompt(PREAPPROVED_LOCAL_NO_FIRST)
+        .expect("pre-approved folder trust choices");
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.pending_prompt = Some(prompt.clone());
+    tab.pending_prompt_kind = Some(codeterm_types::pty::PromptKind::DirectoryTrust);
+    let (fixture, _guard) = fixture_for(mux);
+    let pty = pty_of(&fixture, &tab_id);
+    fixture.service.screen_state.lock().resize(&pty, 120, 40);
+    fixture
+        .service
+        .screen_state
+        .lock()
+        .process(&pty, PREAPPROVED_LOCAL_NO_FIRST.as_bytes());
+    let target = fixture
+        .service
+        .sentinel_safe_response_target(&tab_id, PREAPPROVED_LOCAL_NO_FIRST, Kind::DirectoryTrust)
+        .expect("Sentinel resolves a provider-declared folder trust target");
+    assert_eq!(target.kind, Kind::DirectoryTrust);
+    assert_eq!(target.prompt, prompt);
+    let affirmative = target
+        .prompt
+        .options
+        .iter()
+        .position(|option| {
+            option.label.to_ascii_lowercase().starts_with("yes")
+                && option.label.to_ascii_lowercase().contains("trust")
+        })
+        .expect("declared affirmative option");
+    assert_eq!(target.prompt.options[affirmative].value, target.choice);
+    assert_eq!(target.step, b"j");
+
+    let expected = serde_json::json!({
+        "kind": codeterm_types::pty::PromptKind::DirectoryTrust,
+        "question": prompt.question,
+        "options": prompt.options,
+        "multi_select": prompt.multi_select,
+    });
+    assert!(matches!(
+        fixture.service.request_safe_prompt_response(
+            &tab_id,
+            &crate::sentinel::machine::SafeKind::DirectoryTrust,
+            &expected,
+            "sentinel_fixture",
+        ),
+        Ok(crate::service::supporter_tab_state::sentinel_request::RequestEffect::Completed(_))
+    ));
+    assert_eq!(
+        crate::service::output::prompt_step_dispatch_count_for_test(&pty),
+        1,
+        "Sentinel's trust handler reaches the owned prompt responder once"
+    );
 }
 
 #[test]
