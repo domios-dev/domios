@@ -502,7 +502,10 @@ pub trait AgentProvider: Send + Sync {
             {
                 true
             }
-            _ => false,
+            Some(classification) if classification.state == TabState::Unknown => {
+                crate::detector::detect_interactive_prompt(&snapshot.screen_text)
+            }
+            _ => crate::detector::detect_interactive_prompt(&snapshot.screen_text),
         }
     }
 
