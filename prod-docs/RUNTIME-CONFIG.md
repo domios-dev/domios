@@ -40,12 +40,7 @@ Retro green-on-black Fallout terminal theme. Selecting this theme automatically 
 
 ## Session Persistence
 
-Sessions auto-save every 30 seconds and when you close the window. Saved to:
-- **Windows:** `%APPDATA%/codeterm/sessions/last.json`
-- **Linux:** `~/.config/codeterm/sessions/last.json`
-- **macOS:** `~/Library/Application Support/codeterm/sessions/last.json`
-
-Contains workspace layout and tab arrangement metadata.
+Desk state—workspaces, tabs, layout, and tab identity—is committed through the instance's Storage owner in `storage/state.db` beneath its data directory. Ordinary mutations are persisted through Storage; `POST /api/session/save` provides an explicit flush barrier before a forced stop. The Cron Jobs section below describes Storage unavailable mode and the backup/rollback protocol.
 
 ## CWD Tracking
 
@@ -62,14 +57,11 @@ Domios creates these scripts at startup.
 
 ## Cron Jobs
 
-Cron jobs live in `~/.codeterm/crons.json` (dev: `~/.codeterm-dev/crons.json`), not in `config.toml`. They are managed through the APIs in `codeterm docs API-INTEGRATIONS`, while the schema is documented here. Closing a workspace deletes its cron jobs, run history, and log directories.
+Cron jobs and run history belong to the instance's typed Storage state in `storage/state.db` beneath its data directory, not `config.toml`. They are managed through the APIs in `codeterm docs API-INTEGRATIONS`, while the schema is documented here. Closing a workspace deletes its cron jobs, run history, and log directories. Storage opens before cron restore or scheduler start.
 
-A `crons.json` that fails to load is preserved as `crons.json.corrupt-<UTC timestamp>`,
-reported by one ERROR line and one action-needed notification, and recovered from
-the newest valid backup in `state-backups/crons.json/` (written on every save).
-Without a backup the store runs on an empty in-memory list: built-in jobs such as
-`mem-dreaming-auto` run in memory only, and every save is refused until a fixed
-`crons.json` is restored and Domios restarts.
+If Storage cannot open or its one-time import fails verification, cron state is unavailable: dependent reads and writes report the Storage failure, scheduling does not fall back to an empty in-memory list, and no jobs execute from a substitute. The importer keeps recognized legacy inputs under `storage/legacy-originals/` after verifying the archive; those files are retained import evidence, not live configuration.
+
+For backup, stop Domios cleanly and preserve the complete `storage/` directory, including the database, referenced assets, and import archive. Restore it only into an empty `storage/` root with a Storage-compatible build. Do not downgrade by starting an older binary against the retained legacy JSON: it does not contain post-cutover writes. No in-place downgrade or JSON rollback is supported.
 
 ### `CronJob` schema
 
@@ -236,4 +228,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Both builds can run simultaneously.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->
