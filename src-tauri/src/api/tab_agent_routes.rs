@@ -26,6 +26,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         .route("/api/tabs/{id}/focus", post(tab_routes::focus_tab))
         .route("/api/tabs/{id}/close", post(tab_routes::close_tab))
         .route(
+            "/api/tabs/{id}/release-ownership",
+            post(tab_routes::release_remote_ownership),
+        )
+        .route(
             "/api/tabs/{id}/restart",
             post(tab_routes::restart_shell_tab),
         )

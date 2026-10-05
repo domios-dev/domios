@@ -53,4 +53,23 @@ describe("remote tab metadata", () => {
     expect(html).toContain('data-testid="remote-managed-by"');
     expect(html).toContain("managed by Hubble");
   });
+
+  it("removes managed-by after ownership is released", () => {
+    const released = { ...remote("Worker"), ownership: undefined };
+    expect(managedByLabel(released)).toBeNull();
+    const html = renderToStaticMarkup(
+      <TabItem
+        tab={released}
+        index={0}
+        isActive
+        onClick={() => undefined}
+        onClose={() => undefined}
+        canClose
+        workspaceId="workspace"
+        hasAgent
+      />,
+    );
+    expect(html).not.toContain('data-testid="remote-managed-by"');
+    expect(html).not.toContain("managed by Hubble");
+  });
 });
