@@ -11,6 +11,7 @@ use super::cancellation::{
     Cancellation,
 };
 use super::capture::{self, CaptureData};
+use super::environment::Environment;
 use super::owner::{ProbeResourceOwner, Reservation, RetainedResources, Settlement};
 use super::process::{cancellation_target, Deadlines, LeaderOwnership, ProbeFailure, ResourceKind};
 use super::Output;
@@ -37,6 +38,7 @@ pub(super) fn run(
     owner: &Arc<ProbeResourceOwner>,
     cancellation: &Cancellation,
     cancellation_required: bool,
+    environment: &Environment,
 ) -> Result<Output, ProbeFailure> {
     let mut process = UnixRun::new(deadlines, reservation, owner);
     if cancellation_required {
@@ -85,6 +87,10 @@ pub(super) fn run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0);
+    child_command.envs(environment.variables.iter());
+    for key in &environment.removed {
+        child_command.env_remove(key);
+    }
     if cancellation.load(std::sync::atomic::Ordering::SeqCst) {
         process.set_failure("probe_cancelled");
         return process.finish_failure();

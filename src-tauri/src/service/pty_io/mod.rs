@@ -12,7 +12,7 @@ mod inject;
 mod lifecycle;
 mod send;
 pub(crate) mod submit_transaction;
-mod tab_env;
+pub(crate) mod tab_env;
 
 pub(crate) use actions::{await_action_deadline, execute_ordered_actions, OrderedPtyAction};
 pub(crate) use lifecycle::claim_restored_pty_boot;
