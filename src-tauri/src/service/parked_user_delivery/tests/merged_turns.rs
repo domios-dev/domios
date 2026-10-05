@@ -5,16 +5,30 @@ use super::*;
     not(windows),
     ignore = "requires the shared interactive desktop ServiceContext fixture"
 )]
-fn current_launch_pre_ready_user_sends_wait_for_each_exact_turn() {
+fn first_readiness_writes_all_held_user_sends_before_turn_evidence() {
+    const THIRD_PAYLOAD: &str = " opaque-c-b3e9\n\u{03bb}  ";
     let (fixture, tab) = queue_fixture(true, None);
     let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
     let second = start_current_chat_send(&fixture, &tab, SECOND_PAYLOAD, "client-b");
+    let third = start_current_chat_send(&fixture, &tab, THIRD_PAYLOAD, "client-c");
     let (writes_tx, writes_rx) = mpsc::channel();
+    let service = fixture.service.clone();
     let _boundary = UserSubmitBoundary::install(
         &tab,
         Arc::new(move |record, text| {
+            service.mark_user_send_written(record);
+            let written = service.chat_send_ledger.status(&record.send_id).unwrap();
+            assert_eq!(written.state, ChatSendState::Written);
+            assert_eq!(
+                serde_json::to_value(&written).unwrap()["state"],
+                "written"
+            );
+            assert!(service
+                .chat_send_ledger
+                .set_user_pending_reason(&record.send_id, Some("late-pending-notice"))
+                .is_none());
             writes_tx
-                .send((record.send_id.clone(), text.to_string()))
+                .send((record.send_id.clone(), text.to_string(), written.state))
                 .unwrap();
             Ok(())
         }),
@@ -32,11 +46,11 @@ fn current_launch_pre_ready_user_sends_wait_for_each_exact_turn() {
         .user_sends
         .records(&tab)
         .unwrap();
-    assert_eq!(queued.len(), 2);
+    assert_eq!(queued.len(), 3);
     assert!(queued
         .iter()
         .all(|record| record.authority.binding_nonce == "opaque-current-nonce"));
-    for accepted in [&first, &second] {
+    for accepted in [&first, &second, &third] {
         let status = fixture
             .service
             .chat_send_ledger
@@ -53,93 +67,94 @@ fn current_launch_pre_ready_user_sends_wait_for_each_exact_turn() {
     mark_ready(&fixture, &tab);
     fixture.service.wake_parked_user_send(&tab);
     await_owner_idle(&fixture, &tab);
-    assert_eq!(
+    let writes = [
         writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
-        (first.send_id.clone(), FIRST_PAYLOAD.replace("\r\n", "\n")),
-    );
+        writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+        writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+    ];
+    assert_eq!(writes[0].0, first.send_id);
+    assert_eq!(writes[1].0, second.send_id);
+    assert_eq!(writes[2].0, third.send_id);
+    assert_eq!(writes[0].1, FIRST_PAYLOAD.replace("\r\n", "\n"));
+    assert_eq!(writes[1].1, format!("\n\n{SECOND_PAYLOAD}"));
+    assert_eq!(writes[2].1, format!("\n\n{THIRD_PAYLOAD}"));
+    assert!(writes
+        .iter()
+        .all(|(_, _, state)| state == &ChatSendState::Written));
     assert!(matches!(
         writes_rx.try_recv(),
         Err(mpsc::TryRecvError::Empty)
     ));
-    assert_eq!(
-        fixture
-            .service
-            .chat_send_ledger
-            .status(&first.send_id)
-            .unwrap()
-            .state,
-        ChatSendState::Unknown
-    );
-    assert_eq!(
-        fixture
-            .service
-            .chat_send_ledger
-            .status(&second.send_id)
-            .unwrap()
-            .state,
-        ChatSendState::Pending
-    );
 
-    append_turn(&fixture, FIRST_PAYLOAD);
-    let first_confirmation = live_turn(
+    for accepted in [&first, &second, &third] {
+        let status = fixture
+            .service
+            .chat_send_ledger
+            .status(&accepted.send_id)
+            .unwrap();
+        assert_eq!(
+            status.state,
+            ChatSendState::Unknown,
+            "missing turn evidence leaves a written send submit_unconfirmed"
+        );
+        assert_eq!(
+            serde_json::to_value(status).unwrap()["state"],
+            "submit_unconfirmed"
+        );
+    }
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .is_empty());
+
+    let merged_turn = writes
+        .iter()
+        .map(|(_, text, _)| text.as_str())
+        .collect::<String>();
+    append_turn(&fixture, &merged_turn);
+    let confirmations = live_turn(
         &fixture,
         &tab,
         "opaque-session",
         "opaque-current-nonce",
-        "first-turn",
-        FIRST_PAYLOAD,
-    );
-    assert_eq!(first_confirmation.len(), 1);
-    assert_eq!(first_confirmation[0].send_id, first.send_id);
-    await_owner_idle(&fixture, &tab);
-
-    assert_eq!(
-        writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
-        (second.send_id.clone(), SECOND_PAYLOAD.to_string()),
-    );
-    assert!(matches!(
-        writes_rx.try_recv(),
-        Err(mpsc::TryRecvError::Empty)
-    ));
-    assert_eq!(
-        fixture
-            .service
-            .chat_send_ledger
-            .status(&second.send_id)
-            .unwrap()
-            .state,
-        ChatSendState::Unknown
-    );
-
-    append_turn(&fixture, SECOND_PAYLOAD);
-    let second_confirmation = live_turn(
-        &fixture,
-        &tab,
-        "opaque-session",
-        "opaque-current-nonce",
-        "second-turn",
-        SECOND_PAYLOAD,
-    );
-    assert_eq!(second_confirmation.len(), 1);
-    assert_eq!(second_confirmation[0].send_id, second.send_id);
-    assert_eq!(
-        fixture
-            .service
-            .chat_send_ledger
-            .status(&first.send_id)
-            .unwrap()
-            .state,
-        ChatSendState::Sent
+        "merged-held-turn",
+        &merged_turn,
     );
     assert_eq!(
-        fixture
-            .service
-            .chat_send_ledger
-            .status(&second.send_id)
-            .unwrap()
-            .state,
-        ChatSendState::Sent
+        confirmations
+            .iter()
+            .map(|status| status.send_id.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            first.send_id.as_str(),
+            second.send_id.as_str(),
+            third.send_id.as_str()
+        ]
     );
+    assert!(confirmations
+        .iter()
+        .all(|status| status.state == ChatSendState::Sent));
+    for accepted in [&first, &second, &third] {
+        assert_eq!(
+            fixture
+                .service
+                .chat_send_ledger
+                .status(&accepted.send_id)
+                .unwrap()
+                .state,
+            ChatSendState::Sent
+        );
+    }
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]
@@ -360,17 +375,19 @@ fn ready_busy_owner_writes_each_send_without_waiting_for_prior_turn_evidence() {
     not(windows),
     ignore = "requires the shared interactive desktop ServiceContext fixture"
 )]
-fn held_postwrite_uncertainty_waits_for_exact_turn_and_rebind_never_replays() {
+fn pre_ready_uncertainty_does_not_stall_writes_or_replay_after_rebind() {
     let (fixture, tab) = queue_fixture(true, None);
     let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
     let second = start_current_chat_send(&fixture, &tab, SECOND_PAYLOAD, "client-b");
     let writes = Arc::new(AtomicUsize::new(0));
     let count = writes.clone();
     let (writes_tx, writes_rx) = mpsc::channel();
+    let service = fixture.service.clone();
     let _boundary = UserSubmitBoundary::install(
         &tab,
         Arc::new(move |record, text| {
             count.fetch_add(1, Ordering::SeqCst);
+            service.mark_user_send_written(record);
             writes_tx
                 .send((record.send_id.clone(), text.to_string()))
                 .unwrap();
@@ -391,11 +408,23 @@ fn held_postwrite_uncertainty_waits_for_exact_turn_and_rebind_never_replays() {
     await_owner_idle(&fixture, &tab);
     let (first_write, first_text) = writes_rx.recv_timeout(TEST_DEADLINE).unwrap();
     assert_eq!(first_write, first.send_id);
+    let (second_write, second_text) = writes_rx.recv_timeout(TEST_DEADLINE).unwrap();
+    assert_eq!(second_write, second.send_id);
+    assert_eq!(second_text, format!("\n\n{SECOND_PAYLOAD}"));
     assert!(matches!(
         writes_rx.try_recv(),
         Err(mpsc::TryRecvError::Empty)
     ));
-    assert_eq!(writes.load(Ordering::SeqCst), 1);
+    assert_eq!(writes.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&second.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Unknown
+    );
 
     append_turn(&fixture, &first_text);
     let first_confirmation = live_turn(
@@ -408,8 +437,6 @@ fn held_postwrite_uncertainty_waits_for_exact_turn_and_rebind_never_replays() {
     );
     assert_eq!(first_confirmation.len(), 1);
     assert_eq!(first_confirmation[0].send_id, first.send_id);
-    let (second_write, second_text) = writes_rx.recv_timeout(TEST_DEADLINE).unwrap();
-    assert_eq!(second_write, second.send_id);
     append_turn(&fixture, &second_text);
     let second_confirmation = live_turn(
         &fixture,

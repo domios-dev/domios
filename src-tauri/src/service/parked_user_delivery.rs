@@ -389,15 +389,6 @@ impl super::ServiceContext {
                 }
                 head = bound;
             }
-            if head.held_before_readiness
-                && self.chat_send_ledger.has_unsettled_user_send_before(
-                    &head.authority,
-                    head.ledger_sequence,
-                    true,
-                )
-            {
-                return Ok(UserDrain::Idle);
-            }
             let readiness = if self.user_authority_is_ready(&head.authority) {
                 None
             } else {
@@ -408,12 +399,17 @@ impl super::ServiceContext {
             };
             if !store.eligible(&head) { return Ok(self.pending_user_send(&head, "owner_head_not_eligible")); }
             let text = store.prepared(&head)?;
-            let separator_before = !head.held_before_readiness
-                && self.chat_send_ledger.has_unsettled_user_send_before(
+            let separator_before = if head.held_before_readiness {
+                self.chat_send_ledger.has_held_user_send_before(
                     &head.authority,
                     head.ledger_sequence,
-                    false,
-                );
+                )
+            } else {
+                self.chat_send_ledger.has_unsettled_user_send_before(
+                    &head.authority,
+                    head.ledger_sequence,
+                )
+            };
             let text = if separator_before {
                 format!("\n\n{text}")
             } else {
