@@ -78,7 +78,10 @@ sends in admission order. A post-latch Chat UI send proceeds directly to its PTY
 write even when the provider is busy or another submit cycle is unsettled. Proven
 zero-write refusal retains that send as held; possible handoff becomes
 `submit_unconfirmed` and never replays. Programmatic agent/mesh/CLI sends keep the
-existing honest typed split.
+existing honest typed split. A queued record whose exact launch authority is
+from an ended launch is settled as `failed` with `launch_ended_before_write`;
+its never-written payload is removed and it never enters the next launch.
+Claimed or uncertain records remain held and are never replayed.
 
 ## The Chat send ledger reconciles by exact evidence
 
@@ -86,9 +89,9 @@ existing honest typed split.
 
 - The serialized states are `held`, `written`, `submit_unconfirmed`, `delivered`,
   and `failed`. Transport uncertainty is `submit_unconfirmed` with no user-facing
-  error. A user send never
-  resolves to `failed`; only a programmatic send's proven pre-write refusal is
-  `failed`.
+  error. A user send resolves to `failed` only when its queued, never-written
+  launch has ended. Programmatic sends may also fail on a proven pre-write
+  refusal.
 - `written/submit_unconfirmed → delivered` only happens
   when the tab's **own bound session transcript** appends a user turn whose
   normalized content equals the send's payload

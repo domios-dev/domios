@@ -51,6 +51,7 @@ export type AgentUi = {
   tabId: string;
   chat: import("@playwright/test").Locator;
   composer: import("@playwright/test").Locator;
+  activate: () => Promise<void>;
   events: TabEvents;
   nextSendSequence: number;
 };
@@ -238,18 +239,59 @@ export async function openAgent(
   const tabId = launched.tab_id;
   expect(tabId, `${provider.display_name ?? provider.id} spawn returns its tab id`).toBeTruthy();
   await api.post(`/tabs/${encodeURIComponent(tabId)}/chat-view`, { enabled: true });
-  await api.focusWorkspace(workspaceId);
-  await api.focusTab(tabId);
+  const workspaceToggle = ui.page.getByTestId("workspaces-section-toggle");
+  if (
+    (await workspaceToggle.isVisible()) &&
+    (await workspaceToggle.getAttribute("aria-expanded")) === "false"
+  ) {
+    await workspaceToggle.click();
+  }
+  const workspaceCard = ui.page.locator(
+    `[data-testid="workspace-card"][data-workspace-id="${workspaceId}"]`,
+  );
+  const selectWorkspace = workspaceCard.getByRole("button", { name: /^Select workspace / });
   const row = ui.page.locator(`[data-testid="tab-item"][data-tab-id="${tabId}"]`);
-  await expect(row, `owned tab ${tabId} is visible`).toBeVisible({ timeout: 30_000 });
-  await row.click();
-
+  const activateTab = row.getByRole("button", { name: /^Open tab / });
   const chat = ui.page.locator(`[data-testid="tab-session-chat"][data-tab-id="${tabId}"]`);
-  await expect(chat, `Chat UI mounted for ${tabId}`).toBeVisible({ timeout: 30_000 });
   const conversation = chat.getByRole("log", { name: "Conversation" });
   const composer = chat.getByRole("textbox", { name: "Message composer" });
-  await expect(conversation).toBeVisible({ timeout: 15_000 });
-  await expect(composer).toBeVisible({ timeout: 15_000 });
+  const activate = async () => {
+    await expect(workspaceCard, `owned workspace ${workspaceId} is visible`).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(selectWorkspace).toBeVisible({ timeout: 15_000 });
+    if ((await selectWorkspace.getAttribute("aria-pressed")) !== "true") {
+      await selectWorkspace.click();
+      await expect(selectWorkspace).toHaveAttribute("aria-pressed", "true");
+    }
+    await api.focusWorkspace(workspaceId);
+
+    await expect(row, `owned tab ${tabId} is visible in its workspace`).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(activateTab).toBeVisible({ timeout: 15_000 });
+    const tabIsActive = await row.locator(".active-tab-pill").isVisible();
+    if (!tabIsActive) await activateTab.click();
+    await api.post(
+      `/workspaces/${encodeURIComponent(workspaceId)}/tabs/${encodeURIComponent(tabId)}/focus`,
+    );
+    await expect(row.locator(".active-tab-pill"), `owned tab ${tabId} is active`).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(chat, `Chat UI mounted for ${tabId}`).toBeVisible({ timeout: 30_000 });
+    await expect(chat).toHaveAttribute("data-tab-id", tabId);
+    await expect(chat).toHaveAttribute("aria-busy", "false", { timeout: 30_000 });
+    await expect(conversation).toBeVisible({ timeout: 15_000 });
+    await expect(composer).toBeVisible({ timeout: 15_000 });
+    await expect(composer, `composer for ${tabId} is enabled`).toBeEnabled({ timeout: 15_000 });
+
+    const focusedWorkspace = (await api.workspaces()).find((workspace) => workspace.id === workspaceId);
+    expect(focusedWorkspace?.is_active, `workspace ${workspaceId} is active before send`).toBe(true);
+    const focusedTab = (await api.tabs()).find((tab) => tab.id === tabId);
+    expect(focusedTab?.focused, `tab ${tabId} is focused before send`).toBe(true);
+    await assertComposerBelongsToTab({ tabId, chat, composer });
+  };
+  await activate();
 
   const prior = await api.get<ChatSendStatus[]>(`/tabs/${encodeURIComponent(tabId)}/chat-send`);
   const nextSendSequence = Math.max(0, ...prior.map((status) => status.sequence));
@@ -257,9 +299,19 @@ export async function openAgent(
     tabId,
     chat,
     composer,
+    activate,
     events: await TabEvents.open(api, tabId),
     nextSendSequence,
   };
+}
+
+async function assertComposerBelongsToTab(agent: Pick<AgentUi, "tabId" | "chat" | "composer">): Promise<void> {
+  const composerTabId = await agent.composer.evaluate((element) =>
+    element.closest('[data-testid="tab-session-chat"]')?.getAttribute("data-tab-id"),
+  );
+  expect(composerTabId, `composer belongs to target tab ${agent.tabId}`).toBe(agent.tabId);
+  await expect(agent.chat).toHaveAttribute("data-tab-id", agent.tabId);
+  await expect(agent.composer, `composer for ${agent.tabId} is enabled before typing`).toBeEnabled();
 }
 
 export function makeRecord(
@@ -279,6 +331,8 @@ export async function submitText(
   text: string,
   bubbleMarker: string,
 ): Promise<SendRecord> {
+  await agent.activate();
+  await assertComposerBelongsToTab(agent);
   await agent.composer.fill(text);
   await expect(agent.composer).toHaveValue(text, { timeout: 15_000 });
   const submittedAt = performance.now();
@@ -315,6 +369,8 @@ export async function submitPaste(
   text: string,
   bubbleMarker: string,
 ): Promise<SendRecord> {
+  await agent.activate();
+  await assertComposerBelongsToTab(agent);
   await agent.composer.click();
   await ui.page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
     origin: new URL(ui.page.url()).origin,
@@ -642,6 +698,7 @@ export async function submitBatch(
   texts: Array<{ text: string; marker: string }>,
   requireWorking = false,
 ): Promise<SendRecord[]> {
+  await agent.activate();
   const records: SendRecord[] = [];
   for (const item of texts) {
     const record = await submitTextWithoutAudit(agent, provider, metrics, item.text, item.marker);

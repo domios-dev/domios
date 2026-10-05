@@ -4,6 +4,8 @@
  * ORACLE: Exact tab-session turns, final confirmed ledger states, Chat bubbles, and body hashes.
  */
 import { randomUUID } from "node:crypto";
+import { mkdirSync, writeFileSync } from "node:fs";
+import path from "node:path";
 import { expect, test } from "../../helpers/fixtures";
 import { isDevTarget } from "../../helpers/dev-instance";
 import {
@@ -84,10 +86,6 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
   const openStreams = new Set<TabEvents>();
   const busyGates = new Set<BusyGate>();
   let workspaceId: string | undefined;
-  const initialTabs = await api.tabs();
-  const priorFocusedTabId = initialTabs.find((tab) => tab.focused)?.id;
-  const initialWorkspaces = await api.workspaces();
-  const priorWorkspaceId = initialWorkspaces.find((workspace) => workspace.is_active)?.id;
 
   try {
     workspaceId = await createWorkspace(api, workspaceName);
@@ -519,14 +517,17 @@ test("@live Chat UI sends are exact-once across available PTY providers", async 
       );
       if (createdWorkspace) await api.closeWorkspace(createdWorkspace.id).catch(() => {});
     }
-    if (isDevTarget()) {
-      if (priorFocusedTabId && (await api.tabs()).some((tab) => tab.id === priorFocusedTabId)) {
-        await api.focusTab(priorFocusedTabId).catch(() => {});
-      } else if (priorWorkspaceId && (await api.workspaces()).some((workspace) => workspace.id === priorWorkspaceId)) {
-        await api.focusWorkspace(priorWorkspaceId).catch(() => {});
-      }
-    }
     const summaries = providers.map((provider) => recordMetrics(metrics.get(provider.id)!));
+    const summaryPath = path.join(
+      process.cwd(),
+      "tests",
+      "playwright",
+      "artifacts",
+      `chat-send-matrix-${runId}.json`,
+    );
+    mkdirSync(path.dirname(summaryPath), { recursive: true });
+    writeFileSync(summaryPath, `${JSON.stringify(summaries, null, 2)}\n`, "utf8");
+    console.log(`[chat-send-matrix-summary-file] ${summaryPath}`);
     console.log(`[chat-send-matrix-final] ${JSON.stringify(summaries)}`);
   }
 });

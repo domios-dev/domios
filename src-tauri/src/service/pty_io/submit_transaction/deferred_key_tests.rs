@@ -137,6 +137,39 @@ impl SubmitTransport for EventTransport {
         false
     }
 
+    fn wait_retry_deadline_for_turn(&self, deadline: Instant, text: &str) -> bool {
+        let _ = self.event_wait_tx.send(());
+        loop {
+            if self.exact_user_turn_present(text) {
+                return true;
+            }
+            let cycle_wait = {
+                let cycle_events = self.cycle_events.lock().unwrap();
+                cycle_events.as_ref().map(|(claim, receiver)| {
+                    claim
+                        .cycle
+                        .wait_for_wake_until(claim.generation, deadline, receiver)
+                })
+            };
+            match cycle_wait {
+                Some(CycleWait::Event) => continue,
+                Some(CycleWait::Deadline | CycleWait::Inactive) => return false,
+                None => {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    if self
+                        .event_rx
+                        .lock()
+                        .unwrap()
+                        .recv_timeout(remaining)
+                        .is_err()
+                    {
+                        return self.exact_user_turn_present(text);
+                    }
+                }
+            }
+        }
+    }
+
     fn turn_started(&self) -> bool {
         self.state.lock().unwrap().turn_started
     }
@@ -533,10 +566,15 @@ fn start_claimed_send_with_recovery_window(
             |_initial_key, turn_was_started| {
                 let state = transport.state.lock().unwrap();
                 if state.dialog {
-                    return Err(InjectionError::AgentTuiPresent { pty_id: "test-pty".into() });
+                    return Err(InjectionError::AgentTuiPresent {
+                        pty_id: "test-pty".into(),
+                    });
                 }
-                if !submit_key_readiness(turn_was_started, state.turn_started, state.composer_ready) {
-                    return Err(InjectionError::AgentInputUnavailable { pty_id: "test-pty".into() });
+                if !submit_key_readiness(turn_was_started, state.turn_started, state.composer_ready)
+                {
+                    return Err(InjectionError::AgentInputUnavailable {
+                        pty_id: "test-pty".into(),
+                    });
                 }
                 Ok(())
             },
@@ -552,19 +590,18 @@ fn a_new_send_cancels_remaining_keys_and_writes_while_the_prior_cycle_is_open() 
     let first_claim = claim_submit_cycle(pty_id);
     assert!(first_claim.is_current());
 
-    let (first, first_paste_rx, _, first_wait_rx) =
+    let (first, first_paste_rx, _, first_retry_wait_rx) =
         EventTransport::new(true, MAX_SUBMIT_KEY_WRITES);
     first.state.lock().unwrap().composer_ready = true;
     first.connect_submit_cycle_claim(first_claim.clone());
     let (second, second_paste_rx, _, _) = EventTransport::new(true, 0);
     second.state.lock().unwrap().composer_ready = true;
-    let first_send = start_claimed_send_with_recovery_window(
-        first_claim.clone(), Arc::clone(&first), "first",
-    );
+    let first_send =
+        start_claimed_send_with_recovery_window(first_claim.clone(), Arc::clone(&first), "first");
     first_paste_rx
         .recv_timeout(Duration::from_secs(2))
         .expect("first payload is written once");
-    first_wait_rx
+    first_retry_wait_rx
         .recv_timeout(Duration::from_secs(2))
         .expect("the first cycle reaches its remaining-key wait");
     let second_claim = claim_submit_cycle(pty_id);
@@ -575,7 +612,9 @@ fn a_new_send_cancels_remaining_keys_and_writes_while_the_prior_cycle_is_open() 
     second_paste_rx
         .recv_timeout(Duration::from_secs(2))
         .expect("the second payload writes without waiting for the first cycle");
-    let first_result = join(first_send, "cancelled prior cycle send").unwrap().unwrap();
+    let first_result = join(first_send, "cancelled prior cycle send")
+        .unwrap()
+        .unwrap();
     assert!(!first_result.submit_observed);
     {
         let state = first.state.lock().unwrap();
@@ -589,7 +628,11 @@ fn a_new_send_cancels_remaining_keys_and_writes_while_the_prior_cycle_is_open() 
             1
         );
         assert_eq!(
-            state.writes.iter().filter(|write| write.as_str() == "enter").count(),
+            state
+                .writes
+                .iter()
+                .filter(|write| write.as_str() == "enter")
+                .count(),
             1,
         );
     }
