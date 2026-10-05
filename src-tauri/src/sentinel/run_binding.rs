@@ -227,7 +227,7 @@ pub(super) fn reconcile_runs(svc: &ServiceContext, handle: &super::scheduler::Ha
         return;
     }
     let Some(state) = svc.app_handle.try_state::<crate::CronState>() else {
-        unbind_missing_cron(handle, bound);
+        unbind_missing_cron(svc, handle, bound);
         return;
     };
     let snapshots: Vec<_> = {
@@ -284,7 +284,9 @@ pub(super) fn reconcile_runs(svc: &ServiceContext, handle: &super::scheduler::Ha
         match super::storage::commit(&handle.store, |store| {
             store.stage_unbind_run(&job.id, &run, reason)
         }) {
-            Ok(outcome) if outcome.changed && reason == "tab_gone" => {
+            Ok(outcome)
+                if outcome.changed && matches!(reason, "tab_gone" | "cron_run_finished") =>
+            {
                 super::routes::notify_run_unbound(
                     svc,
                     &super::store::StopNotice::new(&job, reason),
@@ -299,14 +301,20 @@ pub(super) fn reconcile_runs(svc: &ServiceContext, handle: &super::scheduler::Ha
 }
 
 fn unbind_missing_cron(
+    svc: &ServiceContext,
     handle: &super::scheduler::Handle,
     bound: Vec<(Sentinel, String, RunBinding)>,
 ) {
     for (job, _, run) in bound {
-        if let Err(error) = super::storage::commit(&handle.store, |store| {
+        match super::storage::commit(&handle.store, |store| {
             store.stage_unbind_run(&job.id, &run, "cron_run_finished")
         }) {
-            log::error!("[sentinel] cron run unbinding failed: {error}");
+            Ok(outcome) if outcome.changed => super::routes::notify_run_unbound(
+                svc,
+                &super::store::StopNotice::new(&job, "cron_run_finished"),
+            ),
+            Ok(_) => {}
+            Err(error) => log::error!("[sentinel] cron run unbinding failed: {error}"),
         }
     }
 }

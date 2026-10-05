@@ -74,6 +74,10 @@ result. Model confidence must be at least 0.80. `other` and low confidence can u
 adapter failure and exhausted budgets never escalate. Unknown or weak observations do not reset the last accepted
 bucket. Returning to a previously accepted bucket after another accepted bucket is a new transition.
 
+Use `--rearm-on-change <bucket>` on create, or a `rearm_on_change` array in update JSON, to route again when the
+output hash changes but the confident result stays in that bucket. Each rearm is an accepted transition and
+consumes the configured budget.
+
 ## Closed-set routes
 
 Repeat `--route bucket=action` for inline `notify`, `sentinel`, `send`, `cron`, or `stop` handlers. Use

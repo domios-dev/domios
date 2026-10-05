@@ -321,6 +321,7 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
         .map(|bucket| BucketDefinition {
             name: bucket.clone(),
             match_pattern: job.matches.get(bucket).cloned(),
+            rearm_on_change: job.rearm_on_change.contains(bucket),
             handlers: job.routes[bucket].iter().map(handler_definition).collect(),
         })
         .collect();
@@ -358,9 +359,13 @@ pub(super) fn history_version(stored: StoredDefinition) -> DefinitionVersion {
     let mut buckets = Vec::with_capacity(definition.buckets.len());
     let mut routes = BTreeMap::new();
     let mut matches = BTreeMap::new();
+    let mut rearm_on_change = BTreeSet::new();
     for bucket in definition.buckets {
         if let Some(pattern) = bucket.match_pattern {
             matches.insert(bucket.name.clone(), pattern);
+        }
+        if bucket.rearm_on_change {
+            rearm_on_change.insert(bucket.name.clone());
         }
         routes.insert(
             bucket.name.clone(),
@@ -390,6 +395,7 @@ pub(super) fn history_version(stored: StoredDefinition) -> DefinitionVersion {
             buckets,
             routes,
             matches,
+            rearm_on_change,
             until: definition.until,
             max_transitions: definition.max_transitions,
             max_actions: definition.max_actions,
@@ -510,9 +516,13 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
     let mut buckets = Vec::with_capacity(definition.buckets.len());
     let mut routes = BTreeMap::new();
     let mut matches = BTreeMap::new();
+    let mut rearm_on_change = BTreeSet::new();
     for bucket in definition.buckets {
         if let Some(pattern) = bucket.match_pattern {
             matches.insert(bucket.name.clone(), pattern);
+        }
+        if bucket.rearm_on_change {
+            rearm_on_change.insert(bucket.name.clone());
         }
         let handlers: Vec<Handler> = bucket.handlers.into_iter().map(domain_handler).collect();
         routes.insert(bucket.name.clone(), handlers);
@@ -531,6 +541,7 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
         interval_ms: definition.interval_ms,
         routes,
         matches,
+        rearm_on_change,
         until: definition.until,
         expires_at: runtime.expires_at,
         next_run: runtime.next_run,

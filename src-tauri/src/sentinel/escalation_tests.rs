@@ -468,6 +468,7 @@ fn sentinel_escalate_forbidden_on_other_kinds_fail_create_and_amend() {
         every: "10s".into(),
         routes: BTreeMap::new(),
         matches: job.matches.clone(),
+        rearm_on_change: Default::default(),
         until: None,
         handlers: None,
         on_other: vec![Definition {

@@ -109,7 +109,7 @@ fn sentinel_schema_v4_migration_upgrades_an_empty_previous_schema_root_in_place(
     let fresh_root = temp_root();
     close(open(fresh_root.path()));
     let (upgraded, initialized) = (read_only(root.path()), read_only(fresh_root.path()));
-    assert_eq!(user_version(&upgraded), 6);
+    assert_eq!(user_version(&upgraded), 7);
     assert_eq!(user_version(&upgraded), user_version(&initialized));
     let expected: [(&str, &[&str]); 3] = [
         (
@@ -136,6 +136,7 @@ fn sentinel_schema_v4_migration_upgrades_an_empty_previous_schema_root_in_place(
             assert!(present.contains(*column), "{table}.{column}");
         }
     }
+    assert!(columns(&upgraded, "sentinel_buckets").contains("rearm_on_change"));
 }
 
 #[test]
