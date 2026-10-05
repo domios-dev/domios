@@ -3,6 +3,8 @@ export interface AutomationScope {
   team_id: string | null;
 }
 
+export const ALL_JOBS_SCOPE = "__all_jobs__";
+
 export interface AutomationIdentity extends AutomationScope {
   kind: "sentinel" | "cron" | "worker";
   id: string;
@@ -99,6 +101,7 @@ export interface AutomationScenario {
 }
 
 export interface AutomationGraph extends AutomationScope {
+  all_teams?: boolean;
   truncated?: boolean;
   scenarios: readonly AutomationScenario[];
   revision: string;
@@ -114,6 +117,7 @@ export interface AutomationGraphAdapter {
   read(attachment: AutomationAttachment, signal: AbortSignal): Promise<AutomationGraph>;
   subscribe(attachment: AutomationAttachment, changed: () => void): Promise<() => void>;
   stop(attachment: AutomationAttachment, identity: AutomationIdentity): Promise<void>;
+  delete(attachment: AutomationAttachment, identity: AutomationIdentity): Promise<void>;
 }
 
 export function automationKey(identity: AutomationIdentity): string {

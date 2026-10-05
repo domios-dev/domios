@@ -45,6 +45,7 @@ export class FixtureTransport implements AutomationGraphAdapter {
   reads = 0;
   readStarted = deferred<void>();
   stops: AutomationIdentity[] = [];
+  deletes: AutomationIdentity[] = [];
   attachments: AutomationAttachment[] = [];
   unsubscribeCount = 0;
   stopResult = deferred<void>();
@@ -64,6 +65,10 @@ export class FixtureTransport implements AutomationGraphAdapter {
     this.attachments.push(scope);
     this.stops.push(target);
     return this.stopResult.promise;
+  }
+  async delete(scope: AutomationAttachment, target: AutomationIdentity) {
+    this.attachments.push(scope);
+    this.deletes.push(target);
   }
 }
 

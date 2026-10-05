@@ -24,11 +24,14 @@ async function main() {
   __setListenForTest(async () => () => undefined);
   const { WorkspaceAutomationView } = await import("./WorkspaceAutomationView");
   const { WorkspaceAutomationAction } = await import("./WorkspaceAutomationAction");
+  const { ALL_JOBS } = await import("../Jobs/jobsModel");
   const team: Team = { id: attachment.team_id!, workspace_id: attachment.workspace_id, name: "Sentinel-only Team", lifecycle: "active", created_at: 0 };
   const foreign = { ...team, id: "foreign-team", name: "Foreign Team", workspace_id: "foreign-workspace" };
   const transport = new FixtureTransport();
   const sentinelOnly = { ...fixtureGraph(), nodes: [fixtureGraph().nodes[0]], edges: [] };
-  transport.readOverride = async (scope) => scope.team_id === null ? { ...sentinelOnly, team_id: null, nodes: [] } : sentinelOnly;
+  transport.readOverride = async (scope) => scope.team_id === ALL_JOBS
+    ? { ...sentinelOnly, team_id: null, all_teams: true }
+    : scope.team_id === null ? { ...sentinelOnly, team_id: null, nodes: [] } : sentinelOnly;
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -49,8 +52,12 @@ async function main() {
     await renderAct(async () => { action.focus(); action.click(); });
     assert.ok(host.querySelector('section[aria-label="Jobs"]'));
     assert.deepEqual(cronReads[cronReads.length - 1], { workspaceId: attachment.workspace_id }, "Jobs reads Cron records for the exact workspace");
+    const teamPicker = host.querySelector<HTMLSelectElement>('select[aria-label="Jobs Team"]');
+    assert.ok(teamPicker);
+    assert.equal(teamPicker.value, ALL_JOBS, "All jobs is selected by default");
+    assert.equal(teamPicker.options[0].textContent, "All jobs");
     assert.ok(!host.textContent?.includes(foreign.name));
-    assert.equal(transport.attachments[transport.attachments.length - 1].team_id, null);
+    assert.equal(transport.attachments[transport.attachments.length - 1].team_id, ALL_JOBS);
     await selectTeam();
     const scenario = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes(sentinelOnly.scenarios[0].name));
     assert.ok(scenario);

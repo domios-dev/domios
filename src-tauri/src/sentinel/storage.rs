@@ -678,6 +678,35 @@ pub(crate) fn committed_scope(
     Ok((read.value.iter().map(codec::decode).collect(), leases))
 }
 
+pub(crate) fn committed_workspace(
+    store: &Mutex<Store>,
+    workspace: &str,
+) -> Result<(Vec<Sentinel>, BTreeSet<String>), String> {
+    let repo = {
+        let store = store.lock();
+        store.ensure_available()?;
+        let leases = store.live_leases();
+        match &store.backend {
+            Backend::Sqlite(backend) => (backend.repo.clone(), leases),
+            #[cfg(test)]
+            Backend::Json(_) => {
+                let jobs = store
+                    .list()
+                    .iter()
+                    .filter(|job| job.workspace_id == workspace)
+                    .cloned()
+                    .collect();
+                return Ok((jobs, leases));
+            }
+        }
+    };
+    let (repo, leases) = repo;
+    let read = repo.workspace(workspace.to_string()).wait(COMMIT_DEADLINE).map_err(|error| {
+        format!("sentinel_store_load_failed: committed workspace read failed: {error}")
+    })?;
+    Ok((read.value.iter().map(codec::decode).collect(), leases))
+}
+
 /// Why a legacy Sentinel file does not decode into import records.
 #[allow(dead_code)] // The all-domain importer consumes this; tests drive it now.
 #[derive(Debug, Clone, PartialEq, Eq)]

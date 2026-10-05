@@ -340,6 +340,7 @@ pub fn run() {
             session::list_saved_sessions,
             session::load_session,
             commands::automation_graph_snapshot,
+            commands::automation_graph_workspace_snapshot,
             commands::automation_graph_stop_sentinel,
             commands::automation_graph_delete_sentinel,
             commands::cron_list,

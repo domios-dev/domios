@@ -128,6 +128,10 @@ pub fn create_router(state: AppState) -> Router {
             get(super::automation_graph_routes::snapshot),
         )
         .route(
+            "/api/automation/graph/workspace",
+            get(super::automation_graph_routes::workspace_snapshot),
+        )
+        .route(
             "/api/automation/sentinels/{id}/stop",
             post(super::automation_graph_routes::stop),
         )

@@ -22,6 +22,12 @@ pub struct GraphQuery {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct WorkspaceGraphQuery {
+    workspace_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StopBody {
     workspace_id: String,
     team_id: Value,
@@ -66,6 +72,21 @@ pub async fn snapshot(
             }
         }
     }
+    Ok(Json(snapshot))
+}
+
+pub async fn workspace_snapshot(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<WorkspaceGraphQuery>,
+) -> Result<Json<Snapshot>, GraphError> {
+    caller_access_level(&state, &headers).map_err(failure)?;
+    let snapshot = tokio::task::spawn_blocking(move || {
+        state.svc.automation_graph_workspace_snapshot(&query.workspace_id)
+    })
+    .await
+    .map_err(|error| failure((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())))?
+    .map_err(|error| failure((StatusCode::BAD_REQUEST, error)))?;
     Ok(Json(snapshot))
 }
 
