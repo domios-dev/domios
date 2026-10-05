@@ -361,6 +361,16 @@ impl ServiceContext {
                                 "report_target_written_at": report_target_written_at,
                             }),
                         );
+                        if let Err(error) = self.plan_store.mark_report_target_written(
+                            plan_id,
+                            task_id,
+                            attempt_id,
+                            report_target_written_at,
+                        ) {
+                            log::warn!(
+                                "[report] failed to mark report {report_id} written for {plan_id}/{task_id}: {error}"
+                            );
+                        }
                     }
                 }
                 DeliveryWriteObserver::PlanRole { plan_id, role } if queued => {
