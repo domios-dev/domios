@@ -14,9 +14,10 @@ pub use crate::service::plan::prompts_plan::{
     WORKER_LOOP_CONTEXT_TITLE, WORKER_LOOP_EVIDENCE_RULE, WORKER_SUFFIX,
 };
 
-/// The three-tier testing ladder. Single source shared by next-actions/heartbeat prose
-/// and asserted verbatim in the ORCHESTRATION doc so the wording never drifts.
-pub const MILESTONE_GATE_LADDER: &str = "Testing ladder — per-task = focused filters only; per-group (milestone) = one full regression gate (cargo suite + ts-unit, serialized in the warm checkout); per-release = the farm matrix across every platform.";
+/// The testing ladder. ORCHESTRATION-OPERATIONS quotes it verbatim, so the doc
+/// and this constant are one source.
+pub const MILESTONE_GATE_LADDER: &str =
+    "Testing ladder — per task = isolated lane checks; per merged wave = one canonical batch of its focused selectors, recorded as the group regression run at group close; per release = the broad gate once on the release SHA, then the platform matrix.";
 
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");

@@ -26,7 +26,6 @@ Use `codeterm orchestrator inspect --plan <plan> --json` only for discrepancies 
 | Test authoring | `codeterm docs TEST-AUTHORING` |
 | Task lifecycle, groups, dispatch | `codeterm docs ORCHESTRATION-TASKS` |
 | Verification, integration, heartbeat, closeout | `codeterm docs ORCHESTRATION-OPERATIONS` |
-| CLI syntax | `codeterm <command> --help` |
 
 ## Durable model
 
@@ -90,10 +89,8 @@ the user, then recover with the named `codeterm plan task respawn` command.
 
 1. **Handle pushed reports.** Worker reports arrive automatically as incoming
    messages. Accept or bounce them without polling an inbox. A Worker
-   `--status blocked` report arrives as a block proposal with its reason and
-   evidence; it leaves task state unchanged. Only the Plan owner or Planner
-   blocks with `codeterm plan task update <plan> <task> --status blocked
-   --status-label "<reason; owner trigger>"`.
+   `--status blocked` report is a block proposal and leaves task state
+   unchanged; deliberate blocks are in `ORCHESTRATION-TASKS`.
 2. **Reconcile.** Run `codeterm plan reconcile <plan>`; fix only owned drift.
 3. **Re-derive the frontier.** Inspect all open tasks, not only the previous focus.
 4. **Give every actionable task an exit** under the task sequencing contract;
@@ -158,13 +155,9 @@ debt are advisory: dispatch, competition and respawn need no capacity grant.
 Authorization, dependency, regression and acceptance checks still apply; never
 fake acceptance or adjust credit to silence warnings.
 
-The following owner-only commands can still record review-work classification;
-they are not required for dispatch and do not grant additional authority:
-
-```bash
-codeterm plan review authorize-capacity <plan> <task> --class review
-codeterm plan review authorize-capacity <plan> <task> --class canonical_gate
-```
+Owner-only `codeterm plan review authorize-capacity <plan> <task>` with
+`--class review` or `--class canonical_gate` records review-work classification;
+dispatch never needs it and it grants no authority.
 
 Use `codeterm plan review accept|bounce|hold <plan> <task> --note "…"` for
 `in_review`; generic updates, gates and removal cannot exit it. `bounce`
@@ -184,4 +177,4 @@ delivered heartbeat names a next step. Reports, owner messages, decisions and
 failure alerts still reach you through their own channels. Record deliberate
 holds with `plan review hold --note`.
 
-<!-- revision: 105 -->
+<!-- revision: 106 -->
