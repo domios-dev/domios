@@ -8,7 +8,7 @@ completion instead of repeatedly asking an agent to run the same status check.
 
 Before you repeat a check or wait on an external, agent or cron status, describe the loop once as a graph instead of spending turns on it. Unchanged output costs no model call and no agent turn; you wake only when a declared bucket routes to you. Observation and actions are deterministic, the model only picks one of your finite buckets (never a command, target or reply), and every action stays in the creator's Team, workspace and machine. `other` means no bucket fits.
 
-Make the probe print one stable verdict: no timestamps or durations (every changed byte costs a classifier call), the verdict before any long output (only the first 32 KiB is kept), and errors that cannot pass for a result. With a connected Choice adapter the model classifies and `--match` patterns are ignored, so `--question` names every bucket and what is `other`. After creating a graph, end your turn: a route wakes you, while a wait tool, `sleep` or background shell loop is still polling. Only agent tabs can be observed; a utility shell writes a status file instead.
+Make the probe print one stable verdict: no timestamps or durations (every changed byte costs a classifier call), the verdict before any long output (only the first 32 KiB is kept), and errors that cannot pass for a result. Deterministic `--match` patterns classify matching output first; a connected Choice adapter classifies output that matches no pattern. The `--question` names every bucket and what is `other`. After creating a graph, end your turn: a route wakes you, while a wait tool, `sleep` or background shell loop is still polling. Only agent tabs can be observed; a utility shell writes a status file instead.
 
 1. **CI or PR result.** `--probe "gh run view ID -R OWNER/REPO --json status,conclusion"`, buckets `passed,failed`, the question naming running CI and probe errors as `other` (without `-R` outside a checkout, gh's error can be read as `failed`); `--route passed=cron:<review>` and `failed=send:<fixer tab>`. The branch is decided once, no polling.
 2. **A Worker waiting on a prompt.** `--observe tab:<worker>`, buckets `prompt,busy` in `--handlers-file`: `prompt` to `send:<owner tab>` or `notify`, `"busy": []` for working or idle. Do not escalate `other` here: the hold would hide the next prompt until resolved. The tab is read, never typed into.
@@ -19,7 +19,7 @@ Make the probe print one stable verdict: no timestamps or durations (every chang
 7. **Self-improving loop.** Escalate `other` to the owning agent (`escalate:agent:<tab>` in `--handlers-file`). It reads `sentinel history`, adds the missing bucket or handler with `sentinel update ... --cause TRANSITION_ID`, then resolves the escalation so the stage re-evaluates once. Each unknown case costs one turn, then stays a versioned branch. The update file is not the `history` definition: it takes `question`, `buckets`, `every`, `handlers` (the create file form), `on_other`, `escalation_timeout_ms`, `max_transitions` and `max_actions`; the probe or observed source cannot change.
 8. **Watching a whole Team.** A General Agent probes `codeterm tab status --tab <orchestrator-tab>` (it reports `not found` once the tab is gone; `orchestrator status` does not) and `codeterm orchestrator status --plan <plan> --tab <orchestrator-tab>` filtered to its `live_lanes` and `drift` lines (the reminder line changes every tick). Buckets `healthy,stuck,needs_owner,lost` in `--handlers-file`: `"healthy": []`; `stuck`, `needs_owner` and `lost` each `notify` the creator once per change; leave `other` quiet, since an escalation hold would hide later changes. A `send` target must share the creator's Team, so the General Agent relays `stuck` to the Team Orchestrator with `codeterm send` and takes `needs_owner` to the owner.
 
-A probe runs `codeterm` from the daemon's PATH, which can be another build (`client protocol v1, server requires >=3`, or a timeout); call the path `(Get-Command codeterm).Source` or `command -v codeterm` prints in your tab. A flapping source routes until its transition budget is exhausted; the graph stops and notifies its creator with the reason. A hung probe skips each tick without slowing other graphs. Removing a directly observed tab stops that graph and notifies its creator. Removing a CronRun tab ends that run's observation, notifies the creator, and leaves the graph waiting for another verified run. A graph created while its creator is solo remains visible to that creator after they join a Team.
+A probe puts the creating instance's installed CLI directory first on `PATH` and receives that instance's API URL, configured token and socket path, so `codeterm` commands use the right daemon. A flapping source routes until its transition budget is exhausted; the graph stops and notifies its creator with the reason. A hung probe skips each tick without slowing other graphs. Removing a directly observed tab stops that graph and notifies its creator. Removing a CronRun tab ends that run's observation, notifies the creator, and leaves the graph waiting for another verified run. A graph created while its creator is solo remains visible to that creator after they join a Team.
 
 ## Create a watch
 
@@ -52,19 +52,22 @@ A removed tab notifies the creator with the reason.
 
 ## Classification and transitions
 
-A connected Supporter adapter with Choice capability gets one question over `--buckets` and the automatic `other`
-option, using the shared request budget and journal. Probe output is treated as untrusted data. Unchanged output never
-calls the model, including after a failed or budget-exhausted classification.
+A connected Supporter adapter with Choice capability classifies output that matches no deterministic pattern, using
+one question over `--buckets` and the automatic `other` option with the shared request budget and journal. Probe
+output is treated as untrusted data. Unchanged output never calls the model, including after a failed or
+budget-exhausted classification.
 
-Without a connected Choice adapter, supply deterministic patterns; while one is connected, the model classifies and patterns are ignored:
+Deterministic patterns are checked first, even when a Choice adapter is connected. One matching bucket is accepted at
+confidence 1; overlapping matches become `other`. Unmatched output uses the adapter when connected, or becomes
+`other` when no adapter is connected:
 
 ```bash
 codeterm sentinel create --probe "check-ci" --question "CI result" --buckets waiting,passed,failed --match 'passed=(?m)^success$' --match 'failed=(?m)^failure$' --every 20s --until passed --timeout 1h
 ```
 
 Patterns see the formatted result: exit status, stdout, then stderr. Match the status line with a multiline pattern such
-as `(?m)^success$` when the probe prints `success`. Exactly one matching bucket is accepted at confidence 1; zero or
-ambiguous matches become `other`. Create without either a connected Choice adapter or a pattern is refused.
+as `(?m)^success$` when the probe prints `success`. Create without either a connected Choice adapter or a pattern is
+refused.
 
 Routes run once when a new accepted bucket differs from the previous accepted bucket, including the first accepted
 result. Model confidence must be at least 0.80. `other` and low confidence can use the reserved `other` handlers;

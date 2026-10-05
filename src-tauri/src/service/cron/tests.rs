@@ -140,6 +140,45 @@ fn storage_cutover_cron_reads_error_when_storage_is_unavailable() {
 }
 
 #[test]
+fn cron_history_accepts_a_unique_job_name_and_its_id() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("crons.json");
+    fs::write(
+        &path,
+        r#"{"version":"1","jobs":[{"id":"cron-id","name":"Nightly QA","workspace_id":"workspace","schedule":"* * * * *","enabled":false,"agent":"claude","task":"run checks","created_at":1}],"history":{"cron-id":[{"run_id":"run-id","started_at":10,"status":"Success"}]}}"#,
+    )
+    .unwrap();
+    let cron = Arc::new(Mutex::new(CronStore::new_with_path(path)));
+
+    let by_id = fixture.service.cron_history(&cron, "cron-id").unwrap();
+    let by_name = fixture.service.cron_history(&cron, "Nightly QA").unwrap();
+
+    assert_eq!(by_id, by_name);
+    assert_eq!(by_name[0].run_id, "run-id");
+}
+
+#[test]
+fn cron_history_refuses_an_ambiguous_job_name() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("crons.json");
+    fs::write(
+        &path,
+        r#"{"version":"1","jobs":[{"id":"cron-a","name":"Shared","workspace_id":"one","schedule":"* * * * *","enabled":false,"agent":"claude","task":"run","created_at":1},{"id":"cron-b","name":"Shared","workspace_id":"two","schedule":"* * * * *","enabled":false,"agent":"claude","task":"run","created_at":2}],"history":{}}"#,
+    )
+    .unwrap();
+    let cron = Arc::new(Mutex::new(CronStore::new_with_path(path)));
+
+    assert_eq!(
+        fixture.service.cron_history(&cron, "Shared").unwrap_err(),
+        "Cron job name is ambiguous: Shared"
+    );
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
 fn cron_reasoning_effort_round_trips_for_advertised_levels() {
     let (fixture, cron, wake, path) = fixture();

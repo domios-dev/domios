@@ -1,9 +1,11 @@
+use super::environment::Environment;
 use super::owner::{ProbeResourceOwner, MAX_RESOURCE_SLOTS};
+use super::run_with_environment;
 use super::{MAX_OUTPUT_BYTES, PROBE_RUNTIME};
+#[cfg(unix)]
+use std::io::Write;
 use std::sync::Arc;
 use std::time::Duration;
-#[cfg(unix)]
-use std::{io::Write, path::Path};
 
 #[test]
 fn sentinel_probe_native_success_and_nonzero() {
@@ -28,6 +30,54 @@ fn sentinel_probe_native_success_and_nonzero() {
         assert!(output.text.contains(&format!("exit={status}")));
         assert_eq!(owner.snapshot().free, MAX_RESOURCE_SLOTS);
     }
+}
+
+#[test]
+fn sentinel_probe_process_receives_instance_cli_and_auth_environment() {
+    let dir = tempfile::tempdir().unwrap();
+    let bin = dir.path().join("instance-bin");
+    std::fs::create_dir_all(&bin).unwrap();
+    let cli = bin.join(format!("codeterm{}", std::env::consts::EXE_SUFFIX));
+    let command = if cfg!(windows) {
+        std::fs::write(bin.join("codeterm.cmd"), "@echo off\r\nexit /b 0\r\n").unwrap();
+        "(Get-Command codeterm).Source; Write-Output \"$env:CODETERM_API_URL|$env:CODETERM_API_PORT|$env:CODETERM_API_TOKEN|$env:CODETERM_SOCKET_PATH\""
+    } else {
+        let script = bin.join("codeterm");
+        std::fs::write(
+            &script,
+            "#!/bin/sh\nprintf '%s|%s|%s|%s' \"$CODETERM_API_URL\" \"$CODETERM_API_PORT\" \"$CODETERM_API_TOKEN\" \"$CODETERM_SOCKET_PATH\"\n",
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        "codeterm"
+    };
+    let inherited_path = std::env::var_os("PATH");
+    let environment = Environment::for_instance(
+        "/instance/socket",
+        "http://127.0.0.1:7686",
+        "7686",
+        Some("instance-token"),
+        Some(cli.as_path()),
+        inherited_path.as_deref(),
+    );
+    let output = run_with_environment(
+        command,
+        dir.path(),
+        PROBE_RUNTIME,
+        &Arc::new(ProbeResourceOwner::new()),
+        &environment,
+    )
+    .unwrap();
+
+    assert!(output.success, "{}", output.text);
+    assert!(output
+        .text
+        .contains("http://127.0.0.1:7686|7686|instance-token|/instance/socket"));
+    assert!(output.text.contains(bin.to_string_lossy().as_ref()));
 }
 
 #[test]
@@ -121,6 +171,7 @@ fn sentinel_probe_native_windows_preexecution_containment() {
         owner.reserve().unwrap(),
         &owner,
         &super::cancellation::Cancellation::default(),
+        &Environment::default(),
         |_, _| Err("injected Job assignment failure".into()),
     );
     assert_deadline_receipt(receipt, PROBE_RUNTIME);

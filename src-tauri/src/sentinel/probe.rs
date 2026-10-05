@@ -9,6 +9,7 @@ pub(super) mod windows;
 
 pub(super) mod cancellation;
 pub(super) mod capture;
+pub(crate) mod environment;
 pub(super) mod owner;
 pub(super) mod process;
 
@@ -40,6 +41,22 @@ pub(super) fn run(
     limit: Duration,
     owner: &Arc<owner::ProbeResourceOwner>,
 ) -> Result<Output, process::ProbeFailure> {
+    run_with_environment(
+        command,
+        cwd,
+        limit,
+        owner,
+        &environment::Environment::default(),
+    )
+}
+
+pub(super) fn run_with_environment(
+    command: &str,
+    cwd: &Path,
+    limit: Duration,
+    owner: &Arc<owner::ProbeResourceOwner>,
+    environment: &environment::Environment,
+) -> Result<Output, process::ProbeFailure> {
     let deadlines = process::Deadlines::start(limit, PROBE_RUNTIME)?;
     run_transaction(
         command,
@@ -48,6 +65,7 @@ pub(super) fn run(
         owner,
         &cancellation::Cancellation::default(),
         false,
+        environment,
     )
 }
 
@@ -72,6 +90,7 @@ pub(super) fn run_with_receipt(
         owner,
         &cancellation::Cancellation::default(),
         false,
+        &environment::Environment::default(),
     )
     .map(|output| (output, receipt))
     .map_err(|failure| (failure, Some(receipt)))
@@ -85,7 +104,15 @@ pub(super) fn run_cancellable(
     cancellation: &cancellation::Cancellation,
 ) -> Result<Output, process::ProbeFailure> {
     let deadlines = process::Deadlines::start(limit, PROBE_RUNTIME)?;
-    run_transaction(command, cwd, deadlines, owner, cancellation, true)
+    run_transaction(
+        command,
+        cwd,
+        deadlines,
+        owner,
+        cancellation,
+        true,
+        &environment::Environment::default(),
+    )
 }
 
 fn run_transaction(
@@ -95,6 +122,7 @@ fn run_transaction(
     owner: &Arc<owner::ProbeResourceOwner>,
     cancellation: &cancellation::Cancellation,
     _cancellation_required: bool,
+    environment: &environment::Environment,
 ) -> Result<Output, process::ProbeFailure> {
     if cancellation.load(std::sync::atomic::Ordering::SeqCst) {
         return Err(process::ProbeFailure::new("probe_cancelled"));
@@ -111,11 +139,20 @@ fn run_transaction(
                 owner,
                 cancellation,
                 _cancellation_required,
+                environment,
             )
         }
         #[cfg(windows)]
         {
-            windows::run(command, cwd, deadlines, reservation, owner, cancellation)
+            windows::run(
+                command,
+                cwd,
+                deadlines,
+                reservation,
+                owner,
+                cancellation,
+                environment,
+            )
         }
     })
 }

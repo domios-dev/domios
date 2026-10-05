@@ -8,7 +8,7 @@ use crate::service::{ServiceContext, ServiceState};
 use codeterm_plan::service_plan::state::{
     orchestrator_actionable_task_ids, task_projection, DependencyWait, TaskPresentation,
 };
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 mod approval;
@@ -29,6 +29,16 @@ pub(crate) enum PlanReminderTarget {
 pub(crate) struct TimedPlanReminderTarget {
     pub(crate) tab_id: String,
     pub(crate) target: PlanReminderTarget,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct BlockedNotice {
+    plan_id: String,
+    event_key: String,
+    summary: String,
+    task_ids: Vec<String>,
+    pause_plan: bool,
+    actions: Vec<codeterm_types::notification::CallerAction>,
 }
 
 pub(crate) fn start_plan_reminder_scheduler(svc: ServiceState) {
@@ -209,6 +219,159 @@ fn ensure_routable(host: &impl ReminderHost, tab_id: &str) -> Result<(), String>
     }
 }
 
+fn blocked_notices(plan: &Plan, scope: &Scope, snapshot: &Snapshot) -> Vec<BlockedNotice> {
+    let mut blockers = BTreeMap::<String, BlockerGroup>::new();
+    for task in &plan.tasks {
+        let projection = task_projection(plan, task);
+        if task.status == TaskStatus::Blocked {
+            let reason = non_empty(task.pause_reason.as_deref())
+                .or_else(|| non_empty(task.status_label.as_deref()))
+                .unwrap_or(&task.id);
+            record_blocker(
+                &mut blockers,
+                ("task_blocked", reason),
+                &task.id,
+                &format!("Task {} is blocked", task.id),
+            );
+        }
+        for wait in &projection.dependency_waits {
+            record_blocker(
+                &mut blockers,
+                (
+                    "dependency",
+                    wait.task_id.as_str(),
+                    wait.status
+                        .as_ref()
+                        .map(TaskStatus::key)
+                        .unwrap_or("missing"),
+                ),
+                &task.id,
+                &format!("Dependency {} is not ready", wait.task_id),
+            );
+        }
+        if task.interruption.handoff_required {
+            record_blocker(
+                &mut blockers,
+                ("handoff", task.id.as_str()),
+                &task.id,
+                &format!("Task {} needs a handoff", task.id),
+            );
+        }
+        if crate::plan::reconcile::active_review_hold_note(task).is_some() {
+            let hold_id = task
+                .review_evidence
+                .last()
+                .map(|evidence| evidence.id.as_str())
+                .unwrap_or("");
+            record_blocker(
+                &mut blockers,
+                ("review_hold", task.id.as_str(), hold_id),
+                &task.id,
+                &format!("Task {} is held for review", task.id),
+            );
+        }
+        for attempt in &task.execution_attempts {
+            if let Some(reason) = attempt.interruption.reason.as_deref() {
+                record_blocker(
+                    &mut blockers,
+                    ("machine_hold", reason),
+                    &task.id,
+                    &format!("Worker on task {} is interrupted", task.id),
+                );
+            }
+        }
+    }
+    if let Some(task_id) = scope.task_id.as_deref() {
+        blockers.retain(|_, blocker| blocker.task_ids.contains(task_id));
+    }
+    if blockers.is_empty() {
+        let task_id = scope.task_id.as_deref().unwrap_or("");
+        let recipient_state = if task_id.is_empty() {
+            Vec::new()
+        } else {
+            snapshot
+                .projection
+                .iter()
+                .filter(|(key, _)| key.as_str() != "mode")
+                .map(|(key, value)| (key.as_str(), value.as_str()))
+                .collect()
+        };
+        let owner_messages: Vec<_> = snapshot
+            .hard
+            .iter()
+            .filter_map(|hard| match hard {
+                HardWake::OwnerMessage(id) => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        let mut task_ids = BTreeSet::new();
+        if !task_id.is_empty() {
+            task_ids.insert(task_id.to_string());
+        }
+        blockers.insert(
+            crate::service::supporter::criteria_hash(
+                &serde_json::to_vec(&("unclassified", task_id, recipient_state, owner_messages))
+                    .unwrap_or_default(),
+            ),
+            BlockerGroup {
+                summary: if task_id.is_empty() {
+                    "The plan has a blocked recipient".into()
+                } else {
+                    format!("Task {task_id} cannot act now")
+                },
+                task_ids,
+            },
+        );
+    }
+    let actionable: HashSet<_> = orchestrator_actionable_task_ids(plan).into_iter().collect();
+    blockers
+        .into_iter()
+        .map(|(identity, blocker)| {
+            let pause_plan =
+                !actionable.is_empty() && actionable.iter().all(|id| blocker.task_ids.contains(id));
+            BlockedNotice {
+                plan_id: plan.id.clone(),
+                event_key: format!("plan-blocker:{}:{identity}", plan.id),
+                summary: blocker.summary,
+                task_ids: blocker.task_ids.into_iter().collect(),
+                pause_plan,
+                actions: blocked_notice_actions(),
+            }
+        })
+        .collect()
+}
+
+#[derive(Default)]
+struct BlockerGroup {
+    summary: String,
+    task_ids: BTreeSet<String>,
+}
+
+fn record_blocker(
+    blockers: &mut BTreeMap<String, BlockerGroup>,
+    identity: impl serde::Serialize,
+    task_id: &str,
+    summary: &str,
+) {
+    let key = crate::service::supporter::criteria_hash(
+        &serde_json::to_vec(&identity).unwrap_or_default(),
+    );
+    let blocker = blockers.entry(key).or_insert_with(|| BlockerGroup {
+        summary: summary.into(),
+        ..Default::default()
+    });
+    blocker.task_ids.insert(task_id.into());
+}
+
+fn blocked_notice_actions() -> Vec<codeterm_types::notification::CallerAction> {
+    ["wait", "pause plan", "decide"]
+        .into_iter()
+        .map(|label| codeterm_types::notification::CallerAction::Answer {
+            label: label.into(),
+        })
+        .collect()
+}
+
 struct LiveHost<'a> {
     svc: &'a ServiceContext,
     interval: u64,
@@ -270,6 +433,32 @@ impl ReminderHost for LiveHost<'_> {
         heartbeat_gate::collect(self.svc, plan, tab_id, previous, now)
     }
 
+    fn observe_worker(
+        &self,
+        plan: &Plan,
+        scope: &Scope,
+        previous: &Observation,
+        _: u64,
+    ) -> (Snapshot, Observation) {
+        let (mut snapshot, mut observed) =
+            heartbeat_gate::collect_worker_scope(plan, scope, previous);
+        snapshot.hard = previous.pending_hard.clone();
+        let (owner_messages, owner_observation) =
+            heartbeat_gate::collect_owner_messages(self.svc, &scope.tab_id, previous);
+        for message in owner_messages {
+            if !snapshot.hard.contains(&message) {
+                snapshot.hard.push(message);
+            }
+        }
+        if let Some(owner_observation) = owner_observation {
+            observed
+                .workers
+                .insert(scope.tab_id.clone(), owner_observation);
+        }
+        observed.pending_hard = snapshot.hard.clone();
+        (snapshot, observed)
+    }
+
     fn compose(
         &self,
         plan: &Plan,
@@ -308,6 +497,10 @@ impl ReminderHost for LiveHost<'_> {
                 .svc
                 .deliver_automated_plan_reminder(tab_id, &emission.text),
         }
+    }
+
+    fn notify_blocked(&self, owner_tab: &str, notice: &BlockedNotice) {
+        self.svc.notify_blocked(owner_tab, notice);
     }
 }
 
@@ -457,6 +650,32 @@ impl ServiceContext {
                 log::warn!("[plan-reminder] deliver to {} failed: {}", tab_id, e);
                 e
             })
+    }
+
+    fn notify_blocked(&self, owner_tab: &str, notice: &BlockedNotice) {
+        let tasks = if notice.task_ids.is_empty() {
+            String::new()
+        } else {
+            format!("; tasks {}", notice.task_ids.join(", "))
+        };
+        let pause_proposal = if notice.pause_plan {
+            " This blocker stops every actionable task; consider pausing the plan."
+        } else {
+            ""
+        };
+        self.create_notification_ext(
+            format!("Plan {} is blocked", notice.plan_id),
+            Some(format!("{}{tasks}.{pause_proposal}", notice.summary)),
+            Some("warning"),
+            Some(notice.actions.clone()),
+            Some(true),
+            crate::service::notification::NotificationOrigin::local_tab(owner_tab.into()),
+            crate::service::notification::PushIntent {
+                level: Some(codeterm_types::notification::NotifyLevel::ActionNeeded),
+                event_key: Some(notice.event_key.clone()),
+            },
+            None,
+        );
     }
 }
 
