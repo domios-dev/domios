@@ -45,6 +45,7 @@ export type Action =
   | { type: "UPDATE_BOOT_STAGE"; tabId: string; stage: BootStage; reason?: string | null }
   | { type: "REMOVE_PENDING_CLOSE"; tabIds: string[] }
   | { type: "RESET_PEER_CONTEXT" }
+  | { type: "STORAGE_UNAVAILABLE" }
   | { type: "RESET_GENERATION" }
   | { type: "SET_REMOTE_TABS"; tabs: Record<string, Tab> }
   | { type: "UPDATE_REMOTE_CHANNEL"; tabId: string; channel: RemoteTransportChannel; availability: RemoteTransportAvailability };
@@ -170,7 +171,11 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         activeTabIds: {},
         generation: -1,
         pendingCloses: [],
+        storageUnavailable: false,
       };
+
+    case "STORAGE_UNAVAILABLE":
+      return { ...state, storageUnavailable: true };
 
     case "SET_STATE": {
       const incomingGen = action.state.generation;
@@ -270,6 +275,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         generation:
           typeof incomingGen === "number" ? incomingGen : state.generation,
         pendingCloses: stillPending,
+        storageUnavailable: false,
       };
     }
 

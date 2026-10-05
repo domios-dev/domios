@@ -28,6 +28,10 @@ pub async fn mux_state(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    state
+        .svc
+        .ensure_storage_available()
+        .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error))?;
 
     let Some(_permit) = state.snapshot_bound.try_enter() else {
         return Err((
