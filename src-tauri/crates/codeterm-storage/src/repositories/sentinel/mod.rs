@@ -76,6 +76,11 @@ impl SentinelRepository {
             .submit_read(move |cx| queries::scope(cx.conn, &workspace, team.as_deref()))
     }
 
+    pub fn workspace(&self, workspace: String) -> Completion<Read<Vec<StoredSentinel>>> {
+        self.storage
+            .submit_read(move |cx| queries::workspace(cx.conn, &workspace))
+    }
+
     pub fn get(&self, id: SentinelId) -> Completion<Read<Option<StoredSentinel>>> {
         self.storage
             .submit_read(move |cx| queries::load_one(cx.conn, id.as_str()))
@@ -212,6 +217,26 @@ impl SentinelRepository {
             .submit_mutation(overhead() + team.len(), move |cx| {
                 runtime::remove_team(cx, &team)
             })
+    }
+
+    pub fn delete_scenario(
+        &self,
+        id: SentinelId,
+        workspace: String,
+        team: Option<String>,
+    ) -> Mutation {
+        let validated = identifier("workspace id", &workspace).and_then(|()| {
+            team.as_deref()
+                .map_or(Ok(()), |team| identifier("team id", team))
+        });
+        if let Err(error) = validated {
+            return refused(error);
+        }
+        let cost =
+            overhead() + id.as_str().len() + workspace.len() + team.as_ref().map_or(0, String::len);
+        self.storage.submit_mutation(cost, move |cx| {
+            runtime::delete_scenario(cx, id, &workspace, team.as_deref())
+        })
     }
 
     pub fn schedule(&self, updates: Vec<ScheduleUpdate>) -> Mutation {

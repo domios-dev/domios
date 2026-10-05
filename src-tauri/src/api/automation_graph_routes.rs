@@ -22,11 +22,24 @@ pub struct GraphQuery {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct WorkspaceGraphQuery {
+    workspace_id: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct StopBody {
     workspace_id: String,
     team_id: Value,
     caller_tab_id: Option<String>,
     session_binding_nonce: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeleteBody {
+    workspace_id: String,
+    team_id: Value,
 }
 
 pub async fn snapshot(
@@ -59,6 +72,21 @@ pub async fn snapshot(
             }
         }
     }
+    Ok(Json(snapshot))
+}
+
+pub async fn workspace_snapshot(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<WorkspaceGraphQuery>,
+) -> Result<Json<Snapshot>, GraphError> {
+    caller_access_level(&state, &headers).map_err(failure)?;
+    let snapshot = tokio::task::spawn_blocking(move || {
+        state.svc.automation_graph_workspace_snapshot(&query.workspace_id)
+    })
+    .await
+    .map_err(|error| failure((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())))?
+    .map_err(|error| failure((StatusCode::BAD_REQUEST, error)))?;
     Ok(Json(snapshot))
 }
 
@@ -100,6 +128,31 @@ pub async fn stop(
     Ok(Json(
         json!({"id":result.id,"state":"stopped","reason":result.last_reason}),
     ))
+}
+
+pub async fn delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Json(body): Json<DeleteBody>,
+) -> Result<StatusCode, GraphError> {
+    caller_access_level(&state, &headers).map_err(failure)?;
+    if caller_peer_id(&state, &headers).is_some() {
+        return Err(failure((
+            StatusCode::FORBIDDEN,
+            "peer-origin automation delete is unavailable".into(),
+        )));
+    }
+    let team = explicit_team(&body.team_id).map_err(|e| failure((StatusCode::BAD_REQUEST, e)))?;
+    tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .automation_graph_delete_host(&body.workspace_id, team.as_deref(), &id)
+    })
+    .await
+    .map_err(|e| failure((StatusCode::INTERNAL_SERVER_ERROR, e.to_string())))?
+    .map_err(|e| failure((StatusCode::BAD_REQUEST, e)))?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 type GraphError = (StatusCode, Json<Value>);
@@ -436,6 +489,45 @@ mod tests {
                     .1["nodes"][0]["stop"]["allowed"],
                 false
             );
+        }
+
+        #[tokio::test]
+        #[cfg_attr(not(windows), ignore = "requires the desktop Tauri test runtime")]
+        async fn sentinel_graph_delete_removes_the_graph_from_the_list_and_persisted_file() {
+            let fixture = Fixture::new(None);
+            let job = fixture.create();
+            let path = format!("/api/automation/sentinels/{}", job.id);
+            let body = json!({"workspace_id":fixture.workspace,"team_id":null});
+            assert_eq!(
+                fixture
+                    .request(
+                        Method::DELETE,
+                        &path,
+                        Some("fixture-instance-bearer"),
+                        body,
+                    )
+                    .await
+                    .0,
+                StatusCode::NO_CONTENT
+            );
+            let (status, graph) = fixture
+                .request(
+                    Method::GET,
+                    &format!(
+                        "/api/automation/graph?workspace_id={}&team_id=",
+                        fixture.workspace
+                    ),
+                    Some("fixture-instance-bearer"),
+                    Value::Null,
+                )
+                .await;
+            assert_eq!(status, StatusCode::OK);
+            assert!(graph["scenarios"].as_array().unwrap().is_empty());
+            let persisted: Value = serde_json::from_slice(
+                &std::fs::read(fixture.runtime.temp.path().join("sentinels.json")).unwrap(),
+            )
+            .unwrap();
+            assert!(persisted.as_array().unwrap().is_empty());
         }
 
         #[tokio::test]

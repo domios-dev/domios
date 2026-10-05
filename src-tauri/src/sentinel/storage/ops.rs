@@ -217,6 +217,37 @@ impl Store {
         )
     }
 
+    pub(in crate::sentinel) fn sqlite_delete_scenario(
+        &mut self,
+        id: &str,
+        workspace: &str,
+        team: Option<&str>,
+    ) -> Staged<()> {
+        let (stored, id, workspace, team) = match codec::id(id) {
+            Ok(stored) => (
+                stored,
+                id.to_string(),
+                workspace.to_string(),
+                team.map(str::to_string),
+            ),
+            Err(error) => return refused(error),
+        };
+        self.submit(
+            move |repo| repo.delete_scenario(stored, workspace, team),
+            finishing(move |_store, outcome| match outcome {
+                Ok(commit) if commit.outcome == MutationOutcome::Applied => Ok(()),
+                Ok(commit) if commit.outcome == MutationOutcome::Fenced(Fence::Missing) => {
+                    Err(format!("Sentinel scenario not found: {id}"))
+                }
+                Ok(commit) => Err(format!(
+                    "Sentinel scenario delete refused: {:?}",
+                    commit.outcome
+                )),
+                Err(Failure::Failed(message) | Failure::Refused(message)) => Err(message),
+            }),
+        )
+    }
+
     /// Leases are issued only after their scheduling commit; a failure revokes them all.
     pub(in crate::sentinel) fn sqlite_due(
         &mut self,

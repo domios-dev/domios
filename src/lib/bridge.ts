@@ -200,6 +200,10 @@ const HTTP_MAP: Record<string, Mapper> = {
     if (!("teamId" in a) || (a.teamId !== null && typeof a.teamId !== "string")) throw new Error("Automation Team scope is required");
     return webJson("GET", `/api/automation/graph?workspace_id=${enc(s(a, "workspaceId"))}&team_id=${enc(s(a, "teamId"))}`);
   },
+  automation_graph_workspace_snapshot: (a) => {
+    if (typeof a.workspaceId !== "string" || !a.workspaceId) throw new Error("Automation workspace scope is required");
+    return webJson("GET", `/api/automation/graph/workspace?workspace_id=${enc(s(a, "workspaceId"))}`);
+  },
   automation_graph_stop_sentinel: (a) => {
     if (typeof a.workspaceId !== "string" || !a.workspaceId) throw new Error("Automation workspace scope is required");
     if (!("teamId" in a) || (a.teamId !== null && typeof a.teamId !== "string")) throw new Error("Automation Team scope is required");

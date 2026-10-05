@@ -4,7 +4,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
-use super::{handlers::ResultRecord, machine::Route, store::Sentinel};
+use super::{
+    handlers::ResultRecord,
+    machine::Route,
+    storage::Staged,
+    store::{Sentinel, Store},
+};
 use crate::cron::store::{CronJob, CronRunInfo};
 use crate::multiplexer::{state::MultiplexerState, types::Tab};
 use crate::service::supporter::QuestionAnswer;
@@ -34,6 +39,7 @@ pub struct Scenario {
 pub struct Snapshot {
     pub workspace_id: String,
     pub team_id: Option<String>,
+    pub all_teams: bool,
     pub revision: String,
     pub scenarios: Vec<Scenario>,
     pub nodes: Vec<Value>,
@@ -116,6 +122,27 @@ pub fn reachable_ids(jobs: &[Sentinel]) -> BTreeSet<String> {
         }));
     }
     seen
+}
+
+pub fn host_delete_staged(
+    store: &mut Store,
+    mux: &MultiplexerState,
+    workspace: &str,
+    team: Option<&str>,
+    id: &str,
+) -> Result<Staged<()>, String> {
+    validate_scope(mux, workspace, team)?;
+    store.ensure_available()?;
+    let root = store.get(id).ok_or("Sentinel scenario not found")?;
+    if root.workspace_id != workspace
+        || root.team_id.as_deref() != team
+        || !root.agent_authored
+        || root.scenario_id.as_deref() != Some(id)
+        || !reachable_ids(store.list()).contains(id)
+    {
+        return Err("Sentinel scenario is unavailable in this automation scope".into());
+    }
+    Ok(store.stage_delete_scenario(id, workspace, team))
 }
 
 fn safe_name(text: &str) -> String {
@@ -473,6 +500,7 @@ pub fn project(
     Ok(Snapshot {
         workspace_id: workspace.into(),
         team_id: team.map(str::to_owned),
+        all_teams: false,
         revision: scope_revision(jobs, workspace, team),
         scenarios,
         nodes: nodes.into_values().collect(),

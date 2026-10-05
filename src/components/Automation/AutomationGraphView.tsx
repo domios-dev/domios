@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { ChevronRight, Network, Radar } from "lucide-react";
 import { focusEntry, focusLost } from "./focus";
 import { ScenarioPanel } from "./ScenarioPanel";
-import { sentinelJobs } from "./scenarios";
+import { sentinelJobs, sentinelTitle } from "./scenarios";
 import { AUTOMATION_ROW, stateTone } from "./styles";
 import type { AutomationAttachment, AutomationGraphAdapter } from "./types";
 import { useAutomationGraph } from "./useAutomationGraph";
@@ -61,7 +61,7 @@ function AutomationGraphSurface({ adapter, attachment }: AutomationGraphViewProp
           const Icon = job.type === "Sentinel graph" ? Network : Radar;
           return <li key={job.scenario.id}><button type="button" data-scenario-id={job.scenario.id} className={AUTOMATION_ROW} onClick={() => setScenarioId(job.scenario.id)}>
             <Icon size={15} className="shrink-0 text-[var(--ct-muted-fg)]" aria-hidden="true" />
-            <span className="min-w-0 flex-1 truncate font-medium">{job.scenario.name}</span>
+            <span className="min-w-0 flex-1 truncate font-medium">{sentinelTitle(job.scenario, job.root)}</span>
             <span className="shrink-0 text-xs text-[var(--ct-muted-fg)]"> · {job.type} · </span>
             <span className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(job.state)}`} aria-hidden="true" />{job.state}</span>
             <ChevronRight size={14} className="shrink-0 text-[var(--ct-muted)]" aria-hidden="true" />

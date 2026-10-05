@@ -1,7 +1,7 @@
 import { Network, Radar } from "lucide-react";
 import { usePlanPeerContext } from "../Canvas/usePlanPeerContext";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
-import { sentinelJobs } from "../Automation/scenarios";
+import { sentinelJobs, sentinelTitle } from "../Automation/scenarios";
 import type { AutomationGraphAdapter, AutomationScope } from "../Automation/types";
 import { useAutomationGraph } from "../Automation/useAutomationGraph";
 import { TeamUnit, type TeamUnitProps } from "../Sidebar/TeamUnit";
@@ -18,9 +18,9 @@ function TeamUnitWithSentinels({ scope, generation, onOpenSentinel, adapter, ...
   const rows = jobs.map((job) => {
     const Icon = job.type === "Sentinel graph" ? Network : Radar;
     return <div key={`scenario:${job.scenario.id}`} className="sidebar-team-cron-row">
-      <button type="button" className="sidebar-team-cron-main" data-testid="sidebar-sentinel-job" aria-label={`${job.scenario.name}, ${job.type}, ${job.state}`} title={job.root?.purpose ?? job.type} onClick={() => onOpenSentinel(job.scenario.id)}>
+      <button type="button" className="sidebar-team-cron-main" data-testid="sidebar-sentinel-job" aria-label={`${sentinelTitle(job.scenario, job.root)}, ${job.type}, ${job.state}`} title={job.root?.purpose ?? job.type} onClick={() => onOpenSentinel(job.scenario.id)}>
         <Icon size={11} aria-hidden="true" />
-        <span className="sidebar-team-cron-name">{job.scenario.name}</span>
+        <span className="sidebar-team-cron-name">{sentinelTitle(job.scenario, job.root)}</span>
         <span className="sidebar-team-cron-state">{job.type === "Sentinel graph" ? "graph · " : ""}{job.state}</span>
       </button>
       <span className="w-7 shrink-0" aria-hidden="true" />

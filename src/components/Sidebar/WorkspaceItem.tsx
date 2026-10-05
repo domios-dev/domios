@@ -1,14 +1,14 @@
 import { memo, useCallback, useMemo, useState } from "react";
 import { invoke } from "../../lib/bridge";
-import { Map as MapIcon, X, TerminalSquare, FolderOpen, Sparkles, SquarePlus } from "lucide-react";
+import { X, TerminalSquare, FolderOpen, Sparkles, SquarePlus } from "lucide-react";
 import { isMac } from "../../lib/keybindings";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useConfig } from "../../hooks/useConfig";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
 import { FolderIcon, ShieldCheckIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
-import { WorkspaceAutomationAction } from "../Automation/WorkspaceAutomationAction";
 import { SidebarDisclosure } from "./SidebarDisclosure";
+import { LiveWorkspaceNavigationActions, WorkspaceNavigationActions } from "./WorkspaceNavigationActions";
 import type { TabStatus, Workspace } from "../../lib/types";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 
@@ -31,6 +31,7 @@ interface WorkspaceItemProps {
   showDisclosure?: boolean;
   detailHeader?: boolean;
   touchMode?: boolean;
+  countActiveJobs?: boolean;
   uiFontScale?: number;
 }
 
@@ -53,6 +54,7 @@ function WorkspaceItemInner({
   showDisclosure = true,
   detailHeader = false,
   touchMode = false,
+  countActiveJobs = false,
   uiFontScale,
 }: WorkspaceItemProps) {
   const [editing, setEditing] = useState(false);
@@ -155,7 +157,7 @@ function WorkspaceItemInner({
     return items;
   }, [onNewTerminal, onNewSession, newSessionDisabled, onNewAgent, onClose, workspace.protected, workspace.cwd, agentsConfig, providers]);
 
-  return (
+  return <>
     <div
       data-testid="workspace-item"
       data-workspace-id={workspace.id}
@@ -241,22 +243,6 @@ function WorkspaceItemInner({
       </div>
       {/* 3-dot menu — visible on hover */}
       <div className="flex shrink-0 items-center gap-0.5">
-        {onOpenAutomation && <WorkspaceAutomationAction workspaceId={workspace.id} workspaceName={workspace.name} touchMode={touchMode} revealOnHover={detailHeader} onOpen={onOpenAutomation} />}
-        {onOpenMap && (
-          <button
-            type="button"
-            data-testid="workspace-map-action"
-            aria-label={`Open essence map for ${workspace.name}`}
-            className={`${touchMode ? "h-11 w-11" : "w-5 h-5 opacity-0 group-hover:opacity-60 focus-visible:opacity-100 hover:!opacity-100"} flex items-center justify-center rounded text-[var(--ct-muted-fg)] transition-opacity hover:bg-[var(--ct-border)] hover:text-[var(--ct-fg)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]`}
-            title="Open workspace essence map"
-            onClick={(event) => {
-              event.stopPropagation();
-              onOpenMap();
-            }}
-          >
-            <MapIcon size={touchMode ? 17 : 13} strokeWidth={1.6} aria-hidden="true" />
-          </button>
-        )}
         <DropdownMenu
           items={menuItems}
           className={
@@ -276,7 +262,10 @@ function WorkspaceItemInner({
         />
       </div>
     </div>
-  );
+    {detailHeader && (onOpenMap || onOpenAutomation) && (countActiveJobs && onOpenAutomation
+      ? <LiveWorkspaceNavigationActions workspaceId={workspace.id} workspaceName={workspace.name} onOpenMap={onOpenMap ? () => onOpenMap() : undefined} onOpenJobs={onOpenAutomation ? () => onOpenAutomation() : undefined} touchMode={touchMode} />
+      : <WorkspaceNavigationActions workspaceId={workspace.id} workspaceName={workspace.name} onOpenMap={onOpenMap ? () => onOpenMap() : undefined} onOpenJobs={onOpenAutomation ? () => onOpenAutomation() : undefined} touchMode={touchMode} />)}
+  </>;
 }
 
 function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps): boolean {
@@ -290,6 +279,7 @@ function workspacePropsEqual(prev: WorkspaceItemProps, next: WorkspaceItemProps)
     prev.onOpenMap === next.onOpenMap &&
     prev.onOpenAutomation === next.onOpenAutomation &&
     prev.touchMode === next.touchMode &&
+    prev.countActiveJobs === next.countActiveJobs &&
     prev.uiFontScale === next.uiFontScale &&
     prev.workspace.id === next.workspace.id &&
     prev.workspace.name === next.workspace.name &&

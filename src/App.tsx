@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { invoke, IS_WEB } from "./lib/bridge";
 import { buildTeamActions } from "./lib/teamActions";
+import { selectAiHelperTab } from "./lib/aiHelperFocus";
 import { getCurrentTabUiMode } from "./lib/clientTabUiMode";
 import { pruneOrphanComposerDrafts } from "./lib/composerDraftGc";
 import { Titlebar } from "./components/Titlebar/Titlebar";
@@ -210,6 +211,7 @@ function AppInner() {
     closeTab,
     reopenClosed,
     setFocusedTab,
+    setActiveTab,
     selectTabByTab,
     setTabPty,
     setActiveWorkspace,
@@ -295,14 +297,16 @@ function AppInner() {
   // dismiss any covering Extensions/glance overlay and focus the new tab.
   useEffect(() => {
     const onFocusTab = (e: Event) => {
-      const tabId = (e as CustomEvent<{ tabId?: string }>).detail?.tabId;
+      const detail = (e as CustomEvent<{ tabId?: string; workspaceId?: string }>).detail;
+      const tabId = detail?.tabId;
       if (!tabId) return;
       setExtensionsOpen(false);
-      setFocusedTab(tabId);
+      if (detail.workspaceId) selectAiHelperTab(detail.workspaceId, tabId, setActiveTab, setFocusedTab);
+      else setFocusedTab(tabId);
     };
     window.addEventListener("codeterm:focus-tab", onFocusTab);
     return () => window.removeEventListener("codeterm:focus-tab", onFocusTab);
-  }, [setExtensionsOpen, setFocusedTab]);
+  }, [setActiveTab, setExtensionsOpen, setFocusedTab]);
 
   const handleBackToMemory = useCallback(() => {
     const ret = navigationStore.get();
