@@ -106,6 +106,22 @@ fn desk() -> DeskSnapshot {
     }
 }
 
+fn desk_with_teams(ids: &[&str]) -> DeskSnapshot {
+    let mut snapshot = desk();
+    snapshot.teams = ids
+        .iter()
+        .enumerate()
+        .map(|(index, id)| DeskTeam {
+            id: (*id).into(),
+            name: Some((*id).into()),
+            lifecycle: DeskTeamLifecycle::Active,
+            created_at: index as u64 + 1,
+            workspace_id: "ws-a".into(),
+        })
+        .collect();
+    snapshot
+}
+
 #[test]
 fn storage_desk_validation_rejects_team_without_a_workspace() {
     let mut snapshot = desk();
@@ -267,6 +283,163 @@ fn storage_desk_delta_drops_orphan_team_and_commits_valid_changes() {
             .map(|team| team.id.as_str())
             .collect::<Vec<_>>(),
         vec!["team-a"]
+    );
+}
+
+#[test]
+fn storage_desk_team_swap_commits_and_preserves_order() {
+    let (_root, storage) = storage();
+    let mut snapshot = desk_with_teams(&["team-a", "team-b", "team-c"]);
+    storage
+        .desk()
+        .import(snapshot.clone())
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let before = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    snapshot.teams.swap(0, 1);
+
+    storage
+        .desk()
+        .save_preserving(snapshot, before.value.revision)
+        .wait(Duration::from_secs(5))
+        .unwrap();
+
+    let after = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        after
+            .value
+            .snapshot
+            .teams
+            .iter()
+            .map(|team| team.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["team-b", "team-a", "team-c"]
+    );
+}
+
+#[test]
+fn storage_desk_team_swap_after_middle_close_commits() {
+    let (_root, storage) = storage();
+    storage
+        .desk()
+        .import(desk_with_teams(&["team-a", "team-b", "team-c"]))
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let before_close = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    storage
+        .desk()
+        .remove_team("team-b".into(), before_close.value.team_revisions["team-b"])
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let before_reorder = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let mut target = before_reorder.value.snapshot.clone();
+    target.teams.reverse();
+
+    storage
+        .desk()
+        .save_preserving(target, before_reorder.value.revision)
+        .wait(Duration::from_secs(5))
+        .unwrap();
+
+    let after = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        after
+            .value
+            .snapshot
+            .teams
+            .iter()
+            .map(|team| team.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["team-c", "team-a"]
+    );
+}
+
+#[test]
+fn storage_desk_drops_seeded_orphan_then_reorders_and_restores() {
+    let (root, storage) = storage();
+    storage
+        .desk()
+        .import(desk_with_teams(&["team-a", "team-c"]))
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    storage.shutdown().wait(Duration::from_secs(5)).unwrap();
+    drop(storage);
+
+    let database = rusqlite::Connection::open(root.path().join("state.db")).unwrap();
+    database
+        .execute("UPDATE desk_teams SET ordinal = 2 WHERE id = 'team-c'", [])
+        .unwrap();
+    database
+        .execute(
+            "INSERT INTO desk_teams (id, ordinal, name, lifecycle, created_at, workspace_id, revision) \
+             VALUES ('team-orphan', 1, 'Orphan', 'active', 3, 'removed-workspace', 1)",
+            [],
+        )
+        .unwrap();
+    drop(database);
+
+    let storage = Storage::open(root.path(), StorageConfig::default()).unwrap();
+    let before = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        before
+            .value
+            .snapshot
+            .teams
+            .iter()
+            .map(|team| team.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["team-a", "team-orphan", "team-c"]
+    );
+    let mut target = before.value.snapshot.clone();
+    target.teams.retain(|team| team.id != "team-orphan");
+    target.teams.reverse();
+    storage
+        .desk()
+        .save_preserving(target, before.value.revision)
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    storage.shutdown().wait(Duration::from_secs(5)).unwrap();
+    drop(storage);
+
+    let restored = Storage::open(root.path(), StorageConfig::default()).unwrap();
+    let after = restored
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        after
+            .value
+            .snapshot
+            .teams
+            .iter()
+            .map(|team| team.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["team-c", "team-a"]
     );
 }
 

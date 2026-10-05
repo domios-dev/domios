@@ -245,6 +245,39 @@ fn desk_facade_never_reports_durable_before_commit() {
 }
 
 #[test]
+fn failed_commit_is_retried_on_the_next_change_without_a_retry_loop() {
+    let (attempt_tx, attempt_rx) = mpsc::channel();
+    let writer = move |revision| {
+        attempt_tx.send(revision).unwrap();
+        if revision == 1 {
+            Err("temporary commit failure".to_string())
+        } else {
+            Ok(SaveOutcome::Saved)
+        }
+    };
+    let worker = test_worker(writer);
+
+    assert_eq!(
+        worker
+            .submit_snapshot(test_snapshot(1), SaveIntent::PreserveDesk, true)
+            .unwrap_err(),
+        "temporary commit failure"
+    );
+    assert_eq!(attempt_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 1);
+
+    assert_eq!(
+        worker
+            .submit_snapshot(test_snapshot(2), SaveIntent::PreserveDesk, true)
+            .unwrap(),
+        Some(SaveOutcome::Saved)
+    );
+    assert_eq!(attempt_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 2);
+    assert!(matches!(attempt_rx.try_recv(), Err(TryRecvError::Empty)));
+    worker.flush().unwrap();
+    stop_test_worker(&worker);
+}
+
+#[test]
 fn storage_desk_app_adapter_imports_and_flushes_exact_selection() {
     let root = tempfile::tempdir().unwrap();
     let adapter = test_adapter(root.path());
