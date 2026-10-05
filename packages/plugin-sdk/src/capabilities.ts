@@ -207,6 +207,8 @@ export interface AgentProvider {
   detectFromTitle?(title: string): boolean;
   detectFromOutput?(text: string): boolean;
   screenHasTui?(screen: string): boolean;
+  /** Allow bounded submit-key recovery without an authenticated provider session. */
+  supportsUnboundSubmitRecovery?(): boolean;
   isOutputNoise?(text: string): boolean;
   hasEventMarkers?(chunk: string): boolean;
   detectEvents?(text: string): string[];

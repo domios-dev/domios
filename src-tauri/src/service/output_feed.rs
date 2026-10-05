@@ -59,6 +59,7 @@ impl ServiceContext {
         let changed_tab = self.mux.read().tab_id_for_pty(pty_id);
         if let Some(tab_id) = changed_tab {
             self.wake_agent_deliveries_on_state_change(&tab_id);
+            self.wake_user_owner_on_state_change(&tab_id);
         }
         crate::service::pty_io::submit_transaction::notify_submit_cycle_status_transition(
             pty_id, statuses.0, statuses.1,
@@ -86,6 +87,7 @@ impl ServiceContext {
         let tab_id = self.mux.read().tab_id_for_pty(pty_id);
         if let Some(ref pid) = tab_id {
             self.wake_agent_deliveries_on_state_change(pid);
+            self.wake_user_owner_on_state_change(pid);
             crate::api::events::emit_everywhere(
                 &self.app_handle,
                 "tab-status-changed",

@@ -312,6 +312,11 @@ impl AgentProvider for ClaudeProvider {
             .map(|(question, options)| crate::prompt::build_prompt(question, options))
     }
 
+    fn delivery_modal_visible(&self, snapshot: &crate::tab_state::TabStateSnapshot) -> bool {
+        self.parse_prompt(&snapshot.screen_text).is_some()
+            || crate::provider::provider_classified_delivery_modal_visible(self, snapshot)
+    }
+
     fn has_hooks(&self) -> bool {
         true
     }
