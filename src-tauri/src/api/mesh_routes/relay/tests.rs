@@ -688,8 +688,10 @@ fn relay_send_tags_originating_peer() {
     let mut body = serde_json::json!({"text": "hi", "source_tab": "e8a0ac20"});
     tag_relay_send_source(&mut body, "POST", "/api/tabs/general/send", "BLACKSTAR");
     assert_eq!(body["source_peer"], serde_json::json!("BLACKSTAR"));
-    // Text is NOT pre-wrapped — the send handler owns prefixing.
+    // Old and current receivers frame at their own send handler.
     assert_eq!(body["text"], serde_json::json!("hi"));
+    assert!(!body["text"].as_str().unwrap().contains("<domios"));
+    assert!(!body["text"].as_str().unwrap().contains("-=-codeterm:"));
     assert_eq!(body["source_tab"], serde_json::json!("e8a0ac20"));
 }
 

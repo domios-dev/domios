@@ -135,7 +135,7 @@ fn parse_attributes(source: &str) -> Option<BTreeMap<String, String>> {
         if attrs.insert(name.to_string(), value).is_some() {
             return None;
         }
-        rest = quoted[end + 1..];
+        rest = &quoted[end + 1..];
         if !rest.is_empty()
             && !rest.starts_with(' ')
             && !rest.starts_with('\t')

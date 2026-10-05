@@ -629,11 +629,9 @@ impl ServiceContext {
                         crate::service::launch_delivery::assigned_task_starter(text.as_deref()),
                     ))
                 }
-                Some(crate::service::launch_delivery::VisibleSpawnFirstTurn::Task(task)) => Some(
-                    task_prefix
-                        .as_deref()
-                        .map_or_else(|| task.to_string(), |prefix| format!("{prefix}{task}")),
-                ),
+                Some(crate::service::launch_delivery::VisibleSpawnFirstTurn::Task(task)) => {
+                    Some(task.to_string())
+                }
                 None => None,
             }
         };
