@@ -63,11 +63,19 @@ pub(crate) fn assert_unavailable_rejects_persistence_without_a_commit() {
     stop_test_worker(&worker);
 }
 
+fn open_storage_desk(
+    root: &std::path::Path,
+) -> Result<crate::session::store::StorageDeskAdapter, String> {
+    codeterm_storage::Storage::open(root, codeterm_storage::StorageConfig::default())
+        .map(crate::session::store::StorageDeskAdapter::from_storage)
+        .map_err(|error| error.to_string())
+}
+
 #[test]
 fn mutation_submitted_before_storage_init_is_committed_and_restored_after_restart() {
     let root = tempfile::tempdir().expect("storage root");
     let adapter =
-        crate::session::store::StorageDeskAdapter::open(root.path()).expect("Storage desk adapter");
+        open_storage_desk(root.path()).expect("Storage desk adapter");
     let worker = pending_worker();
     let (state, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = state.list_workspaces()[0].id.clone();
@@ -95,7 +103,7 @@ fn mutation_submitted_before_storage_init_is_committed_and_restored_after_restar
     worker.flush().expect("flush retained pre-init mutation");
     stop_test_worker(&worker);
 
-    let restarted = crate::session::store::StorageDeskAdapter::open(root.path())
+    let restarted = open_storage_desk(root.path())
         .expect("reopen Storage desk after restart");
     let snapshot = restarted.snapshot().expect("restored Storage desk");
     let restored = crate::multiplexer::state::MultiplexerState::from_session_snapshot(&snapshot);
