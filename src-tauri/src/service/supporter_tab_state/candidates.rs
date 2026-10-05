@@ -269,14 +269,14 @@ pub(crate) fn spawn_with_origin_and_id<H: ShadowHost>(
             if !pending.current(&adapter_id, &adapter) {
                 return None;
             }
+            let runtime = pending.host.supporter_runtime();
+            let deadline =
+                runtime.decision_deadline(&adapter_id, config.deadline_ms, Instant::now());
             let result = if observer::choice_model(&pending.host.supporter_models(), &adapter_id)
                 .is_none()
             {
                 Err(DecisionError::Unsupported)
             } else {
-                let runtime = pending.host.supporter_runtime();
-                let deadline =
-                    runtime.decision_deadline(&adapter_id, config.deadline_ms, Instant::now());
                 let model = supporter::budgeted_model_with_activity(
                     adapter.clone(),
                     runtime,

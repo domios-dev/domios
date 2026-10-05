@@ -192,7 +192,7 @@ fn supporter_failure_activity_labels_the_tab_state_decision_point() {
 #[test]
 fn supporter_cold_adapter_decision_gets_a_startup_budget_until_ready() {
     let dir = tempfile::tempdir().unwrap();
-    let runtime = SupporterRuntime::new(dir.path().into());
+    let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
     let model = budgeted_model_with_activity(
         Arc::new(Model {
             calls: Arc::default(),
