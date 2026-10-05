@@ -18,5 +18,7 @@
   { "file": "edit-two-option-mentions-trust.txt", "expect": "hold" },
   { "file": "bypass-permissions-warning.txt", "expect": "none" },
   { "file": "trust-mentioned-bypass-warning.txt", "expect": "none" },
-  { "file": "mcp-server.txt", "expect": "none" }
+  { "file": "mcp-server.txt", "expect": "none" },
+  { "file": "windows-drive-path-no-first.txt", "expect": "move-down" },
+  { "file": "windows-drive-path-preapproved-no-first.txt", "expect": "move-down" }
 ]

@@ -150,6 +150,10 @@ fn find_trust_header(rows: &[&str]) -> Option<TrustHeader> {
 }
 
 fn trust_header(rows: &[&str], start: usize) -> Option<TrustHeader> {
+    // A Windows drive path ("D:\repo") carries a colon but is never a dialog title.
+    if is_path_row(rows[start]) {
+        return None;
+    }
     let (title, first_question) = rows[start].split_once(':')?;
     if title.trim().is_empty() {
         return None;
