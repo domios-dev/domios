@@ -30,6 +30,11 @@ function eq(actual: unknown, expected: unknown, name: string) {
   assert(a === e, name, `expected ${e}, got ${a}`);
 }
 
+assert(
+  manifest.spawn.sessionStartsOnFirstUserTurn === true,
+  "Cursor declares fresh sessions bind on the first user turn",
+);
+
 const manifestSeed = {
   models: [
     { id: "auto", displayName: "Auto", description: "Manifest fallback" },
@@ -438,6 +443,13 @@ console.log("\n--- parseSessionDelta (real JSONL transcript fixture) ---\n");
     timestamped.messages[0].blocks[0].data.text,
     "Compute 5096 + 3837. Reply with the decimal digits only.",
     "timestamp and user_query framing stripped together",
+  );
+  const grokTurn = p.parseSessionDelta(readFixture("cursor-grok-first-turn.jsonl")) as { messages: any[] };
+  eq(grokTurn.messages.length, 1, "Grok session fixture contains one user turn");
+  eq(
+    grokTurn.messages[0].blocks[0].data.text,
+    "Grok transcript exact marker 7f2a",
+    "Grok session user turn is parsed as its exact content",
   );
   // 2) assistant turn with a redacted-thinking text block + a tool_use block:
   //    the bare [REDACTED] text block is dropped, tool_use survives.

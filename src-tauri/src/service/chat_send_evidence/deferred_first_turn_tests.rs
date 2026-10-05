@@ -12,6 +12,7 @@ use std::time::Duration;
 #[derive(Clone, Copy)]
 enum StoreKind {
     Jsonl,
+    CursorJsonl,
     Structured,
 }
 
@@ -65,7 +66,8 @@ impl AgentProvider for LazyFirstTurnProvider {
     }
 
     fn session_file_path(&self, _: &str, session_id: &str) -> Option<PathBuf> {
-        matches!(self.kind, StoreKind::Jsonl).then(|| self.root.join(format!("{session_id}.jsonl")))
+        matches!(self.kind, StoreKind::Jsonl | StoreKind::CursorJsonl)
+            .then(|| self.root.join(format!("{session_id}.jsonl")))
     }
 
     fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {
@@ -106,17 +108,36 @@ impl AgentProvider for LazyFirstTurnProvider {
             .split(|byte| *byte == b'\n')
             .filter_map(|line| serde_json::from_slice::<serde_json::Value>(line).ok())
             .filter_map(|value| {
-                let payload = value.get("payload")?;
-                let content = payload.get("content")?.as_array()?;
-                let text = content
-                    .iter()
-                    .filter_map(|block| {
-                        (block.get("type")?.as_str()? == "input_text")
-                            .then(|| block.get("text")?.as_str())
-                            .flatten()
-                    })
-                    .collect::<String>();
-                (payload.get("role")?.as_str()? == "user").then(|| RichMessage {
+                let (role, text) = match self.kind {
+                    StoreKind::Jsonl => {
+                        let payload = value.get("payload")?;
+                        let content = payload.get("content")?.as_array()?;
+                        let text = content
+                            .iter()
+                            .filter_map(|block| {
+                                (block.get("type")?.as_str()? == "input_text")
+                                    .then(|| block.get("text")?.as_str())
+                                    .flatten()
+                            })
+                            .collect::<String>();
+                        (payload.get("role")?.as_str()?, text)
+                    }
+                    StoreKind::CursorJsonl => {
+                        let role = value.get("role")?.as_str()?;
+                        let content = value.pointer("/message/content")?.as_array()?;
+                        let text = content
+                            .iter()
+                            .filter_map(|block| {
+                                (block.get("type")?.as_str()? == "text")
+                                    .then(|| block.get("text")?.as_str())
+                                    .flatten()
+                            })
+                            .collect::<String>();
+                        (role, cursor_user_text(&text, role))
+                    }
+                    StoreKind::Structured => return None,
+                };
+                (role == "user").then(|| RichMessage {
                     role: "user".into(),
                     blocks: vec![MessageBlock {
                         kind: "text".into(),
@@ -143,6 +164,18 @@ impl AgentProvider for LazyFirstTurnProvider {
             done: None,
         }
     }
+}
+
+fn cursor_user_text(text: &str, role: &str) -> String {
+    if role != "user" {
+        return text.to_string();
+    }
+    let Some((_, query)) = text.split_once("<user_query>") else {
+        return text.to_string();
+    };
+    query
+        .split_once("</user_query>")
+        .map_or_else(|| text.to_string(), |(body, _)| body.trim().to_string())
 }
 
 struct Fixture {
@@ -284,6 +317,45 @@ fn lazy_structured_first_user_turn_confirms_after_binding() {
     });
 
     fixture.bind_session("lazy-session");
+    fixture.reconcile();
+    assert_eq!(
+        fixture
+            .service
+            .service
+            .chat_send_ledger
+            .status(&send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Sent
+    );
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "requires the shared interactive desktop ServiceContext fixture"
+)]
+fn lazy_cursor_grok_transcript_confirms_only_from_the_bound_session() {
+    let fixture = Fixture::new(StoreKind::CursorJsonl);
+    let payload = "Grok transcript exact marker 7f2a";
+    let send_id = fixture.start_lazy_send(payload);
+    let transcript = include_str!("../../../../plugins/provider-cursor/tests/fixtures/cursor-grok-first-turn.jsonl");
+    std::fs::write(fixture.provider.root.join("foreign-session.jsonl"), transcript).unwrap();
+    fixture.bind_session("lazy-session");
+
+    fixture.reconcile();
+    assert_eq!(
+        fixture
+            .service
+            .service
+            .chat_send_ledger
+            .status(&send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Unknown
+    );
+
+    std::fs::write(fixture.provider.root.join("lazy-session.jsonl"), transcript).unwrap();
     fixture.reconcile();
     assert_eq!(
         fixture
