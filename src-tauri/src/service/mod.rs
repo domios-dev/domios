@@ -69,6 +69,7 @@ mod folder_trust_carryover;
 pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
+mod prompt_chain;
 mod output_feed;
 pub(crate) mod output_stream_activity;
 pub(crate) mod pending_delivery_payloads;
