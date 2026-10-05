@@ -3193,6 +3193,12 @@ Bind a running tab to an existing provider session without restarting it
 - `<session_id>` — Provider session ID to bind
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
+#### `codeterm tab release-ownership`
+
+Release stored remote mesh control ownership from a local tab
+
+- `--tab` — Local tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
+
 #### `codeterm tab rename`
 
 Rename a tab (default: current tab)
