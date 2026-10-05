@@ -253,7 +253,9 @@ export async function main(args: string[]): Promise<void> {
   for (const stale of [discoveryPath, runPath]) fs.rmSync(stale, { force: true });
 
   await assertReusableDevConsole();
-  process.stdout.write(`[playwright:selection] adopted ${process.env.CT_E2E_INSTANCE ?? "playwright"}\n`);
+  process.stdout.write(
+    `[playwright:selection] adopted ${process.env.CODETERM_INSTANCE ?? process.env.CT_E2E_INSTANCE ?? "playwright"}\n`,
+  );
 
   // --list never enters global setup, so this costs discovery and nothing else.
   const discoveryStdout = await captureStreaming(

@@ -8,7 +8,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 source "$REPO_ROOT/evals/_lib/lib.sh"
 
-export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223"
+RM_ALLOW_DEFAULT_DEV="${RM_ALLOW_DEFAULT_DEV:-0}"
+dev_assert_restart_target "$RM_ALLOW_DEFAULT_DEV" || exit 7
+RM_INSTANCE="$EVAL_LIB_RESOLVED_INSTANCE"
+RM_CDP_PORT="$(dev_cdp_port)" || exit 7
+RM_PW_TARGET=named
+if [ -z "$RM_INSTANCE" ]; then
+  RM_PW_TARGET=dev
+fi
+export WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=$RM_CDP_PORT"
 export VITE_CODETERM_TEST=1
 export CODETERM_TEST_CLOCK=1
 
@@ -403,7 +411,7 @@ def request(path, payload):
         raise TimeoutError("provider-store deadline elapsed before request")
     body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
-        "http://127.0.0.1:7686" + path,
+        f"http://127.0.0.1:{os.environ['CODETERM_API_PORT']}" + path,
         data=body,
         headers={**headers, "Content-Type": "application/json"},
         method="POST",
@@ -413,7 +421,7 @@ def request(path, payload):
 
 def stream_events():
     req = urllib.request.Request(
-        "http://127.0.0.1:7686/api/events/stream",
+        f"http://127.0.0.1:{os.environ['CODETERM_API_PORT']}/api/events/stream",
         headers={**headers, "Accept": "text/event-stream"},
     )
     try:
@@ -594,7 +602,7 @@ def clean(text):
 
 def api_get(path):
     req = urllib.request.Request(
-        "http://127.0.0.1:7686" + path,
+        f"http://127.0.0.1:{os.environ['CODETERM_API_PORT']}" + path,
         headers={"Authorization": "Bearer " + token},
     )
     with urllib.request.urlopen(req, timeout=30) as response:
@@ -691,7 +699,8 @@ print_slot_table() {
 echo "== restart validated dev baseline"
 (
   cd "$REPO_ROOT" || exit 1
-  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="$WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS" VITE_CODETERM_TEST=1 CODETERM_TEST_CLOCK=1 bash build.sh dev-prebuilt --wait
+  dev_run env WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="$WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS" \
+    VITE_CODETERM_TEST=1 CODETERM_TEST_CLOCK=1 bash build.sh dev-prebuilt --wait
 ) || exit 1
 
 echo "== create matrix workspace $WORKSPACE_NAME"
@@ -728,8 +737,9 @@ save_response=$(dev_post /api/session/save) || { echo "FAIL session save request
 echo "== hard restart dev with Playwright/CDP env"
 (
   cd "$REPO_ROOT" || exit 1
-  bash build.sh kill
-  WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="$WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS" VITE_CODETERM_TEST=1 CODETERM_TEST_CLOCK=1 bash build.sh dev-prebuilt --wait
+  dev_kill_hard
+  dev_run env WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="$WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS" \
+    VITE_CODETERM_TEST=1 CODETERM_TEST_CLOCK=1 bash build.sh dev-prebuilt --wait
 ) || exit 1
 
 echo "== API post-restore assertions"
@@ -742,7 +752,8 @@ assert_post_chat_isolation || exit 1
 echo "== Playwright UI-visible marker oracle"
 if ! (
   cd "$REPO_ROOT" || exit 1
-  RESTORE_MATRIX_MANIFEST="$MANIFEST" pnpm exec playwright test -c tests/playwright --project=full tests/playwright/suites/10-restore/restore-matrix.spec.ts
+  dev_run env PW_TARGET="$RM_PW_TARGET" RESTORE_MATRIX_MANIFEST="$MANIFEST" \
+    pnpm exec playwright test -c tests/playwright --project=full tests/playwright/suites/10-restore/restore-matrix.spec.ts
 ); then
   echo "FAIL Playwright UI-visible marker oracle manifest=$MANIFEST"
   print_slot_table
