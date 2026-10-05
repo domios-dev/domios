@@ -341,6 +341,7 @@ pub fn run() {
             session::load_session,
             commands::automation_graph_snapshot,
             commands::automation_graph_stop_sentinel,
+            commands::automation_graph_delete_sentinel,
             commands::cron_list,
             commands::cron_get,
             commands::cron_create,

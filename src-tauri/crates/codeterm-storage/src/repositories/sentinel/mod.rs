@@ -214,6 +214,26 @@ impl SentinelRepository {
             })
     }
 
+    pub fn delete_scenario(
+        &self,
+        id: SentinelId,
+        workspace: String,
+        team: Option<String>,
+    ) -> Mutation {
+        let validated = identifier("workspace id", &workspace).and_then(|()| {
+            team.as_deref()
+                .map_or(Ok(()), |team| identifier("team id", team))
+        });
+        if let Err(error) = validated {
+            return refused(error);
+        }
+        let cost =
+            overhead() + id.as_str().len() + workspace.len() + team.as_ref().map_or(0, String::len);
+        self.storage.submit_mutation(cost, move |cx| {
+            runtime::delete_scenario(cx, id, &workspace, team.as_deref())
+        })
+    }
+
     pub fn schedule(&self, updates: Vec<ScheduleUpdate>) -> Mutation {
         let validated = batch_bound("sentinel schedule", updates.len())
             .and_then(|()| updates.iter().try_for_each(ScheduleUpdate::validate));

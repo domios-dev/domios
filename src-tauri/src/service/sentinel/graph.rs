@@ -282,6 +282,25 @@ impl ServiceContext {
         result
     }
 
+    pub(crate) fn automation_graph_delete_host(
+        &self,
+        workspace: &str,
+        team: Option<&str>,
+        id: &str,
+    ) -> Result<(), String> {
+        let handle = self
+            .app_handle
+            .try_state::<Handle>()
+            .ok_or("sentinels not initialized")?;
+        let staged = {
+            let mux = self.mux.read();
+            graph::host_delete_staged(&mut handle.store.lock(), &mux, workspace, team, id)?
+        };
+        let result = staged.settle(&handle.store);
+        handle.notify();
+        result
+    }
+
     pub(crate) fn automation_graph_stop_tab(
         &self,
         workspace: &str,
