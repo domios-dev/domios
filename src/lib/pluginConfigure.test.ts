@@ -36,10 +36,10 @@ assert("payload carries the wrapped help", parsed?.payload.includes("set the mod
 
 async function asyncTests() {
   console.log("\nconfigureWithAI:");
-  const focusEvents: Array<{ type: string; detail?: { tabId?: string } }> = [];
+  const focusEvents: Array<{ type: string; detail?: { tabId?: string; workspaceId?: string } }> = [];
   const g = globalThis as unknown as Record<string, unknown>;
   g.window = {
-    dispatchEvent: (e: { type: string; detail?: { tabId?: string } }) => (focusEvents.push(e), true),
+    dispatchEvent: (e: { type: string; detail?: { tabId?: string; workspaceId?: string } }) => (focusEvents.push(e), true),
   };
   g.CustomEvent = class<T> {
     type: string;
@@ -55,7 +55,7 @@ async function asyncTests() {
   g.fetch = async (url: string, init: { body?: string }) => {
     requestUrl = url;
     requestBody = JSON.parse(init.body ?? "{}");
-    return { ok: true, status: 200, json: async () => ({ id: "tab-xyz", delivery_state: "launched" }) };
+    return { ok: true, status: 200, json: async () => ({ id: "tab-xyz", workspace_id: "workspace-general", delivery_state: "launched" }) };
   };
   await configureWithAI("lmstudio", "LM Studio", opaqueToken, { host: "127.0.0.1", port: 7686 });
   const focus = focusEvents.find((e) => e.type === "codeterm:focus-tab");
@@ -64,8 +64,9 @@ async function asyncTests() {
     "leaves provider and placement to the daemon",
     !("agent" in requestBody) && !("workspace_id" in requestBody) && !("cwd" in requestBody),
   );
+  assert("uses one-word tab title and descriptive plugin context", requestBody.title === "Configure" && !/\s/.test(String(requestBody.title)) && requestBody.description === "Configure LM Studio");
   assert("delivers the supplied opaque token in the spawn task", String(requestBody.task).includes(opaqueToken));
-  assert("dispatches codeterm:focus-tab with the spawned Tab id", focus?.detail?.tabId === "tab-xyz");
+  assert("dispatches focus with the spawned Tab and General workspace ids", focus?.detail?.tabId === "tab-xyz" && focus?.detail?.workspaceId === "workspace-general");
 
   const exactFailure = "fixture launch refused 2c418";
   g.fetch = async () => ({

@@ -11,6 +11,7 @@ export const AI_HELPER_SPAWN_PATH = "/api/agents/helper";
 
 export interface AiHelperRequest {
   title: string;
+  description: string;
   task: string;
 }
 
@@ -18,7 +19,7 @@ export type AiHelperDeliveryState = "confirmed" | "launched";
 
 export interface AiHelperSpawned {
   tabId: string;
-  workspaceId: string | null;
+  workspaceId: string;
   deliveryState: AiHelperDeliveryState;
 }
 
@@ -35,7 +36,7 @@ const DELIVERY_STATES: readonly string[] = ["confirmed", "launched"];
 function postHelper(request: AiHelperRequest, api: DaemonApiConfig): Promise<Response> {
   const init = {
     method: "POST",
-    body: JSON.stringify({ title: request.title, task: request.task }),
+    body: JSON.stringify({ title: request.title, description: request.description, task: request.task }),
   };
   if (IS_WEB) return webFetch(AI_HELPER_SPAWN_PATH, init);
   const token = daemonAuthToken(api);
@@ -68,10 +69,12 @@ export async function spawnAiHelper(
   if (!deliveryState || !DELIVERY_STATES.includes(deliveryState)) {
     throw new Error(`AI helper launch returned an unknown delivery state: ${deliveryState ?? "none"}`);
   }
-  window.dispatchEvent(new CustomEvent("codeterm:focus-tab", { detail: { tabId } }));
+  const workspaceId = payload?.workspace_id;
+  if (!workspaceId) throw new Error("AI helper launch returned no workspace id");
+  window.dispatchEvent(new CustomEvent("codeterm:focus-tab", { detail: { tabId, workspaceId } }));
   return {
     tabId,
-    workspaceId: payload?.workspace_id ?? null,
+    workspaceId,
     deliveryState: deliveryState as AiHelperDeliveryState,
   };
 }

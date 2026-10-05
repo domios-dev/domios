@@ -27,5 +27,5 @@ export async function configureWithAI(
   help: string,
   api: DaemonApiConfig = {},
 ): Promise<void> {
-  await spawnAiHelper({ title: `Configure ${name}`, task: buildConfigureTask(id, name, help) }, api);
+  await spawnAiHelper({ title: "Configure", description: `Configure ${name}`, task: buildConfigureTask(id, name, help) }, api);
 }
