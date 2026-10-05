@@ -36,6 +36,90 @@ fn post_write_uncertainty_is_not_a_user_facing_delivery_failure() {
 }
 
 #[test]
+fn refused_agent_report_waits_for_state_change_and_writes_once() {
+    let temp = tempfile::tempdir().unwrap();
+    let store =
+        crate::service::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore::open(
+            temp.path(),
+        );
+    let tab_id = "orchestrator-tab";
+    let report = "never-written report body";
+    let generation = store.state_generation(tab_id);
+    let id = store
+        .enqueue(tab_id, report, Some("report:report-1".into()))
+        .unwrap();
+    let next_id = store.enqueue(tab_id, "next agent message", None).unwrap();
+
+    assert!(store.block_after_refusal(tab_id, generation));
+    assert!(!store.start_worker(tab_id));
+    let record = store.pending_head(tab_id).unwrap().unwrap();
+    assert_eq!(store.payload(tab_id, &record).unwrap(), report);
+
+    store.state_changed(tab_id);
+    assert!(store.start_worker(tab_id));
+    let mut writes = Vec::new();
+    for expected_id in [&id, &next_id] {
+        let record = store.pending_head(tab_id).unwrap().unwrap();
+        assert_eq!(&record.id, expected_id);
+        assert!(store.claim(tab_id, expected_id).unwrap());
+        writes.push(record.id.clone());
+        assert!(store.complete_written(tab_id, expected_id).unwrap());
+    }
+    store.finish_worker(tab_id);
+
+    assert_eq!(writes, [id, next_id]);
+    assert!(store.pending_head(tab_id).unwrap().is_none());
+}
+
+#[test]
+fn claimed_agent_report_is_not_replayed_after_reopen() {
+    let temp = tempfile::tempdir().unwrap();
+    let tab_id = "orchestrator-tab";
+    let store =
+        crate::service::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore::open(
+            temp.path(),
+        );
+    let id = store.enqueue(tab_id, "report body", None).unwrap();
+    assert!(store.claim(tab_id, &id).unwrap());
+
+    let reopened =
+        crate::service::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore::open(
+            temp.path(),
+        );
+    assert!(reopened.pending_head(tab_id).unwrap().is_none());
+}
+
+#[test]
+fn never_written_agent_report_survives_reopen() {
+    let temp = tempfile::tempdir().unwrap();
+    let tab_id = "orchestrator-tab";
+    let store =
+        crate::service::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore::open(
+            temp.path(),
+        );
+    let id = store
+        .enqueue(
+            tab_id,
+            "never-written report",
+            Some("report:report-1".into()),
+        )
+        .unwrap();
+
+    let reopened =
+        crate::service::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore::open(
+            temp.path(),
+        );
+    let record = reopened.pending_head(tab_id).unwrap().unwrap();
+    assert_eq!(record.id, id);
+    assert_eq!(
+        reopened.payload(tab_id, &record).unwrap(),
+        "never-written report"
+    );
+    assert!(reopened.claim(tab_id, &record.id).unwrap());
+    assert!(reopened.complete_written(tab_id, &record.id).unwrap());
+}
+
+#[test]
 fn routed_suffix_has_a_closing_tag_for_plain_and_capable_targets() {
     use codeterm_types::domios::{DOMIOS_CLOSE_TAG, DOMIOS_TYPED_INSTRUCTION};
 

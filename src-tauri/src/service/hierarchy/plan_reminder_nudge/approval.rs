@@ -15,6 +15,7 @@ pub(crate) struct ReminderRequest {
     pub(crate) kind: ReminderKind,
     pub(crate) plan_id: Option<String>,
     pub(crate) tab_id: String,
+    pub(crate) delivery_observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 }
 
 impl ReminderRequest {
@@ -23,6 +24,7 @@ impl ReminderRequest {
             kind,
             plan_id: Some(plan_id.into()),
             tab_id: tab_id.into(),
+            delivery_observer: None,
         }
     }
 
@@ -31,6 +33,7 @@ impl ReminderRequest {
             kind: ReminderKind::Worker,
             plan_id: None,
             tab_id: tab_id.into(),
+            delivery_observer: None,
         }
     }
 }
@@ -39,6 +42,7 @@ impl ReminderRequest {
 pub(crate) enum ReminderOutcome {
     Suppressed(&'static str),
     Accepted,
+    Pending,
     Failed(String),
 }
 
@@ -47,7 +51,7 @@ impl ReminderOutcome {
     pub(crate) fn into_delivery(self) -> Result<bool, String> {
         match self {
             Self::Accepted => Ok(true),
-            Self::Suppressed(_) => Ok(false),
+            Self::Suppressed(_) | Self::Pending => Ok(false),
             Self::Failed(error) => Err(error),
         }
     }
@@ -106,7 +110,13 @@ pub(crate) trait ReminderHost {
         snapshot: &Snapshot,
         decision: &Decision,
     ) -> Emission;
-    fn emit(&self, plan_id: &str, scope: &Scope, emission: &Emission) -> Result<(), String>;
+    fn emit(
+        &self,
+        plan_id: &str,
+        scope: &Scope,
+        emission: &Emission,
+        observer: Option<crate::service::messenger::DeliveryWriteObserver>,
+    ) -> Result<bool, String>;
     fn notify_blocked(&self, owner_tab: &str, notice: &BlockedNotice);
 }
 
@@ -163,6 +173,7 @@ pub(crate) fn admit(
     match outcome {
         ReminderOutcome::Suppressed(_) => log::debug!("{line}"),
         ReminderOutcome::Accepted => log::info!("{line}"),
+        ReminderOutcome::Pending => log::warn!("{line}"),
         ReminderOutcome::Failed(_) => log::warn!("{line}"),
     }
     outcome
@@ -264,11 +275,17 @@ fn admit_claimed(
     if current(&plan.id).is_none() || !gate.attempt(claim, &decision) {
         return suppress(gate, claim, "stale_scope");
     }
-    match host.emit(&plan.id, &scope, &emission) {
-        Ok(()) => {
+    match host.emit(
+        &plan.id,
+        &scope,
+        &emission,
+        request.delivery_observer.clone(),
+    ) {
+        Ok(true) => {
             gate.delivered(key, &snapshot, &decision, now);
             ReminderOutcome::Accepted
         }
+        Ok(false) => ReminderOutcome::Pending,
         Err(error) => {
             gate.failed(key);
             ReminderOutcome::Failed(error)
