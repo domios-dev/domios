@@ -154,7 +154,8 @@ impl SubmitTransport for ScreenBackedComposer {
         self.generation.set(self.generation.get() + 1);
         let turn_started = self.starts_turn && submit_key_writes >= self.turn_after_submit_key;
         self.turn.set(turn_started);
-        self.exact_session_turn.set(turn_started && self.exact_evidence_available.get());
+        self.exact_session_turn
+            .set(turn_started && self.exact_evidence_available.get());
         let name = if key == b"\t" { "tab" } else { "enter" };
         self.writes.borrow_mut().push(name.to_string());
         Ok(())
@@ -301,7 +302,9 @@ fn lazy_first_turn_with_long_paste_uses_bounded_enter_recovery_without_a_session
         retry_offsets: [200, 500, 1200, 2200, 4000, 5800].map(Duration::from_millis),
     };
     let long_numbered_request = (1..=45)
-        .map(|index| format!("{index}. Inspect the component and preserve this numbered request marker."))
+        .map(|index| {
+            format!("{index}. Inspect the component and preserve this numbered request marker.")
+        })
         .collect::<Vec<_>>()
         .join("\n");
     assert!(long_numbered_request.len() > 3_000);
@@ -329,7 +332,11 @@ fn lazy_first_turn_with_long_paste_uses_bounded_enter_recovery_without_a_session
 
     assert!(result.submit_observed);
     assert_eq!(io.pastes(), 1, "a long payload is never replayed");
-    assert_eq!(io.enters(), 2, "the second bounded key submits the first turn");
+    assert_eq!(
+        io.enters(),
+        2,
+        "the second bounded key submits the first turn"
+    );
     assert_eq!(result.submit_key_writes, 2);
 }
 
