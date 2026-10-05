@@ -59,36 +59,80 @@ function normalizeTestPath(file) {
   return file.split(path.sep).join("/");
 }
 
-const vitestOwnedTests = new Set(
-  JSON.parse(readFileSync(path.join(root, "scripts/vitest-owned-tests.json"), "utf8")),
-);
-
-function collectTests(directory, tests = []) {
+function collectTests(directory, tests = [], repositoryRoot = root) {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (entry.isDirectory()) {
       if (entry.name !== "node_modules" && entry.name !== "dist") {
-        collectTests(path.join(directory, entry.name), tests);
+        collectTests(path.join(directory, entry.name), tests, repositoryRoot);
       }
       continue;
     }
     if (entry.isFile() && /\.test\.tsx?$/.test(entry.name)) {
-      const relative = normalizeTestPath(path.relative(root, path.join(directory, entry.name)));
-      if (!vitestOwnedTests.has(relative)) tests.push(relative);
+      const relative = normalizeTestPath(path.relative(repositoryRoot, path.join(directory, entry.name)));
+      tests.push(relative);
     }
   }
   return tests;
 }
 
-function discoverTests(env) {
+export function discoverTests(env = process.env, repositoryRoot = root) {
   if (env.CODETERM_TS_UNIT_RUNNER_TEST_LIST) {
     return readFileSync(env.CODETERM_TS_UNIT_RUNNER_TEST_LIST, "utf8")
       .split(/\r?\n/)
       .filter(Boolean);
   }
+  const vitestOwnedTests = new Set(
+    JSON.parse(readFileSync(path.join(repositoryRoot, "scripts/vitest-owned-tests.json"), "utf8")),
+  );
   return [
-    ...collectTests(path.join(root, "src")),
-    ...collectTests(path.join(root, "packages")),
-  ].sort();
+    ...collectTests(path.join(repositoryRoot, "src"), [], repositoryRoot),
+    ...collectTests(path.join(repositoryRoot, "packages"), [], repositoryRoot),
+  ].filter((testFile) => !vitestOwnedTests.has(testFile)).sort();
+}
+
+function pathVariants(file) {
+  const extensionless = file.replace(/\.(?:[cm]?[jt]sx?)$/, "");
+  return new Set([
+    file,
+    extensionless,
+    ...[".ts", ".tsx", ".js", ".jsx", ".mts", ".cts"].map(
+      (extension) => `${extensionless}${extension}`,
+    ),
+    ...[".ts", ".tsx", ".js", ".jsx"].map(
+      (extension) => path.join(extensionless, `index${extension}`),
+    ),
+  ].map((entry) => path.resolve(entry)));
+}
+
+function localImports(file, root) {
+  const contents = readFileSync(path.resolve(root, file), "utf8");
+  const specifiers = [];
+  const pattern = /\b(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["']([^"']+)["']/g;
+  for (const match of contents.matchAll(pattern)) {
+    if (match[1].startsWith(".")) specifiers.push(match[1].split(/[?#]/, 1)[0]);
+  }
+  return specifiers;
+}
+
+export function selectRelatedTests(tests, changedFiles, repositoryRoot = root) {
+  const changed = changedFiles.map((file) => path.resolve(repositoryRoot, file));
+  const changedVariants = new Set(changed.flatMap((file) => [...pathVariants(file)]));
+  const colocatedTests = new Set(changed.flatMap((file) => {
+    const stem = path.basename(file).replace(/\.(?:[cm]?[jt]sx?)$/, "");
+    return ["ts", "tsx"].map((extension) =>
+      path.resolve(path.dirname(file), `${stem}.test.${extension}`),
+    );
+  }));
+
+  return tests.filter((testFile) => {
+    const absoluteTest = path.resolve(repositoryRoot, testFile);
+    if (changed.includes(absoluteTest) || colocatedTests.has(absoluteTest)) return true;
+
+    return localImports(testFile, repositoryRoot).some((specifier) => {
+      const imported = path.resolve(path.dirname(absoluteTest), specifier);
+      return [...pathVariants(imported)].some((candidate) => changedVariants.has(candidate));
+    });
+  });
 }
 
 function filterTests(tests, filters) {
@@ -373,8 +417,21 @@ export async function runTsUnitTests({
     return 2;
   }
 
-  const tests = filterTests(discoverTests(env), filters);
+  const relatedIndex = filters.indexOf("--related");
+  const relatedFiles = relatedIndex < 0 ? null : filters.slice(relatedIndex + 1);
+  if (relatedFiles && relatedFiles.length === 0) {
+    writeLine(errorOutput, "--related requires at least one changed TS file");
+    return 2;
+  }
+  const discoveredTests = discoverTests(env);
+  const tests = relatedFiles
+    ? selectRelatedTests(discoveredTests, relatedFiles)
+    : filterTests(discoveredTests, filters);
   if (tests.length === 0) {
+    if (relatedFiles) {
+      writeLine(errorOutput, `no TS unit tests related to changed file(s): ${relatedFiles.join(" ")}`);
+      return 2;
+    }
     if (filters.length > 0) {
       writeLine(errorOutput, `no TS unit tests matched filter(s): ${filters.join(" ")}`);
       return 2;
