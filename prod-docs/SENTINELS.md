@@ -6,11 +6,7 @@ completion instead of repeatedly asking an agent to run the same status check.
 
 ## When to use a Sentinel graph
 
-Before you repeat a check or wait on an external, agent or cron status, describe the loop once as a graph instead of
-spending turns on it. Unchanged output costs no model call and no agent turn; you wake only when a declared bucket
-routes to you. Observation and actions are deterministic, the model only picks one of your finite buckets (never a
-command, target or reply), and every action stays in the creator's Team, workspace and machine. `other` means no
-bucket fits.
+Before you repeat a check or wait on an external, agent or cron status, describe the loop once as a graph instead of spending turns on it. Unchanged output costs no model call and no agent turn; you wake only when a declared bucket routes to you. Observation and actions are deterministic, the model only picks one of your finite buckets (never a command, target or reply), and every action stays in the creator's Team, workspace and machine. `other` means no bucket fits.
 
 1. **CI or PR result.** `--probe "gh run view ID --json status,conclusion"`, buckets `passed,failed`, running CI left
    to `other`; `--route passed=cron:<review>` and `failed=send:<fixer tab>`. The branch is decided once, no polling.
@@ -28,6 +24,11 @@ bucket fits.
    reads `sentinel history`, adds the missing bucket, pattern or handler with `sentinel update ... --cause
    TRANSITION_ID`, then resolves the escalation so the stage re-evaluates once. Each unknown case costs one turn, then
    stays a versioned, deterministic branch.
+7. **Watching a whole Team.** A General Agent probes existing state, e.g. `--probe "codeterm orchestrator status
+   --plan <plan> --tab <orchestrator-tab>"`, with buckets `healthy,stuck,needs_owner,lost` in `--handlers-file`:
+   `"healthy": []` does nothing; `stuck`, `needs_owner` and `lost` each `notify` the creator once per change; `other`
+   escalates to `creator`. A `send` target must share the creator's Team, so the General Agent relays `stuck` to the
+   Team Orchestrator once with `codeterm send` and takes `needs_owner` to the owner.
 
 ## Create a watch
 
@@ -35,10 +36,7 @@ bucket fits.
 codeterm sentinel create --probe "gh run view 456 --json status,conclusion" --question "waiting while CI is in progress; finished when CI has completed with any conclusion" --buckets waiting,finished --every 20s --until finished --timeout 1h
 ```
 
-The first probe runs immediately. `--every` defaults to `20s` and must be at least `10s`. Durations accept `s`, `m`,
-`h`, `d`, and combinations such as `1h30m`; a bare number means minutes. The maximum duration is 366 days. `--timeout`
-bounds the lifetime. `--until` names one declared bucket and ends the watch after that bucket's first routed transition.
-`--route bucket=stop` ends it without sending a message.
+The first probe runs immediately. `--every` defaults to `20s` and must be at least `10s`. Durations accept `s`, `m`, `h`, `d`, and combinations such as `1h30m`; a bare number means minutes. The maximum duration is 366 days. `--timeout` bounds the lifetime. `--until` names one declared bucket and ends the watch after that bucket's first routed transition. `--route bucket=stop` ends it without sending a message.
 
 For quiet PR waiting, declare only terminal outcomes; classify still-running CI as `other`, and add an `other`
 escalation handler when it needs attention. With an existing same-Team cron and agent:
@@ -237,4 +235,4 @@ automatic migration, reset or discard. Use fresh isolated dev data for demonstra
 A failed persistence write returns an error and holds Sentinel unavailable; cancellation stays in memory and durability
 is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->
