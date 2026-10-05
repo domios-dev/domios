@@ -570,7 +570,7 @@ fn settled_listener(
     (listener, rx)
 }
 
-fn await_owner_idle(fixture: &ServiceFixture, tab_id: &str) {
+pub(crate) fn await_owner_idle(fixture: &ServiceFixture, tab_id: &str) {
     let owner = fixture.service.pending_delivery_payloads.user_sends.tab(tab_id);
     let (idle_tx, idle_rx) = mpsc::sync_channel(1);
     let callback_tx = idle_tx.clone();
