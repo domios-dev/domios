@@ -52,12 +52,6 @@ pub(crate) fn sync_scrollback_sidecars_after_save_with(
     sync_scrollback_sidecars_with(mux, output_buf, session)
 }
 
-pub(crate) fn sync_scrollback_sidecars(app: &tauri::AppHandle) {
-    if let Some((mux, output_buf, session)) = sidecar_state(app) {
-        sync_scrollback_sidecars_with(&mux, &output_buf, &session);
-    }
-}
-
 pub(crate) fn sync_scrollback_sidecars_with(
     mux: &MuxState,
     output_buf: &OutputBufferState,

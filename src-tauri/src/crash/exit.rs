@@ -8,9 +8,7 @@ use tauri::Manager;
 
 use crate::multiplexer::commands::MuxState;
 use crate::session::store::SaveOutcome;
-use crate::session::SessionState;
 use crate::KeepAwakeStateHandle;
-use crate::OutputBufferState;
 
 #[cfg(test)]
 mod tests;
@@ -22,12 +20,14 @@ pub(crate) struct ExitPlan {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg(test)]
 enum ShutdownSidecarLogLevel {
     Info,
     Warn,
 }
 
 #[derive(Debug, PartialEq, Eq)]
+#[cfg(test)]
 struct ShutdownSidecarLogRecord {
     level: ShutdownSidecarLogLevel,
     message: String,
@@ -55,54 +55,17 @@ where
     }
 }
 
-/// The lock pair at the heart of rel#65: snapshot + save the session, then run
-/// the post-save sidecar sync, without ever holding the session guard across
-/// the sync's own re-entrant lock. Takes exactly the state it needs — no
-/// `AppHandle`, no Tauri runtime — so the ordering is provable on its own,
-/// independent of the shutdown path that happens to call it.
-pub(crate) fn save_and_sync_sidecars(
-    mux: &MuxState,
-    session: &SessionState,
-    output_buf: Option<&OutputBufferState>,
-) {
-    let save_result = crate::session::save_current_snapshot(
-        session,
-        mux,
-        crate::session::store::SaveIntent::PreserveDesk,
-    );
-    match save_result {
-        Ok(outcome) => {
-            match &outcome {
-                SaveOutcome::Saved => log::info!("[shutdown] session snapshot saved"),
-                SaveOutcome::RefusedReduction(_) => {
-                    log::warn!("[shutdown] session snapshot save refused")
-                }
-            }
-            let report = match output_buf {
-                Some(output_buf) => {
-                    crate::session::scrollback_sync::sync_scrollback_sidecars_after_save_with(
-                        &outcome, mux, output_buf, session,
-                    )
-                }
-                None => crate::session::scrollback_sync::skipped_report(
-                    mux,
-                    match &outcome {
-                        SaveOutcome::Saved => "output_buffer_unavailable",
-                        SaveOutcome::RefusedReduction(_) => "session_snapshot_not_saved",
-                    },
-                ),
-            };
-            log_shutdown_sidecar_report(&report);
+fn persist_storage_desk_snapshot(app: &tauri::AppHandle, mux: &MuxState) {
+    match crate::service::session_persist::write_session_snapshot(app, mux) {
+        Ok(SaveOutcome::Saved) => log::info!("[shutdown] Storage desk snapshot committed"),
+        Ok(SaveOutcome::RefusedReduction(refusal)) => {
+            log::error!("[shutdown] Storage desk snapshot refused: {refusal}")
         }
-        Err(error) => {
-            log::error!("[shutdown] session save failed: {error}");
-            let report =
-                crate::session::scrollback_sync::skipped_report(mux, "session_save_failed");
-            log_shutdown_sidecar_report(&report);
-        }
+        Err(error) => log::error!("[shutdown] Storage desk snapshot failed: {error}"),
     }
 }
 
+#[cfg(test)]
 fn shutdown_sidecar_log_records(
     report: &crate::session::scrollback_sync::SidecarSyncReport,
 ) -> Vec<ShutdownSidecarLogRecord> {
@@ -153,28 +116,20 @@ fn shutdown_sidecar_log_records(
     records
 }
 
-fn log_shutdown_sidecar_report(report: &crate::session::scrollback_sync::SidecarSyncReport) {
-    for record in shutdown_sidecar_log_records(report) {
-        match record.level {
-            ShutdownSidecarLogLevel::Info => log::info!("{}", record.message),
-            ShutdownSidecarLogLevel::Warn => log::warn!("{}", record.message),
-        }
-    }
-}
-
 /// Provider-update waiter join, session snapshot, mem WAL checkpoint. Idempotent
 /// and side-effect-free for process liveness, so every exit signal runs it.
 pub fn persist_state(app: &tauri::AppHandle) {
     log::info!("[shutdown] state persistence started");
-    if let (Some(mux), Some(session)) =
-        (app.try_state::<MuxState>(), app.try_state::<SessionState>())
-    {
-        let output_buf = app.try_state::<OutputBufferState>();
-        save_and_sync_sidecars(
-            mux.inner(),
-            session.inner(),
-            output_buf.as_ref().map(|s| s.inner()),
-        );
+    if let Some(mux) = app.try_state::<MuxState>() {
+        persist_storage_desk_snapshot(app, mux.inner());
+    }
+    if let Err(error) = crate::service::session_persist::stop_worker(app) {
+        log::warn!("[shutdown] desk persistence worker shutdown failed: {error}");
+    }
+    if let Some(storage) = app.try_state::<crate::startup::StorageAuthority>() {
+        if let Err(error) = crate::startup::shutdown_bounded(storage.inner()) {
+            log::error!("[shutdown] Storage shutdown failed: {error}");
+        }
     }
 
     if let Some(svc) = app.try_state::<crate::service::ServiceState>() {

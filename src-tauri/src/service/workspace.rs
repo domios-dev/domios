@@ -68,6 +68,19 @@ impl WorkspaceCloseCaller<'_> {
 }
 
 impl ServiceContext {
+    pub(crate) fn ensure_storage_available(&self) -> Result<(), String> {
+        let Some(authority) = self
+            .app_handle
+            .try_state::<crate::startup::StorageAuthority>()
+        else {
+            return Ok(());
+        };
+        authority
+            .require_ready()
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
+
     pub(crate) fn log_workspace_not_found(&self, workspace_id: &str) {
         let known_ids = self
             .mux
@@ -82,8 +95,9 @@ impl ServiceContext {
         );
     }
 
-    pub fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
-        self.mux.read().list_workspaces()
+    pub fn list_workspaces(&self) -> Result<Vec<WorkspaceInfo>, String> {
+        self.ensure_storage_available()?;
+        Ok(self.mux.read().list_workspaces())
     }
 
     fn ensure_workspace_plans_loaded(&self, cwd: Option<&str>) {

@@ -4,6 +4,10 @@ use crate::multiplexer::types::ClosedTab;
 use crate::service::ServiceContext;
 
 impl CommandPort for ServiceContext {
+    fn ensure_storage_available(&self) -> Result<(), String> {
+        ServiceContext::ensure_storage_available(self)
+    }
+
     fn mark_user_activity(&self) {
         self.user_last_activity.mark();
     }
@@ -96,7 +100,7 @@ impl CommandPort for ServiceContext {
         ServiceContext::close_workspace_guarded(self, caller, ws_id, force)
     }
 
-    fn list_workspaces(&self) -> Vec<WorkspaceInfo> {
+    fn list_workspaces(&self) -> Result<Vec<WorkspaceInfo>, String> {
         ServiceContext::list_workspaces(self)
     }
 

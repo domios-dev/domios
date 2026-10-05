@@ -1,11 +1,13 @@
 use super::legacy_decode;
 use super::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
+#[cfg(test)]
+use codeterm_storage::StorageConfig;
 use codeterm_storage::{
     Committed, Completion, DeskAgentSessionIdentity, DeskLayoutNode, DeskLeafFields, DeskSnapshot,
     DeskState, DeskTab, DeskTeam, DeskTeamLifecycle, DeskWorkspace, Revision, Storage,
-    StorageConfig,
 };
 use codeterm_types::plan::task_key::WorkspaceTaskKeys;
+#[cfg(test)]
 use std::path::Path;
 use std::time::Duration;
 
@@ -18,6 +20,7 @@ pub struct StorageDeskAdapter {
 
 impl StorageDeskAdapter {
     /// Storage open is blocking and must run off the async runtime and outside mux locks.
+    #[cfg(test)]
     pub fn open(root: impl AsRef<Path>) -> Result<Self, String> {
         let storage =
             Storage::open(root, StorageConfig::default()).map_err(|error| error.to_string())?;

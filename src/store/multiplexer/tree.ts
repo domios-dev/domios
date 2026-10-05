@@ -15,6 +15,7 @@ export interface ExtendedState extends MultiplexerState {
   activeTabIds: Record<string, string>;
   generation: number;
   pendingCloses: string[];
+  storageUnavailable?: boolean;
 }
 
 export function reconcileBackendWorkspaceTabs(

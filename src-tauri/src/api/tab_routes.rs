@@ -52,6 +52,11 @@ pub async fn list_tabs(
                     StatusCode::SERVICE_UNAVAILABLE,
                     crate::dispatch::TAB_SUMMARY_BUSY_ERROR,
                 )
+            } else if error == crate::startup::STORAGE_UNAVAILABLE_MESSAGE {
+                (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    crate::startup::STORAGE_UNAVAILABLE_MESSAGE,
+                )
             } else {
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list Tabs")
             }
