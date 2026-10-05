@@ -160,6 +160,12 @@ struct Emitted {
     emission: Emission,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+struct NotifiedBlocker {
+    owner_tab: String,
+    notice: BlockedNotice,
+}
+
 /// Real plans and multiplexer tabs; owner observations and composed text are
 /// opaque test inputs, and the emitter only counts what it is handed.
 struct FakeHost {
@@ -172,6 +178,7 @@ struct FakeHost {
     mux: Mutex<MultiplexerState>,
     owner_view: Mutex<Snapshot>,
     emits: Mutex<Vec<Emitted>>,
+    notices: Mutex<Vec<NotifiedBlocker>>,
     emit_error: Mutex<Option<String>>,
     compose_hook: Mutex<Option<fn(&FakeHost)>>,
     dir: tempfile::TempDir,
@@ -235,6 +242,19 @@ impl ReminderHost for FakeHost {
         (snapshot, observed)
     }
 
+    fn observe_worker(
+        &self,
+        plan: &Plan,
+        scope: &Scope,
+        previous: &crate::service::hierarchy::heartbeat_gate::Observation,
+        _: u64,
+    ) -> (
+        Snapshot,
+        crate::service::hierarchy::heartbeat_gate::Observation,
+    ) {
+        crate::service::hierarchy::heartbeat_gate::collect_worker_scope(plan, scope, previous)
+    }
+
     fn compose(&self, plan: &Plan, scope: &Scope, _: &Snapshot, decision: &Decision) -> Emission {
         let hook = self.compose_hook.lock().take();
         if let Some(hook) = hook {
@@ -262,6 +282,13 @@ impl ReminderHost for FakeHost {
             emission: emission.clone(),
         });
         self.emit_error.lock().clone().map_or(Ok(()), Err)
+    }
+
+    fn notify_blocked(&self, owner_tab: &str, notice: &BlockedNotice) {
+        self.notices.lock().push(NotifiedBlocker {
+            owner_tab: owner_tab.into(),
+            notice: notice.clone(),
+        });
     }
 }
 
@@ -357,6 +384,7 @@ fn host(plans: Vec<Plan>, mux: MultiplexerState, reply: Reply) -> (FakeHost, Arc
         mux: Mutex::new(mux),
         owner_view: Mutex::new(owner_view()),
         emits: Mutex::default(),
+        notices: Mutex::default(),
         emit_error: Mutex::default(),
         compose_hook: Mutex::default(),
         dir,
@@ -523,6 +551,7 @@ fn plan_reminder_choice_unavailable_zero_call_zero_emit() {
             }
             assert_eq!(f.model.calls(), 0, "{kind:?}/{name}");
             assert_eq!(f.emits(), 0, "{kind:?}/{name}");
+            assert!(f.host.notices.lock().is_empty(), "{kind:?}/{name}");
             assert!(f.host.gate.observation(&f.key(kind)).projection.is_none());
             assert_eq!(f.telemetry(kind), (2, 0, 0, 0), "{kind:?}/{name}");
             assert!(f.decisions().is_empty(), "{kind:?}/{name}");
@@ -567,6 +596,7 @@ fn plan_reminder_choice_invalid_or_unavailable_zero_emit() {
             );
             assert_eq!(f.model.calls(), 1, "{case}");
             assert_eq!(f.emits(), 0, "{case}");
+            assert!(f.host.notices.lock().is_empty(), "{case}");
             assert_eq!(f.telemetry(kind), (2, 0, 0, 0), "{case}");
             assert!(
                 f.decisions()
@@ -759,6 +789,116 @@ fn plan_reminder_choice_approve_exact_scope_once() {
         f.admit(ReminderKind::Worker, 100),
         ReminderOutcome::Accepted
     );
+}
+
+#[test]
+fn plan_reminder_choice_blocked_skips_worker_and_notifies_owner_once() {
+    let f = fixture(ReminderKind::Worker, Reply::Choice("blocked", 0.99));
+    assert_eq!(
+        f.admit(ReminderKind::Worker, 100),
+        ReminderOutcome::Suppressed("recipient_blocked")
+    );
+    assert_eq!((f.model.calls(), f.emits()), (1, 0));
+    let notices = f.host.notices.lock().clone();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].owner_tab, f.owner);
+    assert!(notices[0]
+        .notice
+        .event_key
+        .starts_with("plan-blocker:plan-a:"));
+    assert!(notices[0].notice.pause_plan);
+    assert_eq!(
+        notices[0]
+            .notice
+            .actions
+            .iter()
+            .map(|action| action.label())
+            .collect::<Vec<_>>(),
+        vec!["wait", "pause plan", "decide"]
+    );
+
+    f.edit_plan(|plan| {
+        plan.tasks
+            .push(task("unrelated", TaskStatus::InProgress, None));
+    });
+    assert_eq!(
+        f.admit(ReminderKind::Worker, 101),
+        ReminderOutcome::Suppressed("same_snapshot")
+    );
+    assert_eq!((f.model.calls(), f.emits()), (1, 0));
+    assert_eq!(f.host.notices.lock().len(), 1);
+}
+
+#[test]
+fn plan_reminder_choice_action_needed_cannot_wake_a_blocked_worker() {
+    let f = fixture(ReminderKind::Worker, approve());
+    f.edit_plan(|plan| {
+        plan.tasks[0].status = TaskStatus::Blocked;
+        plan.tasks[0].pause_reason = Some("owner decision".into());
+    });
+
+    assert_eq!(
+        f.admit(ReminderKind::Worker, 100),
+        ReminderOutcome::Suppressed("recipient_not_actionable")
+    );
+    assert_eq!((f.model.calls(), f.emits()), (1, 0));
+}
+
+#[test]
+fn plan_reminder_choice_blocker_notice_key_stays_stable_across_plan_changes() {
+    let f = fixture(ReminderKind::Owner, Reply::Choice("blocked", 0.99));
+    f.edit_plan(|plan| {
+        plan.tasks[0].status = TaskStatus::Blocked;
+        plan.tasks[0].pause_reason = Some("external blocker".into());
+    });
+    assert_eq!(
+        f.admit(ReminderKind::Owner, 100),
+        ReminderOutcome::Suppressed("recipient_blocked")
+    );
+    let first_key = f.host.notices.lock()[0].notice.event_key.clone();
+    f.host
+        .owner_view
+        .lock()
+        .delta
+        .insert("stride:unrelated".into(), "changed".into());
+    assert_eq!(
+        f.admit(ReminderKind::Owner, 101),
+        ReminderOutcome::Suppressed("recipient_blocked")
+    );
+    let notices = f.host.notices.lock();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].notice.event_key, first_key);
+    assert_eq!((f.model.calls(), f.emits()), (2, 0));
+}
+
+#[test]
+fn plan_reminder_choice_backoff_ignores_other_tasks_and_resets_for_own_report() {
+    let f = fixture(ReminderKind::Worker, approve());
+    assert_eq!(
+        f.admit(ReminderKind::Worker, 100),
+        ReminderOutcome::Accepted
+    );
+    f.edit_plan(|plan| {
+        let mut unrelated = task("unrelated", TaskStatus::InProgress, None);
+        unrelated.status_label = Some("unrelated change".into());
+        plan.tasks.push(unrelated);
+    });
+    assert_eq!(
+        f.admit(ReminderKind::Worker, 101),
+        ReminderOutcome::Suppressed("same_snapshot")
+    );
+    assert_eq!((f.model.calls(), f.emits()), (1, 1));
+
+    f.edit_plan(|plan| {
+        let mut report = crate::plan::TaskExecutionReportSnapshot::default();
+        report.id = "report-own".into();
+        plan.tasks[0].execution_attempts[0].report = Some(report);
+    });
+    assert_eq!(
+        f.admit(ReminderKind::Worker, 102),
+        ReminderOutcome::Accepted
+    );
+    assert_eq!((f.model.calls(), f.emits()), (2, 2));
 }
 
 #[test]
