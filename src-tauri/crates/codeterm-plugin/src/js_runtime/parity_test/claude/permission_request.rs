@@ -110,7 +110,7 @@ fn permission_request_payload_is_forwarded_on_both_runtimes() {
         for settings in [&native_settings, &js_settings] {
             let command = installed_command(settings, event);
             assert!(
-                command.contains("--data-binary @-"),
+                command.contains("--data-binary \"@-\""),
                 "{event} must forward the stdin payload: {command}"
             );
             assert!(
