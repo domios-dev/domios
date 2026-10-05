@@ -451,6 +451,25 @@ impl ServiceContext {
         body: Option<String>,
         actions: Option<Vec<NotificationAction>>,
     ) -> String {
+        self.create_condition_notification_with_key(
+            tab_id,
+            condition,
+            title,
+            body,
+            actions,
+            condition.key(tab_id),
+        )
+    }
+
+    pub(crate) fn create_condition_notification_with_key(
+        &self,
+        tab_id: &str,
+        condition: TabCondition,
+        title: String,
+        body: Option<String>,
+        actions: Option<Vec<NotificationAction>>,
+        event_key: String,
+    ) -> String {
         let (id, _) = self.create_notification_actions_reported(
             title,
             body,
@@ -460,7 +479,7 @@ impl ServiceContext {
             NotificationOrigin::local_tab(tab_id.to_string()),
             PushIntent {
                 level: Some(NotifyLevel::ActionNeeded),
-                event_key: Some(condition.key(tab_id)),
+                event_key: Some(event_key),
             },
         );
         let superseded = { self.notif.lock().take_superseded() };

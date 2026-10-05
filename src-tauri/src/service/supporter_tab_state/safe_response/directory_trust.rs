@@ -289,6 +289,7 @@ impl ServiceContext {
             &snapshot.tab_id,
             target.kind.context(),
             chain_fingerprint,
+            None,
         ) {
             return;
         }

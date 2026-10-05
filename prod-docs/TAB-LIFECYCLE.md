@@ -41,7 +41,7 @@ Restored agent PTYs are materialized by the backend once the frontend reports re
 
 Elapsed time or a rebuilt tab record alone never proves a live restored agent: liveness is observed from a live PTY session, a real launch transition, the shell's own finished-command report, or an open plugin session.
 
-A launch that still owes its startup acknowledgement is not ready while its provider shows the owner a prompt: an `agent_ready` tab moves to `awaiting_owner_prompt` when that prompt surfaces and returns to `agent_ready` when it clears. The prompt stays in tab state and does not create a notification; an agent that needs owner attention must explicitly run `codeterm notify send "<title>" --level action_needed`.
+A launch that still owes its startup acknowledgement is not ready while its provider shows the owner a prompt: an `agent_ready` tab moves to `awaiting_owner_prompt` when that prompt surfaces and returns to `agent_ready` when it clears. A user-owned prompt also raises one action-needed notice for its blocker kind during that launch; the notice names the tab and what it needs. If the tab has a parent agent, Domios routes the parsed question and options there with instructions for `codeterm tab respond`. Owner-launched tabs keep the prompt owner-facing and do not receive automatic keys.
 
 A pane observed `absent` is reconciled through the ordinary lifecycle teardown, so it keeps no `agent_state`, elapsed timer, status line, `agent_session_id`, or model label, and the existing guarded-input refusal arms with it.
 
@@ -168,7 +168,7 @@ The connected observer ignores confidence below 0.60. Model-only owner notificat
 | Crashed to shell | Confirmed provider exit event, provider absent from this tab's process tree and live shell PTY; resume a verified recovery session, otherwise launch fresh. Jev is audit-only. |
 | Starting past deadline | One restart, with provider absence or a dead PTY. |
 | Error loop | One restart, then notify; provider absence or a dead PTY is required. |
-| Login or unavailable model/quota | Owner notification with choices. |
+| Login or unavailable model/quota | Owner notification with choices that match the blocker. |
 | Folder trust | Existing trust responder checks provenance, shared trust cache or a live same-provider tab with a verified session in the exact canonical directory. |
 | Command/tool permission | The tab's own permission policy; the observer does not approve it. |
 | Other | No recovery. |
@@ -182,7 +182,7 @@ UI-created tabs suppress trust, permission and login owner notifications unless 
 Agent-, Team-, worker- and cron-owned tabs may encounter prompts while visible or hidden. Tabs launched directly by the owner without agent or Team ownership keep owner-facing prompts.
 
 - For folder-trust, tool-permission and update prompts, one calibrated Supporter choice at 0.80 or above may select any provider-declared option. Domios submits that option through the prompt response surface; it never sends model-authored text.
-- If the calibrated choice is unavailable, fails, is capped, selects `other`, or is below 0.80, the existing structural responder decides. A prompt it cannot resolve is routed to the owner.
+- If the calibrated choice is unavailable, fails, is capped, selects `other`, or is below 0.80, the existing structural responder decides. A prompt it cannot resolve is routed to the owner with its parsed options; user-audience tabs also raise one owner notice per blocker kind and launch, and include the parent agent when one exists.
 - Login, authentication, unavailable-model and quota prompts are always routed to the owner. Folder-trust choices at launch or in cron do not require host provenance for the model decision; provenance continues to govern other trust decisions.
 - Each routing decision enters the Supporter journal as `owned_prompt_answer` with `decided_by` set to `adapter` or `fallback(<reason>)`.
 

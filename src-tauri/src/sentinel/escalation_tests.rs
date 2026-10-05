@@ -224,6 +224,7 @@ fn sentinel_escalate_resolve_clears_hash_and_re_evaluates_once() {
                 status: Status::Completed,
                 execution_id: None,
                 command_result: None,
+                reason: None,
             })
         },
         |_, _, _| Ok(()),

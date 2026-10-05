@@ -1,6 +1,5 @@
 export const DOMIOS_CLOSE_TAG = "</domios>";
-export const DOMIOS_TYPED_INSTRUCTION =
-  "Handle the pasted message above as a request from its sender (codeterm delivery).";
+export const DOMIOS_TYPED_INSTRUCTION = "Handle the message above.";
 
 export interface ParsedDomiosMessage {
   attrs: Record<string, string>;

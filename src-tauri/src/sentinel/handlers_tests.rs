@@ -542,6 +542,7 @@ fn sentinel_handlers_real_execution_id_is_preserved_independently_from_durable_c
                 status: super::handlers::Status::Completed,
                 execution_id: Some("supplied-real-run-id".into()),
                 command_result: None,
+                reason: None,
             },
         )
         .unwrap();

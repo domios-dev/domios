@@ -1,8 +1,7 @@
 use std::collections::BTreeMap;
 
 pub const DOMIOS_CLOSE_TAG: &str = "</domios>";
-pub const DOMIOS_TYPED_INSTRUCTION: &str =
-    "Handle the pasted message above as a request from its sender (codeterm delivery).";
+pub const DOMIOS_TYPED_INSTRUCTION: &str = "Handle the message above.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DomiosFrame {

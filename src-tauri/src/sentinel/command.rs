@@ -168,6 +168,7 @@ pub(super) fn execute_with(
         },
         execution_id: Some(execution_id),
         command_result: Some(metadata),
+        reason: None,
     }
 }
 
