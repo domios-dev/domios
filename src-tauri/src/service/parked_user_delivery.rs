@@ -263,6 +263,12 @@ impl super::ServiceContext {
         self.wake_user_owner(tab_id, UserWake::Readiness);
     }
 
+    pub(crate) fn wake_user_owner_on_state_change(&self, tab_id: &str) {
+        if self.pending_delivery_payloads.user_sends.has_unsettled(tab_id) {
+            self.wake_user_owner(tab_id, UserWake::Readiness);
+        }
+    }
+
     pub(crate) fn wake_user_owner(&self, tab_id: &str, reason: UserWake) {
         let owner = self.pending_delivery_payloads.user_sends.tab(tab_id);
         if reason != UserWake::Housekeeping { owner.dispatch_generation.fetch_add(1, Ordering::AcqRel); }

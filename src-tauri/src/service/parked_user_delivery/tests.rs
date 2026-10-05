@@ -266,7 +266,7 @@ fn reverse_transport_completion_retains_both_accepted_originals_after_reopen() {
     assert_reopened_originals(&fixture, &[first, second]);
 }
 
-type SubmitBoundary = Arc<dyn Fn(&UserSendRecord, &str) -> Result<(), DeliveryError> + Send + Sync>;
+pub(crate) type SubmitBoundary = Arc<dyn Fn(&UserSendRecord, &str) -> Result<(), DeliveryError> + Send + Sync>;
 static SUBMIT_BOUNDARIES: std::sync::OnceLock<Mutex<std::collections::HashMap<String, SubmitBoundary>>> = std::sync::OnceLock::new();
 
 pub(crate) struct UserSubmitBoundary(String);
@@ -591,6 +591,19 @@ pub(crate) fn await_owner_idle(fixture: &ServiceFixture, tab_id: &str) {
     loop {
         idle_rx.recv_timeout(TEST_DEADLINE).expect("user owner reaches its idle boundary");
         if !owner.running.load(Ordering::Acquire) { return; }
+    }
+}
+
+pub(crate) fn await_owner_stopped(fixture: &ServiceFixture, tab_id: &str) {
+    let owner = fixture.service.pending_delivery_payloads.user_sends.tab(tab_id);
+    let (idle_tx, idle_rx) = mpsc::sync_channel(1);
+    let callback_tx = idle_tx.clone();
+    let _boundary = OwnerIdleBoundary::install(tab_id, Arc::new(move || {
+        let _ = callback_tx.try_send(());
+    }));
+    loop {
+        if !owner.running.load(Ordering::Acquire) { return; }
+        idle_rx.recv_timeout(TEST_DEADLINE).expect("user owner stops after its held send");
     }
 }
 
