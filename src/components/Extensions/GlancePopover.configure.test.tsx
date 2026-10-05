@@ -22,7 +22,7 @@ async function main() {
   });
   const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
   const focusEvents: Array<{ tabId?: string; workspaceId?: string }> = [];
-  win.addEventListener("codeterm:focus-tab", (event) => focusEvents.push((event as CustomEvent<{ tabId?: string; workspaceId?: string }>).detail));
+  win.addEventListener("codeterm:focus-tab", (event) => focusEvents.push((event as unknown as CustomEvent<{ tabId?: string; workspaceId?: string }>).detail));
   const g = globalThis as unknown as Record<string, unknown>;
   g.fetch = async (url: string, init?: { body?: string }) => {
     requests.push({ url: String(url), body: JSON.parse(String(init?.body)) });

@@ -146,11 +146,12 @@ async function renderChat(tabId = "delivery-tab"): Promise<{
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   }) as any);
   const listeners = new Map<string, Set<ChatEventHandler>>();
-  __setListenForTest(async (event: string, handler: ChatEventHandler) => {
+  __setListenForTest(async <T,>(event: string, typedHandler: (e: { payload: T }) => void) => {
+    const handler = typedHandler as unknown as ChatEventHandler;
     const set = listeners.get(event) ?? new Set<ChatEventHandler>();
     set.add(handler);
     listeners.set(event, set);
-    return () => set.delete(handler);
+    return () => { set.delete(handler); };
   });
 
   const host = document.createElement("div");
