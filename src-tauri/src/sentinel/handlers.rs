@@ -220,6 +220,7 @@ pub struct Effect {
     pub status: Status,
     pub execution_id: Option<String>,
     pub command_result: Option<super::command::ResultMetadata>,
+    pub reason: Option<String>,
 }
 
 impl From<Status> for Effect {
@@ -228,6 +229,7 @@ impl From<Status> for Effect {
             status,
             execution_id: None,
             command_result: None,
+            reason: None,
         }
     }
 }
@@ -275,11 +277,11 @@ fn apply_effect(record: &mut ResultRecord, effect: Effect) {
         Status::Completed | Status::Noop => record.claim_id.clone(),
         _ => None,
     });
-    record.reason = match effect.status {
+    record.reason = effect.reason.or_else(|| match effect.status {
         Status::Failed => Some("action_failed".into()),
         Status::Unconfirmed => Some("effect_unconfirmed".into()),
         _ => None,
-    };
+    });
     record.command_result = effect.command_result;
     record.status = effect.status;
 }
@@ -293,6 +295,43 @@ fn skipped(handler: &Handler) -> ResultRecord {
         accepted_at: None,
         command_result: None,
         reason: Some("batch_fenced".into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_handler_reason_survives_status_recording() {
+        for (status, reason) in [
+            (Status::Unconfirmed, "sentinel_prompt_answer_held"),
+            (Status::Failed, "sentinel_prompt_identity_changed"),
+        ] {
+            let mut record = ResultRecord {
+                handler_id: "handler".into(),
+                status: Status::Failed,
+                claim_id: Some("claim".into()),
+                execution_id: None,
+                accepted_at: Some(1),
+                command_result: None,
+                reason: None,
+            };
+
+            apply_effect(
+                &mut record,
+                Effect {
+                    status: status.clone(),
+                    execution_id: Some("observation".into()),
+                    command_result: None,
+                    reason: Some(reason.into()),
+                },
+            );
+
+            assert_eq!(record.status, status);
+            assert_eq!(record.reason.as_deref(), Some(reason));
+            assert_eq!(record.execution_id.as_deref(), Some("observation"));
+        }
     }
 }
 
