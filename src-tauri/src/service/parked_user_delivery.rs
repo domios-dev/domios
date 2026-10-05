@@ -439,7 +439,10 @@ impl super::ServiceContext {
                 return Ok(UserDrain::ZeroWriteRefusal { dispatch_generation });
             }
             if !store.complete(&head)? {
-                return Err("written user send payload retention could not settle".into());
+                log::warn!(
+                    "[chat-send] written user send {} payload remains retained as uncertain",
+                    head.send_id
+                );
             }
         }
         Ok(UserDrain::Idle)

@@ -609,6 +609,8 @@ pub(crate) fn attach_fixture_pty(fixture: &ServiceFixture, tab_id: &str) -> u64 
 
 #[path = "tests/owner_jev.rs"]
 mod owner_jev;
+#[path = "tests/retained_uncertainty.rs"]
+mod retained_uncertainty;
 #[path = "tests/ended_launch.rs"]
 mod ended_launch;
 mod evidence;
