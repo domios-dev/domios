@@ -123,15 +123,7 @@ function candidateFollowsEcho<T extends NormalizedChatMessage>(echo: OptimisticE
   return ts == null || ts >= echo.sentAtMs - ECHO_SKEW_MS;
 }
 
-/** Decide which optimistic user bubbles now have a confirmed real counterpart
- *  in the parsed stream and should be dropped.
- *
- *  Exact echoes are consumed once, except an ordered payload sequence can share
- *  one committed row when the provider records several sends as one turn.
- *  Unmatched bubbles stay pending; only transcript proof clears them.
- *
- *  `parsedUsers` must be in chronological order (oldest first) so the earliest
- *  qualifying echo is paired with the earliest pending bubble. */
+/** Exact echoes are single-use, while one row may confirm an ordered send sequence. */
 export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
   optimistic: OptimisticEcho[],
   parsedUsers: T[],

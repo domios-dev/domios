@@ -63,6 +63,8 @@ function tabState(tabId: string): ExtendedState {
     tab_type: "Terminal",
     title: "Delivery test",
     cwd: null,
+    agent_session_id: "session-1",
+    session_binding_nonce: "nonce-1",
     backing: { kind: "chat_backend", plugin_id: "lmstudio", session_id: "session-1" },
   } as Tab;
   return {
@@ -207,6 +209,7 @@ test("three optimistic sends render as one bubble when one glued provider turn a
       id: `send-${index}`,
       content,
       sentAtMs: sentAtMs + index,
+      correlationId: `send-${index}`,
     }));
   });
   await act(async () => {
@@ -219,6 +222,7 @@ test("three optimistic sends render as one bubble when one glued provider turn a
         type: "user",
         content: bodies.join(""),
         timestamp: String(sentAtMs + 100),
+        correlationId: "send-0",
       }],
     });
     await Promise.resolve();
