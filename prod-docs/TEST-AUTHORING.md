@@ -137,6 +137,14 @@ reds — the trace/log excerpt naming the failing oracle. "Passed locally" with
 no command is not evidence. Skipped suites are listed with reasons; silent
 skips read as coverage that does not exist.
 
+## 10. Behavior, not copy
+
+A test asserts behavior: results, state transitions, delivery, accessibility
+roles, names and focus, and shared constants. It never asserts UI copy, CSS as
+text, word order in text, or internal structure a refactor may change: such an
+assertion fails on a harmless rewrite and passes while the behavior is broken.
+When a value must match, import the shared constant instead of quoting it.
+
 ## The test-author role
 
 - **When assigned**: the Planner sets `executor_role: test-author` on any
@@ -164,4 +172,4 @@ Keeping the repo path in the role_guidance still matters for local contributors;
 the embedded copy gives spawned agents a stable recovery path when they are
 outside this checkout.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
