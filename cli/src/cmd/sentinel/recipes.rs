@@ -7,6 +7,7 @@ const REQUIRED: &[&str] = &[
     "retry-until-pass",
     "prompt-responder",
     "cron-run-watch",
+    "launch-prompt-gate",
     "all-finished",
 ];
 
