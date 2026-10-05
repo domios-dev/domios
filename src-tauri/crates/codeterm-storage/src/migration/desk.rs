@@ -33,7 +33,7 @@ pub(crate) fn normalize(snapshot: &DeskSnapshot) -> DeskSnapshot {
 
 pub(crate) fn preflight(snapshot: &DeskSnapshot, facts: &mut Facts) -> Result<(), ImportRefusal> {
     let cost = snapshot
-        .validate()
+        .validate_preserving_orphan_teams()
         .map_err(|error| ImportRefusal::Invalid {
             domain: ImportDomain::Desk,
             detail: error.to_string(),

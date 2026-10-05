@@ -1,7 +1,7 @@
 use super::super::records::{
     DeskAgentSessionIdentity, DeskSnapshot, DeskTab, DeskTeam, DeskWorkspace,
 };
-use super::super::{queries, DeskRepository};
+use super::super::{queries, retain_orphan_teams, DeskRepository};
 use super::{
     insert_identity, insert_layout, insert_tab, insert_team, insert_workspace, park_ordered_rows,
     OrderedTable,
@@ -252,17 +252,6 @@ fn validate_references(snapshot: &DeskSnapshot) -> Result<(), StorageError> {
         }
     }
     Ok(())
-}
-
-fn retain_orphan_teams(snapshot: &mut DeskSnapshot) {
-    let workspace_ids: HashSet<String> = snapshot
-        .workspaces
-        .iter()
-        .map(|workspace| workspace.record.id.as_str().to_owned())
-        .collect();
-    snapshot
-        .teams
-        .retain(|team| workspace_ids.contains(team.workspace_id.as_str()));
 }
 
 fn insert_workspace_stubs(

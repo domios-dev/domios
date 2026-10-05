@@ -839,10 +839,10 @@ fn storage_cron_previous_schema_upgrades_in_place() {
 #[test]
 fn storage_cron_scope_removal_drops_scope_jobs_and_their_history() {
     let f = fixture();
-    let a1 = f.create(scoped("a1", "ws-a", None));
-    let a2 = f.create(scoped("a2", "ws-a", Some("team-x")));
-    let b = f.create(scoped("b", "ws-b", Some("team-x")));
-    let kept = f.create(scoped("kept", "ws-b", None));
+    let a1 = f.create(scoped("ws-a-general", "ws-a", None));
+    let a2 = f.create(scoped("ws-a-team", "ws-a", Some("team-x")));
+    let b = f.create(scoped("ws-b-team", "ws-b", Some("team-x")));
+    let kept = f.create(scoped("ws-b-kept", "ws-b", None));
     for job in [&a1, &a2, &b, &kept] {
         f.start(&job.id, &format!("run-{}", job.name));
     }
