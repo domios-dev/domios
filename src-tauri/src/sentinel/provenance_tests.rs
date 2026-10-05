@@ -10,7 +10,7 @@ use codeterm_types::decision::{
 };
 use serde_json::Value;
 
-use super::provenance::{Scope, Stage};
+use super::provenance::{Classification, Scope, Stage};
 use super::store::Sentinel;
 use super::{classify, machine, scheduler};
 use crate::service::supporter::SupporterRuntime;

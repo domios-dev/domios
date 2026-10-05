@@ -1727,7 +1727,7 @@
               "value_name": "ID",
               "possible_values": [],
               "default": null,
-              "help": "Cron job ID",
+              "help": "Cron job ID or name",
               "aliases": []
             }
           ],
