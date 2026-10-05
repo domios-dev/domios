@@ -192,6 +192,12 @@ pub enum LifecycleTransition {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
     },
+    RemoteOwnershipReleased {
+        peer_id: String,
+        peer_name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        caller_tab_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -222,6 +228,7 @@ impl LifecycleTransition {
             Self::RolledBack { .. } => "rolled_back",
             Self::Closed { .. } => "closed",
             Self::PermissionAutoConfirm { .. } => "permission_auto_confirm",
+            Self::RemoteOwnershipReleased { .. } => "remote_ownership_released",
         }
     }
 }

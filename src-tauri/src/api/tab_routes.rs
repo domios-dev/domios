@@ -461,6 +461,44 @@ pub async fn close_tab(
     Ok(Json(result))
 }
 
+pub async fn release_remote_ownership(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(raw_tab_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    if !crate::api::auth::is_local_caller(&state, &headers) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "remote peers cannot release local tab ownership".into(),
+        ));
+    }
+    let tab_id = resolve_tab(&state, &raw_tab_id)
+        .map_err(|(status, message)| (status, message.to_string()))?;
+    let caller_tab_id = caller_tab_header(&headers);
+    let service = state.svc.clone();
+    let release = tokio::task::spawn_blocking(move || {
+        service.release_remote_ownership(&tab_id, caller_tab_id.as_deref())
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| {
+        let status = if error.starts_with("Tab ") && error.contains(" not found") {
+            StatusCode::NOT_FOUND
+        } else if error.contains("not authorized") {
+            StatusCode::FORBIDDEN
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        };
+        (status, error)
+    })?;
+    let mut response = serde_json::json!({"ok": true, "released": release.is_some()});
+    if let Some(ownership) = release {
+        response["peer_id"] = serde_json::json!(ownership.peer_id);
+        response["peer_name"] = serde_json::json!(ownership.peer_name);
+    }
+    Ok(Json(response))
+}
+
 #[derive(Deserialize)]
 pub(crate) struct RestartShellTabBody {
     cwd: Option<String>,

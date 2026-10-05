@@ -929,6 +929,46 @@ fn a_close_reason_survives_the_journal_round_trip() {
 }
 
 #[test]
+fn remote_ownership_release_is_a_diagnostic_and_survives_compaction() {
+    use super::reduce::{compact_records, sealed_checkpoints};
+
+    let (journal, _dir) = new_journal();
+    let launch = key("tab-a", 1, "op-a");
+    commit_full_launch(&journal, &launch, "session-a");
+    journal
+        .append(
+            launch.clone(),
+            LifecycleTransition::RemoteOwnershipReleased {
+                peer_id: "peer-eight".into(),
+                peer_name: "eight".into(),
+                caller_tab_id: Some("orchestrator".into()),
+            },
+        )
+        .unwrap();
+
+    let loaded = journal.load();
+    let release = loaded.records.iter().find_map(|record| match record {
+        JournalRecord::Transition { entry } => match &entry.transition {
+            LifecycleTransition::RemoteOwnershipReleased { .. } => Some(entry.transition.clone()),
+            _ => None,
+        },
+        JournalRecord::Checkpoint { .. } => None,
+    });
+    assert_eq!(
+        release,
+        Some(LifecycleTransition::RemoteOwnershipReleased {
+            peer_id: "peer-eight".into(),
+            peer_name: "eight".into(),
+            caller_tab_id: Some("orchestrator".into()),
+        })
+    );
+    assert_eq!(
+        sealed_checkpoints(&loaded.records),
+        sealed_checkpoints(&compact_records(&loaded.records))
+    );
+}
+
+#[test]
 fn a_close_record_written_before_attribution_reads_as_unattributed() {
     let decoded: LifecycleTransition = serde_json::from_str(r#"{"transition":"closed"}"#).unwrap();
     assert_eq!(

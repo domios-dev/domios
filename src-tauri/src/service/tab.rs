@@ -52,6 +52,7 @@ pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 pub(crate) const UNATTRIBUTED_CLOSE_REFUSAL_PREFIX: &str = "tab close refused";
 mod rename_guard;
 mod scrollback;
+mod ownership;
 
 pub(crate) use rename_guard::refuse_task_bound_rename;
 
