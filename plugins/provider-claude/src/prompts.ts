@@ -9,6 +9,7 @@ interface ParsedOptionState {
   value: string;
   highlighted: boolean;
   selected: boolean;
+  line: number;
 }
 
 export function parseClaudeWizardPrompt(text: string): ParsedPrompt | null {
@@ -20,7 +21,7 @@ export function parseClaudeWizardPrompt(text: string): ParsedPrompt | null {
   if (sections.length < 2) return null;
 
   const body = wizardBody(raw, tabLine);
-  const options = parseWizardOptions(body);
+  const options = parseWizardScreenOptions(body);
   if (options.length < 2) return null;
   const question = parseWizardQuestion(body) || "Choose an option";
   const multiSelect = options.some((opt) => opt.selected) || /\[[ xX]\]|☐|☑|☒/.test(body);
@@ -71,7 +72,8 @@ export function wizardBody(text: string, knownTabLine?: string): string {
 }
 
 export function parseWizardQuestion(body: string): string {
-  const beforeOptions = body.split(/(?:❯\s*)?\d+\./)[0] || "";
+  const optionStart = /^(?:\s*[❯>]\s*)?(?:\[[ xX]\]|☐|☑|☒|✔|\d+\.)/gm.exec(body)?.index;
+  const beforeOptions = optionStart === undefined ? body : body.slice(0, optionStart);
   return beforeOptions
     .replace(/^[\s←→☐☑☒✔A-Za-z]*Submit\s*→?/, "")
     .replace(/─+/g, " ")
@@ -80,9 +82,15 @@ export function parseWizardQuestion(body: string): string {
 }
 
 export function parseWizardOptions(body: string): ParsedOptionState[] {
-  const checkbox = parseCheckboxOptions(body);
-  if (checkbox.length >= 2) return checkbox;
+  const checkboxes = parseCheckboxOptions(body);
+  if (checkboxes.length >= 2) return checkboxes;
   return parseNumberedOptions(body);
+}
+
+function parseWizardScreenOptions(body: string): ParsedOptionState[] {
+  const options = [...parseCheckboxOptions(body), ...parseNumberedOptions(body)];
+  options.sort((left, right) => left.line - right.line);
+  return options;
 }
 
 export function parseNumberedOptions(text: string): ParsedOptionState[] {
@@ -97,6 +105,7 @@ export function parseNumberedOptions(text: string): ParsedOptionState[] {
       value: m[1],
       highlighted: m[0].indexOf("❯") !== -1 || m[0].indexOf(">") !== -1,
       selected: false,
+      line: text.slice(0, m.index).split("\n").length - 1,
     });
   }
   return options;
@@ -115,6 +124,7 @@ export function parseCheckboxOptions(text: string): ParsedOptionState[] {
       value: String(options.length + 1),
       highlighted: m[0].indexOf("❯") !== -1 || m[0].indexOf(">") !== -1,
       selected: mark === "☑" || mark === "☒" || mark === "✔" || /\[[xX]\]/.test(mark),
+      line: text.slice(0, m.index).split("\n").length - 1,
     });
   }
   return options;
@@ -123,7 +133,6 @@ export function parseCheckboxOptions(text: string): ParsedOptionState[] {
 export function cleanOptionLabel(value: string): string {
   return String(value || "")
     .replace(/─+/g, " ")
-    .replace(/\bChat\s*about\s*this\b[\s\S]*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -171,6 +180,7 @@ export function parseClaudeLetteredPrompt(text: string): ParsedPrompt | null {
       value: start.letter,
       highlighted: false,
       selected: false,
+      line: start.index,
     });
   }
 

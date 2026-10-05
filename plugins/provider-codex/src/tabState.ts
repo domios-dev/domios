@@ -52,8 +52,6 @@ export function classifyCodexTabState(
       action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } },
     };
   }
-  if (looksLikeModelPicker(screen)) return { state: "working", confidence: 0 };
-
   const update = scoreUpdatePrompt(screen);
   if (update.confidence >= CLASSIFY_THRESHOLD) {
     return {
@@ -136,12 +134,6 @@ function looksBusy(screen: string): boolean {
     || /\bWorking[….]/.test(screen)
     || /\((?:esc|ctrl\+c) to interrupt\)/i.test(screen)
   );
-}
-
-function looksLikeModelPicker(screen: string): boolean {
-  if (!/\bselect\s+(?:model|reasoning)\b/i.test(screen)) return false;
-  return /\bpress\s+enter\s+to\s+confirm\b/i.test(screen)
-    && /\besc\s+to\s+go\s+back\b/i.test(screen);
 }
 
 function scoreRateLimit(screen: string, nowMs: number) {

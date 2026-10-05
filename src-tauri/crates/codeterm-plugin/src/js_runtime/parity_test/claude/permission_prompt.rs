@@ -96,6 +96,67 @@ fn permission_prompt_refusals_native_js_parity() {
 }
 
 #[test]
+fn rendered_claude_prompt_options_native_js_parity() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let fixtures = workspace_plugins_root()
+        .join("provider-claude")
+        .join("tests/fixtures");
+    for file in [
+        "folder-trust/tool-permission.txt",
+        "folder-trust/mcp-server.txt",
+        "wizard-multi-step.txt",
+    ] {
+        let screen = std::fs::read_to_string(fixtures.join(file)).expect("Claude screen fixture");
+        assert_eq!(
+            native.parse_prompt(&screen),
+            js.parse_prompt(&screen),
+            "rendered option parity for {file}"
+        );
+    }
+    let permission_screen =
+        std::fs::read_to_string(fixtures.join("folder-trust/tool-permission.txt"))
+            .expect("Claude permission screen fixture");
+    let parsed_permission = native
+        .parse_prompt(&permission_screen)
+        .expect("rendered permission prompt parses");
+    assert_eq!(
+        parsed_permission
+            .options
+            .iter()
+            .map(|option| option.label.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "Yes",
+            "Yes, and don't ask again for git status commands in /repo",
+            "No, and tell Claude what to do differently (esc)",
+        ]
+    );
+
+    let multi_select = "← ✔ Environment ☐ Focus ✔ Submit →\nWhich focus areas should be enabled?\n❯ ☐ Performance\n  ☑ Tests\n  ☐ Docs\n  5. Submit\n  6. Chat about this\nEnter to select · Esc to cancel";
+    let native_prompt = native
+        .parse_prompt(multi_select)
+        .expect("multi-select screen parses");
+    assert_eq!(
+        native_prompt
+            .options
+            .iter()
+            .map(|option| option.label.as_str())
+            .collect::<Vec<_>>(),
+        ["Performance", "Tests", "Docs", "Submit", "Chat about this"]
+    );
+    assert_eq!(native_prompt.multi_select, Some(true));
+    assert_eq!(native_prompt.submit_available, Some(true));
+    assert_eq!(native_prompt.selected_values, Some(vec!["2".to_string()]));
+    assert_eq!(
+        native.parse_prompt(multi_select),
+        js.parse_prompt(multi_select)
+    );
+}
+
+#[test]
 fn permission_auto_confirm_capability_native_js_parity() {
     if require_plugins().is_none() {
         return;
