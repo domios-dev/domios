@@ -747,6 +747,7 @@ impl ServiceContext {
             resolved
         };
         if prompt_cleared {
+            self.clear_pending_prompt_parent_routes(tab_id);
             self.set_cron_owner_prompt_waiting(tab_id, false);
         }
         self.announce_resolved(&resolved);

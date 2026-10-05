@@ -72,7 +72,7 @@ fn sentinel_update_versions_rearm_bucket_configuration() {
     revision.rearm_on_change.insert("done".into());
 
     let amended = apply(&store, &job, 1, "creator", revision).expect("definition update");
-    let history = store.lock().history(&job.id).expect("definition history");
+    let history = history(store.lock().get(&job.id).expect("definition history"));
 
     assert!(amended.rearm_on_change.contains("done"));
     assert!(history.versions[1]

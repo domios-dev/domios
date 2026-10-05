@@ -6,11 +6,19 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::service::test_fixture::ServiceFixture;
 use crate::session::store::StorageDeskAdapter;
 use crate::startup::StorageAuthority;
-use crate::storage::{Storage, StorageConfig};
+use crate::storage::Storage;
 use std::path::Path;
 use std::time::Duration;
+use tauri::Manager;
 
 const DEADLINE: Duration = Duration::from_secs(30);
+
+fn manage_test_config(app: &tauri::App) {
+    let config: crate::config::ConfigState = std::sync::Arc::new(parking_lot::Mutex::new(
+        crate::config::schema::AppConfig::default(),
+    ));
+    assert!(app.manage(config));
+}
 
 pub(super) struct ServiceInstance {
     pub(super) fixture: ServiceFixture,
@@ -20,12 +28,13 @@ pub(super) struct ServiceInstance {
 
 impl ServiceInstance {
     pub(super) fn open_with_mux(root: &Path, mux: MultiplexerState) -> Self {
-        let authority = crate::startup::storage::open_instance_storage_at(root);
+        let authority = crate::startup::open_instance_storage_at(root);
         let storage = authority
             .require_ready()
             .expect("startup opens ready Storage")
             .clone();
         let fixture = ServiceFixture::new_at(mux, root);
+        manage_test_config(&fixture._app);
         assert!(fixture._app.manage(authority.clone()));
         let app = fixture._app.handle().clone();
         crate::service::session_persist::install_storage_desk_adapter(
@@ -56,7 +65,7 @@ impl ServiceInstance {
     }
 
     pub(super) fn open(root: &Path) -> Self {
-        let authority = crate::startup::storage::open_instance_storage_at(root);
+        let authority = crate::startup::open_instance_storage_at(root);
         let storage = authority
             .require_ready()
             .expect("startup opens ready Storage")
@@ -70,6 +79,7 @@ impl ServiceInstance {
             MultiplexerState::from_session_snapshot(&snapshot)
         };
         let fixture = ServiceFixture::new_at(mux, root);
+        manage_test_config(&fixture._app);
         assert!(fixture._app.manage(authority.clone()));
         let app = fixture._app.handle().clone();
         crate::service::session_persist::install_storage_desk_adapter(

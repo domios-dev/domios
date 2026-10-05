@@ -136,6 +136,12 @@ impl ServiceContext {
             tab.pending_greeting = Some(body.clone());
         }
         self.emit_state_changed();
+        if let Err(error) = crate::service::session_persist::persist_session_after_mutation(
+            self,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        ) {
+            log::warn!("[session-persist] orchestrator onboarding submission failed: {error}");
+        }
         // Deliver as a message FROM CodeTerm (same marker the Planner gets), not a
         // reminder — the onboarding should read as CodeTerm introducing the role.
         let envelope = MessageEnvelope::from_codeterm();

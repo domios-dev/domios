@@ -78,12 +78,12 @@ fn tab_rename_round_trip_expected_pass() {
     let tab_id = instance
         .fixture
         .service
-        .create_named_tab(&workspace_id, "before rename")
+        .create_named_tab(&workspace_id, "beforeRename")
         .unwrap();
     instance
         .fixture
         .service
-        .rename_tab(&tab_id, "after rename")
+        .rename_tab(&tab_id, "afterRename")
         .expect("rename through ServiceContext");
 
     let restarted = instance.restart(root.path());
@@ -96,7 +96,7 @@ fn tab_rename_round_trip_expected_pass() {
             .get_tab(&tab_id)
             .unwrap()
             .title,
-        "after rename"
+        "afterRename"
     );
     close(restarted);
 }
@@ -109,11 +109,11 @@ fn tab_rename_round_trip_expected_pass() {
 fn agent_tab_title_change_round_trip_expected_red() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
-    let tab_id = instance.fixture.service.mux.read().list_workspaces()[0].tabs[0].clone();
+    let tab_id = instance.fixture.service.mux.read().list_workspaces()[0].tab_ids[0].clone();
     instance
         .fixture
         .service
-        .set_tab_title(&tab_id, "agent title")
+        .set_tab_title(&tab_id, "AgentTitle")
         .expect("update title through ServiceContext");
     assert_eq!(
         instance
@@ -124,7 +124,7 @@ fn agent_tab_title_change_round_trip_expected_red() {
             .get_tab(&tab_id)
             .unwrap()
             .title,
-        "agent title"
+        "AgentTitle"
     );
 
     let restarted = instance.restart(root.path());
@@ -137,7 +137,7 @@ fn agent_tab_title_change_round_trip_expected_red() {
             .get_tab(&tab_id)
             .unwrap()
             .title,
-        "agent title",
+        "AgentTitle",
         "agent-origin title changes must reach Storage before restart"
     );
     close(restarted);
@@ -151,7 +151,7 @@ fn agent_tab_title_change_round_trip_expected_red() {
 fn tab_description_change_round_trip_expected_red() {
     let root = tempfile::tempdir().unwrap();
     let instance = started(root.path());
-    let tab_id = instance.fixture.service.mux.read().list_workspaces()[0].tabs[0].clone();
+    let tab_id = instance.fixture.service.mux.read().list_workspaces()[0].tab_ids[0].clone();
     instance
         .fixture
         .service
@@ -193,10 +193,10 @@ fn tab_move_and_reorder_round_trip_expected_pass() {
             .rename_workspace(&destination_id, "destination saved")
             .unwrap();
         let first = service
-            .create_named_tab(&source_id, "first movable")
+            .create_named_tab(&source_id, "firstMovable")
             .unwrap();
         let second = service
-            .create_named_tab(&source_id, "second movable")
+            .create_named_tab(&source_id, "secondMovable")
             .unwrap();
         service
             .reorder_tab(&source_id, &[second.clone(), first.clone()])
@@ -214,7 +214,7 @@ fn tab_move_and_reorder_round_trip_expected_pass() {
     let destination = mux.get_workspace(&destination_id).unwrap();
     assert_eq!(destination.tabs.len(), 1);
     let destination_tab = mux.get_tab(&destination.tabs[0]).unwrap();
-    assert_eq!(destination_tab.title, "first movable");
+    assert_eq!(destination_tab.title, "firstMovable");
     drop(mux);
     close(restarted);
 }
@@ -241,7 +241,7 @@ fn workspace_rename_and_close_round_trip_expected_pass() {
     instance
         .fixture
         .service
-        .create_named_tab(&workspace_id, "closed with workspace")
+        .create_named_tab(&workspace_id, "closedWithWorkspace")
         .unwrap();
     instance
         .fixture
@@ -274,7 +274,7 @@ fn tab_close_and_closed_history_round_trip_expected_pass() {
     let tab_id = instance
         .fixture
         .service
-        .create_named_tab(&workspace_id, "closing history")
+        .create_named_tab(&workspace_id, "closingHistory")
         .unwrap();
     instance
         .fixture
@@ -287,7 +287,7 @@ fn tab_close_and_closed_history_round_trip_expected_pass() {
     assert!(service.mux.read().get_tab(&tab_id).is_none());
     let closed = service.list_recently_closed(&workspace_id);
     assert_eq!(closed.len(), 1);
-    assert_eq!(closed[0].title, "closing history");
+    assert_eq!(closed[0].title, "closingHistory");
     close(restarted);
 }
 
@@ -500,11 +500,11 @@ fn layout_active_tab_round_trip_expected_pass() {
     let workspace_id = instance.fixture.service.mux.read().list_workspaces()[0]
         .id
         .clone();
-    let active_tab_id = instance.fixture.service.mux.read().list_workspaces()[0].tabs[0].clone();
+    let active_tab_id = instance.fixture.service.mux.read().list_workspaces()[0].tab_ids[0].clone();
     instance
         .fixture
         .service
-        .create_named_tab(&workspace_id, "layout second leaf")
+        .create_named_tab(&workspace_id, "layoutSecondLeaf")
         .unwrap();
     instance
         .fixture
@@ -518,7 +518,7 @@ fn layout_active_tab_round_trip_expected_pass() {
         .expect("read reopened desk")
         .workspaces
         .into_iter()
-        .find(|workspace| workspace.record.id == workspace_id)
+        .find(|workspace| workspace.id == workspace_id)
         .unwrap();
     assert_eq!(
         persisted.active_tab_id.as_deref(),

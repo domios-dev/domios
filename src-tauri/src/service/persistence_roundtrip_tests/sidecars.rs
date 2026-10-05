@@ -47,7 +47,7 @@ fn delayed_send_create_update_delete_round_trip_expected_pass() {
     let tab_id = instance
         .fixture
         .service
-        .create_named_tab(&workspace_id, "delayed send target")
+        .create_named_tab(&workspace_id, "delayedSendTarget")
         .unwrap();
     let created = crate::delayed_send::create_message(
         &instance.fixture.service,
@@ -135,7 +135,7 @@ fn receiver_target_round_trip_expected_pass() {
     let tab_id = instance
         .fixture
         .service
-        .create_named_tab(&workspace_id, "receiver target")
+        .create_named_tab(&workspace_id, "receiverTarget")
         .unwrap();
     instance
         .fixture
@@ -176,7 +176,7 @@ fn remote_worker_and_kpi_ledger_round_trip_expected_pass() {
     let tab_id = instance
         .fixture
         .service
-        .create_named_tab(&workspace_id, "kpi writer")
+        .create_named_tab(&workspace_id, "kpiWriter")
         .unwrap();
     instance.fixture.service.kpi.drain();
     instance.fixture.service.remote_workers.record_spawn(

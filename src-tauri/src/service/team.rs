@@ -315,6 +315,10 @@ impl ServiceContext {
         let team = rename_team_with_state_change(&mut mux, &self.events, team_id, name, &caller)?;
         drop(mux);
         self.emit_state_changed_after_bus_publish();
+        let _ = crate::service::session_persist::persist_session_after_mutation(
+            self,
+            crate::service::session_persist::SessionPersistUrgency::Prompt,
+        );
         Ok(team)
     }
 

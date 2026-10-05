@@ -13052,13 +13052,23 @@
               "aliases": []
             },
             {
+              "name": "rearm-on-change",
+              "positional": false,
+              "required": false,
+              "value_name": "BUCKET",
+              "possible_values": [],
+              "default": null,
+              "help": "Route again when this bucket's output changes without changing buckets",
+              "aliases": []
+            },
+            {
               "name": "route",
               "positional": false,
               "required": false,
               "value_name": "ROUTES",
               "possible_values": [],
               "default": null,
-              "help": "Inline routes: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop; use --handlers-file for command, respond_prompt and escalation handlers",
+              "help": "Inline routes: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers",
               "aliases": []
             },
             {
