@@ -65,6 +65,7 @@ pub(super) struct Target {
 
 fn unique_choice(prompt: &PendingPrompt, choice: &str) -> bool {
     prompt.multi_select != Some(true)
+        && prompt.options.len() <= 10
         && prompt.options.len() >= 2
         && prompt
             .options
@@ -856,6 +857,15 @@ impl ServiceContext {
                                 .as_ref()
                                 == Some(&target)
                         },
+                    );
+                let current = current
+                    && service.begin_automatic_prompt_answer(
+                        &tab,
+                        target.kind.context(),
+                        service.prompt_chain_fingerprint(
+                            target.kind.prompt_kind(),
+                            &target.prompt,
+                        ),
                     );
                 match target.kind {
                     Kind::Onboarding => {

@@ -70,6 +70,23 @@ fn supporter_first_opinion_safe_response_never_authorizes_without_evidence() {
 }
 
 #[test]
+fn declared_option_response_refuses_multi_select_and_more_than_ten_choices() {
+    let mut target = target();
+    target.prompt.multi_select = Some(true);
+    assert!(!unique_choice(&target.prompt, &target.choice));
+
+    target.prompt.multi_select = Some(false);
+    for index in 0..9 {
+        target.prompt.options.push(PromptOption {
+            label: format!("opaque-{index}"),
+            value: format!("opaque-{index}"),
+        });
+    }
+    assert_eq!(target.prompt.options.len(), 11);
+    assert!(!unique_choice(&target.prompt, &target.choice));
+}
+
+#[test]
 fn supporter_first_opinion_safe_response_distinct_events_and_new_occurrence() {
     let mut book = Agreement::default();
     let deadline = Instant::now() + Duration::from_secs(3);

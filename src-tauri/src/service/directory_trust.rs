@@ -388,6 +388,20 @@ impl ServiceContext {
     ) -> Option<DirectoryTrustPromptResponse> {
         self.agent_registry
             .with_provider(agent_type, |provider| {
+                let prompt = provider.parse_directory_trust_prompt(screen)?;
+                let unique_values = prompt
+                    .options
+                    .iter()
+                    .map(|option| &option.value)
+                    .collect::<HashSet<_>>()
+                    .len()
+                    == prompt.options.len();
+                if prompt.multi_select == Some(true)
+                    || !(2..=10).contains(&prompt.options.len())
+                    || !unique_values
+                {
+                    return None;
+                }
                 provider.directory_trust_prompt_response(screen)
             })
             .flatten()
@@ -699,7 +713,14 @@ impl ServiceContext {
             self.pty.clone(),
             pty_id.to_string(),
             vec![step.clone()],
-            move || svc.directory_trust_key_still_owed(&tab, &bound_pty, &agent, &expected),
+            move || {
+                svc.directory_trust_key_still_owed(&tab, &bound_pty, &agent, &expected)
+                    && svc.begin_automatic_prompt_answer(
+                        &tab,
+                        "directory_trust",
+                        format!("directory-trust:{expected:?}"),
+                    )
+            },
         );
     }
 
@@ -755,7 +776,11 @@ impl ServiceContext {
                         &expected,
                     );
                     response_signal.mark_changed();
-                    owed
+                    owed && service.begin_automatic_prompt_answer(
+                        &tab,
+                        "onboarding",
+                        format!("onboarding:{}", expected.frame_key),
+                    )
                 },
             );
         }

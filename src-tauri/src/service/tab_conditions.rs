@@ -157,6 +157,9 @@ impl ServiceContext {
 
         crate::service::launch_readiness::owner_prompt_pending(tab_id, &prompt.question);
         self.set_cron_owner_prompt_waiting(tab_id, true);
+        if self.handle_prompt_chain_blocker(tab_id, prompt, kind) {
+            return None;
+        }
 
         let (owner, label) = {
             let mux = self.mux.read();
