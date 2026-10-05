@@ -1,3 +1,4 @@
+pub(crate) mod actions;
 pub(crate) mod amend;
 pub(crate) mod classify;
 pub(crate) mod command;
@@ -39,7 +40,7 @@ mod command_tests;
 mod command_native_tests;
 
 #[cfg(test)]
+mod escalation_tests;
+#[cfg(test)]
 #[path = "run_binding_tests.rs"]
 mod run_binding_tests;
-#[cfg(test)]
-mod escalation_tests;
