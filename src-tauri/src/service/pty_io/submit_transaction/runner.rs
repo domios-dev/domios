@@ -245,10 +245,9 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
         let mut key_error = None;
         let mut readiness_deadline_expired = false;
         let key_ready = if force_key_schedule_after_deadline {
-            if !transport.retry_active() {
-                false
-            } else {
-                match transport.dialog_guard() {
+            match transport.retry_active() {
+                false => false,
+                true => match key_guard(allow_initial_key, turn_was_started) {
                     Ok(()) => true,
                     Err(InjectionError::AgentTuiPresent { .. }) => {
                         log::info!("[submit-transaction] automatic submit stopped: provider dialog detected during deadline fallback");
@@ -259,7 +258,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
                         key_error = Some(error);
                         false
                     }
-                }
+                },
             }
         } else {
             loop {
@@ -299,7 +298,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
                 && !dialog_blocked
                 && transport.draft_evidence_count(text) > baseline_evidence
             {
-                match transport.dialog_guard() {
+                match key_guard(allow_initial_key, turn_was_started) {
                     Ok(()) if transport.retry_active() => {
                         log::info!("[submit-transaction] readiness deadline expired with draft present; starting bounded submit-key schedule");
                         force_key_schedule_after_deadline = true;
@@ -307,6 +306,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
                     }
                     Err(InjectionError::AgentTuiPresent { .. }) => {
                         log::info!("[submit-transaction] automatic submit stopped: provider dialog detected at readiness deadline");
+                        dialog_blocked = true;
                     }
                     _ => {}
                 }
@@ -331,7 +331,10 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
         };
         if !typed_suffix_written {
             if let Some(suffix) = typed_suffix {
-                if transport.write_typed_follow_up(suffix, key_deadline).is_err() {
+                if transport
+                    .write_typed_follow_up(suffix, key_deadline)
+                    .is_err()
+                {
                     let screen_tail = transport
                         .observe()
                         .map(|state| state.tail)

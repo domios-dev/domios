@@ -23,6 +23,8 @@ use super::wire::{
 };
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
+mod delivery;
+
 /// `usageSources` wire row: a path plus the session that scopes a shared log.
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -171,6 +173,10 @@ impl AgentProvider for JsProvider {
         (&self.manifest.spawn.verify_submit).into()
     }
 
+    fn supports_unbound_submit_recovery(&self) -> bool {
+        delivery::supports_unbound_submit_recovery(self)
+    }
+
     fn turn_evidence_normalization(&self) -> crate::provider::TurnEvidenceNormalization {
         self.manifest.spawn.turn_evidence_normalization
     }
@@ -212,6 +218,10 @@ impl AgentProvider for JsProvider {
             &[arg],
         )
         .flatten()
+    }
+
+    fn delivery_modal_visible(&self, snapshot: &crate::tab_state::TabStateSnapshot) -> bool {
+        delivery::delivery_modal_visible(self, snapshot)
     }
 
     fn is_output_noise(&self, text: &str) -> bool {

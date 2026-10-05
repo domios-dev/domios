@@ -340,6 +340,11 @@ impl UserSendStore {
         Ok(self.records(tab_id)?.into_iter().filter(|record| record.state == UserSendState::Queued).collect())
     }
 
+    pub(crate) fn has_unsettled(&self, tab_id: &str) -> bool {
+        self.tabs.lock().get(tab_id)
+            .is_some_and(|tab| tab.unsettled.load(Ordering::Acquire) > 0)
+    }
+
     pub(crate) fn bind_pty_session_generation(
         &self,
         record: &UserSendRecord,

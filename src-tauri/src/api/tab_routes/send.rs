@@ -741,6 +741,49 @@ pub async fn send_text(
         .substitute_paste_limited_body(&tab_id, raw_text, wrapped.len())
         .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
     let text = prepend(&raw_text);
+
+    if origin == SendOrigin::User
+        && (target_has_agent || transport == TabInputTransport::ChatBackend)
+    {
+        let status = state
+            .svc
+            .start_chat_send(&tab_id, text, None, body.client_token)
+            .map_err(|detail| DeliveryError::TabBusyRefused {
+                tab: tab_id.clone(),
+                detail,
+            })?;
+        record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
+        return Ok(Json(serde_json::json!({
+            "ok": true,
+            "delivery": "pending",
+            "send_id": status.send_id,
+            "pad_file": pad_file.map(|path| path.display().to_string())
+        })));
+    }
+
+    if origin == SendOrigin::Programmatic && target_has_agent && transport == TabInputTransport::Pty
+    {
+        let text = crate::service::pty_io::sanitize_agent_prompt_input(&text);
+        let delivery = state.svc.deliver_agent_payload(
+            &tab_id,
+            crate::service::messenger::AgentDeliveryPayload {
+                transport: crate::service::messenger::QueuedAgentPayload::Text { text: text.clone() },
+                observer: None,
+                idempotency_key: None,
+                expected_pty_id: None,
+                expected_session_id: None,
+                expected_binding_nonce: None,
+            },
+            &text,
+        ).map_err(|error| classify_delivery_failure(&tab_id, &error))?;
+        record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
+        return Ok(Json(serde_json::json!({
+            "ok": true,
+            "delivery": if matches!(delivery, crate::service::messenger::Delivery::Pending { .. }) { "pending" } else { "sent" },
+            "pad_file": pad_file.map(|path| path.display().to_string())
+        })));
+    }
+
     // A plain text send always submits — no-Enter/keystroke cases go through
     // `actions` or `raw`.
     state.svc.send_text_when_ready(&tab_id, &text).await?;

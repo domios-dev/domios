@@ -25,6 +25,8 @@ mod decision_model;
 mod delivery_modal;
 #[path = "parity_test/model_catalogue.rs"]
 mod model_catalogue;
+#[path = "parity_test/unbound_submit_recovery.rs"]
+mod unbound_submit_recovery;
 #[path = "parity_test/update_prompt.rs"]
 mod update_prompt;
 
@@ -744,6 +746,9 @@ impl AgentProvider for ClassifyNativeStub {
     }
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
         None
+    }
+    fn supports_unbound_submit_recovery(&self) -> bool {
+        true
     }
     fn classify_tab_state(
         &self,

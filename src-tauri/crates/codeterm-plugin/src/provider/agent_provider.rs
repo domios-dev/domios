@@ -105,6 +105,11 @@ pub trait AgentProvider: Send + Sync {
         }
     }
 
+    /// Whether this provider permits recovery keys without an authenticated session.
+    fn supports_unbound_submit_recovery(&self) -> bool {
+        false
+    }
+
     fn turn_evidence_normalization(&self) -> TurnEvidenceNormalization {
         TurnEvidenceNormalization::default()
     }
@@ -483,30 +488,7 @@ pub trait AgentProvider: Send + Sync {
     }
 
     fn delivery_modal_visible(&self, snapshot: &crate::tab_state::TabStateSnapshot) -> bool {
-        use crate::tab_state::TabState;
-
-        if crate::detector::has_active_turn_marker(&snapshot.screen_text) {
-            return false;
-        }
-        match self.classify_tab_state(snapshot) {
-            Some(classification) if classification.state == TabState::Working => false,
-            Some(classification)
-                if classification.confidence >= 0.8
-                    && matches!(
-                        classification.state,
-                        TabState::WaitingOnAuth
-                            | TabState::UpdatePrompt
-                            | TabState::RateLimited
-                            | TabState::ClarifyingQuestion
-                    ) =>
-            {
-                true
-            }
-            Some(classification) if classification.state == TabState::Unknown => {
-                crate::detector::detect_interactive_prompt(&snapshot.screen_text)
-            }
-            _ => crate::detector::detect_interactive_prompt(&snapshot.screen_text),
-        }
+        provider_classified_delivery_modal_visible(self, snapshot)
     }
 
     /// Filter TUI noise from agent output. Returns true if the text is noise (should be dropped).
@@ -1052,4 +1034,24 @@ pub trait AgentProvider: Send + Sync {
     fn is_native(&self) -> bool {
         true
     }
+}
+
+pub(crate) fn provider_classified_delivery_modal_visible(
+    provider: &dyn AgentProvider,
+    snapshot: &crate::tab_state::TabStateSnapshot,
+) -> bool {
+    use crate::tab_state::TabState;
+
+    provider
+        .classify_tab_state(snapshot)
+        .is_some_and(|classification| {
+            classification.confidence >= 0.8
+                && matches!(
+                    classification.state,
+                    TabState::WaitingOnAuth
+                        | TabState::UpdatePrompt
+                        | TabState::RateLimited
+                        | TabState::ClarifyingQuestion
+                )
+        })
 }
