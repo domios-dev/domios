@@ -52,13 +52,13 @@ specific shell id).
 
 ## References
 
-Specialized reference docs alongside this skill:
-- `references/mem.md` — full mem command catalog, kinds table, filters, graph queries, search-strategy fallbacks, skill-folder workflow, sessions API
-- `references/roles.md` — agent-role rules, decision tree, common mistakes, task templates
-- `references/sentinels.md` — bounded status probes, hash-gated classification, transition routes and Team cleanup
-- `references/cron.md` — full cron flag set, oneshot schedules, lifecycle
-- `references/telegram.md` — bridge setup, media types, formatting, per-tab topic threads (`codeterm bridge thread open [--tab ID]`), migration orchestration
-- `references/themes.md` — custom theme TOML format
+Full references live in `codeterm docs <NAME>`; the `references/` files only point there:
+- Memory — `codeterm docs MEMORY-USAGE` (commands, kinds, search fallbacks, wake-up, calibration), `codeterm docs MEMORY`, `codeterm docs MEMORY-SERVICES` (skill folders, Librarian, dreaming)
+- Agent roles — `codeterm docs AGENT-CONTROL` (hierarchy, placement, briefs) and `codeterm docs ORCHESTRATION`
+- Sentinels — `codeterm docs SENTINELS` (when-to-use recipes and full reference)
+- Cron — `codeterm docs API-INTEGRATIONS` (CLI, oneshot, lifecycle) and `codeterm docs RUNTIME-CONFIG` (job schema)
+- Telegram — `codeterm docs TELEGRAM-SETUP` (setup, media, formatting, per-tab topic threads) and `codeterm docs MESH-BRIDGE` (poller migration)
+- Themes — `codeterm docs RUNTIME-CONFIG` (custom theme TOML format)
 - `essences/capabilities.md` (in the Domios repo) — stable agent model catalog contract: provider-owned catalogs, user overrides, availability, and grouping
 - `prod-docs/ESSENCE-MAP.md` (read with `codeterm docs ESSENCE-MAP`) — source-backed map generation, validation, and decision records
 
@@ -66,4 +66,4 @@ Specialized reference docs alongside this skill:
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 69 -->
+<!-- revision: 73 -->

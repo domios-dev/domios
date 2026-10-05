@@ -163,7 +163,7 @@ The connected observer ignores confidence below 0.60. Model-only owner notificat
 
 | State | Recovery authority |
 |---|---|
-| Update prompt | Agent-owned prompts use one calibrated choice at 0.80 or above among provider-declared options. Owner-launched tabs keep the prompt for the owner. See `codeterm docs CONFIG`. |
+| Update prompt | Agent-owned prompts use one calibrated choice at 0.80 or above among provider-declared options. Owner-launched tabs keep the prompt for the owner. |
 | Crashed to shell | Confirmed provider exit event, provider absent from this tab's process tree and live shell PTY; resume a verified recovery session, otherwise launch fresh. Jev is audit-only. |
 | Starting past deadline | One restart, with provider absence or a dead PTY. |
 | Error loop | One restart, then notify; provider absence or a dead PTY is required. |
@@ -216,4 +216,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 41 -->
+<!-- revision: 42 -->

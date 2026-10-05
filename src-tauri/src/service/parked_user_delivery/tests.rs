@@ -107,6 +107,16 @@ const SECOND_PAYLOAD: &str = "\topaque-b-8d27\n\u{754c}  ";
 const REFUSAL: &str = "ProviderInputNotReady: opaque-readiness-boundary";
 const TEST_DEADLINE: Duration = Duration::from_secs(10);
 
+#[test]
+fn first_turn_session_capability_allows_readiness_without_a_resume_id() {
+    assert!(!requires_observed_session_id_for_readiness(None, true));
+    assert!(requires_observed_session_id_for_readiness(None, false));
+    assert!(!requires_observed_session_id_for_readiness(
+        Some("observed-session"),
+        false
+    ));
+}
+
 pub(crate) fn failed_launch_fixture() -> (ServiceFixture, String) {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
@@ -599,6 +609,8 @@ pub(crate) fn attach_fixture_pty(fixture: &ServiceFixture, tab_id: &str) -> u64 
 
 #[path = "tests/owner_jev.rs"]
 mod owner_jev;
+#[path = "tests/retained_uncertainty.rs"]
+mod retained_uncertainty;
 #[path = "tests/ended_launch.rs"]
 mod ended_launch;
 mod evidence;

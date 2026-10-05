@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_plan::service_plan::state::task_projection;
 use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::types::{Tab, TabBacking};
 use crate::plan::{Plan, Task, TaskExecutionAttempt, TaskStatus};

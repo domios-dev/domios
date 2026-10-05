@@ -1,6 +1,6 @@
 # Setting up a Telegram bot from scratch
 
-When the user hands you a fresh Telegram bot token to wire up:
+The user creates the bot with @BotFather, which issues its token. When the user hands you a fresh Telegram bot token to wire up:
 
 1. **Stash the token** (mode 600, gitignored path):
    ```bash
@@ -89,11 +89,14 @@ Use `--raw-text` only when the recipient must receive the literal characters
 backslash and `n` instead of a line break. Tabs are unchanged; actual tabs pass
 through as supplied by the shell.
 
-## Photos
+## Media and delivery
 
 ```bash
-codeterm bridge send --to USER_ID --type photo --file /path/to/image.jpg
+codeterm bridge send --to USER_ID --type photo --file /path/to/image.jpg --caption "Check this"
+codeterm bridge send --to USER_ID --type document --file /path/to/report.pdf --filename "Q1-report.pdf"
 ```
+
+`--type` is `text` (default), `photo`, `document`, `voice`, `animation`, `video` or `sticker`. Positional text becomes the caption when `--caption` is absent; stickers take no caption. Any tab may `bridge send`, not only the General Agent. Long text is split into HTML-aware chunks on UTF-8 character boundaries, and a failed poller restarts after 5 seconds.
 
 Domios has no screenshot CLI. If the user asks for a screen capture, ask them to paste an image or provide a file path.
 
@@ -125,4 +128,4 @@ codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--clai
 
 Run on the **source** machine. `--mesh PEER` is rejected (exit 6) because each daemon resolves its own vault and secrets never cross the mesh.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->
