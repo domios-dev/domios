@@ -20,7 +20,8 @@ impl<'a> Supporter<'a> {
         let runtime = supporter::runtime_with_notifications(svc);
         let epoch = runtime.connection_epoch();
         let cfg = crate::config::load_config().supporter;
-        let token = supporter::TokenSnapshot::read(
+        let token = supporter::read_token_snapshot(
+            &runtime,
             &crate::api::mem_routes::decision::token_store(),
             cfg.active_id().unwrap_or(""),
         );

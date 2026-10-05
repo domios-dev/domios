@@ -175,6 +175,12 @@ impl<'a> RecordIdentity<'a> {
         self
     }
 
+    pub(crate) fn decision_point(&self) -> Option<&str> {
+        self.correlation
+            .filter(|correlation| correlation.observation_id == self.observation_id)
+            .map(Correlation::decision_point)
+    }
+
     pub(super) fn decorate(
         self,
         event: &mut Value,

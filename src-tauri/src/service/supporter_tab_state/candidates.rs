@@ -231,7 +231,6 @@ pub(crate) fn spawn_with_origin_and_id<H: ShadowHost>(
     let observation_id = envelope.observation_id;
     envelope.adapter = Some(adapter.clone());
     envelope.policy_hash = Some(identity::supporter_policy(config));
-    let captured_at = envelope.captured_at;
     let mut pending = Pending {
         host: host.clone(),
         tab: tab.into(),
@@ -270,18 +269,17 @@ pub(crate) fn spawn_with_origin_and_id<H: ShadowHost>(
             if !pending.current(&adapter_id, &adapter) {
                 return None;
             }
-            let deadline =
-                captured_at + Duration::from_millis(config.deadline_ms.max(1)).min(DEADLINE);
-            let result = if Instant::now() >= deadline {
-                Err(DecisionError::Deadline)
-            } else if observer::choice_model(&pending.host.supporter_models(), &adapter_id)
+            let result = if observer::choice_model(&pending.host.supporter_models(), &adapter_id)
                 .is_none()
             {
                 Err(DecisionError::Unsupported)
             } else {
+                let runtime = pending.host.supporter_runtime();
+                let deadline =
+                    runtime.decision_deadline(&adapter_id, config.deadline_ms, Instant::now());
                 let model = supporter::budgeted_model_with_activity(
                     adapter.clone(),
-                    pending.host.supporter_runtime(),
+                    runtime,
                     config.calls_per_hour.unwrap_or(0),
                     VerdictKind::TabState,
                     Some(pending.tab.clone()),
@@ -289,6 +287,7 @@ pub(crate) fn spawn_with_origin_and_id<H: ShadowHost>(
                     Some(supporter::ActivityContext::TabState {
                         title: pending.metadata.title.clone(),
                         declared_safe_choice: pending.metadata.declared_safe_choice.clone(),
+                        decision_point: trigger.label().into(),
                     }),
                 );
                 model.decide_questions(&request, deadline)

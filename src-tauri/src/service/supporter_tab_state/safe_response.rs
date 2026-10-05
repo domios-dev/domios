@@ -911,6 +911,7 @@ impl ServiceContext {
                 let context = supporter::ActivityContext::TabState {
                     title: receipt.metadata.title.clone(),
                     declared_safe_choice: Some(target.choice.clone()),
+                    decision_point: "safe_response".into(),
                 };
                 let answers = BTreeMap::from([(
                     "safe_choice".into(),
