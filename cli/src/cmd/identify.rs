@@ -29,14 +29,18 @@ pub fn resolved_data_root() -> ResolvedValue<std::path::PathBuf> {
             }
         }
     }
-    let source = if resolved_instance().value.is_some() {
-        ResolutionSource::CodeTermInstance
+    let instance = resolved_instance();
+    let source = if instance.value.is_some() {
+        instance.source
     } else if std::env::var("CODETERM_SOCKET_PATH")
         .map(|path| path.contains("codeterm-dev"))
         .unwrap_or(false)
     {
         ResolutionSource::CodeTermSocketPath
-    } else if std::env::var("CODETERM_API_PORT").as_deref() == Ok("7686") {
+    } else if std::env::var("CODETERM_API_PORT")
+        .map(|port| !port.trim().is_empty() && port.trim() != "7685")
+        .unwrap_or(false)
+    {
         ResolutionSource::CodeTermApiPort
     } else {
         ResolutionSource::Default
@@ -55,10 +59,17 @@ pub fn resolved_instance() -> ResolvedValue<Option<String>> {
             value: Some(value.trim().to_string()),
             source: ResolutionSource::CodeTermInstance,
         },
-        _ => ResolvedValue {
-            value: None,
-            source: ResolutionSource::Absent,
-        },
+        _ => std::env::var("CODETERM_SOCKET_PATH")
+            .ok()
+            .and_then(|path| crate::client::instance_socket_name_from_path(&path))
+            .map(|instance| ResolvedValue {
+                value: Some(instance),
+                source: ResolutionSource::CodeTermSocketPath,
+            })
+            .unwrap_or(ResolvedValue {
+                value: None,
+                source: ResolutionSource::Absent,
+            }),
     }
 }
 
@@ -330,6 +341,53 @@ mod tests {
         restore_env("CODETERM_DATA_DIR", previous_data);
         restore_env("CODETERM_INSTANCE", previous_instance);
         restore_env("CODETERM_API_PORT", previous_port);
+    }
+
+    #[test]
+    fn named_socket_selects_its_data_dir_without_instance_env() {
+        let _guard = crate::test_env_lock().lock().unwrap();
+        let previous_data = std::env::var("CODETERM_DATA_DIR").ok();
+        let previous_instance = std::env::var("CODETERM_INSTANCE").ok();
+        let previous_port = std::env::var("CODETERM_API_PORT").ok();
+        let previous_socket = std::env::var("CODETERM_SOCKET_PATH").ok();
+        std::env::remove_var("CODETERM_DATA_DIR");
+        std::env::remove_var("CODETERM_INSTANCE");
+        std::env::set_var("CODETERM_API_PORT", "7712");
+        std::env::set_var("CODETERM_SOCKET_PATH", "codeterm-dev-coreqa.sock");
+
+        let data_dir = crate::resolved_data_root();
+        let instance = resolved_instance();
+        assert!(data_dir.value.ends_with(".codeterm-dev-coreqa"));
+        assert_eq!(data_dir.source, ResolutionSource::CodeTermSocketPath);
+        assert_eq!(instance.value.as_deref(), Some("coreqa"));
+        assert_eq!(instance.source, ResolutionSource::CodeTermSocketPath);
+
+        restore_env("CODETERM_DATA_DIR", previous_data);
+        restore_env("CODETERM_INSTANCE", previous_instance);
+        restore_env("CODETERM_API_PORT", previous_port);
+        restore_env("CODETERM_SOCKET_PATH", previous_socket);
+    }
+
+    #[test]
+    fn custom_dev_port_does_not_select_the_production_data_dir() {
+        let _guard = crate::test_env_lock().lock().unwrap();
+        let previous_data = std::env::var("CODETERM_DATA_DIR").ok();
+        let previous_instance = std::env::var("CODETERM_INSTANCE").ok();
+        let previous_port = std::env::var("CODETERM_API_PORT").ok();
+        let previous_socket = std::env::var("CODETERM_SOCKET_PATH").ok();
+        std::env::remove_var("CODETERM_DATA_DIR");
+        std::env::remove_var("CODETERM_INSTANCE");
+        std::env::set_var("CODETERM_API_PORT", "7712");
+        std::env::remove_var("CODETERM_SOCKET_PATH");
+
+        let data_dir = crate::resolved_data_root();
+        assert!(data_dir.value.ends_with(".codeterm-dev"));
+        assert_eq!(data_dir.source, ResolutionSource::CodeTermApiPort);
+
+        restore_env("CODETERM_DATA_DIR", previous_data);
+        restore_env("CODETERM_INSTANCE", previous_instance);
+        restore_env("CODETERM_API_PORT", previous_port);
+        restore_env("CODETERM_SOCKET_PATH", previous_socket);
     }
 
     #[test]
