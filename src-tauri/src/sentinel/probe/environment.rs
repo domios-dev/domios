@@ -2,13 +2,13 @@ use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
 #[derive(Clone, Default)]
-pub(super) struct Environment {
+pub(crate) struct Environment {
     pub(super) variables: Vec<(OsString, OsString)>,
     pub(super) removed: Vec<OsString>,
 }
 
 impl Environment {
-    pub(super) fn current_instance() -> Self {
+    pub(crate) fn current_instance() -> Self {
         let instance = crate::service::pty_io::tab_env::InstanceEnv::resolve();
         let cli = crate::service::pty_io::tab_env::instance_cli_binary_path();
         let path = std::env::var_os("PATH");

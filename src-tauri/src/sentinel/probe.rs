@@ -9,7 +9,7 @@ pub(super) mod windows;
 
 pub(super) mod cancellation;
 pub(super) mod capture;
-pub(super) mod environment;
+pub(crate) mod environment;
 pub(super) mod owner;
 pub(super) mod process;
 

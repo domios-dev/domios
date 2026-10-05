@@ -372,7 +372,7 @@ Enable a cron job
 
 Show run history
 
-- `<id>` — Cron job ID
+- `<id>` — Cron job ID or name
 
 #### `codeterm cron list`
 

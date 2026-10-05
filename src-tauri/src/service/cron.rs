@@ -853,7 +853,7 @@ impl ServiceContext {
     }
 }
 
-fn resolve_cron_id_or_name<'a>(store: &'a CronStore, id_or_name: &str) -> Result<&'a str, String> {
+fn resolve_cron_id_or_name<'a>(store: &'a CronStore, id_or_name: &'a str) -> Result<&'a str, String> {
     if let Some(job) = store.get(id_or_name) {
         return Ok(&job.id);
     }
