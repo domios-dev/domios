@@ -812,10 +812,7 @@ impl ServiceContext {
         let bg_task = if is_planner || is_orch_onboarding {
             bg_task
         } else {
-            bg_task.map(|t| match self.spawn_task_prefix(&tab_id) {
-                Some(pfx) => format!("{}{}", pfx, t),
-                None => t,
-            })
+            bg_task.map(|task| self.spawn_task_message(&tab_id, &task).unwrap_or(task))
         };
         crate::service::restored_launch::capture_tab_launch_parameters(
             &self.mux,
@@ -1068,28 +1065,30 @@ impl ServiceContext {
         }
     }
 
-    /// Origin prefix for a spawned agent's first task, derived from the target tab's recorded spawner (spawned_by/parent) — same canonical attribution as cross-tab sends. None for raw spawns (no spawner).
-    pub(crate) fn spawn_task_prefix(&self, target_tab: &str) -> Option<String> {
+    /// Origin frame for a spawned agent's first task, derived from its recorded spawner.
+    pub(crate) fn spawn_task_message(&self, target_tab: &str, body: &str) -> Option<String> {
         let mux = self.mux.write();
-        let src = mux.get_tab(target_tab).and_then(|p| {
-            p.spawned_by_tab_id
-                .clone()
-                .or_else(|| p.parent_tab_id.clone())
-        })?;
+        let target = mux.get_tab(target_tab)?;
+        let src = target
+            .spawned_by_tab_id
+            .clone()
+            .or_else(|| target.parent_tab_id.clone())?;
         if src.is_empty() {
             return None;
         }
         let label = mux.display_label_for_tab(&src);
-        let model = mux
-            .get_tab(&src)
-            .and_then(|p| p.agent_session_model.clone());
-        crate::service::messenger::delivery_prefix(
+        let source = mux.get_tab(&src);
+        let model = source.and_then(|tab| tab.agent_session_model.clone());
+        let from_agent = source.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
+        crate::service::messenger::delivery_message(
             true,
             &src,
             target_tab,
             &label,
             model.as_deref(),
             None,
+            from_agent,
+            body,
         )
     }
 }

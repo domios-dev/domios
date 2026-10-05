@@ -990,7 +990,7 @@ mod plan_cli_error_tests {
     }
 
     #[test]
-    fn normalizes_agent_spawn_marker_label_without_treating_it_as_a_flag() {
+    fn parses_domios_route_text_as_an_agent_spawn_title() {
         let args = normalize_agent_spawn_label_args(
             [
                 "codeterm",
@@ -998,8 +998,8 @@ mod plan_cli_error_tests {
                 "spawn",
                 "claude",
                 "--title",
-                "-=-codeterm:tab",
-                "label=main-=-",
+                "<domios",
+                "from=tab>",
                 "--task",
                 "echo",
             ]
@@ -1007,15 +1007,15 @@ mod plan_cli_error_tests {
             .map(String::from)
             .collect(),
         );
-        assert!(args.contains(&"--title=-=-codeterm:tab label=main-=-".to_string()));
-        let cli = Cli::try_parse_from(args).expect("normalized marker title parses");
+        assert!(args.contains(&"--title<domios from=tab>".to_string()));
+        let cli = Cli::try_parse_from(args).expect("normalized route title parses");
         match cli.command {
             Commands::Agent {
                 action: AgentAction::Spawn { title, task, .. },
             } => {
                 assert_eq!(
                     title.map(|parts| parts.join(" ")).as_deref(),
-                    Some("-=-codeterm:tab label=main-=-")
+                    Some("<domios from=tab>")
                 );
                 assert_eq!(task.as_deref(), Some("echo"));
             }

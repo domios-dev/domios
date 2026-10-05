@@ -54,6 +54,17 @@ fn mesh_peer_resolution_table() {
 }
 
 #[test]
+fn mesh_peer_resolution_accepts_legacy_v1_peer_for_routed_send() {
+    let mut legacy_peer = peer(LIVE_ID, "AIR", true);
+    legacy_peer.relay_protocol_version = 1;
+    let mesh = mesh_with(vec![legacy_peer]);
+
+    let resolved = resolve_relay_peer(&mesh, "AIR")
+        .expect("the current relay forwards to a v1 peer whose send handler frames locally");
+    assert_eq!(resolved.1, LIVE_ID);
+}
+
+#[test]
 fn mesh_peer_resolution_refuses_ambiguous_names_with_candidates() {
     let mesh = mesh_with(vec![
         peer("id-aaaa-1", "ROG", true),

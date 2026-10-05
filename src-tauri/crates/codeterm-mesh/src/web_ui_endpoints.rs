@@ -48,7 +48,7 @@ pub fn collect_verified(
 }
 
 pub fn normalize(announcement: WebUiAnnouncement) -> Option<WebUiAnnouncement> {
-    if announcement.protocol_version != types::RELAY_PROTOCOL_VERSION {
+    if !types::is_supported_relay_protocol(announcement.protocol_version) {
         return None;
     }
     let mut endpoints = announcement
@@ -59,7 +59,7 @@ pub fn normalize(announcement: WebUiAnnouncement) -> Option<WebUiAnnouncement> {
     endpoints.sort_by_key(rank);
     endpoints.dedup();
     (!endpoints.is_empty()).then_some(WebUiAnnouncement {
-        protocol_version: types::RELAY_PROTOCOL_VERSION,
+        protocol_version: announcement.protocol_version,
         endpoints,
     })
 }

@@ -151,6 +151,11 @@ pub fn should_proactive_sync(
 // ── Live address announce ───────────────────────────────────────────
 
 pub const RELAY_PROTOCOL_VERSION: u16 = 1;
+pub const MAX_SUPPORTED_RELAY_PROTOCOL_VERSION: u16 = 2;
+
+pub const fn is_supported_relay_protocol(version: u16) -> bool {
+    version >= RELAY_PROTOCOL_VERSION && version <= MAX_SUPPORTED_RELAY_PROTOCOL_VERSION
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "transport", rename_all = "snake_case")]
@@ -467,6 +472,15 @@ pub struct RevocationList {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn relay_protocol_keeps_v1_wire_and_accepts_v1_and_v2_records() {
+        assert_eq!(RELAY_PROTOCOL_VERSION, 1);
+        assert!(is_supported_relay_protocol(1));
+        assert!(is_supported_relay_protocol(2));
+        assert!(!is_supported_relay_protocol(0));
+        assert!(!is_supported_relay_protocol(3));
+    }
 
     #[test]
     fn tailscale_cgnat_recognized() {

@@ -258,7 +258,12 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     mesh.paired_peers.clear();
     mesh.paired_peers.insert(
         "a4db6f3d-dead".into(),
-        paired_peer_fixture("a4db6f3d-dead", "BLACKSTAR", false, 0),
+        paired_peer_fixture(
+            "a4db6f3d-dead",
+            "BLACKSTAR",
+            false,
+            crate::mesh::types::RELAY_PROTOCOL_VERSION - 1,
+        ),
     );
     mesh.paired_peers.insert(
         "2556b3f9-live".into(),
@@ -278,12 +283,12 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
     // Case-insensitive name resolution still lands on the live record.
     assert!(resolve_relay_peer(&mesh, "blackstar").is_ok());
     // Id lookup returns the EXACT record for that id, bypassing the name
-    // ambiguity — but not the protocol gate: the dead id is still protocol 0.
+    // ambiguity — but not the protocol gate: the dead id is still protocol 1.
     let (_, _, live_id_name, _) =
         resolve_relay_peer(&mesh, "2556b3f9-live").expect("the live id resolves");
     assert_eq!(live_id_name, "BLACKSTAR");
     match resolve_relay_peer(&mesh, "a4db6f3d-dead") {
-        Ok(_) => panic!("the dead id's own record is protocol 0 — must still refuse"),
+        Ok(_) => panic!("the dead id's own record is protocol 1 — must still refuse"),
         Err((status, _)) => assert_eq!(status, StatusCode::UPGRADE_REQUIRED),
     }
 }
@@ -683,8 +688,10 @@ fn relay_send_tags_originating_peer() {
     let mut body = serde_json::json!({"text": "hi", "source_tab": "e8a0ac20"});
     tag_relay_send_source(&mut body, "POST", "/api/tabs/general/send", "BLACKSTAR");
     assert_eq!(body["source_peer"], serde_json::json!("BLACKSTAR"));
-    // Text is NOT pre-wrapped — the send handler owns prefixing.
+    // Old and current receivers frame at their own send handler.
     assert_eq!(body["text"], serde_json::json!("hi"));
+    assert!(!body["text"].as_str().unwrap().contains("<domios"));
+    assert!(!body["text"].as_str().unwrap().contains("-=-codeterm:"));
     assert_eq!(body["source_tab"], serde_json::json!("e8a0ac20"));
 }
 

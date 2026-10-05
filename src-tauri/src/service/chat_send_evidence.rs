@@ -593,6 +593,47 @@ mod tests {
     }
 
     #[test]
+    fn exact_turn_matches_typed_route_with_wrapped_body_only() {
+        let fx = Fixture::new();
+        let mut anchor = fx.anchor_now("sess-a");
+        anchor.turn_normalization = crate::agent::provider::TurnEvidenceNormalization {
+            unwrap_pasted_content_wrapper: true,
+            collapse_horizontal_whitespace: true,
+            drop_supplementary_characters: false,
+        };
+        let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
+        let body = "opaque routed body";
+        let suffix = format!(
+            " [reply] {}{}",
+            codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION,
+            codeterm_types::domios::DOMIOS_CLOSE_TAG
+        );
+        let expected = format!("{open}{body}{suffix}");
+        let observed = format!(
+            "{open}<pasted_content id=\"evidence\">\n{body}\n</pasted_content id=\"evidence\">{suffix}"
+        );
+        fx.append_user_turn("sess-a", &observed);
+
+        assert!(contains_exact_user_turn(&fx.registry, &anchor, &expected));
+        assert!(contains_exact_user_turn_since(
+            &fx.registry,
+            &anchor,
+            &expected,
+            &mut ExactTurnCursor::for_anchor(Some(&anchor)),
+        ));
+        assert_eq!(
+            crate::service::chat_send_transaction::normalize_turn_evidence_with(
+                &observed,
+                anchor.turn_normalization,
+            ),
+            crate::service::chat_send_transaction::normalize_turn_evidence_with(
+                &expected,
+                anchor.turn_normalization,
+            )
+        );
+    }
+
+    #[test]
     fn submit_turn_cursor_reads_only_appended_jsonl_since_last_wake() {
         let fx = Fixture::new();
         let anchor = fx.anchor_now("sess-a");

@@ -11,6 +11,8 @@ const MAX_TYPED_FOLLOW_UP_CHARS: usize = 160;
 pub struct PasteCapability {
     pub untrusted_above_lines: usize,
     pub typed_follow_up: String,
+    #[serde(default)]
+    pub requires_typed_instruction_for_routed_messages: bool,
 }
 
 impl PasteCapability {
@@ -36,6 +38,33 @@ pub struct SandboxedLinuxLaunchCapability {
     pub network_access_args: Vec<String>,
     pub network_access_config_path: String,
     pub network_access_setting: String,
+}
+
+#[cfg(test)]
+mod paste_capability_tests {
+    use super::*;
+
+    #[test]
+    fn typed_follow_up_is_limited_to_valid_messages_above_the_threshold() {
+        let capability = PasteCapability {
+            untrusted_above_lines: 4,
+            typed_follow_up: " ::marker::".into(),
+            requires_typed_instruction_for_routed_messages: true,
+        };
+
+        assert_eq!(capability.typed_follow_up_for("a\nb\nc"), None);
+        assert_eq!(capability.typed_follow_up_for("a\nb\nc\nd"), None);
+        assert_eq!(
+            capability.typed_follow_up_for("a\nb\nc\nd\ne"),
+            Some(" ::marker::")
+        );
+
+        let multiline = PasteCapability {
+            typed_follow_up: "marker\nmarker".into(),
+            ..capability
+        };
+        assert_eq!(multiline.typed_follow_up_for("a\nb\nc\nd\ne"), None);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -347,31 +376,5 @@ mod capability_denial_tests {
     fn a_success_is_never_rewritten_even_if_something_else_was_denied() {
         let out = attribute_capability_denial(Ok("weekly 7%".into()), 0, 9);
         assert_eq!(out.unwrap(), "weekly 7%");
-    }
-}
-
-#[cfg(test)]
-mod paste_capability_tests {
-    use super::*;
-
-    #[test]
-    fn typed_follow_up_is_limited_to_valid_messages_above_the_threshold() {
-        let capability = PasteCapability {
-            untrusted_above_lines: 4,
-            typed_follow_up: " ::marker::".into(),
-        };
-
-        assert_eq!(capability.typed_follow_up_for("a\nb\nc"), None);
-        assert_eq!(capability.typed_follow_up_for("a\nb\nc\nd"), None);
-        assert_eq!(
-            capability.typed_follow_up_for("a\nb\nc\nd\ne"),
-            Some(" ::marker::")
-        );
-
-        let multiline = PasteCapability {
-            typed_follow_up: "marker\nmarker".into(),
-            ..capability
-        };
-        assert_eq!(multiline.typed_follow_up_for("a\nb\nc\nd\ne"), None);
     }
 }

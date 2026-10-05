@@ -707,13 +707,11 @@ pub async fn send_text(
         && transport == TabInputTransport::Pty
     {
         let raw_text = stage(raw_text);
-        let wrapped = prepend(&raw_text);
-        let (raw_text, pad_file) = state
-            .svc
-            .substitute_paste_limited_body(&tab_id, raw_text, wrapped.len())
-            .map_err(|detail| pad_write_refusal(&tab_id, detail))?;
-        let text = prepend(&raw_text);
-        state.svc.send_text_when_ready(&tab_id, &text).await?;
+        let envelope = source_envelope.expect("checked above");
+        let (_delivery, pad_file) = crate::service::messenger::Messenger::deliver_with_pad_file(
+            &state.svc, &tab_id, envelope, &raw_text,
+        )
+        .map_err(|e| classify_delivery_failure(&tab_id, &e))?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
         return Ok(Json(serde_json::json!({
             "ok": true,

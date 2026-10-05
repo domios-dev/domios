@@ -5,6 +5,16 @@ use crate::service::ServiceContext;
 
 mod readiness;
 
+fn compose_routed_suffix(suffix: &str, requires_instruction: bool) -> String {
+    let mut typed_suffix = suffix.to_string();
+    if requires_instruction {
+        typed_suffix.push(' ');
+        typed_suffix.push_str(codeterm_types::domios::DOMIOS_TYPED_INSTRUCTION);
+    }
+    typed_suffix.push_str(codeterm_types::domios::DOMIOS_CLOSE_TAG);
+    typed_suffix
+}
+
 #[cfg(test)]
 pub(crate) use readiness::provider_or_generic_tui;
 #[cfg(test)]
@@ -368,6 +378,41 @@ impl ServiceContext {
         });
     }
 
+    pub(crate) fn send_routed_to_agent_when_ready_detached(
+        &self,
+        tab_id: &str,
+        frame: codeterm_types::domios::DomiosFrame,
+    ) {
+        let svc = self.clone();
+        let tab = tab_id.to_string();
+        std::thread::spawn(move || {
+            let pty_claim = svc.pty_ownership.acquire(&tab);
+            let target = {
+                let mux = svc.mux.read();
+                mux.get_tab(&tab)
+                    .filter(|target| target.agent_type.is_some())
+                    .and_then(|target| target.pty_id.clone().zip(target.agent_type.clone()))
+                    .ok_or_else(|| "agent_unavailable: routed recipient is no longer an agent".to_string())
+            };
+            let result = target.and_then(|(pty_id, provider_id)| {
+                svc.send_routed_frame_to_pty(&pty_id, &provider_id, frame)
+            });
+            drop(pty_claim);
+            if let Err(error) = result {
+                if delivery_is_unknown(&error) {
+                    log::warn!("[send-async] routed delivery to Tab {tab} remains unknown");
+                    return;
+                }
+                log::warn!("[send-async] routed delivery to Tab {tab} failed: {error}");
+                crate::api::events::emit_everywhere(
+                    &svc.app_handle,
+                    "chat-send-failed",
+                    serde_json::json!({ "tab_id": &tab, "error": &error }),
+                );
+            }
+        });
+    }
+
     pub(crate) fn send_to_authenticated_agent_session(
         &self,
         tab_id: &str,
@@ -412,6 +457,27 @@ impl ServiceContext {
                 )
             },
         )
+    }
+
+    pub(crate) fn send_to_authenticated_agent_session_pinned_routed(
+        &self,
+        tab_id: &str,
+        expected_pty_id: &str,
+        expected_session_id: &str,
+        expected_binding_nonce: &str,
+        frame: codeterm_types::domios::DomiosFrame,
+    ) -> Result<(), String> {
+        let pty_claim = self.pty_ownership.acquire(tab_id);
+        let result = self
+            .authenticated_pty_delivery(
+                tab_id,
+                Some(expected_pty_id),
+                expected_session_id,
+                expected_binding_nonce,
+            )
+            .and_then(|delivery| self.send_authenticated_delivery_with_routed_frame(delivery, frame));
+        drop(pty_claim);
+        result
     }
 
     fn send_to_authenticated_agent_session_pinned_with<T>(
@@ -479,6 +545,87 @@ impl ServiceContext {
                 DeliveryError::from_injection(&delivery.pty_id, error).ledger_message()
             })
         })
+    }
+
+    fn send_authenticated_delivery_with_routed_frame(
+        &self,
+        delivery: AuthenticatedPtyDelivery,
+        frame: codeterm_types::domios::DomiosFrame,
+    ) -> Result<(), String> {
+        let strategy = self
+            .agent_registry
+            .with_provider(&delivery.provider_id, |provider| provider.verify_submit_strategy())
+            .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
+        let suffix = self.routed_frame_suffix(&delivery.provider_id, &frame.suffix)?;
+        let body = sanitize_agent_prompt_input(&frame.body);
+        let track_exact_session_turn = !body.is_empty()
+            && matches!(
+                &strategy,
+                crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
+            );
+        let claim = super::submit_transaction::claim_submit_cycle(&delivery.pty_id);
+        super::submit_transaction::submit_text_with_key_claimed_and_frame(
+            self,
+            &delivery.pty_id,
+            &body,
+            Some(&frame.opening_tag),
+            Some(&suffix),
+            true,
+            b"\r",
+            strategy,
+            crate::service::inject_verify::VerifyOpts {
+                require_prompt_first: false,
+                verify_echo: false,
+                verify_submit: true,
+                ..Default::default()
+            },
+            Some(delivery.permit),
+            track_exact_session_turn,
+            claim,
+        )
+        .and_then(|result| require_submission_result(result, track_exact_session_turn))
+        .map_err(|error| DeliveryError::from_injection(&delivery.pty_id, error).ledger_message())
+    }
+
+    fn send_routed_frame_to_pty(
+        &self,
+        pty_id: &str,
+        provider_id: &str,
+        frame: codeterm_types::domios::DomiosFrame,
+    ) -> Result<(), String> {
+        let strategy = self
+            .agent_registry
+            .with_provider(provider_id, |provider| provider.verify_submit_strategy())
+            .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
+        let suffix = self.routed_frame_suffix(provider_id, &frame.suffix)?;
+        let body = sanitize_agent_prompt_input(&frame.body);
+        let track_exact_session_turn = !body.is_empty()
+            && matches!(
+                &strategy,
+                crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
+            );
+        let claim = super::submit_transaction::claim_submit_cycle(pty_id);
+        super::submit_transaction::submit_text_with_key_claimed_and_frame(
+            self,
+            pty_id,
+            &body,
+            Some(&frame.opening_tag),
+            Some(&suffix),
+            true,
+            b"\r",
+            strategy,
+            crate::service::inject_verify::VerifyOpts {
+                require_prompt_first: false,
+                verify_echo: true,
+                verify_submit: true,
+                ..Default::default()
+            },
+            None,
+            track_exact_session_turn,
+            claim,
+        )
+        .and_then(|result| require_submission_result(result, track_exact_session_turn))
+        .map_err(|error| DeliveryError::from_injection(pty_id, error).ledger_message())
     }
 
     /// Send text to a tab (chatBackend or PTY). Agent PTYs complete only after
@@ -643,6 +790,18 @@ impl ServiceContext {
             ),
             None => (None, None),
         }
+    }
+
+    fn routed_frame_suffix(&self, provider_id: &str, suffix: &str) -> Result<String, String> {
+        let requires_instruction = self
+            .agent_registry
+            .with_provider(provider_id, |provider| {
+                provider.paste_capability().is_some_and(|capability| {
+                    capability.requires_typed_instruction_for_routed_messages
+                })
+            })
+            .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
+        Ok(compose_routed_suffix(suffix, requires_instruction))
     }
 
     fn typed_follow_up_for_agent(&self, provider_id: Option<&str>, text: &str) -> Option<String> {
