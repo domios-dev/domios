@@ -13,6 +13,7 @@ use crate::service::chat_send_transaction::{
 };
 use crate::service::tab_chat::registry::{JsonlSource, SourceCapture};
 use crate::service::ServiceContext;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 mod deferred_first_turn;
@@ -194,9 +195,8 @@ pub(crate) struct CapturedSendEvidence {
     pub(crate) deferred_first_turn: Option<DeferredFirstTurnEvidence>,
 }
 
-/// One turn instance confirms at most one send: a scan may only confirm when
-/// the append window holds MORE matching user turns than sends already
-/// confirmed for the same tab+session+payload.
+/// Exact payloads consume one send each; an anchored turn may also confirm one
+/// ordered group when its content is the concatenation of those payloads.
 pub(crate) fn scan_transcript_evidence(
     registry: &AgentRegistry,
     ledger: &ChatSendLedger,
@@ -204,14 +204,33 @@ pub(crate) fn scan_transcript_evidence(
     mut on_confirmed: impl FnMut(ChatSendStatus),
 ) {
     for candidate in ledger.evidence_candidates(tab_id) {
+        for turn in window_user_turns(registry, &candidate.anchor) {
+            let confirmed =
+                ledger.confirm_merged_evidence_turn(tab_id, &candidate.anchor, &turn);
+            for status in confirmed {
+                on_confirmed(status);
+            }
+        }
+    }
+    for candidate in ledger.evidence_candidates(tab_id) {
         let anchor = &candidate.anchor;
-        let matching_turns = window_user_turns(registry, anchor)
-            .iter()
-            .filter(|content| {
-                normalize_turn_evidence_with(content, anchor.turn_normalization)
-                    == candidate.payload
-            })
-            .count();
+        let turn_contents = window_user_turns(registry, anchor);
+        let mut matching_turns = 0;
+        let mut seen_turns = HashMap::<String, usize>::new();
+        for content in &turn_contents {
+            if normalize_turn_evidence_with(content, anchor.turn_normalization)
+                != candidate.payload
+            {
+                continue;
+            }
+            let occurrence = seen_turns.entry(content.clone()).or_default();
+            *occurrence += 1;
+            if *occurrence
+                > ledger.consumed_merged_turn_count(tab_id, anchor, content)
+            {
+                matching_turns += 1;
+            }
+        }
         let claimed = ledger.claimed_turn_count(tab_id, &anchor.session_id, &candidate.payload);
         if matching_turns > claimed {
             if let Some(status) = ledger.confirm_send(&candidate.send_id) {
@@ -719,6 +738,69 @@ mod tests {
         let confirmed = fx.scan("tab-1");
         assert_eq!(confirmed.len(), 1);
         assert_eq!(confirmed[0].send_id, second.send_id);
+    }
+
+    #[test]
+    fn persisted_merged_turn_confirms_three_sends_from_its_append_window() {
+        let fx = Fixture::new();
+        let anchor = fx.anchor_now("sess-a");
+        let sends = ["alpha-opaque", "beta-opaque", "gamma-opaque"]
+            .into_iter()
+            .map(|body| {
+                fx.ledger
+                    .try_start("tab-1", body, Some(anchor.clone()))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        for send in &sends {
+            fail_send(&fx.ledger, send);
+        }
+        fx.append_user_turn("sess-a", "alpha-opaquebeta-opaquegamma-opaque");
+
+        let confirmed = fx.scan("tab-1");
+
+        assert_eq!(confirmed.len(), 3);
+        assert_eq!(
+            confirmed
+                .iter()
+                .map(|status| status.send_id.as_str())
+                .collect::<Vec<_>>(),
+            sends
+                .iter()
+                .map(|status| status.send_id.as_str())
+                .collect::<Vec<_>>(),
+        );
+        assert!(confirmed
+            .iter()
+            .all(|status| status.state == ChatSendState::Sent));
+        assert!(fx.scan("tab-1").is_empty());
+    }
+
+    #[test]
+    fn merged_turn_is_not_reused_as_an_exact_echo_for_a_later_send() {
+        let fx = Fixture::new();
+        let anchor = fx.anchor_now("sess-a");
+        let sends = ["alpha", "beta", "alphabeta"]
+            .into_iter()
+            .map(|body| {
+                fx.ledger
+                    .try_start("tab-1", body, Some(anchor.clone()))
+                    .unwrap()
+            })
+            .collect::<Vec<_>>();
+        for send in &sends {
+            fail_send(&fx.ledger, send);
+        }
+        fx.append_user_turn("sess-a", "alphabeta");
+
+        let confirmed = fx.scan("tab-1");
+
+        assert_eq!(confirmed.len(), 2);
+        assert_eq!(confirmed[0].send_id, sends[0].send_id);
+        assert_eq!(confirmed[1].send_id, sends[1].send_id);
+        assert_eq!(fx.ledger.reconcile("tab-1")[2].state, ChatSendState::Unknown);
+        assert!(fx.scan("tab-1").is_empty());
+        assert_eq!(fx.ledger.reconcile("tab-1")[2].state, ChatSendState::Unknown);
     }
 
     #[test]

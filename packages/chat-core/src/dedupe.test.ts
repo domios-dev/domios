@@ -80,6 +80,25 @@ const T0 = 1_700_000_000_000;
   eq(pendingIds, [], "combined user turn leaves no covered bubble pending");
 }
 
+{
+  const sends = [
+    echo("opt-1", "opaque-first", T0),
+    echo("opt-2", "opaque-second", T0 + 100),
+    echo("opt-3", "opaque-third", T0 + 200),
+  ];
+  const { claims, matchedIds, pendingIds } = matchedOptimisticEchoes(
+    sends,
+    [user("merged", "opaque-firstopaque-secondopaque-third", T0 + 500)],
+  );
+  eq(matchedIds, ["opt-1", "opt-2", "opt-3"], "glued merged turn clears all ordered sends");
+  eq(pendingIds, [], "glued merged turn leaves no duplicate optimistic bubble");
+  eq(
+    claims,
+    sends.map((send) => ({ echoId: send.id, parsedIndex: 0 })),
+    "all merged sends share the one committed transcript row",
+  );
+}
+
 //     match inside a longer token and repeated short sends need repeated tokens.
 {
   const { matchedIds, pendingIds } = matchedOptimisticEchoes(

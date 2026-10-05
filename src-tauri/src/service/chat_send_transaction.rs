@@ -3,6 +3,7 @@ use std::sync::{Arc, Weak};
 use tauri::Manager;
 
 mod live_evidence;
+mod turn_reconciliation;
 pub(crate) use live_evidence::{LiveProvenance, TurnPosition};
 use live_evidence::{ConsumedTurnWatermark, LiveEvidenceProgress};
 
@@ -114,6 +115,9 @@ struct ChatSendLedgerState {
     order: VecDeque<String>,
     owned: HashMap<String, (UserSendAuthority, bool)>,
     terminal_failures: HashSet<String>,
+    consumed_merged_turns: HashMap<String, usize>,
+    consumed_merged_turn_order: VecDeque<String>,
+    held_before_readiness_by_id: HashSet<String>,
     absence_witness_by_id: HashMap<String, Arc<str>>,
     sessionless_first_turn_by_id: HashSet<String>,
     deferred_first_turn_by_id: HashMap<String, DeferredFirstTurnEvidence>,
@@ -138,6 +142,7 @@ impl Default for ChatSendLedgerState {
             order: VecDeque::new(),
             owned: HashMap::new(),
             terminal_failures: HashSet::new(),
+            held_before_readiness_by_id: HashSet::new(),
             absence_witness_by_id: HashMap::new(),
             sessionless_first_turn_by_id: HashSet::new(),
             deferred_first_turn_by_id: HashMap::new(),
@@ -156,6 +161,52 @@ pub(crate) fn normalize_turn_evidence_with(
     normalization: crate::agent::provider::TurnEvidenceNormalization,
 ) -> String {
     normalization.normalize(&crate::service::pty_io::sanitize_agent_prompt_input(text))
+}
+
+fn matching_turn_send_ids(
+    turn_text: &str,
+    candidates: &[(String, String, crate::agent::provider::TurnEvidenceNormalization)],
+) -> Vec<String> {
+    for start in 0..candidates.len() {
+        let normalization = candidates[start].2;
+        let evidence = normalize_turn_evidence_with(turn_text, normalization);
+        let mut matched = Vec::new();
+        let mut offset = 0;
+        for (send_id, expected, candidate_normalization) in candidates.iter().skip(start) {
+            if *candidate_normalization != normalization || expected.is_empty() {
+                break;
+            }
+            if !matched.is_empty() {
+                while let Some(character) = evidence
+                    .get(offset..)
+                    .and_then(|remaining| remaining.chars().next())
+                {
+                    if !character.is_whitespace() {
+                        break;
+                    }
+                    offset += character.len_utf8();
+                }
+            }
+            if !evidence
+                .get(offset..)
+                .is_some_and(|remaining| remaining.starts_with(expected.as_str()))
+            {
+                break;
+            }
+            offset += expected.len();
+            matched.push(send_id.clone());
+            if matched.len() >= 2 && evidence.get(offset..).is_some_and(str::is_empty) {
+                return matched;
+            }
+        }
+    }
+    for (send_id, expected, normalization) in candidates {
+        let evidence = normalize_turn_evidence_with(turn_text, *normalization);
+        if !evidence.is_empty() && evidence.as_str() == expected.as_str() {
+            return vec![send_id.clone()];
+        }
+    }
+    Vec::new()
 }
 
 #[derive(Default)]
@@ -192,6 +243,11 @@ impl ChatSendLedger {
             pending_reason: None,
         };
         state.owned.insert(record.send_id.clone(), (record.authority.clone(), false));
+        if record.held_before_readiness {
+            state.held_before_readiness_by_id.insert(record.send_id.clone());
+        } else {
+            state.held_before_readiness_by_id.remove(&record.send_id);
+        }
         let latest_sequence = state.latest_by_tab.get(&status.tab_id)
             .and_then(|id| state.by_id.get(id)).map_or(0, |latest| latest.sequence);
         if status.sequence >= latest_sequence {
@@ -560,6 +616,7 @@ impl ChatSendLedger {
             status.tab_id.clone()
         };
         state.owned.remove(send_id);
+        state.held_before_readiness_by_id.remove(send_id);
         state.terminal_failures.insert(send_id.to_string());
         state.latest_failure_by_tab.insert(tab_id, send_id.to_string());
         let status = state.by_id.get(send_id).cloned()?;
@@ -585,113 +642,6 @@ impl ChatSendLedger {
         Some(Self::with_retention_window(&state, status))
     }
 
-    /// Exact-evidence reconciliation: a user turn with exactly this content was
-    /// appended to the tab's own bound session transcript. Confirms the oldest
-    /// unconfirmed send with the matching payload; one turn confirms at most
-    /// one send. Unrelated, stale, or other-tab turns never match.
-    #[cfg(test)]
-    pub(crate) fn confirm_delivered_user_turn(
-        &self,
-        tab_id: &str,
-        source_session_id: &str,
-        turn_text: &str,
-    ) -> Option<ChatSendStatus> {
-        self.confirm_delivered_user_turn_scoped(tab_id, source_session_id, None, turn_text)
-    }
-
-    pub(crate) fn confirm_delivered_user_turn_scoped(
-        &self,
-        tab_id: &str,
-        source_session_id: &str,
-        source_binding_nonce: Option<&str>,
-        turn_text: &str,
-    ) -> Option<ChatSendStatus> {
-        let owned_wake = {
-            let state = self.state.lock();
-            state.owned.iter().any(|(id, (_, active))| *active
-                && state.by_id.get(id).is_some_and(|status| status.tab_id == tab_id)
-                && state.live_binding_by_id.get(id).is_some_and(|binding|
-                    binding.session_id.as_deref() == Some(source_session_id)
-                    && binding.binding_nonce.as_deref() == source_binding_nonce))
-        };
-        if owned_wake { self.wake_owner(tab_id); }
-        let candidates = {
-            let state = self.state.lock();
-            state
-                .order
-                .iter()
-                .filter_map(|send_id| {
-                    let status = state.by_id.get(send_id)?;
-                    let binding_matches =
-                        state.live_binding_by_id.get(send_id).is_none_or(|binding| {
-                            binding
-                                .session_id
-                                .as_deref()
-                                .is_none_or(|session_id| session_id == source_session_id)
-                                && binding
-                                    .binding_nonce
-                                    .as_deref()
-                                    .is_none_or(|nonce| Some(nonce) == source_binding_nonce)
-                        });
-                    if state.owned.contains_key(send_id) || state.terminal_failures.contains(send_id)
-                        || status.tab_id != tab_id
-                        || status.state == ChatSendState::Sent
-                        || !binding_matches
-                    {
-                        return None;
-                    }
-                    Some((
-                        send_id.clone(),
-                        state.payload_by_id.get(send_id)?.clone(),
-                        state
-                            .turn_normalization_by_id
-                            .get(send_id)
-                            .copied()
-                            .unwrap_or_default(),
-                    ))
-                })
-                .collect::<Vec<_>>()
-        };
-        let matching_ids = candidates
-            .into_iter()
-            .filter_map(|(send_id, expected, normalization)| {
-                let evidence = normalize_turn_evidence_with(turn_text, normalization);
-                (!evidence.is_empty() && evidence == expected).then_some(send_id)
-            })
-            .collect::<Vec<_>>();
-        if matching_ids.is_empty() {
-            return None;
-        }
-        let mut state = self.state.lock();
-        let send_id = state
-            .order
-            .iter()
-            .find(|send_id| {
-                matching_ids.contains(*send_id)
-                    && !state.terminal_failures.contains(*send_id)
-                    && !state.owned.contains_key(*send_id)
-                    && state.by_id.get(*send_id).is_some_and(|status| {
-                        status.tab_id == tab_id && status.state != ChatSendState::Sent
-                    })
-                    && state
-                        .live_binding_by_id
-                        .get(*send_id)
-                        .is_none_or(|binding| {
-                            binding
-                                .session_id
-                                .as_deref()
-                                .is_none_or(|session_id| session_id == source_session_id)
-                                && binding
-                                    .binding_nonce
-                                    .as_deref()
-                                    .is_none_or(|nonce| Some(nonce) == source_binding_nonce)
-                        })
-            })?
-            .clone();
-        let status = Self::mark_sent(&mut state, &send_id)?;
-        Some(Self::with_retention_window(&state, status))
-    }
-
     fn mark_sent(state: &mut ChatSendLedgerState, send_id: &str) -> Option<ChatSendStatus> {
         if state.terminal_failures.contains(send_id) {
             return None;
@@ -711,6 +661,7 @@ impl ChatSendLedger {
         state.sessionless_first_turn_by_id.remove(send_id);
         state.deferred_first_turn_by_id.remove(send_id);
         state.owned.remove(send_id);
+        state.held_before_readiness_by_id.remove(send_id);
         state.by_id.get(send_id).cloned()
     }
 
@@ -927,6 +878,7 @@ impl ChatSendLedger {
             state.sessionless_first_turn_by_id.remove(&expired);
             state.deferred_first_turn_by_id.remove(&expired);
             state.terminal_failures.remove(&expired);
+            state.held_before_readiness_by_id.remove(&expired);
             state.latest_by_tab.retain(|_, send_id| send_id != &expired);
             state
                 .latest_failure_by_tab
@@ -980,7 +932,7 @@ pub(crate) fn delivered_turn_confirmations(
     for (index, msg) in messages.iter().enumerate().filter(|(_, msg)| msg.kind == "user") {
         let positioned = provenance.and_then(|provenance| {
             provenance.positions.get(index).copied().map(|position| {
-                ledger.confirm_owned_live_turn(
+                ledger.confirm_owned_live_turns(
                     tab_id,
                     source_session_id,
                     source_binding_nonce,
@@ -989,20 +941,24 @@ pub(crate) fn delivered_turn_confirmations(
                     provenance,
                 )
             })
-        }).flatten();
-        let Some(status) = positioned
-            .or_else(|| ledger.confirm_delivered_user_turn_scoped(
-                tab_id, source_session_id, source_binding_nonce, &msg.content,
-            )) else {
-            continue;
-        };
-        log::info!(
-            "[chat-send] send_id={} tab={} session={} confirmed by exact turn evidence",
-            status.send_id,
-            status.tab_id,
-            source_session_id
+        });
+        let statuses = positioned.filter(|statuses| !statuses.is_empty()).unwrap_or_else(
+            || ledger.confirm_delivered_user_turns_scoped(
+                tab_id,
+                source_session_id,
+                source_binding_nonce,
+                &msg.content,
+            ),
         );
-        confirmed.push(status);
+        for status in statuses {
+            log::info!(
+                "[chat-send] send_id={} tab={} session={} confirmed by exact turn evidence",
+                status.send_id,
+                status.tab_id,
+                source_session_id
+            );
+            confirmed.push(status);
+        }
     }
     confirmed
 }
@@ -1134,14 +1090,22 @@ impl crate::service::ServiceContext {
         let follow_up = self.agent_registry.with_provider(&reservation.authority.provider_id, |provider| {
             provider.paste_capability().and_then(|capability| capability.typed_follow_up_for(&final_transport).map(str::to_string))
         }).flatten();
-        let record = store.admit_with_follow_up(&reservation, original, prepared, body, follow_up)?;
+        let held_before_readiness = !self.user_authority_is_ready(&reservation.authority);
+        let record = store.admit_with_follow_up(
+            &reservation,
+            original,
+            prepared,
+            body,
+            follow_up,
+            held_before_readiness,
+        )?;
         let status = self.chat_send_ledger.admit_user(&record);
-        let status = if self.user_authority_is_ready(&record.authority) {
-            status
-        } else {
+        let status = if held_before_readiness {
             self.chat_send_ledger
                 .set_user_pending_reason(&record.send_id, Some("awaiting_agent_ready"))
                 .unwrap_or(status)
+        } else {
+            status
         };
         let path = store.body_path(&record)?.map(|path| {
             path.to_str().map(|text| std::path::PathBuf::from(codeterm_paths::strip_verbatim_prefix(text)))

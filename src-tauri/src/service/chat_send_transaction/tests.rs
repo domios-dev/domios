@@ -109,6 +109,64 @@
     }
 
     #[test]
+    fn one_turn_confirms_three_ordered_unconfirmed_sends_without_separators() {
+        let ledger = ChatSendLedger::default();
+        let bodies = ["alpha-opaque", "beta-opaque", "gamma-opaque"];
+        let sends = bodies
+            .iter()
+            .map(|body| {
+                let pending = ledger.try_start("tab-1", body, None).unwrap();
+                run_chat_send(&ledger, pending, body, |_| {
+                    Err(submit_unconfirmed("submit key was not acknowledged"))
+                })
+            })
+            .collect::<Vec<_>>();
+        let merged = bodies.concat();
+
+        let delivered = ledger.confirm_delivered_user_turns_scoped(
+            "tab-1",
+            "session-1",
+            Some("nonce-1"),
+            &merged,
+        );
+
+        assert_eq!(
+            delivered.iter().map(|status| status.send_id.as_str()).collect::<Vec<_>>(),
+            sends.iter().map(|status| status.send_id.as_str()).collect::<Vec<_>>(),
+        );
+        assert!(delivered
+            .iter()
+            .all(|status| status.state == ChatSendState::Sent));
+        assert!(ledger
+            .confirm_delivered_user_turns_scoped(
+                "tab-1",
+                "session-1",
+                Some("nonce-1"),
+                &merged,
+            )
+            .is_empty());
+    }
+
+    #[test]
+    fn merged_turn_matching_allows_whitespace_between_ordered_bodies() {
+        let normalization = crate::agent::provider::TurnEvidenceNormalization::default();
+        let candidates = [
+            ("send-1".into(), "alpha".into(), normalization),
+            ("send-2".into(), "beta".into(), normalization),
+            ("send-3".into(), "gamma".into(), normalization),
+        ];
+
+        assert_eq!(
+            matching_turn_send_ids("alpha\n\nbeta gamma", &candidates),
+            vec![
+                String::from("send-1"),
+                String::from("send-2"),
+                String::from("send-3"),
+            ],
+        );
+    }
+
+    #[test]
     fn programmatic_pre_write_refusal_still_surfaces_as_failed() {
         // Same DeliveryError WITHOUT the user neutralization (the programmatic
         // path returns it typed) stays Failed — the split is real.
