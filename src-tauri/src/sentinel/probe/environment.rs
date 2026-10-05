@@ -9,8 +9,8 @@ pub(crate) struct Environment {
 
 impl Environment {
     pub(crate) fn current_instance() -> Self {
-        let instance = crate::service::pty_io::tab_env::InstanceEnv::resolve();
-        let cli = crate::service::pty_io::tab_env::instance_cli_binary_path();
+        let instance = crate::service::instance_env::InstanceEnv::resolve();
+        let cli = crate::service::instance_env::instance_cli_binary_path();
         let path = std::env::var_os("PATH");
         Self::for_instance(
             &instance.socket_path,

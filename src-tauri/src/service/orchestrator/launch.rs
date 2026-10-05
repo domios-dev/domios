@@ -302,7 +302,7 @@ fn command_with_binding_nonce(
     binding_nonce: &str,
     startup_attempt_id: &str,
 ) -> String {
-    let cli_path = crate::service::pty_io::tab_env::instance_cli_binary_path();
+    let cli_path = crate::service::instance_env::instance_cli_binary_path();
     command_with_binding_nonce_for_shell(
         command,
         binding_nonce,

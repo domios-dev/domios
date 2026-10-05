@@ -363,7 +363,12 @@ fn sentinel_probe_bounded_runtime_and_output() {
     );
     let trivial = trivial.unwrap();
     assert_eq!(i32::from_le_bytes(trivial.bytes[..4].try_into().unwrap()), 0);
-    assert!(trivial.text.contains("stdout:\nok\n"));
+    let normalized = trivial.text.replace("\r\n", "\n");
+    assert!(
+        normalized.contains("stdout:\nok\n"),
+        "unexpected formatted probe output: {:?}",
+        trivial.text
+    );
     let started = std::time::Instant::now();
     let output = super::probe::run(
         large,
