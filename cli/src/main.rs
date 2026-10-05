@@ -26,35 +26,28 @@ pub fn resolve_tab(client: &mut SocketClient, id: Option<String>) -> String {
 
 /// Determine the CodeTerm data directory.
 /// Dev instances use `~/.codeterm-dev[-<slug>]/`, prod uses `~/.codeterm/`.
-/// Detection priority:
-///   1. CODETERM_SOCKET_PATH containing "codeterm-dev" (set by dev PTYs)
-///   2. CODETERM_API_PORT == 7686 (dev's port — useful when calling CLI from
-///      outside a dev tab, e.g. tests)
-///   3. Default: prod
-///
-/// When a dev context is detected and CODETERM_INSTANCE is set, the slug is
-/// appended (`~/.codeterm-dev-<slug>`) so per-worktree instances stay isolated.
+/// A named dev socket also selects its matching data directory when
+/// CODETERM_INSTANCE is absent, keeping local commands on the socket's instance.
 pub fn data_dir_name() -> String {
     let is_dev = std::env::var("CODETERM_SOCKET_PATH")
         .map(|sp| sp.contains("codeterm-dev"))
         .unwrap_or(false)
-        || std::env::var("CODETERM_API_PORT").as_deref() == Ok("7686")
-        || std::env::var("CODETERM_INSTANCE")
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false);
+        || std::env::var("CODETERM_API_PORT")
+            .map(|port| !port.trim().is_empty() && port.trim() != "7685")
+            .unwrap_or(false)
+        || resolved_instance().value.is_some();
     if is_dev {
         return format!(".codeterm-dev{}", instance_suffix());
     }
     ".codeterm".to_string()
 }
 
-/// Suffix for a named dev instance selected via CODETERM_INSTANCE.
+/// Suffix for the resolved named dev instance.
 /// Sanitized to `[a-z0-9-]+`; empty when unset.
 fn instance_suffix() -> String {
-    match std::env::var("CODETERM_INSTANCE") {
-        Ok(s) if !s.trim().is_empty() => {
-            let slug: String = s
-                .trim()
+    match resolved_instance().value {
+        Some(instance) => {
+            let slug: String = instance
                 .to_lowercase()
                 .chars()
                 .map(|c| {
