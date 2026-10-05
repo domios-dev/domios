@@ -1781,6 +1781,10 @@ function entryIsLegacyPaneCodetermHook(entry) {
     return typeof hook.command === "string" && LEGACY_V2_COMMANDS.has(hook.command);
   });
 }
+function isCurrentHookCommand(command, platform) {
+  const executable = platform === "windows" ? "curl.exe " : "curl ";
+  return command.indexOf(executable) === 0 && command.indexOf(" --request POST ") !== -1 && command.indexOf(" --data-binary ") !== -1 && command.indexOf("if [") === -1 && command.indexOf("|| true") === -1;
+}
 function commandIsCurrentUnmarked(command) {
   if (command.indexOf("$CODETERM_API_URL") === -1) return false;
   if (command.indexOf("$CODETERM_TAB_ID") === -1) return false;
@@ -2483,7 +2487,8 @@ var plugin = {
         if (!Array.isArray(hooks)) continue;
         for (let j = 0; j < hooks.length; j++) {
           const hook = hooks[j];
-          if (hook && typeof hook.command === "string" && hook.command.indexOf("CODETERM_TAB_ID") !== -1 && hook.command.indexOf("CODETERM_API_URL") !== -1 && hook.command.indexOf("CODETERM_API_TOKEN") !== -1 && hook.command.indexOf("CODETERM_API_PORT") === -1 && hook.command.indexOf("CODETERM_PANE_ID") === -1) return true;
+          const command = hook && hook.command;
+          if (typeof command === "string" && isCurrentHookCommand(command, host.platform()) && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("CODETERM_API_URL") !== -1 && command.indexOf("CODETERM_API_TOKEN") !== -1 && command.indexOf("CODETERM_API_PORT") === -1 && command.indexOf("CODETERM_PANE_ID") === -1) return true;
         }
       }
       return false;
@@ -2496,7 +2501,8 @@ var plugin = {
         if (!Array.isArray(hooks)) continue;
         for (let j = 0; j < hooks.length; j++) {
           const h = hooks[j];
-          if (h && typeof h.command === "string" && h.command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && h.command.indexOf("CODETERM_TAB_ID") !== -1 && h.command.indexOf("CODETERM_API_URL") !== -1 && h.command.indexOf("CODETERM_API_TOKEN") !== -1 && h.command.indexOf("CODETERM_API_PORT") === -1 && h.command.indexOf("CODETERM_PANE_ID") === -1) return true;
+          const command = h && h.command;
+          if (typeof command === "string" && isCurrentHookCommand(command, host.platform()) && command.indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1 && command.indexOf("CODETERM_TAB_ID") !== -1 && command.indexOf("CODETERM_API_URL") !== -1 && command.indexOf("CODETERM_API_TOKEN") !== -1 && command.indexOf("CODETERM_API_PORT") === -1 && command.indexOf("CODETERM_PANE_ID") === -1) return true;
         }
       }
       return false;
@@ -2564,13 +2570,20 @@ var plugin = {
       return { ok: false, error: "hooks is not an object" };
     }
     if (!json.hooks) json.hooks = {};
-    const guard = 'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ';
-    const authH = '-H "Authorization: Bearer $CODETERM_API_TOKEN" ' + CODETERM_HOOK_MARKER_ARG;
-    const nonceH = '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"';
-    const finish = " || true; fi";
-    const notifyCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/permission" -H 'Content-Type: application/json' ` + authH + " " + nonceH + " --data-binary @-" + finish;
-    const stopCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/stop" -H 'Content-Type: application/json' ` + authH + " -d '{}'" + finish;
-    const sessionStartCmd = guard + `curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" -H 'Content-Type: application/json' ` + authH + " " + nonceH + " --data-binary @-" + finish;
+    const executable = host.platform() === "windows" ? "curl.exe" : "curl";
+    const hookCommand = (path2, body, extraHeaders, stdin) => {
+      const payload = stdin ? '--data-binary "@-"' : `--data-binary "${body}"`;
+      return `${executable} --silent --request POST "$CODETERM_API_URL${path2}" --header "Content-Type: application/json" --header "Authorization: Bearer $CODETERM_API_TOKEN" ${CODETERM_HOOK_MARKER_ARG} ${extraHeaders} ${payload}`;
+    };
+    const nonceHeader = '--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE"';
+    const notifyCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/permission", "", nonceHeader, true);
+    const stopCmd = hookCommand("/api/tabs/$CODETERM_TAB_ID/hook/stop", "{}", "", false);
+    const sessionStartCmd = hookCommand(
+      "/api/tabs/$CODETERM_TAB_ID/hook/session_start",
+      "",
+      nonceHeader,
+      true
+    );
     function newEntry(matcher, cmd, timeout) {
       return {
         matcher,

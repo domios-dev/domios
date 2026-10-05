@@ -308,7 +308,7 @@ fn integration_install_creates_all_four_hooks_with_markers() {
     let json: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.path().join("settings.json")).unwrap())
             .unwrap();
-    for key in ["Notification", "Stop", "SessionStart"] {
+    for key in ["PermissionRequest", "Notification", "Stop", "SessionStart"] {
         let arr = json["hooks"][key].as_array().expect(key);
         assert!(
             arr.iter().any(|e| {
@@ -339,6 +339,25 @@ fn integration_install_creates_all_four_hooks_with_markers() {
     let native = crate::agent_claude::provider::integration::check_integration_at(
         &dir.path().join("settings.json"),
     );
+    let native_settings = dir.path().join("native-settings.json");
+    crate::agent_claude::provider::integration::install_integration_at(
+        &native_settings,
+        &integration_options(),
+    )
+    .expect("native install ok");
+    let native_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&native_settings).unwrap()).unwrap();
+    for key in ["PermissionRequest", "Notification", "Stop", "SessionStart"] {
+        let native_command = native_json
+            .pointer(&format!("/hooks/{key}/0/hooks/0/command"))
+            .and_then(serde_json::Value::as_str)
+            .expect("native command");
+        let js_command = json
+            .pointer(&format!("/hooks/{key}/0/hooks/0/command"))
+            .and_then(serde_json::Value::as_str)
+            .expect("JS command");
+        assert_eq!(native_command, js_command, "{key} hook command parity");
+    }
     assert_eq!(post["settings_exists"], true);
     assert_eq!(post["hooks_installed"], true);
     assert_eq!(post["integration_owned"], true);
@@ -351,6 +370,35 @@ fn integration_install_creates_all_four_hooks_with_markers() {
     assert_eq!(post["stop_hook"], true);
     assert!(post.get("precompact_hook").is_none());
     assert_eq!(post["session_start_hook"], true);
+}
+
+#[test]
+fn bash_guard_hook_commands_are_stale_on_both_runtimes() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let settings = dir.path().join("settings.json");
+    let stale_command = r#"if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then curl -s -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" -H 'Content-Type: application/json' -H "Authorization: Bearer $CODETERM_API_TOKEN" -H "X-CodeTerm-Hook: codeterm-hook-v3" -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}" --data-binary @- || true; fi"#;
+    let mut value = serde_json::json!({"hooks": {}});
+    for event in ["PermissionRequest", "Notification", "Stop", "SessionStart"] {
+        value["hooks"][event] = serde_json::json!([{
+            "matcher": "",
+            "hooks": [{
+                "type": "command",
+                "command": stale_command,
+                "_source": "codeterm-hook-v3"
+            }]
+        }]);
+    }
+    std::fs::write(&settings, serde_json::to_vec(&value).unwrap()).unwrap();
+
+    let js = claude_in_temp(&dir.path().join("rule.md"), &settings).check_integration();
+    let native = crate::agent_claude::provider::integration::check_integration_at(&settings);
+    assert_eq!(js["hook_contract_current"], false);
+    assert_eq!(native["hook_contract_current"], false);
+    assert_eq!(js["hooks_installed"], false);
+    assert_eq!(native["hooks_installed"], false);
 }
 
 #[test]

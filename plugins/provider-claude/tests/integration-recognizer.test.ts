@@ -20,9 +20,10 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const bundle = path.resolve(here, "../plugin.js");
 
 const HOOK_COMMAND =
-  'if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then ' +
-  'curl -s -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" ' +
-  '-H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE}"; fi';
+  'curl --silent --request POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start" ' +
+  '--header "Content-Type: application/json" --header "Authorization: Bearer $CODETERM_API_TOKEN" ' +
+  '-H "X-CodeTerm-Hook: codeterm-hook-v3" ' +
+  '--header "X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE" --data-binary "@-"';
 
 const EVENTS = ["Notification", "PermissionRequest", "Stop", "SessionStart"];
 
@@ -39,6 +40,7 @@ function settings(withSource: boolean): unknown {
 function loadPlugin(current: unknown) {
   const g = globalThis as Record<string, unknown>;
   g.host = {
+    platform: () => "linux",
     expandHome: (p: string) => p,
     fileExists: () => true,
     fs: { readJson: () => current, exists: () => true },

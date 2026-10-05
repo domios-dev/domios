@@ -50,6 +50,9 @@ fn marked_code_term_session_start_requires_binding_nonce() {
 
     assert!(marked_hook_missing_binding_nonce(&headers, None));
     assert!(marked_hook_missing_binding_nonce(&headers, Some(" ")));
-    assert!(!marked_hook_missing_binding_nonce(&headers, Some("launch-nonce")));
+    assert!(!marked_hook_missing_binding_nonce(
+        &headers,
+        Some("launch-nonce")
+    ));
     assert!(!marked_hook_missing_binding_nonce(&HeaderMap::new(), None));
 }
