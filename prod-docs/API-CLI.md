@@ -59,6 +59,8 @@ authenticated `POST /api/cli/rpc` loopback endpoint. The fallback needs
 `CODETERM_API_TOKEN` and either `CODETERM_API_PORT` or `CODETERM_API_URL`; it
 always targets `http://127.0.0.1:<port>`, disables proxies and redirects, and
 refuses any configured URL that is not exactly an HTTP IPv4 loopback origin.
+Custom dev ports also need `CODETERM_INSTANCE` or an explicit socket path, so
+the CLI never guesses the default DEV socket for a named target.
 The endpoint dispatches the same RPC methods as the local socket. This includes
 `api.request`, used for REST-backed commands such as plan reads, tab inspection,
 notifications, and agent-pad access. The token must be the local API
@@ -90,12 +92,13 @@ Set automatically in every PTY spawned by Domios:
 |----------|---------|-------------|
 | `CODETERM` | `1` | Running inside Domios |
 | `CODETERM_VERSION` | `0.4.0` | App version |
-| `CODETERM_SOCKET_PATH` | `\\.\pipe\codeterm-1234` | Socket path |
+| `CODETERM_SOCKET_PATH` | `\\.\pipe\codeterm-1234` | Explicit socket path; it wins over socket derivation. Named dev sockets also select their matching data directory. |
+| `CODETERM_INSTANCE` | `coreqa` | Named dev instance. Pair it with that instance's API port; a conflicting default port or socket is refused. |
 | `CODETERM_TAB_ID` | `a3f1b2c7` | Current tab ID (8-char hex) |
 | `CODETERM_WORKSPACE_ID` | `b4e2c8d1` | Current workspace ID (8-char hex) |
 | `CODETERM_ROLE` | `Manager` | Structural agent role: `Manager` or `Worker` (empty if no role). The finer kind (`orchestrator`, `planner`, `watcher`, …) lives in `role_profile`, not here; display surfaces render that kind's label. Set at PTY spawn. |
 | `CODETERM_PARENT_TAB_ID` | `b4e2c8d1` | Parent Tab ID in hierarchy (empty for a Team anchor or no role). Set at PTY spawn. |
-| `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by Domios so CLI and hooks use the correct port (dev: 7686, prod: 7685). |
+| `CODETERM_API_PORT` | `7685` | API port for the running instance. Set by Domios so CLI and hooks use the correct port (default dev: 7686, prod: 7685). A custom dev port needs `CODETERM_INSTANCE` or an explicit matching `CODETERM_SOCKET_PATH`. |
 | `CODETERM_API_URL` | `http://127.0.0.1:7685` | Optional API origin for local CLI fallback; fallback accepts only the exact IPv4 loopback host. |
 | `CODETERM_API_TOKEN` | `your-secret-token` | Bearer token for the API. Injected into every PTY when `[api].token` is set, so CLI subcommands and the auth-enforced hook callbacks (`/api/tabs/*/hook/*`) can authenticate without per-call wiring. |
 | `TERM` | `xterm-256color` | Terminal type |

@@ -1,6 +1,6 @@
 # Restore Matrix V2
 
-Focused provider restore eval for dev Domios on port 7686.
+Focused provider restore eval for a resolved dev instance.
 
 This replaces the old broad `evals/session-restore` flow as the acceptance oracle for provider session restore. It creates one workspace named `RESTORE-MATRIX-<runid>`, attempts N tabs per system provider (`claude`, `codex`, `opencode`, `cursor`), sends a unique `RESTORE-MARKER-<uuid>` to each active tab, proves the marker materialized in that provider's session store before kill, hard-restarts dev, and requires API identity, `/chat` isolation, and a scoped ChatView UI-visible marker assertion.
 
@@ -9,8 +9,9 @@ matrix workspace's scratch `cwd` is `C:/temp/RESTORE-MATRIX-<runid>` on Windows 
 `/tmp/RESTORE-MATRIX-<runid>` on macOS/Linux (`evals/_lib/lib.sh`'s `is_windows` switches it):
 
 ```bash
-bash evals/restore-matrix/run.sh                                  # defaults below
-RM_PROVIDERS=cursor RM_PER_PROVIDER=1 bash evals/restore-matrix/run.sh  # debug one provider
+env -u CODETERM_API_PORT CODETERM_INSTANCE=restoreqa bash evals/restore-matrix/run.sh
+env -u CODETERM_API_PORT RM_PROVIDERS=cursor RM_PER_PROVIDER=1 CODETERM_INSTANCE=restoreqa bash evals/restore-matrix/run.sh
+env -u CODETERM_INSTANCE -u CODETERM_API_PORT -u CODETERM_SOCKET_PATH RM_ALLOW_DEFAULT_DEV=1 bash evals/restore-matrix/run.sh
 ```
 
 Tunables (env, with defaults):
@@ -19,7 +20,9 @@ Tunables (env, with defaults):
 - `RM_PER_PROVIDER` (`3`) — tabs per provider. Three proves same-provider multi-tab isolation without making the default matrix unbounded.
 - `RM_MATERIALIZE_TIMEOUT` (`60`) — seconds to wait for the marker to land in the provider store before a tab is a fast send/setup failure. Was a 240s×2 hang per tab, which made a full claude run take 30–40 min.
 
-The script targets dev only (`7686`) through `evals/_lib/lib.sh` helpers. It never touches prod `7685`.
+The script resolves API/Vite/CDP ports, token, data directory, socket, and instance
+through `evals/_lib/lib.sh`. It refuses the default DEV instance unless
+`RM_ALLOW_DEFAULT_DEV=1` is explicit, and it never targets prod `7685`.
 
 ## Known flake: Claude first-turn JSONL persistence is not reliably prompt
 

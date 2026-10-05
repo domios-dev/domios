@@ -1,6 +1,6 @@
 import { chromium, test as base, type Browser, type Page } from "@playwright/test";
 import { ApiClient, readDevToken, type ApiRequestOptions } from "./api-client";
-import { currentDevInstance, isDevTarget, type DevInstance } from "./dev-instance";
+import { currentDevInstance, isAdoptTarget, type DevInstance } from "./dev-instance";
 import { apiReset, diffReset, snapshotBaseline } from "./reset";
 import {
   API_BASE,
@@ -124,7 +124,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
 
   uiSession: [
     async ({ devInstance }, use) => {
-      let current = isDevTarget()
+      let current = isAdoptTarget()
         ? await connectUi(devInstance, { safeAttach: true })
         : await connectUi(devInstance);
       const session: ManagedUiSession = {
@@ -137,7 +137,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
         reconnect: async (allowRestart = false) => {
           await current.browser.close().catch(() => {});
           current = await connectUi(devInstance, {
-            safeAttach: isDevTarget() && !allowRestart,
+            safeAttach: isAdoptTarget() && !allowRestart,
           });
           return session;
         },
@@ -207,13 +207,13 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
   api: [
     async ({ devInstance, resetTracker }, use, testInfo) => {
       if (!(await isHealthy(devInstance))) {
-        if (isDevTarget()) {
-          throw new Error("PW_TARGET=dev will not start or restart the running DEV console");
+        if (isAdoptTarget()) {
+          throw new Error(`PW_TARGET=${process.env.PW_TARGET} will not start or restart the selected CodeTerm instance`);
         }
         await ensureDevConsole(devInstance);
       }
       const client = new ApiClient(undefined, devInstance);
-      if (!isDevTarget() && resetTracker.lastFile !== testInfo.file) {
+      if (!isAdoptTarget() && resetTracker.lastFile !== testInfo.file) {
         resetTracker.lastFile = testInfo.file;
         await apiReset(client);
       }
@@ -221,7 +221,7 @@ export const test = base.extend<TestFixtures, WorkerFixtures>({
       try {
         await use(client);
       } finally {
-        if (!isDevTarget()) await diffReset(client, baseline).catch(() => {});
+        if (!isAdoptTarget()) await diffReset(client, baseline).catch(() => {});
       }
     },
     { timeout: DEV_FIXTURE_TIMEOUT_MS },

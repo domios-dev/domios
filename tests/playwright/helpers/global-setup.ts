@@ -3,7 +3,7 @@ import {
   playwrightWorkerCount,
   teardownInstances,
   type InstanceLifecycle,
-  isDevTarget,
+  isAdoptTarget,
 } from "./dev-instance";
 import { assertDevConsoleStopped, assertReusableDevConsole, ensureDevConsole, killDevConsole } from "./dev-console";
 
@@ -14,7 +14,7 @@ const LIFECYCLE: InstanceLifecycle = {
 
 export default async function globalSetup(): Promise<void | (() => Promise<void>)> {
   const instances = allDevInstances();
-  if (isDevTarget()) {
+  if (isAdoptTarget()) {
     await assertReusableDevConsole(instances[0]);
     return;
   }
