@@ -116,6 +116,7 @@ A line that fails to parse, or whose `seq` does not advance, refuses itself and 
 | `rolled_back` | Authority withdrawn. The operation can never seal afterwards. |
 | `closed` | Tab gone. |
 | `permission_auto_confirm` | Diagnostic audit of opt-in permission auto-confirm: `decision` is `enabled`, `disabled`, `confirmed` (with `tool_name`, `option_label`, `rule`, `question`, `prompt_fingerprint`, `session_id`) or `refused` (with `reason`). Never authority; compaction keeps the newest 20 per tab. |
+| `remote_ownership_released` | Diagnostic record that local control ownership was released, including the peer and optional caller tab. Never authority; compaction keeps the newest 20 per tab. |
 
 Transitions are recorded when the mutation commits, never inferred afterwards from tab state.
 
@@ -216,4 +217,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 42 -->
+<!-- revision: 43 -->

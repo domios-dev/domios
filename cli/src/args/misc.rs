@@ -184,6 +184,12 @@ pub enum TabAction {
         #[arg(long)]
         force: bool,
     },
+    /// Release stored remote mesh control ownership from a local tab.
+    ReleaseOwnership {
+        /// Local tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback).
+        #[arg(long = "tab", value_name = "ID")]
+        tab: Option<String>,
+    },
     /// Rename a tab (default: current tab)
     Rename {
         /// New title
