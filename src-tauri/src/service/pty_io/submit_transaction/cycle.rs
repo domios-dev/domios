@@ -324,6 +324,11 @@ pub(crate) fn notify_submit_cycle_status_transition(
     }
 }
 
+#[cfg(test)]
+pub(super) fn submit_cycle_registered(pty_id: &str) -> bool {
+    submit_cycles().lock().contains_key(pty_id)
+}
+
 fn wake_submit_cycle_with(pty_id: &str, signal: SubmitCycleSignal) {
     let cycle = submit_cycles().lock().get(pty_id).and_then(Weak::upgrade);
     if let Some(cycle) = cycle {

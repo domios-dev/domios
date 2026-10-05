@@ -1074,6 +1074,8 @@ mod classification_tests;
 #[cfg(test)]
 mod collapsed_paste_tests;
 #[cfg(test)]
+mod cycle_cancellation_tests;
+#[cfg(test)]
 mod deferred_key_tests;
 #[cfg(test)]
 mod dropped_enter_tests;
