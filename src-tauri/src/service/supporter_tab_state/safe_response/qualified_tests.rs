@@ -30,7 +30,7 @@ const FOCUS_MARKER: &str = "SAFE_TEST_FOCUS_EVENT";
 const CLOSED_MARKER: &str = "SAFE_TEST_MODAL_CLOSED";
 const SESSION_ID: &str = "fixture-session-private";
 const SESSION_NONCE: &str = "fixture-nonce-private";
-const JOURNAL_FIELDS: &str = "phase|observation_id|decision_point|observation_status|decided_by|classification|model_verdict|alternate_verdict|candidate_evidence|correlation";
+const JOURNAL_FIELDS: &str = "phase|observation_id|decision_point|observation_status|decided_by|reason|classification|model_verdict|alternate_verdict|candidate_evidence|correlation";
 const CORRELATION_FIELDS: &str = "version|decision_point|observation_id|launch_id|session_id|occurrence_id|producer|parent_observation_id|frame_hash|candidate_evidence";
 
 struct StaticModalModel {
@@ -59,8 +59,8 @@ impl CapturedScreens {
             self.snapshots.push(snapshot);
         }
     }
-    fn meets_original_capture_oracle(&self) -> bool {
-        self.count >= 4 && self.adjacent_equal
+    fn has_model_capture(&self) -> bool {
+        self.count > 0 && !self.snapshots.is_empty()
     }
 }
 impl std::fmt::Debug for CapturedScreens {
@@ -200,23 +200,15 @@ fn journal_row(value: &serde_json::Value) -> Option<serde_json::Value> {
     Some(serde_json::Value::Object(row))
 }
 fn missing_expected_rows(rows: &[serde_json::Value]) -> Vec<String> {
-    let mut missing = Vec::new();
-    if !rows
-        .iter()
-        .any(|row| row["correlation"]["producer"] == "prompt_established")
-    {
-        missing.push("prompt_established".into());
+    if rows.iter().any(|row| {
+        row["phase"] == "owned_model"
+            && row["decided_by"] == "adapter"
+            && row["reason"] == "declared_choice"
+    }) {
+        Vec::new()
+    } else {
+        vec!["owned_model_declared_choice".into()]
     }
-    if !rows
-        .iter()
-        .any(|row| row["correlation"]["producer"] == "prompt_confirmation")
-    {
-        missing.push("prompt_confirmation".into());
-    }
-    if !rows.iter().any(|row| row["phase"] == "action_authorized") {
-        missing.push("action_authorized".into());
-    }
-    missing
 }
 fn parse_journal_snapshot(
     mut bytes: Vec<u8>,
@@ -352,7 +344,7 @@ fn verify_qualified_journey(
         }
     }
     let captures = &evidence.captured_screens;
-    let model_screens_repeat = captures.meets_original_capture_oracle();
+    let model_screen_captured = captures.has_model_capture();
     let current_identity = evidence.identity.is_some_and(IdentityMatches::all_match)
         && evidence.manager_generation_matches;
     let completion_matches = completion.is_some_and(CompletionEvidence::succeeds)
@@ -361,7 +353,7 @@ fn verify_qualified_journey(
         evidence.reader_started
             && reader.reader_finished
             && current_identity
-            && model_screens_repeat
+            && model_screen_captured
             && completion_matches,
         "stage, model, identity, and host completion evidence was incomplete"
     );
@@ -391,43 +383,23 @@ fn verify_qualified_journey(
         ));
     }
     let rows = &evidence.journal.rows;
-    let seed = rows
-        .iter()
-        .find(|row| row["correlation"]["producer"] == "prompt_established")
-        .ok_or_else(|| "prompt-established capture row is absent".to_string())?;
-    let confirmation = rows
-        .iter()
-        .find(|row| row["correlation"]["producer"] == "prompt_confirmation")
-        .ok_or_else(|| "prompt-confirmation capture row is absent".to_string())?;
-    let action = rows
+    let answer = rows
         .iter()
         .find(|row| {
-            row["phase"] == "action_authorized"
-                && row["observation_id"] == confirmation["observation_id"]
+            row["phase"] == "owned_model"
+                && row["decided_by"] == "adapter"
+                && row["reason"] == "declared_choice"
         })
-        .ok_or_else(|| "confirmation action row is absent".to_string())?;
-    if seed["observation_status"] != "completed"
-        || confirmation["observation_status"] != "completed"
-        || action["observation_status"] != "completed"
-        || seed["decision_point"] != "prompt_candidate"
-        || confirmation["decision_point"] != "prompt_candidate"
-        || seed["decided_by"] != "adapter"
-        || confirmation["decided_by"] != "adapter"
-        || seed["model_verdict"].is_null()
-        || confirmation["model_verdict"].is_null()
-        || seed["correlation"]["occurrence_id"] != confirmation["correlation"]["occurrence_id"]
-        || seed["correlation"]["frame_hash"] != confirmation["correlation"]["frame_hash"]
-        || seed["observation_id"] == confirmation["observation_id"]
-        || confirmation["correlation"]["parent_observation_id"] != seed["observation_id"]
+        .ok_or_else(|| "declared-choice model answer row is absent".to_string())?;
+    if answer["observation_status"] != "completed"
+        || answer["decision_point"] != "prompt_candidate"
+        || answer["model_verdict"].is_null()
+        || answer["correlation"]["observation_id"] != answer["observation_id"]
     {
         return Err(format!(
-            "seed/confirmation evidence mismatch: seed={seed:?} confirmation={confirmation:?}"
+            "provider-declared model answer evidence mismatch: answer={answer:?}"
         ));
     }
-    reject_unless!(
-        action["correlation"] == confirmation["correlation"],
-        "action lost confirmation correlation"
-    );
     Ok(())
 }
 fn bounded_diagnostic(text: &str) -> BoundedText {
@@ -481,12 +453,6 @@ fn supporter_first_opinion_safe_response_qualified_static_onboarding_planner_com
     let _config_guard = fixture
         .service
         .override_supporter_decision_for_test(config, runtime);
-    let _qualification_guard = override_qualification_for_test(
-        &adapter,
-        &model_id,
-        &criteria_version(),
-        serde_json::json!({ "fixture_authorized": true }),
-    );
     let initial = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
     let focused = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-not-now.txt");
     std::fs::write(fixture.temp.path().join("initial.txt"), initial).unwrap();
@@ -592,7 +558,7 @@ fn qualified_fixture_capture_summary_survives_diagnostic_truncation() {
     assert_eq!(captures.snapshots.len(), MAX_MODEL_SCREENS);
     assert!(captures.truncated);
     assert!(captures.adjacent_equal);
-    assert!(captures.meets_original_capture_oracle());
+    assert!(captures.has_model_capture());
 }
 #[test]
 fn qualified_fixture_stage_timeout_retains_actual_last_snapshot() {

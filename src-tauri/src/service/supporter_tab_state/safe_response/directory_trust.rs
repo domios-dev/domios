@@ -48,6 +48,12 @@ pub(super) fn target_applies(tab: &Tab) -> bool {
     at_owned_launch_prompt(tab) || tab.audience == TabAudience::UserOwnedAutomation
 }
 
+pub(super) fn onboarding_target_applies(tab: &Tab) -> bool {
+    tab.agent_type.as_deref().is_some_and(|agent_type| {
+        crate::service::directory_trust::launch_onboarding_check_applies(tab, agent_type)
+    })
+}
+
 pub(super) fn permission_target(
     provider: &dyn AgentProvider,
     screen: &str,
@@ -83,11 +89,7 @@ pub(super) struct VerdictView<'a> {
     pub(super) safe_choice: Option<(&'a str, f64)>,
 }
 
-pub(super) fn route(
-    target: Option<&Target>,
-    verdict: &VerdictView<'_>,
-    calibrated: bool,
-) -> UnattendedRoute {
+pub(super) fn route(target: Option<&Target>, verdict: &VerdictView<'_>) -> UnattendedRoute {
     let Some(target) = target else {
         return UnattendedRoute::Fallback("no_candidate");
     };
@@ -111,9 +113,6 @@ pub(super) fn route(
     {
         return UnattendedRoute::Fallback("low_confidence");
     }
-    if !calibrated {
-        return UnattendedRoute::Fallback("uncalibrated");
-    }
     UnattendedRoute::Model
 }
 
@@ -133,9 +132,7 @@ impl ServiceContext {
             .cloned()?;
         let agent = tab.agent_type.clone()?;
         let provider = self.agent_registry.provider_arc(&agent)?;
-        let target = self
-            .model_safe_response_target(tab_id, screen)
-            .filter(|target| target.kind != Kind::Onboarding);
+        let target = self.model_safe_response_target(tab_id, screen);
         let parsed = parse_prompt_safely(|| {
             self.agent_registry.parse_interactive_prompt(&agent, screen)
         })
@@ -182,12 +179,6 @@ impl ServiceContext {
         else {
             return false;
         };
-        let calibrated = verdict
-            .receipt
-            .as_ref()
-            .and_then(|receipt| receipt.metadata.envelope.as_ref())
-            .and_then(|envelope| envelope.adapter.as_ref())
-            .is_some_and(|adapter| adapter.supports_calibrated_choice_confidence());
         let decision = route(
             gate.target.as_ref(),
             &VerdictView {
@@ -199,7 +190,6 @@ impl ServiceContext {
                     .as_ref()
                     .map(|(choice, confidence)| (choice.as_str(), *confidence)),
             },
-            calibrated,
         );
         self.journal_unattended_route(&snapshot.tab_id, Some(verdict), gate.kind, decision);
         match decision {

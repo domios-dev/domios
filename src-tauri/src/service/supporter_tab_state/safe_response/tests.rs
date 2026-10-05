@@ -197,6 +197,9 @@ fn sentinel_respond_prompt_onboarding_uses_declared_provider_choice() {
     let screen = include_str!("../../../../../plugins/provider-claude/tests/fixtures/onboarding/auto-environment-captured.txt");
     let target = provider_target(&provider, screen).unwrap();
     assert_eq!(target.kind, Kind::Onboarding);
+    for kind in [Kind::Update, Kind::DirectoryTrust, Kind::Permission] {
+        assert!(!kind.label_matches(LOGIN_OR_AUTH_REQUIRED));
+        assert!(!kind.label_matches(MODEL_UNAVAILABLE_OR_QUOTA));
     assert!(!target.kind.label_matches(TRUST_OR_PERMISSION_PROMPT));
     assert!(target
         .kind
@@ -229,6 +232,15 @@ fn sentinel_respond_prompt_login_and_quota_are_never_authorized() {
         assert!(!kind.sentinel_label_matches(LOGIN_OR_AUTH_REQUIRED));
         assert!(!kind.sentinel_label_matches(MODEL_UNAVAILABLE_OR_QUOTA));
     }
+    for kind in [Kind::Update, Kind::DirectoryTrust, Kind::Permission] {
+        assert!(!kind.label_matches(LOGIN_OR_AUTH_REQUIRED));
+        assert!(!kind.label_matches(MODEL_UNAVAILABLE_OR_QUOTA));
+    }
+    let provider = codeterm_plugin::agent_claude::ClaudeProvider::new();
+    let login = include_str!(
+        "../../../../../plugins/provider-claude/tests/fixtures/tab-state/auth-login.txt"
+    );
+    assert!(provider_target(&provider, login).is_none());
 }
 
 #[test]
