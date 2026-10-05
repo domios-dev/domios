@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tauri::Manager;
 
 use crate::multiplexer::state::MultiplexerState;
@@ -232,6 +233,94 @@ impl ServiceContext {
         )?;
         graph::project_worker_states(&mut snapshot, &mux, |tab| self.resolved_tab_status(tab));
         Ok(snapshot)
+    }
+
+    pub(crate) fn automation_graph_workspace_snapshot(
+        &self,
+        workspace: &str,
+    ) -> Result<Snapshot, String> {
+        let handle = self
+            .app_handle
+            .try_state::<Handle>()
+            .ok_or("sentinels not initialized")?;
+        {
+            let mux = self.mux.read();
+            graph::validate_scope(&mux, workspace, None)?;
+        }
+        let (jobs, live_leases) = storage::committed_workspace(&handle.store, workspace)?;
+        let mut grouped: BTreeMap<Option<String>, Vec<Sentinel>> = BTreeMap::new();
+        for job in jobs.iter().filter(|job| {
+            job.agent_authored && job.scenario_id.as_deref() == Some(job.id.as_str())
+        }) {
+            grouped.entry(job.team_id.clone()).or_default();
+        }
+        if grouped.is_empty() {
+            grouped.insert(None, Vec::new());
+        }
+        for job in jobs.iter().filter(|job| job.workspace_id == workspace) {
+            if let Some(scope) = grouped.get_mut(&job.team_id) {
+                scope.push(job.clone());
+            }
+        }
+        let now = handle.store.lock().clock.now_ms();
+        let executor = self.automation_decision_executor();
+        let mux = self.mux.read();
+        let mut combined = graph::project(
+            workspace,
+            None,
+            &[],
+            &mux,
+            &BTreeMap::new(),
+            executor.clone(),
+            now,
+            &live_leases,
+        )?;
+        let mut revisions = Vec::new();
+        for (team, scoped_jobs) in grouped {
+            let team_ref = team.as_deref();
+            let crons = self
+                .app_handle
+                .try_state::<crate::CronState>()
+                .map(|state| connected_crons(&state.lock(), &scoped_jobs, workspace, team_ref))
+                .unwrap_or_default();
+            let mut snapshot = graph::project(
+                workspace,
+                team_ref,
+                &scoped_jobs,
+                &mux,
+                &crons,
+                executor.clone(),
+                now,
+                &live_leases,
+            )?;
+            revisions.push(format!(
+                "{}:{}",
+                team.as_deref().unwrap_or_default(),
+                snapshot.revision
+            ));
+            combined.truncated |= snapshot.truncated;
+            let scenario_room = graph::MAX_NODES.saturating_sub(combined.scenarios.len());
+            if snapshot.scenarios.len() > scenario_room {
+                combined.truncated = true;
+            }
+            combined
+                .scenarios
+                .extend(snapshot.scenarios.into_iter().take(scenario_room));
+            let node_room = graph::MAX_NODES.saturating_sub(combined.nodes.len());
+            if snapshot.nodes.len() > node_room {
+                combined.truncated = true;
+            }
+            combined.nodes.extend(snapshot.nodes.into_iter().take(node_room));
+            let edge_room = graph::MAX_EDGES.saturating_sub(combined.edges.len());
+            if snapshot.edges.len() > edge_room {
+                combined.truncated = true;
+            }
+            combined.edges.extend(snapshot.edges.into_iter().take(edge_room));
+        }
+        combined.revision = format!("{:x}", Sha256::digest(revisions.join("|")));
+        combined.all_teams = true;
+        graph::project_worker_states(&mut combined, &mux, |tab| self.resolved_tab_status(tab));
+        Ok(combined)
     }
 
     fn automation_decision_executor(&self) -> Value {

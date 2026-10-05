@@ -39,6 +39,7 @@ pub struct Scenario {
 pub struct Snapshot {
     pub workspace_id: String,
     pub team_id: Option<String>,
+    pub all_teams: bool,
     pub revision: String,
     pub scenarios: Vec<Scenario>,
     pub nodes: Vec<Value>,
@@ -499,6 +500,7 @@ pub fn project(
     Ok(Snapshot {
         workspace_id: workspace.into(),
         team_id: team.map(str::to_owned),
+        all_teams: false,
         revision: scope_revision(jobs, workspace, team),
         scenarios,
         nodes: nodes.into_values().collect(),

@@ -31,6 +31,17 @@ pub async fn automation_graph_stop_sentinel(
 }
 
 #[tauri::command]
+pub async fn automation_graph_workspace_snapshot(
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    workspace_id: String,
+) -> Result<crate::sentinel::graph::Snapshot, String> {
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || svc.automation_graph_workspace_snapshot(&workspace_id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+#[tauri::command]
 pub async fn automation_graph_delete_sentinel(
     svc: tauri::State<'_, crate::service::ServiceState>,
     workspace_id: String,

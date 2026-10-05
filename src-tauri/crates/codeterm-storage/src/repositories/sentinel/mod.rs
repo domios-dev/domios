@@ -76,6 +76,11 @@ impl SentinelRepository {
             .submit_read(move |cx| queries::scope(cx.conn, &workspace, team.as_deref()))
     }
 
+    pub fn workspace(&self, workspace: String) -> Completion<Read<Vec<StoredSentinel>>> {
+        self.storage
+            .submit_read(move |cx| queries::workspace(cx.conn, &workspace))
+    }
+
     pub fn get(&self, id: SentinelId) -> Completion<Read<Option<StoredSentinel>>> {
         self.storage
             .submit_read(move |cx| queries::load_one(cx.conn, id.as_str()))

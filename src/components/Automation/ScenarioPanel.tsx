@@ -4,9 +4,9 @@ import { AutomationCanvas } from "./AutomationCanvas";
 import { AutomationDetails } from "./AutomationDetails";
 import { usePresence, type PresenceMotion } from "../Canvas/usePresence";
 import { automationState, scopedAutomationGraph } from "./model";
-import { sentinelJobType } from "./scenarios";
+import { sentinelJobType, sentinelTitle } from "./scenarios";
 import { AUTOMATION_ROW, AUTOMATION_TOOL, stateTone } from "./styles";
-import { automationKey, type AutomationGraph, type AutomationIdentity, type AutomationNode, type AutomationScenario, type AutomationScope } from "./types";
+import { ALL_JOBS_SCOPE, automationKey, type AutomationGraph, type AutomationIdentity, type AutomationNode, type AutomationScenario, type AutomationScope } from "./types";
 import type { AutomationCamera } from "./useAutomationViewport";
 
 const KIND_ICON = { sentinel: Radar, cron: Clock3, worker: Bot } as const;
@@ -50,7 +50,13 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
   const body = useRef<HTMLDivElement>(null);
   const drawer = usePresence<string>(selected, DRAWER_MOTION);
   const { workspace_id, team_id } = scope;
-  const graph = useMemo(() => state.graph ? scopedAutomationGraph({ ...state.graph, scenarios: [scenario] }, { workspace_id, team_id }) : null, [state.graph, scenario, workspace_id, team_id]);
+  const graph = useMemo(() => {
+    if (!state.graph) return null;
+    const scenarioTeam = team_id === ALL_JOBS_SCOPE ? scenario.root.team_id : team_id;
+    const source = state.graph.all_teams ? { ...state.graph, all_teams: false, team_id: scenarioTeam } : state.graph;
+    return scopedAutomationGraph({ ...source, scenarios: [scenario] }, { workspace_id, team_id: scenarioTeam });
+  }, [state.graph, scenario, workspace_id, team_id]);
+  const title = sentinelTitle(scenario, graph?.nodes.find((entry) => automationKey(entry.identity) === automationKey(scenario.root)) ?? null);
   const shown = drawer.item;
   const node = graph?.nodes.find((candidate) => automationKey(candidate.identity) === shown) ?? null;
   const select = (next: AutomationNode) => {
@@ -69,7 +75,7 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
   return <div className={`flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : ""}`}>
     <div className="flex flex-wrap items-center gap-2 border-b border-[var(--ct-border)] px-4 py-3">
       <button type="button" className={AUTOMATION_TOOL} onClick={onBack}><ArrowLeft size={14} aria-hidden="true" />{backLabel}</button>
-      <Heading className="min-w-0 flex-1 truncate text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]"><span>{scenario.name}</span><span className="font-normal text-[var(--ct-muted-fg)]"> · {sentinelJobType(graph?.nodes ?? [])}</span></Heading>
+      <Heading className="min-w-0 flex-1 truncate text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]"><span>{title}</span>{title !== scenario.name && title !== scenario.id && <span className="font-normal text-[var(--ct-muted-fg)]"> · {scenario.id}</span>}<span className="font-normal text-[var(--ct-muted-fg)]"> · {sentinelJobType(graph?.nodes ?? [])}</span></Heading>
       <button type="button" className={AUTOMATION_TOOL} aria-pressed={list} onClick={() => setList(!list)}><ToggleIcon size={14} aria-hidden="true" />{list ? "Show graph" : "Show list"}</button>
     </div>
     {children}

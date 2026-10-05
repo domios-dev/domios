@@ -535,7 +535,7 @@ function DropdownMenuRow({
         e.stopPropagation();
         onActivate();
       }}
-      className={`flex items-center gap-2 w-[calc(100%-0.25rem)] px-3 py-1.5 text-[11px] whitespace-nowrap overflow-hidden text-ellipsis transition-colors rounded-sm mx-0.5 ${
+      className={`flex items-center gap-2 w-[calc(100%-0.25rem)] px-3 py-1.5 text-[11px] whitespace-nowrap overflow-hidden text-ellipsis transition-colors rounded-sm mx-0.5 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ct-accent)] ${
         inert
           ? "text-[var(--ct-muted-fg)] opacity-50 cursor-not-allowed"
           : item.danger

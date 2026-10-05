@@ -187,6 +187,18 @@ pub(super) fn scope(
     load_all(conn, ids)
 }
 
+pub(super) fn workspace(
+    conn: &Connection,
+    workspace: &str,
+) -> Result<Vec<StoredSentinel>, StorageError> {
+    let ids = ids(
+        conn,
+        "SELECT id FROM sentinels WHERE workspace_id = ?1 ORDER BY ordinal",
+        [workspace],
+    )?;
+    load_all(conn, ids)
+}
+
 type ResultRow = (
     String,
     String,
