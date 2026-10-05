@@ -66,8 +66,17 @@ pub(crate) fn assert_unavailable_rejects_persistence_without_a_commit() {
 #[test]
 fn mutation_submitted_before_storage_init_is_committed_and_restored_after_restart() {
     let root = tempfile::tempdir().expect("storage root");
-    let adapter =
-        crate::session::store::StorageDeskAdapter::open(root.path()).expect("Storage desk adapter");
+    let authority = crate::startup::open_instance_storage_at(root.path());
+    let storage = authority
+        .require_ready()
+        .expect("real startup initializes storage")
+        .clone();
+    let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+    assert!(adapter
+        .snapshot()
+        .expect("real startup seeds the empty desk")
+        .workspaces
+        .is_empty());
     let worker = pending_worker();
     let (state, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace_id = state.list_workspaces()[0].id.clone();
@@ -94,9 +103,19 @@ fn mutation_submitted_before_storage_init_is_committed_and_restored_after_restar
         .expect("initialize Storage desk backend");
     worker.flush().expect("flush retained pre-init mutation");
     stop_test_worker(&worker);
+    storage
+        .shutdown()
+        .wait(PERSISTENCE_DEADLINE)
+        .expect("close first Storage owner");
+    drop(authority);
 
-    let restarted = crate::session::store::StorageDeskAdapter::open(root.path())
-        .expect("reopen Storage desk after restart");
+    let restarted_authority = crate::startup::open_instance_storage_at(root.path());
+    let restarted_storage = restarted_authority
+        .require_ready()
+        .expect("restart opens initialized Storage")
+        .clone();
+    let restarted =
+        crate::session::store::StorageDeskAdapter::from_storage(restarted_storage.clone());
     let snapshot = restarted.snapshot().expect("restored Storage desk");
     let restored = crate::multiplexer::state::MultiplexerState::from_session_snapshot(&snapshot);
     assert_eq!(
@@ -104,7 +123,11 @@ fn mutation_submitted_before_storage_init_is_committed_and_restored_after_restar
         "Latest pre-init mutation",
         "the latest mutation submitted before backend initialization survives restart"
     );
-    drop(restarted);
+    restarted_storage
+        .shutdown()
+        .wait(PERSISTENCE_DEADLINE)
+        .expect("close restarted Storage owner");
+    drop(restarted_authority);
 }
 
 fn test_snapshot(revision: u64) -> crate::session::SessionSnapshot {
