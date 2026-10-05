@@ -153,6 +153,14 @@ impl super::ServiceContext {
             && tab.agent_type.as_deref() == Some(authority.provider_id.as_str())
     }
 
+    fn user_authority_is_from_ended_launch(&self, authority: &UserSendAuthority) -> bool {
+        self.user_send_authority(&authority.tab_id).is_ok_and(|current| {
+            current.pty_id != authority.pty_id
+                || current.binding_nonce != authority.binding_nonce
+                || current.provider_id != authority.provider_id
+        })
+    }
+
     fn user_authority_pty_generation_is_current(&self, authority: &UserSendAuthority) -> bool {
         authority.pty_session_generation.is_some_and(|generation| {
             self.pty.lock().session_generation_matches(&authority.pty_id, generation)
@@ -297,11 +305,61 @@ impl super::ServiceContext {
         let store = &self.pending_delivery_payloads.user_sends;
         for _ in 0..super::pending_delivery_payloads::user_sends::MAX_UNSETTLED * 2 {
             let Some(mut head) = store.queued(tab_id)?.into_iter().next() else { return Ok(UserDrain::Idle); };
+            let same_launch = self
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .is_some_and(|tab| self.user_authority_matches_launch(tab, &head.authority));
+            if head.state == UserSendState::Queued && !same_launch {
+                if self.user_authority_is_from_ended_launch(&head.authority) {
+                    match store.discard_queued_from_ended_launch(&head) {
+                        Ok(true) => {
+                            const REASON: &str = "launch_ended_before_write";
+                            if let Some(status) = self
+                                .chat_send_ledger
+                                .expire_owned_before_write(&head.send_id, REASON)
+                            {
+                                crate::api::events::emit_everywhere(
+                                    &self.app_handle,
+                                    "chat-send-status",
+                                    &status,
+                                );
+                            } else {
+                                log::warn!(
+                                    "[chat-send] expired user send {} had no held ledger status",
+                                    head.send_id
+                                );
+                            }
+                            log::warn!(
+                                "[chat-send] user owner settled tab={} send_id={} reason={REASON}",
+                                head.authority.tab_id,
+                                head.send_id,
+                            );
+                            continue;
+                        }
+                        Ok(false) => {
+                            return Ok(self.pending_user_send(
+                                &head,
+                                "ended_launch_settlement_changed",
+                            ));
+                        }
+                        Err(error) => {
+                            log::warn!(
+                                "[chat-send] user send {} launch settlement failed: {error}",
+                                head.send_id
+                            );
+                            return Ok(self.pending_user_send(
+                                &head,
+                                "ended_launch_settlement_failed",
+                            ));
+                        }
+                    }
+                }
+                return Ok(self.pending_user_send(&head, "user_launch_identity_unavailable"));
+            }
             if head.authority.pty_session_generation.is_none() && head.state == UserSendState::Queued {
-                let same_launch = self.mux.read().get_tab(tab_id)
-                    .is_some_and(|tab| self.user_authority_matches_launch(tab, &head.authority));
-                let generation = same_launch.then(|| self.pty.lock().get_session(&head.authority.pty_id)
-                    .map(|session| session.generation)).flatten();
+                let generation = self.pty.lock().get_session(&head.authority.pty_id)
+                    .map(|session| session.generation);
                 let Some(generation) = generation else {
                     return Ok(self.pending_user_send(&head, "pty_session_generation_unavailable"));
                 };
