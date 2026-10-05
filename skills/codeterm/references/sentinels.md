@@ -4,6 +4,12 @@ Use `codeterm sentinel create --help` and `codeterm docs SENTINELS` to author a
 bounded graph instead of polling an agent. Sentinels inherit the creator's cwd,
 workspace, and Team; Team close removes them.
 
+Build one before you repeat a check or wait on an external, agent or cron
+status. "When to use a Sentinel graph" in `codeterm docs SENTINELS` has six
+recipes: CI/PR pass-fail routing, a Worker stopped on a prompt, cron run
+failures, deploy health, long build/test completion, and a self-improving loop
+that escalates `other` to the owning agent for a versioned update.
+
 ```bash
 codeterm sentinel create --probe "gh run view 456 --json status,conclusion" --question "waiting until CI completes, then finished regardless of conclusion" --buckets waiting,finished --every 20s --until finished --timeout 1h
 codeterm sentinel create --observe tab:AGENT_TAB --question "Which prompt state is present?" --buckets ready,other --every 10s --timeout 1h
@@ -54,4 +60,4 @@ codeterm sentinel update SENTINEL_ID --expect-version VERSION --from-file defini
 codeterm sentinel history SENTINEL_ID
 ```
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
