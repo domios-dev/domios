@@ -10,6 +10,7 @@ fn supporter_feed_tab_state_groups_named_questions_without_option_text() {
     let context = ActivityContext::TabState {
         title: title.into(),
         declared_safe_choice: Some(private_option.into()),
+        decision_point: "launch_ready".into(),
     };
     let response = codeterm_types::decision::DecisionResponse {
         answers: DecisionAnswers::from([
@@ -78,6 +79,7 @@ fn supporter_feed_unknown_bucket_and_option_values_do_not_pass_through() {
     let tab = ActivityContext::TabState {
         title: "fixture".into(),
         declared_safe_choice: None,
+        decision_point: "startup_deadline".into(),
     }
     .answers(&answers);
     let sentinel = ActivityContext::Sentinel {
@@ -97,6 +99,7 @@ fn supporter_feed_safe_choice_distinguishes_declared_other_and_abstention() {
     let context = ActivityContext::TabState {
         title: "fixture".into(),
         declared_safe_choice: Some(declared.into()),
+        decision_point: "user_delivery_readiness".into(),
     };
     let outputs: Vec<_> = [declared, other, "__abstain__"]
         .iter()

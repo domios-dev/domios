@@ -195,6 +195,7 @@ impl ReminderHost for FakeHost {
             cfg: self.cfg.lock().clone(),
             token: TokenSnapshot {
                 usable: self.token_usable.load(Ordering::SeqCst),
+                acl_invalid: false,
             },
             registry: &self.registry,
             runtime: self.runtime.clone(),

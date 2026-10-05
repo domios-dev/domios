@@ -13,7 +13,7 @@ use super::provenance::{Classification, Failure, Source};
 use super::store::Sentinel;
 use crate::mem::decision::token_store::TokenStore;
 use crate::service::{
-    supporter::{self, TokenSnapshot, VerdictKind},
+    supporter::{self, VerdictKind},
     ServiceContext,
 };
 
@@ -30,10 +30,11 @@ pub fn connected_model(
         .supporter
         .clone();
     let tokens = TokenStore::new(crate::api::mem_routes::decision::supporter_token_dir());
+    let runtime = supporter::runtime_with_notifications(svc);
     if !supporter::supporter_connected(
         &config,
         &svc.supporter_models,
-        &TokenSnapshot::read(&tokens, config.active_id().unwrap_or("")),
+        &supporter::read_token_snapshot(&runtime, &tokens, config.active_id().unwrap_or("")),
     ) {
         return None;
     }
@@ -105,7 +106,7 @@ pub fn classify(
             );
             let model = supporter::budgeted_model_with_activity(
                 model,
-                supporter::runtime_with_notifications(svc),
+                runtime,
                 config.calls_per_hour.unwrap_or(0),
                 VerdictKind::Sentinel,
                 Some(job.creator_tab_id.clone()),

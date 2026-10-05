@@ -149,12 +149,79 @@ fn supporter_feed_failed_request_preserves_fallback_and_scrubbed_question() {
     assert_eq!(feed.len(), 1);
     assert_eq!(feed[0]["fallback"], true);
     assert_eq!(feed[0]["reason"], "credit_exhausted");
+    assert_eq!(feed[0]["decision_point"], "memory_rerank");
     assert_eq!(feed[0]["asked"].as_array().unwrap().len(), 1);
     assert!(feed[0]["asked"][0]["question"]
         .as_str()
         .unwrap()
         .contains("supplied-query"));
     assert!(!feed[0].to_string().contains(secret));
+}
+
+#[test]
+fn supporter_failure_activity_labels_the_tab_state_decision_point() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    let context = ActivityContext::TabState {
+        title: "supplied-tab".into(),
+        declared_safe_choice: None,
+        decision_point: "launch_ready".into(),
+    };
+
+    runtime.failure_with_activity(
+        VerdictKind::TabState,
+        Some("tab"),
+        &DecisionError::Transport("private detail".into()),
+        Some(&context),
+    );
+
+    let text = std::fs::read_to_string(dir.path().join("journal.jsonl")).unwrap();
+    let failure: Value = text
+        .lines()
+        .map(|line| serde_json::from_str::<Value>(line).unwrap())
+        .find(|line| line["action"] == "notify_only")
+        .unwrap();
+    assert_eq!(failure["decision_point"], "launch_ready");
+    assert_eq!(
+        runtime.feed(10, None).unwrap()[0]["decision_point"],
+        "launch_ready"
+    );
+    assert!(!text.contains("private detail"));
+}
+
+#[test]
+fn supporter_cold_adapter_decision_gets_a_startup_budget_until_ready() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = SupporterRuntime::new(dir.path().into());
+    let model = budgeted_model_with_activity(
+        Arc::new(Model {
+            calls: Arc::default(),
+            exhausted: false,
+        }),
+        runtime.clone(),
+        0,
+        VerdictKind::TabState,
+        None,
+        None,
+        None,
+    );
+    let now = Instant::now();
+
+    assert_eq!(
+        runtime.decision_deadline("fixture", 3_000, now),
+        now + Duration::from_secs(5)
+    );
+    model
+        .decide_questions(&request(1), now + Duration::from_secs(5))
+        .unwrap();
+    assert_eq!(
+        runtime.decision_deadline("fixture", 3_000, now),
+        now + Duration::from_secs(3)
+    );
+    assert_eq!(
+        runtime.decision_deadline("other", 3_000, now),
+        now + Duration::from_secs(5)
+    );
 }
 
 #[test]
@@ -384,6 +451,7 @@ fn supporter_first_opinion_adapter_batch_cannot_hide_a_second_physical_request()
         Some(ActivityContext::TabState {
             title: "supplied-tab".into(),
             declared_safe_choice: None,
+            decision_point: "launch_ready".into(),
         }),
     );
     assert_eq!(

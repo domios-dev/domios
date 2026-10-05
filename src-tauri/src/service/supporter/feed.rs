@@ -120,6 +120,25 @@ pub(super) fn entry(value: &Value) -> Option<Value> {
         "fallback": matches!(reason, "budget" | "credit_exhausted" | "deadline" | "unavailable" | "no_adapter"
             | "budget_exhausted" | "model_deadline" | "model_failed" | "adapter_disconnected" | "invalid_answer"),
     });
+    entry["decision_point"] = json!(allowed(
+        &value["decision_point"],
+        &[
+            "memory_rerank",
+            "sentinel",
+            "heartbeat",
+            "tab_state",
+            "launch_ready",
+            "startup_deadline",
+            "startup_escalation",
+            "prompt_candidate",
+            "worker_idle_without_report",
+            "busy_without_output",
+            "tab_exit",
+            "user_delivery_readiness",
+            "safe_response",
+        ],
+        kind,
+    ));
     if value["observation_id"].as_u64().is_some() {
         entry["decided_by"] = json!(allowed(
             &value["decided_by"],
