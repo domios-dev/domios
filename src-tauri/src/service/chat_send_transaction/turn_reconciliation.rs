@@ -217,6 +217,7 @@ impl ChatSendLedger {
         tab_id: &str,
         anchor: &SendEvidenceAnchor,
         turn_text: &str,
+        eligible_send_ids: &[String],
     ) -> Vec<ChatSendStatus> {
         let candidates = {
             let state = self.state.lock();
@@ -226,15 +227,20 @@ impl ChatSendLedger {
                 .filter_map(|send_id| {
                     let status = state.by_id.get(send_id)?;
                     let candidate_anchor = state.anchor_by_id.get(send_id)?;
+                    let same_source = candidate_anchor.provider_id == anchor.provider_id
+                        && candidate_anchor.cwd == anchor.cwd
+                        && candidate_anchor.session_id == anchor.session_id
+                        && candidate_anchor.turn_normalization == anchor.turn_normalization;
                     let active_owned =
                         state.owned.get(send_id).is_some_and(|(_, active)| *active);
                     if status.tab_id != tab_id
                         || status.state == ChatSendState::Sent
                         || state.terminal_failures.contains(send_id)
+                        || !same_source
+                        || candidate_anchor != anchor && !eligible_send_ids.contains(send_id)
                         || state.owned.contains_key(send_id) && !active_owned
                         || active_owned
                             && !matches!(status.state, ChatSendState::Written | ChatSendState::Unknown)
-                        || candidate_anchor != anchor
                     {
                         return None;
                     }
@@ -243,6 +249,7 @@ impl ChatSendLedger {
                     Some((
                         send_id.clone(),
                         state.payload_by_id.get(send_id)?.clone(),
+                        candidate_anchor.clone(),
                         candidate_anchor.turn_normalization,
                         owned,
                         binding,
@@ -254,7 +261,7 @@ impl ChatSendLedger {
             turn_text,
             &candidates
                 .iter()
-                .map(|(send_id, payload, normalization, _, _)| {
+                .map(|(send_id, payload, _, normalization, _, _)| {
                     (send_id.clone(), payload.clone(), *normalization)
                 })
                 .collect::<Vec<_>>(),
@@ -265,11 +272,15 @@ impl ChatSendLedger {
         let owner = self.owner.lock().as_ref().and_then(|weak| weak.upgrade());
         let matching_candidates = matching
             .iter()
-            .filter_map(|send_id| candidates.iter().find(|(candidate_id, _, _, _, _)| candidate_id == send_id))
+            .filter_map(|send_id| {
+                candidates
+                    .iter()
+                    .find(|(candidate_id, _, _, _, _, _)| candidate_id == send_id)
+            })
             .cloned()
             .collect::<Vec<_>>();
         if matching_candidates.len() != matching.len()
-            || matching_candidates.iter().any(|(_, _, _, owned, binding)| {
+            || matching_candidates.iter().any(|(_, _, _, _, owned, binding)| {
                 let Some((authority, active)) = owned else { return false; };
                 if !*active {
                     return true;
@@ -294,10 +305,15 @@ impl ChatSendLedger {
         let mut state = self.state.lock();
         let still_eligible = matching_candidates
             .iter()
-            .all(|(send_id, _, _, owned, binding)| {
-                let candidate_anchor = state.anchor_by_id.get(send_id);
+            .all(|(send_id, _, anchor_snapshot, _, owned, binding)| {
+                let current_anchor = state.anchor_by_id.get(send_id);
                 let current_owned = state.owned.get(send_id);
-                candidate_anchor == Some(anchor)
+                current_anchor == Some(anchor_snapshot)
+                    && anchor_snapshot.provider_id == anchor.provider_id
+                    && anchor_snapshot.cwd == anchor.cwd
+                    && anchor_snapshot.session_id == anchor.session_id
+                    && anchor_snapshot.turn_normalization == anchor.turn_normalization
+                    && (anchor_snapshot == anchor || eligible_send_ids.contains(send_id))
                     && !state.terminal_failures.contains(send_id)
                     && state.by_id.get(send_id).is_some_and(|status| {
                         status.tab_id == tab_id

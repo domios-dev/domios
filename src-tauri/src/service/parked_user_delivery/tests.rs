@@ -615,6 +615,8 @@ mod retained_uncertainty;
 mod ended_launch;
 #[path = "tests/merged_turns.rs"]
 mod merged_turns;
+#[path = "tests/lazy_session.rs"]
+mod lazy_session;
 mod evidence;
 
 #[test]
