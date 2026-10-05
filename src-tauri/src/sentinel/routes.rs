@@ -21,6 +21,8 @@ pub fn creator_live(svc: &ServiceContext, job: &Sentinel) -> bool {
 pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Route, String> {
     match route {
         Route::Notify | Route::Stop => Ok(route.clone()),
+        Route::RespondPrompt(_) if job.observe.is_some() => Ok(route.clone()),
+        Route::RespondPrompt(_) => Err("respond_prompt requires a tab observation source".into()),
         Route::Command(parameters) => {
             parameters.validate()?;
             Ok(route.clone())
@@ -49,7 +51,6 @@ pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Ro
             };
             Ok(Route::Escalate(EscalateTarget::Agent(target)))
         }
-        Route::RespondPrompt(_) => Err(unavailable(route)),
     }
 }
 
