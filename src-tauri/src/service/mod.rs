@@ -169,6 +169,8 @@ pub(crate) use task_lane_guard::refuse_unsafe_task_bound_mutating_lane;
 #[cfg(test)]
 pub(crate) mod test_fixture;
 #[cfg(test)]
+mod persistence_roundtrip_tests;
+#[cfg(test)]
 mod tests;
 pub mod tokens;
 pub mod transport;
