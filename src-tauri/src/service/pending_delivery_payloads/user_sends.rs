@@ -51,6 +51,8 @@ pub(crate) struct UserSendRecord {
     pub(crate) authority: UserSendAuthority,
     pub(crate) owner_epoch: String,
     pub(crate) reservation: u64,
+    #[serde(default = "held_before_readiness_by_default")]
+    pub(crate) held_before_readiness: bool,
     pub(crate) state: UserSendState,
     pub(crate) handoff_session: Option<String>,
     pub(crate) typed_follow_up: Option<String>,
@@ -61,6 +63,10 @@ pub(crate) struct UserSendRecord {
     body_digest: Option<String>,
     body_path: Option<String>,
     body_bytes: usize,
+}
+
+fn held_before_readiness_by_default() -> bool {
+    true
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -230,7 +236,7 @@ impl UserSendStore {
         prepared: &str,
         body: Option<PreparedUserBody>,
     ) -> Result<UserSendRecord, String> {
-        self.admit_with_follow_up(reservation, original, prepared, body, None)
+        self.admit_with_follow_up(reservation, original, prepared, body, None, true)
     }
 
     pub(crate) fn final_transport(
@@ -255,6 +261,7 @@ impl UserSendStore {
         prepared: &str,
         body: Option<PreparedUserBody>,
         typed_follow_up: Option<String>,
+        held_before_readiness: bool,
     ) -> Result<UserSendRecord, String> {
         if original.len() > MAX_PREPARED_BYTES || prepared.len() > MAX_PREPARED_BYTES
             || body.as_ref().is_some_and(|body| body.bytes.len() > MAX_PREPARED_BYTES)
@@ -279,6 +286,7 @@ impl UserSendStore {
             authority: reservation.authority.clone(),
             owner_epoch: self.epoch.clone(),
             reservation: reservation.ordinal,
+            held_before_readiness,
             state: UserSendState::Queued,
             handoff_session: None,
             typed_follow_up,

@@ -39,6 +39,7 @@ fn reversed_preparation_retains_original_bytes_and_reserved_order_after_reopen()
     assert_eq!(store.head("opaque-tab").unwrap().unwrap().send_id, first_record.send_id);
     let reopened = UserSendStore::open(dir.path()).unwrap();
     let records = reopened.records("opaque-tab").unwrap();
+    assert!(records.iter().all(|record| record.held_before_readiness));
     assert_eq!(records.iter().map(|r| &r.send_id).collect::<Vec<_>>(),
         vec![&first_record.send_id, &second_record.send_id]);
     assert_eq!(reopened.original("opaque-tab", &first_record.send_id).unwrap(), a);
@@ -276,10 +277,18 @@ fn final_transport_and_typed_follow_up_are_frozen_separately_from_original() {
     let store = UserSendStore::open(dir.path()).unwrap();
     let reservation = reserve(&store, 1);
     let final_transport = store.final_transport(&reservation, "opaque-transport\0", None).unwrap();
-    let record = store.admit_with_follow_up(&reservation, "\topaque-original\u{1b}", "opaque-transport\0", None, Some("opaque-follow-up".into())).unwrap();
+    let record = store.admit_with_follow_up(
+        &reservation,
+        "\topaque-original\u{1b}",
+        "opaque-transport\0",
+        None,
+        Some("opaque-follow-up".into()),
+        false,
+    ).unwrap();
     drop(reservation);
     let reopened = UserSendStore::open(dir.path()).unwrap();
     let records = reopened.records("opaque-tab").unwrap();
+    assert!(!records[0].held_before_readiness);
     assert_eq!(reopened.original("opaque-tab", &record.send_id).unwrap(), "\topaque-original\u{1b}");
     assert_eq!(reopened.prepared(&records[0]).unwrap(), final_transport);
     assert_eq!(final_transport, "opaque-transport");
