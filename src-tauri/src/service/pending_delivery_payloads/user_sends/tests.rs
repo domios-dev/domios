@@ -111,7 +111,8 @@ fn ended_launch_discards_only_never_written_queued_records() {
     let restarted = UserSendStore::open(dir.path()).unwrap();
     let mut records = restarted.records("opaque-tab").unwrap();
     let queued_after_restart = records.remove(0);
-    assert_ne!(queued.owner_epoch, queued_after_restart.owner_epoch);
+    assert_eq!(queued.owner_epoch, queued_after_restart.owner_epoch);
+    assert_ne!(queued.owner_epoch, restarted.epoch);
     assert!(restarted.discard_queued_from_ended_launch(&queued_after_restart).unwrap());
     assert!(restarted.records("opaque-tab").unwrap().is_empty());
     assert!(restarted.original("opaque-tab", &queued.send_id).is_err());
