@@ -23,6 +23,7 @@ use crate::storage::{
 
 mod coherence;
 mod graph_fields;
+mod pipeline_journal;
 mod races;
 
 /// Failure bound around event waits only; elapsed time never signals readiness.

@@ -6,6 +6,8 @@ pub(crate) mod escalation;
 pub(crate) mod graph;
 pub(crate) mod handlers;
 pub(crate) mod machine;
+mod pipeline;
+mod pipeline_journal;
 pub(crate) mod probe;
 pub(crate) mod provenance;
 pub(crate) mod routes;

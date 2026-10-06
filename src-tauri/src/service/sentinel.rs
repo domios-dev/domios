@@ -3,7 +3,7 @@ use tauri::Manager;
 
 use super::ServiceContext;
 use crate::sentinel::{
-    amend::{self, Update},
+    amend::{self, DefinitionSnapshot, InputPatch, PreparedUpdate, Update},
     classify, routes,
     scheduler::Handle,
     source,
@@ -12,21 +12,39 @@ use crate::sentinel::{
 
 #[derive(Clone)]
 pub(crate) struct SentinelCaller {
-    tab: String,
-    team: Option<String>,
-    workspace: String,
-    cwd: String,
-    nonce: Option<String>,
+    pub(super) tab: String,
+    pub(super) team: Option<String>,
+    pub(super) workspace: String,
+    pub(super) cwd: String,
+    pub(super) nonce: Option<String>,
 }
 
 impl SentinelCaller {
-    fn owns(&self, job: &Sentinel) -> bool {
+    pub(super) fn owns(&self, job: &Sentinel) -> bool {
+        if let Some(pipeline) = &job.pipeline {
+            return match pipeline.owner {
+                codeterm_types::blueprint_pipeline::BlueprintOwner::Tab => {
+                    job.creator_tab_id == self.tab
+                        && (job.team_id == self.team
+                            || (job.team_id.is_none() && self.team.is_some()))
+                        && job.workspace_id == self.workspace
+                }
+                codeterm_types::blueprint_pipeline::BlueprintOwner::Team => {
+                    job.team_id.is_some()
+                        && job.team_id == self.team
+                        && job.workspace_id == self.workspace
+                }
+            };
+        }
         job.creator_tab_id == self.tab
             && (job.team_id == self.team || (job.team_id.is_none() && self.team.is_some()))
             && job.workspace_id == self.workspace
     }
 
-    fn can_amend(&self, job: &Sentinel) -> bool {
+    pub(super) fn can_amend(&self, job: &Sentinel) -> bool {
+        if job.pipeline.is_some() {
+            return self.owns(job);
+        }
         (job.team_id == self.team
             || (job.team_id.is_none() && self.team.is_some() && job.creator_tab_id == self.tab))
             && job.workspace_id == self.workspace
@@ -38,7 +56,9 @@ fn caller_from_mux(
     tab_id: &str,
     nonce: Option<&str>,
 ) -> Result<SentinelCaller, String> {
-    let tab = mux.get_tab(tab_id).ok_or("blueprint caller tab not found")?;
+    let tab = mux
+        .get_tab(tab_id)
+        .ok_or("blueprint caller tab not found")?;
     if tab.session_binding_nonce.is_some() && tab.session_binding_nonce.as_deref() != nonce {
         return Err("blueprint requires the calling tab's current session binding nonce".into());
     }
@@ -68,6 +88,159 @@ fn caller_from_mux(
 }
 
 impl ServiceContext {
+    pub(crate) fn sentinel_update_from_history(
+        &self,
+        caller: &SentinelCaller,
+        id: &str,
+        expect_version: u64,
+        history: &serde_json::Value,
+    ) -> Result<Sentinel, String> {
+        let definition = history_definition(history, id, expect_version)?;
+        let snapshot: DefinitionSnapshot = serde_json::from_value(definition)
+            .map_err(|error| format!("invalid history definition: {error}"))?;
+        if let Some(pipeline) = snapshot.pipeline.clone() {
+            let cause = history
+                .get("cause")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned);
+            return self.blueprint_pipeline_update(caller, id, expect_version, pipeline, cause);
+        }
+        let prepared =
+            self.prepare_history_update(caller, id, expect_version, snapshot, history)?;
+        let handle = self
+            .app_handle
+            .try_state::<Handle>()
+            .ok_or("blueprints not initialized")?;
+        let authored_at = handle.store.lock().clock.now_ms();
+        let staged = {
+            let mux = self.mux.read();
+            if !caller_is_live(&mux, caller) {
+                return Err("blueprint caller scope changed".into());
+            }
+            validate_send_scope(&mux, &prepared.job)?;
+            handle.store.lock().stage_update_definition(
+                expect_version,
+                &caller.tab,
+                authored_at,
+                prepared,
+            )
+        };
+        let updated = staged.settle(&handle.store)?;
+        handle.notify();
+        Ok(updated)
+    }
+
+    pub(crate) fn sentinel_validate_history_update(
+        &self,
+        caller: &SentinelCaller,
+        id: &str,
+        expect_version: u64,
+        history: &serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let definition = history_definition(history, id, expect_version)?;
+        let snapshot: DefinitionSnapshot = serde_json::from_value(definition)
+            .map_err(|error| format!("invalid history definition: {error}"))?;
+        if let Some(pipeline) = snapshot.pipeline.clone() {
+            return self.blueprint_pipeline_validate_update(caller, id, expect_version, pipeline);
+        }
+        let prepared =
+            self.prepare_history_update(caller, id, expect_version, snapshot, history)?;
+        serde_json::to_value(prepared.job).map_err(|error| error.to_string())
+    }
+
+    fn prepare_history_update(
+        &self,
+        caller: &SentinelCaller,
+        id: &str,
+        expect_version: u64,
+        snapshot: DefinitionSnapshot,
+        history: &serde_json::Value,
+    ) -> Result<PreparedUpdate, String> {
+        let handle = self
+            .app_handle
+            .try_state::<Handle>()
+            .ok_or("blueprints not initialized")?;
+        let current = {
+            let store = handle.store.lock();
+            store.ensure_available()?;
+            let current = store
+                .get(id)
+                .filter(|job| caller.can_amend(job))
+                .cloned()
+                .ok_or_else(|| format!("blueprint not found in this workspace and Team: {id}"))?;
+            if current.definition_version != expect_version {
+                return Err(amend::version_conflict(current.definition_version));
+            }
+            current
+        };
+        if snapshot.interval_ms % 1000 != 0 {
+            return Err("interval_ms must be representable as seconds".into());
+        }
+        let input = snapshot.input.clone().map(|input| InputPatch {
+            kind: Some(input.kind),
+            data: input.data,
+            convert_to: input.convert_to,
+            convert_timeout_ms: input.convert_timeout_ms,
+        });
+        let cause = history
+            .get("cause")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned);
+        let update = Update {
+            name: snapshot.name.clone(),
+            question: snapshot.question.clone(),
+            buckets: snapshot.buckets.clone(),
+            every: Some(format!("{}s", snapshot.interval_ms / 1000)),
+            routes: Default::default(),
+            matches: snapshot.matches.clone(),
+            rearm_on_change: snapshot.rearm_on_change.clone(),
+            until: snapshot.until.clone(),
+            input,
+            handlers: None,
+            on_other: Vec::new(),
+            escalation_timeout_ms: snapshot.escalation_timeout_ms,
+            max_transitions: Some(snapshot.max_transitions),
+            max_actions: Some(snapshot.max_actions),
+            cause,
+            note: None,
+        };
+        let mut prepared = update.prepare(
+            &current,
+            &caller.tab,
+            classify::connected_model(self).is_some(),
+        )?;
+        prepared.job.probe = snapshot.probe;
+        prepared.job.observe = snapshot.observe;
+        prepared.job.routes = snapshot.routes;
+        prepared.job.on_other = snapshot.on_other;
+        if caller.tab != current.creator_tab_id && amend::has_new_command(&current, &prepared.job) {
+            return Err("only the blueprint creator may introduce new command text".into());
+        }
+        crate::sentinel::handlers::validate(&prepared.job.buckets, &prepared.job.routes)?;
+        crate::sentinel::source::validate(&prepared.job)?;
+        crate::sentinel::escalation::validate(&prepared.job)?;
+        let resolution_source = prepared.job.clone();
+        for handler in prepared
+            .job
+            .routes
+            .values_mut()
+            .flatten()
+            .chain(&mut prepared.job.on_other)
+        {
+            let action = routes::resolve(self, &resolution_source, &handler.action)?;
+            handler.target =
+                crate::sentinel::graph::target_identity(self, &resolution_source, &action)?;
+            handler.action = action;
+        }
+        let size = serde_json::to_vec(&DefinitionSnapshot::from_job(&prepared.job))
+            .map_err(|error| error.to_string())?
+            .len();
+        if size > 65_536 {
+            return Err("blueprint definition exceeds 64 KiB".into());
+        }
+        Ok(prepared)
+    }
+
     pub(crate) fn sentinel_caller(
         &self,
         tab_id: &str,
@@ -256,6 +429,9 @@ impl ServiceContext {
                 .cloned()
                 .ok_or_else(|| format!("blueprint not found in this workspace and Team: {id}"))?
         };
+        if current.pipeline.is_some() {
+            return Err("pipeline updates require a pipeline spec".into());
+        }
         if current.definition_version != expect_version {
             return Err(amend::version_conflict(current.definition_version));
         }
@@ -451,7 +627,7 @@ impl ServiceContext {
     }
 }
 
-fn caller_is_live(
+pub(super) fn caller_is_live(
     mux: &crate::multiplexer::state::MultiplexerState,
     caller: &SentinelCaller,
 ) -> bool {
@@ -462,6 +638,38 @@ fn caller_is_live(
             .team
             .as_ref()
             .is_none_or(|team| mux.get_team(team).is_some())
+}
+
+fn history_definition(
+    history: &serde_json::Value,
+    id: &str,
+    expect_version: u64,
+) -> Result<serde_json::Value, String> {
+    if history
+        .get("sentinel_id")
+        .and_then(serde_json::Value::as_str)
+        != Some(id)
+    {
+        return Err("history sentinel_id does not match update id".into());
+    }
+    let current_version = history
+        .get("current_version")
+        .and_then(serde_json::Value::as_u64)
+        .ok_or("history current_version is required")?;
+    if current_version != expect_version {
+        return Err(amend::version_conflict(current_version));
+    }
+    history
+        .get("versions")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|versions| {
+            versions.iter().find(|version| {
+                version.get("version").and_then(serde_json::Value::as_u64) == Some(expect_version)
+            })
+        })
+        .and_then(|version| version.get("definition"))
+        .cloned()
+        .ok_or_else(|| "history current definition is missing".into())
 }
 
 fn validate_send_scope(
@@ -606,5 +814,64 @@ mod tests {
         assert_eq!(caller.team, None);
         assert_eq!(caller.nonce.as_deref(), Some("supplied-current-nonce"));
         assert!(caller_from_mux(&mux, "foreign", Some("supplied-current-nonce")).is_err());
+    }
+
+    #[test]
+    fn blueprint_pipeline_access_follows_tab_or_team_owner() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = crate::sentinel::store::Store::new(
+            dir.path().join("sentinels.json"),
+            crate::cron::clock::MockClock::starting_at(1000),
+        );
+        let legacy = store
+            .create(
+                serde_json::from_value(serde_json::json!({
+                    "name":"owned-pipeline",
+                    "probe":"status",
+                    "question":"ready?",
+                    "buckets":["done"],
+                    "every":"10s"
+                }))
+                .unwrap(),
+                crate::sentinel::store::Owner {
+                    creator_tab_id: "creator".into(),
+                    team_id: Some("team".into()),
+                    workspace_id: "workspace".into(),
+                    cwd: "/tmp".into(),
+                },
+                true,
+            )
+            .unwrap();
+        let mut pipeline = legacy;
+        pipeline.pipeline = Some(codeterm_types::blueprint_pipeline::BlueprintSpec {
+            name: "owned-pipeline".into(),
+            owner: codeterm_types::blueprint_pipeline::BlueprintOwner::Team,
+            trigger: codeterm_types::blueprint_pipeline::Trigger::Schedule {
+                every: "10s".into(),
+            },
+            steps: vec![codeterm_types::blueprint_pipeline::Step {
+                name: "emit".into(),
+                input: codeterm_types::blueprint_pipeline::IoType::Text,
+                kind: codeterm_types::blueprint_pipeline::StepKind::Command {
+                    command: "printf ready".into(),
+                },
+                on: Default::default(),
+            }],
+            result: Default::default(),
+        });
+        let teammate = SentinelCaller {
+            tab: "teammate".into(),
+            team: Some("team".into()),
+            workspace: "workspace".into(),
+            cwd: "/tmp".into(),
+            nonce: None,
+        };
+        assert!(teammate.owns(&pipeline));
+        assert!(teammate.can_amend(&pipeline));
+        assert!(!SentinelCaller {
+            team: Some("other-team".into()),
+            ..teammate.clone()
+        }
+        .owns(&pipeline));
     }
 }

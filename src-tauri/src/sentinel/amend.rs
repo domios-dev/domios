@@ -93,7 +93,8 @@ pub struct Update {
     pub name: Option<String>,
     pub question: String,
     pub buckets: Vec<String>,
-    pub every: String,
+    #[serde(default)]
+    pub every: Option<String>,
     #[serde(default)]
     pub routes: BTreeMap<String, String>,
     #[serde(default)]
@@ -108,8 +109,10 @@ pub struct Update {
     pub on_other: Vec<Definition>,
     #[serde(default)]
     pub escalation_timeout_ms: Option<u64>,
-    pub max_transitions: u16,
-    pub max_actions: u16,
+    #[serde(default)]
+    pub max_transitions: Option<u16>,
+    #[serde(default)]
+    pub max_actions: Option<u16>,
     #[serde(default)]
     pub cause: Option<String>,
     #[serde(default)]
@@ -207,7 +210,11 @@ impl Update {
         if self.question.trim().is_empty() || self.question.len() > 4096 {
             return Err("question must be nonempty and bounded to 4096 bytes".into());
         }
-        let interval_ms = super::store::duration_ms(&self.every)?;
+        let interval_ms = match self.every.as_deref() {
+            Some(every) => super::store::duration_ms(every)?,
+            None if current.input.is_some() => current.interval_ms,
+            None => return Err("every is required for a scheduled blueprint".into()),
+        };
         machine::validate(&self.buckets, &self.matches, connected, interval_ms)?;
         if self
             .rearm_on_change
@@ -231,12 +238,14 @@ impl Update {
         } else {
             current.transitions.len()
         };
-        if self.max_transitions == 0
-            || self.max_transitions > 256
-            || usize::from(self.max_transitions) < used_transitions
-            || self.max_actions == 0
-            || self.max_actions > 1024
-            || usize::from(self.max_actions) < claimed_actions(current)
+        let max_transitions = self.max_transitions.unwrap_or(current.max_transitions);
+        let max_actions = self.max_actions.unwrap_or(current.max_actions);
+        if max_transitions == 0
+            || max_transitions > 256
+            || usize::from(max_transitions) < used_transitions
+            || max_actions == 0
+            || max_actions > 1024
+            || usize::from(max_actions) < claimed_actions(current)
         {
             return Err(
                 "blueprint budgets must stay within limits and cannot shrink below use".into(),
@@ -271,8 +280,8 @@ impl Update {
         job.rearm_on_change = self.rearm_on_change;
         job.until = self.until;
         job.input = input;
-        job.max_transitions = self.max_transitions;
-        job.max_actions = self.max_actions;
+        job.max_transitions = max_transitions;
+        job.max_actions = max_actions;
         job.on_other = on_other;
         job.escalation_timeout_ms = self.escalation_timeout_ms;
         super::source::validate(&job)?;
@@ -340,6 +349,7 @@ impl Store {
         };
         let mut next = current.clone();
         next.name = update.job.name;
+        next.pipeline = update.job.pipeline;
         next.question = update.job.question;
         next.buckets = update.job.buckets;
         next.interval_ms = update.job.interval_ms;
@@ -531,7 +541,7 @@ fn amended_input(
     }
 }
 
-fn has_new_command(current: &Sentinel, next: &Sentinel) -> bool {
+pub(crate) fn has_new_command(current: &Sentinel, next: &Sentinel) -> bool {
     let old: Vec<_> = current
         .routes
         .values()

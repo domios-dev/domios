@@ -582,6 +582,10 @@ pub(super) fn resolve_probe_result<T>(
 }
 
 pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
+    if lease.job.pipeline.is_some() {
+        super::pipeline::tick(handle, svc, lease);
+        return;
+    }
     if lease.cancelled.load(Ordering::SeqCst) {
         return;
     }
