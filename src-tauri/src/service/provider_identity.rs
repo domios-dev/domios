@@ -1,7 +1,6 @@
 use super::ServiceContext;
 use crate::agent::provider_identity::{
-    apply_provider_identity, clear_unproven_provider_identity, ProviderIdentityEvidence,
-    ProviderIdentityWrite,
+    apply_provider_identity, ProviderIdentityEvidence, ProviderIdentityWrite,
 };
 use crate::session::lifecycle::{AgentTypeWriteOrigin, LifecycleTransition};
 
@@ -463,34 +462,6 @@ impl ServiceContext {
                 session_id,
                 binding_nonce,
                 source: Default::default(),
-            },
-        );
-    }
-
-    pub(crate) fn clear_unproven_restored_provider(&self, tab_id: &str) {
-        let (previous_provider, evidence) = {
-            let mut mux = self.mux.write();
-            let Some(tab) = mux.get_tab_mut(tab_id) else {
-                return;
-            };
-            let evidence = write_evidence(tab, AgentTypeWriteOrigin::Restore, None);
-            (clear_unproven_provider_identity(tab), evidence)
-        };
-        if previous_provider.is_none() {
-            return;
-        }
-        let nonce_verified = evidence.identity.nonce_verified();
-        self.record_agent_type_write(
-            tab_id,
-            LifecycleTransition::AgentTypeWrite {
-                origin: AgentTypeWriteOrigin::Restore,
-                previous_provider,
-                new_provider: None,
-                attempted_provider: None,
-                caller_tab_id: evidence.caller_tab_id,
-                session_id: evidence.identity.session_id,
-                nonce_verified,
-                applied: true,
             },
         );
     }

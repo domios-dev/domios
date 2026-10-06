@@ -24,10 +24,60 @@ fn fixture(owners: &[&str]) -> (ServiceFixture, String) {
     (fixture, tab_id)
 }
 
+fn journal_provider_for_tab(fixture: &ServiceFixture, tab_id: &str, provider: &str) {
+    use crate::agent::provider_identity::ProviderIdentityEvidence;
+    use crate::session::lifecycle::{AgentTypeWriteOrigin, LifecycleTransition};
+
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(tab_id).unwrap();
+        tab.session_binding_nonce = Some("retained-nonce".into());
+        tab.reported_session_binding_nonce = Some("retained-nonce".into());
+    }
+    fixture
+        .service
+        .open_lifecycle_epoch(tab_id)
+        .expect("the restored PTY tab opens a journal epoch");
+    let evidence = ProviderIdentityEvidence::capture(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .expect("fixture tab exists"),
+    );
+    let committed = fixture
+        .service
+        .commit_verified_tab_agent_type_with_origin(
+            tab_id,
+            provider.into(),
+            AgentTypeWriteOrigin::Repair,
+            None,
+            &evidence,
+            |_| Ok::<_, ()>(()),
+        )
+        .expect("provider authority write succeeds");
+    assert!(matches!(
+        committed,
+        Some(crate::service::provider_identity::ConditionalAgentTypeWrite::Committed { .. })
+    ));
+    fixture
+        .service
+        .record_lifecycle(tab_id, LifecycleTransition::LaunchReady);
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(tab_id)
+        .unwrap()
+        .agent_type = None;
+}
+
 #[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-fn missing_restored_provider_recovers_exact_session_before_boot_claim() {
-    let (fixture, tab_id) = fixture(&["fixture-owner"]);
+fn legacy_restored_provider_recovers_from_its_sealed_tab_session_checkpoint() {
+    let (fixture, tab_id) = fixture(&[]);
+    journal_provider_for_tab(&fixture, &tab_id, "journal-owner");
     fixture
         .service
         .recover_missing_restored_provider(&tab_id)
@@ -39,7 +89,7 @@ fn missing_restored_provider_recovers_exact_session_before_boot_claim() {
     let claim = claim_restored_pty_boot(&fixture.service.mux, &tab_id)
         .unwrap()
         .unwrap();
-    assert_eq!(claim.provider_id, "fixture-owner");
+    assert_eq!(claim.provider_id, "journal-owner");
     assert_eq!(claim.session_id.as_deref(), Some("retained-session"));
     assert!(claim_restored_pty_boot(&fixture.service.mux, &tab_id)
         .unwrap()
@@ -48,20 +98,23 @@ fn missing_restored_provider_recovers_exact_session_before_boot_claim() {
 
 #[test]
 #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
-fn missing_restored_provider_refuses_ambiguous_or_absent_ownership_without_mutation() {
-    for owners in [vec![], vec!["owner-one", "owner-two"]] {
+fn missing_restored_provider_surfaces_a_reason_without_unique_journal_provenance() {
+    for owners in [vec![], vec!["owner-one"], vec!["owner-one", "owner-two"]] {
         let (fixture, tab_id) = fixture(&owners);
-        let before =
-            serde_json::to_value(fixture.service.mux.read().to_session_snapshot()).unwrap();
         let error = fixture
             .service
             .materialize_restored_agent_for_send(&tab_id)
             .unwrap_err();
         assert!(error.starts_with("restored_provider_unresolved:"));
-        let mut after =
-            serde_json::to_value(fixture.service.mux.read().to_session_snapshot()).unwrap();
-        after["timestamp"] = before["timestamp"].clone();
-        assert_eq!(before, after);
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).expect("unresolved tab is retained");
+        assert!(tab.agent_type.is_none());
+        assert_eq!(tab.agent_session_id.as_deref(), Some("retained-session"));
+        assert_eq!(
+            tab.boot_stage,
+            Some(crate::service::boot_stage::BootStage::SpawnFailed)
+        );
+        assert_eq!(tab.boot_failure_reason.as_deref(), Some(error.as_str()));
     }
 }
 
