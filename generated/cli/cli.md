@@ -1692,7 +1692,7 @@ Set task groups (phases)
 
 #### `codeterm plan groups close`
 
-Record a group's retrospective stride: closes its reflection window and clears its retrospective dispatch gate
+Record an optional retrospective stride for a completed group
 
 - `<key>`
 - `--note`
