@@ -9,6 +9,7 @@
   "iconColor": "var(--ct-fg)",
   "entry": "plugin.js",
   "capabilities": {
+    "agentProvider": true,
     "chatPreprocessor": {
       "match": "text"
     }
