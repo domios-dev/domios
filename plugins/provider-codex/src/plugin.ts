@@ -29,6 +29,7 @@ import { codexFileDiffs } from "./fileDiffs";
 import { editFingerprint, pairFileChange, type PendingFileChange } from "./fileChangePairing";
 import { imageGenerationEndResult, webSearchEndResult } from "./richResults";
 import { actionTitle } from "./actionTitle";
+import { codexImageBlock, parseCodexUserContent, type CodexUserImage } from "./userContent";
 import {
   codexDirectoryTrustState,
   codexProfileInstanceId,
@@ -525,13 +526,21 @@ const plugin: PluginModule = {
         const role = p.role === "assistant" ? "assistant" : (p.role === "user" ? "user" : null);
         if (!role) continue; // skip developer/system noise
         let text = "";
-        if (Array.isArray(p.content)) {
+        let images: CodexUserImage[] = [];
+        if (role === "user") {
+          ({ text, images } = parseCodexUserContent(p.content));
+        } else if (Array.isArray(p.content)) {
           for (let j = 0; j < p.content.length; j++) {
             const c = p.content[j];
             if (c && typeof c.text === "string") text += c.text;
           }
         } else if (typeof p.content === "string") {
           text = p.content;
+        }
+        if (images.length > 0) {
+          const textBlocks = text ? [{ kind: "text", data: { text } }] : [];
+          out.push({ role, blocks: [...textBlocks, ...images.map(codexImageBlock)], ts, timestamp: tsIso });
+          continue;
         }
         if (!text) continue;
         const systemSubtype = classifyCodexSystemText(text);
@@ -776,7 +785,7 @@ const plugin: PluginModule = {
 
 // types shared by the parsers above
 
-interface CodexContentBlock { type?: string; text?: string }
+interface CodexContentBlock { type?: string; text?: string; image_url?: string }
 interface CodexPayload {
   item?: unknown;
   type?: string;
