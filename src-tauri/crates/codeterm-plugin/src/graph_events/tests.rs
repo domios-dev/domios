@@ -82,11 +82,12 @@ fn graph_events_admit_refusal_table_names_each_cause() {
         &ids,
         &times,
     );
+    let schema = crate::js_runtime::manifest::NodeSchema {
+        properties: Vec::new(),
+        required: vec!["value".into()],
+    };
     let invalid = AdmissionSubscription {
-        payload_schema: Some(crate::js_runtime::manifest::NodeSchema {
-            properties: Vec::new(),
-            required: vec!["value".into()],
-        }),
+        payload_schema: Some(&schema),
         ..subscription("secret", "plugin", 0, &ids, &times)
     };
 

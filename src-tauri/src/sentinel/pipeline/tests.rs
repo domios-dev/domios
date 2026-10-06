@@ -2,6 +2,7 @@ use super::effect_after_claim;
 use super::*;
 use crate::cron::clock::MockClock;
 use crate::multiplexer::{state::MultiplexerState, types::AgentRole};
+use crate::sentinel::routes::pipeline_result_owner;
 use crate::sentinel::store::{Owner, Store};
 use crate::service::test_fixture::ServiceFixture;
 use codeterm_types::blueprint_pipeline::{
