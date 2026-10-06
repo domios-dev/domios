@@ -37,6 +37,50 @@ fn create(store: &mut Store, paused: bool, handlers: serde_json::Value) -> Senti
     })).unwrap(), owner(), false).unwrap()
 }
 
+#[test]
+fn blueprint_event_scheduler_stages_one_active_lease_without_a_poll_deadline() {
+    let directory = tempfile::tempdir().unwrap();
+    let clock = crate::cron::clock::MockClock::starting_at(1_000);
+    let store = Arc::new(Mutex::new(Store::new(
+        directory.path().join("events.json"),
+        clock,
+    )));
+    let spec = codeterm_types::blueprint_pipeline::BlueprintSpec {
+        name: "event-lease-test".into(),
+        owner: codeterm_types::blueprint_pipeline::BlueprintOwner::Tab,
+        trigger: codeterm_types::blueprint_pipeline::Trigger::Event {
+            kind: "fixture.message".into(),
+            params: serde_json::json!({}),
+        },
+        steps: vec![codeterm_types::blueprint_pipeline::Step {
+            name: "match".into(),
+            input: codeterm_types::blueprint_pipeline::IoType::Text,
+            kind: codeterm_types::blueprint_pipeline::StepKind::Filter {
+                pattern: "fixture".into(),
+                bucket: None,
+            },
+            on: Default::default(),
+        }],
+        result: Default::default(),
+    };
+    let job = store.lock().prepare_pipeline(spec, owner(), false).unwrap();
+    super::storage::commit(&store, |current| current.stage_insert(job)).unwrap();
+    assert!(store.lock().event_wait_only());
+    let event = codeterm_plugin::graph_events::EventEnvelope {
+        subscription_id: "sub".into(),
+        pipeline_id: store.lock().list()[0].id.clone(),
+        kind: "fixture.message".into(),
+        event_id: "event-1".into(),
+        payload: json!({"message":"fixture"}),
+        admitted_at_ms: 1_000,
+    };
+    let first = store.lock().stage_event_lease(event.clone()).unwrap();
+    assert_eq!(first.event.as_ref().unwrap().payload, event.payload);
+    assert!(store.lock().stage_event_lease(event).is_none());
+    store.lock().release(&first.job.id);
+    assert!(store.lock().event_wait_only());
+}
+
 fn execute(
     store: &Arc<Mutex<Store>>,
     lease: &super::store::Lease,
@@ -148,6 +192,7 @@ fn sentinel_scheduler_graph_weak_other_and_unchanged_never_activate() {
         let lease = super::store::Lease {
             job: repeated,
             cancelled: lease.cancelled,
+            event: None,
         };
         super::scheduler::advance(
             &store,

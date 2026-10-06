@@ -632,6 +632,8 @@ pub struct PermissionsConfig {
     /// Whether the plugin may read machine-wide KPI aggregates via `host.analytics`.
     #[serde(default)]
     pub analytics: bool,
+    #[serde(default, rename = "graph_events", alias = "graphEvents")]
+    pub graph_events: bool,
 }
 
 #[cfg(test)]

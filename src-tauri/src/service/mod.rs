@@ -324,6 +324,8 @@ pub struct ServiceContext {
     pub transcribe_registry: Arc<crate::transcribe::TranscribeRegistry>,
     pub converter_registry: Arc<codeterm_plugin::converter::ConverterRegistry>,
     pub graph_node_registry: Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>,
+    pub event_source_registry: Arc<codeterm_plugin::event_source::EventSourceRegistry>,
+    pub graph_event_subscriptions: codeterm_plugin::graph_events::SubscriptionTable,
     /// Decision adapters for the stage-2 recall re-rank, resolved by configured id.
     pub supporter_models: Arc<crate::api::mem_routes::decision::SupporterRegistry>,
     /// Registry of glance-view providers (plugins with `glanceView`). Plugin

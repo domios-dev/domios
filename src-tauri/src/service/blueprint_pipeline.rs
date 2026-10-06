@@ -40,15 +40,30 @@ impl super::ServiceContext {
         spec: BlueprintSpec,
     ) -> Result<Value, String> {
         let errors = self.pipeline_validation_errors(&spec)?;
-        let trigger_available =
-            !codeterm_types::blueprint_pipeline::trigger_unavailable(&spec.trigger);
+        let trigger_available = match &spec.trigger {
+            Trigger::Event { kind, .. } => {
+                self.event_source_registry.select_provider(kind).is_some()
+            }
+            trigger => !codeterm_types::blueprint_pipeline::trigger_unavailable(trigger),
+        };
         let mut checks = vec![
             field_check("name", &errors),
             field_check("trigger", &errors),
         ];
+        checks.push(field_check("trigger.params", &errors));
+        let params_check = self.validate_event_trigger(&spec);
+        checks.push(json!({
+            "field":"trigger.params",
+            "passed":params_check.is_ok(),
+            "reason":params_check.err()
+        }));
         if !trigger_available {
             checks[1]["passed"] = json!(false);
-            checks[1]["reason"] = json!("trigger_unavailable");
+            checks[1]["reason"] = json!(if matches!(&spec.trigger, Trigger::Event { .. }) {
+                "event_source_unavailable"
+            } else {
+                "trigger_unavailable"
+            });
         }
         for (index, step) in spec.steps.iter().enumerate() {
             checks.push(field_check(&format!("steps[{index}].name"), &errors));
@@ -99,6 +114,7 @@ impl super::ServiceContext {
         spec: BlueprintSpec,
     ) -> Result<Value, String> {
         self.validate_pipeline(&spec)?;
+        self.validate_event_trigger(&spec)?;
         ensure_trigger_available(&spec.trigger)
             .map_err(|error| format!("{}: {}", error.field, error.reason))?;
         if spec.owner == BlueprintOwner::Team && caller.team.is_none() {
@@ -158,6 +174,11 @@ impl super::ServiceContext {
     ) -> Result<Value, String> {
         let current = self.pipeline_update_current(caller, id, expect_version)?;
         let mut preview = self.blueprint_pipeline_validate(caller, spec.clone())?;
+        if let Err(error) = self.validate_event_trigger(&spec) {
+            preview["checks"].as_array_mut().unwrap().push(json!({
+                "field":"trigger.params", "passed":false, "reason":error
+            }));
+        }
         let owner_matches =
             current.pipeline.as_ref().map(|pipeline| pipeline.owner) == Some(spec.owner);
         preview["checks"].as_array_mut().unwrap().push(json!({
@@ -180,14 +201,12 @@ impl super::ServiceContext {
     ) -> Result<crate::sentinel::store::Sentinel, String> {
         let current = self.pipeline_update_current(caller, id, expect_version)?;
         self.validate_pipeline(&spec)?;
+        self.validate_event_trigger(&spec)?;
         ensure_trigger_available(&spec.trigger)
             .map_err(|error| format!("{}: {}", error.field, error.reason))?;
         if current.pipeline.as_ref().map(|pipeline| pipeline.owner) != Some(spec.owner) {
             return Err("owner: pipeline owner is immutable".into());
         }
-        let codeterm_types::blueprint_pipeline::Trigger::Schedule { every } = &spec.trigger else {
-            return Err("trigger_unavailable".into());
-        };
         {
             let mux = self.mux.read();
             if !super::sentinel::caller_is_live(&mux, caller) {
@@ -197,7 +216,9 @@ impl super::ServiceContext {
         }
         let mut next = current.clone();
         next.name = Some(spec.name.clone());
-        next.interval_ms = crate::sentinel::store::duration_ms(every)?;
+        if let codeterm_types::blueprint_pipeline::Trigger::Schedule { every } = &spec.trigger {
+            next.interval_ms = crate::sentinel::store::duration_ms(every)?;
+        }
         next.pipeline = Some(spec);
         let handle = self
             .app_handle
@@ -257,7 +278,7 @@ impl super::ServiceContext {
     pub(crate) fn blueprint_pipeline_nodes(&self) -> Value {
         let mut nodes = vec![
             json!({"kind":"trigger", "type":"schedule", "title":"Schedule", "params_schema":{"every":{"type":"duration","minimum":"10s"}}}),
-            json!({"kind":"trigger", "type":"event", "title":"Event", "params_schema":{"source":"event source kind","params":"event source schema"}}),
+            json!({"kind":"trigger", "type":"event", "title":"Event", "params_schema":{"kind":"event source kind","params":"event source schema"}}),
             json!({"kind":"trigger", "type":"input", "title":"Input", "params_schema":{"kind":"text|file|audio|video|image","source":"text|file|url","convert_to":"optional media kind"}}),
             json!({"kind":"step", "type":"command", "title":"Command", "params_schema":{"command":{"type":"string","max_length":16384}}}),
             json!({"kind":"step", "type":"ask", "title":"Ask", "params_schema":{"question":"string","buckets":"declared string array"}}),
@@ -297,6 +318,24 @@ impl super::ServiceContext {
             .map(|error| format!("{}: {}", error.field, error.reason))
             .collect::<Vec<_>>()
             .join("; "))
+    }
+
+    fn validate_event_trigger(&self, spec: &BlueprintSpec) -> Result<(), String> {
+        let Trigger::Event { kind, params } = &spec.trigger else {
+            return Ok(());
+        };
+        let encoded = serde_json::to_vec(params).map_err(|error| error.to_string())?;
+        if encoded.len() > codeterm_plugin::graph_events::MAX_EVENT_BYTES {
+            return Err("trigger.params: exceeds 64 KiB".into());
+        }
+        if let Some(provider) = self.event_source_registry.select_provider(kind) {
+            if let Some(schema) = provider.params_schema(kind) {
+                schema
+                    .validate_instance(params)
+                    .map_err(|error| format!("trigger.params: {error}"))?;
+            }
+        }
+        Ok(())
     }
 
     fn pipeline_validation_errors(
@@ -460,7 +499,7 @@ fn team_result_recipient(
 fn chain_summary(spec: &BlueprintSpec) -> String {
     let trigger = match &spec.trigger {
         Trigger::Schedule { every } => format!("schedule:{every}"),
-        Trigger::Event { source, .. } => format!("event:{source}"),
+        Trigger::Event { kind, .. } => format!("event:{kind}"),
         Trigger::Input { kind, .. } => format!("input:{}", kind.as_str()),
     };
     let steps = spec.steps.iter().map(|step| {

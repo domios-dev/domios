@@ -233,7 +233,13 @@ impl ServiceContext {
             now,
             &live_leases,
         )?;
-        project_pipeline_contract(&mut snapshot, &jobs, &journals, &live_leases);
+        project_pipeline_contract(
+            &mut snapshot,
+            &jobs,
+            &journals,
+            &live_leases,
+            &self.graph_event_subscriptions,
+        );
         graph::project_worker_states(&mut snapshot, &mux, |tab| self.resolved_tab_status(tab));
         Ok(snapshot)
     }
@@ -328,7 +334,13 @@ impl ServiceContext {
         }
         combined.revision = format!("{:x}", Sha256::digest(revisions.join("|")));
         combined.all_teams = true;
-        project_pipeline_contract(&mut combined, &jobs, &journals, &live_leases);
+        project_pipeline_contract(
+            &mut combined,
+            &jobs,
+            &journals,
+            &live_leases,
+            &self.graph_event_subscriptions,
+        );
         graph::project_worker_states(&mut combined, &mux, |tab| self.resolved_tab_status(tab));
         Ok(combined)
     }
@@ -444,6 +456,7 @@ fn project_pipeline_contract(
     jobs: &[Sentinel],
     journals: &BTreeMap<String, Vec<BlueprintJournalEntry>>,
     live_leases: &BTreeSet<String>,
+    event_subscriptions: &codeterm_plugin::graph_events::SubscriptionTable,
 ) {
     let mut journal_revisions = jobs
         .iter()
@@ -455,13 +468,40 @@ fn project_pipeline_contract(
                 .map(|entry| (job.id.as_str(), entry.entry_id))
         })
         .collect::<Vec<_>>();
-    if !journal_revisions.is_empty() {
+    let mut event_revisions = jobs
+        .iter()
+        .filter(|job| {
+            job.pipeline.as_ref().is_some_and(|spec| {
+                matches!(
+                    &spec.trigger,
+                    codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+                )
+            })
+        })
+        .filter_map(|job| {
+            event_subscriptions
+                .summary(&job.id)
+                .map(|summary| (job.id.as_str(), summary))
+        })
+        .collect::<Vec<_>>();
+    if !journal_revisions.is_empty() || !event_revisions.is_empty() {
         journal_revisions.sort_unstable();
+        event_revisions.sort_by_key(|(id, _)| *id);
         let mut digest = Sha256::new();
         digest.update(snapshot.revision.as_bytes());
         for (id, entry_id) in journal_revisions {
             digest.update(id.as_bytes());
             digest.update(entry_id.to_le_bytes());
+        }
+        for (id, summary) in event_revisions {
+            digest.update(id.as_bytes());
+            digest.update(summary.state.as_bytes());
+            digest.update(summary.delivered.to_le_bytes());
+            digest.update(summary.refused.to_le_bytes());
+            digest.update(summary.last_event_at_ms.unwrap_or_default().to_le_bytes());
+            if let Some(reason) = summary.reason {
+                digest.update(reason.as_bytes());
+            }
         }
         snapshot.revision = format!("{:x}", digest.finalize());
     }
@@ -621,6 +661,21 @@ fn project_pipeline_contract(
             "last_event_at_ms":last_event
         });
         node["trigger"] = trigger;
+        if job.pipeline.as_ref().is_some_and(|spec| {
+            matches!(
+                &spec.trigger,
+                codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+            )
+        }) {
+            let subscription = event_subscriptions.summary(&job.id);
+            node["event_subscription"] = json!({
+                "state":subscription.as_ref().map(|item| item.state.as_str()).unwrap_or(if job.machine.stopped { "stopped" } else { "unavailable" }),
+                "delivered":subscription.as_ref().map(|item| item.delivered).unwrap_or_default(),
+                "refused":subscription.as_ref().map(|item| item.refused).unwrap_or_default(),
+                "last_event_at_ms":subscription.as_ref().and_then(|item| item.last_event_at_ms),
+                "reason":subscription.as_ref().and_then(|item| item.reason.clone()).or_else(|| (!job.machine.stopped).then(|| "not_subscribed".into()))
+            });
+        }
         node["steps"] = json!(steps);
         node["result"] = json!({
             "target":target,
@@ -688,8 +743,8 @@ fn trigger_view(trigger: &codeterm_types::blueprint_pipeline::Trigger) -> Value 
         Trigger::Schedule { every } => {
             json!({"type":"schedule","summary":format!("every {every}")})
         }
-        Trigger::Event { source, .. } => {
-            json!({"type":"event","summary":format!("event source {source}")})
+        Trigger::Event { kind, .. } => {
+            json!({"type":"event","summary":format!("event {kind}")})
         }
         Trigger::Input {
             kind,
@@ -896,6 +951,7 @@ mod tests {
             std::slice::from_ref(job),
             journals,
             &BTreeSet::new(),
+            &codeterm_plugin::graph_events::SubscriptionTable::new(),
         );
         snapshot
     }

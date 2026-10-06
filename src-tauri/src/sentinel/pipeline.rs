@@ -48,7 +48,9 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
         record_run_stop(handle, lease, "invalid_pipeline", "skip:invalid_pipeline");
         return;
     };
-    let mut text = String::new();
+    let mut text = lease.event.as_ref().map_or_else(String::new, |event| {
+        serde_json::to_string(&event.payload).unwrap_or_default()
+    });
     while let Some(index) = state.current_step {
         if lease.cancelled.load(Ordering::SeqCst) {
             let now = now(handle);

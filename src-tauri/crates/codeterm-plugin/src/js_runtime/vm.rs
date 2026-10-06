@@ -89,6 +89,9 @@ const PLUGIN_PREAMBLE: &str = r#"
   host.analytics = {
     query: function (query) { return parseJson(host.analyticsQuery(JSON.stringify(query || {}))); },
   };
+  host.events = {
+    emit: function (event) { return parseJson(host.graphEventEmit(JSON.stringify(event || {}))); },
+  };
   host.receiverTarget = {
     get:   function () { return parseJson(host.receiverTargetGet()); },
     clear: function () { return parseJson(host.receiverTargetClear()); },
@@ -439,6 +442,10 @@ impl PluginVm {
     /// Whether this plugin holds the `agent_commands` grant — drives inverse-seam handler registration.
     pub fn agent_commands_allowed(&self) -> bool {
         self.sandbox.agent_commands_allowed()
+    }
+
+    pub fn graph_events_allowed(&self) -> bool {
+        self.sandbox.graph_events_allowed()
     }
 
     /// How many sandbox capabilities this plugin has been denied. Snapshot it

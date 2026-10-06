@@ -50,6 +50,7 @@ Authenticated config readback includes `api_listener.active`, `.configured`, and
 | GET | `/api/keepawake` | — | Get keep-awake status (see below) |
 | POST | `/api/keepawake/start` | `{duration_secs?, display?}` | Start / restart keep-awake session |
 | POST | `/api/keepawake/stop` | — | Stop keep-awake session |
+| POST | `/api/graph/events/{subscription_id}` | `{plugin_id, event_id, payload}` | Plugin event ingress. Uses the subscription's Bearer token, accepts at most 64 KiB, and returns 202 for admission; refusal codes map to 401, 403, 404, 409, 413, 422, 429 or 503. |
 
 A desktop REST listener generation reports `listening` only once it owns the real socket and a real `GET /api/health` succeeds, its body is consumed, and the proof connection closes. A listener exit is replaced by exactly one new generation; a bind ownership failure waits for an explicit port-release or restart event, never a timer. The listener status reports `generation`, `phase`, `diagnostic`, and `message`. Diagnostic values are `listener_exited`, `bind_ownership_failed`, or `workers_blocked`; the last means the listener remains bound but the four REST runtime workers cannot answer health.
 

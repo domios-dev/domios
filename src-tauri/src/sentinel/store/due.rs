@@ -79,6 +79,14 @@ pub(super) fn plan_due(
         if matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_))) && job.run.is_none() {
             continue;
         }
+        if job.pipeline.as_ref().is_some_and(|pipeline| {
+            matches!(
+                &pipeline.trigger,
+                codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+            )
+        }) {
+            continue;
+        }
         if (job.next_run <= now || wake_pending.contains(&job.id)) && !active.contains_key(&job.id)
         {
             if job.next_run <= now {
@@ -97,6 +105,7 @@ pub(super) fn plan_due(
             due.push(Lease {
                 job: job.clone(),
                 cancelled,
+                event: None,
             });
             changes.push(ScheduleChange::Advance {
                 id: job.id.clone(),

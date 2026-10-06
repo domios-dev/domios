@@ -139,6 +139,9 @@ fn enrich_from_manifest_with_icon(
         if perm_on("analytics", "analytics") {
             granted.push("analytics");
         }
+        if perm_on("graph_events", "graphEvents") {
+            granted.push("graph_events");
+        }
     }
     let settings_schema = m
         .get("settingsSchema")

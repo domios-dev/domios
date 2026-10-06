@@ -81,6 +81,9 @@ pub fn apply_persisted(perms: &mut PermissionsConfig, bundle_dir: &Path) {
     if let Some(v) = g.permissions.get("analytics") {
         perms.analytics = *v;
     }
+    if let Some(v) = g.permissions.get("graph_events") {
+        perms.graph_events = *v;
+    }
     for host in g.network_allow {
         if !perms.network.allow.contains(&host) {
             perms.network.allow.push(host);
