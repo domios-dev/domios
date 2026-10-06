@@ -9,6 +9,7 @@ const REQUIRED: &[&str] = &[
     "cron-run-watch",
     "launch-prompt-gate",
     "all-finished",
+    "voice-note-to-text",
 ];
 
 #[derive(Clone, Debug, Serialize)]
