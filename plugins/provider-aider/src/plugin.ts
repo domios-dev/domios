@@ -72,7 +72,8 @@ function parsePrompt(text: string): ParsedPrompt | null {
   return null;
 }
 
-function promptSafeChoice(prompt: ParsedPrompt, screen: string): string | null {
+function promptSafeChoice(prompt: ParsedPrompt | null | undefined, screen: string): string | null {
+  if (!prompt || !prompt.question) return null;
   if (!SHELL_COMMAND_QUESTION_RE.test(prompt.question)) return null;
   return isCodetermOnlyCommandList(extractPromptedCommands(screen)) ? "1" : null;
 }
