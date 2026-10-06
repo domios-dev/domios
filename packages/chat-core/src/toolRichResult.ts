@@ -5,7 +5,7 @@ export type ThumbnailSource =
   | { kind: "none"; reason: "missing" | "remote" | "relative" | "unsupported" };
 
 const TEXT_FIELDS = ["query", "action", "url", "pattern", "path", "status", "prompt"] as const;
-const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp|bmp|avif)$/i;
+const IMAGE_FILE = /\.(?:png|jpe?g|gif|webp|bmp|avif|svg)$/i;
 
 /** Keeps only well-typed fields; anything else is dropped rather than coerced. */
 export function normalizeToolRichResult(value: unknown): ToolRichResult | undefined {
