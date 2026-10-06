@@ -146,7 +146,8 @@
     "modelLaunchArgsFormat": [
       "-m",
       "{model}"
-    ]
+    ],
+    "modelSwitch": "live"
   },
   "permissions": {
     "network": {
