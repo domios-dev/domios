@@ -124,8 +124,15 @@ pub(super) fn write(
             let running: Option<String> = cx
                 .conn
                 .query_row(
-                    "SELECT run_id FROM blueprint_step_journal \
-                     WHERE sentinel_id = ?1 AND state = 'running' ORDER BY entry_id DESC LIMIT 1",
+                    "SELECT claim.run_id FROM blueprint_step_journal AS claim \
+                     WHERE claim.sentinel_id = ?1 AND claim.state = 'running' \
+                     AND NOT EXISTS (SELECT 1 FROM blueprint_step_journal AS resolved \
+                       WHERE resolved.sentinel_id = claim.sentinel_id \
+                       AND resolved.run_id = claim.run_id \
+                       AND resolved.step_index = claim.step_index \
+                       AND resolved.entry_id > claim.entry_id \
+                       AND resolved.state IN ('done', 'failed', 'skipped')) \
+                     ORDER BY claim.entry_id DESC LIMIT 1",
                     [id],
                     |row| row.get(0),
                 )
@@ -199,28 +206,42 @@ pub(super) fn write(
             result_summary,
             reason,
         } => {
-            let changed = cx.write(
-                "UPDATE blueprint_step_journal SET state = ?1, outcome = ?2, ended_at_ms = ?3, \
-                     result_summary = ?4, reason = ?5 WHERE entry_id = \
-                     (SELECT entry_id FROM blueprint_step_journal WHERE sentinel_id = ?6 \
-                      AND run_id = ?7 AND step_index = ?8 AND state = 'running' \
-                      ORDER BY entry_id DESC LIMIT 1)",
-                params![
-                    state,
-                    outcome,
-                    to_sql_u64("journal end", ended_at_ms)?,
-                    result_summary,
-                    reason,
-                    id,
-                    run_id,
-                    step_index
-                ],
+            let claim: Option<(String, i64)> = cx
+                .conn
+                .query_row(
+                    "SELECT claim.step_name, claim.started_at_ms \
+                     FROM blueprint_step_journal AS claim \
+                     WHERE claim.sentinel_id = ?1 AND claim.run_id = ?2 \
+                     AND claim.step_index = ?3 AND claim.state = 'running' \
+                     AND NOT EXISTS (SELECT 1 FROM blueprint_step_journal AS resolved \
+                       WHERE resolved.sentinel_id = claim.sentinel_id \
+                       AND resolved.run_id = claim.run_id \
+                       AND resolved.step_index = claim.step_index \
+                       AND resolved.entry_id > claim.entry_id \
+                       AND resolved.state IN ('done', 'failed', 'skipped')) \
+                     ORDER BY claim.entry_id DESC LIMIT 1",
+                    params![id, run_id, step_index],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()
+                .map_err(|error| sqlite_error("inspect blueprint step finish", error))?;
+            let Some((step_name, started_at_ms)) = claim else {
+                return Ok(SentinelCommit::fenced(Fence::NotClaimed, None));
+            };
+            append(
+                cx,
+                id,
+                &run_id,
+                step_index,
+                &step_name,
+                &state,
+                Some(&outcome),
+                from_sql_u64("journal start", started_at_ms)?,
+                Some(ended_at_ms),
+                Some(&result_summary),
+                reason.as_deref(),
             )?;
-            if changed == 0 {
-                Ok(SentinelCommit::fenced(Fence::NotClaimed, None))
-            } else {
-                Ok(commit(MutationOutcome::Applied))
-            }
+            Ok(commit(MutationOutcome::Applied))
         }
         BlueprintJournalWrite::Decision {
             run_id,
