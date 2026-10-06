@@ -252,6 +252,163 @@ pub struct StageRuntime {
     pub run_transitions: u16,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlueprintJournalEntry {
+    pub entry_id: i64,
+    pub run_id: String,
+    pub step_index: i64,
+    pub step_name: String,
+    pub state: String,
+    pub outcome: Option<String>,
+    pub started_at_ms: u64,
+    pub ended_at_ms: Option<u64>,
+    pub result_summary: Option<String>,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum BlueprintJournalWrite {
+    Claim {
+        run_id: String,
+        step_index: i64,
+        step_name: String,
+        generation: u64,
+        started_at_ms: u64,
+    },
+    Finish {
+        run_id: String,
+        step_index: i64,
+        state: String,
+        outcome: String,
+        ended_at_ms: u64,
+        result_summary: String,
+        reason: Option<String>,
+    },
+    Decision {
+        run_id: String,
+        step_index: i64,
+        step_name: String,
+        outcome: String,
+        at_ms: u64,
+        result_summary: Option<String>,
+        reason: Option<String>,
+    },
+    CloseRun {
+        run_id: String,
+        state: String,
+        outcome: String,
+        at_ms: u64,
+        reason: Option<String>,
+    },
+}
+
+impl BlueprintJournalWrite {
+    pub(super) fn validate(&self) -> Result<(), StorageError> {
+        let (run_id, step_index, step_name, outcome, summary, reason) = match self {
+            Self::Claim {
+                run_id,
+                step_index,
+                step_name,
+                generation,
+                ..
+            } => {
+                integer("journal generation", *generation)?;
+                (
+                    run_id.as_str(),
+                    *step_index,
+                    Some(step_name.as_str()),
+                    None,
+                    None,
+                    None,
+                )
+            }
+            Self::Finish {
+                run_id,
+                step_index,
+                state,
+                outcome,
+                result_summary,
+                reason,
+                ..
+            } => {
+                if !matches!(state.as_str(), "done" | "failed") {
+                    return Err(StorageError::invalid(
+                        "journal state",
+                        "must be done or failed",
+                    ));
+                }
+                (
+                    run_id.as_str(),
+                    *step_index,
+                    None,
+                    Some(outcome.as_str()),
+                    Some(result_summary.as_str()),
+                    reason.as_deref(),
+                )
+            }
+            Self::Decision {
+                run_id,
+                step_index,
+                step_name,
+                outcome,
+                result_summary,
+                reason,
+                ..
+            } => (
+                run_id.as_str(),
+                *step_index,
+                Some(step_name.as_str()),
+                Some(outcome.as_str()),
+                result_summary.as_deref(),
+                reason.as_deref(),
+            ),
+            Self::CloseRun {
+                run_id,
+                state,
+                outcome,
+                reason,
+                ..
+            } => {
+                if !matches!(state.as_str(), "done" | "failed" | "skipped") {
+                    return Err(StorageError::invalid("journal state", "invalid run state"));
+                }
+                (
+                    run_id.as_str(),
+                    -1,
+                    Some("$run"),
+                    Some(outcome.as_str()),
+                    None,
+                    reason.as_deref(),
+                )
+            }
+        };
+        identifier("journal run id", run_id)?;
+        if !(-1..64).contains(&step_index) {
+            return Err(StorageError::invalid("journal step index", "out of bounds"));
+        }
+        if let Some(step_name) = step_name {
+            identifier("journal step name", step_name)?;
+        }
+        if let Some(outcome) = outcome {
+            identifier("journal outcome", outcome)?;
+        }
+        for (field, value) in [
+            ("journal result summary", summary),
+            ("journal reason", reason),
+        ] {
+            if let Some(value) = value {
+                if value.chars().count() > 200 || value.chars().any(char::is_control) {
+                    return Err(StorageError::invalid(
+                        field,
+                        "must be at most 200 printable characters",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HandlerStatus {
     Unconfirmed,
