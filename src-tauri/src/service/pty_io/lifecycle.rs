@@ -296,10 +296,17 @@ pub(crate) fn restore_failure_boot_stage(pty_live: bool) -> Option<BootStage> {
     (!pty_live).then_some(BootStage::SpawnFailed)
 }
 
-/// Proven reattach of a live PTY must clear a stale failure; every other stage
-/// already describes the tab honestly and is left alone.
-pub(crate) fn reattach_boot_stage(current: Option<BootStage>) -> Option<BootStage> {
-    matches!(current, Some(BootStage::SpawnFailed)).then_some(BootStage::PtyReattached)
+/// Reattach clears stale launch failures but preserves restore failures that explain an unavailable agent.
+pub(crate) fn reattach_boot_stage(
+    current: Option<BootStage>,
+    failure_reason: Option<&str>,
+) -> Option<BootStage> {
+    let restore_failure = failure_reason.is_some_and(|reason| {
+        reason.starts_with("restored_provider_unresolved:")
+            || reason.starts_with("restored_role_without_provider:")
+    });
+    (current == Some(BootStage::SpawnFailed) && !restore_failure)
+        .then_some(BootStage::PtyReattached)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -518,8 +525,13 @@ impl ServiceContext {
     }
 
     fn emit_pty_reattached(&self, tab_id: &str) {
-        let current = self.mux.read().get_tab(tab_id).and_then(|p| p.boot_stage);
-        if let Some(stage) = reattach_boot_stage(current) {
+        let (current, failure_reason) = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .map(|tab| (tab.boot_stage, tab.boot_failure_reason.clone()))
+            .unwrap_or((None, None));
+        if let Some(stage) = reattach_boot_stage(current, failure_reason.as_deref()) {
             self.emit_boot_stage(tab_id, stage, None);
         }
     }
@@ -910,7 +922,11 @@ mod restore_boot_stage_tests {
             "precondition: the Tab starts with a latched failure"
         );
 
-        let reattached = reattach_boot_stage(tab.boot_stage).expect("reattach clears the latch");
+        let reattached = reattach_boot_stage(
+            tab.boot_stage,
+            tab.boot_failure_reason.as_deref(),
+        )
+        .expect("reattach clears the latch");
         apply_boot_stage(tab, reattached, None);
         sequence.push(tab.boot_stage.unwrap());
 
@@ -924,9 +940,23 @@ mod restore_boot_stage_tests {
             "the latched failure reason must be cleared, not merely overdrawn"
         );
         assert!(
-            reattach_boot_stage(tab.boot_stage).is_none(),
+            reattach_boot_stage(tab.boot_stage, tab.boot_failure_reason.as_deref()).is_none(),
             "reattach is idempotent"
         );
+    }
+
+    #[test]
+    fn reattach_preserves_restore_failures_that_explain_an_unavailable_agent() {
+        for reason in [
+            "restored_provider_unresolved: no unique owner",
+            "restored_role_without_provider: no provider or session",
+        ] {
+            assert_eq!(
+                reattach_boot_stage(Some(BootStage::SpawnFailed), Some(reason)),
+                None,
+                "a shell PTY reattach must not erase its agent restore failure"
+            );
+        }
     }
 
     #[test]
@@ -939,7 +969,7 @@ mod restore_boot_stage_tests {
             Some(BootStage::PtyReattached),
         ] {
             assert_eq!(
-                reattach_boot_stage(stage),
+                reattach_boot_stage(stage, None),
                 None,
                 "reattach must not stomp an in-flight or ready boot: {stage:?}"
             );
