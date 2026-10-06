@@ -76,7 +76,7 @@ impl super::ServiceContext {
             let mux = self.mux.read();
             let live = super::sentinel::caller_is_live(&mux, caller);
             let target = live
-                .then(|| validate_pipeline_result_scope(&mux, caller, &spec.result.to))
+                .then(|| validate_pipeline_result_scope(&mux, caller, spec.owner, &spec.result.to))
                 .unwrap_or_else(|| Err("blueprint caller scope changed".into()));
             (live, target)
         };
@@ -371,14 +371,22 @@ fn field_check(field: &str, errors: &[ValidationError]) -> Value {
 fn validate_pipeline_result_scope(
     mux: &crate::multiplexer::state::MultiplexerState,
     caller: &super::sentinel::SentinelCaller,
+    owner: BlueprintOwner,
     target: &ResultTarget,
 ) -> Result<(), String> {
     match target {
+        ResultTarget::Owner if owner == BlueprintOwner::Team => {
+            team_result_recipient(mux, caller.team.as_deref(), &caller.workspace)?;
+            Ok(())
+        }
         ResultTarget::Owner | ResultTarget::Notify => Ok(()),
         ResultTarget::Team if caller.team.is_none() => {
             Err("result.to: team delivery requires a Team owner".into())
         }
-        ResultTarget::Team => Ok(()),
+        ResultTarget::Team => {
+            team_result_recipient(mux, caller.team.as_deref(), &caller.workspace)?;
+            Ok(())
+        }
         ResultTarget::Tab(id) => {
             let target = mux.resolve_tab_id(id).ok_or("result.to: tab not found")?;
             let tab = mux.get_tab(&target).ok_or("result.to: tab not found")?;
@@ -405,7 +413,10 @@ fn validate_result_scope(
         ResultTarget::Team if job.team_id.is_none() => {
             Err("result.to: team delivery requires a Team owner".into())
         }
-        ResultTarget::Team => Ok(()),
+        ResultTarget::Team => {
+            team_result_recipient(mux, job.team_id.as_deref(), &job.workspace_id)?;
+            Ok(())
+        }
         ResultTarget::Tab(id) => {
             let target = mux.resolve_tab_id(id).ok_or("result.to: tab not found")?;
             let tab = mux.get_tab(&target).ok_or("result.to: tab not found")?;
@@ -420,6 +431,23 @@ fn validate_result_scope(
             Ok(())
         }
     }
+}
+
+fn team_result_recipient(
+    mux: &crate::multiplexer::state::MultiplexerState,
+    team_id: Option<&str>,
+    workspace_id: &str,
+) -> Result<String, String> {
+    let team_id = team_id.ok_or("result.to: team delivery requires a Team owner")?;
+    mux.all_tabs()
+        .find(|tab| {
+            tab.agent_type.is_some()
+                && tab.anchors_team()
+                && tab.team_id.as_deref() == Some(team_id)
+                && mux.find_workspace_for_tab(&tab.id).as_deref() == Some(workspace_id)
+        })
+        .map(|tab| tab.id.clone())
+        .ok_or_else(|| "result.to: Team Orchestrator is unresolved".into())
 }
 
 fn chain_summary(spec: &BlueprintSpec) -> String {

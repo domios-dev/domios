@@ -429,7 +429,7 @@ fn sentinel_scheduler_graph_action_budget_stops_before_next_effect() {
 }
 
 #[test]
-fn sentinel_scheduler_graph_crash_after_claim_does_not_reclassify_or_replay_on_reload() {
+fn blueprint_delivery_route_claim_journal_failure_finishes_failed_without_replay() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sentinels.json");
     let clock = crate::cron::clock::MockClock::starting_at(1000);
@@ -484,5 +484,92 @@ fn sentinel_scheduler_graph_crash_after_claim_does_not_reclassify_or_replay_on_r
     let current = restored.lock();
     let records = &current.get(&job.id).unwrap().transitions;
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].handlers[0].status, Status::Unconfirmed);
+    assert_eq!(records[0].handlers[0].status, Status::Failed);
+    assert_eq!(
+        records[0].handlers[0].reason.as_deref(),
+        Some("journal_route_claim_failed")
+    );
+}
+
+#[test]
+fn blueprint_delivery_rearm_on_change_claims_executes_and_completes() {
+    use super::provenance::Stage;
+
+    let dir = tempfile::tempdir().unwrap();
+    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let store = Arc::new(Mutex::new(Store::new(
+        dir.path().join("blueprints.json"),
+        clock.clone(),
+    )));
+    let job = store
+        .lock()
+        .create(
+            serde_json::from_value(json!({
+                "name":"rearm-delivery-watch",
+                "probe":"status",
+                "question":"state",
+                "buckets":["done"],
+                "every":"10s",
+                "timeout":"1h",
+                "matches":{"done":".*"},
+                "rearm_on_change":["done"],
+                "handlers":{"done":[{"id":"notice","type":"notify","parameters":{}}]}
+            }))
+            .unwrap(),
+            owner(),
+            false,
+        )
+        .unwrap();
+    let mut stages = Vec::new();
+    for output in ["first", "second"] {
+        let lease = store.lock().due().unwrap().remove(0);
+        super::scheduler::advance(
+            &store,
+            &lease,
+            &super::probe::Output {
+                bytes: output.as_bytes().to_vec(),
+                text: output.into(),
+                ..Default::default()
+            },
+            || {
+                Classification::regex(Verdict {
+                    bucket: "done".into(),
+                    confidence: 1.0,
+                })
+            },
+            |job, transition, handler| store.lock().claim_handler(job, transition, handler),
+            |_, transition, _, _| {
+                Ok(super::handlers::Effect {
+                    status: Status::Completed,
+                    execution_id: Some(format!("execution-{transition}")),
+                    command_result: None,
+                    reason: None,
+                })
+            },
+            |_, _, stage| {
+                stages.push(stage);
+                Ok(())
+            },
+        );
+        store.lock().release(&job.id);
+        clock.advance_ms(10_000);
+    }
+    assert_eq!(
+        stages,
+        [
+            Stage::Decision,
+            Stage::RouteClaim,
+            Stage::RouteCompleted,
+            Stage::Decision,
+            Stage::RouteClaim,
+            Stage::RouteCompleted,
+        ]
+    );
+    let current = store.lock();
+    let job = current.get(&job.id).unwrap();
+    assert_eq!(job.transitions.len(), 2);
+    assert!(job.transitions.iter().all(|transition| {
+        transition.handlers[0].execution_id.is_some()
+            && transition.handlers[0].status == Status::Completed
+    }));
 }

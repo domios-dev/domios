@@ -16,8 +16,6 @@ use super::store::{Lease, Sentinel};
 use crate::service::ServiceContext;
 use codeterm_storage::BlueprintJournalWrite;
 
-const MAX_TEAM_RECIPIENTS: usize = 64;
-
 struct StepResult {
     outcome: StepOutcome,
     stored_outcome: String,
@@ -181,27 +179,64 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
     } else {
         "done"
     };
-    let routing = result_routes(svc, &lease.job, spec);
-    let routes = match routing {
-        Ok(routes) => routes,
-        Err(reason) => {
-            close_run(handle, lease, &run_id, "failed", &reason);
-            return;
-        }
-    };
     let verdict = Verdict {
         bucket: outcome.into(),
         confidence: 1.0,
     };
+    let body_target = super::routes::pipeline_result_owner(svc, &lease.job, spec);
+    let (body_path, body_ref) = match super::routes::write_pipeline_result_body(
+        svc,
+        &body_target,
+        &lease.job,
+        &verdict,
+        &text,
+    ) {
+        Ok(body) => body,
+        Err(_) => {
+            if claim_step(handle, lease, &run_id, -1, "$result", now(handle)) {
+                let _ = write_journal(
+                    handle,
+                    &lease.job,
+                    BlueprintJournalWrite::Finish {
+                        run_id: run_id.clone(),
+                        step_index: -1,
+                        state: "failed".into(),
+                        outcome: "handler_failed".into(),
+                        ended_at_ms: now(handle),
+                        result_summary: "body_ref:unavailable".into(),
+                        reason: Some("result_body_write_failed".into()),
+                    },
+                );
+            }
+            close_run(handle, lease, &run_id, "failed", "result_body_write_failed");
+            return;
+        }
+    };
+    let routes = match result_routes(svc, &lease.job, spec) {
+        Ok(routes) => routes,
+        Err(_) => {
+            if claim_step(handle, lease, &run_id, -1, "$result", now(handle)) {
+                let _ = write_journal(
+                    handle,
+                    &lease.job,
+                    BlueprintJournalWrite::Finish {
+                        run_id: run_id.clone(),
+                        step_index: -1,
+                        state: "failed".into(),
+                        outcome: "handler_failed".into(),
+                        ended_at_ms: now(handle),
+                        result_summary: format!("body_ref:{body_ref}"),
+                        reason: Some("result_target_unresolved".into()),
+                    },
+                );
+            }
+            close_run(handle, lease, &run_id, "failed", "result_target_unresolved");
+            return;
+        }
+    };
     for route in routes {
         if lease.cancelled.load(Ordering::SeqCst) || !super::routes::owner_live(svc, &lease.job) {
-            close_run(
-                handle,
-                lease,
-                &run_id,
-                "failed",
-                "skip:result_source_fenced",
-            );
+            record_result_failure(handle, lease, &run_id, &body_ref, "result_source_fenced");
             return;
         }
         if !claim_step(handle, lease, &run_id, -1, "$result", now(handle)) {
@@ -211,18 +246,54 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
             handle.notify();
             return;
         }
-        let result = super::routes::run(svc, &lease.job, &verdict, &route, &run_id, &text);
-        let ended = now(handle);
-        let (step_state, decision, reason) = match result {
-            Ok(_) => ("done", "handler_result", None),
-            Err(error) if error.starts_with("submit_unconfirmed") => (
-                "failed",
-                "handler_unconfirmed",
-                Some("result_delivery_unconfirmed"),
+        let result = match &route {
+            Route::Notify => super::routes::notify_pipeline_result(
+                svc,
+                &lease.job,
+                &verdict,
+                &body_path,
+                body_ref.clone(),
             ),
-            Err(_) => ("failed", "handler_failed", Some("result_delivery_failed")),
+            Route::Send(target) => super::routes::deliver_pipeline_result(
+                svc,
+                target,
+                &lease.job,
+                &verdict,
+                &body_path,
+                body_ref.clone(),
+            ),
+            _ => super::routes::PipelineResultDelivery {
+                state: "failed",
+                reason: "unsupported_result_target",
+                body_ref: Some(body_ref.clone()),
+            },
         };
-        if let Some(reason) = reason {
+        let ended = now(handle);
+        let decision = match result.state {
+            "delivered" => "handler_result",
+            "unconfirmed" => "handler_unconfirmed",
+            _ => "handler_failed",
+        };
+        let journal_state = if result.state == "delivered" {
+            "done"
+        } else {
+            "failed"
+        };
+        let summary = result
+            .body_ref
+            .as_deref()
+            .map(|path| format!("body_ref:{path}"))
+            .unwrap_or_else(|| "body_ref:unavailable".into());
+        let finish = BlueprintJournalWrite::Finish {
+            run_id: run_id.clone(),
+            step_index: -1,
+            state: journal_state.into(),
+            outcome: decision.into(),
+            ended_at_ms: ended,
+            result_summary: summary.clone(),
+            reason: Some(result.reason.into()),
+        };
+        if !write_journal(handle, &lease.job, finish) {
             let _ = write_journal(
                 handle,
                 &lease.job,
@@ -230,31 +301,23 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
                     run_id: run_id.clone(),
                     step_index: -1,
                     step_name: "$result".into(),
-                    outcome: decision.into(),
+                    outcome: "handler_unconfirmed".into(),
                     at_ms: ended,
-                    result_summary: Some("result route did not confirm delivery".into()),
-                    reason: Some(reason.into()),
+                    result_summary: Some(summary),
+                    reason: Some("result_journal_finish_failed".into()),
                 },
             );
-            let _ = storage::commit(&handle.store, |store| {
-                store.stage_stop(&lease.job.id, "uncertain_pipeline_result")
-            });
-            handle.notify();
+            close_run(
+                handle,
+                lease,
+                &run_id,
+                "failed",
+                "result_journal_finish_failed",
+            );
             return;
         }
-        if !write_journal(
-            handle,
-            &lease.job,
-            BlueprintJournalWrite::Finish {
-                run_id: run_id.clone(),
-                step_index: -1,
-                state: step_state.into(),
-                outcome: decision.into(),
-                ended_at_ms: ended,
-                result_summary: "result route settled".into(),
-                reason: reason.map(str::to_string),
-            },
-        ) {
+        if result.state != "delivered" {
+            close_run(handle, lease, &run_id, "failed", result.reason);
             return;
         }
     }
@@ -450,32 +513,55 @@ fn result_routes(
         {
             team_routes(svc, job)
         }
-        ResultTarget::Owner | ResultTarget::Notify => Ok(vec![Route::Notify]),
-        ResultTarget::Tab(id) => Ok(vec![Route::Send(id.clone())]),
+        ResultTarget::Owner => Ok(vec![Route::Send(job.creator_tab_id.clone())]),
+        ResultTarget::Notify => Ok(vec![Route::Notify]),
+        ResultTarget::Tab(id) => {
+            let resolved = super::routes::resolve_send(&svc.mux.read(), job, id)?;
+            Ok(vec![resolved])
+        }
         ResultTarget::Team => team_routes(svc, job),
     }
 }
 
 fn team_routes(svc: &ServiceContext, job: &Sentinel) -> Result<Vec<Route>, String> {
     let mux = svc.mux.read();
-    let mut recipients = mux
+    let team_id = job.team_id.as_deref().ok_or("result_team_missing")?;
+    let recipient = mux
         .all_tabs()
-        .filter(|tab| {
+        .find(|tab| {
             tab.agent_type.is_some()
-                && tab.team_id == job.team_id
+                && tab.anchors_team()
+                && tab.team_id.as_deref() == Some(team_id)
                 && mux.find_workspace_for_tab(&tab.id).as_deref() == Some(&job.workspace_id)
         })
         .map(|tab| tab.id.clone())
-        .take(MAX_TEAM_RECIPIENTS + 1)
-        .collect::<Vec<_>>();
-    if recipients.len() > MAX_TEAM_RECIPIENTS {
-        return Err("skip:result_recipient_limit".into());
+        .ok_or("result_team_orchestrator_unresolved")?;
+    Ok(vec![Route::Send(recipient)])
+}
+
+fn record_result_failure(
+    handle: &Handle,
+    lease: &Lease,
+    run_id: &str,
+    body_ref: &str,
+    reason: &str,
+) {
+    if claim_step(handle, lease, run_id, -1, "$result", now(handle)) {
+        let _ = write_journal(
+            handle,
+            &lease.job,
+            BlueprintJournalWrite::Finish {
+                run_id: run_id.into(),
+                step_index: -1,
+                state: "failed".into(),
+                outcome: "handler_failed".into(),
+                ended_at_ms: now(handle),
+                result_summary: format!("body_ref:{body_ref}"),
+                reason: Some(reason.into()),
+            },
+        );
     }
-    if recipients.is_empty() {
-        return Ok(vec![Route::Notify]);
-    }
-    recipients.sort();
-    Ok(recipients.into_iter().map(Route::Send).collect())
+    close_run(handle, lease, run_id, "failed", reason);
 }
 
 fn claim_step(

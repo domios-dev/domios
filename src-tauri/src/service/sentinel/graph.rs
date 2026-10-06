@@ -565,6 +565,11 @@ fn project_pipeline_contract(
         } else {
             legacy_result_reason(job)
         };
+        let result_body_ref = result_entry
+            .and_then(|entry| entry.result_summary.as_deref())
+            .and_then(|summary| summary.strip_prefix("body_ref:"))
+            .filter(|reference| *reference != "unavailable")
+            .map(str::to_string);
         let last_event = entries
             .iter()
             .map(|entry| entry.ended_at_ms.unwrap_or(entry.started_at_ms))
@@ -621,7 +626,7 @@ fn project_pipeline_contract(
             "target":target,
             "state":result_state,
             "reason":result_reason,
-            "body_ref":Value::Null
+            "body_ref":result_body_ref
         });
     }
 }
@@ -1029,6 +1034,53 @@ mod tests {
 
         let after = project_snapshot(&job, &journals).revision;
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn blueprint_delivery_read_model_projects_reason_and_body_reference() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = Store::new(
+            directory.path().join("blueprints.json"),
+            MockClock::starting_at(1000),
+        );
+        let spec = BlueprintSpec {
+            name: "result delivery".into(),
+            owner: BlueprintOwner::Tab,
+            trigger: Trigger::Schedule {
+                every: "20s".into(),
+            },
+            steps: vec![Step {
+                name: "emit".into(),
+                input: IoType::Text,
+                kind: StepKind::Command {
+                    command: "echo ready".into(),
+                },
+                on: Default::default(),
+            }],
+            result: BlueprintResult {
+                to: ResultTarget::Owner,
+            },
+        };
+        let job = store.prepare_pipeline(spec, owner(), true).unwrap();
+        let journal = BlueprintJournalEntry {
+            entry_id: 17,
+            run_id: "run_result".into(),
+            step_index: -1,
+            step_name: "$result".into(),
+            state: "failed".into(),
+            outcome: Some("handler_unconfirmed".into()),
+            started_at_ms: 1000,
+            ended_at_ms: Some(1100),
+            result_summary: Some("body_ref:inbox/result.md".into()),
+            reason: Some("delivery_pending".into()),
+        };
+        let node = project_snapshot(&job, &BTreeMap::from([(job.id.clone(), vec![journal])]))
+            .nodes
+            .remove(0);
+
+        assert_eq!(node["result"]["state"], "failed");
+        assert_eq!(node["result"]["reason"], "delivery_pending");
+        assert_eq!(node["result"]["body_ref"], "inbox/result.md");
     }
 }
 
