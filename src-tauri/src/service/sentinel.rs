@@ -497,6 +497,7 @@ mod tests {
             name: Some("service-state-watch".into()),
             probe: Some("status".into()),
             observe: None,
+            input: None,
             question: "state".into(),
             buckets: vec!["done".into()],
             every: "10s".into(),

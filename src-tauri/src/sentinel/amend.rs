@@ -8,6 +8,7 @@ use super::machine::{self, Route};
 use super::source::{bounded_id, TabBinding};
 use super::storage::Staged;
 use super::store::{Sentinel, Store};
+use codeterm_types::sentinel_input::{DataRef, InputSpec, MediaKind};
 
 pub const MAX_AMENDMENTS: usize = crate::storage::MAX_SENTINEL_LINEAGE;
 const MAX_UPDATE_BYTES: usize = 65_536;
@@ -18,6 +19,8 @@ pub struct DefinitionSnapshot {
     pub name: Option<String>,
     pub probe: String,
     pub observe: Option<TabBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<InputSpec>,
     pub question: String,
     pub interval_ms: u64,
     pub buckets: Vec<String>,
@@ -30,6 +33,19 @@ pub struct DefinitionSnapshot {
     pub max_actions: u16,
     pub on_other: Vec<Handler>,
     pub escalation_timeout_ms: Option<u64>,
+}
+
+/// Amendable part of an input source; `kind` is optional and must name the immutable kind.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InputPatch {
+    #[serde(default)]
+    pub kind: Option<MediaKind>,
+    pub data: DataRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub convert_to: Option<MediaKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub convert_timeout_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -83,6 +99,8 @@ pub struct Update {
     #[serde(default)]
     pub rearm_on_change: BTreeSet<String>,
     pub until: Option<String>,
+    #[serde(default)]
+    pub input: Option<InputPatch>,
     pub handlers: Option<BTreeMap<String, Vec<Definition>>>,
     #[serde(default)]
     pub on_other: Vec<Definition>,
@@ -155,6 +173,7 @@ impl DefinitionSnapshot {
             name: job.name.clone(),
             probe: job.probe.clone(),
             observe: job.observe.clone(),
+            input: job.input.clone(),
             question: job.question.clone(),
             interval_ms: job.interval_ms,
             buckets: job.buckets.clone(),
@@ -238,6 +257,7 @@ impl Update {
         let on_other = handlers::definitions(&["other".into()], BTreeMap::new(), Some(other))?
             .remove("other")
             .unwrap_or_default();
+        let input = amended_input(&current.input, self.input)?;
         let mut job = current.clone();
         job.name = self.name;
         job.question = self.question;
@@ -247,10 +267,12 @@ impl Update {
         job.matches = self.matches;
         job.rearm_on_change = self.rearm_on_change;
         job.until = self.until;
+        job.input = input;
         job.max_transitions = self.max_transitions;
         job.max_actions = self.max_actions;
         job.on_other = on_other;
         job.escalation_timeout_ms = self.escalation_timeout_ms;
+        super::source::validate(&job)?;
         super::escalation::validate(&job)?;
         let snapshot = DefinitionSnapshot::from_job(&job);
         if serde_json::to_vec(&snapshot)
@@ -300,6 +322,8 @@ impl Store {
             || current.team_id != update.job.team_id
             || current.observe != update.job.observe
             || current.probe != update.job.probe
+            || current.input.as_ref().map(|input| input.kind)
+                != update.job.input.as_ref().map(|input| input.kind)
         {
             return Staged::ready(Err(
                 "sentinel identity and observation source are immutable".into(),
@@ -320,6 +344,7 @@ impl Store {
         next.matches = update.job.matches;
         next.rearm_on_change = update.job.rearm_on_change;
         next.until = update.job.until;
+        next.input = update.job.input;
         next.max_transitions = update.job.max_transitions;
         next.max_actions = update.job.max_actions;
         next.on_other = update.job.on_other;
@@ -475,6 +500,32 @@ fn claimed_actions(job: &Sentinel) -> usize {
         .flat_map(|transition| &transition.handlers)
         .filter(|handler| handler.claim_id.is_some())
         .count()
+}
+
+/// The input after one amendment: the kind is immutable, the data and conversion are not.
+fn amended_input(
+    current: &Option<InputSpec>,
+    patch: Option<InputPatch>,
+) -> Result<Option<InputSpec>, String> {
+    match (current, patch) {
+        (Some(current_input), Some(patch)) => {
+            if patch.kind.is_some_and(|kind| kind != current_input.kind) {
+                return Err("input kind is immutable".into());
+            }
+            let next = InputSpec {
+                kind: current_input.kind,
+                data: patch.data,
+                convert_to: patch.convert_to,
+                convert_timeout_ms: patch.convert_timeout_ms,
+            };
+            codeterm_types::sentinel_input::validate(&next)
+                .map_err(|error| format!("input: {error}"))?;
+            Ok(Some(next))
+        }
+        (Some(current_input), None) => Ok(Some(current_input.clone())),
+        (None, Some(_)) => Err("input source is immutable; this stage has no input".into()),
+        (None, None) => Ok(None),
+    }
 }
 
 fn has_new_command(current: &Sentinel, next: &Sentinel) -> bool {

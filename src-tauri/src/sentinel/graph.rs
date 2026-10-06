@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use super::{
     handlers::ResultRecord,
     machine::Route,
+    source::TabBinding,
     storage::Staged,
     store::{Sentinel, Store},
 };
@@ -170,7 +171,8 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
                 j.routes,
                 j.transitions,
                 j.expires_at,
-                j.next_run
+                j.next_run,
+                j.input
             ])
         })
         .collect();
@@ -178,6 +180,34 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
         "{:x}",
         Sha256::digest(serde_json::to_vec(&rows).unwrap_or_default())
     )
+}
+
+/// The node source shape: probe, observe kind, or input metadata without inline text,
+/// path directories or the URL query.
+fn source_descriptor(job: &Sentinel) -> Value {
+    if let Some(input) = &job.input {
+        use codeterm_types::sentinel_input::DataRef;
+        let ref_type = match &input.data {
+            DataRef::Text(_) => "text",
+            DataRef::File(_) => "file",
+            DataRef::Url(_) => "url",
+        };
+        return json!({
+            "type": "input",
+            "kind": input.kind.as_str(),
+            "ref_type": ref_type,
+            "display_name": codeterm_types::sentinel_input::display_name(&input.data),
+            "convert_to": input.convert_to.map(|kind| kind.as_str()),
+        });
+    }
+    if let Some(binding) = &job.observe {
+        let kind = match binding {
+            TabBinding::Tab(_) => "tab",
+            TabBinding::CronRun(_) => "cron_run",
+        };
+        return json!({"type": "observe", "kind": kind});
+    }
+    json!({"type": "probe"})
 }
 
 fn record(result: &ResultRecord) -> Value {
@@ -495,7 +525,7 @@ pub fn project(
             outcomes.push(json!({"bucket":bucket,"handlers":handlers}));
         }
         let last_result = last.map(|t| json!({"bucket":t.bucket,"accepted_at":t.accepted_at,"handlers":t.handlers.iter().map(|r| { let mut value=record(r); value["handler_id"]=json!(r.handler_id); value }).collect::<Vec<_>>()}));
-        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":decision_executor,"sentinel_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
+        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":decision_executor,"source":source_descriptor(job),"sentinel_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
     }
     Ok(Snapshot {
         workspace_id: workspace.into(),

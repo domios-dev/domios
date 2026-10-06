@@ -132,11 +132,14 @@ pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: Senti
     } else {
         render(&result);
         if method == "sentinel.show" {
-            let source = result
-                .pointer("/observe/kind")
-                .and_then(Value::as_str)
-                .zip(result.pointer("/observe/id").and_then(Value::as_str))
-                .map(|(kind, id)| format!("Observe: {kind}:{id}"))
+            let source = input_source_line(&result)
+                .or_else(|| {
+                    result
+                        .pointer("/observe/kind")
+                        .and_then(Value::as_str)
+                        .zip(result.pointer("/observe/id").and_then(Value::as_str))
+                        .map(|(kind, id)| format!("Observe: {kind}:{id}"))
+                })
                 .or_else(|| {
                     result["probe"]
                         .as_str()
@@ -164,6 +167,12 @@ fn request(
             name,
             probe,
             observe,
+            input,
+            input_file,
+            input_url,
+            input_text,
+            convert_to,
+            convert_timeout,
             question,
             buckets,
             every,
@@ -184,7 +193,15 @@ fn request(
             let observe = observe
                 .map(|source| observation_binding(&source))
                 .transpose()?;
-            params["create"] = json!({ "name": name, "probe": probe, "observe": observe, "question": question, "buckets": buckets, "every": every, "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
+            let input = input_payload(
+                input,
+                input_file,
+                input_url,
+                input_text,
+                convert_to,
+                convert_timeout,
+            )?;
+            params["create"] = json!({ "name": name, "probe": probe, "observe": observe, "input": input, "question": question, "buckets": buckets, "every": every.unwrap_or_else(|| "20s".into()), "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
             if dry_run {
                 "sentinel.validate.create"
             } else {
@@ -245,6 +262,81 @@ fn observation_binding(source: &str) -> Result<Value, String> {
     Ok(json!({"kind":kind, "id":target}))
 }
 
+/// `Input: audio file quick-brown-fox.wav → text`; inline text is never rendered.
+fn input_source_line(value: &Value) -> Option<String> {
+    use codeterm_types::sentinel_input::{display_name, DataRef, InputSpec};
+    let spec: InputSpec = serde_json::from_value(value.get("input")?.clone()).ok()?;
+    let ref_type = match &spec.data {
+        DataRef::Text(_) => "text",
+        DataRef::File(_) => "file",
+        DataRef::Url(_) => "url",
+    };
+    let mut line = format!("Input: {} {ref_type}", spec.kind.as_str());
+    let name = display_name(&spec.data);
+    if !name.is_empty() {
+        line.push(' ');
+        line.push_str(&name);
+    }
+    if let Some(convert_to) = spec.convert_to {
+        line.push_str(&format!(" → {}", convert_to.as_str()));
+    }
+    Some(line)
+}
+
+fn absolute_path(path: std::path::PathBuf) -> Result<std::path::PathBuf, String> {
+    if path.is_absolute() {
+        return Ok(path);
+    }
+    let cwd = std::env::current_dir().map_err(|error| format!("caller cwd: {error}"))?;
+    Ok(cwd.join(path))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn input_payload(
+    kind: Option<String>,
+    file: Option<std::path::PathBuf>,
+    url: Option<String>,
+    text: Option<String>,
+    convert_to: Option<String>,
+    convert_timeout: Option<u64>,
+) -> Result<Value, String> {
+    use codeterm_types::sentinel_input::{DataRef, InputSpec, MediaKind};
+    let Some(kind) = kind else {
+        if file.is_some()
+            || url.is_some()
+            || text.is_some()
+            || convert_to.is_some()
+            || convert_timeout.is_some()
+        {
+            return Err("input data and conversion flags require --input".into());
+        }
+        return Ok(Value::Null);
+    };
+    let kind = MediaKind::parse(&kind).ok_or("--input: use text, audio, video or image")?;
+    let data = match (file, url, text) {
+        (Some(file), None, None) => DataRef::File(absolute_path(file)?),
+        (None, Some(url), None) => DataRef::Url(url),
+        (None, None, Some(text)) => DataRef::Text(text),
+        _ => {
+            return Err(
+                "--input requires exactly one of --input-file, --input-url, --input-text".into(),
+            )
+        }
+    };
+    let convert_to = match convert_to.as_deref() {
+        Some(target) => Some(MediaKind::parse(target).ok_or("--convert-to: use text or audio")?),
+        None => None,
+    };
+    let spec = InputSpec {
+        kind,
+        data,
+        convert_to,
+        convert_timeout_ms: convert_timeout,
+    };
+    codeterm_types::sentinel_input::validate(&spec).map_err(|error| format!("--input: {error}"))?;
+    serde_json::to_value(&spec).map_err(|error| error.to_string())
+}
+
 fn read_update(path: &std::path::Path, cause: Option<&str>) -> Result<Value, String> {
     let raw = handlers::read_bounded(path, "definition file")?;
     let mut update: Value =
@@ -288,19 +380,6 @@ fn preview_summary(job: &Value) -> String {
                     ));
                 }
             }
-        }
-    }
-    if let Some(handlers) = job["on_other"]
-        .as_array()
-        .filter(|handlers| !handlers.is_empty())
-    {
-        lines.push("  other:".into());
-        for handler in handlers {
-            let action = serde_json::to_string(&handler["action"]).unwrap_or_else(|_| "?".into());
-            lines.push(format!(
-                "    {} -> {action}",
-                handler["id"].as_str().unwrap_or("?")
-            ));
         }
     }
     lines.push(format!("Cadence: {} ms", job["interval_ms"]));
@@ -811,5 +890,105 @@ mod command_tests {
         assert_eq!(params["session_binding_nonce"], "nonce");
         assert_eq!(params["create"]["handlers"], definitions);
         assert_eq!(params["create"]["routes"], json!({}));
+    }
+
+    #[test]
+    fn sentinel_create_input_request_carries_spec_and_resolves_relative_file() {
+        let cli = crate::args::cli::Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "create",
+            "--name",
+            "voice-note-watch",
+            "--input",
+            "audio",
+            "--input-file",
+            "clips/voice.wav",
+            "--convert-to",
+            "text",
+            "--convert-timeout",
+            "15m",
+            "--question",
+            "transcribed?",
+            "--buckets",
+            "done",
+        ])
+        .unwrap();
+        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+            panic!("wrong command")
+        };
+        let (method, params) =
+            request(action, Some("creator".into()), Some("nonce".into())).unwrap();
+        assert_eq!(method, "sentinel.create");
+        let input = &params["create"]["input"];
+        assert_eq!(input["kind"], "audio");
+        let file = input["data"]["file"].as_str().unwrap();
+        assert!(
+            std::path::Path::new(file).is_absolute(),
+            "expected absolute path, got {file}"
+        );
+        assert!(file.ends_with("clips\\voice.wav") || file.ends_with("clips/voice.wav"));
+        assert_eq!(input["convert_to"], "text");
+        assert_eq!(input["convert_timeout_ms"], 900_000);
+        assert_eq!(params["create"]["probe"], Value::Null);
+        assert_eq!(params["create"]["observe"], Value::Null);
+    }
+
+    #[test]
+    fn sentinel_create_input_dry_run_uses_validation_rpc() {
+        let cli = crate::args::cli::Cli::try_parse_from([
+            "codeterm",
+            "sentinel",
+            "create",
+            "--name",
+            "voice-note-watch",
+            "--input",
+            "audio",
+            "--input-url",
+            "https://example.com/clip.wav",
+            "--question",
+            "transcribed?",
+            "--buckets",
+            "done",
+            "--dry-run",
+        ])
+        .unwrap();
+        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+            panic!("wrong command")
+        };
+        let (method, params) =
+            request(action, Some("creator".into()), Some("nonce".into())).unwrap();
+        assert_eq!(method, "sentinel.validate.create");
+        assert_eq!(params["create"]["input"]["kind"], "audio");
+        assert_eq!(
+            params["create"]["input"]["data"]["url"],
+            "https://example.com/clip.wav"
+        );
+    }
+
+    #[test]
+    fn sentinel_update_input_field_passes_through_read_update() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("definition.json");
+        let definition = json!({
+            "question": "transcribed?",
+            "buckets": ["done"],
+            "input": {"data": {"file": "/tmp/clip.wav"}, "convert_to": "text"}
+        });
+        std::fs::write(&path, serde_json::to_vec(&definition).unwrap()).unwrap();
+        let update = read_update(&path, Some("transition_1")).unwrap();
+        assert_eq!(
+            update["input"],
+            json!({"data": {"file": "/tmp/clip.wav"}, "convert_to": "text"})
+        );
+        assert_eq!(update["cause"], "transition_1");
+    }
+
+    #[test]
+    fn sentinel_input_inline_text_renders_without_leaking_content() {
+        let value = json!({"input": {"kind": "text", "data": {"text": "secret content"}, "convert_to": null}});
+        let line = input_source_line(&value).unwrap();
+        assert!(!line.contains("secret content"));
+        assert!(line.contains("text"));
     }
 }

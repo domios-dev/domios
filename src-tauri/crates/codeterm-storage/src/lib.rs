@@ -46,9 +46,9 @@ pub use repositories::sentinel::{
     Fence, HandlerAction, HandlerDefinition, HandlerResultRecord, HandlerStatus, MutationOutcome,
     NewTransition, ObserveKind, ObserveSource, RunRecord, RuntimeOutcome, SafeKind, ScheduleUpdate,
     SentinelCommit, SentinelCreate, SentinelId, SentinelIdentity, SentinelImport, SentinelRecord,
-    SentinelRepository, SentinelScope, StageDefinition, StageRuntime, StoredDefinition,
-    StoredSentinel, TargetIdentity, TransitionRecord, MAX_SENTINEL_BATCH, MAX_SENTINEL_LINEAGE,
-    MAX_SENTINEL_RECORDS, OTHER_BUCKET,
+    SentinelRepository, SentinelScope, SourceKind, StageDefinition, StageSource, StageRuntime,
+    StoredDefinition, StoredSentinel, TargetIdentity, TransitionRecord, MAX_SENTINEL_BATCH,
+    MAX_SENTINEL_LINEAGE, MAX_SENTINEL_RECORDS, OTHER_BUCKET,
 };
 pub use repositories::workspaces::{
     AssetRole, StoredWorkspace, WorkspaceAsset, WorkspaceId, WorkspaceInventory, WorkspaceRecord,

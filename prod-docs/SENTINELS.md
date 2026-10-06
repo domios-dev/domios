@@ -45,14 +45,13 @@ membership. A finished run or removed tab unbinds the stage; a replacement run s
 resetting the observation hash, accepted bucket, held state, and per-run transition allowance while retaining history.
 A removed tab routes a notice to the creator agent with the reason.
 
+## Start from data: input stages
+
+An input stage watches data instead of a probe or observation: inline text, a file, or a URL. `--input <text|audio|video|image>` takes the media kind; provide exactly one source with `--input-file <PATH>` (absolute or cwd-relative), `--input-url <URL>` (http/https), or `--input-text <TEXT>` (text kind only, ≤64 KiB, no NUL). `--convert-to <text|audio>` requests a one-time conversion to a different kind; `--convert-timeout <DURATION>` bounds it (default 15 min, max 60 min). All input flags conflict with `--probe`, `--observe`, `--every` and `--rearm-on-change`. The media kind is immutable under `codeterm sentinel update`; `data` and `convert_to` are amendable. The graph `source` field shows kind, ref type and display name — never inline text or URL queries. Input stages currently record a typed skip (`input_runtime_unavailable`) until the runtime lane lands.
+
 ## Classification and transitions
 
-A connected Supporter adapter with Choice capability classifies output that matches no deterministic pattern, using
-one question over `--buckets` and the automatic `other` option with the shared request budget and journal. Probe
-output is treated as untrusted data. Unchanged output never calls the model, including after a failed or
-budget-exhausted classification.
-
-Deterministic patterns are checked first, even when a Choice adapter is connected. One matching bucket is accepted at
+A connected Supporter adapter with Choice capability classifies output that matches no deterministic pattern, using one question over `--buckets` and the automatic `other` option with the shared request budget and journal. Probe output is treated as untrusted data. Unchanged output never calls the model, including after a failed or budget-exhausted classification. Deterministic patterns are checked first, even when a Choice adapter is connected. One matching bucket is accepted at
 confidence 1; overlapping matches become `other`. Unmatched output uses the adapter when connected, or becomes
 `other` when no adapter is connected:
 
@@ -236,4 +235,4 @@ automatic migration, reset or discard. Use fresh isolated dev data for demonstra
 A failed persistence write returns an error and holds Sentinel unavailable; cancellation stays in memory and durability
 is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

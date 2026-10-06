@@ -7,6 +7,9 @@ mod records;
 /// `runtime::{import, remove_team_rows}` are transaction joins for integration owners.
 pub(crate) mod runtime;
 
+#[cfg(test)]
+mod tests;
+
 use crate::error::StorageError;
 use crate::owner::Storage;
 use crate::repositories::{to_sql_u64, Committed, Completion, Read};
@@ -19,8 +22,9 @@ pub use records::{
     Fence, HandlerAction, HandlerDefinition, HandlerResultRecord, HandlerStatus, MutationOutcome,
     NewTransition, ObserveKind, ObserveSource, RunRecord, RuntimeOutcome, SafeKind, ScheduleUpdate,
     SentinelCommit, SentinelCreate, SentinelId, SentinelIdentity, SentinelImport, SentinelRecord,
-    SentinelScope, StageDefinition, StageRuntime, StoredDefinition, StoredSentinel, TargetIdentity,
-    TransitionRecord, MAX_SENTINEL_BATCH, MAX_SENTINEL_LINEAGE, MAX_SENTINEL_RECORDS, OTHER_BUCKET,
+    SentinelScope, SourceKind, StageDefinition, StageSource, StageRuntime, StoredDefinition,
+    StoredSentinel, TargetIdentity, TransitionRecord, MAX_SENTINEL_BATCH, MAX_SENTINEL_LINEAGE,
+    MAX_SENTINEL_RECORDS, OTHER_BUCKET,
 };
 
 impl Storage {
