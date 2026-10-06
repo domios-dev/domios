@@ -29,30 +29,52 @@ pub async fn chat_send_text(
     }
     let run_stages = crate::chatpipeline::is_user_turn_send(false, false, has_agent_identity);
     let reservation = if state.svc.tab_chat_backing(&tab_id).is_none() {
-        Some(state.svc.reserve_user_send(&tab_id, body.client_token.clone())
-            .map_err(|detail| SendRejection::from(DeliveryError::TabBusyRefused { tab: tab_id.clone(), detail }))?)
-    } else { None };
+        Some(
+            state
+                .svc
+                .reserve_user_send(&tab_id, body.client_token.clone())
+                .map_err(|detail| {
+                    SendRejection::from(DeliveryError::TabBusyRefused {
+                        tab: tab_id.clone(),
+                        detail,
+                    })
+                })?,
+        )
+    } else {
+        None
+    };
     let svc = state.svc.clone();
     let send_tab = tab_id.clone();
     let result = tokio::task::spawn_blocking(move || {
         if let Some(reservation) = reservation {
             svc.prepare_and_admit_user_send(reservation, body.text.unwrap_or_default(), run_stages)
         } else {
-            let (text, pad_file) = svc.prepare_chat_send_text(&send_tab, body.text.unwrap_or_default(), run_stages)?;
+            let (text, pad_file) =
+                svc.prepare_chat_send_text(&send_tab, body.text.unwrap_or_default(), run_stages)?;
             let status = svc.start_chat_send(&send_tab, text, None, body.client_token)?;
-            Ok(crate::service::agent_pad::ChatSendResult::new(status, pad_file))
+            Ok(crate::service::agent_pad::ChatSendResult::new(
+                status, pad_file,
+            ))
         }
-    }).await.map_err(|_| SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed")))?
-        .map_err(|detail| {
-            if detail.starts_with("admission_unknown:") {
-                SendRejection { status: StatusCode::SERVICE_UNAVAILABLE, body: serde_json::json!({
+    })
+    .await
+    .map_err(|_| SendRejection::from((StatusCode::INTERNAL_SERVER_ERROR, "chat send task failed")))?
+    .map_err(|detail| {
+        if detail.starts_with("admission_unknown:") {
+            SendRejection {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                body: serde_json::json!({
                     "ok": false, "admission": "unknown", "safe_to_resend": false,
                     "error": { "code": "admission_unknown", "tab": tab_id, "message": detail },
-                }) }
-            } else {
-                SendRejection::from(DeliveryError::TabBusyRefused { tab: tab_id, detail })
+                }),
             }
-        })?;
+        } else {
+            SendRejection::from(DeliveryError::TabBusyRefused {
+                tab: tab_id,
+                detail,
+            })
+        }
+    })?;
     Ok(Json(result))
 }
 
@@ -764,18 +786,23 @@ pub async fn send_text(
     if origin == SendOrigin::Programmatic && target_has_agent && transport == TabInputTransport::Pty
     {
         let text = crate::service::pty_io::sanitize_agent_prompt_input(&text);
-        let delivery = state.svc.deliver_agent_payload(
-            &tab_id,
-            crate::service::messenger::AgentDeliveryPayload {
-                transport: crate::service::messenger::QueuedAgentPayload::Text { text: text.clone() },
-                observer: None,
-                idempotency_key: None,
-                expected_pty_id: None,
-                expected_session_id: None,
-                expected_binding_nonce: None,
-            },
-            &text,
-        ).map_err(|error| classify_delivery_failure(&tab_id, &error))?;
+        let delivery = state
+            .svc
+            .deliver_agent_payload(
+                &tab_id,
+                crate::service::messenger::AgentDeliveryPayload {
+                    transport: crate::service::messenger::QueuedAgentPayload::Text {
+                        text: text.clone(),
+                    },
+                    observer: None,
+                    idempotency_key: None,
+                    expected_pty_id: None,
+                    expected_session_id: None,
+                    expected_binding_nonce: None,
+                },
+                &text,
+            )
+            .map_err(|error| classify_delivery_failure(&tab_id, &error))?;
         record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
         return Ok(Json(serde_json::json!({
             "ok": true,

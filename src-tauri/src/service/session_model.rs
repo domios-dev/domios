@@ -530,9 +530,7 @@ impl ServiceContext {
             provider_resolved_model.as_deref(),
             current_fallback.clone(),
             &model,
-            (current_model.is_some()
-                && current_mismatch.is_none()
-                && current_fallback.is_none())
+            (current_model.is_some() && current_mismatch.is_none() && current_fallback.is_none())
                 || requested_model.as_deref().is_none_or(|requested| {
                     session_model_matches(&self.agent_registry, agent_id, requested, &model)
                 }),

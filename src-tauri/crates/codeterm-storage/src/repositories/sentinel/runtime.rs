@@ -113,7 +113,16 @@ fn live(conn: &Connection, id: &str) -> Result<Option<Live>, StorageError> {
                 .optional()
         })
         .map_err(|e| sqlite_error("read sentinel runtime", e))?;
-    let Some((generation, paused, stopped, last_hash, last_bucket, run_id, run_tab_id, run_transitions)) = row
+    let Some((
+        generation,
+        paused,
+        stopped,
+        last_hash,
+        last_bucket,
+        run_id,
+        run_tab_id,
+        run_transitions,
+    )) = row
     else {
         return Ok(None);
     };

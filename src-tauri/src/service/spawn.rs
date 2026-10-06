@@ -577,8 +577,8 @@ impl ServiceContext {
             agent.role_profile.as_deref(),
             system_prompt_capable,
         );
-        let role_suffixed_task = role_suffixed_task
-            .map(|task| self.spawn_task_message(&tab_id, &task).unwrap_or(task));
+        let role_suffixed_task =
+            role_suffixed_task.map(|task| self.spawn_task_message(&tab_id, &task).unwrap_or(task));
         super::restored_launch::capture_tab_launch_parameters(
             &self.mux,
             &tab_id,

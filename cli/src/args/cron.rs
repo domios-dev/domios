@@ -240,18 +240,38 @@ mod tests {
     #[test]
     fn cron_create_requires_a_meaningful_name() {
         let valid = crate::args::cli::Cli::try_parse_from([
-            "codeterm", "cron", "create", "build-result-notify",
-            "--schedule", "0 * * * *", "--task", "check build",
+            "codeterm",
+            "cron",
+            "create",
+            "build-result-notify",
+            "--schedule",
+            "0 * * * *",
+            "--task",
+            "check build",
         ]);
         assert!(valid.is_ok());
         for name in ["ab", "cron_5d22889a8898"] {
             assert!(crate::args::cli::Cli::try_parse_from([
-                "codeterm", "cron", "create", name,
-                "--schedule", "0 * * * *", "--task", "check build",
-            ]).is_err());
+                "codeterm",
+                "cron",
+                "create",
+                name,
+                "--schedule",
+                "0 * * * *",
+                "--task",
+                "check build",
+            ])
+            .is_err());
         }
         assert!(crate::args::cli::Cli::try_parse_from([
-            "codeterm", "cron", "create", "--schedule", "0 * * * *", "--task", "check build",
-        ]).is_err());
+            "codeterm",
+            "cron",
+            "create",
+            "--schedule",
+            "0 * * * *",
+            "--task",
+            "check build",
+        ])
+        .is_err());
     }
 }

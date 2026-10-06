@@ -1067,10 +1067,7 @@ fn tab_context(
     (workspace_id, session_id)
 }
 
-fn to_view(
-    svc: &crate::service::ServiceContext,
-    msg: DelayedMessage,
-) -> DelayedMessageView {
+fn to_view(svc: &crate::service::ServiceContext, msg: DelayedMessage) -> DelayedMessageView {
     let current_session_id = svc
         .mux
         .write()

@@ -450,7 +450,8 @@ fn stale_or_foreign_nonce_rejects_transition_without_mutation() {
 }
 
 #[test]
-fn worker_transfer_generic_task_bound_worker_transfer_refuses_before_revoking_assignment_and_lane() {
+fn worker_transfer_generic_task_bound_worker_transfer_refuses_before_revoking_assignment_and_lane()
+{
     let dir = tempfile::tempdir().unwrap();
     let mut fixture = Fixture::new(dir.path());
     fixture

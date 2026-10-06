@@ -499,8 +499,7 @@ mod model_refresh_tests {
             launch_report: None,
             model_switch_turn_confirmed: false,
         });
-        let (mut provider, models) =
-            SessionModelProvider::with_provider(AGENT, &["session-known"]);
+        let (mut provider, models) = SessionModelProvider::with_provider(AGENT, &["session-known"]);
         models
             .lock()
             .unwrap()
@@ -569,7 +568,10 @@ mod model_refresh_tests {
             std::time::Instant::now() + Duration::from_secs(2),
             || session_model(&fixture.service.mux, &tab_id).as_deref() == Some("opus"),
         );
-        assert!(refreshed, "the same bound session's switched model is published");
+        assert!(
+            refreshed,
+            "the same bound session's switched model is published"
+        );
         assert!(detection_calls.load(Ordering::Relaxed) > 0);
         let attempt = fixture
             .service

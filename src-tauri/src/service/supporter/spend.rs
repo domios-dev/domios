@@ -72,7 +72,6 @@ impl Account {
             self.monthly = Totals::default();
         }
     }
-
 }
 
 struct State {
@@ -160,7 +159,9 @@ impl SpendBook {
             if !account.exhausted_alerted {
                 account.exhausted_alerted = true;
                 alerts.push(SpendAlert {
-                    title: format!("{name} is out of credit; Supporter is using deterministic results"),
+                    title: format!(
+                        "{name} is out of credit; Supporter is using deterministic results"
+                    ),
                     level: NotifyLevel::Failure,
                     event_key: format!("supporter:{adapter}:exhausted:{now}"),
                 });

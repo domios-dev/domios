@@ -36,7 +36,9 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
                 buckets: vec!["waiting".into(), "passed".into(), "failed".into()],
                 every: "20s".into(),
                 routes: Default::default(),
-                matches: [("waiting".to_string(), ".*".to_string())].into_iter().collect(),
+                matches: [("waiting".to_string(), ".*".to_string())]
+                    .into_iter()
+                    .collect(),
                 rearm_on_change: Default::default(),
                 until: None,
                 timeout: Some("1h".into()),
@@ -55,7 +57,9 @@ fn team_teardown_off_runtime_holds_sentinel_writer_without_stalling_runtime() {
             false,
         )
         .unwrap();
-    let sentinel = crate::sentinel::storage::commit(&sentinels.store, |current| current.stage_insert(job)).unwrap();
+    let sentinel =
+        crate::sentinel::storage::commit(&sentinels.store, |current| current.stage_insert(job))
+            .unwrap();
     let sentinel_id = sentinel.id;
     assert!(fixture._app.manage(sentinels.clone()));
 

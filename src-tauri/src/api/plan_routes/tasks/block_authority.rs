@@ -22,8 +22,7 @@ fn owner_session_is_gone(
     let (Some(tab_id), Some(session_id)) = (owner_tab_id, owner_session_id) else {
         return true;
     };
-    !svc
-        .mux
+    !svc.mux
         .read()
         .get_tab(tab_id)
         .is_some_and(|tab| tab.agent_session_id.as_deref() == Some(session_id))
@@ -76,7 +75,10 @@ pub(super) async fn verify_task_mutation_owner(
         .ok_or_else(|| plan_err(crate::service::plan::PlanError::TaskNotFound))?;
     let caller = crate::api::tab_routes::authenticated_plan_caller(headers);
     if recovery == TaskMutationKind::BlockDecision {
-        let owner = match svc.authorize_plan_orchestrator_async(plan_id, &caller).await {
+        let owner = match svc
+            .authorize_plan_orchestrator_async(plan_id, &caller)
+            .await
+        {
             Ok(()) => true,
             Err(crate::service::PlanAuthorityError::SessionBindingPending) => {
                 return Err(plan_authority_err(
@@ -124,11 +126,13 @@ pub(super) async fn verify_task_mutation_owner(
     if detail.task.interruption.owner_epoch == 0 {
         return require_plan_role_for_unowned_task(svc, headers, plan_id, &caller).await;
     }
-    if matches!(recovery, TaskMutationKind::Recovery | TaskMutationKind::BlockDecision)
-        && caller
-            .tab_id
-            .as_deref()
-            .is_some_and(|tab_id| !tab_id.is_empty())
+    if matches!(
+        recovery,
+        TaskMutationKind::Recovery | TaskMutationKind::BlockDecision
+    ) && caller
+        .tab_id
+        .as_deref()
+        .is_some_and(|tab_id| !tab_id.is_empty())
         && owner_session_is_gone(
             svc,
             detail.task.interruption.owner_tab_id.as_deref(),

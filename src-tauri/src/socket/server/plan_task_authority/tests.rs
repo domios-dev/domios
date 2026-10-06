@@ -125,12 +125,8 @@ fn worker_block_update_is_refused_but_plan_owner_may_explicitly_block() {
     params["status"] = json!("blocked");
     params["status_label"] = json!("dependency unavailable; owner must choose a trigger");
 
-    let error = verify_owner_epoch_for_task_mutation(
-        "plan.task.update",
-        &Some(params),
-        &service,
-    )
-    .expect_err("a Worker may propose a block only through its report");
+    let error = verify_owner_epoch_for_task_mutation("plan.task.update", &Some(params), &service)
+        .expect_err("a Worker may propose a block only through its report");
     assert_eq!(
         refusal_type(&error),
         TaskAuthorityRefusal::BlockAuthorityRequired.discriminant()

@@ -19,10 +19,7 @@ fn first_readiness_writes_all_held_user_sends_before_turn_evidence() {
             service.mark_user_send_written(record);
             let written = service.chat_send_ledger.status(&record.send_id).unwrap();
             assert_eq!(written.state, ChatSendState::Written);
-            assert_eq!(
-                serde_json::to_value(&written).unwrap()["state"],
-                "written"
-            );
+            assert_eq!(serde_json::to_value(&written).unwrap()["state"], "written");
             assert!(service
                 .chat_send_ledger
                 .set_user_pending_reason(&record.send_id, Some("late-pending-notice"))

@@ -96,15 +96,22 @@ pub(super) fn route(target: Option<&Target>, verdict: &VerdictView<'_>) -> Unatt
     if !target.kind.label_matches(verdict.label) || !verdict.live_prompt {
         return UnattendedRoute::Fallback("not_prompt");
     }
-    let Some((choice, choice_confidence)) = verdict
-        .safe_choice
-        .filter(|(choice, _)| {
-            *choice != OTHER && target.prompt.options.iter().any(|option| option.value == *choice)
-        })
-    else {
+    let Some((choice, choice_confidence)) = verdict.safe_choice.filter(|(choice, _)| {
+        *choice != OTHER
+            && target
+                .prompt
+                .options
+                .iter()
+                .any(|option| option.value == *choice)
+    }) else {
         return UnattendedRoute::Fallback("abstain");
     };
-    if !target.prompt.options.iter().any(|option| option.value == choice) {
+    if !target
+        .prompt
+        .options
+        .iter()
+        .any(|option| option.value == choice)
+    {
         return UnattendedRoute::Fallback("undeclared_choice");
     }
     if ![verdict.confidence, choice_confidence]
@@ -133,13 +140,12 @@ impl ServiceContext {
         let agent = tab.agent_type.clone()?;
         let provider = self.agent_registry.provider_arc(&agent)?;
         let target = self.model_safe_response_target(tab_id, screen);
-        let parsed = parse_prompt_safely(|| {
-            self.agent_registry.parse_interactive_prompt(&agent, screen)
-        })
-        .filter(|(prompt, kind)| {
-            *kind == PromptKind::DirectoryTrust
-                || !crate::agent::state_reactor::prompt_is_composer_text(screen, prompt)
-        });
+        let parsed =
+            parse_prompt_safely(|| self.agent_registry.parse_interactive_prompt(&agent, screen))
+                .filter(|(prompt, kind)| {
+                    *kind == PromptKind::DirectoryTrust
+                        || !crate::agent::state_reactor::prompt_is_composer_text(screen, prompt)
+                });
         let kind = target.as_ref().map(|target| target.kind).or_else(|| {
             if !tab.launch_session_authenticated()
                 && parse_prompt_safely(|| provider.parse_directory_trust_prompt(screen)).is_some()
@@ -325,10 +331,13 @@ impl ServiceContext {
     fn resolve_unattended_gate(&self, snapshot: &TabStateSnapshot, gate: &Gate) {
         self.resolve_scrape_candidate_heuristically(snapshot);
         let unresolved = gate.prompt.as_ref().is_some_and(|(prompt, kind)| {
-            self.mux.read().get_tab(&snapshot.tab_id).is_some_and(|tab| {
-                tab.pending_prompt.as_ref() == Some(prompt)
-                    && tab.pending_prompt_kind == Some(*kind)
-            })
+            self.mux
+                .read()
+                .get_tab(&snapshot.tab_id)
+                .is_some_and(|tab| {
+                    tab.pending_prompt.as_ref() == Some(prompt)
+                        && tab.pending_prompt_kind == Some(*kind)
+                })
         });
         if unresolved {
             self.notify_unattended_owner(snapshot, gate);

@@ -137,9 +137,7 @@ fn current_prompt<'a>(rows: &[&'a str]) -> Option<TrustPrompt<'a>> {
         return None;
     }
     if !has_folder_trust_affirmative(&options)
-        || !options
-            .iter()
-            .any(|option| leads_with(option.label, "no"))
+        || !options.iter().any(|option| leads_with(option.label, "no"))
     {
         return None;
     }
@@ -412,10 +410,9 @@ mod tests {
 
     #[test]
     fn continue_without_permissions_is_visible_but_not_auto_advanced() {
-        let screen = std::fs::read_to_string(
-            fixtures().join("trust-continue-without-permissions.txt"),
-        )
-        .expect("continue without permissions fixture");
+        let screen =
+            std::fs::read_to_string(fixtures().join("trust-continue-without-permissions.txt"))
+                .expect("continue without permissions fixture");
         assert!(parse_prompt(&screen).is_some());
         assert_eq!(response(&screen), Some(DirectoryTrustPromptResponse::Hold));
     }

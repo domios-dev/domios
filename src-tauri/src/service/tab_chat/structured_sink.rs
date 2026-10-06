@@ -173,13 +173,19 @@ fn drop_already_stored_inbound(messages: Vec<ChatMsg>) -> Vec<ChatMsg> {
 
 fn is_already_stored_inbound(msg: &ChatMsg) -> bool {
     msg.kind == "user"
-        && crate::message_markers::parse_host_injected(&msg.content)
-            .is_some_and(|marker| {
-                matches!(
-                    marker.kind.as_str(),
-                    "tab" | "report" | "system" | "reminder" | "mesh" | "telegram" | "pebble" | "plugin"
-                )
-            })
+        && crate::message_markers::parse_host_injected(&msg.content).is_some_and(|marker| {
+            matches!(
+                marker.kind.as_str(),
+                "tab"
+                    | "report"
+                    | "system"
+                    | "reminder"
+                    | "mesh"
+                    | "telegram"
+                    | "pebble"
+                    | "plugin"
+            )
+        })
 }
 
 /// Adapter that turns a JSONL [`DeltaSink`] (RichMessage) into the structured
@@ -413,11 +419,20 @@ mod tests {
             "sourced-jsonl"
         }
 
-        fn detect_session_id(&self, _cwd: &str, _exclude: &[String], _max_age: Option<Duration>) -> Option<String> {
+        fn detect_session_id(
+            &self,
+            _cwd: &str,
+            _exclude: &[String],
+            _max_age: Option<Duration>,
+        ) -> Option<String> {
             None
         }
 
-        fn build_resume_command(&self, _session_id: &str, _skip_permissions: bool) -> Option<String> {
+        fn build_resume_command(
+            &self,
+            _session_id: &str,
+            _skip_permissions: bool,
+        ) -> Option<String> {
             None
         }
 
@@ -622,7 +637,10 @@ mod tests {
             else {
                 panic!("the appended JSONL must establish its captured incarnation");
             };
-            assert_eq!(first.absence_witness.as_deref(), Some(absence_witness.as_ref()));
+            assert_eq!(
+                first.absence_witness.as_deref(),
+                Some(absence_witness.as_ref())
+            );
             let mut file = std::fs::OpenOptions::new()
                 .write(true)
                 .truncate(true)
@@ -712,7 +730,10 @@ mod tests {
         ignore = "requires the shared interactive desktop ServiceContext fixture"
     )]
     fn sourced_jsonl_confirmation_traverses_tailer_flattening_and_ledger_gates() {
-        assert_eq!(sourced_jsonl_send_state(SourcedEvidenceFault::None), ChatSendState::Sent);
+        assert_eq!(
+            sourced_jsonl_send_state(SourcedEvidenceFault::None),
+            ChatSendState::Sent
+        );
         assert_eq!(
             sourced_jsonl_send_state(SourcedEvidenceFault::StaleSession),
             ChatSendState::Unknown

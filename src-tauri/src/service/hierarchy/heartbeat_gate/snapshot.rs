@@ -1,9 +1,9 @@
 use super::*;
-use codeterm_plan::service_plan::state::task_projection;
 use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::types::{Tab, TabBacking};
 use crate::plan::{Plan, Task, TaskExecutionAttempt, TaskStatus};
 use crate::service::ServiceContext;
+use codeterm_plan::service_plan::state::task_projection;
 
 fn encoded(value: &impl Serialize) -> String {
     crate::service::supporter::criteria_hash(&serde_json::to_vec(value).unwrap_or_default())

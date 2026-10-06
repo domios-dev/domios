@@ -66,8 +66,7 @@ impl AgentProvider for LazyFirstTurnProvider {
     }
 
     fn session_file_path(&self, _: &str, session_id: &str) -> Option<PathBuf> {
-        matches!(self.kind, StoreKind::Jsonl)
-            .then(|| self.root.join(format!("{session_id}.jsonl")))
+        matches!(self.kind, StoreKind::Jsonl).then(|| self.root.join(format!("{session_id}.jsonl")))
     }
 
     fn detect_session_id(&self, _: &str, _: &[String], _: Option<Duration>) -> Option<String> {

@@ -77,9 +77,9 @@ pub async fn save_session_api(
             Some(_) => Err(crate::service::turn_resume::NOT_CALLER_TAB.into()),
             None => Err(crate::service::turn_resume::CALLER_TAB_REQUIRED.into()),
         };
-        result.unwrap_or_else(|reason| {
-            serde_json::json!({"tab_id": tab_id, "suppressed": false, "reason": reason})
-        })
+        result.unwrap_or_else(
+            |reason| serde_json::json!({"tab_id": tab_id, "suppressed": false, "reason": reason}),
+        )
     });
     let withdrawal = body.withdraw_continue_tab.map(|tab_id| {
         let prompt = body.withdraw_continue_prompt.as_deref().unwrap_or_default();
@@ -90,9 +90,9 @@ pub async fn save_session_api(
                 .map(|withdrawn| serde_json::json!({"tab_id": tab_id, "withdrawn": withdrawn})),
             None => Err(crate::service::turn_resume::CALLER_TAB_REQUIRED.into()),
         };
-        result.unwrap_or_else(|reason| {
-            serde_json::json!({"tab_id": tab_id, "withdrawn": false, "reason": reason})
-        })
+        result.unwrap_or_else(
+            |reason| serde_json::json!({"tab_id": tab_id, "withdrawn": false, "reason": reason}),
+        )
     });
     let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || {
@@ -106,14 +106,12 @@ pub async fn save_session_api(
         )
     })?
     .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
-    Ok(Json(
-        serde_json::json!({
-            "ok": true,
-            "continuation": continuation,
-            "suppression": suppression,
-            "withdrawal": withdrawal,
-        }),
-    ))
+    Ok(Json(serde_json::json!({
+        "ok": true,
+        "continuation": continuation,
+        "suppression": suppression,
+        "withdrawal": withdrawal,
+    })))
 }
 
 /// Rotated full-desk snapshots under `sessions/backups/`, newest first.

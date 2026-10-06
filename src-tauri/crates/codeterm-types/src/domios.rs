@@ -70,10 +70,13 @@ pub fn strip_typed_suffix(content: &str) -> &str {
     if let Some(stripped) = body.strip_suffix(&instruction) {
         body = stripped;
     }
-    let reply_start = [" [to reply, run: codeterm send ", " [sender is a shell; reply here]"]
-        .into_iter()
-        .filter_map(|suffix| body.rfind(suffix))
-        .max();
+    let reply_start = [
+        " [to reply, run: codeterm send ",
+        " [sender is a shell; reply here]",
+    ]
+    .into_iter()
+    .filter_map(|suffix| body.rfind(suffix))
+    .max();
     reply_start.map_or(body, |index| &body[..index])
 }
 
