@@ -10,7 +10,7 @@
   "entry": "plugin.js",
   "spawn": {
     "readinessStrategy": {
-      "kind": "poll_shell_prompt",
+      "kind": "structural_composer",
       "timeoutSecs": 30
     },
     "providerReadiness": {
