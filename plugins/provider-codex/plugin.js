@@ -1690,6 +1690,88 @@ function pairFileChange(activity, turnId, pending) {
   } }] };
 }
 
+// plugins/provider-codex/src/userContent.ts
+var INLINE_DATA_LIMIT = 1e5;
+var OPEN_TAG = /^<image\s+name=(\[Image #\d+\])(?:\s+path="([^"]*)")?\s*>$/;
+var INLINE_IMAGE = /<image\s+name=(\[Image #\d+\])(?:\s+path="([^"]*)")?\s*>[\s\S]*?<\/image>/g;
+var CLOSE_TAG = /^<\/image>$/;
+var PLACEHOLDER = /\[Image #\d+\]/g;
+var EXT_MEDIA = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  bmp: "image/bmp",
+  svg: "image/svg+xml"
+};
+function mediaTypeFromPath(path) {
+  const ext = path?.split(".").pop()?.toLowerCase() ?? "";
+  return EXT_MEDIA[ext] ?? "image/png";
+}
+function imageFromTag(name, rawPath) {
+  const path = rawPath?.trim() || null;
+  return { name, path, mediaType: mediaTypeFromPath(path), data: null };
+}
+function withDataUrl(image, url) {
+  const match = /^data:([^;,]+);base64,([\s\S]*)$/.exec(url ?? "");
+  if (!match) return image;
+  const inline = !image.path && match[2].length < INLINE_DATA_LIMIT ? match[2] : null;
+  return { ...image, mediaType: match[1], data: inline };
+}
+function extractInlineImages(text5, images) {
+  return text5.replace(INLINE_IMAGE, (_whole, name, path) => {
+    images.push(imageFromTag(name, path));
+    return "";
+  });
+}
+function stripPlaceholders(text5, images) {
+  if (images.length === 0) return text5;
+  const names = new Set(images.map((image) => image.name).filter(Boolean));
+  return text5.replace(PLACEHOLDER, (token) => names.has(token) ? "" : token).split("\n").map((line) => line.replace(/[ \t]{2,}/g, " ").trim()).join("\n").trim();
+}
+function parseCodexUserContent(content) {
+  const images = [];
+  if (typeof content === "string") {
+    return { text: stripPlaceholders(extractInlineImages(content, images), images), images };
+  }
+  let text5 = "";
+  let open = null;
+  for (const item of content ?? []) {
+    if (!item) continue;
+    if (item.type === "input_image") {
+      if (open) {
+        open = withDataUrl(open, item.image_url);
+      } else {
+        images.push(withDataUrl({ name: null, path: null, mediaType: "image/png", data: null }, item.image_url));
+      }
+      continue;
+    }
+    if (typeof item.text !== "string") continue;
+    const trimmed = item.text.trim();
+    const tag = OPEN_TAG.exec(trimmed);
+    if (tag) {
+      if (open) images.push(open);
+      open = imageFromTag(tag[1], tag[2]);
+      continue;
+    }
+    if (CLOSE_TAG.test(trimmed) && open) {
+      images.push(open);
+      open = null;
+      continue;
+    }
+    text5 += extractInlineImages(item.text, images);
+  }
+  if (open) images.push(open);
+  return { text: stripPlaceholders(text5, images), images };
+}
+function codexImageBlock(image) {
+  const source = { media_type: image.mediaType };
+  if (image.path) source.path = image.path;
+  if (image.data) source.data = image.data;
+  return { kind: "image", data: { source } };
+}
+
 // plugins/provider-codex/src/trust-carryover.ts
 function normalizedPath(value) {
   const isWindowsPath = /^[A-Za-z]:[\\/]/.test(value) || value.startsWith("\\\\") || value.startsWith("//");
@@ -3864,13 +3946,21 @@ var plugin = {
         const role = p.role === "assistant" ? "assistant" : p.role === "user" ? "user" : null;
         if (!role) continue;
         let text5 = "";
-        if (Array.isArray(p.content)) {
+        let images = [];
+        if (role === "user") {
+          ({ text: text5, images } = parseCodexUserContent(p.content));
+        } else if (Array.isArray(p.content)) {
           for (let j = 0; j < p.content.length; j++) {
             const c = p.content[j];
             if (c && typeof c.text === "string") text5 += c.text;
           }
         } else if (typeof p.content === "string") {
           text5 = p.content;
+        }
+        if (images.length > 0) {
+          const textBlocks = text5 ? [{ kind: "text", data: { text: text5 } }] : [];
+          out.push({ role, blocks: [...textBlocks, ...images.map(codexImageBlock)], ts, timestamp: tsIso });
+          continue;
         }
         if (!text5) continue;
         const systemSubtype = classifyCodexSystemText(text5);

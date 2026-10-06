@@ -1150,6 +1150,7 @@ mod no_native_fallback_recursion;
 mod availability;
 mod codex;
 mod codex_launch_session;
+mod codex_user_images;
 mod context_owner;
 mod cursor;
 mod find_session;

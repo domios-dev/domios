@@ -423,5 +423,52 @@ const T0 = 1_700_000_000_000;
   );
 }
 
+{
+  const PATH = String.raw`C:\Users\dev\AppData\Local\Temp\codeterm-chat\e8a97274-pasted-image-1791277476989.png`;
+  const imageRow = (id: string, content: string, tsMs: number, path = PATH): NormalizedChatMessage => ({
+    ...user(id, content, tsMs),
+    attachments: [{ id: `${id}-img-0`, mimeType: "image/png", path }],
+  });
+
+  eq(
+    matchedOptimisticEchoes([echo("opt-img", PATH, T0)], [imageRow("codex-img", "[1 image]", T0 + 400)]).matchedIds,
+    ["opt-img"],
+    "a path-only image echo matches its transcript row carrying that path as an attachment",
+  );
+
+  eq(
+    matchedOptimisticEchoes(
+      [echo("opt-img", `what is wrong here ${PATH}`, T0)],
+      [imageRow("codex-img", "what is wrong here", T0 + 400)],
+    ).matchedIds,
+    ["opt-img"],
+    "a captioned image echo matches its transcript row",
+  );
+
+  eq(
+    matchedOptimisticEchoes(
+      [echo("opt-img", PATH, T0)],
+      [imageRow("other-img", "[1 image]", T0 + 400, String.raw`C:\tmp\another-image.png`)],
+    ).pendingIds,
+    ["opt-img"],
+    "an image echo stays pending against a row carrying a different image",
+  );
+
+  eq(
+    matchedOptimisticEchoes(
+      [echo("opt-img", `caption one ${PATH}`, T0)],
+      [imageRow("codex-img", "caption two", T0 + 400)],
+    ).pendingIds,
+    ["opt-img"],
+    "an image echo stays pending when the caption differs",
+  );
+
+  eq(
+    matchedOptimisticEchoes([echo("opt-img", PATH, T0)], [imageRow("old-img", "[1 image]", T0 - 60_000)]).pendingIds,
+    ["opt-img"],
+    "an image echo never claims an older row with the same image",
+  );
+}
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
