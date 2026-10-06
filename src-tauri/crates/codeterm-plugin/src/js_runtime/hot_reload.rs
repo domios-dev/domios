@@ -63,9 +63,8 @@ impl CapabilityRegistries {
             let transcriber = Arc::new(super::JsTranscriber::new(vm.clone(), id.clone()));
             self.transcribe.register(id.clone(), transcriber.clone());
             if caps.graph_nodes.converters.is_empty() {
-                // A transcription plugin is the audio -> text edge of the
-                // conversion seam unless it declares its own converters, which
-                // win; either way one converter entry exists per plugin id.
+                // A transcriber is the audio -> text edge unless the plugin
+                // declares its own converters, which win.
                 self.converter.register(
                     id.clone(),
                     Arc::new(crate::converter::TranscriberConverter::new(transcriber)),
