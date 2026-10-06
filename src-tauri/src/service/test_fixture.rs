@@ -67,6 +67,13 @@ impl super::hierarchy::HierarchyReportDelivery for FailFirstHierarchyReportDeliv
 }
 
 impl ServiceFixture {
+    pub(crate) fn set_agent_full_access(&self, full_access: bool) {
+        let mut config = crate::config::schema::AppConfig::default();
+        config.agent.full_access = Some(full_access);
+        let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
+        assert!(self._app.manage(config));
+    }
+
     pub(crate) fn new(mux: MultiplexerState) -> Self {
         let temp = tempfile::tempdir().unwrap();
         Self::build(mux, temp, None)

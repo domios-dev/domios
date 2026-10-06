@@ -223,6 +223,7 @@ pub async fn spawn_pty_core(
                 // Build the resume command from the persisted launch inputs.
                 let permission_bypass_authorization =
                     crate::service::restored_launch::restore_permission_bypass_authorization(
+                        &svc.app_handle,
                         &svc.agent_registry,
                         pid,
                         &provider_id,
@@ -264,6 +265,7 @@ pub async fn spawn_pty_core(
             let provider_id = agent_type_for_fresh;
             let permission_bypass_authorization =
                 crate::service::restored_launch::restore_permission_bypass_authorization(
+                    &svc.app_handle,
                     &svc.agent_registry,
                     pid,
                     &provider_id,

@@ -64,6 +64,7 @@ fn recorded_launch_relaunch(
         return None;
     }
     let permission_bypass_authorization = match restore_permission_bypass_authorization(
+        &svc.app_handle,
         &svc.agent_registry,
         &snap.tab_id,
         &snap.provider,
