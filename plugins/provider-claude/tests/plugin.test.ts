@@ -244,6 +244,23 @@ assert(plugin.detect({ bytes: "", title: "claude" }), "plugin.detect delegates t
 const hostPlugin = loadHostPlugin();
 
 {
+  const screen = fs.readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "tab-state", "normal-idle-numbered-history.txt"),
+    "utf8",
+  );
+  eq(
+    hostPlugin.parsePrompt(screen),
+    null,
+    "a live composer marker does not promote historical numbered chat text into a modal",
+  );
+  eq(
+    hostPlugin.classifyTabState({ tabId: "fixture-tab", agentType: "claude", screenText: screen })?.state,
+    "working",
+    "ordinary idle prompt history is not classified as a dialog",
+  );
+}
+
+{
   const fixturePath = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
     "fixtures",

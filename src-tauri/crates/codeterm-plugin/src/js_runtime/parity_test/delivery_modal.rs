@@ -46,6 +46,18 @@ fn busy_claude_screen_is_not_a_delivery_modal_in_native_or_js() {
 }
 
 #[test]
+fn idle_claude_composer_after_numbered_chat_history_is_not_a_delivery_modal() {
+    let native = crate::agent_claude::provider::ClaudeProvider::new();
+    let js = load_js("claude");
+    let screen = snapshot(fixture("normal-idle-numbered-history.txt"));
+
+    assert!(native.parse_prompt(&screen.screen_text).is_none());
+    assert!(js.parse_prompt(&screen.screen_text).is_none());
+    assert!(!native.delivery_modal_visible(&screen));
+    assert!(!js.delivery_modal_visible(&screen));
+}
+
+#[test]
 fn provider_prompt_fixtures_remain_visible_to_recovery_guards() {
     if super::require_plugins().is_none() {
         return;

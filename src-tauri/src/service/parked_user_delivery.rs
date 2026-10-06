@@ -494,9 +494,23 @@ impl super::ServiceContext {
     pub(crate) fn wake_user_owner(&self, tab_id: &str, reason: UserWake) {
         let owner = self.pending_delivery_payloads.user_sends.tab(tab_id);
         if reason != UserWake::Housekeeping {
-            owner.dispatch_generation.fetch_add(1, Ordering::AcqRel);
+            let generation = owner.dispatch_generation.fetch_add(1, Ordering::AcqRel) + 1;
+            owner.dispatch_events.send_replace(generation);
         }
         owner.wake_generation.fetch_add(1, Ordering::AcqRel);
+        if owner.revoked.load(Ordering::Acquire)
+            || owner.waiting_for_dispatch.load(Ordering::Acquire)
+        {
+            return;
+        }
+        self.start_user_owner(tab_id, owner);
+    }
+
+    fn start_user_owner(
+        &self,
+        tab_id: &str,
+        owner: std::sync::Arc<super::pending_delivery_payloads::user_sends::UserTab>,
+    ) {
         if owner.revoked.load(Ordering::Acquire)
             || owner
                 .running
@@ -507,6 +521,7 @@ impl super::ServiceContext {
         }
         let service = self.clone();
         let tab_id = tab_id.to_string();
+        let dispatch_events = owner.dispatch_events.subscribe();
         tauri::async_runtime::spawn_blocking(move || {
             loop {
                 let generation = owner.wake_generation.load(Ordering::Acquire);
@@ -517,7 +532,7 @@ impl super::ServiceContext {
                     Ok(UserDrain::Idle) => None,
                     Err(error) => {
                         log::warn!("[chat-send] tab={tab_id} owner held: {error}");
-                        None
+                        Some(owner.dispatch_generation.load(Ordering::Acquire))
                     }
                 };
                 let changed = || match refusal_generation {
@@ -528,6 +543,45 @@ impl super::ServiceContext {
                 };
                 if !owner.revoked.load(Ordering::Acquire) && changed() {
                     continue;
+                }
+                if let Some(refused_at) = refusal_generation {
+                    let mut events = dispatch_events.clone();
+                    owner.waiting_for_dispatch.store(true, Ordering::Release);
+                    owner.running.store(false, Ordering::Release);
+                    if owner.revoked.load(Ordering::Acquire) {
+                        owner.waiting_for_dispatch.store(false, Ordering::Release);
+                        break;
+                    }
+                    if owner.dispatch_generation.load(Ordering::Acquire) != refused_at {
+                        owner.waiting_for_dispatch.store(false, Ordering::Release);
+                        if owner
+                            .running
+                            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                            .is_ok()
+                        {
+                            continue;
+                        }
+                        break;
+                    }
+                    let service = service.clone();
+                    let tab_id = tab_id.clone();
+                    let wake_owner = owner.clone();
+                    tauri::async_runtime::spawn(async move {
+                        while !wake_owner.revoked.load(Ordering::Acquire)
+                            && wake_owner.dispatch_generation.load(Ordering::Acquire) == refused_at
+                        {
+                            if events.changed().await.is_err() {
+                                break;
+                            }
+                        }
+                        wake_owner
+                            .waiting_for_dispatch
+                            .store(false, Ordering::Release);
+                        if !wake_owner.revoked.load(Ordering::Acquire) {
+                            service.start_user_owner(&tab_id, wake_owner);
+                        }
+                    });
+                    break;
                 }
                 owner.running.store(false, Ordering::Release);
                 if owner.revoked.load(Ordering::Acquire)
