@@ -108,8 +108,10 @@ pub(crate) struct UserTab {
     pub(crate) revoked: AtomicBool,
     pub(crate) failed: AtomicBool,
     pub(crate) running: AtomicBool,
+    pub(crate) waiting_for_dispatch: AtomicBool,
     pub(crate) wake_generation: AtomicU64,
     pub(crate) dispatch_generation: AtomicU64,
+    pub(crate) dispatch_events: tokio::sync::watch::Sender<u64>,
     ready_launch: Mutex<Option<ReadyUserLaunch>>,
     admission_wake: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
 }
@@ -165,6 +167,7 @@ impl UserSendStore {
             .lock()
             .entry(tab_id.to_string())
             .or_insert_with(|| {
+                let (dispatch_events, _) = tokio::sync::watch::channel(0);
                 Arc::new(UserTab {
                     tab_id: tab_id.to_string(),
                     dir: self.root.join(digest(tab_id.as_bytes())),
@@ -174,8 +177,10 @@ impl UserSendStore {
                     revoked: AtomicBool::new(false),
                     failed: AtomicBool::new(false),
                     running: AtomicBool::new(false),
+                    waiting_for_dispatch: AtomicBool::new(false),
                     wake_generation: AtomicU64::new(0),
                     dispatch_generation: AtomicU64::new(0),
+                    dispatch_events,
                     ready_launch: Mutex::new(None),
                     admission_wake: Mutex::new(None),
                 })

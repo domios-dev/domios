@@ -461,6 +461,34 @@ fn active_turn_deadline_never_submits_into_a_dialog() {
 }
 
 #[test]
+fn busy_ready_composer_hands_off_payload_once_before_dialog_stops_recovery_keys() {
+    let (transport, paste_rx, _, _) = EventTransport::new(true, 1);
+    {
+        let mut state = transport.state.lock().unwrap();
+        state.composer_ready = true;
+        state.modal_after_swallowed_key = true;
+    }
+    let send_transport = Arc::clone(&transport);
+    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "follow-up"));
+
+    paste_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the ready busy composer receives the payload before key recovery");
+    let result = join(send, "busy ready payload handoff")
+        .unwrap()
+        .unwrap_err();
+
+    assert!(matches!(
+        result,
+        InjectionError::SubmitNeverConfirmed { .. }
+    ));
+    assert_eq!(
+        transport.state.lock().unwrap().writes,
+        ["paste:follow-up", "enter"]
+    );
+}
+
+#[test]
 fn swallowed_enter_retries_after_working_status_without_turn_evidence() {
     let (transport, paste_rx, _, _) = EventTransport::new(false, 1);
     transport.state.lock().unwrap().working_after_swallowed_key = true;
