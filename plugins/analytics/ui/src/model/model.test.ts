@@ -70,7 +70,8 @@ describe("chart", () => {
       ["Alpha", 0, 200],
       ["Beta", 1, 100],
     ]);
-    expect(data.days[2]).toMatchObject({ total: 0, today: true, note: "today" });
+    expect(data.days[2]).toMatchObject({ total: 0, today: true });
+    expect(data.days[2].note).toBeUndefined();
     expect(data.legend.map((series) => series.tone)).toEqual([0, 1, "not_recorded"]);
   });
 

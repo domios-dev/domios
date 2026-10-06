@@ -43,9 +43,8 @@ export function bucketLabel(bucket: AnalyticsTokenBucket, weekly: boolean, compa
   return compact ? String(date.getDate()) : `${WEEKDAY.format(date)} ${date.getDate()}`;
 }
 
-function bucketNote(snapshot: AnalyticsSnapshot, bucket: AnalyticsTokenBucket, nowMs: number, weekly: boolean): string | undefined {
+function bucketNote(snapshot: AnalyticsSnapshot, bucket: AnalyticsTokenBucket): string | undefined {
   if (bucket.coverage === "not_recorded") return "not recorded";
-  if (isToday(bucket, nowMs)) return weekly ? "so far" : "today";
   const since = snapshot.recording.first_recorded_at;
   if (bucket.coverage === "partial" && since !== null && since >= bucket.start && since < bucket.end) {
     return `from ${formatClock(since * 1000)}`;
@@ -83,7 +82,7 @@ export function chartData(
       segments: kept,
       total: bucket.totals ? measureOf(bucket.totals, measure) : 0,
       coverage: bucket.coverage,
-      note: compact ? undefined : bucketNote(snapshot, bucket, nowMs, weekly),
+      note: compact ? undefined : bucketNote(snapshot, bucket),
     };
   });
   const legend = [...seen.values()].sort((a, b) => toneRank(a.tone) - toneRank(b.tone));
