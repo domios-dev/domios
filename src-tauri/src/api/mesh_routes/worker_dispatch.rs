@@ -480,6 +480,7 @@ mod tests {
         let mut mux = crate::multiplexer::state::MultiplexerState::empty();
         let workspace_id = mux.create_workspace("remote worker peer".into(), None).id;
         let fixture = ServiceFixture::new(mux);
+        fixture.set_agent_full_access(true);
         fixture.service.agent_registry.register_provider(Box::new(
             crate::agent::test_provider::MockProvider::new("remote-mock")
                 .with_launch_binary("cmd.exe"),

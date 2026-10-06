@@ -1,4 +1,5 @@
 use crate::agent::registry::AgentRegistry;
+use tauri::Manager;
 #[derive(Clone, Debug)]
 pub(crate) struct PermissionBypassAuthorization {
     provider_id: String,
@@ -30,6 +31,14 @@ pub(crate) fn configured_full_access() -> Result<bool, String> {
     require_full_access_choice(crate::config::load_config().agent.full_access)
 }
 
+pub(crate) fn configured_full_access_for(app: &tauri::AppHandle) -> Result<bool, String> {
+    let choice = app
+        .try_state::<crate::config::ConfigState>()
+        .map(|config| config.lock().agent.full_access)
+        .unwrap_or_else(|| crate::config::load_config().agent.full_access);
+    require_full_access_choice(choice)
+}
+
 fn require_full_access_choice(choice: Option<bool>) -> Result<bool, String> {
     choice.ok_or_else(|| {
         "Choose agent access before starting the first agent Tab: Settings > Agents > Full access for agents"
@@ -45,6 +54,18 @@ pub(crate) fn configured_permission_bypass(
         registry,
         provider_id,
         configured_full_access()?,
+    ))
+}
+
+pub(crate) fn configured_permission_bypass_for(
+    app: &tauri::AppHandle,
+    registry: &AgentRegistry,
+    provider_id: &str,
+) -> Result<Option<PermissionBypassAuthorization>, String> {
+    Ok(authorize_permission_bypass(
+        registry,
+        provider_id,
+        configured_full_access_for(app)?,
     ))
 }
 
