@@ -186,6 +186,40 @@ async function main() {
     } finally { await view.close(); }
   });
 
+  test("every row has one open action and its own named actions button; Stop from that menu fires once without opening the job", async () => {
+    const transport = workspaceTransport();
+    const graph = transport.graph;
+    const target = graph.scenarios[0];
+    transport.graph = { ...graph, nodes: graph.nodes.map((node) => node.identity.id === target.root.id ? { ...node, state: "active", stop: { allowed: true, reason: null } } : node) };
+    const view = await mount(jobsView(transport));
+    try {
+      await settle(() => entry(view.host, `scenario:${target.id}`) !== null && entry(view.host, `cron:${teamCron.id}`) !== null);
+      for (const row of Array.from(view.host.querySelectorAll<HTMLElement>('ul[aria-label="Jobs"] > li'))) {
+        const open = row.querySelectorAll<HTMLButtonElement>("button[data-job-key]");
+        const menus = row.querySelectorAll<HTMLButtonElement>('button[aria-haspopup="menu"]');
+        assert.equal(open.length, 1, "one open action per row");
+        assert.equal(menus.length, 1, "one actions button per row");
+        assert.equal(row.querySelectorAll("button").length, 2, "no extra open affordance");
+        assert.ok(!open[0].contains(menus[0]), "the actions button is not nested in the open action");
+        const name = open[0].getAttribute("aria-label")!.split(", ")[0];
+        assert.ok(name, "open action is named after the job");
+        assert.equal(menus[0].getAttribute("aria-label"), `Actions for ${name}`);
+      }
+      const trigger = view.host.querySelector<HTMLButtonElement>(`button[aria-label="Actions for ${target.name}"]`)!;
+      await act(async () => trigger.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+      await settle(() => document.querySelector('[role="menu"]') !== null);
+      assert.equal(document.querySelector('[role="menu"]')!.getAttribute("aria-label"), `Actions for ${target.name}`);
+      assert.ok(entry(view.host, `scenario:${target.id}`), "opening the menu leaves the list in place");
+      const stop = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find((item) => item.textContent?.trim() === "Stop");
+      assert.ok(stop);
+      await act(async () => stop.click());
+      transport.stopResult.resolve();
+      await settle(() => document.querySelector('[role="menu"]') === null);
+      assert.deepEqual(transport.stops.map((identity) => identity.id), [target.root.id]);
+      assert.equal(view.host.querySelector("[data-edge-kind]"), null, "Stop never opens the job");
+    } finally { await view.close(); }
+  });
+
   test("Delete confirms the named graph, traps focus, restores focus on cancel, then refreshes after deletion", async () => {
     const transport = workspaceTransport();
     const graph = transport.graph;
