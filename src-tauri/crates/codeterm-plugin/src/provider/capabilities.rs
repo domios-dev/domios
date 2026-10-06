@@ -124,11 +124,12 @@ impl ModelCatalogueCapability {
 }
 
 /// How a live agent tab changes its model without touching the provider's
-/// machine-global default. `RestartResume` relaunches the same session with the
-/// model launch args and needs a session-start report naming the running model.
+/// machine-global default. `Live` changes a running session through a provider
+/// session API; `RestartResume` relaunches the same session with model launch args.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelSwitchMode {
+    Live,
     RestartResume,
     #[default]
     Unsupported,

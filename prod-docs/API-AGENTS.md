@@ -40,21 +40,22 @@ With `--mesh PEER`, `--tab TAB_ID` is required and identifies a Tab on that peer
 
 #### Agent Model Switch (POST /api/tabs/{id}/agent/model)
 
-Switch one idle agent tab to another model. Only that tab changes: Domios never types a provider model command, because provider pickers save the choice as the machine-global default. The provider descriptor's `model_switch` says how the switch is done. `restart_resume` relaunches the tab through the restart path above, resuming its own nonce-verified session with the new model launch args and the same effort, arguments and system prompt a daemon restore would use. The tab's restorable launch record is rewritten before the relaunch, so a later restore starts the model that is running. `unsupported` (the default) refuses the switch and writes nothing to the tab.
+Switch one agent tab to another model. Domios never types a provider model command, because provider pickers can change the machine-global default. The provider descriptor's `model_switch` declares support; `live` is used only when the structured-prompt server registered for that exact tab advertises the route in `/doc`. Domios sends `POST /api/session/{sessionID}/model` with `{"model":{"id":"MODEL_ID","providerID":"PROVIDER_ID"}}`, then confirms from `GET /session/{sessionID}` on that same tab server. When the route is absent or cannot be proven, Domios falls back to `restart_resume`, returns `mode_used: "restart_resume"` and `fallback_reason`, and resumes the tab's own nonce-verified session with the new model launch args and the same effort, arguments and system prompt a daemon restore would use. The tab's restorable launch record follows the new model. This fallback requires an idle tab. `unsupported` (the default) refuses the switch.
 
 ```json
 {"model": "sonnet"}
 ```
 
-The current binding's launch report or first post-relaunch assistant turn can confirm the model. After the bounded confirmation deadline, a ready relaunch with no model observation still succeeds as pending; the label and `agent_session_model` follow the first turn when it arrives. A relaunch failure or a confirmed different model remains an error.
+The live session GET or, after a RestartResume fallback, the current binding's launch report or first post-relaunch assistant turn can confirm the model. A live request whose session record does not show the requested model returns pending with `confirmation_detail`; no screen output or POST status is treated as confirmation. After the bounded RestartResume confirmation deadline, a ready relaunch with no model observation still succeeds as pending; the label and `agent_session_model` follow the first turn when it arrives. A live request failure or a confirmed different RestartResume model remains an error.
 
-Confirmed success (`200 OK`) includes `model_confirmation: "observed"`, `observed_model`, and `evidence` (`session_start_report` or `first_post_relaunch_turn`).
+Confirmed success (`200 OK`) includes `mode_used`, `model_confirmation: "observed"`, `observed_model`, and `evidence` (`live_session_record`, `session_start_report`, or `first_post_relaunch_turn`). RestartResume fallback includes `fallback_reason`. Live success has no `restart` object.
 
 When the resumed provider omits its model and no assistant turn arrives before the confirmation deadline, the success response keeps the same relaunch evidence and reports pending confirmation:
 
 ```json
 {
   "ok": true, "tab_id": "a3f1b2c7", "provider": "claude", "mechanism": "restart_resume",
+  "mode_used": "restart_resume", "fallback_reason": null,
   "previous_model": "haiku", "requested_model": "sonnet", "launched_model": "sonnet",
   "model_confirmation": "pending", "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab",
   "relaunch_evidence": { "session_id": "0193e1a4-7b2c-7d4e-9f80-1234567890ab", "launched_model": "sonnet", "agent_ready": true },
@@ -72,6 +73,7 @@ Every error body is `{"ok": false, "error": "...", "reason": "..."}` plus the fi
 - `429 rate_limited` — the tab restarted moments ago; `retry_after_secs` and `Retry-After`
 - `500`/`504 relaunch_failed` — teardown, relaunch, readiness or rebinding failed; `restart` carries the observed transition fields
 - `502 model_mismatch` — the current binding's launch report or first post-relaunch turn names a different model; `launched_model`, `observed_model`, and `restart` are included. Missing model confirmation by its deadline is a pending success, not an error.
+- `502 live_switch_failed` — the tab server advertised the live route, but the POST failed. `mode_used` is `live`; Domios does not silently restart after a live request error.
 
 CLI: `codeterm agent model --tab TAB_ID MODEL [--json]`; `--json` prints the success body, or the error envelope carrying the error body as `data`.
 

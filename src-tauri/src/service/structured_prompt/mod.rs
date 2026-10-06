@@ -16,9 +16,12 @@
 //! `uses_structured_chat` capability and the tab's own bound session. The
 //! OpenCode-specific event shapes are isolated in [`opencode_sse`].
 
+mod live_model_switch;
 pub mod opencode_sse;
 #[cfg(test)]
 mod tests;
+
+pub(crate) use live_model_switch::{live_switch_for_tab, same_model_id, LiveModelSwitchResult};
 
 use std::collections::{HashMap, HashSet};
 use std::io::{BufRead, BufReader};
@@ -83,6 +86,13 @@ pub fn register_endpoint(tab_id: &str, base_url: String, cwd: String) {
     ENDPOINTS
         .lock()
         .insert(tab_id.to_string(), Endpoint { base_url, cwd });
+}
+
+fn endpoint_for_tab(tab_id: &str) -> Option<(String, String)> {
+    ENDPOINTS
+        .lock()
+        .get(tab_id)
+        .map(|endpoint| (endpoint.base_url.clone(), endpoint.cwd.clone()))
 }
 
 /// The live structured prompt for a tab, if one is pending. Cheap in-memory

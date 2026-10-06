@@ -103,7 +103,7 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | * | `/api/tabs/{id}/delayed-messages`, `/api/delayed-messages/{id}` | *(per route)* | List, queue, edit, delete, and send-now for delayed Chat UI messages — all in API-TABS |
 | POST | `/api/tabs/{id}/hook/{permission,session_state,stop,session_start}` | *(per-hook, see below)* | Agent lifecycle hooks for one tab. Payloads, modes, nonce rejection and responses live in API-TABS |
 | POST | `/api/tabs/{id}/agent/restart` | `{force?: bool, grace_secs?: u64}` | Restart an observed live agent, fresh-launch a known provider from a confirmed unbound shell when no verified session exists, or resume an exited provider's verified owned session in its shell. See [Agent Restart](API-AGENTS.md#agent-restart-post-apitabsidagentrestart). |
-| POST | `/api/tabs/{id}/agent/model` | `{model: string}` | Switch one idle agent Tab to another model through its provider's declared `model_switch`; returns after the provider reports the new model. Never changes the provider's global default. See [Agent Model Switch](#agent-model-switch-post-apitabsidagentmodel). |
+| POST | `/api/tabs/{id}/agent/model` | `{model: string}` | Switch one agent Tab through its declared `model_switch`; uses a tab-bound Live session route when advertised, otherwise falls back to idle RestartResume and reports the mode used. Never changes the provider's global default. See [Agent Model Switch](#agent-model-switch-post-apitabsidagentmodel). |
 
 #### Chat attachment authority
 
