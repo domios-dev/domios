@@ -272,7 +272,8 @@ test("@smoke uninstall confirmation includes remove-data checkbox @restart", asy
   await addChannel(ui.page, `${fileUrl(WORKTREE)}#main:plugins`);
   await installPlugin(ui.page, api);
 
-  await ui.page.locator(`[data-testid="extensions-plugin-uninstall"][data-plugin-id="${PLUGIN_ID}"]`).click();
+  await ui.page.locator(`[data-testid="extensions-plugin-actions"][data-plugin-id="${PLUGIN_ID}"]`).click();
+  await ui.page.locator('[data-testid="extensions-plugin-actions-menu"] [data-testid="extensions-plugin-uninstall"]').click();
   const dialog = ui.page.locator(`[data-testid="extensions-uninstall-confirm"][data-plugin-id="${PLUGIN_ID}"]`);
   await expect(dialog).toBeVisible();
   const removeData = dialog.locator('[data-testid="extensions-uninstall-remove-data"]');
