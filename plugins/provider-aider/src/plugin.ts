@@ -4,6 +4,7 @@ import type {
   ParsedPrompt,
   PluginModule,
   ResumeParams,
+  SettingField,
 } from "@codeterm/plugin-sdk";
 import { parseAiderHistory, readAiderHistory } from "./history";
 
@@ -20,11 +21,25 @@ const OUTPUT_SIGNALS = [
 const TUI_FRAGMENTS = ["aider", "tokens sent"];
 const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
-const PROMPT_QUESTION_RE = /^(Run shell commands?\?|Add file to the chat\?|Create new file[^\n]*\?|Add \.aider\* to \.gitignore \(recommended\)\?)\s*\(Y\)es\/\(N\)o\s*(\[[^\]]*\])?\s*:?\s*$/;
+const PROMPT_QUESTION_RE = /^(Run shell commands?\?|Add file to the chat\?|Create new file[^\n]*\?|Add \.aider\* to \.gitignore \(recommended\)\?|Open documentation url for more info\?)\s*\(Y\)es\/\(N\)o(?:\/\(D\)on't ask again)?\s*(\[[^\]]*\])?\s*:?\s*$/;
 const SHELL_COMMAND_QUESTION_RE = /^Run shell commands?\?\s*\(Y\)es\/\(N\)o\s*$/;
 const GITIGNORE_QUESTION_RE = /^Add \.aider\* to \.gitignore \(recommended\)\?\s*\(Y\)es\/\(N\)o\s*(\[[^\]]*\])?\s*:?\s*$/;
+const DOCS_URL_QUESTION_RE = /^Open documentation url for more info\?\s*\(Y\)es\/\(N\)o\/\(D\)on't ask again\s*(\[[^\]]*\])?\s*:?\s*$/;
 const COMMAND_LINE_RE = /^[ \t]*[$>][ \t]+(\S[^\n]*)$/;
 const MODE_PROMPT_RE = /^(?:[a-z]+)?>\s*$/;
+
+function withLaunchEnv(command: string, p: LaunchParams): string {
+  const platform = host.platform();
+  let out = command;
+  const apiBase = typeof p.apiBase === "string" && p.apiBase ? p.apiBase : null;
+  if (apiBase) out = host.shell.envPrefix("OPENAI_API_BASE", apiBase, platform) + out;
+  const apiKeySecret = typeof p.apiKeySecret === "string" && p.apiKeySecret ? p.apiKeySecret : null;
+  if (apiKeySecret) {
+    const secret = host.secretGet(apiKeySecret);
+    if (secret) out = host.shell.envPrefix("OPENAI_API_KEY", secret, platform) + out;
+  }
+  return out;
+}
 
 function starterPrompt(params: LaunchParams): string | undefined {
   if (params.starterPromptText) return params.starterPromptText;
@@ -89,6 +104,7 @@ function parsePromptWithContext(text: string): ParsedPrompt | null {
 function promptSafeChoice(prompt: ParsedPrompt | null | undefined, screen: string): string | null {
   if (!prompt || !prompt.question) return null;
   if (GITIGNORE_QUESTION_RE.test(prompt.question)) return "1";
+  if (DOCS_URL_QUESTION_RE.test(prompt.question)) return "3";
   if (!SHELL_COMMAND_QUESTION_RE.test(prompt.question)) return null;
   return isCodetermOnlyCommandList(extractPromptedCommands(screen)) ? "1" : null;
 }
@@ -160,10 +176,20 @@ const plugin: PluginModule = {
 
   parsePrompt: parsePromptWithContext,
 
+  settingsSchema(): SettingField[] {
+    return [
+      { kind: "text", id: "configPath", label: "Aider config file", help: "Path to an aider YAML config file; passed as --config." },
+      { kind: "text", id: "apiBase", label: "API base URL", help: "Base URL for the OpenAI-compatible API; exported as OPENAI_API_BASE." },
+      { kind: "text", id: "apiKeySecret", label: "API key secret name", help: "Name of a Domios secret holding the API key; its value is injected only into the launch environment as OPENAI_API_KEY." },
+    ];
+  },
+
   buildPromptResponse(optionIndex: number, _screen?: string): string[] {
     const ENTER = "DQ==";
     const YES = "WQ==";
     const NO = "Tg==";
+    const DONT_ASK = "RA==";
+    if (optionIndex === 2) return [DONT_ASK, ENTER];
     return [optionIndex === 0 ? YES : NO, ENTER];
   },
 
@@ -175,7 +201,7 @@ const plugin: PluginModule = {
         parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
       }
     }
-    parts.push("--no-auto-commits", "--no-pretty", "--no-fancy-input", "--chat-language", "English");
+    parts.push("--no-auto-commits", "--no-pretty", "--no-fancy-input", "--no-show-model-warnings", "--chat-language", "English");
     const configPath = typeof p.configPath === "string" && p.configPath ? p.configPath : null;
     if (configPath) {
       parts.push("--config", host.shell.quoteFor(configPath, host.platform()));
@@ -184,7 +210,7 @@ const plugin: PluginModule = {
     if (p.task && prompt) {
       parts.push("--message", host.shell.quoteFor(prompt, host.platform()));
     }
-    return parts.join(" ");
+    return withLaunchEnv(parts.join(" "), p);
   },
 
   buildResumeCommand(_sessionId: string, _skipPermissions?: boolean): string {
