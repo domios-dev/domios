@@ -432,8 +432,11 @@ fn session_identity_bind_and_rebind_round_trip_expected_red() {
 fn team_orchestrator_provider_and_session_round_trip_expected_pass() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab_id) = MultiplexerState::new();
+    let team_id = mux
+        .resolve_or_mint_team_for_parent(&tab_id)
+        .expect("pair reservation creates the Orchestrator's Team")
+        .team_id;
     mux.set_orchestrator_role(&tab_id).unwrap();
-    let team_id = mux.get_tab(&tab_id).unwrap().team_id.clone().unwrap();
     {
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some("codex".into());
@@ -454,6 +457,11 @@ fn team_orchestrator_provider_and_session_round_trip_expected_pass() {
     let saved = StorageDeskAdapter::from_storage(instance.storage.clone())
         .state()
         .expect("read the persisted Team desk");
+    assert!(saved
+        .snapshot
+        .teams
+        .iter()
+        .any(|team| team.id.as_str() == team_id.as_str()));
     let persisted_tab = saved
         .snapshot
         .workspaces
@@ -484,6 +492,7 @@ fn team_orchestrator_provider_and_session_round_trip_expected_pass() {
     let tab = mux.get_tab(&tab_id).unwrap();
     assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
     assert_eq!(tab.role_profile.as_deref(), Some("orchestrator"));
+    assert!(mux.get_team(&team_id).is_some());
     drop(mux);
     close(restarted);
 }
