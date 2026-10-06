@@ -20,7 +20,7 @@ import { pickUiFontScaleValue } from "./uiFontScale";
 export { extractCommand, extractEdits, extractFilePath } from "./toolcard/toolParsing";
 import { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
 import { parseAttachedDiscussionDoc } from "./discussionDoc";
-import { normalizeMessageText } from "./codeterm/messageText";
+import { decodeCliMessageText } from "./codeterm/messageText";
 
 export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
 
@@ -680,7 +680,7 @@ export function PluginConfigCard({ c }: { c: ParsedPluginConfig }) {
 }
 
 export function renderUserContent(rawContent: string): React.ReactNode {
-  const content = normalizeMessageText(rawContent);
+  const content = decodeCliMessageText(rawContent);
   const discussion = parseAttachedDiscussionDoc(content);
   if (discussion) return <AttachedDiscussionDocView doc={discussion} />;
   const voice = parseVoiceMessage(content);

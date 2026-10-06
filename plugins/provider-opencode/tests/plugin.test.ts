@@ -282,7 +282,7 @@ console.log("\n--- exclusive structured cursor ---\n");
 console.log("\n--- structured transcript preserves routed text ---\n");
 {
   const dbPath = "~/.local/share/opencode/opencode.db";
-  const windowsPath = "C:\\Users\\dev\\.codeterm-dev\\runtime\\agent-pads\\new\\team\\update.txt";
+  const windowsPath = "C:\\Users\\dev\\.codeterm-dev\\runtime\\agent-pads\\new\\team\\utilities\\update.txt";
   const context = "sentinel:sentinel_394d9ce12d30";
   const frame = `<domios from="system" context="${context}"></domios>${windowsPath}`;
   const p = loadOpencodeWithHost(ocHost({

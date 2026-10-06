@@ -3,7 +3,7 @@ import { MessageSquareReply, Network } from "lucide-react";
 import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
 import { CompactMessageContent } from "./CompactMessageContent";
 import { InboundActivityCard } from "./InboundActivityCard";
-import { normalizeMessageText } from "./messageText";
+import { decodeCliMessageText } from "./messageText";
 import { formatCommunicationEndpoint } from "./templates";
 
 interface Props {
@@ -34,7 +34,7 @@ export function InboundMessageCard({ message, sender, model, channel = "tab", ex
       onToggle={onToggle}
       onFocusTab={onFocusTab}
     >
-      <CompactMessageContent text={normalizeMessageText(message.content)} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
+      <CompactMessageContent text={decodeCliMessageText(message.content)} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
     </InboundActivityCard>
   );
 }
