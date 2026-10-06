@@ -150,7 +150,7 @@ pub(crate) fn inherited_workspace_provenance(
 pub(crate) fn directory_trust_check_applies(tab: &Tab) -> bool {
     tab.agent_type.is_some()
         && !tab.launch_session_authenticated()
-        && (tab.role.is_some() || directory_trust_provenance(tab).is_ok())
+        && (tab.team_id.is_some() || directory_trust_provenance(tab).is_ok())
 }
 
 pub(crate) fn shared_directory_trust_check_applies(tab: &Tab) -> bool {
