@@ -46,7 +46,7 @@ function pickTaggedBlockTag(text: string): string {
 function wrapMultiline(text: string): string {
   const body = String(text || "");
   const tag = pickTaggedBlockTag(body);
-  return `{${tag}}\n${body}\n{/${tag}}`;
+  return `{${tag}\n${body}\n${tag}}`;
 }
 
 function deliverText(text: string): string {

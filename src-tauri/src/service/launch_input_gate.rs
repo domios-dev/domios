@@ -407,22 +407,30 @@ impl ServiceContext {
         let started = Instant::now();
         let deadline = started + timeout;
         let mut generation = signal.generation();
-        let (provider_readiness, composer_cursor_position, provider_binary_name, status_bar_rows) =
-            self.agent_registry
-                .with_provider(agent_id, |provider| {
-                    (
-                        provider.provider_readiness_strategy(),
-                        provider.composer_cursor_position(),
-                        provider.binary_name().to_string(),
-                        provider.status_bar_rows(),
-                    )
-                })
-                .unwrap_or((
-                    crate::agent::provider::ProviderReadinessStrategy::default(),
-                    crate::agent::provider::ComposerCursorPosition::default(),
-                    String::new(),
-                    0,
-                ));
+        let (
+            provider_readiness,
+            composer_cursor_position,
+            provider_binary_name,
+            status_bar_rows,
+            input_fallback_ms,
+        ) = self
+            .agent_registry
+            .with_provider(agent_id, |provider| {
+                (
+                    provider.provider_readiness_strategy(),
+                    provider.composer_cursor_position(),
+                    provider.binary_name().to_string(),
+                    provider.status_bar_rows(),
+                    provider.input_fallback_ms(),
+                )
+            })
+            .unwrap_or((
+                crate::agent::provider::ProviderReadinessStrategy::default(),
+                crate::agent::provider::ComposerCursorPosition::default(),
+                String::new(),
+                0,
+                None,
+            ));
         let declares_structural_composer = provider_readiness.requires_composer();
         let uses_prompt_glyph_fingerprint = declares_structural_composer
             && composer_cursor_position
@@ -674,6 +682,12 @@ impl ServiceContext {
                 Err(refusal) => return Err(refusal),
                 Ok(Some(readiness)) => return Ok(readiness),
                 Ok(None) => {}
+            }
+
+            if let Some(fallback_ms) = input_fallback_ms {
+                if started.elapsed().as_millis() as u64 >= fallback_ms {
+                    return Ok(LaunchInputEvidence::ProviderComposer);
+                }
             }
 
             let remaining = deadline
