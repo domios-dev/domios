@@ -807,7 +807,6 @@ fn workspace_close_finishes_after_a_pre_teardown_error() {
 async fn close_team_via_service_persists_the_reduced_desk() {
     use crate::service::TeamMutationCaller;
     use crate::session::store::StorageDeskAdapter;
-    use tauri::Manager;
 
     let (mut mux, orchestrator) = MultiplexerState::new();
     let team_id = mux
@@ -922,7 +921,6 @@ async fn workspace_close_after_team_close_finds_existing_workspace() {
 fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
     use crate::service::spawn::{SpawnTabSpec, TabCommand};
     use crate::session::store::StorageDeskAdapter;
-    use tauri::Manager;
 
     let (mux, seed_tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
