@@ -314,15 +314,14 @@ describe("map_canvas workspace essence map", () => {
     expect(host.querySelector('[data-testid="essence-map-project-world"]')?.getAttribute("style")).toContain("height");
   });
 
-  it("exposes the workspace map action beside the menu and activates its callback", async () => {
+  it("exposes the workspace map action and activates its callback", async () => {
     const onOpenMap = vi.fn();
     const { host } = await renderWorkspaceRow(onOpenMap);
     const action = host.querySelector<HTMLButtonElement>(
-      'button[aria-label="Open essence map for Workspace"]',
+      'button[aria-label="Map"]',
     );
     expect(action).not.toBeNull();
     expect(action?.getAttribute("type")).toBe("button");
-    expect(action?.parentElement?.querySelector('button[aria-label="Actions for Workspace"]')).not.toBeNull();
     await act(async () => action?.click());
     expect(onOpenMap).toHaveBeenCalledWith(workspace);
   });
