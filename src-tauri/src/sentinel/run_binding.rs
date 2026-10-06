@@ -55,9 +55,11 @@ pub(super) fn queue_fired_event(
             .map(|job| job.id.clone())
             .collect::<Vec<_>>()
     };
-    ids.into_iter().fold(false, |queued, id| {
-        handle.queue_run_binding(id, binding.clone()) || queued
-    })
+    let mut queued = false;
+    for id in ids {
+        queued |= handle.queue_run_binding(id, binding.clone());
+    }
+    queued
 }
 
 pub(super) fn cron_fired_event(payload: &str) -> Option<CronFiredEvent> {

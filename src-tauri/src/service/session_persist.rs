@@ -326,6 +326,8 @@ fn wait_for_completion(
     }
 }
 
+// `last_error` is read only by the test-only Flush barrier.
+#[cfg_attr(not(test), allow(unused_variables, unused_assignments))]
 fn run_worker(
     mailbox: Arc<PersistenceMailbox>,
     context: Option<PersistenceContext>,
@@ -333,8 +335,6 @@ fn run_worker(
 ) {
     let mut committed_submission = 0;
     let mut last_outcome = SaveOutcome::Saved;
-    // Read only by the test-only Flush barrier.
-    #[cfg_attr(not(test), allow(unused_variables, unused_assignments))]
     let mut last_error = None;
     let mut retry_after_error = false;
     let mut reported_errors = HashSet::new();
