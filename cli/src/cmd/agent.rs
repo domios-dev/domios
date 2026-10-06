@@ -22,6 +22,12 @@ fn provider_requires_live_model_discovery(provider: &serde_json::Value) -> bool 
         .unwrap_or(false)
 }
 
+/// A live-required listing warns when its forced probe could not refresh; an
+/// optional catalogue's reader-gated skip is not a gap and stays silent.
+fn live_discovery_warning_needed(discovery_required: bool, refreshed: bool) -> bool {
+    discovery_required && !refreshed
+}
+
 fn absolute_spawn_base(
     spawn_cwd: Option<&str>,
     caller_cwd: &std::path::Path,
@@ -366,27 +372,29 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         std::process::exit(1);
                     };
                     let discovery_required = provider_requires_live_model_discovery(target);
-                    if discovery_required {
-                        let response = match local_http
-                            .post(format!("{}/api/agents/providers/refresh", base))
-                            .json(&serde_json::json!({"provider_id": provider.as_str()}))
-                            .send()
-                        {
-                            Ok(response) => response,
-                            Err(error) => crate::cmd::print::fail(1, error.to_string()),
-                        };
-                        let status = response.status();
-                        let refresh: serde_json::Value = response.json().unwrap_or_default();
-                        if !status.is_success() {
-                            crate::cmd::print::fail_http(1, status.as_u16(), &refresh.to_string());
-                        }
-                        if !refresh
-                            .get("refreshed")
-                            .and_then(serde_json::Value::as_bool)
-                            .unwrap_or(false)
-                        {
-                            eprintln!("WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot.");
-                        }
+                    // An explicit listing is a reader action: every catalogue
+                    // gets a refresh request (forced or reader-gated server-side).
+                    let response = match local_http
+                        .post(format!("{}/api/agents/providers/refresh", base))
+                        .json(&serde_json::json!({"provider_id": provider.as_str()}))
+                        .send()
+                    {
+                        Ok(response) => response,
+                        Err(error) => crate::cmd::print::fail(1, error.to_string()),
+                    };
+                    let status = response.status();
+                    let refresh: serde_json::Value = response.json().unwrap_or_default();
+                    if !status.is_success() {
+                        crate::cmd::print::fail_http(1, status.as_u16(), &refresh.to_string());
+                    }
+                    let refreshed = refresh
+                        .get("refreshed")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false);
+                    if live_discovery_warning_needed(discovery_required, refreshed) {
+                        eprintln!("WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot.");
+                    }
+                    if discovery_required || refreshed {
                         let response = match local_http
                             .get(format!("{}/api/agents/providers", base))
                             .send()

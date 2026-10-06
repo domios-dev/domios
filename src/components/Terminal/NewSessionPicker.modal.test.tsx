@@ -17,7 +17,18 @@ const fixture = vi.hoisted(() => {
       addNotification: () => undefined,
       createWorkspace: () => undefined,
     },
-    providers: { providers: [] as never[], loading: false },
+    providers: {
+      providers: [
+        {
+          id: "opencode",
+          display_name: "OpenCode",
+          available_models: [],
+          default_model: undefined,
+          reasoning_efforts: [],
+        },
+      ] as never[],
+      loading: false,
+    },
   };
 });
 const workspace: Workspace = fixture.workspace;
@@ -112,5 +123,16 @@ describe("NewSessionPicker modal", () => {
     await renderPicker({ fullAccess: false });
     expect(dialog().querySelector('input[type="checkbox"]')).toBeNull();
     expect(document.body.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  });
+
+  it("re-probes the shown provider's catalogue when opened", async () => {
+    const { invoke } = await import("../../lib/bridge");
+    vi.mocked(invoke).mockClear();
+
+    await renderPicker();
+
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith("refresh_provider_models", {
+      providerId: "opencode",
+    });
   });
 });
