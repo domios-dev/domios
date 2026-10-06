@@ -57,7 +57,7 @@ export interface JobsIndicator {
   running: number;
 }
 
-/** A running Cron run or a live Sentinel graph; an enabled Cron waiting for its schedule is not running. */
+/** A running Cron run or a live Blueprint graph; an enabled Cron waiting for its schedule is not running. */
 export function isJobRunning(job: MergedJob): boolean {
   return job.kind === "cron" ? job.state === "Running" : job.active;
 }

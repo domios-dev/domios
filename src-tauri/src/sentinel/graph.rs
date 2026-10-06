@@ -134,14 +134,14 @@ pub fn host_delete_staged(
 ) -> Result<Staged<()>, String> {
     validate_scope(mux, workspace, team)?;
     store.ensure_available()?;
-    let root = store.get(id).ok_or("Sentinel scenario not found")?;
+    let root = store.get(id).ok_or("Blueprint scenario not found")?;
     if root.workspace_id != workspace
         || root.team_id.as_deref() != team
         || !root.agent_authored
         || root.scenario_id.as_deref() != Some(id)
         || !reachable_ids(store.list()).contains(id)
     {
-        return Err("Sentinel scenario is unavailable in this automation scope".into());
+        return Err("Blueprint scenario is unavailable in this automation scope".into());
     }
     Ok(store.stage_delete_scenario(id, workspace, team))
 }
@@ -235,7 +235,7 @@ pub fn tab_identity(tab: &Tab, workspace: &str) -> Identity {
 fn worker(tab: &Tab, identity: &Identity) -> Value {
     let configured = tab.agent_requested_model.clone();
     let reported = tab.agent_session_model.clone();
-    json!({"identity":identity,"name":safe_name(&tab.title),"purpose":tab.description.as_deref().map(safe_purpose),"state":if tab.agent_booting{Some("launching")}else{None},"state_source":"tab_lifecycle","availability":"available","hidden":tab.hidden,"schedule":null,"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Sentinels"},"executor":{"kind":"agent","selection":if configured.is_some(){"explicit"}else{"unknown"},"provider_id":tab.agent_type,"adapter_id":null,"model":reported.as_ref().or(configured.as_ref()),"configured_model":configured,"reported_model":reported,"capabilities":null}})
+    json!({"identity":identity,"name":safe_name(&tab.title),"purpose":tab.description.as_deref().map(safe_purpose),"state":if tab.agent_booting{Some("launching")}else{None},"state_source":"tab_lifecycle","availability":"available","hidden":tab.hidden,"schedule":null,"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Blueprints"},"executor":{"kind":"agent","selection":if configured.is_some(){"explicit"}else{"unknown"},"provider_id":tab.agent_type,"adapter_id":null,"model":reported.as_ref().or(configured.as_ref()),"configured_model":configured,"reported_model":reported,"capabilities":null}})
 }
 
 pub fn project_worker_states(
@@ -337,7 +337,7 @@ fn add_cron(
     truncated: &mut bool,
 ) {
     nodes.entry(exact.clone()).or_insert_with(|| match &cron.job {
-        Some(job) => json!({"identity":exact,"name":safe_name(&job.name),"purpose":job.description.as_deref().map(safe_purpose),"state":if job.enabled{"enabled"}else{"disabled"},"availability":"available","hidden":null,"schedule":safe_purpose(&job.schedule),"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Sentinels"},"executor":null}),
+        Some(job) => json!({"identity":exact,"name":safe_name(&job.name),"purpose":job.description.as_deref().map(safe_purpose),"state":if job.enabled{"enabled"}else{"disabled"},"availability":"available","hidden":null,"schedule":safe_purpose(&job.schedule),"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Blueprints"},"executor":null}),
         None => placeholder(exact),
     });
     for run in cron.runs.iter().take(MAX_RUNS_PER_CRON) {

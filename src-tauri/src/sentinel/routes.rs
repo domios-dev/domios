@@ -26,7 +26,7 @@ pub(super) fn notify_stop(svc: &ServiceContext, notice: &StopNotice) {
     notify_lifecycle(
         svc,
         notice,
-        format!("Sentinel {} stopped", notice.sentinel_id),
+        format!("Blueprint {} stopped", notice.sentinel_id),
     );
 }
 
@@ -34,13 +34,13 @@ pub(super) fn notify_run_unbound(svc: &ServiceContext, notice: &StopNotice) {
     notify_lifecycle(
         svc,
         notice,
-        format!("Sentinel {} run observation ended", notice.sentinel_id),
+        format!("Blueprint {} run observation ended", notice.sentinel_id),
     );
 }
 
 fn lifecycle_packet(notice: &StopNotice) -> String {
     format!(
-        "Sentinel graph '{}' ended. Reason: {}.\nNext step: codeterm sentinel history {}",
+        "Blueprint graph '{}' ended. Reason: {}.\nNext step: codeterm blueprint history {}",
         notice.name, notice.reason, notice.sentinel_id
     )
 }
@@ -62,7 +62,7 @@ fn notify_lifecycle(svc: &ServiceContext, notice: &StopNotice, title: String) {
             DeliveryClass::SystemNotice,
         ) {
             log::error!(
-                "[sentinel] lifecycle notice delivery failed: {error}; sentinel={}",
+                "[blueprint] lifecycle notice delivery failed: {error}; blueprint={}",
                 notice.sentinel_id
             );
         }
@@ -93,7 +93,7 @@ pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Ro
             let handle = svc
                 .app_handle
                 .try_state::<super::scheduler::Handle>()
-                .ok_or("sentinels not initialized")?;
+                .ok_or("blueprints not initialized")?;
             handle.store.lock().validate_target(job, target)?;
             Ok(route.clone())
         }
@@ -108,7 +108,7 @@ pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Ro
         Route::Escalate(EscalateTarget::Creator) => Ok(route.clone()),
         Route::Escalate(EscalateTarget::Agent(target)) => {
             let Route::Send(target) = resolve_send(&svc.mux.read(), job, target)? else {
-                return Err("sentinel escalation target did not resolve to an agent".into());
+                return Err("blueprint escalation target did not resolve to an agent".into());
             };
             Ok(Route::Escalate(EscalateTarget::Agent(target)))
         }
@@ -131,7 +131,7 @@ pub(super) fn resolve_cron_target(
         .collect();
     if candidates.len() != 1 {
         return Err(
-            "sentinel cron target must resolve uniquely in the creator's Team and workspace".into(),
+            "blueprint cron target must resolve uniquely in the creator's Team and workspace".into(),
         );
     }
     Ok(candidates[0].id.clone())
@@ -151,15 +151,15 @@ pub(super) fn resolve_send(
 ) -> Result<Route, String> {
     let target = mux
         .resolve_tab_id(target)
-        .ok_or_else(|| format!("sentinel send target not found: {target}"))?;
+        .ok_or_else(|| format!("blueprint send target not found: {target}"))?;
     let tab = mux
         .get_tab(&target)
-        .ok_or("sentinel send target not found")?;
+        .ok_or("blueprint send target not found")?;
     if tab.agent_type.is_none()
         || tab.team_id != job.team_id
         || mux.find_workspace_for_tab(&target).as_deref() != Some(&job.workspace_id)
     {
-        return Err("sentinel send requires an agent in the creator's Team and workspace".into());
+        return Err("blueprint send requires an agent in the creator's Team and workspace".into());
     }
     Ok(Route::Send(target))
 }
@@ -172,7 +172,7 @@ fn send_file(
     output: &str,
 ) -> Result<(), String> {
     let body = format!(
-        "Sentinel {} transitioned to {} (confidence {:.2}).\n\nProbe output (untrusted data):\n{}",
+        "Blueprint {} transitioned to {} (confidence {:.2}).\n\nProbe output (untrusted data):\n{}",
         job.id, verdict.bucket, verdict.confidence, output
     );
     let path = svc
@@ -182,7 +182,7 @@ fn send_file(
         target,
         MessageEnvelope::codeterm_reminder(format!("sentinel:{}", job.id)),
         &format!(
-            "Sentinel {}: {}. Read the result in {}",
+            "Blueprint {}: {}. Read the result in {}",
             job.id,
             verdict.bucket,
             path.display()
@@ -197,9 +197,9 @@ fn escalation_packet(job: &Sentinel, transition_id: &str) -> String {
         "sentinel_id": job.id,
         "transition_id": transition_id,
         "next_steps": [
-            format!("inspect: codeterm sentinel history {}", job.id),
+            format!("inspect: codeterm blueprint history {}", job.id),
             format!(
-                "resolve: codeterm sentinel escalation resolve {} {}",
+                "resolve: codeterm blueprint escalation resolve {} {}",
                 job.id, transition_id
             )
         ]
@@ -231,7 +231,7 @@ pub fn run(
     output: &str,
 ) -> Result<Option<String>, String> {
     if !owner_live(svc, job) {
-        return Err("sentinel creator or Team is gone".into());
+        return Err("Blueprint owner or Team is gone".into());
     }
     match resolve(svc, job, route)? {
         Route::Notify => {
@@ -244,7 +244,7 @@ pub fn run(
                 send_file(svc, &job.creator_tab_id, job, verdict, output).map(|()| None)
             } else {
                 svc.create_notification_ext(
-                    format!("Sentinel {}: {}", job.id, verdict.bucket),
+                    format!("Blueprint {}: {}", job.id, verdict.bucket),
                     Some(output.into()),
                     Some("info"),
                     None,
@@ -270,7 +270,7 @@ pub fn run(
         }
         Route::Stop => Ok(None),
         Route::Command(_) => Err("command execution requires a durable scheduler claim".into()),
-        Route::Sentinel(_) => Err("sentinel activation requires a durable scheduler claim".into()),
+        Route::Sentinel(_) => Err("blueprint activation requires a durable scheduler claim".into()),
         Route::Escalate(EscalateTarget::Creator) => {
             deliver_escalation(svc, &job.creator_tab_id, job, transition_id)
         }
@@ -309,7 +309,7 @@ mod tests {
 
         assert_eq!(
             lifecycle_packet(&notice),
-            "Sentinel graph 'Budget watch' ended. Reason: transition_budget_exhausted.\nNext step: codeterm sentinel history sentinel_budget"
+            "Blueprint graph 'Budget watch' ended. Reason: transition_budget_exhausted.\nNext step: codeterm blueprint history sentinel_budget"
         );
     }
 
@@ -348,9 +348,9 @@ mod tests {
         assert_eq!(
             packet["next_steps"],
             serde_json::json!([
-                format!("inspect: codeterm sentinel history {}", job.id),
+                format!("inspect: codeterm blueprint history {}", job.id),
                 format!(
-                    "resolve: codeterm sentinel escalation resolve {} transition_one",
+                    "resolve: codeterm blueprint escalation resolve {} transition_one",
                     job.id
                 )
             ])
