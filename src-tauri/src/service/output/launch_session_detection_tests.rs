@@ -1,4 +1,4 @@
-use super::launch_session_detection_due;
+use super::trust_launch_detection::launch_session_detection_due;
 
 #[test]
 fn hooked_launch_record_detection_starts_when_folder_trust_clears() {
