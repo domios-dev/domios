@@ -109,10 +109,22 @@ console.log("\n--- applyDomiosProviders: foreign entries preserved ---\n");
   const foreignEntry = { npm: "@ai-sdk/some-other", name: "Foreign", options: { baseURL: "https://foreign.com" } };
   const config = { provider: { foreign: foreignEntry } };
   const provider: DomiosProvider = { id: "mine", kind: "openai", baseUrl: "https://mine.com" };
-  const { config: result } = applyDomiosProviders(config, [provider]);
+  const { config: result, conflicts } = applyDomiosProviders(config, [provider]);
   const cfg = result as { provider: Record<string, unknown> };
   eq(cfg.provider["foreign"], foreignEntry, "foreign entry is byte-identical");
   assert("mine" in cfg.provider, "owned entry added alongside foreign");
+  eq(conflicts, [], "conflicts is empty in the normal case");
+}
+
+console.log("\n--- applyDomiosProviders: foreign entry with same id is not overwritten ---\n");
+{
+  const foreignEntry = { npm: "@ai-sdk/some-other", name: "Foreign", options: { baseURL: "https://foreign.com" } };
+  const config = { provider: { myllm: foreignEntry } };
+  const provider: DomiosProvider = { id: "myllm", kind: "openai", baseUrl: "https://mine.com" };
+  const { config: result, conflicts } = applyDomiosProviders(config, [provider]);
+  const cfg = result as { provider: Record<string, unknown> };
+  eq(cfg.provider["myllm"], foreignEntry, "foreign entry with same id stays identical");
+  eq(conflicts, ["myllm"], "conflict id is reported");
 }
 
 console.log("\n--- applyDomiosProviders: no literal secret ever ---\n");

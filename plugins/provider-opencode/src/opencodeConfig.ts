@@ -85,20 +85,17 @@ function deepEqual(a: unknown, b: unknown): boolean {
 export function applyDomiosProviders(
   config: unknown,
   providers: DomiosProvider[],
-): { config: object; changed: boolean } {
-  // Normalize input config to an object
+): { config: object; changed: boolean; conflicts: string[] } {
   const base: Record<string, unknown> =
     typeof config === "object" && config !== null
       ? { ...(config as Record<string, unknown>) }
       : {};
 
-  // Get or create the provider map
   const existingProviderMap: Record<string, unknown> =
     typeof base.provider === "object" && base.provider !== null
       ? { ...(base.provider as Record<string, unknown>) }
       : {};
 
-  // Remove Domios-owned entries that are no longer in providers
   const wantedIds = new Set(providers.map((p) => p.id));
   for (const [key, value] of Object.entries(existingProviderMap)) {
     if (isDomiosOwned(value) && !wantedIds.has(key)) {
@@ -106,8 +103,13 @@ export function applyDomiosProviders(
     }
   }
 
-  // Add/update each provider
+  const conflicts: string[] = [];
   for (const provider of providers) {
+    const existing = existingProviderMap[provider.id];
+    if (existing !== undefined && !isDomiosOwned(existing)) {
+      conflicts.push(provider.id);
+      continue;
+    }
     existingProviderMap[provider.id] = buildProviderEntry(provider);
   }
 
@@ -119,7 +121,7 @@ export function applyDomiosProviders(
   }
 
   const changed = !deepEqual(config, result);
-  return { config: result, changed };
+  return { config: result, changed, conflicts };
 }
 
 export function providerKeyEnvName(id: string): string {
