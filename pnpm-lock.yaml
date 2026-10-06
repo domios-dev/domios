@@ -242,6 +242,16 @@ importers:
         specifier: workspace:*
         version: link:../../packages/plugin-sdk
 
+  plugins/provider-aider:
+    dependencies:
+      react:
+        specifier: ^19.0.0
+        version: 19.2.4
+    devDependencies:
+      '@codeterm/plugin-sdk':
+        specifier: workspace:*
+        version: link:../../packages/plugin-sdk
+
   plugins/provider-claude:
     dependencies:
       '@codeterm/chat-ui':
