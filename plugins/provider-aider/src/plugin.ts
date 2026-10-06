@@ -39,7 +39,8 @@ function withLaunchEnv(command: string, p: LaunchParams): string {
     const secret = host.secretGet(apiKeySecret);
     if (secret) exports.push(`export OPENAI_API_KEY=${quote(secret)};`);
   }
-  return exports.length > 0 ? `${exports.join(" ")} ${command}` : command;
+  if (exports.length === 0) return command;
+  return `${exports.join(" ")} ${command}`;
 }
 
 function starterPrompt(params: LaunchParams): string | undefined {
