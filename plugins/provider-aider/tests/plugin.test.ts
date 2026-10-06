@@ -9,10 +9,12 @@ import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
 import runtime, {
+  deliverText,
   extractBannerModel,
   lastNonEmptyLine,
   MODE_PROMPT_RE,
   promptSafeChoice,
+  wrapMultiline,
 } from "../src/plugin";
 import { parseAiderHistory } from "../src/history";
 
@@ -259,6 +261,54 @@ console.log("\n--- history parser ---\n");
 
   const emptyResult = parseAiderHistory("", 0);
   eq(emptyResult.messages.length, 0, "empty content has no messages");
+}
+
+console.log("\n--- history session blocks ---\n");
+{
+  const twoSessions = [
+    "# aider chat started at 2026-10-06 10:00:00.000",
+    "",
+    "#### Old question",
+    "",
+    "Old answer",
+    "",
+    "# aider chat started at 2026-10-06 12:00:00.000",
+    "",
+    "#### New question",
+    "",
+    "New answer",
+  ].join("\n");
+  const launchMs = Date.parse("2026-10-06 11:00:00.000");
+  const result = parseAiderHistory(twoSessions, launchMs);
+  eq(result.messages.length, 2, "only the current session block is returned");
+  eq(result.messages[0].text, "New question", "old session user turn is excluded");
+  eq(result.messages[1].text, "New answer", "old session assistant turn is excluded");
+  eq(result.messages[0].ts, Date.parse("2026-10-06 12:00:00.000"), "message carries its session start");
+
+  const all = parseAiderHistory(twoSessions, 0);
+  eq(all.messages.length, 4, "sinceMs 0 keeps every session block");
+  eq(all.messages[0].text, "Old question", "first session kept when unfiltered");
+}
+
+console.log("\n--- multi-line chat delivery ---\n");
+{
+  eq(deliverText("hello"), "hello", "single-line text is untouched");
+  eq(deliverText("hello\nworld"), "{multiline}\nhello\nworld\n{/multiline}", "multi-line text becomes one block");
+  eq(deliverText("a\nb\n\nc\nd"), "{multiline}\na\nb\n\nc\nd\n{/multiline}", "blank lines stay inside one block");
+  eq(deliverText("first\nsecond\n\n{multiline}\nthird\n{/multiline}"), "{multiline}\nfirst\nsecond\n\n{/multiline}{multiline}\nthird\n{/multiline}", "existing blocks are preserved and gaps are wrapped");
+  eq(deliverText("{multiline}\nthird\n{/multiline}"), "{multiline}\nthird\n{/multiline}", "a lone existing block is untouched");
+  eq(deliverText("a\nb\n{multiline}\nc\n{/multiline}\nd\ne"), "{multiline}\na\nb\n{/multiline}{multiline}\nc\n{/multiline}{multiline}\nd\ne\n{/multiline}", "mixed content wraps each gap");
+  eq(deliverText("x\ny"), wrapMultiline("x\ny"), "wrapMultiline matches deliverText for multi-line input");
+  const long = Array.from({ length: 300 }, (_, i) => `line ${i}`).join("\n");
+  const wrapped = deliverText(long);
+  assert(wrapped.startsWith("{multiline}\n"), "long multi-line text starts with a block");
+  assert(wrapped.endsWith("{/multiline}"), "long multi-line text ends with a block");
+  assert(!/\{multiline\}[\s\S]*\{multiline\}/.test(wrapped.replace(/\{\/multiline\}\{/g, "{/multiline} {")), "long text is split into separate blocks");
+  const blocks = wrapped.match(/\{multiline\}[\s\S]*?\{\/multiline\}/g) || [];
+  assert(blocks.length > 1, "long multi-line text is split into multiple blocks");
+  for (const block of blocks) {
+    assert(block.length <= 4000 + 30, "each block stays within the size bound");
+  }
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
