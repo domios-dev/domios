@@ -248,14 +248,30 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn every_routed_reason_can_record_its_route_stages() {
-        for reason in ["transition", "rearm_on_change", "other", "low_confidence"] {
+    fn blueprint_reason_every_transition_reason_has_one_route_classification() {
+        for reason in [
+            machine::TransitionReason::Transition,
+            machine::TransitionReason::RearmOnChange,
+            machine::TransitionReason::Other,
+            machine::TransitionReason::LowConfidence,
+        ] {
             assert!(
-                route_stage_reason_allowed(reason),
-                "{reason} must keep its route claim"
+                machine::TransitionReason::parse(reason.as_str())
+                    .is_some_and(machine::TransitionReason::routes_handlers),
+                "{} must keep its route claim",
+                reason.as_str()
             );
         }
-        assert!(!route_stage_reason_allowed("no_change"));
+        for reason in [
+            machine::TransitionReason::SameBucket,
+            machine::TransitionReason::Paused,
+            machine::TransitionReason::Stopped,
+            machine::TransitionReason::Held,
+            machine::TransitionReason::Unchanged,
+        ] {
+            assert!(!machine::TransitionReason::parse(reason.as_str())
+                .is_some_and(machine::TransitionReason::routes_handlers));
+        }
     }
 
     #[test]
@@ -369,14 +385,6 @@ fn expire_escalations(store: &Arc<Mutex<Store>>, svc: &ServiceState) {
     }
 }
 
-/// Reasons the machine routes to handlers; a route claim for any other reason would strand it.
-fn route_stage_reason_allowed(reason: &str) -> bool {
-    matches!(
-        reason,
-        "transition" | "rearm_on_change" | "other" | "low_confidence"
-    )
-}
-
 pub fn record(
     runtime: &supporter::SupporterRuntime,
     job: &Sentinel,
@@ -384,6 +392,7 @@ pub fn record(
     stage: Stage,
 ) -> std::io::Result<()> {
     if !outcome.evidence.matches(job) {
+        log::warn!("[blueprint] journal refusal: observation scope or state hash mismatch");
         return Err(std::io::Error::other(
             "blueprint observation scope or state hash mismatch",
         ));
@@ -393,10 +402,15 @@ pub fn record(
         Stage::RouteClaim | Stage::RouteCompleted | Stage::RouteFailed
     );
     if route_stage
-        && (!route_stage_reason_allowed(outcome.reason)
+        && (!machine::TransitionReason::parse(outcome.reason)
+            .is_some_and(machine::TransitionReason::routes_handlers)
             || outcome.route.is_none()
             || outcome.verdict.is_none())
     {
+        log::warn!(
+            "[blueprint] journal refusal: route stage missing a routable transition reason, route, or verdict; reason={}",
+            outcome.reason
+        );
         return Err(std::io::Error::other(
             "blueprint route stage requires a confident transition",
         ));
@@ -854,6 +868,18 @@ pub(super) fn advance(
         let mut handler_outcome = outcome.clone();
         handler_outcome.route = Some(handler.action.clone());
         if write_journal(&job, &handler_outcome, Stage::RouteClaim).is_err() {
+            let failure = super::handlers::Effect {
+                status: Status::Failed,
+                execution_id: None,
+                command_result: None,
+                reason: Some("journal_route_claim_failed".into()),
+            };
+            if let Err(error) = storage::commit(store, |current| {
+                current.stage_finish_handler_result(&job.id, transition, &accepted, failure)
+            }) {
+                log::error!("[blueprint] failed route claim result persistence failed: {error}");
+            }
+            let _ = write_journal(&job, &handler_outcome, Stage::RouteFailed);
             let _ = storage::commit(store, |current| {
                 current.stage_skip_remaining(&job.id, transition, &outcome.handlers[index + 1..])
             });
@@ -862,12 +888,32 @@ pub(super) fn advance(
         if lease.cancelled.load(Ordering::SeqCst)
             || !store.lock().action_permitted(&job, transition)
         {
+            let failure = super::handlers::Effect {
+                status: Status::Failed,
+                execution_id: None,
+                command_result: None,
+                reason: Some("route_claim_fenced".into()),
+            };
+            let _ = storage::commit(store, |current| {
+                current.stage_finish_handler_result(&job.id, transition, &accepted, failure)
+            });
+            let _ = write_journal(&job, &handler_outcome, Stage::RouteFailed);
             let _ = storage::commit(store, |current| {
                 current.stage_skip_remaining(&job.id, transition, &outcome.handlers[index + 1..])
             });
             return;
         }
         let Some(verdict) = outcome.verdict.as_ref() else {
+            let failure = super::handlers::Effect {
+                status: Status::Failed,
+                execution_id: None,
+                command_result: None,
+                reason: Some("route_verdict_missing".into()),
+            };
+            let _ = storage::commit(store, |current| {
+                current.stage_finish_handler_result(&job.id, transition, &accepted, failure)
+            });
+            let _ = write_journal(&job, &handler_outcome, Stage::RouteFailed);
             return;
         };
         let result = execute(&job, transition, handler, verdict);
@@ -882,7 +928,12 @@ pub(super) fn advance(
         } else {
             Stage::RouteFailed
         };
-        let effect = result.unwrap_or_else(|_| Status::Failed.into());
+        let effect = result.unwrap_or_else(|_| super::handlers::Effect {
+            status: Status::Failed,
+            execution_id: None,
+            command_result: None,
+            reason: Some("handler_execution_failed".into()),
+        });
         let unsafe_continuation = effect
             .command_result
             .as_ref()

@@ -10,6 +10,57 @@ pub const MIN_INTERVAL_MS: u64 = 10_000;
 pub const ROUTE_CONFIDENCE: f64 = 0.80;
 pub const MAX_BUCKETS: usize = 16;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransitionReason {
+    Transition,
+    RearmOnChange,
+    Other,
+    LowConfidence,
+    SameBucket,
+    Paused,
+    Stopped,
+    Held,
+    Unchanged,
+}
+
+impl TransitionReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Transition => "transition",
+            Self::RearmOnChange => "rearm_on_change",
+            Self::Other => "other",
+            Self::LowConfidence => "low_confidence",
+            Self::SameBucket => "same_bucket",
+            Self::Paused => "paused",
+            Self::Stopped => "stopped",
+            Self::Held => "held",
+            Self::Unchanged => "unchanged",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        Some(match value {
+            "transition" => Self::Transition,
+            "rearm_on_change" => Self::RearmOnChange,
+            "other" => Self::Other,
+            "low_confidence" => Self::LowConfidence,
+            "same_bucket" => Self::SameBucket,
+            "paused" => Self::Paused,
+            "stopped" => Self::Stopped,
+            "held" => Self::Held,
+            "unchanged" => Self::Unchanged,
+            _ => return None,
+        })
+    }
+
+    pub fn routes_handlers(self) -> bool {
+        matches!(
+            self,
+            Self::Transition | Self::RearmOnChange | Self::Other | Self::LowConfidence
+        )
+    }
+}
+
 /// Prompt class a respond-prompt handler requests an answer for; the answer path alone
 /// chooses among the provider-declared options.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -289,18 +340,18 @@ pub fn evaluate_with_other_rearm(
         handlers: Vec::new(),
     };
     if machine.paused {
-        return skipped("paused", evidence);
+        return skipped(TransitionReason::Paused.as_str(), evidence);
     }
     if machine.stopped {
-        return skipped("stopped", evidence);
+        return skipped(TransitionReason::Stopped.as_str(), evidence);
     }
     if machine.held.is_some() {
-        return skipped("held", evidence);
+        return skipped(TransitionReason::Held.as_str(), evidence);
     }
     let hash = format!("{:x}", Sha256::digest(output));
     evidence.state_hash = Some(hash.clone());
     if machine.last_hash.as_deref() == Some(&hash) {
-        return skipped("unchanged", evidence);
+        return skipped(TransitionReason::Unchanged.as_str(), evidence);
     }
     machine.last_hash = Some(hash);
     let classification = classify();
@@ -310,22 +361,25 @@ pub fn evaluate_with_other_rearm(
         Err(failure) => return skipped(failure.reason(), evidence),
     };
     let reason = if verdict.bucket == "other" || !buckets.contains(&verdict.bucket) {
-        "other"
+        TransitionReason::Other
     } else if !verdict.confidence.is_finite()
         || !(ROUTE_CONFIDENCE..=1.0).contains(&verdict.confidence)
     {
-        "low_confidence"
+        TransitionReason::LowConfidence
     } else if machine.last_bucket.as_deref() == Some(&verdict.bucket) {
         if rearm_on_change.contains(&verdict.bucket) {
-            "rearm_on_change"
+            TransitionReason::RearmOnChange
         } else {
-            "same_bucket"
+            TransitionReason::SameBucket
         }
     } else {
-        "transition"
+        TransitionReason::Transition
     };
-    let handlers = if matches!(reason, "transition" | "rearm_on_change") {
-        if reason == "transition" {
+    let handlers = if matches!(
+        reason,
+        TransitionReason::Transition | TransitionReason::RearmOnChange
+    ) {
+        if reason == TransitionReason::Transition {
             machine.last_bucket = Some(verdict.bucket.clone());
             if until == Some(verdict.bucket.as_str()) {
                 machine.stopped = true;
@@ -335,7 +389,11 @@ pub fn evaluate_with_other_rearm(
             .get(&verdict.bucket)
             .cloned()
             .unwrap_or_else(|| vec![Handler::notify(&verdict.bucket)])
-    } else if matches!(reason, "other" | "low_confidence") && !on_other.is_empty() {
+    } else if matches!(
+        reason,
+        TransitionReason::Other | TransitionReason::LowConfidence
+    ) && !on_other.is_empty()
+    {
         verdict.bucket = crate::storage::OTHER_BUCKET.into();
         machine.last_bucket = Some(crate::storage::OTHER_BUCKET.into());
         let handlers = on_other.to_vec();
@@ -352,7 +410,7 @@ pub fn evaluate_with_other_rearm(
     let route = handlers.first().map(|handler| handler.action.clone());
     Outcome {
         evidence,
-        reason,
+        reason: reason.as_str(),
         verdict: Some(verdict),
         route,
         handlers,
