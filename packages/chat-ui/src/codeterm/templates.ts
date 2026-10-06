@@ -1,5 +1,5 @@
 import type { CodetermInvocation } from "./recognize";
-import { normalizeMessageText } from "./messageText";
+import { decodeCliMessageText } from "./messageText";
 
 export interface CardStatus {
   ok: boolean;
@@ -205,7 +205,7 @@ function commandObject(command: string | undefined): string | undefined {
 
 function reportFields(inv: CodetermInvocation, result?: string): Array<{ label: string; value: string }> {
   const rawBody = resolvedText(result) ?? flagText(inv, "text") ?? inv.positionals.find((value) => /(?:^|\n|\\n)(?:STATUS|CHANGES|TESTS RUN|TESTS COVERING CHANGES|GATES REQUESTED|FOLLOWUP):/i.test(value));
-  const body = rawBody ? normalizeMessageText(rawBody) : undefined;
+  const body = rawBody ? decodeCliMessageText(rawBody) : undefined;
   const fields = new Map<string, string>();
   for (const line of body?.split(/\r?\n/) ?? []) {
     const match = /^(STATUS|CHANGES|TESTS RUN|TESTS COVERING CHANGES|GATES REQUESTED|FOLLOWUP):\s*(.*)$/i.exec(line.trim());
@@ -423,7 +423,7 @@ export function parseSend(
   const meshRef = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
   const mesh = meshRef ? friendlyPeerName(meshRef, resolvePeer) : undefined;
   const resolved = resolvedText(result);
-  const typed = normalizeMessageText(inv.positionals[0] ?? "");
+  const typed = decodeCliMessageText(inv.positionals[0] ?? "");
   const fromPad = inv.flags["from-pad"];
   const fromFile = inv.flags["from-file"] ?? inv.flags.file;
   const staged =

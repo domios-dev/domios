@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { InboundReportCard, parseInboundReport } from "./InboundReportCard";
 import { MessageBubble } from "../MessageBubble";
-import { normalizeMessageText } from "./messageText";
+import { decodeCliMessageText, normalizeMessageText } from "./messageText";
 import { COMPETITION_DISPATCH_READY_REPORT, COMPETITION_STARTUP_FAILED_REPORT, CURIE_PARTIAL_REPORT, CURIE_PARTIAL_REPORT_BODY_MARKERS, DISPATCH_READY_REPORT } from "./inboundReportFixtures.testdata";
 import { mountInboundReportCardHarness } from "./InboundReportCard.browserHarness";
 import { parseCoordinationReport } from "./coordinationReport";
@@ -18,6 +18,9 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
 const content = "task: pl_d17yp2/task_2iw42e\nstatus: In Review\nbranch: lane/tool-cards\nsha: 1e096cba6\ntests: 11/11 green\nSTATUS: in_review | CHANGES: Added provider matrix";
 const descriptor = parseInboundReport(content);
 if (normalizeMessageText("one\r\ntwo\rthree") !== "one\ntwo\nthree") throw new Error("transport newline normalization regression");
+if (decodeCliMessageText("one\\ntwo\\r\\nthree") !== "one\ntwo\nthree") throw new Error("CLI newline escape decoding regression");
+const escapedDescriptor = parseInboundReport("status: in_review\\nchanges: first line\\ntests: green");
+if (!escapedDescriptor.fields.some((field) => field.label === "changes" && field.value === "first line")) throw new Error("report card must decode escaped newlines in CLI reports");
 const windowsPath = "C:\\Users\\User\\.codeterm-dev\\runtime\\agent-pads\\new\\team\\update.txt";
 if (normalizeMessageText(windowsPath) !== windowsPath) throw new Error("literal path escapes must stay verbatim");
 const pathDescriptor = parseInboundReport(`status: in_review\nchanges: ${windowsPath}`);
