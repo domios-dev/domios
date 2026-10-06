@@ -169,7 +169,7 @@ fn sentinel_update_definition_requires_a_meaningful_name() {
 
     let error = definition.prepare(&job, "editor", true).err().unwrap();
 
-    assert!(error.contains("Sentinel update definition needs a name"));
+    assert!(error.contains("Blueprint update definition needs a name"));
 }
 
 #[test]

@@ -61,7 +61,7 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
             .count()
             > MAX_ACTIVE
     {
-        return Err("sentinel store exceeds capacity".into());
+        return Err("blueprint store exceeds capacity".into());
     }
     let mut ids = std::collections::BTreeSet::new();
     for job in &jobs {
@@ -93,7 +93,7 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
                 .count()
                 > usize::from(job.max_actions)
         {
-            return Err("invalid sentinel budgets or retention".into());
+            return Err("invalid blueprint budgets or retention".into());
         }
         let mut transitions = std::collections::BTreeSet::new();
         for transition in &job.transitions {
@@ -175,10 +175,10 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
             || job.workspace_id.is_empty()
             || job.cwd.is_empty()
         {
-            return Err("invalid sentinel identity or scope".into());
+            return Err("invalid blueprint identity or scope".into());
         }
         if job.probe.len() > 8192 || job.question.trim().is_empty() || job.question.len() > 4096 {
-            return Err("invalid sentinel probe or question".into());
+            return Err("invalid blueprint probe or question".into());
         }
         if job
             .routes
@@ -189,7 +189,7 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
                 .as_ref()
                 .is_some_and(|bucket| !job.buckets.contains(bucket))
         {
-            return Err("invalid sentinel route bucket".into());
+            return Err("invalid blueprint route bucket".into());
         }
     }
     for job in &jobs {
@@ -224,7 +224,7 @@ impl Store {
             cwd,
         } = owner;
         let name = params.name.as_deref().ok_or_else(|| {
-            "Sentinel graph name is required; use --name ci-green-watch or --name build-done-notify".to_string()
+            "Blueprint graph name is required; use --name ci-green-watch or --name build-done-notify".to_string()
         })?;
         codeterm_types::automation_name::validate_sentinel_name(name)?;
         let (probe, observe, input) = match (params.probe, params.observe, params.input) {
@@ -264,7 +264,7 @@ impl Store {
         }
         if self.jobs.len() >= MAX_SENTINELS || (!params.paused && self.active_count() >= MAX_ACTIVE)
         {
-            return Err("sentinel capacity reached (64 active, 256 total); stop active sentinels or close their Team".into());
+            return Err("blueprint capacity reached (64 active, 256 total); stop active blueprints or close their Team".into());
         }
         if params
             .until
@@ -283,7 +283,7 @@ impl Store {
                 hs.len() > 1 || hs.iter().any(|h| matches!(h.action, Route::Sentinel(_)))
             });
         if composition && params.timeout.is_none() {
-            return Err("composition sentinels require an explicit --timeout".into());
+            return Err("composition blueprints require an explicit --timeout".into());
         }
         let max_transitions = params
             .max_transitions
@@ -291,7 +291,7 @@ impl Store {
         let max_actions = params.max_actions.unwrap_or(handlers::DEFAULT_ACTIONS);
         if max_transitions == 0 || max_transitions > 256 || max_actions == 0 || max_actions > 1024 {
             return Err(
-                "sentinel budgets must be positive, at most 256 transitions and 1024 actions"
+                "blueprint budgets must be positive, at most 256 transitions and 1024 actions"
                     .into(),
             );
         }

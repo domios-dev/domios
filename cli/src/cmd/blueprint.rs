@@ -1,7 +1,7 @@
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 
-use crate::args::sentinel::{SentinelAction, SentinelEscalationAction};
+use crate::args::blueprint::{BlueprintAction, BlueprintEscalationAction};
 use crate::client::SocketClient;
 use crate::cmd::print::{fail, print_json};
 mod handlers;
@@ -84,7 +84,7 @@ fn escalation_resolved_message(transition_id: Option<&str>, result: &Value) -> S
     )
 }
 
-pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: SentinelAction) {
+pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: BlueprintAction) {
     let (method, params) = request(
         action,
         std::env::var("CODETERM_TAB_ID").ok(),
@@ -99,15 +99,15 @@ pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: Senti
         print_json(&result);
         return;
     }
-    if method.starts_with("sentinel.validate.") {
+    if method.starts_with("blueprint.validate.") {
         println!("{}", preview_summary(&result));
         return;
     }
-    if method == "sentinel.history" {
+    if method == "blueprint.history" {
         render_history(&result);
         return;
     }
-    if method == "sentinel.update" {
+    if method == "blueprint.update" {
         println!(
             "Updated {} to definition version {}.",
             result["id"].as_str().unwrap_or("?"),
@@ -115,7 +115,7 @@ pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: Senti
         );
         return;
     }
-    if method == "sentinel.escalation.resolve" {
+    if method == "blueprint.escalation.resolve" {
         println!(
             "{}",
             escalation_resolved_message(transition_id.as_deref(), &result)
@@ -124,14 +124,14 @@ pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: Senti
     }
     if let Some(jobs) = result.as_array() {
         if jobs.is_empty() {
-            println!("No sentinels.");
+            println!("No blueprints.");
         }
         for job in jobs {
             render(job);
         }
     } else {
         render(&result);
-        if method == "sentinel.show" {
+        if method == "blueprint.show" {
             let source = input_source_line(&result)
                 .or_else(|| {
                     result
@@ -156,14 +156,14 @@ pub fn handle_sentinel(client: &mut SocketClient, json_mode: bool, action: Senti
 }
 
 fn request(
-    action: SentinelAction,
+    action: BlueprintAction,
     caller: Option<String>,
     nonce: Option<String>,
 ) -> Result<(&'static str, Value), String> {
     let mut params = json!({ "caller_tab_id": caller, "session_binding_nonce": nonce });
     let method = match action {
-        SentinelAction::Recipe { .. } => return Err("sentinel recipe is handled locally".into()),
-        SentinelAction::Create {
+        BlueprintAction::Recipe { .. } => return Err("blueprint recipe is handled locally".into()),
+        BlueprintAction::Create {
             name,
             probe,
             observe,
@@ -203,21 +203,21 @@ fn request(
             )?;
             params["create"] = json!({ "name": name, "probe": probe, "observe": observe, "input": input, "question": question, "buckets": buckets, "every": every.unwrap_or_else(|| "20s".into()), "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
             if dry_run {
-                "sentinel.validate.create"
+                "blueprint.validate.create"
             } else {
-                "sentinel.create"
+                "blueprint.create"
             }
         }
-        SentinelAction::List => "sentinel.list",
-        SentinelAction::Show { id } => {
+        BlueprintAction::List => "blueprint.list",
+        BlueprintAction::Show { id } => {
             params["id"] = json!(id);
-            "sentinel.show"
+            "blueprint.show"
         }
-        SentinelAction::Stop { id } => {
+        BlueprintAction::Stop { id } => {
             params["id"] = json!(id);
-            "sentinel.stop"
+            "blueprint.stop"
         }
-        SentinelAction::Update {
+        BlueprintAction::Update {
             id,
             expect_version,
             from_file,
@@ -228,20 +228,20 @@ fn request(
             params["expect_version"] = json!(expect_version);
             params["update"] = read_update(&from_file, cause.as_deref())?;
             if dry_run {
-                "sentinel.validate.update"
+                "blueprint.validate.update"
             } else {
-                "sentinel.update"
+                "blueprint.update"
             }
         }
-        SentinelAction::History { id } => {
+        BlueprintAction::History { id } => {
             params["id"] = json!(id);
-            "sentinel.history"
+            "blueprint.history"
         }
-        SentinelAction::Escalation { action } => match action {
-            SentinelEscalationAction::Resolve { id, transition_id } => {
+        BlueprintAction::Escalation { action } => match action {
+            BlueprintEscalationAction::Resolve { id, transition_id } => {
                 params["id"] = json!(id);
                 params["transition_id"] = json!(transition_id);
-                "sentinel.escalation.resolve"
+                "blueprint.escalation.resolve"
             }
         },
     };
@@ -353,7 +353,7 @@ fn read_update(path: &std::path::Path, cause: Option<&str>) -> Result<Value, Str
 
 fn preview_summary(job: &Value) -> String {
     let mut lines = vec![format!(
-        "Sentinel graph: {}",
+        "Blueprint graph: {}",
         job["name"].as_str().unwrap_or("(unnamed)")
     )];
     lines.push(format!(
@@ -626,8 +626,8 @@ mod tests {
 
     #[test]
     fn sentinel_escalate_resolve_request_preserves_stage_and_transition_ids() {
-        let action = SentinelAction::Escalation {
-            action: SentinelEscalationAction::Resolve {
+        let action = BlueprintAction::Escalation {
+            action: BlueprintEscalationAction::Resolve {
                 id: "sentinel_a".into(),
                 transition_id: "transition_9".into(),
             },
@@ -636,7 +636,7 @@ mod tests {
         let (method, params) =
             request(action, Some("creator".into()), Some("nonce".into())).unwrap();
 
-        assert_eq!(method, "sentinel.escalation.resolve");
+        assert_eq!(method, "blueprint.escalation.resolve");
         assert_eq!(params["id"], "sentinel_a");
         assert_eq!(params["transition_id"], "transition_9");
     }
@@ -647,7 +647,7 @@ mod tests {
 
         let cli = crate::args::cli::Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "create",
             "--name",
             "ci-green-watch",
@@ -662,14 +662,14 @@ mod tests {
             "--dry-run",
         ])
         .unwrap();
-        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
             panic!("unexpected command")
         };
 
         let (method, params) =
             request(action, Some("creator".into()), Some("nonce".into())).unwrap();
 
-        assert_eq!(method, "sentinel.validate.create");
+        assert_eq!(method, "blueprint.validate.create");
         assert_eq!(params["create"]["name"], "ci-green-watch");
     }
     #[test]
@@ -677,7 +677,7 @@ mod tests {
         use clap::Parser;
         let cli = crate::args::cli::Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "create",
             "--name",
             "Supplied name",
@@ -690,7 +690,7 @@ mod tests {
             "--route",
             "done=notify",
             "--route",
-            "done=sentinel:sentinel_child",
+            "done=blueprint:sentinel_child",
             "--rearm-on-change",
             "done",
             "--paused",
@@ -702,7 +702,7 @@ mod tests {
             "9",
         ])
         .unwrap();
-        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
             panic!("unexpected command")
         };
         let (method, params) = request(
@@ -711,7 +711,7 @@ mod tests {
             Some("supplied-nonce".into()),
         )
         .unwrap();
-        assert_eq!(method, "sentinel.create");
+        assert_eq!(method, "blueprint.create");
         assert_eq!(params["caller_tab_id"], "supplied-creator");
         assert_eq!(params["session_binding_nonce"], "supplied-nonce");
         let create = &params["create"];
@@ -723,7 +723,7 @@ mod tests {
         assert_eq!(create["rearm_on_change"], json!(["done"]));
         assert_eq!(
             create["handlers"]["done"][1],
-            json!({"id":"activate-sentinel-child-on-done","type":"sentinel","parameters":{"target":"sentinel_child"}})
+            json!({"id":"activate-sentinel-child-on-done","type":"blueprint","parameters":{"target":"sentinel_child"}})
         );
         assert_eq!(create["timeout"], "1h");
     }
@@ -750,7 +750,7 @@ mod tests {
         std::fs::write(&path, serde_json::to_vec(&definition).unwrap()).unwrap();
         let cli = crate::args::cli::Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "update",
             "sentinel_a",
             "--expect-version",
@@ -761,12 +761,12 @@ mod tests {
             "transition_2",
         ])
         .unwrap();
-        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
             panic!("unexpected command")
         };
         let (method, params) =
             request(action, Some("editor".into()), Some("nonce".into())).unwrap();
-        assert_eq!(method, "sentinel.update");
+        assert_eq!(method, "blueprint.update");
         assert_eq!(params["caller_tab_id"], "editor");
         assert_eq!(params["session_binding_nonce"], "nonce");
         assert_eq!(params["expect_version"], 3);
@@ -776,7 +776,7 @@ mod tests {
 
         let cli = crate::args::cli::Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "update",
             "sentinel_a",
             "--expect-version",
@@ -786,24 +786,24 @@ mod tests {
             "--dry-run",
         ])
         .unwrap();
-        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
             panic!("unexpected command")
         };
         let (method, _) = request(action, Some("editor".into()), Some("nonce".into())).unwrap();
-        assert_eq!(method, "sentinel.validate.update");
+        assert_eq!(method, "blueprint.validate.update");
 
         let cli = crate::args::cli::Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "history",
             "sentinel_a",
         ])
         .unwrap();
-        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
             panic!("unexpected command")
         };
         let (method, params) = request(action, Some("reader".into()), None).unwrap();
-        assert_eq!(method, "sentinel.history");
+        assert_eq!(method, "blueprint.history");
         assert_eq!(params["id"], "sentinel_a");
     }
 }
@@ -824,7 +824,7 @@ mod command_tests {
         ] {
             let cli = crate::args::cli::Cli::try_parse_from([
                 "codeterm",
-                "sentinel",
+                "blueprint",
                 "create",
                 "--name",
                 "agent-state-watch",
@@ -839,12 +839,12 @@ mod command_tests {
                 "--json",
             ])
             .unwrap();
-            let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+            let crate::args::cli::Commands::Blueprint { action } = cli.command else {
                 panic!("wrong command")
             };
             let (method, params) =
                 request(action, Some("creator".into()), Some("nonce".into())).unwrap();
-            assert_eq!(method, "sentinel.create");
+            assert_eq!(method, "blueprint.create");
             assert_eq!(params["create"]["probe"], Value::Null);
             assert_eq!(params["create"]["observe"], expected);
             let encoded = serde_json::to_string(&params["create"]).unwrap();
@@ -862,7 +862,7 @@ mod command_tests {
         std::fs::write(&path, serde_json::to_vec(&definitions).unwrap()).unwrap();
         let cli = crate::args::cli::Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "create",
             "--name",
             "command-result-watch",
@@ -880,12 +880,12 @@ mod command_tests {
             path.to_str().unwrap(),
         ])
         .unwrap();
-        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
             panic!("wrong command");
         };
         let (method, params) =
             request(action, Some("creator".into()), Some("nonce".into())).unwrap();
-        assert_eq!(method, "sentinel.create");
+        assert_eq!(method, "blueprint.create");
         assert_eq!(params["caller_tab_id"], "creator");
         assert_eq!(params["session_binding_nonce"], "nonce");
         assert_eq!(params["create"]["handlers"], definitions);
@@ -896,7 +896,7 @@ mod command_tests {
     fn sentinel_create_input_request_carries_spec_and_resolves_relative_file() {
         let cli = crate::args::cli::Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "create",
             "--name",
             "voice-note-watch",
@@ -914,12 +914,12 @@ mod command_tests {
             "done",
         ])
         .unwrap();
-        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
             panic!("wrong command")
         };
         let (method, params) =
             request(action, Some("creator".into()), Some("nonce".into())).unwrap();
-        assert_eq!(method, "sentinel.create");
+        assert_eq!(method, "blueprint.create");
         let input = &params["create"]["input"];
         assert_eq!(input["kind"], "audio");
         let file = input["data"]["file"].as_str().unwrap();
@@ -938,7 +938,7 @@ mod command_tests {
     fn sentinel_create_input_dry_run_uses_validation_rpc() {
         let cli = crate::args::cli::Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "create",
             "--name",
             "voice-note-watch",
@@ -953,12 +953,12 @@ mod command_tests {
             "--dry-run",
         ])
         .unwrap();
-        let crate::args::cli::Commands::Sentinel { action } = cli.command else {
+        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
             panic!("wrong command")
         };
         let (method, params) =
             request(action, Some("creator".into()), Some("nonce".into())).unwrap();
-        assert_eq!(method, "sentinel.validate.create");
+        assert_eq!(method, "blueprint.validate.create");
         assert_eq!(params["create"]["input"]["kind"], "audio");
         assert_eq!(
             params["create"]["input"]["data"]["url"],

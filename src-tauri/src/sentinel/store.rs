@@ -212,10 +212,10 @@ impl Store {
         if self.jobs.len() >= MAX_SENTINELS
             || (!job.machine.paused && self.active_count() >= MAX_ACTIVE)
         {
-            return Staged::ready(Err("sentinel capacity reached".into()));
+            return Staged::ready(Err("blueprint capacity reached".into()));
         }
         if self.get(&job.id).is_some() {
-            return Staged::ready(Err("duplicate sentinel ID".into()));
+            return Staged::ready(Err("duplicate blueprint ID".into()));
         }
         let association_ids = match self.association_ids(&job) {
             Ok(ids) => ids,
@@ -304,7 +304,7 @@ impl Store {
 
     pub(crate) fn stage_stop(&mut self, id: &str, reason: &str) -> Staged<Sentinel> {
         let Some(current) = self.get(id).cloned() else {
-            return Staged::ready(Err(format!("sentinel not found: {id}")));
+            return Staged::ready(Err(format!("blueprint not found: {id}")));
         };
         let notice = (!current.machine.stopped).then(|| StopNotice::new(&current, reason));
         if let Some(cancelled) = self.active.remove(id) {
@@ -314,7 +314,7 @@ impl Store {
             return self.sqlite_stop(id, reason, notice);
         }
         let Some(stopped) = self.apply_stop(id, reason) else {
-            return Staged::ready(Err(format!("sentinel not found: {id}")));
+            return Staged::ready(Err(format!("blueprint not found: {id}")));
         };
         match self.save_legacy() {
             Ok(()) => {
@@ -386,7 +386,7 @@ impl Store {
             .map(|job| job.id.clone())
             .collect();
         if !owned.iter().any(|candidate| candidate == id) {
-            return Staged::ready(Err(format!("Sentinel scenario not found: {id}")));
+            return Staged::ready(Err(format!("Blueprint scenario not found: {id}")));
         }
         for job_id in &owned {
             if let Some(cancelled) = self.active.remove(job_id) {
@@ -470,11 +470,11 @@ impl Store {
             return Staged::ready(Err(error));
         }
         let Some(current) = self.get(id).cloned() else {
-            return Staged::ready(Err(format!("sentinel not found: {id}")));
+            return Staged::ready(Err(format!("blueprint not found: {id}")));
         };
         if current.machine.held.as_deref() != Some(transition_id) {
             return Staged::ready(Err(
-                "sentinel escalation is not open for that transition".into()
+                "blueprint escalation is not open for that transition".into()
             ));
         }
         if let Some(cancelled) = self.active.remove(id) {
@@ -575,18 +575,18 @@ impl Store {
     pub fn validate_target(&self, source: &Sentinel, id: &str) -> Result<(), String> {
         self.ensure_available()?;
         if source.id == id {
-            return Err("sentinel cannot activate itself".into());
+            return Err("blueprint cannot activate itself".into());
         }
-        let target = self.get(id).ok_or("sentinel target not found")?;
+        let target = self.get(id).ok_or("blueprint target not found")?;
         if !source.same_owner(target) {
-            return Err("sentinel target requires the same creator, Team and workspace".into());
+            return Err("blueprint target requires the same creator, Team and workspace".into());
         }
         if target.machine.stopped
             || target
                 .expires_at
                 .is_some_and(|at| self.clock.now_ms() >= at)
         {
-            return Err("sentinel target is stopped or expired".into());
+            return Err("blueprint target is stopped or expired".into());
         }
         Ok(())
     }
@@ -616,7 +616,7 @@ impl Store {
         }
         let previous = self.jobs.clone();
         let Some(target) = self.jobs.iter_mut().find(|job| job.id == id) else {
-            return Staged::ready(Err("sentinel target disappeared".into()));
+            return Staged::ready(Err("blueprint target disappeared".into()));
         };
         target.machine.paused = false;
         target.revision += 1;
@@ -635,16 +635,16 @@ impl Store {
         id: &str,
     ) -> Result<bool, String> {
         if !self.action_permitted(source, transition) {
-            return Err("sentinel activation source fenced".into());
+            return Err("blueprint activation source fenced".into());
         }
         let current = self
             .get(&source.id)
-            .ok_or("sentinel activation source disappeared")?;
+            .ok_or("blueprint activation source disappeared")?;
         let transition = current
             .transitions
             .iter()
             .find(|record| record.id == transition)
-            .ok_or("sentinel activation transition disappeared")?;
+            .ok_or("blueprint activation transition disappeared")?;
         let declared_claim = current
             .routes
             .get(&transition.bucket)
@@ -659,19 +659,19 @@ impl Store {
                 })
             });
         if !declared_claim {
-            return Err("sentinel activation requires its declared durable handler claim".into());
+            return Err("blueprint activation requires its declared durable handler claim".into());
         }
         self.validate_target(source, id)?;
         if !self
             .get(id)
-            .ok_or("sentinel target disappeared")?
+            .ok_or("blueprint target disappeared")?
             .machine
             .paused
         {
             return Ok(false);
         }
         if self.active_count() >= MAX_ACTIVE {
-            return Err("sentinel active capacity reached".into());
+            return Err("blueprint active capacity reached".into());
         }
         Ok(true)
     }

@@ -198,7 +198,7 @@ fn sentinel_until_is_one_shot() {
         &routes,
         None,
         scope(),
-        || panic!("stopped sentinel must not classify"),
+        || panic!("stopped blueprint must not classify"),
     );
     assert_eq!(out.route, None);
 }
@@ -315,7 +315,7 @@ fn sentinel_create_requires_a_meaningful_name() {
         )
         .unwrap_err();
 
-    assert!(error.contains("Sentinel graph name is required"));
+    assert!(error.contains("Blueprint graph name is required"));
     assert!(store.list().is_empty());
 }
 

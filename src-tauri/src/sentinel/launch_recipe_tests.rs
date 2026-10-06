@@ -6,13 +6,13 @@ use super::*;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
 use crate::sentinel::machine::regex_verdict;
 
-const RECIPES_DOC: &str = include_str!("../../../prod-docs/SENTINEL-RECIPES.md");
+const RECIPES_DOC: &str = include_str!("../../../prod-docs/BLUEPRINT-RECIPES.md");
 
 fn recipe_matches() -> BTreeMap<String, String> {
     let (_, block) = RECIPES_DOC
-        .split_once("<!-- sentinel-recipe:launch-prompt-gate -->")
+        .split_once("<!-- blueprint-recipe:launch-prompt-gate -->")
         .expect("launch-prompt-gate recipe");
-    let (block, _) = block.split_once("<!-- /sentinel-recipe -->").unwrap();
+    let (block, _) = block.split_once("<!-- /blueprint-recipe -->").unwrap();
     block
         .split("--match '")
         .skip(1)

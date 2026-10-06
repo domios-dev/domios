@@ -25,14 +25,14 @@ pub(crate) struct EmbeddedDoc {
 
 pub(crate) const DOCS: &[EmbeddedDoc] = &[
     doc!(
-        "SENTINELS",
+        "BLUEPRINTS",
         "Bounded status probes, changed-output classification and safe transition routes",
-        "../../../prod-docs/SENTINELS.md"
+        "../../../prod-docs/BLUEPRINTS.md"
     ),
     doc!(
-        "SENTINEL-RECIPES",
-        "Sentinel graph use-case patterns and built-in recipe skeletons",
-        "../../../prod-docs/SENTINEL-RECIPES.md"
+        "BLUEPRINT-RECIPES",
+        "Blueprint graph use-case patterns and built-in recipe skeletons",
+        "../../../prod-docs/BLUEPRINT-RECIPES.md"
     ),
     doc!(
         "CONFIG",
