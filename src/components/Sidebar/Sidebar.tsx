@@ -34,6 +34,7 @@ import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import type { JobsTarget } from "../Jobs/JobsView";
+import { NO_JOBS_FILTER } from "../Jobs/jobsModel";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
@@ -681,6 +682,8 @@ export function Sidebar({
                     </div>
                     {(onOpenWorkspaceMap || onOpenWorkspaceAutomation) && (onOpenWorkspaceAutomation
                       ? <LiveWorkspaceNavigationActions
+                        scope={NO_JOBS_FILTER}
+                        workspaces={state.workspaces}
                         workspaceId={generalWorkspace.id}
                         workspaceName={generalWorkspace.name}
                         onOpenMap={onOpenWorkspaceMap}
