@@ -5,7 +5,7 @@ use crate::repositories::{expect_matches, from_sql_u64, to_sql_u64, Expect, Revi
 use crate::schema::{self, WORKSPACE_ORDER_REVISION};
 use crate::WorkspaceRecord;
 use rusqlite::{params, Connection, OptionalExtension};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[path = "delta.rs"]
 mod delta;
@@ -31,6 +31,14 @@ impl OrderedTable {
             Self::Teams => "UPDATE desk_teams SET ordinal = ?2 WHERE id = ?1",
             Self::Workspaces => "UPDATE workspaces SET ordinal = ?2 WHERE id = ?1",
             Self::Tabs => "UPDATE desk_tabs SET ordinal = ?2 WHERE id = ?1",
+        }
+    }
+
+    fn ordered_rows_sql(self) -> &'static str {
+        match self {
+            Self::Teams => "SELECT id, ordinal FROM desk_teams",
+            Self::Workspaces => "SELECT id, ordinal FROM workspaces",
+            Self::Tabs => "SELECT id, ordinal FROM desk_tabs WHERE workspace_id = ?1",
         }
     }
 }
@@ -65,6 +73,54 @@ fn park_ordered_rows(
         }
     }
     Ok(())
+}
+
+fn renumber_ordered_rows_if_needed(
+    cx: &mut WriteCx<'_>,
+    table: OrderedTable,
+    workspace_id: Option<&str>,
+    ids: &[String],
+) -> Result<bool, StorageError> {
+    if ids.is_empty() {
+        return Ok(false);
+    }
+    let current_ordinals = {
+        let mut statement = cx
+            .conn
+            .prepare(table.ordered_rows_sql())
+            .map_err(|error| sqlite_error("prepare desk order", error))?;
+        let rows = match workspace_id {
+            Some(workspace_id) => statement.query_map([workspace_id], read_ordered_row),
+            None => statement.query_map([], read_ordered_row),
+        }
+        .map_err(|error| sqlite_error("query desk order", error))?;
+        rows.collect::<Result<HashMap<_, _>, _>>()
+            .map_err(|error| sqlite_error("read desk order", error))?
+    };
+    let normalized = ids.iter().enumerate().all(|(ordinal, id)| {
+        i64::try_from(ordinal)
+            .ok()
+            .is_some_and(|ordinal| current_ordinals.get(id) == Some(&ordinal))
+    });
+    if normalized {
+        return Ok(false);
+    }
+    park_ordered_rows(cx, table, ids)?;
+    for (ordinal, id) in ids.iter().enumerate() {
+        let ordinal = i64::try_from(ordinal)
+            .map_err(|_| StorageError::invalid("desk ordinal", "too many ordered rows"))?;
+        let changed = cx.write(table.update_ordinal_sql(), params![id, ordinal])?;
+        if changed != 1 {
+            return Err(StorageError::Corrupt {
+                detail: format!("ordered row {id} disappeared while being renumbered"),
+            });
+        }
+    }
+    Ok(true)
+}
+
+fn read_ordered_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<(String, i64)> {
+    Ok((row.get(0)?, row.get(1)?))
 }
 
 pub(super) fn import(cx: &mut WriteCx<'_>, snapshot: DeskSnapshot) -> Result<(), StorageError> {
@@ -307,17 +363,16 @@ pub(super) fn reorder_tabs(
     )?;
     let current = tab_order(cx.conn, workspace_id)?;
     exact_permutation("tab order", &current, &order)?;
+    let order_ids = order.clone();
+    let renumbered =
+        renumber_ordered_rows_if_needed(cx, OrderedTable::Tabs, Some(workspace_id), &order_ids)?;
     if current == order {
+        if renumbered {
+            bump_desk(cx)?;
+        }
         return Ok(());
     }
     let revision = sql_revision(cx)?;
-    let moved: Vec<String> = order
-        .iter()
-        .enumerate()
-        .filter(|(ordinal, id)| current.get(*ordinal) != Some(*id))
-        .map(|(_, id)| id.clone())
-        .collect();
-    park_ordered_rows(cx, OrderedTable::Tabs, &moved)?;
     for (ordinal, id) in order.iter().enumerate() {
         if current.iter().position(|current_id| current_id == id) != Some(ordinal) {
             cx.write(
@@ -342,6 +397,9 @@ pub(super) fn reorder_workspaces(
     expect_matches("desk workspace order", Expect::At(expect_order), actual)?;
     let current = workspace_order(cx.conn)?;
     exact_permutation("workspace order", &current, &order)?;
+    let order_ids = order.clone();
+    let renumbered =
+        renumber_ordered_rows_if_needed(cx, OrderedTable::Workspaces, None, &order_ids)?;
     let moved: Vec<(String, i64)> = order
         .iter()
         .zip(0_i64..)
@@ -351,11 +409,12 @@ pub(super) fn reorder_workspaces(
         .map(|(id, target)| (id.clone(), target))
         .collect();
     if moved.is_empty() {
+        if renumbered {
+            bump_desk(cx)?;
+        }
         return Ok(());
     }
     let revision = sql_revision(cx)?;
-    let moved_ids: Vec<String> = moved.iter().map(|(id, _)| id.clone()).collect();
-    park_ordered_rows(cx, OrderedTable::Workspaces, &moved_ids)?;
     for (id, target) in &moved {
         cx.write(
             "UPDATE workspaces SET ordinal = ?2, revision = ?3 WHERE id = ?1",

@@ -55,13 +55,30 @@ where
     }
 }
 
-fn persist_storage_desk_snapshot(app: &tauri::AppHandle, mux: &MuxState) {
+fn persist_storage_desk_snapshot(app: &tauri::AppHandle, mux: &MuxState) -> Result<(), String> {
     match crate::service::session_persist::write_session_snapshot(app, mux) {
-        Ok(SaveOutcome::Saved) => log::info!("[shutdown] Storage desk snapshot committed"),
-        Ok(SaveOutcome::RefusedReduction(refusal)) => {
-            log::error!("[shutdown] Storage desk snapshot refused: {refusal}")
+        Ok(SaveOutcome::Saved) => {
+            log::info!("[shutdown] Storage desk snapshot committed");
+            Ok(())
         }
-        Err(error) => log::error!("[shutdown] Storage desk snapshot failed: {error}"),
+        Ok(SaveOutcome::RefusedReduction(refusal)) => {
+            let error = format!("Storage desk snapshot refused: {refusal}");
+            log::error!("[shutdown] {error}");
+            Err(error)
+        }
+        Err(error) => {
+            let failure = format!("Storage desk snapshot failed: {error}");
+            log::error!("[shutdown] {failure}");
+            Err(failure)
+        }
+    }
+}
+
+fn shutdown_state_persistence_result(errors: &[String]) -> Result<(), String> {
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors.join("; "))
     }
 }
 
@@ -120,15 +137,20 @@ fn shutdown_sidecar_log_records(
 /// and side-effect-free for process liveness, so every exit signal runs it.
 pub fn persist_state(app: &tauri::AppHandle) {
     log::info!("[shutdown] state persistence started");
+    let mut errors = Vec::new();
     if let Some(mux) = app.try_state::<MuxState>() {
-        persist_storage_desk_snapshot(app, mux.inner());
+        if let Err(error) = persist_storage_desk_snapshot(app, mux.inner()) {
+            errors.push(error);
+        }
     }
     if let Err(error) = crate::service::session_persist::stop_worker(app) {
         log::warn!("[shutdown] desk persistence worker shutdown failed: {error}");
+        errors.push(error);
     }
     if let Some(storage) = app.try_state::<crate::startup::StorageAuthority>() {
         if let Err(error) = crate::startup::shutdown_bounded(storage.inner()) {
             log::error!("[shutdown] Storage shutdown failed: {error}");
+            errors.push(error.to_string());
         }
     }
 
@@ -140,10 +162,16 @@ pub fn persist_state(app: &tauri::AppHandle) {
                 log_frames,
                 checkpointed
             ),
-            Err(e) => log::warn!("[shutdown] mem WAL checkpoint failed: {}", e),
+            Err(e) => {
+                log::warn!("[shutdown] mem WAL checkpoint failed: {}", e);
+                errors.push(e.to_string());
+            }
         }
     }
-    log::info!("[shutdown] state persistence completed");
+    match shutdown_state_persistence_result(&errors) {
+        Ok(()) => log::info!("[shutdown] state persistence completed"),
+        Err(_) => log::error!("[shutdown] state persistence incomplete"),
+    }
 }
 
 /// Clean-exit declaration: `.clean_exit` sentinel + keepawake child teardown +
