@@ -446,6 +446,7 @@ pub fn run() {
             let secret_registry = Arc::new(crate::secrets::SecretRegistry::new());
             let transcribe_registry = Arc::new(crate::transcribe::TranscribeRegistry::new());
             let converter_registry = Arc::new(codeterm_plugin::converter::ConverterRegistry::new());
+            let graph_node_registry = Arc::new(codeterm_plugin::graph_nodes::GraphNodeRegistry::default());
             let decision_model_registry = crate::api::mem_routes::decision::default_registry();
             let glance_registry: crate::glance::GlanceRegistryHandle =
                 Arc::new(crate::glance::GlanceRegistry::new());
@@ -475,6 +476,7 @@ pub fn run() {
                 )),
                 transcribe: transcribe_registry.clone(),
                 converter: converter_registry.clone(),
+                graph_nodes: graph_node_registry.clone(),
                 glance: glance_registry.clone(),
                 bubble: bubble_registry.clone(),
                 view: view_registry.clone(),
@@ -865,6 +867,8 @@ pub fn run() {
                 secret_registry: secret_registry.clone(),
                 secrets,
                 transcribe_registry: transcribe_registry.clone(),
+                converter_registry: converter_registry.clone(),
+                graph_node_registry: graph_node_registry.clone(),
                 supporter_models: decision_model_registry,
                 glance_registry: glance_registry.clone(),
                 bubble_registry: bubble_registry.clone(),

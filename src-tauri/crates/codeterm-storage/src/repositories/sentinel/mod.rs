@@ -2,6 +2,7 @@
 //! and handler claims/results. Every mutation is bounded and re-asserts its fences atomically.
 
 mod definitions;
+mod pipeline;
 mod queries;
 mod records;
 /// `runtime::{import, remove_team_rows}` are transaction joins for integration owners.
@@ -14,17 +15,17 @@ use crate::error::StorageError;
 use crate::owner::Storage;
 use crate::repositories::{to_sql_u64, Committed, Completion, Read};
 use records::{identifier, overhead, text};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 pub use records::{
-    AmendmentRecord, BatchFence, BucketDefinition, CaptureRecord, CommandParameters,
-    CommandResultRecord, CommandStatus, DefinitionProvenance, DefinitionUpdate, EscalateTarget,
-    Fence, HandlerAction, HandlerDefinition, HandlerResultRecord, HandlerStatus, MutationOutcome,
-    NewTransition, ObserveKind, ObserveSource, RunRecord, RuntimeOutcome, SafeKind, ScheduleUpdate,
-    SentinelCommit, SentinelCreate, SentinelId, SentinelIdentity, SentinelImport, SentinelRecord,
-    SentinelScope, SourceKind, StageDefinition, StageSource, StageRuntime, StoredDefinition,
-    StoredSentinel, TargetIdentity, TransitionRecord, MAX_SENTINEL_BATCH, MAX_SENTINEL_LINEAGE,
-    MAX_SENTINEL_RECORDS, OTHER_BUCKET,
+    AmendmentRecord, BatchFence, BlueprintJournalEntry, BlueprintJournalWrite, BucketDefinition,
+    CaptureRecord, CommandParameters, CommandResultRecord, CommandStatus, DefinitionProvenance,
+    DefinitionUpdate, EscalateTarget, Fence, HandlerAction, HandlerDefinition, HandlerResultRecord,
+    HandlerStatus, MutationOutcome, NewTransition, ObserveKind, ObserveSource, RunRecord,
+    RuntimeOutcome, SafeKind, ScheduleUpdate, SentinelCommit, SentinelCreate, SentinelId,
+    SentinelIdentity, SentinelImport, SentinelRecord, SentinelScope, SourceKind, StageDefinition,
+    StageRuntime, StageSource, StoredDefinition, StoredSentinel, TargetIdentity, TransitionRecord,
+    MAX_SENTINEL_BATCH, MAX_SENTINEL_LINEAGE, MAX_SENTINEL_RECORDS, OTHER_BUCKET,
 };
 
 impl Storage {
@@ -94,6 +95,49 @@ impl SentinelRepository {
     pub fn history(&self, id: SentinelId) -> Completion<Read<Vec<StoredDefinition>>> {
         self.storage
             .submit_read(move |cx| definitions::load_history(cx.conn, id.as_str()))
+    }
+
+    pub fn blueprint_log(
+        &self,
+        id: SentinelId,
+        limit: u16,
+    ) -> Completion<Read<Vec<BlueprintJournalEntry>>> {
+        if !(1..=200).contains(&limit) {
+            return Completion::settled(Err(crate::error::StorageError::invalid(
+                "blueprint log limit",
+                "must be between 1 and 200",
+            )));
+        }
+        self.storage
+            .submit_read(move |cx| pipeline::log(cx.conn, id.as_str(), limit))
+    }
+
+    pub fn blueprint_logs(
+        &self,
+        ids: Vec<SentinelId>,
+        limit: u16,
+    ) -> Completion<Read<BTreeMap<String, Vec<BlueprintJournalEntry>>>> {
+        if ids.is_empty() || ids.len() > 256 || !(1..=200).contains(&limit) {
+            return Completion::settled(Err(crate::error::StorageError::invalid(
+                "blueprint logs",
+                "requires 1..=256 blueprints and a limit between 1 and 200",
+            )));
+        }
+        self.storage
+            .submit_read(move |cx| pipeline::logs(cx, &ids, limit))
+    }
+
+    pub fn write_blueprint_journal(
+        &self,
+        id: SentinelId,
+        write: BlueprintJournalWrite,
+    ) -> Mutation {
+        if let Err(error) = write.validate() {
+            return refused(error);
+        }
+        let cost = id.as_str().len() + serde_json::to_vec(&write).map_or(0, |bytes| bytes.len());
+        self.storage
+            .submit_mutation(cost, move |cx| pipeline::write(cx, id.as_str(), write))
     }
 
     pub fn create(&self, create: SentinelCreate) -> Mutation {

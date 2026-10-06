@@ -50,6 +50,7 @@ pub(super) fn test_caps() -> CapabilityRegistries {
         decision_model: Arc::new(crate::capability::CapabilityRegistry::new()),
         transcribe: Arc::new(crate::transcribe::TranscribeRegistry::new()),
         converter: Arc::new(crate::converter::ConverterRegistry::new()),
+        graph_nodes: Arc::new(crate::graph_nodes::GraphNodeRegistry::default()),
         glance: Arc::new(crate::glance::GlanceRegistry::new()),
         bubble: Arc::new(crate::bubble::BubbleRegistry::new()),
         view: Arc::new(crate::view_host::ViewRegistry::new()),
