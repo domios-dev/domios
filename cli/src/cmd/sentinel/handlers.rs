@@ -49,8 +49,7 @@ pub(super) fn declared_outputs(
             .split_once(':')
             .map(|(kind, target)| (kind, Some(target)))
             .unwrap_or((action, None));
-        let ordinal = grouped.get(bucket).map_or(1, |handlers| handlers.len() + 1);
-        let id = unique_id(kind, target, None, bucket, ordinal, &ids);
+        let id = unique_id(kind, target, None, bucket, &ids);
         ids.insert(id.clone());
         grouped.entry(bucket.to_string()).or_default().push(json!({
             "id": id,
@@ -153,7 +152,12 @@ fn normalize_handler(
             &minimal_example(bucket, "notify", "{}"),
         )
     })?;
-    reject_unknown(handler, &["id", "type", "parameters"], path, bucket)?;
+    reject_unknown(
+        handler,
+        &["id", "type", "parameters"],
+        path,
+        &minimal_example(bucket, "notify", "{}"),
+    )?;
     let kind = handler.get("type").and_then(Value::as_str).ok_or_else(|| {
         field_error(
             &pointer_segment(path, "type"),
@@ -190,7 +194,7 @@ fn normalize_handler(
         parameters,
         allowed,
         &pointer_segment(path, "parameters"),
-        bucket,
+        &minimal_example(bucket, kind, parameter_example(kind)),
     )?;
     let target = parameters.get("target").and_then(Value::as_str);
     validate_parameters(kind, parameters, path, bucket)?;
@@ -408,7 +412,7 @@ fn reject_unknown(
     object: &Map<String, Value>,
     allowed: &[&str],
     path: &str,
-    bucket: &str,
+    example: &str,
 ) -> Result<(), String> {
     if let Some(unknown) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
         let allowed_values = if allowed.is_empty() {
@@ -420,7 +424,7 @@ fn reject_unknown(
             &pointer_segment(path, unknown),
             "a supported field",
             &allowed_values,
-            &minimal_example(bucket, "notify", "{}"),
+            example,
         ));
     }
     Ok(())
@@ -431,6 +435,18 @@ fn parameter_keys(kind: &str) -> &'static str {
         "notify" | "stop" => "no parameters",
         "command" => "command, label, timeout_ms",
         _ => "target",
+    }
+}
+
+fn parameter_example(kind: &str) -> &'static str {
+    match kind {
+        "command" => r#"{"command":"printf done","label":"Report done","timeout_ms":1000}"#,
+        "notify" | "stop" => "{}",
+        "respond_prompt" => r#"{"target":"permission"}"#,
+        "escalate" => r#"{"target":"creator"}"#,
+        "sentinel" => r#"{"target":"sentinel_id"}"#,
+        "send" => r#"{"target":"target_id"}"#,
+        _ => r#"{"target":"cron_name"}"#,
     }
 }
 
@@ -456,10 +472,9 @@ fn unique_id(
     target: Option<&str>,
     label: Option<&str>,
     bucket: &str,
-    ordinal: usize,
     ids: &BTreeSet<String>,
 ) -> String {
-    let mut ordinal = ordinal;
+    let mut ordinal = 1;
     loop {
         let id = codeterm_types::automation_name::generated_handler_id(
             kind, target, label, bucket, ordinal,
