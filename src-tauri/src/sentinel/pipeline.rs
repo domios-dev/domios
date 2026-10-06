@@ -3,8 +3,8 @@ use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use codeterm_types::blueprint_pipeline::{
-    self, BlueprintSpec, ResultTarget, RunStatus, RunnerState, Step, StepJournalEntry, StepKind,
-    StepOutcome,
+    self as blueprint_pipeline, BlueprintSpec, ResultTarget, RunStatus, RunnerState, Step,
+    StepJournalEntry, StepKind, StepOutcome,
 };
 
 use super::machine::{Route, Verdict};
@@ -41,7 +41,7 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
     let Some(spec) = lease.job.pipeline.as_ref() else {
         return;
     };
-    if !super::routes::creator_live(svc, &lease.job) {
+    if !super::routes::owner_live(svc, &lease.job) {
         record_run_stop(handle, lease, "creator_gone", "skip:creator_gone");
         return;
     }
@@ -74,7 +74,7 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
         let started = now(handle);
         let Some(result) = effect_after_claim(
             || claim_step(handle, lease, &run_id, index as i64, &step.name, started),
-            || execute_step(handle, svc, lease, step, index, &text),
+            || execute_step(handle, svc, lease, step, &text),
         ) else {
             let _ = storage::commit(&handle.store, |store| {
                 store.stage_stop(&lease.job.id, "uncertain_pipeline_claim")
@@ -145,7 +145,7 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
         }
         text = result.next_text;
         let prior_index = index;
-        let next = match blueprint::advance(&state, result.outcome) {
+        let next = match blueprint_pipeline::advance(&state, result.outcome) {
             Ok(next) => next,
             Err(_) => {
                 close_run(handle, lease, &run_id, "failed", "runner_advance_failed");
@@ -194,7 +194,7 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
         confidence: 1.0,
     };
     for route in routes {
-        if lease.cancelled.load(Ordering::SeqCst) || !super::routes::creator_live(svc, &lease.job) {
+        if lease.cancelled.load(Ordering::SeqCst) || !super::routes::owner_live(svc, &lease.job) {
             close_run(
                 handle,
                 lease,
@@ -266,7 +266,6 @@ fn execute_step(
     svc: &ServiceContext,
     lease: &Lease,
     step: &Step,
-    index: usize,
     previous: &str,
 ) -> StepResult {
     match &step.kind {

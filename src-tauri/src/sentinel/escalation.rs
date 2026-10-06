@@ -22,7 +22,7 @@ impl Sentinel {
 
 /// `other` handlers only notify or escalate, escalation appears nowhere else, and a hold names
 /// an accepted `other` transition.
-pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
+pub(crate) fn validate(job: &Sentinel) -> Result<(), String> {
     let escalates_elsewhere = job
         .routes
         .values()

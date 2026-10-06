@@ -10,7 +10,7 @@ use crate::sentinel::scheduler::Handle;
 impl super::ServiceContext {
     pub(crate) fn blueprint_log(
         &self,
-        caller: &super::SentinelCaller,
+        caller: &super::sentinel::SentinelCaller,
         id: &str,
         limit: u16,
     ) -> Result<Vec<crate::storage::BlueprintJournalEntry>, String> {
@@ -36,7 +36,7 @@ impl super::ServiceContext {
 
     pub(crate) fn blueprint_pipeline_validate(
         &self,
-        caller: &super::SentinelCaller,
+        caller: &super::sentinel::SentinelCaller,
         spec: BlueprintSpec,
     ) -> Result<Value, String> {
         let errors = self.pipeline_validation_errors(&spec)?;
@@ -95,7 +95,7 @@ impl super::ServiceContext {
 
     pub(crate) fn blueprint_pipeline_create(
         &self,
-        caller: &super::SentinelCaller,
+        caller: &super::sentinel::SentinelCaller,
         spec: BlueprintSpec,
     ) -> Result<Value, String> {
         self.validate_pipeline(&spec)?;
@@ -144,7 +144,7 @@ impl super::ServiceContext {
 
     pub(crate) fn blueprint_pipeline_validate_update(
         &self,
-        caller: &super::SentinelCaller,
+        caller: &super::sentinel::SentinelCaller,
         id: &str,
         expect_version: u64,
         spec: BlueprintSpec,
@@ -165,7 +165,7 @@ impl super::ServiceContext {
 
     pub(crate) fn blueprint_pipeline_update(
         &self,
-        caller: &super::SentinelCaller,
+        caller: &super::sentinel::SentinelCaller,
         id: &str,
         expect_version: u64,
         spec: BlueprintSpec,
@@ -214,7 +214,7 @@ impl super::ServiceContext {
 
     fn pipeline_update_current(
         &self,
-        caller: &super::SentinelCaller,
+        caller: &super::sentinel::SentinelCaller,
         id: &str,
         expect_version: u64,
     ) -> Result<crate::sentinel::store::Sentinel, String> {
@@ -370,7 +370,7 @@ fn field_check(field: &str, errors: &[ValidationError]) -> Value {
 
 fn validate_pipeline_result_scope(
     mux: &crate::multiplexer::state::MultiplexerState,
-    caller: &super::SentinelCaller,
+    caller: &super::sentinel::SentinelCaller,
     target: &ResultTarget,
 ) -> Result<(), String> {
     match target {
