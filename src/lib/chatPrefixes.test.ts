@@ -130,6 +130,19 @@ console.log("detectChatPrefix");
 }
 
 {
+  const r = detectChatPrefix(
+    '<domios from="system" context="sentinel:sentinel_394d9ce12d30"></domios>Sentinel result',
+  );
+  eq(r?.origin, { kind: "system", context: "sentinel:sentinel_394d9ce12d30" }, "empty system prefix is recognized as a system origin");
+  eq(r?.body, "Sentinel result", "text following an empty system prefix is its body");
+  eq(
+    detectChatPrefix('<domios from="tab" label="Main" tab="abc12345"></domios>tail'),
+    null,
+    "non-system frames still reject text outside the frame",
+  );
+}
+
+{
   const tabMarker = (body: string) =>
     detectChatPrefix(`<domios from="tab" label="Auditor" tab="tab-opaque-7" model="model-opaque-2">${body}</domios>`);
   const ordinary = tabMarker("ordinary body");

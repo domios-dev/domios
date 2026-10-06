@@ -8,6 +8,7 @@ import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import plugin from "../src/index";
+import { enrichTimelineItems } from "../../../src/components/Terminal/chatEnrichment";
 import {
   isCurrentOpencodeBindingPluginSource,
   opencodeBindingPluginSource,
@@ -276,6 +277,39 @@ console.log("\n--- exclusive structured cursor ---\n");
   eq(peer.messages.map((message) => message.content), ["same timestamp peer"], "same-timestamp unseen peer is retained without replay");
   const empty = p.readStructuredChat("/work/proj", "ses_owned", peer.cursor) as { messages: unknown[] };
   eq(empty.messages, [], "cursor excludes every previously returned part");
+}
+
+console.log("\n--- structured transcript preserves routed text ---\n");
+{
+  const dbPath = "~/.local/share/opencode/opencode.db";
+  const windowsPath = "C:\\Users\\User\\.codeterm-dev\\runtime\\agent-pads\\new\\team\\update.txt";
+  const context = "sentinel:sentinel_394d9ce12d30";
+  const frame = `<domios from="system" context="${context}"></domios>${windowsPath}`;
+  const p = loadOpencodeWithHost(ocHost({
+    fs: {
+      fileExists: (pth: string) => pth === dbPath,
+      sqliteQuery: () => [{
+        id: "part-system-1",
+        ts_created: 1_700_000_000_000,
+        ts_updated: 1_700_000_000_000,
+        part: JSON.stringify({ type: "text", text: frame }),
+        role: "user",
+      }],
+    },
+  }));
+  const result = p.readStructuredChat("/work/proj", "ses_owned", null) as {
+    messages: Array<{ type: string; content: string }>;
+  };
+  eq(result.messages.map(({ type, content }) => [type, content]), [["user", frame]],
+    "the OpenCode part record retains literal Windows path escapes");
+  const [entry] = enrichTimelineItems([{
+    kind: "message",
+    message: { id: "part-system-1", type: "user", content: result.messages[0].content },
+  }], new WeakMap());
+  eq([entry.origin, entry.msg.content], [
+    { kind: "system", context },
+    windowsPath,
+  ], "a system frame from an OpenCode user record becomes a stripped system origin");
 }
 
 console.log("\n--- streamed part growth is re-delivered (same id, newer update) ---\n");

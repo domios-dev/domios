@@ -4,7 +4,7 @@ import { InboundActivityCard } from "./InboundActivityCard";
 import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
 import { LinkedText } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
-import { decodeCliMessageText } from "./messageText";
+import { normalizeMessageText } from "./messageText";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { CoordinationReportCard } from "./CoordinationReportCard";
 import { parseCoordinationReport } from "./coordinationReport";
@@ -43,7 +43,7 @@ const COMPOUND_SPLIT_RE = /\s+\|\s+(?=[A-Z][A-Z ]+:)/;
 // AgentReport::inject_body emits structured fields as a leading block, then the
 // message: the first non-field line opens the body, so quoted prose stays body.
 export function parseInboundReport(text: string): InboundReportDescriptor {
-  const lines = decodeCliMessageText(text).split("\n");
+  const lines = normalizeMessageText(text).split("\n");
   const fields: ReportField[] = [];
   let cut = 0;
   for (; cut < lines.length; cut += 1) {

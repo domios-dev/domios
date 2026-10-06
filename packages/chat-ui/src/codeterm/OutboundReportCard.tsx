@@ -4,7 +4,7 @@ import { InboundActivityCard } from "./InboundActivityCard";
 import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
 import { LinkedText } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
-import { decodeCliMessageText } from "./messageText";
+import { normalizeMessageText } from "./messageText";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { formatCommunicationEndpoint } from "./templates";
 import {
@@ -43,7 +43,7 @@ export function OutboundReportCard({ report, onFocusTab, onOpenPlan, resolvePlan
   const chips = [reportVerdict(report.status, outcome), shortSha(report.sha)]
     .filter((value): value is string => Boolean(value));
   const textSize = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
-  const rawBody = decodeCliMessageText(report.message).trim();
+  const rawBody = normalizeMessageText(report.message).trim();
   const body = outcome?.reportOutcome === "delivered_unattached" ? "" : reportContentBody(rawBody).trim();
   const diagnostics = outcome?.reportOutcome === "delivered_unattached"
     ? rawBody
