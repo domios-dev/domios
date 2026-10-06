@@ -9,6 +9,17 @@ import {
 /** Daemon-owned helper spawn: provider, General placement and cwd are resolved server-side. */
 export const AI_HELPER_SPAWN_PATH = "/api/agents/helper";
 
+/** Context every helper task carries: the user launched it and is reading this tab. */
+export const AI_HELPER_CONTEXT: readonly string[] = [
+  "The user opened this helper tab by clicking a setup button and is reading this chat right now.",
+  "Ask every question here in chat and wait for the answer in chat. Do not ask through `codeterm notify`, notification choices, or a provider question tool; this tab is where the user is.",
+  "The click that opened this tab is the user's consent to the setup it names, including installing a pinned runtime the setup guide requires. Do not ask for that consent again; ask only for values only the user knows.",
+];
+
+export function withAiHelperContext(task: string): string {
+  return `${AI_HELPER_CONTEXT.join("\n")}\n\n${task}`;
+}
+
 export interface AiHelperRequest {
   title: string;
   description: string;
