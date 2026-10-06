@@ -3,9 +3,11 @@ use tauri::Manager;
 use super::machine::{EscalateTarget, Route, Verdict};
 use super::store::{Sentinel, StopNotice};
 use crate::service::message_gateway::DeliveryClass;
+use crate::service::messenger::Delivery;
 use crate::service::messenger::MessageEnvelope;
 use crate::service::notification::{NotificationOrigin, PushIntent};
 use crate::service::ServiceContext;
+use codeterm_types::blueprint_pipeline::{BlueprintOwner, BlueprintSpec};
 
 pub fn owner_live(svc: &ServiceContext, job: &Sentinel) -> bool {
     let mux = svc.mux.read();
@@ -283,6 +285,146 @@ pub fn run(
             deliver_escalation(svc, &target, job, transition_id)
         }
         resolved @ Route::RespondPrompt(_) => Err(unavailable(&resolved)),
+    }
+}
+
+pub(super) struct PipelineResultDelivery {
+    pub state: &'static str,
+    pub reason: &'static str,
+    pub body_ref: Option<String>,
+}
+
+pub(super) fn pipeline_result_owner(
+    svc: &ServiceContext,
+    job: &Sentinel,
+    spec: &BlueprintSpec,
+) -> String {
+    if spec.owner == BlueprintOwner::Team {
+        let mux = svc.mux.read();
+        if let Some(orchestrator) = mux.all_tabs().find(|tab| {
+            tab.agent_type.is_some()
+                && tab.anchors_team()
+                && tab.team_id == job.team_id
+                && mux.find_workspace_for_tab(&tab.id).as_deref() == Some(&job.workspace_id)
+        }) {
+            return orchestrator.id.clone();
+        }
+    }
+    job.creator_tab_id.clone()
+}
+
+pub(super) fn write_pipeline_result_body(
+    svc: &ServiceContext,
+    target: &str,
+    job: &Sentinel,
+    verdict: &Verdict,
+    output: &str,
+) -> Result<(std::path::PathBuf, String), String> {
+    let body = format!(
+        "Blueprint {} completed with {}.\n\nResult:\n{}",
+        job.id, verdict.bucket, output
+    );
+    let path = svc
+        .ensure_agent_pad(target)?
+        .write_inbox_body(body.as_bytes())?;
+    let body_ref = format!(
+        "inbox/{}",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("invalid AgentPad body path")?
+    );
+    Ok((path, body_ref))
+}
+
+pub(super) fn deliver_pipeline_result(
+    svc: &ServiceContext,
+    target: &str,
+    job: &Sentinel,
+    verdict: &Verdict,
+    path: &std::path::Path,
+    body_ref: String,
+) -> PipelineResultDelivery {
+    let packet = format!(
+        "Blueprint {}: {}. Read the durable result in {}",
+        job.id,
+        verdict.bucket,
+        path.display()
+    );
+    deliver_pipeline_result_with(target, &packet, body_ref, |target, packet| {
+        svc.gateway_deliver(
+            target,
+            MessageEnvelope::codeterm_reminder(format!("blueprint:{}:result", job.id)),
+            packet,
+            DeliveryClass::SystemNotice,
+        )
+    })
+}
+
+pub(super) fn deliver_pipeline_result_with(
+    target: &str,
+    packet: &str,
+    body_ref: String,
+    deliver: impl FnOnce(&str, &str) -> Result<Delivery, String>,
+) -> PipelineResultDelivery {
+    match deliver(target, packet) {
+        Ok(Delivery::Pending { .. }) => PipelineResultDelivery {
+            state: "unconfirmed",
+            reason: "delivery_pending",
+            body_ref: Some(body_ref),
+        },
+        Ok(_) => PipelineResultDelivery {
+            state: "delivered",
+            reason: "delivery_confirmed",
+            body_ref: Some(body_ref),
+        },
+        Err(error)
+            if [
+                "unconfirmed",
+                "uncertain",
+                "not acknowledged",
+                "delivered unverified",
+            ]
+            .iter()
+            .any(|marker| error.to_ascii_lowercase().contains(marker)) =>
+        {
+            PipelineResultDelivery {
+                state: "unconfirmed",
+                reason: "delivery_unconfirmed",
+                body_ref: Some(body_ref),
+            }
+        }
+        Err(_) => PipelineResultDelivery {
+            state: "failed",
+            reason: "delivery_failed",
+            body_ref: Some(body_ref),
+        },
+    }
+}
+
+pub(super) fn notify_pipeline_result(
+    svc: &ServiceContext,
+    job: &Sentinel,
+    verdict: &Verdict,
+    path: &std::path::Path,
+    body_ref: String,
+) -> PipelineResultDelivery {
+    svc.create_notification_ext(
+        format!("Blueprint {}: {}", job.id, verdict.bucket),
+        Some(format!(
+            "Read the durable result in {} ({body_ref})",
+            path.display()
+        )),
+        Some("info"),
+        None,
+        None,
+        NotificationOrigin::local_tab(job.creator_tab_id.clone()),
+        PushIntent::default(),
+        None,
+    );
+    PipelineResultDelivery {
+        state: "delivered",
+        reason: "notification_recorded",
+        body_ref: Some(body_ref),
     }
 }
 
