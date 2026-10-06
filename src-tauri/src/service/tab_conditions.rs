@@ -212,9 +212,7 @@ impl ServiceContext {
             )
         };
 
-        if owner == Some(ConditionOwner::User)
-            && kind != codeterm_types::pty::PromptKind::DirectoryTrust
-        {
+        if owner == Some(ConditionOwner::User) {
             if let Some(event_key) =
                 self.claim_pending_prompt_notice_event_key(tab_id, prompt)
             {
