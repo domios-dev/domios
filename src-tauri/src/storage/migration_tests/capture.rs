@@ -16,7 +16,9 @@ fn link_directory(link: &Path, target: &Path) {
     std::os::unix::fs::symlink(target, link).expect("directory symlink");
     #[cfg(windows)]
     {
-        let created = std::process::Command::new("cmd")
+        let mut command = std::process::Command::new("cmd");
+        crate::process_util::no_window_std(&mut command);
+        let created = command
             .args(["/C", "mklink", "/J"])
             .arg(link)
             .arg(target)
