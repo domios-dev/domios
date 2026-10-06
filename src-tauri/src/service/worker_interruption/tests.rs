@@ -26,6 +26,7 @@ fn bound_store() -> (tempfile::TempDir, PlanStore, String, String, String) {
         dir.path().display().to_string(),
         OrchestratorRef::from_tab("orch"),
     );
+    plan.mode = crate::plan::PlanMode::Execution;
     store.save(&mut plan, 1).unwrap();
     let task_id = store
         .add_task(
@@ -62,6 +63,9 @@ fn bound_store() -> (tempfile::TempDir, PlanStore, String, String, String) {
             TaskLaneMetadata::default(),
             4,
         )
+        .unwrap();
+    store
+        .acknowledge_task_attempt(&plan.id, &task_id, "old-tab", &attempt_id, 5)
         .unwrap();
     (dir, store, plan.id, task_id, attempt_id)
 }
