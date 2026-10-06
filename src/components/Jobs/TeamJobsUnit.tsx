@@ -16,21 +16,21 @@ function TeamUnitWithSentinels({ scope, generation, onOpenSentinel, adapter, ...
   const state = useAutomationGraph(adapter, { ...scope, connection_id: `host:${generation}` });
   const jobs = state.graph ? sentinelJobs(state.graph, scope) : [];
   const rows = jobs.map((job) => {
-    const Icon = job.type === "Sentinel graph" ? Network : Radar;
+    const Icon = job.type === "Blueprint graph" ? Network : Radar;
     return <div key={`scenario:${job.scenario.id}`} className="sidebar-team-cron-row">
       <button type="button" className="sidebar-team-cron-main" data-testid="sidebar-sentinel-job" aria-label={`${sentinelTitle(job.scenario, job.root)}, ${job.type}, ${job.state}`} title={job.root?.purpose ?? job.type} onClick={() => onOpenSentinel(job.scenario.id)}>
         <Icon size={11} aria-hidden="true" />
         <span className="sidebar-team-cron-name">{sentinelTitle(job.scenario, job.root)}</span>
-        <span className="sidebar-team-cron-state">{job.type === "Sentinel graph" ? "graph · " : ""}{job.state}</span>
+        <span className="sidebar-team-cron-state">{job.type === "Blueprint graph" ? "graph · " : ""}{job.state}</span>
       </button>
       <span className="w-7 shrink-0" aria-hidden="true" />
     </div>;
   });
-  if (state.failed && !state.graph) rows.push(<div key="sentinels-unavailable" className="sidebar-team-cron-row"><span className="sidebar-team-cron-main cursor-default" data-testid="sidebar-sentinels-unavailable"><Radar size={11} aria-hidden="true" /><span className="sidebar-team-cron-name">Sentinels unavailable</span></span></div>);
+  if (state.failed && !state.graph) rows.push(<div key="sentinels-unavailable" className="sidebar-team-cron-row"><span className="sidebar-team-cron-main cursor-default" data-testid="sidebar-sentinels-unavailable"><Radar size={11} aria-hidden="true" /><span className="sidebar-team-cron-name">Blueprints unavailable</span></span></div>);
   return <TeamUnit {...props} crons={<>{props.crons}{rows}</>} cronCount={(props.cronCount ?? 0) + rows.length} />;
 }
 
-/** Team card whose Jobs disclosure lists its Cron rows plus stored agent-authored Sentinel scenarios of the same exact scope. */
+/** Team card whose Jobs disclosure lists its Cron rows plus stored agent-authored Blueprint scenarios of the same exact scope. */
 export function TeamJobsUnit({ sentinelScope, onOpenSentinel, sentinelAdapter = hostAutomationAdapter, ...props }: TeamUnitProps & SentinelSource) {
   const context = usePlanPeerContext();
   if (!sentinelScope || !onOpenSentinel || !context.ready) return <TeamUnit {...props} />;

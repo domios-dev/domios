@@ -39,7 +39,7 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
         || job.on_other.is_empty() != job.escalation_timeout_ms.is_none()
         || job.escalation_timeout_ms == Some(0)
     {
-        return Err("invalid sentinel escalation".into());
+        return Err("invalid blueprint escalation".into());
     }
     let mut ids: BTreeSet<&str> = job
         .routes
@@ -62,7 +62,7 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
             _ => false,
         };
         if !scoped || !handlers::valid_id(&handler.id) || !ids.insert(handler.id.as_str()) {
-            return Err("invalid sentinel other handler".into());
+            return Err("invalid blueprint other handler".into());
         }
     }
     if let Some(held) = &job.machine.held {
@@ -71,7 +71,7 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
             .iter()
             .any(|transition| transition.id == *held && transition.bucket == OTHER_BUCKET);
         if escalation_count == 0 || !accepted {
-            return Err("invalid sentinel hold".into());
+            return Err("invalid blueprint hold".into());
         }
     }
     Ok(())

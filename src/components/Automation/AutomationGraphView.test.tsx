@@ -117,7 +117,7 @@ test("branched graph renders declared nodes and exact configured versus executio
     assert.ok(panel.textContent?.includes("route-a"));
     assert.ok(!panel.textContent?.includes("launch-a"), "launch is attached only to its exact source");
     assert.ok(panel.textContent?.includes("handler-a · cron · available"));
-    assert.ok(panel.textContent?.includes("handler-b · sentinel · unavailable"));
+    assert.ok(panel.textContent?.includes("handler-b · blueprint · unavailable"));
     assert.ok(panel.textContent?.includes("failed"));
     await click(button(panel, "Schedule A"));
     assert.ok(details(view.host).textContent?.includes("execution-a"));
@@ -168,14 +168,14 @@ test("stop stays pending until accepted record is read and carries exact identit
   const view = await mount();
   try {
     await click(button(view.host, "Watcher A"));
-    await click(button(view.host, "Stop Sentinel"));
+    await click(button(view.host, "Stop Blueprint"));
     assert.equal(button(view.host, "Stopping").disabled, true);
     assert.ok(details(view.host).textContent?.includes("paused"));
     assert.deepEqual(view.transport.stops, [sentinelIdentity]);
     view.transport.graph = { ...fixtureGraph(), nodes: fixtureGraph().nodes.map((node) => automationKey(node.identity) === automationKey(sentinelIdentity) ? { ...node, state: "stopped", stop: { allowed: false, reason: "reason-a" } } : node) };
     await act(async () => { view.transport.stopResult.resolve(); });
     assert.ok(details(view.host).textContent?.includes("stopped"));
-    assert.equal(button(view.host, "Stop Sentinel").disabled, true);
+    assert.equal(button(view.host, "Stop Blueprint").disabled, true);
     assert.ok(details(view.host).textContent?.includes("reason-a"));
   } finally { await view.close(); }
 });
@@ -184,12 +184,12 @@ test("stop rejection renders truthful error without raw error payload", async ()
   const view = await mount();
   try {
     await click(button(view.host, "Watcher A"));
-    await click(button(view.host, "Stop Sentinel"));
+    await click(button(view.host, "Stop Blueprint"));
     await act(async () => { view.transport.stopResult.reject(new Error("private-payload-a")); });
     assert.ok(view.host.querySelector('[role="alert"]'));
     assert.ok(details(view.host).textContent?.includes("paused"));
     assert.ok(!view.host.textContent?.includes("private-payload-a"));
-    assert.equal(button(view.host, "Stop Sentinel").disabled, false);
+    assert.equal(button(view.host, "Stop Blueprint").disabled, false);
   } finally { await view.close(); }
 });
 
@@ -217,7 +217,7 @@ test("failed refresh marks retained records stale and disables stop", async () =
     await act(async () => { view.transport.changed!(); });
     assert.ok(view.host.querySelector('[role="alert"]'));
     assert.ok(details(view.host).textContent?.includes("Stale"));
-    assert.equal(button(view.host, "Stop Sentinel").disabled, true);
+    assert.equal(button(view.host, "Stop Blueprint").disabled, true);
     assert.ok(!view.host.textContent?.includes("secret-a"));
   } finally { await view.close(); }
 });
@@ -254,7 +254,7 @@ test("authoritative lifecycle values and unknown Worker stay explicit with Team 
     transport.graph = { ...transport.graph, nodes: transport.graph.nodes.map((node) => node.identity.kind === "sentinel" ? { ...node, availability: "unavailable" as const, stop: { allowed: false, reason: null } } : node) };
     await act(async () => { transport.changed!(); });
     assert.ok(details(view.host).textContent?.includes("unavailable"));
-    assert.equal(button(view.host, "Stop Sentinel").disabled, true);
+    assert.equal(button(view.host, "Stop Blueprint").disabled, true);
   } finally { await view.close(); }
 });
 
@@ -280,14 +280,14 @@ test("one named Sentinel entry opens its internal stages while shared execution 
   const view = await mount(transport);
   try {
     assert.ok(view.host.textContent?.includes("Internal stage A"));
-    assert.equal(view.host.querySelector("h2")?.textContent, `${transport.graph.scenarios[0].name} · Sentinel graph`);
+    assert.equal(view.host.querySelector("h2")?.textContent, `${transport.graph.scenarios[0].name} · Blueprint graph`);
     assert.ok(!view.host.textContent?.includes("Watcher B"));
     assert.equal(view.host.querySelectorAll('[data-edge-kind="observed"]').length, 1);
-    await click(button(view.host, "All Sentinels"));
-    assert.equal(view.host.querySelectorAll('ul[aria-label="Sentinel scenarios"] > li').length, 2);
+    await click(button(view.host, "All Blueprints"));
+    assert.equal(view.host.querySelectorAll('ul[aria-label="Blueprint scenarios"] > li').length, 2);
     assert.ok(!view.host.textContent?.includes("Internal stage A"), "internal stage is not a separate scenario entry");
-    await click(button(view.host, "Sentinel scenario B"));
-    assert.equal(view.host.querySelector("h2")?.textContent, `${transport.graph.scenarios[1].name} · Sentinel`);
+    await click(button(view.host, "Blueprint scenario B"));
+    assert.equal(view.host.querySelector("h2")?.textContent, `${transport.graph.scenarios[1].name} · Blueprint`);
     assert.ok(view.host.textContent?.includes("Watcher B"));
     assert.ok(!view.host.textContent?.includes("Watcher A"));
     assert.ok(!view.host.textContent?.includes("Internal stage A"));
@@ -297,7 +297,7 @@ test("one named Sentinel entry opens its internal stages while shared execution 
     assert.ok(!details(view.host).textContent?.includes("route-a"));
     transport.graph = { ...transport.graph, scenarios: [transport.graph.scenarios[0]] };
     await act(async () => { transport.changed!(); });
-    assert.ok(view.host.querySelector('[role="alert"]')?.textContent?.includes("selected Sentinel is unavailable"));
+    assert.ok(view.host.querySelector('[role="alert"]')?.textContent?.includes("selected Blueprint is unavailable"));
     assert.equal(view.host.querySelector("aside"), null);
     assert.equal(view.host.querySelectorAll('[data-edge-kind]').length, 0);
   } finally { await view.close(); }
@@ -336,7 +336,7 @@ test("measured graph fits once, then keeps the user's camera and exact selection
     view.transport.graph = { ...fixtureGraph(), revision: "revision-b", nodes: [...fixtureGraph().nodes].reverse().map((node) => ({ ...node, state: "active" })) };
     await act(async () => { view.transport.changed!(); });
     assert.equal(cameraLayer(view.host).style.transform, camera, "data-only refresh and node reorder keep the camera");
-    assert.equal(view.host.querySelector(`[aria-label^="sentinel: Watcher A"]`)?.getAttribute("aria-pressed"), "true", "selection follows the exact identity");
+    assert.equal(view.host.querySelector(`[aria-label^="blueprint: Watcher A"]`)?.getAttribute("aria-pressed"), "true", "selection follows the exact identity");
     assert.ok(details(view.host).textContent?.includes("active"));
     const center = centered(view.host, 800, 480);
     await resize(640, 420);
@@ -389,7 +389,7 @@ test("details Escape stays inside the graph and returning to Sentinels restores 
     await act(async () => { details(view.host).dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
     assert.equal(outer, 0, "Escape does not reach surrounding overlays");
     assert.equal(document.activeElement, node);
-    await click(button(view.host, "All Sentinels"));
+    await click(button(view.host, "All Blueprints"));
     assert.equal((document.activeElement as HTMLElement | null)?.dataset.scenarioId, view.transport.graph.scenarios[0].id);
   } finally {
     window.removeEventListener("keydown", listener as never);
@@ -424,7 +424,7 @@ test("authoritative event replaces the selected command result and execution wit
     await act(async () => { view.transport.changed!(); });
     assert.equal(details(view.host), panel, "the same details region stays mounted");
     assert.equal(document.activeElement, panel, "focus is preserved across the authoritative refresh");
-    assert.equal(view.host.querySelector(`[aria-label^="sentinel: Watcher A"]`)?.getAttribute("aria-pressed"), "true");
+    assert.equal(view.host.querySelector(`[aria-label^="blueprint: Watcher A"]`)?.getAttribute("aria-pressed"), "true");
     const { row, facts } = commandFacts(view.host);
     assert.equal(facts.get(COMMAND_FACT.outcome), "nonzero");
     assert.equal(facts.get(COMMAND_FACT.exit), "7");
@@ -550,9 +550,9 @@ test("the observed seven-card fanout opens readable at 500x782 and Fit always re
     await click(button(view.host, "Show list"));
     await click(button(view.host, "Show graph"));
     assert.equal(cameraLayer(view.host).style.transform, fitted(transport.graph, 500, 600), "list toggle keeps the readable frame");
-    await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="sentinel: Model child"]')!);
+    await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="blueprint: Model child"]')!);
     await act(async () => { details(view.host).dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
-    await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="sentinel: Model child"]')!);
+    await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="blueprint: Model child"]')!);
     await press(view.host, "ArrowUp", 12);
     await click(button(view.host, "Fit graph"));
     readable(projectedCards(view.host, ["Model child"]), 500, 600);

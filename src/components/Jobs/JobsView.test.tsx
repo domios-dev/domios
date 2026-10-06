@@ -125,8 +125,8 @@ async function main() {
       const [first, second] = transport.graph.scenarios;
       assert.ok(entry(view.host, `cron:${teamCron.id}`), "the scope's Cron is listed");
       assert.equal(entry(view.host, `cron:${unteamedCron.id}`), null, "a Cron of another Team scope stays out");
-      assert.ok(entry(view.host, `scenario:${first.id}`)?.textContent?.includes("Sentinel graph"), "multi-stage scenario is one Sentinel graph entry");
-      assert.ok(!entry(view.host, `scenario:${second.id}`)?.textContent?.includes("Sentinel graph"), "single observer stays a Sentinel");
+      assert.ok(entry(view.host, `scenario:${first.id}`)?.textContent?.includes("Blueprint graph"), "multi-stage scenario is one Blueprint graph entry");
+      assert.ok(!entry(view.host, `scenario:${second.id}`)?.textContent?.includes("Blueprint graph"), "single observer stays a Blueprint");
       assert.ok(!view.host.textContent?.includes("Internal stage A"), "internal stage is not a top-level job");
     } finally { await view.close(); }
   });
@@ -380,7 +380,7 @@ async function main() {
     try {
       await settle(() => toggleOf(failed.host) !== null);
       await act(async () => toggleOf(failed.host)!.click());
-      assert.ok(failed.host.querySelector('[data-testid="sidebar-sentinels-unavailable"]'), "unknown Sentinel state is shown as unavailable");
+      assert.ok(failed.host.querySelector('[data-testid="sidebar-sentinels-unavailable"]'), "unknown Blueprint state is shown as unavailable");
     } finally { await failed.close(); }
   });
 

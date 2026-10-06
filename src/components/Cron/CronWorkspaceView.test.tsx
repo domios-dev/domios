@@ -217,7 +217,7 @@ test("injected automation entry opens authoritative graph and returns to ordinar
     await act(async () => entry.click());
     assert(host.querySelector('[aria-label="Automations"]'), "automation surface opened");
     const scenario = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent?.includes(transport.graph.scenarios[0].name));
-    assert(scenario, "named Sentinel scenario rendered");
+    assert(scenario, "named Blueprint scenario rendered");
     await act(async () => scenario.click());
     assert(host.textContent?.includes(transport.graph.nodes[0].name), "authoritative fixture participant rendered");
     const back = Array.from(host.querySelectorAll<HTMLButtonElement>("button")).find((button) => button.textContent === "Cron details");

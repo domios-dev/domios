@@ -127,3 +127,7 @@ export function automationKey(identity: AutomationIdentity): string {
 export function sameScope(a: AutomationScope, b: AutomationScope): boolean {
   return a.workspace_id === b.workspace_id && a.team_id === b.team_id;
 }
+
+export function automationKindLabel(kind: string): string {
+  return kind === "sentinel" ? "blueprint" : kind;
+}
