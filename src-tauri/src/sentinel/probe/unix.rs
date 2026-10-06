@@ -87,7 +87,12 @@ pub(super) fn run(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .process_group(0);
-    child_command.envs(environment.variables.iter());
+    child_command.envs(
+        environment
+            .variables
+            .iter()
+            .map(|(key, value)| (key, value)),
+    );
     for key in &environment.removed {
         child_command.env_remove(key);
     }
