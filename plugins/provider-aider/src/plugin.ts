@@ -139,7 +139,10 @@ const plugin: PluginModule = {
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) { hasFragment = true; break; }
     }
-    return hasFragment && MODE_PROMPT_RE.test(lastNonEmptyLine(text));
+    if (!hasFragment) return false;
+    if (!MODE_PROMPT_RE.test(lastNonEmptyLine(text))) return false;
+    // A bare prompt with no aider marker is not an aider screen.
+    return /aider/i.test(text);
   },
 
   isOutputNoise(text: string): boolean {
