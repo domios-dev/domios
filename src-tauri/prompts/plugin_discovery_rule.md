@@ -1,1 +1,1 @@
-External services (messaging, mail, calendars): find the plugin via `codeterm capabilities` or `codeterm mem search`, then `codeterm plugin <id> <verb>`.
+External services: find the plugin via `codeterm capabilities`, then `codeterm plugin <id> <verb>`.
