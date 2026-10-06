@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
 use std::path::Path;
 use std::sync::{atomic::Ordering, Arc};
 use std::time::Duration;
@@ -18,6 +19,27 @@ use crate::cron::clock::SharedClock;
 use crate::service::{supporter, ServiceState};
 
 const FAILURE_DEADLINE_MS: u64 = 60_000;
+
+#[derive(Debug)]
+struct KnownJournalRefusal(&'static str);
+
+impl fmt::Display for KnownJournalRefusal {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.0)
+    }
+}
+
+impl std::error::Error for KnownJournalRefusal {}
+
+pub(super) fn known_pre_effect_journal_refusal(message: &'static str) -> std::io::Error {
+    std::io::Error::other(KnownJournalRefusal(message))
+}
+
+fn journal_refusal_prevented_effect(error: &std::io::Error) -> bool {
+    error
+        .get_ref()
+        .is_some_and(|source| source.is::<KnownJournalRefusal>())
+}
 
 #[derive(Clone)]
 pub struct Handle {
@@ -393,7 +415,7 @@ pub fn record(
 ) -> std::io::Result<()> {
     if !outcome.evidence.matches(job) {
         log::warn!("[blueprint] journal refusal: observation scope or state hash mismatch");
-        return Err(std::io::Error::other(
+        return Err(known_pre_effect_journal_refusal(
             "blueprint observation scope or state hash mismatch",
         ));
     }
@@ -411,7 +433,7 @@ pub fn record(
             "[blueprint] journal refusal: route stage missing a routable transition reason, route, or verdict; reason={}",
             outcome.reason
         );
-        return Err(std::io::Error::other(
+        return Err(known_pre_effect_journal_refusal(
             "blueprint route stage requires a confident transition",
         ));
     }
@@ -867,7 +889,24 @@ pub(super) fn advance(
         };
         let mut handler_outcome = outcome.clone();
         handler_outcome.route = Some(handler.action.clone());
-        if write_journal(&job, &handler_outcome, Stage::RouteClaim).is_err() {
+        if let Err(error) = write_journal(&job, &handler_outcome, Stage::RouteClaim) {
+            if !journal_refusal_prevented_effect(&error) {
+                log::error!("[blueprint] route claim journal outcome is uncertain: {error}");
+                let uncertain = super::handlers::Effect {
+                    status: Status::Unconfirmed,
+                    execution_id: None,
+                    command_result: None,
+                    reason: Some("route_claim_journal_unconfirmed".into()),
+                };
+                if let Err(persist_error) = storage::commit(store, |current| {
+                    current.stage_finish_handler_result(&job.id, transition, &accepted, uncertain)
+                }) {
+                    log::error!(
+                        "[blueprint] uncertain route claim persistence failed: {persist_error}"
+                    );
+                }
+                return;
+            }
             let failure = super::handlers::Effect {
                 status: Status::Failed,
                 execution_id: None,
