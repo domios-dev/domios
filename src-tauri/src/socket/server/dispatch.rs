@@ -244,7 +244,9 @@ pub(super) fn dispatch(
                 "mem.graph.repair.orphan_blobs",
                 // Credential-bearing mem.secret.* stays on bearer-authenticated HTTP.
             ];
-            return Ok(serde_json::json!({ "methods": methods }));
+            let plugins =
+                crate::service::plugin_skills::granted_catalogs(&svc.agent_command_registry);
+            return Ok(serde_json::json!({ "methods": methods, "plugins": plugins }));
         }
         "mesh.status" => {
             let mesh = app.state::<crate::MeshStateHandle>();

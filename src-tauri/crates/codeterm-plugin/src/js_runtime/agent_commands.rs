@@ -9,12 +9,14 @@ use serde_json::json;
 
 use super::vm::{call_json, PluginVm};
 use crate::agent_commands::AgentCommandProvider;
+use crate::agent_verbs::AgentVerbCatalog;
 
 pub struct JsAgentCommandHandler {
     vm: Arc<PluginVm>,
     id: String,
     /// The `agent_commands` grant, stamped from the manifest at registration.
     granted: bool,
+    catalog: Option<AgentVerbCatalog>,
 }
 
 impl JsAgentCommandHandler {
@@ -23,8 +25,25 @@ impl JsAgentCommandHandler {
             vm,
             id: id.into(),
             granted,
+            catalog: None,
         }
     }
+
+    pub fn with_catalog(mut self, catalog: AgentVerbCatalog) -> Self {
+        self.catalog = Some(catalog);
+        self
+    }
+}
+
+pub fn catalog_from_manifest(manifest: &super::PluginManifest) -> AgentVerbCatalog {
+    AgentVerbCatalog::compose(
+        &manifest.id,
+        &manifest.display_name,
+        manifest.description.as_deref(),
+        &manifest.agent_verbs,
+        manifest.config_help.as_deref(),
+        &manifest.agent_keywords,
+    )
 }
 
 #[derive(Deserialize)]
@@ -42,6 +61,10 @@ impl AgentCommandProvider for JsAgentCommandHandler {
 
     fn granted(&self) -> bool {
         self.granted
+    }
+
+    fn catalog(&self) -> Option<AgentVerbCatalog> {
+        self.catalog.clone()
     }
 
     fn on_agent_command(

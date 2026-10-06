@@ -45,7 +45,7 @@ impl PluginProviderRegistrar for TestRegistrar {
     }
 }
 
-fn test_caps() -> CapabilityRegistries {
+pub(super) fn test_caps() -> CapabilityRegistries {
     let capabilities = CapabilityRegistries {
         decision_model: Arc::new(crate::capability::CapabilityRegistry::new()),
         transcribe: Arc::new(crate::transcribe::TranscribeRegistry::new()),
