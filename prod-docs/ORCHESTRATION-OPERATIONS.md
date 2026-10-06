@@ -128,7 +128,7 @@ The final verification covers the layer where the user experienced the defect:
 Unit-green alone does not close a user-visible defect. Deferred final
 user-layer evidence remains explicit open risk.
 
-Testing ladder — per task = isolated lane checks; per merged wave = one canonical batch of its focused selectors, recorded as the group regression run at group close; per release = the broad gate once on the release SHA, then the platform matrix.
+Testing ladder — per task = focused checks in its lane; per merged wave = one canonical batch of its focused selectors; per release = the broad gate once on the release SHA, then the platform matrix.
 
 Repository-specific restrictions override generic gate suggestions.
 
@@ -147,9 +147,8 @@ git merge-base --is-ancestor <lane-tip> <integration-tip>
 
 At every group close:
 
-- record the group regression run and the group retrospective
-  (`codeterm plan groups close <plan> <group> --note "<retrospective>"`); no
-  further task dispatches until both exist;
+- pending regression records and retrospectives are advisory; dispatch remains
+  available when authorization, dependencies, review, and lane checks pass;
 - close completed Worker tabs;
 - remove merged worktrees and branches;
 - stop lane-specific dev processes;
@@ -166,9 +165,9 @@ Heartbeat preserves the control loop across idle time and compaction. The
 daemon derives it from plan state, live assignments, gates, and durable
 learnings. Orchestrators do not edit heartbeat fields.
 
-A reminder names the actionable task ids and is handled only when plan state
-changes: dispatch, verdict, bounce, unblock, replan, escalation, or recorded
-decision. Dependency-waiting and machine-paused tasks need nothing.
+A reminder names actionable task ids and gives one compact count for tasks
+parked in later groups. Dependency-waiting, later-group, and machine-paused
+tasks need no dispatch action.
 
 Do not create self-send polling reminders. The plan already wakes the
 Orchestrator for open work and Worker reports.
@@ -202,12 +201,12 @@ generally reusable recipe only during retrospective.
 An effort is complete only when:
 
 - every task is done or cancelled;
-- required group regression runs, group retrospectives, and release gates are recorded;
+- release gates are recorded;
 - every spawned Worker and Planner tab is closed;
 - every accepted lane is ancestry-merged and removed;
 - lane processes are stopped;
 - stale milestones are pruned;
-- the final handoff or retrospective is recorded;
+- the final handoff is current; an additional retrospective is optional;
 - the plan is archived.
 
 ## Team-bound resources
@@ -237,4 +236,4 @@ advises only `codeterm team adopt-plan <team-id> <plan>`, which clears the flag.
 A workspace close passes its `force` through as `force_busy`. A workspace with
 no tabs and no Teams closes for any caller, even without tab identity.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

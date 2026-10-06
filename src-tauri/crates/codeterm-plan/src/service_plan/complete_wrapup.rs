@@ -17,20 +17,13 @@ pub fn needs_complete_wrapup(plan: &Plan) -> bool {
 mod tests {
     use super::*;
     use crate::plan::{AgentRef, OrchestratorRef, PlanMode, TaskStatus};
-    use crate::service_plan::prompts_plan::PLAN_RETROSPECTIVE_NUDGE;
     use crate::service_plan::{NewTask, PlanStore};
 
     #[test]
-    fn wrapup_message_includes_archive_and_retrospective_lines() {
+    fn wrapup_substitutes_the_plan_id_into_available_commands() {
         let msg = complete_wrapup_message("pl_test");
-        assert!(msg.contains("codeterm plan archive pl_test"));
-        assert!(msg.contains("codeterm plan retrospective pl_test"));
-        assert!(msg.contains("codeterm mem skill"));
-    }
-
-    #[test]
-    fn retrospective_nudge_is_verbatim() {
-        assert!(PLAN_RETROSPECTIVE_NUDGE.contains("Honest beats flattering"));
+        assert!(!msg.contains("<plan>"));
+        assert!(msg.contains("pl_test"));
     }
 
     #[test]

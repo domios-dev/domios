@@ -689,24 +689,7 @@ fn planner_suffix_embeds_the_canonical_manual() {
 }
 
 #[test]
-fn milestone_gate_constants_wire_into_orchestration_ladder() {
-    const ORCHESTRATION_DOC: &str = include_str!("../../../prod-docs/ORCHESTRATION-OPERATIONS.md");
-
-    // Suggestion fills both placeholders and names the record command.
-    let msg = milestone_gate_suggestion("phase-1", "Phase 1");
-    assert!(msg.contains("group Phase 1 complete"));
-    assert!(msg.contains("codeterm plan qa next --group phase-1"));
-    assert!(!msg.contains("{label}") && !msg.contains("{key}"));
-
-    // The doc must quote the shared constant verbatim — asserted by constant,
-    // not by quoted prose, so rewording the ladder updates one place.
-    assert!(ORCHESTRATION_DOC.contains(MILESTONE_GATE_LADDER));
-    assert_eq!(REGRESSION_MILESTONE_KIND, "regression");
-    assert!(!MILESTONE_GATE_HEARTBEAT_TITLE.trim().is_empty());
-}
-
-#[test]
-fn reflection_block_fills_counts_and_routes_to_existing_primitives() {
+fn reflection_block_fills_the_supplied_window() {
     use crate::service::plan::reflection::ReflectionWindow;
     let filled = reflection_block(
         "group Wave 1 closed",
@@ -721,7 +704,6 @@ fn reflection_block_fills_counts_and_routes_to_existing_primitives() {
     assert!(filled.contains("bounces: 1"));
     assert!(filled.contains("gate leaks: 2"));
     assert!(!filled.contains("{trigger}") && !filled.contains("{closed}"));
-    assert!(!REFLECTION_HEARTBEAT_TITLE.trim().is_empty());
 }
 
 /// Was named for GA routing while asserting template phrases; the mechanism

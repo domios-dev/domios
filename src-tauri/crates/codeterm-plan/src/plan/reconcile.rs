@@ -52,7 +52,10 @@ pub fn aged_open_tasks(plan: &Plan, now_ms: u64) -> Vec<AgedOpenTask> {
         .filter(|task| task.status.counts_as_open_work() && active_review_hold_note(task).is_none())
         .filter_map(|task| {
             let projection = task_projection(plan, task);
-            if projection.presentation == TaskPresentation::WaitingOnDependencies {
+            if matches!(
+                projection.presentation,
+                TaskPresentation::WaitingOnDependencies | TaskPresentation::ParkedForLaterGroup
+            ) {
                 return None;
             }
             let threshold = stale_threshold_ms(&task.status)?;
@@ -452,7 +455,7 @@ mod tests {
     use super::*;
     use crate::plan::{
         OrchestratorRef, Plan, Task, TaskExecutionAttempt, TaskExecutionReportSnapshot,
-        TaskPriority, TaskStatus,
+        TaskGroup, TaskPriority, TaskStatus,
     };
 
     fn task(id: &str, status: TaskStatus) -> Task {
@@ -630,6 +633,43 @@ mod tests {
         assert!(items
             .iter()
             .any(|item| item.kind == DriftKind::StalePendingUnstaffed));
+    }
+
+    #[test]
+    fn later_group_pending_task_is_not_stale_drift() {
+        let mut active = task("active", TaskStatus::InProgress);
+        active.group = Some("release".into());
+        active.assigned_tab_id = Some("worker".into());
+        let mut later = task("later", TaskStatus::Pending);
+        later.group = Some("after-release".into());
+        later.status_changed_at = 1;
+        let mut plan = plan(vec![active, later]);
+        plan.task_groups = vec![
+            TaskGroup {
+                key: "release".into(),
+                label: "Release".into(),
+                color: None,
+            },
+            TaskGroup {
+                key: "after-release".into(),
+                label: "After release".into(),
+                color: None,
+            },
+        ];
+        let now = PENDING_UNSTAFFED_STALE_MS + 10;
+        let probe: fn(&str) -> TabProbe = |_| TabProbe {
+            exists: true,
+            live_agent: true,
+            ..Default::default()
+        };
+        let items = detect_plan_drift(&plan, &cfg(now), probe);
+
+        assert!(items.iter().all(|item| {
+            item.task_id != "later" || item.kind != DriftKind::StalePendingUnstaffed
+        }));
+        assert!(aged_open_tasks(&plan, now)
+            .iter()
+            .all(|item| item.task_id != "later"));
     }
 
     #[test]
