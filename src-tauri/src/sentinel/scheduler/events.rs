@@ -182,7 +182,7 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
     }
 }
 
-pub(super) fn dispatch_runs(svc: &ServiceContext, handle: &Handle) {
+pub(super) fn dispatch_runs(svc: &crate::service::ServiceState, handle: &Handle) {
     let jobs = handle.store.lock().list().to_vec();
     for job in jobs.iter().filter(|job| {
         job.pipeline.as_ref().is_some_and(|pipeline| {
