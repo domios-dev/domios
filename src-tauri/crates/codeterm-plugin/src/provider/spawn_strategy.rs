@@ -122,6 +122,9 @@ pub enum ComposerCursorPosition {
     BottomRegion,
     /// Visible cursor on the provider's alternate-screen TUI may be centered.
     VisibleAnywhere,
+    /// Line-mode REPL (no alternate screen): ready when the cursor is visible
+    /// and sits on the last non-blank screen row (its prompt line).
+    PromptLine,
 }
 
 impl Default for ProviderReadinessStrategy {

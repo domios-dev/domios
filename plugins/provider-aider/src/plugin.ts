@@ -31,13 +31,25 @@ const MODE_PROMPT_RE = /^(?:[a-z]+)?>\s*$/;
 function withLaunchEnv(command: string, p: LaunchParams): string {
   const platform = host.platform();
   const quote = (v: string) => host.shell.quoteFor(v, platform);
+  const isPowerShell = /powershell|pwsh/i.test(String(platform));
   const exports: string[] = [];
   const apiBase = typeof p.apiBase === "string" && p.apiBase ? p.apiBase : null;
-  if (apiBase) exports.push(`export OPENAI_API_BASE=${quote(apiBase)};`);
+  if (apiBase) {
+    exports.push(
+      isPowerShell
+        ? `$env:OPENAI_API_BASE=${quote(apiBase)};`
+        : `export OPENAI_API_BASE=${quote(apiBase)};`,
+    );
+  }
   const apiKeySecret = typeof p.apiKeySecret === "string" && p.apiKeySecret ? p.apiKeySecret : null;
   if (apiKeySecret) {
-    const secret = host.secretGet(apiKeySecret);
-    if (secret) exports.push(`export OPENAI_API_KEY=${quote(secret)};`);
+    // The key is fetched at run time inside the shell so its value never
+    // appears in the command text, argv, logs or scrollback.
+    exports.push(
+      isPowerShell
+        ? `$env:OPENAI_API_KEY=(codeterm mem secret get --name ${quote(apiKeySecret)});`
+        : `export OPENAI_API_KEY="$(codeterm mem secret get --name ${quote(apiKeySecret)})";`,
+    );
   }
   if (exports.length === 0) return command;
   return `${exports.join(" ")} ${command}`;

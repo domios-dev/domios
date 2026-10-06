@@ -89,8 +89,27 @@ const aiderHost = (over: Record<string, unknown>) => ({
     apiKeySecret: "my-key",
   });
   assert(withSecret.includes("OPENAI_API_BASE='https://api.example.com/v1'"), "api base exported");
-  assert(withSecret.includes("OPENAI_API_KEY='sk-secret-value'"), "api key exported");
+  assert(withSecret.includes("codeterm mem secret get --name 'my-key'"), "api key fetched at run time");
+  assert(!withSecret.includes("sk-secret-value"), "secret value never appears in the command");
   assert(!withSecret.includes("--api-key"), "secret not in argv");
+}
+
+console.log("\n--- secret-safe launch command ---\n");
+{
+  const secretHost = aiderHost({
+    secretGet: (name: string) => (name === "my-key" ? "sk-secret-value" : null),
+  });
+  const p = loadAiderWithHost(secretHost);
+  const posix = p.buildLaunchCommand({ apiKeySecret: "my-key" });
+  assert(posix.includes('export OPENAI_API_KEY="$(codeterm mem secret get --name \'my-key\')"'), "posix shell fetches the key at run time");
+  assert(!posix.includes("sk-secret-value"), "posix command carries no secret value");
+  const winHost = aiderHost({
+    platform: () => "win32",
+    secretGet: (name: string) => (name === "my-key" ? "sk-secret-value" : null),
+  });
+  const win = loadAiderWithHost(winHost).buildLaunchCommand({ apiKeySecret: "my-key" });
+  assert(win.includes("$env:OPENAI_API_KEY=(codeterm mem secret get --name 'my-key')"), "powershell fetches the key at run time");
+  assert(!win.includes("sk-secret-value"), "powershell command carries no secret value");
 }
 
 const idleScreen = [
