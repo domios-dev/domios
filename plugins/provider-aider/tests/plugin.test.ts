@@ -112,7 +112,7 @@ console.log("\n--- secret-safe launch command ---\n");
     secretGet: (name: string) => (name === "my-key" ? "sk-secret-value" : null),
   });
   const win = loadAiderWithHost(winHost).buildLaunchCommand({ apiKeySecret: "my-key" });
-  assert(win.includes("$env:OPENAI_API_KEY=(codeterm mem secret get --name 'my-key')"), "powershell fetches the key at run time");
+  assert(win.includes('$env:OPENAI_API_KEY=(codeterm mem secret get --name "my-key")'), "powershell fetches the key at run time");
   assert(!win.includes("sk-secret-value"), "powershell command carries no secret value");
 }
 
