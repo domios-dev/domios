@@ -104,7 +104,7 @@ console.log("\n--- secret-safe launch command ---\n");
   assert(posix.includes('export OPENAI_API_KEY="$(codeterm mem secret get --name \'my-key\')"'), "posix shell fetches the key at run time");
   assert(!posix.includes("sk-secret-value"), "posix command carries no secret value");
   const winHost = aiderHost({
-    platform: () => "win32",
+    platform: () => "windows",
     shell: {
       quoteFor: (v: unknown) => `"${String(v)}"`,
       quote: (v: unknown) => `"${String(v)}"`,

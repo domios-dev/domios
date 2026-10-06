@@ -31,10 +31,9 @@ const MODE_PROMPT_RE = /^(?:[a-z]+)?>\s*$/;
 function withLaunchEnv(command: string, p: LaunchParams): string {
   const platform = host.platform();
   const quote = (v: string) => host.shell.quoteFor(v, platform);
-  // The host's quoting helper knows the target shell: PowerShell wraps in
-  // double quotes, POSIX shells in single quotes. `platform()` is an OS id
-  // ("win32"), never a shell name.
-  const isPowerShell = quote("x") === '"x"';
+  // On Windows Domios launches agents in PowerShell; the host reports the
+  // platform as "windows".
+  const isPowerShell = platform === "windows";
   const exports: string[] = [];
   const apiBase = typeof p.apiBase === "string" && p.apiBase ? p.apiBase : null;
   if (apiBase) {
