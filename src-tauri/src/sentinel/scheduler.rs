@@ -253,7 +253,7 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
                 continue;
             }
             if event_wait_only {
-                let _ = wake_condvar.wait_while(guard, |value| *value == observed);
+                drop(wake_condvar.wait_while(guard, |value| *value == observed));
             } else {
                 let _ = wake_condvar.wait_timeout_while(
                     guard,
