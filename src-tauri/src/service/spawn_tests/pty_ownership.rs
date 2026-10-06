@@ -34,6 +34,8 @@ struct OwnershipRace {
     candidates: BTreeSet<String>,
     frontend: Option<Result<String, String>>,
     hidden: Option<Result<String, String>>,
+    // Serializes with tests that repoint CODETERM_INSTANCE, which moves every data_dir() lookup.
+    _env: codeterm_util::test_env::EnvGuard,
 }
 
 struct Outcome {
@@ -50,6 +52,7 @@ fn actor_result(run: impl FnOnce() -> Result<String, String>) -> Result<String, 
 
 impl OwnershipRace {
     fn new() -> Self {
+        let env = codeterm_util::test_env::EnvGuard::lock();
         let (mut mux, tab_id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.hidden = true;
@@ -90,6 +93,7 @@ impl OwnershipRace {
             candidates: BTreeSet::new(),
             frontend: None,
             hidden: None,
+            _env: env,
         }
     }
 
