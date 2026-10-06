@@ -899,7 +899,7 @@ console.log("--- permission_request ingestion ---");
   for (const key of ["PermissionRequest", "Notification"]) {
     const cmd = installed.hooks?.[key]?.[0]?.hooks?.[0]?.command as string | undefined;
     assert(typeof cmd === "string", `${key} hook is installed by the shipped plugin`);
-    assert((cmd as string).indexOf("--data-binary @-") !== -1, `${key} forwards the stdin payload`);
+    assert((cmd as string).indexOf('--data-binary "@-"') !== -1, `${key} forwards the stdin payload`);
     assert((cmd as string).indexOf("-d '{}'") === -1, `${key} never posts an empty body`);
     assert((cmd as string).indexOf("/hook/permission") !== -1, `${key} targets the existing permission route`);
     assert((cmd as string).indexOf("CODETERM_SESSION_BINDING_NONCE") !== -1, `${key} carries the binding nonce`);
