@@ -6,9 +6,7 @@ use super::*;
 use crate::converter::{Conversion, ConvertOutput, ConvertRequest};
 
 fn vm_with(src: &str) -> Arc<PluginVm> {
-    Arc::new(
-        PluginVm::from_source("js-converter-fixture", src.to_string()).expect("vm"),
-    )
+    Arc::new(PluginVm::from_source("js-converter-fixture", src.to_string()).expect("vm"))
 }
 
 fn converter(vm: &Arc<PluginVm>) -> JsConverter {
@@ -85,9 +83,8 @@ fn js_converter_refuses_a_path_outside_the_output_dir() {
 
 #[test]
 fn js_converter_maps_error_and_missing_results() {
-    let failing = vm_with(
-        r#"module.exports.default = { convert() { return { error: "engine down" }; } };"#,
-    );
+    let failing =
+        vm_with(r#"module.exports.default = { convert() { return { error: "engine down" }; } };"#);
     let dir = tempfile::tempdir().unwrap();
     match converter(&failing).convert(&request(dir.path())) {
         Err(ConvertError::RequestFailed(message)) => assert_eq!(message, "engine down"),

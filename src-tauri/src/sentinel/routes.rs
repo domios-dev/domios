@@ -7,15 +7,23 @@ use crate::service::messenger::MessageEnvelope;
 use crate::service::notification::{NotificationOrigin, PushIntent};
 use crate::service::ServiceContext;
 
-pub fn creator_live(svc: &ServiceContext, job: &Sentinel) -> bool {
+pub fn owner_live(svc: &ServiceContext, job: &Sentinel) -> bool {
     let mux = svc.mux.read();
-    mux.get_tab(&job.creator_tab_id)
-        .is_some_and(|tab| job.team_id.is_none() || tab.team_id == job.team_id)
-        && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref() == Some(&job.workspace_id)
-        && job
-            .team_id
-            .as_ref()
-            .is_none_or(|id| mux.get_team(id).is_some())
+    let creator_live = mux.get_tab(&job.creator_tab_id).is_some()
+        && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref() == Some(&job.workspace_id);
+    let team_live = job.team_id.as_deref().is_some_and(|team_id| {
+        mux.get_team(team_id).is_some()
+            && mux.team_workspace(team_id).as_deref() == Some(job.workspace_id.as_str())
+    });
+    owner_is_live(job.team_id.as_deref(), creator_live, team_live)
+}
+
+pub(super) fn owner_is_live(team_id: Option<&str>, creator_live: bool, team_live: bool) -> bool {
+    if team_id.is_some() {
+        team_live
+    } else {
+        creator_live
+    }
 }
 
 pub(super) fn notify_stop(svc: &ServiceContext, notice: &StopNotice) {
@@ -127,7 +135,8 @@ pub(super) fn resolve_cron_target(
         .collect();
     if candidates.len() != 1 {
         return Err(
-            "blueprint cron target must resolve uniquely in the creator's Team and workspace".into(),
+            "blueprint cron target must resolve uniquely in the creator's Team and workspace"
+                .into(),
         );
     }
     Ok(candidates[0].id.clone())
@@ -226,8 +235,8 @@ pub fn run(
     transition_id: &str,
     output: &str,
 ) -> Result<Option<String>, String> {
-    if !creator_live(svc, job) {
-        return Err("blueprint creator or Team is gone".into());
+    if !owner_live(svc, job) {
+        return Err("Blueprint owner or Team is gone".into());
     }
     match resolve(svc, job, route)? {
         Route::Notify => {

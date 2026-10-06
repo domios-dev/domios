@@ -40,6 +40,7 @@ import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
 import { GroupCloseConfirmDialog } from "./GroupCloseConfirmDialog";
+import { BlueprintOwnerCloseDialog } from "./BlueprintOwnerCloseDialog";
 import { WorkspaceCloseConfirmDialog } from "./WorkspaceCloseConfirmDialog";
 import type { OrchestrationGroupMember } from "./orchestrationGroupClose";
 import { hydrateProtectedExpanded, initialSidebarExpanded, partitionSidebarWorkspaces } from "./sidebarSections";
@@ -49,6 +50,8 @@ import { isFirstRunGeneralTab } from "../AgentPicker";
 import { RemoteTabPicker } from "./RemoteTabPicker";
 import { declaredAttentionByTab } from "./declaredAttention";
 import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamCloseResource } from "./teamCloseResources";
+import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
+import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
 
 export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
@@ -144,6 +147,7 @@ export function Sidebar({
     id: string;
     name: string;
     agentTitles: string[];
+    blueprints: string[];
     teams: TeamCloseResource[];
   } | null>(null);
   const [sessionPicker, setSessionPicker] = useState<{
@@ -249,18 +253,29 @@ export function Sidebar({
         sticky: true,
       });
     }
+    let blueprintSnapshots: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
+    try {
+      blueprintSnapshots = await readWorkspaceBlueprints(workspaceId);
+    } catch (error) {
+      addNotification({ tab_id: null, workspace_id: workspaceId, title: "Close inventory unavailable", body: error instanceof Error ? error.message : String(error), severity: "Error", level: "failure", sticky: true });
+      return;
+    }
     const teams = teamCloseResourcesForWorkspace(
       workspace,
       state.tabs,
       state.teams ?? [],
       crons,
       fullPlans.plans,
+      blueprintSnapshots,
     );
     const teamMemberIds = new Set(teams.flatMap((team) => team.members.map((member) => member.tabId)));
-    const agentTitles = flattenSidebarTabs(workspace.tabs, state.tabs)
+    const workspaceTabs = flattenSidebarTabs(workspace.tabs, state.tabs);
+    const agentTitles = workspaceTabs
       .filter((tab) => tab.agent_type && !teamMemberIds.has(tab.id))
       .map((tab) => tab.title);
-    setPendingWorkspaceClose({ id: workspaceId, name: workspace.name, agentTitles, teams });
+    const workspaceTabIds = new Set(workspaceTabs.map((tab) => tab.id));
+    const blueprints = blueprintSnapshots.filter((blueprint) => blueprint.state === "running" && blueprint.owner?.kind === "tab" && blueprint.owner.tab_id !== null && workspaceTabIds.has(blueprint.owner.tab_id) && !teamMemberIds.has(blueprint.owner.tab_id)).map((blueprint) => blueprint.name);
+    setPendingWorkspaceClose({ id: workspaceId, name: workspace.name, agentTitles, blueprints, teams });
   }, [addNotification, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
 
   useEffect(() => {
@@ -469,8 +484,10 @@ export function Sidebar({
     teamName: string;
     members: OrchestrationGroupMember[];
     crons: string[];
+    blueprints: string[];
     lanes: string[];
   } | null>(null);
+  const [pendingTabClose, setPendingTabClose] = useState<{ workspaceId: string; tabId: string; title: string; blueprints: string[] } | null>(null);
 
   const performCloseTab = useCallback((wsId: string, tabId: string) => {
     setClosingTabs((prev) => {
@@ -489,8 +506,22 @@ export function Sidebar({
   }, [closeTab]);
 
   const animatedCloseTab = useCallback((wsId: string, tabId: string) => {
-    performCloseTab(wsId, tabId);
-  }, [performCloseTab]);
+    void (async () => {
+      let blueprints: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
+      try {
+        blueprints = await readWorkspaceBlueprints(wsId);
+      } catch (error) {
+        addNotification({ tab_id: tabId, workspace_id: wsId, title: "Close inventory unavailable", body: error instanceof Error ? error.message : String(error), severity: "Error", level: "failure", sticky: true });
+        return;
+      }
+      const running = runningBlueprintNamesForOwner(blueprints, "tab", tabId);
+      if (running.length > 0) {
+        setPendingTabClose({ workspaceId: wsId, tabId, title: state.tabs[tabId]?.title || "Tab", blueprints: running });
+        return;
+      }
+      performCloseTab(wsId, tabId);
+    })();
+  }, [addNotification, performCloseTab, state.tabs]);
 
   const requestTeamClose = useCallback(async (wsId: string, teamId: string) => {
     const ws = state.workspaces.find((workspace) => workspace.id === wsId);
@@ -509,8 +540,15 @@ export function Sidebar({
         sticky: true,
       });
     }
+    let blueprintSnapshots: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
+    try {
+      blueprintSnapshots = await readWorkspaceBlueprints(wsId);
+    } catch (error) {
+      addNotification({ tab_id: null, workspace_id: wsId, title: "Close inventory unavailable", body: error instanceof Error ? error.message : String(error), severity: "Error", level: "failure", sticky: true });
+      return;
+    }
     const resources = teamCloseResourcesForId(
-      teamCloseResourcesForWorkspace(ws, state.tabs, state.teams ?? [], crons, fullPlans.plans),
+      teamCloseResourcesForWorkspace(ws, state.tabs, state.teams ?? [], crons, fullPlans.plans, blueprintSnapshots),
       teamId,
     );
     const teamTabs = flattenSidebarTabs(ws.tabs, state.tabs).filter((tab) => tab.team_id === teamId);
@@ -528,6 +566,7 @@ export function Sidebar({
         };
       }),
       crons: resources?.crons ?? [],
+      blueprints: resources?.blueprints ?? runningBlueprintNamesForOwner(blueprintSnapshots, "team", teamId),
       lanes: resources?.lanes ?? [],
     });
   }, [addNotification, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
@@ -1053,6 +1092,7 @@ export function Sidebar({
           orchestratorTitle={pendingTeamClose.teamName}
           members={pendingTeamClose.members}
           crons={pendingTeamClose.crons}
+          blueprints={pendingTeamClose.blueprints}
           lanes={pendingTeamClose.lanes}
           onCancel={() => setPendingTeamClose(null)}
           onConfirm={() => { void confirmTeamClose(); }}
@@ -1062,11 +1102,24 @@ export function Sidebar({
         <WorkspaceCloseConfirmDialog
           workspaceName={pendingWorkspaceClose.name}
           agentTitles={pendingWorkspaceClose.agentTitles}
+          blueprints={pendingWorkspaceClose.blueprints}
           teams={pendingWorkspaceClose.teams}
           onCancel={() => setPendingWorkspaceClose(null)}
           onConfirm={() => {
             closeWorkspace(pendingWorkspaceClose.id, true);
             setPendingWorkspaceClose(null);
+          }}
+        />
+      )}
+      {pendingTabClose && (
+        <BlueprintOwnerCloseDialog
+          owner={`Tab ${pendingTabClose.title}`}
+          blueprints={pendingTabClose.blueprints}
+          onCancel={() => setPendingTabClose(null)}
+          onConfirm={() => {
+            const pending = pendingTabClose;
+            setPendingTabClose(null);
+            performCloseTab(pending.workspaceId, pending.tabId);
           }}
         />
       )}
