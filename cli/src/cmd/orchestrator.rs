@@ -216,10 +216,7 @@ fn compact_status(value: &Value) -> Value {
                 "task_id": action.get("task_id").cloned().unwrap_or(Value::Null),
             });
             if action.get("kind").and_then(Value::as_str) == Some("parked_for_later_groups") {
-                compact["message"] = action
-                    .get("message")
-                    .cloned()
-                    .unwrap_or(Value::Null);
+                compact["message"] = action.get("message").cloned().unwrap_or(Value::Null);
             }
             compact
         })

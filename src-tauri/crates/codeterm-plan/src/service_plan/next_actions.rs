@@ -159,14 +159,10 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
     }
 
     // Dependency-gated lanes must remain visible as pending work while their unblocking task runs.
-    for lane in s
-        .open_lanes
-        .iter()
-        .filter(|lane| {
-            lane.waiting_on_dependencies
-                && lane.presentation != super::state::TaskPresentation::ParkedForLaterGroup
-        })
-    {
+    for lane in s.open_lanes.iter().filter(|lane| {
+        lane.waiting_on_dependencies
+            && lane.presentation != super::state::TaskPresentation::ParkedForLaterGroup
+    }) {
         actions.push(NextAction {
             priority: 2,
             kind: NextActionKind::WaitingOnDependency,
@@ -191,13 +187,10 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         });
     }
 
-    let has_unblocked_work = s
-        .open_lanes
-        .iter()
-        .any(|lane| {
-            lane.presentation == super::state::TaskPresentation::ActionablePending
-                && !lane.waiting_on_dependencies
-        });
+    let has_unblocked_work = s.open_lanes.iter().any(|lane| {
+        lane.presentation == super::state::TaskPresentation::ActionablePending
+            && !lane.waiting_on_dependencies
+    });
     let qa_only = !s.open_lanes.is_empty()
         && s.open_lanes.iter().all(|lane| {
             lane.status == TaskStatus::InReview && lane.review_stage == ReviewStage::Qa
@@ -261,7 +254,10 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         let message = if gates.is_empty() {
             message
         } else {
-            format!("{message} — terminal-group gate advisory (dispatch allowed): {}", gates.join(", "))
+            format!(
+                "{message} — terminal-group gate advisory (dispatch allowed): {}",
+                gates.join(", ")
+            )
         };
         actions.push(NextAction {
             priority: 5,
@@ -626,12 +622,10 @@ mod tests {
             .find(|action| action.kind == NextActionKind::ParkedForLaterGroups)
             .expect("parked task count");
         assert_eq!(parked_action.message, "1 tasks parked for later groups");
-        assert!(actions
-            .iter()
-            .all(|action| !matches!(
-                action.kind,
-                NextActionKind::Dispatch | NextActionKind::WaitingOnDependency
-            )));
+        assert!(actions.iter().all(|action| !matches!(
+            action.kind,
+            NextActionKind::Dispatch | NextActionKind::WaitingOnDependency
+        )));
     }
 
     #[test]

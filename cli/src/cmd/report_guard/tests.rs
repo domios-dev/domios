@@ -282,9 +282,7 @@ fn stale_readiness_sha_is_refused() {
         .unwrap_err()
     };
 
-    assert!(err
-        .message()
-        .contains("does not match HEAD"));
+    assert!(err.message().contains("does not match HEAD"));
     assert!(err.message().contains("--status partial"));
 }
 
@@ -292,8 +290,14 @@ fn stale_readiness_sha_is_refused() {
 fn sha_outside_the_lane_does_not_claim_the_lane_head() {
     let foreign = "0123456789abcdef0123456789abcdef01234567";
     assert!(!lane_report_sha_is_stale(None, Some("lane-head")));
-    assert!(!lane_report_sha_is_stale(Some("lane-head"), Some("lane-head")));
-    assert!(lane_report_sha_is_stale(Some("other-lane-commit"), Some("lane-head")));
+    assert!(!lane_report_sha_is_stale(
+        Some("lane-head"),
+        Some("lane-head")
+    ));
+    assert!(lane_report_sha_is_stale(
+        Some("other-lane-commit"),
+        Some("lane-head")
+    ));
 
     let dir = repo();
     let (branch, reported, _) = enrich_ready_report_in(
