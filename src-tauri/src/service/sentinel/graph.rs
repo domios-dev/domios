@@ -55,7 +55,7 @@ fn host_stop_gate(
 ) -> Result<(), String> {
     graph::validate_scope(mux, workspace, team)?;
     store.ensure_available()?;
-    let job = store.get(id).ok_or("Sentinel not found")?;
+    let job = store.get(id).ok_or("Blueprint not found")?;
     if job.workspace_id != workspace
         || job.team_id.as_deref() != team
         || !job.agent_authored
@@ -63,7 +63,7 @@ fn host_stop_gate(
         || ((job.machine.stopped || job.expires_at.is_some_and(|at| store.clock.now_ms() >= at))
             && !store.has_live_lease(id))
     {
-        return Err("Sentinel is unavailable in this automation scope".into());
+        return Err("Blueprint is unavailable in this automation scope".into());
     }
     Ok(())
 }
@@ -85,10 +85,10 @@ pub fn target_identity(
             let handle = svc
                 .app_handle
                 .try_state::<Handle>()
-                .ok_or("sentinels not initialized")?;
+                .ok_or("blueprints not initialized")?;
             let store = handle.store.lock();
             store.validate_target(job, id)?;
-            exact = graph::identity(store.get(id).ok_or("Sentinel target disappeared")?);
+            exact = graph::identity(store.get(id).ok_or("Blueprint target disappeared")?);
         }
         Route::Send(id) => {
             let mux = svc.mux.read();
@@ -210,7 +210,7 @@ impl ServiceContext {
         let handle = self
             .app_handle
             .try_state::<Handle>()
-            .ok_or("sentinels not initialized")?;
+            .ok_or("blueprints not initialized")?;
         graph::validate_scope(&self.mux.read(), workspace, team)?;
         let (jobs, live_leases) = storage::committed_scope(&handle.store, workspace, team)?;
         let crons = self
@@ -242,7 +242,7 @@ impl ServiceContext {
         let handle = self
             .app_handle
             .try_state::<Handle>()
-            .ok_or("sentinels not initialized")?;
+            .ok_or("blueprints not initialized")?;
         {
             let mux = self.mux.read();
             graph::validate_scope(&mux, workspace, None)?;
@@ -366,7 +366,7 @@ impl ServiceContext {
         let handle = self
             .app_handle
             .try_state::<Handle>()
-            .ok_or("sentinels not initialized")?;
+            .ok_or("blueprints not initialized")?;
         let staged = {
             let mux = self.mux.read();
             host_stop_staged(&mut handle.store.lock(), &mux, workspace, team, id)
@@ -385,7 +385,7 @@ impl ServiceContext {
         let handle = self
             .app_handle
             .try_state::<Handle>()
-            .ok_or("sentinels not initialized")?;
+            .ok_or("blueprints not initialized")?;
         let staged = {
             let mux = self.mux.read();
             graph::host_delete_staged(&mut handle.store.lock(), &mux, workspace, team, id)?
@@ -405,7 +405,7 @@ impl ServiceContext {
     ) -> Result<Sentinel, String> {
         let caller = self.sentinel_caller(caller_tab, nonce)?;
         if caller.workspace != workspace || caller.team.as_deref() != team {
-            return Err("Sentinel caller scope differs from graph scope".into());
+            return Err("Blueprint caller scope differs from graph scope".into());
         }
         graph::validate_scope(&self.mux.read(), workspace, team)?;
         self.sentinel_stop(&caller, id)

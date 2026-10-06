@@ -73,16 +73,16 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
         + (job.observe.is_some() as u8)
         + (job.input.is_some() as u8);
     if sources != 1 {
-        return Err("invalid sentinel source: exactly one of probe, observe or input".into());
+        return Err("invalid blueprint source: exactly one of probe, observe or input".into());
     }
     if let Some(binding) = &job.observe {
         if !bounded_id(binding.id()) {
-            return Err("invalid sentinel observation source".into());
+            return Err("invalid blueprint observation source".into());
         }
     }
     if let Some(input) = &job.input {
         codeterm_types::sentinel_input::validate(input)
-            .map_err(|error| format!("invalid sentinel input: {error}"))?;
+            .map_err(|error| format!("invalid blueprint input: {error}"))?;
         if !job.rearm_on_change.is_empty() {
             return Err("input stages cannot rearm_on_change".into());
         }
@@ -92,7 +92,7 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
             || !bounded_id(&run.run_id)
             || !bounded_id(&run.tab_id)
         {
-            return Err("invalid sentinel run binding".into());
+            return Err("invalid blueprint run binding".into());
         }
     }
     let answers = job

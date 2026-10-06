@@ -49,16 +49,16 @@ function AutomationGraphSurface({ adapter, attachment }: AutomationGraphViewProp
     returnTo.current = null;
   }, [scenario, missing]);
   return <section aria-label="Automations" className="min-w-0 text-[length:var(--ct-font-size-sm)] text-[var(--ct-fg)]">
-    {scenario ? <ScenarioPanel state={state} scope={attachment} scenario={scenario} camera={cameraFor(scenario.id)} backLabel="All Sentinels" onBack={() => { returnTo.current = scenario.id; setScenarioId(null); }}>
+    {scenario ? <ScenarioPanel state={state} scope={attachment} scenario={scenario} camera={cameraFor(scenario.id)} backLabel="All Blueprints" onBack={() => { returnTo.current = scenario.id; setScenarioId(null); }}>
       <AutomationNotices state={state} noun="automations" />
     </ScenarioPanel> : <>
-      <div className="border-b border-[var(--ct-border)] px-4 py-3"><h2 className="text-[length:var(--ct-font-size-md)] font-semibold">Sentinels</h2></div>
+      <div className="border-b border-[var(--ct-border)] px-4 py-3"><h2 className="text-[length:var(--ct-font-size-md)] font-semibold">Blueprints</h2></div>
       <AutomationNotices state={state} noun="automations" />
-      {missing && <p ref={removed} tabIndex={-1} role="alert" className="px-4 py-3 outline-none">The selected Sentinel is unavailable. Select a recorded Sentinel to continue.</p>}
+      {missing && <p ref={removed} tabIndex={-1} role="alert" className="px-4 py-3 outline-none">The selected Blueprint is unavailable. Select a recorded Blueprint to continue.</p>}
       {state.graph && <>
-        {state.graph.scenarios.length === 0 && <p className="px-4 py-3 text-[var(--ct-muted-fg)]">No Sentinels recorded in this scope.</p>}
-        <ul ref={list} aria-label="Sentinel scenarios" className="space-y-2 p-3">{sentinelJobs(state.graph, attachment).map((job) => {
-          const Icon = job.type === "Sentinel graph" ? Network : Radar;
+        {state.graph.scenarios.length === 0 && <p className="px-4 py-3 text-[var(--ct-muted-fg)]">No Blueprints recorded in this scope.</p>}
+        <ul ref={list} aria-label="Blueprint scenarios" className="space-y-2 p-3">{sentinelJobs(state.graph, attachment).map((job) => {
+          const Icon = job.type === "Blueprint graph" ? Network : Radar;
           return <li key={job.scenario.id}><button type="button" data-scenario-id={job.scenario.id} className={AUTOMATION_ROW} onClick={() => setScenarioId(job.scenario.id)}>
             <Icon size={15} className="shrink-0 text-[var(--ct-muted-fg)]" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate font-medium">{sentinelTitle(job.scenario, job.root)}</span>

@@ -4,7 +4,7 @@ import { automationState } from "./model";
 import { commandOutcome } from "./CommandResultDetails";
 import type { ActionLeaf } from "./projection";
 import { LABEL_LINE_HEIGHT } from "./layout";
-import type { AutomationGraph, AutomationNode } from "./types";
+import { automationKindLabel, type AutomationGraph, type AutomationNode } from "./types";
 import { useAutomationViewport, type AutomationCamera } from "./useAutomationViewport";
 import { AUTOMATION_TOOL, stateTone } from "./styles";
 
@@ -20,7 +20,7 @@ function NodeCard({ node, selected, related, dimmed }: { node: AutomationNode; s
   return <span className={`${CARD} ${border} ${node.availability === "available" ? "" : "border-dashed"} ${dimmed ? "opacity-55" : ""}`}>
     <span className="flex items-center gap-1.5 text-[0.6875rem] uppercase tracking-wider text-[var(--ct-muted-fg)]">
       <Icon size={12} aria-hidden="true" />
-      <span>{node.identity.kind}{node.hidden ? " · Hidden" : ""}</span>
+      <span>{automationKindLabel(node.identity.kind)}{node.hidden ? " · Hidden" : ""}</span>
       <span className="ml-auto flex items-center gap-1 normal-case tracking-normal text-[var(--ct-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(state)}`} aria-hidden="true" />{state}</span>
     </span>
     <span className="truncate text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{node.name}</span>
@@ -140,7 +140,7 @@ export function AutomationCanvas({ graph, selected, camera, fill = false, onSele
             className={frame}
             style={style}
             aria-pressed={isSelected}
-            aria-label={`${node.identity.kind}: ${node.name} · ${automationState(node)}`}
+            aria-label={`${automationKindLabel(node.identity.kind)}: ${node.name} · ${automationState(node)}`}
             onFocus={() => viewport.reveal(box)}
             onClick={() => onSelect(node)}
           ><NodeCard node={node} selected={isSelected} related={related} dimmed={dimmed} /></button>;

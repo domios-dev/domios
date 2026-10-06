@@ -188,7 +188,7 @@ pub fn validate(
     interval: u64,
 ) -> Result<(), String> {
     if interval < MIN_INTERVAL_MS {
-        return Err("--every: minimum sentinel interval is 10s".into());
+        return Err("--every: minimum blueprint interval is 10s".into());
     }
     if buckets.is_empty() || buckets.len() > MAX_BUCKETS {
         return Err("--buckets: provide between 1 and 16 buckets".into());
@@ -216,7 +216,7 @@ pub fn validate(
     }
     if !connected && patterns.is_empty() {
         return Err(
-            "sentinel requires a connected Supporter Choice adapter or --match bucket=regex".into(),
+            "blueprint requires a connected Supporter Choice adapter or --match bucket=regex".into(),
         );
     }
     Ok(())

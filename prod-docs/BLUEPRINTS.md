@@ -1,14 +1,14 @@
-# Sentinels
+# Blueprints
 
-A sentinel watches external status cheaply while an agent does useful work. It runs a bounded shell probe at the
+A blueprint watches external status cheaply while an agent does useful work. It runs a bounded shell probe at the
 requested cadence, hashes the captured result, and classifies only changed output. Use it to wait for CI or build
 completion instead of repeatedly asking an agent to run the same status check.
 
-Name graphs, handler nodes and crons briefly by meaning: what is watched → what happens. `sentinel create` requires
+Name graphs, handler nodes and crons briefly by meaning: what is watched → what happens. `blueprint create` requires
 `--name`; update definitions require `name`. Validate create or update definitions with `--dry-run`. Use-case patterns
-and ready skeletons are in `codeterm docs SENTINEL-RECIPES`; `codeterm sentinel recipe [<name>]` prints one.
+and ready skeletons are in `codeterm docs BLUEPRINT-RECIPES`; `codeterm blueprint recipe [<name>]` prints one.
 
-## When to use a Sentinel graph
+## When to use a Blueprint graph
 
 Before you repeat a check or wait on an external, agent or cron status, describe the loop once as a graph instead of spending turns on it. Unchanged output costs no model call and no agent turn; you wake only when a declared bucket routes to you. Observation and actions are deterministic, the model only picks one of your finite buckets (never a command, target or reply), and every action stays in the creator's Team, workspace and machine. `other` means no bucket fits.
 
@@ -19,7 +19,7 @@ A probe puts the creating instance's installed CLI directory first on `PATH` and
 ## Create a watch
 
 ```bash
-codeterm sentinel create --name ci-finished-watch --probe "gh run view 456 --json status,conclusion" --question "waiting while CI is in progress; finished when CI has completed with any conclusion" --buckets waiting,finished --every 20s --until finished --timeout 1h
+codeterm blueprint create --name ci-finished-watch --probe "gh run view 456 --json status,conclusion" --question "waiting while CI is in progress; finished when CI has completed with any conclusion" --buckets waiting,finished --every 20s --until finished --timeout 1h
 ```
 
 The first probe runs immediately. `--every` defaults to `20s` and must be at least `10s`. Durations accept `s`, `m`, `h`, `d`, and combinations such as `1h30m`; a bare number means minutes. The maximum duration is 366 days. `--timeout` bounds the lifetime. `--until` names one declared bucket and ends the watch after that bucket's first routed transition. `--route bucket=stop` ends it on its first accepted reading.
@@ -36,7 +36,7 @@ The creator's live tab supplies its cwd, workspace, and Team. Commands are execu
 Use `--observe` to watch an agent tab or a cron run instead of running a shell probe:
 
 ```bash
-codeterm sentinel create --name nightly-run-watch --observe cron-run:nightly --question "identify the current run state" --buckets waiting,finished --every 20s --timeout 1h
+codeterm blueprint create --name nightly-run-watch --observe cron-run:nightly --question "identify the current run state" --buckets waiting,finished --every 20s --timeout 1h
 ```
 
 For `tab:<id>`, the observed tab must be an agent in the creator's Team and workspace. A `cron-run:<id-or-name>` stage
@@ -47,7 +47,7 @@ A removed tab routes a notice to the creator agent with the reason.
 
 ## Start from data: input stages
 
-An input stage watches data instead of a probe or observation: inline text, a file, or a URL. `--input <text|audio|video|image>` takes the media kind; provide exactly one source with `--input-file <PATH>` (absolute or cwd-relative), `--input-url <URL>` (http/https), or `--input-text <TEXT>` (text kind only, ≤64 KiB, no NUL). `--convert-to <text|audio>` requests a one-time conversion to a different kind; `--convert-timeout <DURATION>` bounds it (default 15 min, max 60 min). All input flags conflict with `--probe`, `--observe`, `--every` and `--rearm-on-change`. The media kind is immutable under `codeterm sentinel update`; `data` and `convert_to` are amendable. The graph `source` field shows kind, ref type and display name — never inline text or URL queries. Input stages currently record a typed skip (`input_runtime_unavailable`) until the runtime lane lands.
+An input stage watches data instead of a probe or observation: inline text, a file, or a URL. `--input <text|audio|video|image>` takes the media kind; provide exactly one source with `--input-file <PATH>` (absolute or cwd-relative), `--input-url <URL>` (http/https), or `--input-text <TEXT>` (text kind only, ≤64 KiB, no NUL). `--convert-to <text|audio>` requests a one-time conversion to a different kind; `--convert-timeout <DURATION>` bounds it (default 15 min, max 60 min). All input flags conflict with `--probe`, `--observe`, `--every` and `--rearm-on-change`. The media kind is immutable under `codeterm blueprint update`; `data` and `convert_to` are amendable. The graph `source` field shows kind, ref type and display name — never inline text or URL queries. Input stages currently record a typed skip (`input_runtime_unavailable`) until the runtime lane lands.
 
 ## Classification and transitions
 
@@ -56,7 +56,7 @@ confidence 1; overlapping matches become `other`. Unmatched output uses the adap
 `other` when no adapter is connected:
 
 ```bash
-codeterm sentinel create --name ci-result-watch --probe "check-ci" --question "CI result" --buckets waiting,passed,failed --match 'passed=(?m)^success$' --match 'failed=(?m)^failure$' --every 20s --until passed --timeout 1h
+codeterm blueprint create --name ci-result-watch --probe "check-ci" --question "CI result" --buckets waiting,passed,failed --match 'passed=(?m)^success$' --match 'failed=(?m)^failure$' --every 20s --until passed --timeout 1h
 ```
 
 Patterns see the formatted result: exit status, stdout, then stderr. Match the status line with a multiline pattern such
@@ -74,14 +74,14 @@ consumes the configured budget.
 
 ## Closed-set routes
 
-Repeat `--route bucket=action` for inline `notify`, `sentinel`, `send`, `cron`, or `stop` handlers. Use
+Repeat `--route bucket=action` for inline `notify`, `blueprint`, `send`, `cron`, or `stop` handlers. Use
 `--handlers-file` for `command`, `respond_prompt`, or `escalate` handlers and when explicit handler IDs are needed.
 Unassigned buckets use `notify`.
 
 | Action | Result |
 |---|---|
 | `notify` | Sends the result to the creator agent; a shell creator gets a notification record |
-| `sentinel:<exact-id>` | Activates an existing dormant stage owned by the same creator, Team and workspace |
+| `blueprint:<exact-id>` | Activates an existing dormant stage owned by the same creator, Team and workspace |
 | `send:<tab>` | Sends a result-file pointer through the existing tab message API |
 | `cron:<name>` | Triggers the uniquely named existing cron |
 | `respond_prompt:<kind>` | Requests an answer through the existing provider-declared safe-response path |
@@ -101,18 +101,18 @@ handlers; stop cancels the remaining handlers. A missing result after a crash is
 path; it does not authorize an answer or select an option. For example, `permission` can request a response to a
 per-tool permission prompt. The existing responder revalidates the exact current prompt and kind, then chooses only a
 provider-declared option through the existing safe-response writer. Changed prompts, unsupported kinds, unsafe targets,
-and prompts without a matching declared option are refused. Sentinel does not write raw PTY keys or construct provider
-steps. Each tab accepts at most one response per prompt occurrence, and Sentinel prompt-response requests are limited
+and prompts without a matching declared option are refused. Blueprint does not write raw PTY keys or construct provider
+steps. Each tab accepts at most one response per prompt occurrence, and Blueprint prompt-response requests are limited
 to 600 per rolling 60-second window.
 
-## Compose a named Sentinel graph
+## Compose a named Blueprint graph
 
 Create downstream stages first with `--paused`, then create the named entry whose outputs activate their exact IDs.
 Paused stages do not probe or spend Choice requests. Their timeout starts at creation and continues while dormant.
 
 ```bash
-codeterm sentinel create --name "Review stage" --paused --probe "check-review" --question "done when review completes" --buckets done --match 'done=(?m)^done$' --until done --timeout 1h --json
-codeterm sentinel create --name "CI and review" --probe "check-ci" --question "passed or failed CI" --buckets passed,failed --match 'passed=(?m)^success$' --match 'failed=(?m)^failure$' --route passed=sentinel:sentinel_DOWNSTREAM_ID --route passed=notify --route failed=stop --timeout 1h
+codeterm blueprint create --name "Review stage" --paused --probe "check-review" --question "done when review completes" --buckets done --match 'done=(?m)^done$' --until done --timeout 1h --json
+codeterm blueprint create --name "CI and review" --probe "check-ci" --question "passed or failed CI" --buckets passed,failed --match 'passed=(?m)^success$' --match 'failed=(?m)^failure$' --route passed=blueprint:sentinel_DOWNSTREAM_ID --route passed=notify --route failed=stop --timeout 1h
 ```
 
 Replace `sentinel_DOWNSTREAM_ID` with the exact ID from the first response. The entry and its reachable stages appear as
@@ -126,7 +126,7 @@ from its type and bucket (for example, `send-to-review-on-passed`). Explicit gen
 `handler_2` are refused; replace them with a purpose-based name or omit them:
 
 ```json
-{"passed":[{"id":"review","type":"sentinel","parameters":{"target":"sentinel_DOWNSTREAM_ID"}},{"id":"notice","type":"notify","parameters":{}}],"failed":[{"id":"finish","type":"stop","parameters":{}}]}
+{"passed":[{"id":"review","type":"blueprint","parameters":{"target":"sentinel_DOWNSTREAM_ID"}},{"id":"notice","type":"notify","parameters":{}}],"failed":[{"id":"finish","type":"stop","parameters":{}}]}
 ```
 
 The file form cannot be mixed with `--route`. Unknown fields or types, duplicate IDs and ambiguous targets are refused.
@@ -139,7 +139,7 @@ defaults to 256 and `--max-actions` allows up to 1024. No model output construct
 command is available only through `--handlers-file`, with creator-authored parameters:
 
 ```json
-{"passed":[{"id":"marker","type":"command","parameters":{"command":"printf marker > marker.txt","label":"Write marker","timeout_ms":1000}},{"id":"review","type":"sentinel","parameters":{"target":"sentinel_DOWNSTREAM_ID"}}],"failed":[{"id":"finish","type":"stop","parameters":{}}]}
+{"passed":[{"id":"marker","type":"command","parameters":{"command":"printf marker > marker.txt","label":"Write marker","timeout_ms":1000}},{"id":"review","type":"blueprint","parameters":{"target":"sentinel_DOWNSTREAM_ID"}}],"failed":[{"id":"finish","type":"stop","parameters":{}}]}
 ```
 
 Use the same file form to declare a prompt answer:
@@ -152,7 +152,7 @@ Save the JSON as `handlers.json` in your disposable fixture directory, replace t
 directory:
 
 ```bash
-codeterm sentinel create --name "Marker and review" --probe "printf passed" --question "passed or failed" --buckets passed,failed --match 'passed=(?m)^passed$' --match 'failed=(?m)^failed$' --handlers-file handlers.json --timeout 1h
+codeterm blueprint create --name "Marker and review" --probe "printf passed" --question "passed or failed" --buckets passed,failed --match 'passed=(?m)^passed$' --match 'failed=(?m)^failed$' --handlers-file handlers.json --timeout 1h
 ```
 
 Put escalation actions only in the reserved `other` array, for example:
@@ -162,29 +162,29 @@ Put escalation actions only in the reserved `other` array, for example:
 ```
 
 It accepts only `notify` and `escalate` handlers, with at most one escalation. An escalation packet carries only
-Sentinel and transition IDs, never probe output. Creating a graph with `other` handlers requires positive
+Blueprint and transition IDs, never probe output. Creating a graph with `other` handlers requires positive
 `--escalation-timeout-ms`; updates must set a positive `escalation_timeout_ms` in the definition JSON. After an
 escalation the stage holds without classifying until resolution, a new run binding, or timeout (journaled as
 `escalation_expired`). Resolve an open episode with:
 
 ```bash
-codeterm sentinel escalation resolve SENTINEL_ID TRANSITION_ID
+codeterm blueprint escalation resolve BLUEPRINT_ID TRANSITION_ID
 ```
 
 Resolution clears the observation hash and re-evaluates once. An escalation claim is persisted before delivery and is
-never replayed after restart. The same cause escalates at most once per five minutes per Sentinel.
+never replayed after restart. The same cause escalates at most once per five minutes per Blueprint.
 
 Update a definition from JSON with the current version. Definitions require a meaningful `name`. Add `--cause TRANSITION_ID` when the amendment addresses an
 escalation. Any caller in the same Team and workspace may amend it; each accepted update records version lineage:
 
 ```bash
-codeterm sentinel update SENTINEL_ID --expect-version VERSION --from-file definition.json
-codeterm sentinel update SENTINEL_ID --expect-version VERSION --from-file definition.json --cause TRANSITION_ID
-codeterm sentinel history SENTINEL_ID
+codeterm blueprint update BLUEPRINT_ID --expect-version VERSION --from-file definition.json
+codeterm blueprint update BLUEPRINT_ID --expect-version VERSION --from-file definition.json --cause TRANSITION_ID
+codeterm blueprint history BLUEPRINT_ID
 ```
 
-For an escalation, inspect the definition and versions with `codeterm sentinel history <id>`, update it with the
-transition as `--cause`, then resolve with `codeterm sentinel escalation resolve <id> <transition>`.
+For an escalation, inspect the definition and versions with `codeterm blueprint history <id>`, update it with the
+transition as `--cause`, then resolve with `codeterm blueprint escalation resolve <id> <transition>`.
 
 Command text is immutable, nonempty, at most 8192 bytes and contains no NUL. Its display label is at most 256 bytes.
 `timeout_ms` is positive and no larger than the platform probe limit. Execution uses the shorter of that duration, the
@@ -204,10 +204,10 @@ certify that the daemon waited for process settlement before exiting. Cancellati
 Unix, direct commands require macOS process kqueue events or Linux pidfd support; unsupported platforms/kernels refuse
 before command spawn. Ordinary observation probes retain their existing wait path. Confirmed command errors allow
 independent sibling handlers; unconfirmed resource cleanup stops the source and fences the remaining batch.
-Peer-qualified handlers and remote Sentinel execution are unavailable; a graph belongs to one actual connected instance.
+Peer-qualified handlers and remote Blueprint execution are unavailable; a graph belongs to one actual connected instance.
 Mesh transport does not provide a remote execution claimant or replay contract.
 
-Team Mission Control and the workspace automation entry list named Sentinels; an entry opens its graph. Nodes show
+Team Mission Control and the workspace automation entry list named Blueprints; an entry opens its graph. Nodes show
 declared purpose, exact scope, state, expiry, handler results and connected targets; cron-to-Worker edges need retained
 run and tab IDs. Probe text, task bodies, credentials and secrets are excluded, truncation at the read limit is reported,
 and graph Stop validates the exact node scope through authenticated host control.
@@ -215,24 +215,24 @@ and graph Stop validates the exact node scope through authenticated host control
 ## Inspect and stop
 
 ```bash
-codeterm sentinel list --json
-codeterm sentinel show SENTINEL_ID --json
-codeterm sentinel stop SENTINEL_ID --json
+codeterm blueprint list --json
+codeterm blueprint show BLUEPRINT_ID --json
+codeterm blueprint stop BLUEPRINT_ID --json
 ```
 
-These commands show or manage only the calling tab's sentinels in its creation scope and workspace. A solo graph remains
+These commands show or manage only the calling tab's blueprints in its creation scope and workspace. A solo graph remains
 visible to its creator after that tab joins a Team; it is not shared with the new Team. `show` includes the probe,
 accepted bucket, hash, next run, expiry, and last decision reason. Stopped watches remain inspectable. Closing a Team
-stops and removes its Team-owned sentinels, including in-flight route claims. A removed creator stops the watch. The
-store admits at most 64 active and 256 total sentinels; dormant stages count toward the total. Watches are
+stops and removes its Team-owned blueprints, including in-flight route claims. A removed creator stops the watch. The
+store admits at most 64 active and 256 total blueprints; dormant stages count toward the total. Watches are
 local to the creator's machine; `--mesh` is refused.
 
-Stored single-route definitions from older builds and unreadable/corrupt files leave the Sentinel subsystem unavailable
+Stored single-route definitions from older builds and unreadable/corrupt files leave the Blueprint subsystem unavailable
 while other subsystems start. Original bytes stay in place; reads and mutations return an actionable load/format error,
 never an empty healthy graph. Preserve those definitions and recreate them through current authoring; there is no
 automatic migration, reset or discard. Use fresh isolated dev data for demonstrations.
 
-A failed persistence write returns an error and holds Sentinel unavailable; cancellation stays in memory and durability
+A failed persistence write returns an error and holds Blueprint unavailable; cancellation stays in memory and durability
 is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

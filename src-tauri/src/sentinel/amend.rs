@@ -152,7 +152,7 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
                             .map_or(true, |bytes| bytes.len() > MAX_UPDATE_BYTES)
                 })
         {
-            return Err("invalid sentinel amendment lineage".into());
+            return Err("invalid blueprint amendment lineage".into());
         }
         previous = amendment.version;
     }
@@ -162,7 +162,7 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
         || job.amendments.len() > MAX_AMENDMENTS
         || head_lineage != expected
     {
-        return Err("invalid sentinel definition version".into());
+        return Err("invalid blueprint definition version".into());
     }
     Ok(())
 }
@@ -197,7 +197,7 @@ impl Update {
         connected: bool,
     ) -> Result<PreparedUpdate, String> {
         let name = self.name.as_deref().ok_or_else(|| {
-            "Sentinel update definition needs a name; use a short name such as ci-green-watch"
+            "Blueprint update definition needs a name; use a short name such as ci-green-watch"
                 .to_string()
         })?;
         codeterm_types::automation_name::validate_sentinel_name(name)?;
@@ -236,7 +236,7 @@ impl Update {
             || usize::from(self.max_actions) < claimed_actions(current)
         {
             return Err(
-                "sentinel budgets must stay within limits and cannot shrink below use".into(),
+                "blueprint budgets must stay within limits and cannot shrink below use".into(),
             );
         }
         if self
@@ -280,10 +280,10 @@ impl Update {
             .len()
             > MAX_UPDATE_BYTES
         {
-            return Err("sentinel definition exceeds 64 KiB".into());
+            return Err("blueprint definition exceeds 64 KiB".into());
         }
         if author_tab_id != current.creator_tab_id && has_new_command(current, &job) {
-            return Err("only the sentinel creator may introduce new command text".into());
+            return Err("only the blueprint creator may introduce new command text".into());
         }
         Ok(PreparedUpdate {
             job,
@@ -305,7 +305,7 @@ impl Store {
             return Staged::ready(Err(error));
         }
         let Some(current) = self.get(&update.job.id).cloned() else {
-            return Staged::ready(Err(format!("sentinel not found: {}", update.job.id)));
+            return Staged::ready(Err(format!("blueprint not found: {}", update.job.id)));
         };
         if current.definition_version != expect_version {
             return Staged::ready(Err(version_conflict(current.definition_version)));
@@ -315,7 +315,7 @@ impl Store {
                 .expires_at
                 .is_some_and(|at| self.clock.now_ms() >= at)
         {
-            return Staged::ready(Err("stopped sentinels cannot be amended".into()));
+            return Staged::ready(Err("stopped blueprints cannot be amended".into()));
         }
         if current.creator_tab_id != update.job.creator_tab_id
             || current.workspace_id != update.job.workspace_id
@@ -326,14 +326,14 @@ impl Store {
                 != update.job.input.as_ref().map(|input| input.kind)
         {
             return Staged::ready(Err(
-                "sentinel identity and observation source are immutable".into(),
+                "blueprint identity and observation source are immutable".into(),
             ));
         }
         let Some(next_version) = current.definition_version.checked_add(1) else {
-            return Staged::ready(Err("sentinel definition version exhausted".into()));
+            return Staged::ready(Err("blueprint definition version exhausted".into()));
         };
         let Some(next_revision) = current.revision.checked_add(1) else {
-            return Staged::ready(Err("sentinel generation exhausted".into()));
+            return Staged::ready(Err("blueprint generation exhausted".into()));
         };
         let mut next = current.clone();
         next.name = update.job.name;
@@ -375,7 +375,7 @@ impl Store {
         }
         let mut jobs = self.jobs.clone();
         let Some(position) = jobs.iter().position(|job| job.id == current.id) else {
-            return Staged::ready(Err(format!("sentinel not found: {}", current.id)));
+            return Staged::ready(Err(format!("blueprint not found: {}", current.id)));
         };
         jobs[position] = next.clone();
         let jobs = match super::store::validate(jobs) {

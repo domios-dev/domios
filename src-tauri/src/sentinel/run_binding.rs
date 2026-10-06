@@ -159,7 +159,7 @@ pub(super) fn process_pending(svc: &ServiceContext, handle: &super::scheduler::H
                 }
             }
             Ok(_) => {}
-            Err(error) => log::error!("[sentinel] cron run binding failed: {error}"),
+            Err(error) => log::error!("[blueprint] cron run binding failed: {error}"),
         }
     }
 }
@@ -185,7 +185,7 @@ fn journal_replacement(
     if let Err(error) =
         crate::service::supporter::runtime_with_notifications(svc).sentinel_event(event)
     {
-        log::warn!("[sentinel] run replacement journal failed: {error}");
+        log::warn!("[blueprint] run replacement journal failed: {error}");
     }
 }
 
@@ -296,7 +296,7 @@ pub(super) fn reconcile_runs(svc: &ServiceContext, handle: &super::scheduler::Ha
             }
             Ok(_) => {}
             Err(error) => {
-                log::error!("[sentinel] cron run unbinding failed: {error}; cron={cron_id}");
+                log::error!("[blueprint] cron run unbinding failed: {error}; cron={cron_id}");
             }
         }
     }
@@ -316,7 +316,7 @@ fn unbind_missing_cron(
                 &super::store::StopNotice::new(&job, "cron_run_finished"),
             ),
             Ok(_) => {}
-            Err(error) => log::error!("[sentinel] cron run unbinding failed: {error}"),
+            Err(error) => log::error!("[blueprint] cron run unbinding failed: {error}"),
         }
     }
 }
@@ -357,7 +357,7 @@ impl Store {
             return Staged::ready(Ok(RunBindOutcome::default()));
         }
         let Some(revision) = current.revision.checked_add(1) else {
-            return Staged::ready(Err("sentinel run generation exhausted".into()));
+            return Staged::ready(Err("blueprint run generation exhausted".into()));
         };
         let now = self.clock.now_ms();
         let replaced = current.run.clone();
@@ -421,7 +421,7 @@ impl Store {
             return Staged::ready(Ok(RunBindOutcome::default()));
         };
         let Some(revision) = current.revision.checked_add(1) else {
-            return Staged::ready(Err("sentinel run generation exhausted".into()));
+            return Staged::ready(Err("blueprint run generation exhausted".into()));
         };
         let cron_id = match current.observe.as_ref() {
             Some(TabBinding::CronRun(cron_id)) => cron_id.clone(),

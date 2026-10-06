@@ -5,7 +5,7 @@ use std::path::Path;
 const HANDLER_TYPES: &[&str] = &[
     "notify",
     "stop",
-    "sentinel",
+    "blueprint",
     "send",
     "cron",
     "respond_prompt",
@@ -290,9 +290,9 @@ fn validate_parameters(
                     "creator or agent:<same-Team-tab>",
                     "{\"target\":\"creator\"}",
                 ),
-                "sentinel" => (
-                    "an existing same-scope sentinel id",
-                    "{\"target\":\"sentinel_id\"}",
+                "blueprint" => (
+                    "an existing same-scope blueprint id",
+                    "{\"target\":\"blueprint_id\"}",
                 ),
                 "send" => (
                     "an existing same-Team agent tab id",
@@ -444,7 +444,7 @@ fn parameter_example(kind: &str) -> &'static str {
         "notify" | "stop" => "{}",
         "respond_prompt" => r#"{"target":"permission"}"#,
         "escalate" => r#"{"target":"creator"}"#,
-        "sentinel" => r#"{"target":"sentinel_id"}"#,
+        "blueprint" => r#"{"target":"blueprint_id"}"#,
         "send" => r#"{"target":"target_id"}"#,
         _ => r#"{"target":"cron_name"}"#,
     }
@@ -460,7 +460,15 @@ fn generated_id(
     (1..)
         .map(|ordinal| {
             codeterm_types::automation_name::generated_handler_id(
-                kind, target, label, bucket, ordinal,
+                if kind == "blueprint" {
+                    "sentinel"
+                } else {
+                    kind
+                },
+                target,
+                label,
+                bucket,
+                ordinal,
             )
         })
         .find(|id| !ids.contains(id))
@@ -477,7 +485,15 @@ fn unique_id(
     let mut ordinal = 1;
     loop {
         let id = codeterm_types::automation_name::generated_handler_id(
-            kind, target, label, bucket, ordinal,
+            if kind == "blueprint" {
+                "sentinel"
+            } else {
+                kind
+            },
+            target,
+            label,
+            bucket,
+            ordinal,
         );
         if !ids.contains(&id) {
             return id;

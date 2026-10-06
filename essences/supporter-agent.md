@@ -49,15 +49,15 @@ Trust, permission and login Supporter notices are suppressed for tabs launched d
 
 ## Budget, fan-out and spend
 
-The intended default has no request cap; this default change is planned for 1.12.4. All Supporter requests are still counted and journaled across tabs, including hidden workers, crons and Sentinels. A request counts once even when it contains several named questions. Only an explicitly configured positive cap refuses requests on count; zero or an absent cap means unlimited. At an explicit cap, recall uses baseline results, event-level classification uses its heuristic fallback, and status shows when capacity becomes available. Cap transitions are journaled once per transition. Visible estimated cost and the out-of-credit alert provide the default cost guard.
+The intended default has no request cap; this default change is planned for 1.12.4. All Supporter requests are still counted and journaled across tabs, including hidden workers, crons and Blueprints. A request counts once even when it contains several named questions. Only an explicitly configured positive cap refuses requests on count; zero or an absent cap means unlimited. At an explicit cap, recall uses baseline results, event-level classification uses its heuristic fallback, and status shows when capacity becomes available. Cap transitions are journaled once per transition. Visible estimated cost and the out-of-credit alert provide the default cost guard.
 
 Questions over one shared state belong in one decision request: tab label, prompt visibility and any safe-choice question share the same screen and context. Memory candidates can likewise share a query and candidate pool. Fan-out is adopted only when measured answer quality is no worse than the previous path; fewer calls alone do not justify lower relevance. Until that comparison qualifies shared-state memory scoring, the per-candidate path remains available, counted and subject to any explicit cap. Every answer remains subject to its own confidence and authority rules, and memory fallback stays all-or-nothing.
 
 Spend is estimated from response usage and adapter-declared prices. Missing usage or pricing remains unknown, never zero. Domios keeps no owner-entered or inferred balance. An out-of-credit response (HTTP 402) alerts once and short-circuits further calls with deterministic fallback. Status distinguishes credit exhaustion from an explicit request cap.
 
-## Sentinels
+## Blueprints
 
-[Sentinel graphs](sentinels.md) use the Supporter at their decision points. A changed observation receives one choice over the options its author offered, with `other` always available, through the shared request accounting; an unchanged observation makes no call. A model choice acts only at confidence of at least 0.80, once per transition, and selects an offered option without constructing a command, target or response. The [Sentinel contract](sentinels.md) owns graph shape, authority, escalation, improvement and lifetime.
+[Blueprint graphs](sentinels.md) use the Supporter at their decision points. A changed observation receives one choice over the options its author offered, with `other` always available, through the shared request accounting; an unchanged observation makes no call. A model choice acts only at confidence of at least 0.80, once per transition, and selects an offered option without constructing a command, target or response. The [Blueprint contract](sentinels.md) owns graph shape, authority, escalation, improvement and lifetime.
 
 ## Data and visibility
 

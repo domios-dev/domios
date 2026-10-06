@@ -6,7 +6,7 @@ import { usePresence, type PresenceMotion } from "../Canvas/usePresence";
 import { automationState, scopedAutomationGraph } from "./model";
 import { sentinelJobType, sentinelTitle } from "./scenarios";
 import { AUTOMATION_ROW, AUTOMATION_TOOL, stateTone } from "./styles";
-import { ALL_JOBS_SCOPE, automationKey, type AutomationGraph, type AutomationIdentity, type AutomationNode, type AutomationScenario, type AutomationScope } from "./types";
+import { ALL_JOBS_SCOPE, automationKindLabel, automationKey, type AutomationGraph, type AutomationIdentity, type AutomationNode, type AutomationScenario, type AutomationScope } from "./types";
 import type { AutomationCamera } from "./useAutomationViewport";
 
 const KIND_ICON = { sentinel: Radar, cron: Clock3, worker: Bot } as const;
@@ -29,7 +29,7 @@ function ParticipantList({ graph, selected, onSelect }: { graph: AutomationGraph
       <Icon size={15} className="shrink-0 text-[var(--ct-muted-fg)]" aria-hidden="true" />
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[length:var(--ct-font-size-sm)] font-medium">{entry.name}</span>
-        <span className="block truncate text-xs text-[var(--ct-muted-fg)]">{entry.identity.kind}{entry.hidden ? " · Hidden" : ""} · {links} {links === 1 ? "link" : "links"}</span>
+        <span className="block truncate text-xs text-[var(--ct-muted-fg)]">{automationKindLabel(entry.identity.kind)}{entry.hidden ? " · Hidden" : ""} · {links} {links === 1 ? "link" : "links"}</span>
       </span>
       <span className="flex shrink-0 items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(state)}`} aria-hidden="true" />{state}</span>
     </button></li>;
@@ -80,7 +80,7 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
     </div>
     {children}
     {graph && <div ref={body} className={`relative flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : drawer.state ? "min-h-[28rem]" : ""}`}>
-      {graph.nodes.length === 0 && <p role="alert" className="px-4 py-3">The Sentinel root is unavailable.</p>}
+      {graph.nodes.length === 0 && <p role="alert" className="px-4 py-3">The Blueprint root is unavailable.</p>}
       {list
         ? <div className={fill ? "min-h-0 flex-1 overflow-y-auto" : undefined}><ParticipantList graph={graph} selected={selected} onSelect={select} /></div>
         : <AutomationCanvas graph={graph} selected={selected} camera={camera} fill={fill} onSelect={select} />}

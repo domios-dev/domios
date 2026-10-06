@@ -925,7 +925,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Web { .. }
         | Commands::Plugin { .. }
         | Commands::Supporter { .. }
-        | Commands::Sentinel { .. }
+        | Commands::Blueprint { .. }
         | Commands::Plan { .. }
         | Commands::Team { .. }
         | Commands::Spec { .. }

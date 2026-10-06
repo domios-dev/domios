@@ -95,7 +95,7 @@ the run and restart outcomes.
 The words an agent starts from: shared guidance, role contracts for Orchestrator, Planner and Worker, the task's own framing, the General Agent's permanent prompt and first-run bootstrap, and the memory worker prompts.
 
 - Part of: core:agents-and-providers.
-- Invariants: prompts owned by the product ship with the app and are composed for their role rather than copied between roles; the General Agent receives its installation and user context, while project agents receive their role and task framing; task-specific framing dominates and generic boilerplate is cut; first-run bootstrap is separate from the permanent General Agent prompt and is not repeated on resume; shared agent guidance teaches [Sentinels](sentinels.md) for recurring watching and routing without LLM polling; the [Supporter introduction](supporter-agent.md#onboarding-the-guide-and-the-web) follows completed setup and links to the Guide; agent-to-agent text is English.
+- Invariants: prompts owned by the product ship with the app and are composed for their role rather than copied between roles; the General Agent receives its installation and user context, while project agents receive their role and task framing; task-specific framing dominates and generic boilerplate is cut; first-run bootstrap is separate from the permanent General Agent prompt and is not repeated on resume; shared agent guidance teaches [Blueprints](sentinels.md) for recurring watching and routing without LLM polling; the [Supporter introduction](supporter-agent.md#onboarding-the-guide-and-the-web) follows completed setup and links to the Guide; agent-to-agent text is English.
 - Dependent capabilities: teams and roles, task-fitted personality.
 
 ### Plans and orchestration {#core:plans-and-orchestration}
@@ -132,11 +132,11 @@ The system channel participates in the same list, diff and refresh inventory as 
 
 ### Supporter Agent {#core:supporter-agent}
 
-The judgment part of Domios's spinal cord: small model decisions shared by memory, tab observation and the host's bounded reflexes. It has no Team role or task authority. The [Supporter Agent essence](supporter-agent.md) is the authoritative home for connection and fallback, model-first event classification and heuristic fallback, recovery, request accounting and optional caps, fan-out, spend, Sentinel decisions, visibility, data handling and future onboarding and web-client use. The marketing website consumes these contracts to explain the product.
+The judgment part of Domios's spinal cord: small model decisions shared by memory, tab observation and the host's bounded reflexes. It has no Team role or task authority. The [Supporter Agent essence](supporter-agent.md) is the authoritative home for connection and fallback, model-first event classification and heuristic fallback, recovery, request accounting and optional caps, fan-out, spend, Blueprint decisions, visibility, data handling and future onboarding and web-client use. The marketing website consumes these contracts to explain the product.
 
 - Part of: core:service-layer.
 - Invariants: the model names the state and deterministic evidence authorizes the action; the host contract stays independent of any adapter or provider.
-- Dependent capabilities: memory decision recall, health and diagnostics, session continuity, scheduling, Sentinels, provider updates, guided onboarding and the web UI.
+- Dependent capabilities: memory decision recall, health and diagnostics, session continuity, scheduling, Blueprints, provider updates, guided onboarding and the web UI.
 
 ### Memory {#core:memory}
 
