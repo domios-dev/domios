@@ -351,6 +351,9 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
     // ── Events ───────────────────────────────────────────────────────────
 
     fn contributions_changed(&self, kind: &str) {
+        if kind == codeterm_plugin::agent_verbs::AGENT_COMMANDS_CONTRIBUTION_KIND {
+            super::plugin_skills::spawn_sync(self.mem.clone(), self.agent_command_registry.clone());
+        }
         self.events
             .publish(crate::api::events::SystemEvent::ContributionsChanged {
                 kind: kind.to_string(),

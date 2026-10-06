@@ -1,5 +1,7 @@
 # Setting up a Telegram bot from scratch
 
+This bot bridge speaks as the CodeTerm bot. To message a contact as the owner from their own Telegram account, use the telegram-client plugin (`codeterm plugin telegram-client chats <name>`, then `codeterm plugin telegram-client send <chat-id> <text>`).
+
 The user creates the bot with @BotFather, which issues its token. When the user hands you a fresh Telegram bot token to wire up:
 
 1. **Stash the token** (mode 600, gitignored path):
@@ -128,4 +130,4 @@ codeterm bridge migrate --to PEER [--announce] [--no-rollback] [--force] [--clai
 
 Run on the **source** machine. `--mesh PEER` is rejected (exit 6) because each daemon resolves its own vault and secrets never cross the mesh.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

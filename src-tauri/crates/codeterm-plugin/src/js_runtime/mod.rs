@@ -24,7 +24,7 @@ mod view;
 mod vm;
 mod webhook;
 
-pub use agent_commands::JsAgentCommandHandler;
+pub use agent_commands::{catalog_from_manifest, JsAgentCommandHandler};
 pub use bin_resolve::{
     forget_resolved_bin, forget_resolved_bins, probe_bin, probe_bin_in, probe_bin_with_environment,
     resolved_bin_path, well_known_bin_dirs, BinProbe, BinResolution, BinSearchEnvironment,

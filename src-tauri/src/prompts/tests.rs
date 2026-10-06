@@ -780,6 +780,7 @@ fn every_prompt_md_has_a_loader() {
         "bridge_mem.md",
         "general_agent.md",
         "agent_codeterm_primer.md",
+        "plugin_discovery_rule.md",
         "agent_pad_rule.md",
         "worker_codeterm_context.md",
         "rich_rendering_guidance.md",

@@ -151,6 +151,15 @@ pub struct PluginManifest {
     #[serde(default)]
     pub config_help: Option<String>,
 
+    /// Usage shapes of the `onAgentCommand` verbs, e.g. `send <chat-id> <text>`.
+    /// Published to agents through mem and `codeterm capabilities`.
+    #[serde(default)]
+    pub agent_verbs: Vec<String>,
+
+    /// Search keywords for the plugin's agent-verb skill item.
+    #[serde(default)]
+    pub agent_keywords: Vec<String>,
+
     /// The plugin's capability cannot hot-activate — it needs a CodeTerm reload
     /// to take effect (§1.8). When a plugin declaring this is *installed/enabled
     /// after daemon start*, the watcher marks it `pending_reload` instead of
