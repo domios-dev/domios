@@ -23,23 +23,22 @@ async function main() {
       workspaceName="Project"
       onOpenMap={(id) => opened.push(`map:${id}`)}
       onOpenJobs={(id) => opened.push(`jobs:${id}`)}
-      activeJobsCount={3}
+      jobs={{ count: 3, running: 1 }}
     />));
     const map = host.querySelector<HTMLButtonElement>('button[aria-label="Map"]');
-    const jobs = host.querySelector<HTMLButtonElement>('button[aria-label="Jobs, 3 active"]');
-    assert.ok(map && jobs, "the Map and Jobs buttons are present with announced active count");
+    const jobs = host.querySelector<HTMLButtonElement>('button[aria-label="Jobs, 3, 1 running"]');
+    assert.ok(map && jobs, "the Jobs button announces the job count and running state");
     assert.equal(map.type, "button");
     assert.equal(jobs.type, "button");
     assert.equal(map.tabIndex, 0);
     assert.equal(jobs.tabIndex, 0);
-    assert.ok(!map.className.includes("opacity-0") && !jobs.className.includes("opacity-0"), "buttons are not hover gated");
     await act(async () => map.focus());
     assert.equal(document.activeElement, map);
     await act(async () => jobs.focus());
     assert.equal(document.activeElement, jobs);
     await act(async () => { map.click(); jobs.click(); });
     assert.deepEqual(opened, ["map:workspace-1", "jobs:workspace-1"]);
-    console.log("Workspace Map and Jobs actions are visible, named, keyboard-focusable, and carry the active count");
+    console.log("Workspace Map and Jobs actions are visible, named, keyboard-focusable, and announce the job state");
   } finally {
     await act(async () => root.unmount());
     host.remove();

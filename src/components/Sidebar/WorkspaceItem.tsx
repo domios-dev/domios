@@ -256,7 +256,7 @@ function WorkspaceItemInner({
       </div>
     </div>
     {detailHeader && (onOpenMap || onOpenAutomation) && (countActiveJobs && onOpenAutomation
-      ? <LiveWorkspaceNavigationActions workspaceId={workspace.id} workspaceName={workspace.name} onOpenMap={onOpenMap ? () => onOpenMap() : undefined} onOpenJobs={onOpenAutomation ? () => onOpenAutomation() : undefined} touchMode={touchMode} />
+      ? <LiveWorkspaceNavigationActions scope={{ workspaceId: workspace.id, teamId: null }} workspaceId={workspace.id} workspaceName={workspace.name} onOpenMap={onOpenMap ? () => onOpenMap() : undefined} onOpenJobs={onOpenAutomation ? () => onOpenAutomation() : undefined} touchMode={touchMode} />
       : <WorkspaceNavigationActions workspaceId={workspace.id} workspaceName={workspace.name} onOpenMap={onOpenMap ? () => onOpenMap() : undefined} onOpenJobs={onOpenAutomation ? () => onOpenAutomation() : undefined} touchMode={touchMode} />)}
   </>;
 }

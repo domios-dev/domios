@@ -52,6 +52,22 @@ export function clearableJobs(jobs: readonly MergedJob[]): MergedJob[] {
     : ["stopped", "expired", "finished"].includes(job.state.toLowerCase()));
 }
 
-export function activeJobsCount(workspaceId: string, crons: readonly CronJob[], sentinels: readonly SentinelJob[]): number {
-  return mergeJobs({ workspaceId, teamId: null }, crons, sentinels).filter((job) => job.active).length;
+export interface JobsIndicator {
+  count: number;
+  running: number;
+}
+
+/** A running Cron run or a live Sentinel graph; an enabled Cron waiting for its schedule is not running. */
+export function isJobRunning(job: MergedJob): boolean {
+  return job.kind === "cron" ? job.state === "Running" : job.active;
+}
+
+export function jobsIndicator(jobs: { crons: readonly CronJob[]; sentinels: readonly SentinelJob[] }, scope: JobsFilter): JobsIndicator {
+  const merged = mergeJobs(scope, jobs.crons, jobs.sentinels);
+  return { count: merged.length, running: merged.filter(isJobRunning).length };
+}
+
+export function jobsAccessibleName({ count, running }: JobsIndicator): string {
+  if (count === 0) return "Jobs";
+  return running > 0 ? `Jobs, ${count}, ${running} running` : `Jobs, ${count}`;
 }

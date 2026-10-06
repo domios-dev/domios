@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import type { CronJob } from "../../lib/types";
 import { fixtureGraph, fixtureNode, identity } from "../Automation/fixtures.testdata";
 import { sentinelJobs } from "../Automation/scenarios";
-import { ALL_JOBS, activeJobsCount, clearableJobs, mergeJobs } from "./jobsModel";
+import { ALL_JOBS, clearableJobs, jobsAccessibleName, jobsIndicator, mergeJobs, NO_JOBS_FILTER } from "./jobsModel";
 
 function cron(id: string, teamId: string | null, workspaceId = "workspace-a", enabled = true): CronJob {
   return {
@@ -35,8 +35,17 @@ assert.equal(mergeJobs({ workspaceId: "workspace-a", teamId: "team-a" }, [cron("
 assert.deepEqual(mergeJobs({ workspaceId: null, teamId: "team-b" }, [cron("team-cron", "team-a"), cron("foreign-team-cron", "team-b", "workspace-b")], sentinelEntries).map((job) => job.title), ["foreign-team-cron", "question: inspect workspace"]);
 assert.equal(mergeJobs({ workspaceId: null, teamId: null }, [cron("team-cron", "team-a"), cron("foreign-cron", null, "workspace-b")], sentinelEntries).length, 2 + sentinelEntries.length, "no capsules shows every job");
 assert.equal(clearableJobs(all).filter((job) => job.kind === "sentinel").length, 3, "every stopped graph in the filter is clearable");
+const workspaceA = { workspaceId: "workspace-a", teamId: null };
+const idleCrons = [cron("team-cron", "team-a"), cron("no-team-cron", null), cron("foreign", null, "workspace-b")];
+assert.deepEqual(jobsIndicator({ crons: idleCrons, sentinels: sentinelEntries }, workspaceA), { count: 6, running: 0 }, "enabled idle crons and stopped graphs count but are not running");
+assert.deepEqual(jobsIndicator({ crons: idleCrons, sentinels: sentinelEntries }, NO_JOBS_FILTER), { count: 7, running: 0 }, "machine scope counts every workspace");
+assert.deepEqual(jobsIndicator({ crons: [], sentinels: [] }, workspaceA), { count: 0, running: 0 });
 const activeGraph = { ...crossTeamGraph, nodes: crossTeamGraph.nodes.map((node) => node.identity.id === graph.scenarios[0].root.id ? { ...node, state: "active" } : node) };
-assert.equal(activeJobsCount("workspace-a", [cron("team-cron", "team-a"), cron("no-team-cron", null), cron("foreign", null, "workspace-b")], sentinelJobs(activeGraph, { workspace_id: "workspace-a", team_id: ALL_JOBS })), 3);
-const runningGraph = { ...crossTeamGraph, nodes: crossTeamGraph.nodes.map((node) => node.identity.id === otherTeam.id ? { ...node, state: "running" } : node) };
-assert.equal(activeJobsCount("workspace-a", [cron("team-cron", "team-a"), cron("disabled-cron", null, "workspace-a", false)], sentinelJobs(runningGraph, { workspace_id: "workspace-a", team_id: ALL_JOBS })), 2);
-console.log("6 Jobs model cases passed");
+assert.deepEqual(jobsIndicator({ crons: idleCrons, sentinels: sentinelJobs(activeGraph, { workspace_id: "workspace-a", team_id: ALL_JOBS }) }, workspaceA), { count: 6, running: 1 }, "a live graph is running");
+const runningCron = { ...cron("running-cron", null, "workspace-b", false), last_run: { run_id: "r", started_at: 1, finished_at: null, status: "Running" as const, tab_id: null } };
+assert.deepEqual(jobsIndicator({ crons: [...idleCrons, runningCron], sentinels: [] }, workspaceA), { count: 2, running: 0 }, "another workspace's run stays out of scope");
+assert.deepEqual(jobsIndicator({ crons: [...idleCrons, runningCron], sentinels: [] }, NO_JOBS_FILTER), { count: 4, running: 1 }, "a cron mid-run is running even when disabled");
+assert.equal(jobsAccessibleName({ count: 0, running: 0 }), "Jobs");
+assert.equal(jobsAccessibleName({ count: 3, running: 0 }), "Jobs, 3");
+assert.equal(jobsAccessibleName({ count: 3, running: 1 }), "Jobs, 3, 1 running");
+console.log("Jobs model and indicator cases passed");
