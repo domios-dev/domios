@@ -75,7 +75,7 @@ fn park_ordered_rows(
     Ok(())
 }
 
-pub(super) fn renumber_ordered_rows_if_needed(
+fn renumber_ordered_rows_if_needed(
     cx: &mut WriteCx<'_>,
     table: OrderedTable,
     workspace_id: Option<&str>,
