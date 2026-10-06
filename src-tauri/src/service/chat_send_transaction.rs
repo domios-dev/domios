@@ -869,7 +869,7 @@ impl ChatSendLedger {
                 *evidence == &candidate.evidence
                     && state
                         .by_id
-                        .get(send_id)
+                        .get(*send_id)
                         .is_some_and(|status| status.tab_id == tab_id)
             })
             .map(|(send_id, _)| send_id.clone())

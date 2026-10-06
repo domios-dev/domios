@@ -2,6 +2,7 @@ use super::*;
 use crate::client::{RpcClient, SocketCallError};
 use crate::cmd::report_attribution::ReportBase;
 use std::fs;
+use std::path::PathBuf;
 use tempfile::TempDir;
 
 fn run(dir: &Path, args: &[&str]) {
