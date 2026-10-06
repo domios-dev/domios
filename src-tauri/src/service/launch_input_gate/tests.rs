@@ -891,7 +891,7 @@ fn input_fallback_opens_input_when_the_provider_signal_never_fires() {
     );
     let after_deadline = started + std::time::Duration::from_millis(fallback_ms);
     assert!(
-        after_deadline.elapsed().as_millis() as u64 >= fallback_ms,
+        Instant::now() >= after_deadline,
         "the fallback must fire once its deadline elapses"
     );
 }
