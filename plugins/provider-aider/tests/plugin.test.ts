@@ -14,6 +14,7 @@ import runtime, {
   MODE_PROMPT_RE,
   promptSafeChoice,
 } from "../src/plugin";
+import { parseAiderHistory } from "../src/history";
 
 let passed = 0;
 let failed = 0;
@@ -148,6 +149,42 @@ console.log("\n--- session/model honesty ---\n");
   eq(runtime.enumerateSessions(), [], "enumerateSessions is empty");
   eq(runtime.findSession("ses_x"), null, "findSession is null");
   eq(runtime.usageSources("/cwd", "ses_x"), [], "usageSources is empty");
+}
+
+console.log("\n--- history parser ---\n");
+{
+  const singleTurn = [
+    "#### Hello, what can you do?",
+    "",
+    "I can help you with coding tasks, answer questions, and assist with various development activities.",
+  ].join("\n");
+  const result1 = parseAiderHistory(singleTurn, 0);
+  eq(result1.messages.length, 2, "single turn has 2 messages");
+  eq(result1.messages[0].role, "user", "first message is user");
+  eq(result1.messages[0].text, "Hello, what can you do?", "user text parsed");
+  eq(result1.messages[1].role, "assistant", "second message is assistant");
+  eq(result1.messages[1].text, "I can help you with coding tasks, answer questions, and assist with various development activities.", "assistant text parsed");
+
+  const multiTurn = [
+    "#### First question",
+    "",
+    "First answer",
+    "",
+    "#### Second question",
+    "",
+    "Second answer with",
+    "multiple lines",
+  ].join("\n");
+  const result2 = parseAiderHistory(multiTurn, 0);
+  eq(result2.messages.length, 4, "multi-turn has 4 messages");
+  eq(result2.messages[0].role, "user", "turn 1 user");
+  eq(result2.messages[1].role, "assistant", "turn 1 assistant");
+  eq(result2.messages[2].role, "user", "turn 2 user");
+  eq(result2.messages[3].role, "assistant", "turn 2 assistant");
+  eq(result2.messages[3].text, "Second answer with\nmultiple lines", "multi-line assistant text");
+
+  const emptyResult = parseAiderHistory("", 0);
+  eq(emptyResult.messages.length, 0, "empty content has no messages");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

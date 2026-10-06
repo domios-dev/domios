@@ -5,6 +5,7 @@ import type {
   PluginModule,
   ResumeParams,
 } from "@codeterm/plugin-sdk";
+import { parseAiderHistory, readAiderHistory } from "./history";
 
 const TITLE_RE = /aider/i;
 const OUTPUT_MARKERS = ["aider", "Aider", "Aider Chat"];
@@ -215,11 +216,22 @@ const plugin: PluginModule = {
   },
 
   usesStructuredChat(): boolean {
-    return false;
+    return true;
   },
 
-  readStructuredChat(_cwd: string, _sessionId: string, cursor?: string | null): unknown {
-    return { messages: [], cursor: cursor || null };
+  readStructuredChat(cwd: string, _sessionId: string, cursor?: string | null): unknown {
+    const historyPath = `${cwd}/.aider.chat.history.md`;
+    const result = readAiderHistory(historyPath, 0, cursor);
+    if (!result) return { messages: [], cursor: cursor || null };
+    return {
+      messages: result.messages.map((m, i) => ({
+        id: `hist_${i}`,
+        type: m.role,
+        content: m.text,
+        seq: i,
+      })),
+      cursor: result.cursor,
+    };
   },
 
   checkIntegration(): unknown {
