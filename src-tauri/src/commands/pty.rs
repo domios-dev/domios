@@ -158,11 +158,18 @@ pub async fn spawn_pty_core(
     if let Some(ref pid) = tab_id {
         let recovery_service = svc.clone();
         let recovery_tab = pid.clone();
-        tokio::task::spawn_blocking(move || {
+        let recovery = tokio::task::spawn_blocking(move || {
             recovery_service.recover_missing_restored_provider(&recovery_tab)
         })
         .await
-        .map_err(|error| format!("restore provider recovery failed: {error}"))??;
+        .map_err(|error| format!("restore provider recovery failed: {error}"))?;
+        if let Err(error) = recovery {
+            if error.starts_with("restored_provider_unresolved:") {
+                log::warn!("[restore] {error}");
+                return Ok(pty_id);
+            }
+            return Err(error);
+        }
         let Some(restore) = crate::service::pty_io::claim_restored_pty_boot(mux_state, pid)? else {
             return Ok(pty_id);
         };
@@ -180,31 +187,7 @@ pub async fn spawn_pty_core(
         let launch_parameters = restore.launch_parameters;
         let tab_role = restore.role;
         let tab_role_profile = restore.role_profile;
-        let agent_type = match (session_id.as_deref(), tab_cwd.as_deref()) {
-            (Some(session_id), Some(cwd)) => {
-                let registry = svc.agent_registry.clone();
-                let cwd = cwd.to_string();
-                let session_id = session_id.to_string();
-                tokio::task::spawn_blocking(move || {
-                    crate::agent::provider_identity::provider_for_claimed_session(
-                        &registry,
-                        &cwd,
-                        &session_id,
-                    )
-                })
-                .await
-                .map_err(|error| format!("restore provider probe failed: {error}"))?
-            }
-            (Some(_), None) => None,
-            (None, _) => Some(stored_agent_type),
-        };
-        let Some(agent_type) = agent_type else {
-            svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
-            svc.clear_unproven_restored_provider(pid);
-            svc.emit_boot_stage(pid, BootStage::ShellReady, None);
-            svc.emit_state_changed();
-            return Ok(pty_id);
-        };
+        let agent_type = stored_agent_type;
         let mut should_fresh_launch = true;
         let agent_type_for_fresh = agent_type.clone();
         svc.emit_boot_stage(pid, BootStage::PtySpawned, None);
