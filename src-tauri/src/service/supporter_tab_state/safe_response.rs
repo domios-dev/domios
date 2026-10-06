@@ -863,10 +863,7 @@ impl ServiceContext {
                     && service.begin_automatic_prompt_answer(
                         &tab,
                         target.kind.context(),
-                        service.prompt_chain_fingerprint(
-                            target.kind.prompt_kind(),
-                            &target.prompt,
-                        ),
+                        service.prompt_chain_fingerprint(target.kind.prompt_kind(), &target.prompt),
                         None,
                     );
                 match target.kind {

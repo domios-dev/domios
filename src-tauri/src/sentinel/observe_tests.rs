@@ -256,13 +256,7 @@ fn sentinel_cron_run_scope_accepts_only_its_verified_hidden_automation_tab() {
         bound_at: 1_000,
     });
 
-    assert!(validate_pending_cron_run_scope(
-        &mux,
-        &job,
-        "cron-nightly",
-        &run_tab
-    )
-    .is_ok());
+    assert!(validate_pending_cron_run_scope(&mux, &job, "cron-nightly", &run_tab).is_ok());
     assert!(validate_tab_scope(&mux, &job, &run_tab).is_ok());
     assert!(validate_pending_cron_run_scope(&mux, &job, "cron-other", &run_tab).is_err());
 

@@ -161,8 +161,12 @@ impl ChatSendLedger {
         position: TurnPosition,
         provenance: &LiveProvenance,
     ) -> Vec<ChatSendStatus> {
-        let Some(nonce) = nonce else { return Vec::new(); };
-        let Some(record_start) = position.record_start else { return Vec::new(); };
+        let Some(nonce) = nonce else {
+            return Vec::new();
+        };
+        let Some(record_start) = position.record_start else {
+            return Vec::new();
+        };
         let Some(incarnation) = provenance.range.incarnation.as_ref() else {
             return Vec::new();
         };
@@ -205,61 +209,64 @@ impl ChatSendLedger {
             {
                 return Vec::new();
             }
-            state.order.iter().filter_map(|id| {
-                let (authority, active) = state.owned.get(id)?;
-                let status = state.by_id.get(id)?;
-                let binding_matches = state.live_binding_by_id.get(id).is_none_or(|binding| {
-                    binding
-                        .session_id
-                        .as_deref()
-                        .is_none_or(|session| session == session_id)
-                        && binding
-                            .binding_nonce
+            state
+                .order
+                .iter()
+                .filter_map(|id| {
+                    let (authority, active) = state.owned.get(id)?;
+                    let status = state.by_id.get(id)?;
+                    let binding_matches = state.live_binding_by_id.get(id).is_none_or(|binding| {
+                        binding
+                            .session_id
                             .as_deref()
-                            .is_none_or(|bound_nonce| bound_nonce == nonce)
-                });
-                let anchored = state.anchor_by_id.get(id).is_some_and(|anchor| {
-                    anchor.session_id == session_id
-                        && matches!(
-                            &anchor.window,
-                            super::EvidenceWindow::Jsonl { transcript_offset }
-                                if record_start >= *transcript_offset
-                        )
-                });
-                let absence_witness_matches = source_witness.is_some_and(|witness| {
-                    state
-                        .absence_witness_by_id
-                        .get(id)
-                        .is_some_and(|stored| stored == witness)
-                });
-                let lazy_sessionless = source_witness.is_none()
-                    && state.sessionless_first_turn_by_id.contains(id)
-                    && authority.session_id.is_none()
-                    && authority.observed_session_id.is_none()
-                    && state.live_binding_by_id.get(id).is_some_and(|binding| {
-                        binding.session_id.is_none()
-                            && binding.binding_nonce.as_deref() == Some(nonce)
+                            .is_none_or(|session| session == session_id)
+                            && binding
+                                .binding_nonce
+                                .as_deref()
+                                .is_none_or(|bound_nonce| bound_nonce == nonce)
                     });
-                let eligible = *active
-                    && authority.tab_id == tab_id
-                    && authority.binding_nonce == nonce
-                    && matches!(
-                        status.state,
-                        ChatSendState::Written | ChatSendState::Unknown
-                    )
-                    && binding_matches
-                    && (anchored || absence_witness_matches || lazy_sessionless);
-                if !eligible {
-                    return None;
-                }
-                Some((
-                    id.clone(),
-                    state.payload_by_id.get(id)?.clone(),
-                    state.turn_normalization_by_id.get(id).copied()?,
-                    authority.clone(),
-                ))
-            })
-            .collect::<Vec<_>>()
+                    let anchored = state.anchor_by_id.get(id).is_some_and(|anchor| {
+                        anchor.session_id == session_id
+                            && matches!(
+                                &anchor.window,
+                                super::EvidenceWindow::Jsonl { transcript_offset }
+                                    if record_start >= *transcript_offset
+                            )
+                    });
+                    let absence_witness_matches = source_witness.is_some_and(|witness| {
+                        state
+                            .absence_witness_by_id
+                            .get(id)
+                            .is_some_and(|stored| stored == witness)
+                    });
+                    let lazy_sessionless = source_witness.is_none()
+                        && state.sessionless_first_turn_by_id.contains(id)
+                        && authority.session_id.is_none()
+                        && authority.observed_session_id.is_none()
+                        && state.live_binding_by_id.get(id).is_some_and(|binding| {
+                            binding.session_id.is_none()
+                                && binding.binding_nonce.as_deref() == Some(nonce)
+                        });
+                    let eligible = *active
+                        && authority.tab_id == tab_id
+                        && authority.binding_nonce == nonce
+                        && matches!(
+                            status.state,
+                            ChatSendState::Written | ChatSendState::Unknown
+                        )
+                        && binding_matches
+                        && (anchored || absence_witness_matches || lazy_sessionless);
+                    if !eligible {
+                        return None;
+                    }
+                    Some((
+                        id.clone(),
+                        state.payload_by_id.get(id)?.clone(),
+                        state.turn_normalization_by_id.get(id).copied()?,
+                        authority.clone(),
+                    ))
+                })
+                .collect::<Vec<_>>()
         };
         let send_matches = candidates
             .iter()
@@ -272,7 +279,9 @@ impl ChatSendLedger {
             return Vec::new();
         }
         let owner = self.owner.lock().as_ref().and_then(Weak::upgrade);
-        let Some(owner) = owner else { return Vec::new(); };
+        let Some(owner) = owner else {
+            return Vec::new();
+        };
         let authorities = candidates
             .iter()
             .filter(|(send_id, _, _, _)| matching_ids.contains(send_id))
@@ -303,7 +312,10 @@ impl ChatSendLedger {
                 .get(send_id)
                 .is_some_and(|(current, active)| *active && current == authority)
                 && state.by_id.get(send_id).is_some_and(|status| {
-                    matches!(status.state, ChatSendState::Written | ChatSendState::Unknown)
+                    matches!(
+                        status.state,
+                        ChatSendState::Written | ChatSendState::Unknown
+                    )
                 })
         });
         if !still_owned || !still_current {

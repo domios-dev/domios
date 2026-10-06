@@ -778,7 +778,9 @@ impl ServiceContext {
                 super::general_agent::is_general_agent(tab),
                 tab.role,
                 tab.task_binding.is_some(),
-                tab.parent_tab_id.clone().or_else(|| tab.spawned_by_tab_id.clone()),
+                tab.parent_tab_id
+                    .clone()
+                    .or_else(|| tab.spawned_by_tab_id.clone()),
                 tab.task_binding
                     .as_ref()
                     .and_then(|binding| binding.plan_id.clone()),

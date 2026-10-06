@@ -17,7 +17,10 @@ pub(crate) fn safe_choice_question(metadata: &TabStateMetadata) -> Option<Decisi
     let candidate = metadata.context["safe_response_kind"]
         .as_str()
         .is_some_and(|kind| {
-            matches!(kind, "update" | "onboarding" | "directory_trust" | "tool_permission")
+            matches!(
+                kind,
+                "update" | "onboarding" | "directory_trust" | "tool_permission"
+            )
         });
     if !candidate && metadata.context["pending_prompt_kind"].as_str() != Some("manual_update") {
         return None;

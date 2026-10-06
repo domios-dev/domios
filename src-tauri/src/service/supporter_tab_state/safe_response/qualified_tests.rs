@@ -551,20 +551,17 @@ if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) 
         .lock()
         .get(&tab_id)
         .map(|agreement| agreement.count);
-    let pending_prompt = fixture
-        .service
-        .mux
-        .read()
-        .get_tab(&tab_id)
-        .map(|tab| {
-            serde_json::json!({
-                "present": tab.pending_prompt.is_some(),
-                "kind": tab.pending_prompt_kind.map(|kind| format!("{kind:?}")),
-                "options": tab.pending_prompt.as_ref().map(|prompt| prompt.options.len()),
-                "session_authenticated": tab.launch_session_authenticated(),
-            })
-        });
-    let completion_matches = completion.as_ref().is_some_and(CompletionEvidence::succeeds)
+    let pending_prompt = fixture.service.mux.read().get_tab(&tab_id).map(|tab| {
+        serde_json::json!({
+            "present": tab.pending_prompt.is_some(),
+            "kind": tab.pending_prompt_kind.map(|kind| format!("{kind:?}")),
+            "options": tab.pending_prompt.as_ref().map(|prompt| prompt.options.len()),
+            "session_authenticated": tab.launch_session_authenticated(),
+        })
+    });
+    let completion_matches = completion
+        .as_ref()
+        .is_some_and(CompletionEvidence::succeeds)
         && completion
             .as_ref()
             .is_some_and(|c| c.child_exit == evidence.child_exit_before_cleanup);

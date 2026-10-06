@@ -87,7 +87,9 @@ impl PromptChainBook {
     }
 
     fn is_active(&self, key: &ChainKey) -> bool {
-        self.entries.get(key).is_some_and(|progress| progress.active)
+        self.entries
+            .get(key)
+            .is_some_and(|progress| progress.active)
     }
 
     fn blocks_keys(&self, key: &ChainKey) -> bool {
@@ -188,9 +190,9 @@ fn key_for_tab(tab: &crate::multiplexer::types::Tab) -> ChainKey {
 fn notice_body(subject: &str, kind: &str) -> String {
     match kind {
         "login" => format!("{subject} needs login or first-run setup."),
-        "quota" => format!(
-            "{subject} needs a model availability, quota, or rate-limit issue resolved."
-        ),
+        "quota" => {
+            format!("{subject} needs a model availability, quota, or rate-limit issue resolved.")
+        }
         "unavailable_model" => format!("{subject} cannot use its requested model."),
         "free_text" => format!("{subject} needs free-text input, such as an API key."),
         "multi_select" => format!("{subject} needs its multi-select prompt answered."),
@@ -237,8 +239,8 @@ pub(crate) fn owner_prompt_notice_actions() -> Vec<codeterm_types::notification:
     ]
 }
 
-pub(crate) fn owner_prompt_condition_actions() -> Vec<codeterm_types::notification::NotificationAction>
-{
+pub(crate) fn owner_prompt_condition_actions(
+) -> Vec<codeterm_types::notification::NotificationAction> {
     owner_prompt_notice_actions()
         .into_iter()
         .map(Into::into)
@@ -256,11 +258,7 @@ impl super::ServiceContext {
         self.mux.read().get_tab(tab_id).map(key_for_tab)
     }
 
-    pub(crate) fn claim_pending_prompt_notice(
-        &self,
-        tab_id: &str,
-        prompt: &PendingPrompt,
-    ) -> bool {
+    pub(crate) fn claim_pending_prompt_notice(&self, tab_id: &str, prompt: &PendingPrompt) -> bool {
         self.claim_pending_prompt_notice_event_key(tab_id, prompt)
             .is_some()
     }
@@ -379,11 +377,7 @@ impl super::ServiceContext {
             }
             Admission::Repeated => {
                 self.finish_prompt_chain(&key);
-                self.notify_prompt_chain_once(
-                    &key,
-                    &format!("repeated:{kind}"),
-                    "repeated:prompt",
-                );
+                self.notify_prompt_chain_once(&key, &format!("repeated:{kind}"), "repeated:prompt");
                 false
             }
             Admission::Limit => {
@@ -506,7 +500,8 @@ impl super::ServiceContext {
         let service = self.clone();
         std::thread::spawn(move || {
             loop {
-                if !service.prompt_chain_is_current(&key) || !signal.wait_until_changed(generation) {
+                if !service.prompt_chain_is_current(&key) || !signal.wait_until_changed(generation)
+                {
                     break;
                 }
                 generation = signal.generation();
@@ -552,8 +547,7 @@ impl super::ServiceContext {
                     .filter(|(prompt, kind)| {
                         *kind == PromptKind::DirectoryTrust
                             || (crate::agent::state_reactor::has_structural_prompt_evidence(
-                                &screen,
-                                prompt,
+                                &screen, prompt,
                             ) && !crate::agent::state_reactor::prompt_is_composer_text(
                                 &screen, prompt,
                             ))

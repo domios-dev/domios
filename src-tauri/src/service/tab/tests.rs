@@ -1,7 +1,7 @@
+use crate::multiplexer::types::AgentRole;
 use crate::service::launch_readiness::{self, LaunchAttempt, LaunchExitProof};
 use crate::service::process_tree::{ProcessIdentity, ProviderProcessTreeSnapshot, ProviderTreeKey};
 use crate::service::test_fixture::ServiceFixture;
-use crate::multiplexer::types::AgentRole;
 use crate::session::lifecycle::{JournalRecord, LifecycleTransition, TabLifecycleJournal};
 use codeterm_types::pty::{RemoteOwnership, RemoteOwnershipTeam};
 use std::collections::HashSet;
@@ -182,18 +182,22 @@ fn release_remote_ownership_refuses_other_tabs_and_persists_the_release() {
             .and_then(|tab| tab.ownership.as_ref())
             .map(|owner| owner.peer_id.clone()),
     ));
-    assert!(TabLifecycleJournal::shared().load().records.iter().any(|record| {
-        matches!(
-            record,
-            JournalRecord::Transition { entry }
-                if entry.key.tab_id == tab_id
-                    && matches!(
-                        &entry.transition,
-                        LifecycleTransition::RemoteOwnershipReleased { peer_id, .. }
-                            if peer_id == "peer-eight"
-                    )
-        )
-    }));
+    assert!(TabLifecycleJournal::shared()
+        .load()
+        .records
+        .iter()
+        .any(|record| {
+            matches!(
+                record,
+                JournalRecord::Transition { entry }
+                    if entry.key.tab_id == tab_id
+                        && matches!(
+                            &entry.transition,
+                            LifecycleTransition::RemoteOwnershipReleased { peer_id, .. }
+                                if peer_id == "peer-eight"
+                        )
+            )
+        }));
     crate::service::session_persist::stop_worker(&app).unwrap();
     storage
         .shutdown()

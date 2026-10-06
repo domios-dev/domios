@@ -1,16 +1,17 @@
 use serde_json::{json, Value};
 use tauri::AppHandle;
 
-use crate::service::{
-    restore_attempt_binding_for_caller, AttemptBindingRestoreResult,
-    AttemptBindingRestoreTarget,
-};
 use crate::service::ServiceState;
+use crate::service::{
+    restore_attempt_binding_for_caller, AttemptBindingRestoreResult, AttemptBindingRestoreTarget,
+};
 
 pub(super) fn is_targeted(params: &Option<Value>) -> bool {
-    ["task_id", "attempt_id", "owner_epoch"]
-        .iter()
-        .any(|key| params.as_ref().is_some_and(|value| value.get(*key).is_some()))
+    ["task_id", "attempt_id", "owner_epoch"].iter().any(|key| {
+        params
+            .as_ref()
+            .is_some_and(|value| value.get(*key).is_some())
+    })
 }
 
 pub(super) fn dispatch(

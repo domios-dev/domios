@@ -135,10 +135,8 @@ fn hook_session_offruntime_keeps_runtime_responsive_while_cron_writer_is_held() 
             crate::session::lifecycle::BindingSource::Hook,
             true,
         ));
-        let first_poll = std::future::poll_fn(|cx| {
-            std::task::Poll::Ready(finish.as_mut().poll(cx))
-        })
-        .await;
+        let first_poll =
+            std::future::poll_fn(|cx| std::task::Poll::Ready(finish.as_mut().poll(cx))).await;
         assert!(first_poll.is_pending());
         assert!(writer_holding.load(Ordering::SeqCst));
 

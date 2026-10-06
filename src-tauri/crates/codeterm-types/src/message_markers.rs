@@ -143,7 +143,9 @@ pub fn provenance(text: &str) -> Provenance {
         return Provenance::HostInjected;
     }
     let head = text.strip_prefix(BRACKETED_PASTE_START).unwrap_or(text);
-    if head.starts_with(OPEN) && parse(text).is_some_and(|marker| !is_legacy_route_kind(&marker.kind)) {
+    if head.starts_with(OPEN)
+        && parse(text).is_some_and(|marker| !is_legacy_route_kind(&marker.kind))
+    {
         Provenance::HostInjected
     } else {
         Provenance::StreamContent
@@ -163,7 +165,9 @@ pub fn parse_host_injected(text: &str) -> Option<ParsedMarker> {
         });
     }
     match provenance(text) {
-        Provenance::HostInjected => parse(text).filter(|marker| !is_legacy_route_kind(&marker.kind)),
+        Provenance::HostInjected => {
+            parse(text).filter(|marker| !is_legacy_route_kind(&marker.kind))
+        }
         Provenance::StreamContent => None,
     }
 }

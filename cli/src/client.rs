@@ -726,7 +726,9 @@ fn resolve_socket_selection(
 ) -> Result<Option<ResolvedSocket>, String> {
     let instance = instance.map(str::trim).filter(|value| !value.is_empty());
     let api_port = api_port.map(str::trim).filter(|value| !value.is_empty());
-    let explicit_socket = explicit_socket.map(str::trim).filter(|path| !path.is_empty());
+    let explicit_socket = explicit_socket
+        .map(str::trim)
+        .filter(|path| !path.is_empty());
 
     if let Some(api_port) = api_port {
         if api_port != "7685"
@@ -769,7 +771,8 @@ fn resolve_socket_selection(
                 }
             }
             if (normalized == "codeterm-dev.sock" || normalized == "codeterm-dev")
-                && api_port != "7685" && api_port != "7686"
+                && api_port != "7685"
+                && api_port != "7686"
             {
                 return Err(format!(
                     "Conflicting CodeTerm target selectors: CODETERM_SOCKET_PATH='{normalized}' selects default DEV, but CODETERM_API_PORT='{api_port}' selects a named instance."
@@ -827,11 +830,9 @@ pub(crate) fn instance_socket_name_from_path(path: &str) -> Option<String> {
     let without_suffix = normalized.strip_suffix(".sock").unwrap_or(&normalized);
     let instance = without_suffix.strip_prefix("codeterm-dev-")?;
     (!instance.is_empty()
-        && instance
-            .chars()
-            .all(|character| {
-                character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
-            }))
+        && instance.chars().all(|character| {
+            character.is_ascii_lowercase() || character.is_ascii_digit() || character == '-'
+        }))
     .then(|| instance.to_owned())
 }
 
@@ -924,8 +925,7 @@ fn resolve_scanned_socket(
         return Ok(name);
     }
 
-    probe_running_daemon()
-        .ok_or_else(|| "No Domios socket found. Is Domios running?".to_string())
+    probe_running_daemon().ok_or_else(|| "No Domios socket found. Is Domios running?".to_string())
 }
 
 #[cfg(not(target_os = "windows"))]

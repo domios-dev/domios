@@ -13,8 +13,8 @@ mod context;
 mod recurrence;
 mod sessions;
 mod tab_adopt;
-mod tab_repair;
 mod tab_release_ownership;
+mod tab_repair;
 mod transport;
 mod workspace;
 

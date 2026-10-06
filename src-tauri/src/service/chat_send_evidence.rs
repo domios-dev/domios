@@ -217,8 +217,7 @@ pub(crate) fn scan_transcript_evidence(
         let anchor = &candidate.anchor;
         let matching_turns =
             unconsumed_matching_turns(registry, ledger, tab_id, anchor, &candidate.payload);
-        let claimed =
-            ledger.claimed_turn_anchors(tab_id, &anchor.session_id, &candidate.payload);
+        let claimed = ledger.claimed_turn_anchors(tab_id, &anchor.session_id, &candidate.payload);
         let assignable = matching_turns > claimed.len()
             || nested_windows_assign_every_send(
                 claimed
@@ -356,7 +355,9 @@ impl ServiceContext {
                 })
                 .unwrap_or_default();
             (
-                chat.cursor.as_ref().and_then(|_| structured_boundary(&chat)),
+                chat.cursor
+                    .as_ref()
+                    .and_then(|_| structured_boundary(&chat)),
                 None,
             )
         } else {

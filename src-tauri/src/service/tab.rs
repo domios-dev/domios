@@ -50,9 +50,9 @@ pub(crate) fn normalize_optional_tab_description(
 /// Prefix on every self-termination refusal so transports can classify it.
 pub(crate) const SELF_CLOSE_REFUSAL_PREFIX: &str = "self-termination refused";
 pub(crate) const UNATTRIBUTED_CLOSE_REFUSAL_PREFIX: &str = "tab close refused";
+mod ownership;
 mod rename_guard;
 mod scrollback;
-mod ownership;
 
 pub(crate) use rename_guard::refuse_task_bound_rename;
 
@@ -117,7 +117,11 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
-        self.pending_delivery_payloads.user_sends.tab(tab_id).revoked.store(true, std::sync::atomic::Ordering::Release);
+        self.pending_delivery_payloads
+            .user_sends
+            .tab(tab_id)
+            .revoked
+            .store(true, std::sync::atomic::Ordering::Release);
         self.invalidate_guarded_agent_input(tab_id);
         self.chat_registry.shutdown_tab(tab_id);
         self.deferred_session_bindings.clear(tab_id);
@@ -342,7 +346,8 @@ impl ServiceContext {
             .write()
             .rename_tab_at_level(tab_id, title, TitleLevel::Agent)?;
         self.emit_state_changed();
-        let _ = session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
         Ok(())
     }
 
@@ -350,7 +355,8 @@ impl ServiceContext {
         let description = normalize_tab_description(description)?;
         self.mux.write().set_tab_description(tab_id, description)?;
         self.emit_state_changed();
-        let _ = session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
+        let _ =
+            session_persist::persist_session_after_mutation(self, SessionPersistUrgency::Prompt);
         Ok(())
     }
 

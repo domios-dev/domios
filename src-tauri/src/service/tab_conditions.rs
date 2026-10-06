@@ -213,9 +213,7 @@ impl ServiceContext {
         };
 
         if owner == Some(ConditionOwner::User) {
-            if let Some(event_key) =
-                self.claim_pending_prompt_notice_event_key(tab_id, prompt)
-            {
+            if let Some(event_key) = self.claim_pending_prompt_notice_event_key(tab_id, prompt) {
                 let subject = self.prompt_notice_subject(tab_id);
                 self.create_condition_notification_with_key(
                     tab_id,

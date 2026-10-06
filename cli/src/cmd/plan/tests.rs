@@ -488,7 +488,9 @@ fn render_plan_markdown_prepends_goal_block() {
     assert_eq!(blockquotes.len(), 1);
     assert!(!blockquotes[0].trim().is_empty());
     let goal_pos = rendered.find("## Goal").unwrap();
-    let sections_pos = rendered.find("## Sections\n\n### Supplied section").unwrap();
+    let sections_pos = rendered
+        .find("## Sections\n\n### Supplied section")
+        .unwrap();
     assert!(goal_pos < sections_pos);
     assert!(rendered.contains("### Supplied section\n\nSupplied section body\n"));
     assert!(rendered.contains("**Vector:** Ship the foundation"));

@@ -53,24 +53,47 @@ fn supporter_credit_exhaustion_alerts_once_blocks_and_rearms_after_success() {
     assert_eq!(alerts[0].level, NotifyLevel::Failure);
     assert!(alerts[0].title.contains("out of credit"));
     assert_eq!(book.admit("a", 1_001), Err(DecisionError::CreditExhausted));
-    assert_eq!(book.admit("a", 3_600_999), Err(DecisionError::CreditExhausted));
+    assert_eq!(
+        book.admit("a", 3_600_999),
+        Err(DecisionError::CreditExhausted)
+    );
     assert!(book.admit("a", 3_601_000).is_ok());
-    assert_eq!(book.admit("a", 3_601_001), Err(DecisionError::CreditExhausted));
+    assert_eq!(
+        book.admit("a", 3_601_001),
+        Err(DecisionError::CreditExhausted)
+    );
     assert!(book
-        .finish("a", "fixture", None, Some(&price()), Some(&error), 3_601_002)
+        .finish(
+            "a",
+            "fixture",
+            None,
+            Some(&price()),
+            Some(&error),
+            3_601_002
+        )
         .unwrap()
         .is_empty());
     drop(book);
 
     let book = SpendBook::new(dir.path().into());
-    assert_eq!(book.admit("a", 3_601_003), Err(DecisionError::CreditExhausted));
+    assert_eq!(
+        book.admit("a", 3_601_003),
+        Err(DecisionError::CreditExhausted)
+    );
     assert!(book.admit("a", 7_201_002).is_ok());
     book.finish("a", "fixture", None, Some(&price()), None, 7_201_003)
         .unwrap();
     assert_eq!(
-        book.finish("a", "fixture", None, Some(&price()), Some(&error), 7_201_004)
-            .unwrap()
-            .len(),
+        book.finish(
+            "a",
+            "fixture",
+            None,
+            Some(&price()),
+            Some(&error),
+            7_201_004
+        )
+        .unwrap()
+        .len(),
         1
     );
     book.finish("a", "fixture", None, Some(&price()), None, 7_201_005)

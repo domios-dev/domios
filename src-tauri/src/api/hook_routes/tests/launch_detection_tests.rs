@@ -55,7 +55,10 @@ fn detected_current_process_record_reauthenticates_a_restored_session() {
     assert!(claim.nonce_verified);
     assert!(!claim.changed);
     assert_eq!(tab.agent_session_id.as_deref(), Some("sid-restored"));
-    assert_eq!(tab.reported_session_binding_nonce.as_deref(), Some("nonce-restored"));
+    assert_eq!(
+        tab.reported_session_binding_nonce.as_deref(),
+        Some("nonce-restored")
+    );
     assert!(tab.launch_session_authenticated());
 }
 

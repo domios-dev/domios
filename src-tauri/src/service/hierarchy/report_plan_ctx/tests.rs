@@ -19,11 +19,11 @@ use crate::service::test_fixture::ServiceFixture;
 use crate::service::AuthenticatedPlanCaller;
 use codeterm_types::agent::ReportOutcomeClass;
 
+mod desktop_reports;
 mod plan_evidence_owner_test;
 mod plan_evidence_role_test;
 mod plan_evidence_session_test;
 mod plan_evidence_status_test;
-mod desktop_reports;
 
 fn add_task(store: &PlanStore, plan_id: &str, name: &str, now_ms: u64) -> String {
     store
@@ -520,25 +520,27 @@ fn blocked_worker_report_is_one_persisted_proposal_and_keeps_task_in_progress() 
     details.test_cmd = Some("dependency-probe".into());
     details.test_result = Some("dependency unavailable".into());
 
-    let result = h
-        .fx
-        .service
-        .submit_report(
-            &h.caller,
-            "dependency unavailable",
-            details,
-            Some(&h.plan_id),
-            Some(&h.held),
-            None,
-        )
-        .expect("a blocked report is an accepted proposal");
+    let result =
+        h.fx.service
+            .submit_report(
+                &h.caller,
+                "dependency unavailable",
+                details,
+                Some(&h.plan_id),
+                Some(&h.held),
+                None,
+            )
+            .expect("a blocked report is an accepted proposal");
 
     assert!(result.rejected_task_transition.is_none());
     assert_eq!(
         result.persisted_task,
         Some((h.plan_id.clone(), h.held.clone()))
     );
-    assert_eq!(result.report_outcome, Some(ReportOutcomeClass::BlockProposed));
+    assert_eq!(
+        result.report_outcome,
+        Some(ReportOutcomeClass::BlockProposed)
+    );
 
     let task = h.task(&h.held);
     assert_eq!(task.status, TaskStatus::InProgress);
@@ -549,11 +551,17 @@ fn blocked_worker_report_is_one_persisted_proposal_and_keeps_task_in_progress() 
     assert_eq!(snapshot.status.as_deref(), Some("blocked"));
     assert_eq!(snapshot.message.as_deref(), Some("dependency unavailable"));
     assert_eq!(snapshot.test_cmd.as_deref(), Some("dependency-probe"));
-    assert_eq!(snapshot.test_result.as_deref(), Some("dependency unavailable"));
+    assert_eq!(
+        snapshot.test_result.as_deref(),
+        Some("dependency unavailable")
+    );
 
     let reports = h.fx.service.report_store.lock().get(&h.root, false);
     assert_eq!(reports.len(), 1);
-    assert_eq!(reports[0].report_outcome, Some(ReportOutcomeClass::BlockProposed));
+    assert_eq!(
+        reports[0].report_outcome,
+        Some(ReportOutcomeClass::BlockProposed)
+    );
     assert!(reports[0].inject_body().contains(BLOCK_PROPOSAL_NOTICE));
 }
 

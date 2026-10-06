@@ -10,7 +10,11 @@ pub(crate) fn normalize_turn_evidence_with(
 
 pub(super) fn matching_turn_send_ids(
     turn_text: &str,
-    candidates: &[(String, String, crate::agent::provider::TurnEvidenceNormalization)],
+    candidates: &[(
+        String,
+        String,
+        crate::agent::provider::TurnEvidenceNormalization,
+    )],
 ) -> Vec<String> {
     for start in 0..candidates.len() {
         let normalization = candidates[start].2;

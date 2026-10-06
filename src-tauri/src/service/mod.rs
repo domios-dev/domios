@@ -70,7 +70,6 @@ mod folder_trust_carryover;
 pub mod orchestrator_digests;
 mod orchestrator_onboard;
 mod output;
-mod prompt_chain;
 mod output_feed;
 pub(crate) mod output_stream_activity;
 pub(crate) mod pending_delivery_payloads;
@@ -82,6 +81,7 @@ mod plan_authority;
 pub(crate) mod plan_batch_authority;
 mod plan_pause;
 mod plan_reconcile;
+mod prompt_chain;
 pub(crate) use plan_reconcile::tab_has_live_agent;
 pub mod plugin_host;
 pub(crate) mod provider_identity;
@@ -167,9 +167,9 @@ pub(crate) use task_lane_guard::{
 #[cfg(test)]
 pub(crate) use task_lane_guard::refuse_unsafe_task_bound_mutating_lane;
 #[cfg(test)]
-pub(crate) mod test_fixture;
-#[cfg(test)]
 mod persistence_roundtrip_tests;
+#[cfg(test)]
+pub(crate) mod test_fixture;
 #[cfg(test)]
 mod tests;
 pub mod tokens;

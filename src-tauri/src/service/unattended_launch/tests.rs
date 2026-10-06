@@ -186,7 +186,10 @@ fn unattended_launch_prompt_predicate_covers_cron_and_hidden_automation_only() {
 #[test]
 fn prompt_answer_ownership_uses_structure_not_visibility() {
     let direct = tab(false, TabAudience::User, false);
-    assert_eq!(direct.role, Some(codeterm_types::agent::roles::AgentRole::Manager));
+    assert_eq!(
+        direct.role,
+        Some(codeterm_types::agent::roles::AgentRole::Manager)
+    );
     assert!(!owns_prompt_answers(&direct));
     assert!(!owns_prompt_answers(&tab(true, TabAudience::User, false)));
 

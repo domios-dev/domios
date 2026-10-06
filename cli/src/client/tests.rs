@@ -261,13 +261,9 @@ fn socket_resolution_handles_each_environment_combination() {
 
 #[test]
 fn explicit_socket_is_not_replaced_by_a_derived_socket() {
-    let resolved = resolve_socket_selection(
-        Some("codeterm-dev-coreqa.sock"),
-        None,
-        Some("7712"),
-    )
-    .unwrap()
-    .unwrap();
+    let resolved = resolve_socket_selection(Some("codeterm-dev-coreqa.sock"), None, Some("7712"))
+        .unwrap()
+        .unwrap();
 
     assert_eq!(resolved.path, "codeterm-dev-coreqa.sock");
     assert_eq!(resolved.source, ResolutionSource::CodeTermSocketPath);
@@ -284,7 +280,10 @@ fn explicit_named_socket_supplies_the_instance_when_env_is_absent() {
         Some("coreqa")
     );
     assert_eq!(instance_socket_name_from_path("codeterm-dev.sock"), None);
-    assert_eq!(instance_socket_name_from_path("codeterm-dev-CoreQA.sock"), None);
+    assert_eq!(
+        instance_socket_name_from_path("codeterm-dev-CoreQA.sock"),
+        None
+    );
 }
 
 #[test]
