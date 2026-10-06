@@ -50,6 +50,17 @@ fn only_a_genuine_quit_declares_clean_exit_on_macos() {
 }
 
 #[test]
+fn storage_shutdown_reports_failed_snapshot_as_incomplete() {
+    let errors = vec!["Storage desk snapshot failed: UNIQUE constraint".into()];
+
+    assert_eq!(
+        shutdown_state_persistence_result(&errors),
+        Err("Storage desk snapshot failed: UNIQUE constraint".into())
+    );
+    assert_eq!(shutdown_state_persistence_result(&[]), Ok(()));
+}
+
+#[test]
 fn shutdown_logs_per_tab_sidecar_counts() {
     let report = crate::session::scrollback_sync::SidecarSyncReport {
         written: vec![("tab-written".to_string(), 4096)],
