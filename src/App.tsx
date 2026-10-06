@@ -33,6 +33,7 @@ import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
 import { JobsView, type JobsTarget } from "./components/Jobs/JobsView";
+import { jobsEntryFilter } from "./components/Jobs/jobsLayout";
 import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
 import { useConfig } from "./hooks/useConfig";
@@ -753,7 +754,7 @@ function AppInner() {
           )}
           {automationWorkspaceId && mainView === "workspace" && (
             <div className="absolute inset-0" style={{ zIndex: 26 }}>
-              <JobsView key={`${automationWorkspaceId}:${jobsTarget?.request ?? 0}`} placement="workspace" workspaces={state.workspaces} teams={state.teams} initialFilter={{ workspaceId: automationWorkspaceId, teamId: jobsTarget?.teamId ?? null }} initialScenarioId={jobsTarget?.scenarioId} onClose={closeWorkspaceAutomation} />
+              <JobsView key={`${automationWorkspaceId}:${jobsTarget?.request ?? 0}`} workspaces={state.workspaces} teams={state.teams} initialFilter={jobsEntryFilter({ kind: "workspace", workspaceId: automationWorkspaceId, teamId: jobsTarget?.teamId })} initialScenarioId={jobsTarget?.scenarioId} onClose={closeWorkspaceAutomation} />
             </div>
           )}
           {workspaceMapWorkspaceId && mainView === "workspace" && (
