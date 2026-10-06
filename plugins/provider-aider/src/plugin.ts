@@ -133,11 +133,13 @@ const plugin: PluginModule = {
   },
 
   screenHasTui(screen: string): boolean {
-    const lower = String(screen || "").toLowerCase();
+    const text = String(screen || "");
+    const lower = text.toLowerCase();
+    let hasFragment = false;
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
-      if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) return true;
+      if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) { hasFragment = true; break; }
     }
-    return false;
+    return hasFragment && MODE_PROMPT_RE.test(lastNonEmptyLine(text));
   },
 
   isOutputNoise(text: string): boolean {
