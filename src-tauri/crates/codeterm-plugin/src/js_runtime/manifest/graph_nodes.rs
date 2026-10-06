@@ -651,7 +651,7 @@ fn parse_description(value: Option<&Value>, path: &str) -> Result<Option<String>
 }
 
 impl EventSourceDecl {
-    fn to_value(&self) -> Value {
+    pub fn to_value(&self) -> Value {
         let mut object = Map::new();
         object.insert("kind".into(), Value::String(self.kind.clone()));
         object.insert("title".into(), Value::String(self.title.clone()));
