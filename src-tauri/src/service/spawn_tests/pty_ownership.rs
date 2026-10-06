@@ -34,6 +34,8 @@ struct OwnershipRace {
     candidates: BTreeSet<String>,
     frontend: Option<Result<String, String>>,
     hidden: Option<Result<String, String>>,
+    // Serializes with tests that repoint CODETERM_INSTANCE, which moves every data_dir() lookup.
+    _env: codeterm_util::test_env::EnvGuard,
 }
 
 struct Outcome {
@@ -48,9 +50,31 @@ fn actor_result(run: impl FnOnce() -> Result<String, String>) -> Result<String, 
     catch_unwind(AssertUnwindSafe(run)).unwrap_or_else(|_| Err("ownership actor panicked".into()))
 }
 
+fn isolated_tab_state() -> (MultiplexerState, String) {
+    // Other test fixtures share the process-wide activation registry. A UUID-prefixed id
+    // keeps this fixture outside the 32-bit id space used by MultiplexerState::new.
+    let (mux, _) = MultiplexerState::new();
+    let mut snapshot = mux.to_session_snapshot();
+    let tab_id = format!("pty-ownership-{}", uuid::Uuid::new_v4());
+    let workspace = snapshot.workspaces.first_mut().expect("default workspace");
+    workspace.active_tab_id = Some(tab_id.clone());
+    let tab = workspace.tabs.first_mut().expect("default tab");
+    tab.id = tab_id.clone();
+    let crate::session::store::SplitNodeSnapshot::Leaf {
+        tab_id: leaf_tab_id,
+        ..
+    } = &mut tab.split_tree
+    else {
+        panic!("default tab is a leaf");
+    };
+    *leaf_tab_id = tab_id.clone();
+    (MultiplexerState::from_session_snapshot(&snapshot), tab_id)
+}
+
 impl OwnershipRace {
     fn new() -> Self {
-        let (mut mux, tab_id) = MultiplexerState::new();
+        let env = codeterm_util::test_env::EnvGuard::lock();
+        let (mut mux, tab_id) = isolated_tab_state();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.hidden = true;
         tab.show_in_tabbar = false;
@@ -90,6 +114,7 @@ impl OwnershipRace {
             candidates: BTreeSet::new(),
             frontend: None,
             hidden: None,
+            _env: env,
         }
     }
 

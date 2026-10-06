@@ -138,17 +138,29 @@ export function cleanOptionLabel(value: string): string {
 }
 
 export function parseClaudeNumberedPrompt(text: string): ParsedPrompt | null {
-  const raw = String(text || "");
-  if (!/(Esc\s*to\s*cancel|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend|❯)/i.test(raw)) return null;
-  const options = parseNumberedOptions(raw);
+  const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
+  const allOptions = parseNumberedOptions(lines.join("\n"));
+  const options = lastNumberedOptionCluster(allOptions);
   if (options.length < 2) return null;
-  const firstOption = raw.search(/^[ \t]*(?:[❯>][ \t]*)?\d+\.[ ]+/m);
-  const before = firstOption >= 0 ? raw.slice(0, firstOption) : raw;
+  const lastOption = options[options.length - 1];
+  const hasActiveFooter = lines.some((line, index) =>
+    index > lastOption.line
+      && index <= lastOption.line + 5
+      && /(?:Esc\s*to\s*(?:cancel|reject|exit)|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend)/i.test(line),
+  );
+  if (!hasActiveFooter) return null;
+  const before = lines.slice(0, options[0].line).join("\n");
   const question = findQuestion(before) || "Choose an option";
   return {
     question,
     options: options.map((opt) => [opt.label, opt.value]),
   };
+}
+
+function lastNumberedOptionCluster(options: ParsedOptionState[]): ParsedOptionState[] {
+  let start = options.length - 1;
+  while (start > 0 && options[start].line - options[start - 1].line <= 2) start--;
+  return options.slice(start);
 }
 
 export function parseClaudeLetteredPrompt(text: string): ParsedPrompt | null {

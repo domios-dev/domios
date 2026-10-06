@@ -5,7 +5,7 @@ import unittest
 
 SETUP_COMPLETE = '<!-- bootstrap:setup-complete -->'
 POST_SETUP = '<!-- bootstrap:post-setup-supporter -->'
-GUIDE_DIRECTIVE = '@ct-guide supporter-agent'
+GUIDE_DIRECTIVE = '@ds-guide supporter-agent'
 PROMPT = Path(__file__).resolve().parents[2] / 'src-tauri/prompts/bootstrap_instructions.md'
 
 

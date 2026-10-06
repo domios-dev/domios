@@ -494,9 +494,23 @@ impl super::ServiceContext {
     pub(crate) fn wake_user_owner(&self, tab_id: &str, reason: UserWake) {
         let owner = self.pending_delivery_payloads.user_sends.tab(tab_id);
         if reason != UserWake::Housekeeping {
-            owner.dispatch_generation.fetch_add(1, Ordering::AcqRel);
+            let generation = owner.dispatch_generation.fetch_add(1, Ordering::AcqRel) + 1;
+            owner.dispatch_events.send_replace(generation);
         }
         owner.wake_generation.fetch_add(1, Ordering::AcqRel);
+        if owner.revoked.load(Ordering::Acquire)
+            || owner.waiting_for_dispatch.load(Ordering::Acquire)
+        {
+            return;
+        }
+        self.start_user_owner(tab_id, owner);
+    }
+
+    fn start_user_owner(
+        &self,
+        tab_id: &str,
+        owner: std::sync::Arc<super::pending_delivery_payloads::user_sends::UserTab>,
+    ) {
         if owner.revoked.load(Ordering::Acquire)
             || owner
                 .running
@@ -507,6 +521,7 @@ impl super::ServiceContext {
         }
         let service = self.clone();
         let tab_id = tab_id.to_string();
+        let dispatch_events = owner.dispatch_events.subscribe();
         tauri::async_runtime::spawn_blocking(move || {
             loop {
                 let generation = owner.wake_generation.load(Ordering::Acquire);
@@ -517,7 +532,7 @@ impl super::ServiceContext {
                     Ok(UserDrain::Idle) => None,
                     Err(error) => {
                         log::warn!("[chat-send] tab={tab_id} owner held: {error}");
-                        None
+                        Some(owner.dispatch_generation.load(Ordering::Acquire))
                     }
                 };
                 let changed = || match refusal_generation {
@@ -528,6 +543,45 @@ impl super::ServiceContext {
                 };
                 if !owner.revoked.load(Ordering::Acquire) && changed() {
                     continue;
+                }
+                if let Some(refused_at) = refusal_generation {
+                    let mut events = dispatch_events.clone();
+                    owner.waiting_for_dispatch.store(true, Ordering::Release);
+                    owner.running.store(false, Ordering::Release);
+                    if owner.revoked.load(Ordering::Acquire) {
+                        owner.waiting_for_dispatch.store(false, Ordering::Release);
+                        break;
+                    }
+                    if owner.dispatch_generation.load(Ordering::Acquire) != refused_at {
+                        owner.waiting_for_dispatch.store(false, Ordering::Release);
+                        if owner
+                            .running
+                            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                            .is_ok()
+                        {
+                            continue;
+                        }
+                        break;
+                    }
+                    let service = service.clone();
+                    let tab_id = tab_id.clone();
+                    let wake_owner = owner.clone();
+                    tauri::async_runtime::spawn(async move {
+                        while !wake_owner.revoked.load(Ordering::Acquire)
+                            && wake_owner.dispatch_generation.load(Ordering::Acquire) == refused_at
+                        {
+                            if events.changed().await.is_err() {
+                                break;
+                            }
+                        }
+                        wake_owner
+                            .waiting_for_dispatch
+                            .store(false, Ordering::Release);
+                        if !wake_owner.revoked.load(Ordering::Acquire) {
+                            service.start_user_owner(&tab_id, wake_owner);
+                        }
+                    });
+                    break;
                 }
                 owner.running.store(false, Ordering::Release);
                 if owner.revoked.load(Ordering::Acquire)
@@ -786,179 +840,6 @@ impl super::ServiceContext {
         Ok(UserDrain::Idle)
     }
 
-    fn deliver_parked_bootstrap_record(&self, tab_id: &str) -> Result<(), UserDrain> {
-        let dispatch_generation = self
-            .pending_delivery_payloads
-            .user_sends
-            .tab(tab_id)
-            .dispatch_generation
-            .load(Ordering::Acquire);
-        let ready =
-            self.mux.read().get_tab(tab_id).is_some_and(|tab| {
-                tab.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady)
-            });
-        if !ready {
-            return Ok(());
-        }
-        let parked = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .and_then(|tab| tab.pending_delivery.as_ref())
-            .filter(|record| {
-                record.channel == PendingDeliveryChannel::InteractiveInput
-                    && record.send_id().is_none()
-                    && record.state() == PendingDeliveryState::Pending
-            })
-            .map(|record| {
-                let record_id = record.record_id().to_string();
-                let send_id = record.send_id().map(str::to_string);
-                let delivery_id = send_id.as_deref().unwrap_or(&record_id).to_string();
-                (
-                    record_id,
-                    send_id,
-                    delivery_id,
-                    record.content_digest.clone(),
-                )
-            });
-        let Some((record_id, send_id, delivery_id, digest)) = parked else {
-            return Ok(());
-        };
-        let text = match self.pending_delivery_payloads.resolve(&digest) {
-            Ok(text) => text,
-            Err(error) => {
-                log::warn!(
-                    "[chat-send] parked send {} payload could not be resolved: {error}",
-                    delivery_id
-                );
-                return Err(UserDrain::ZeroWriteRefusal {
-                    dispatch_generation,
-                });
-            }
-        };
-        let record = {
-            let mut mux = self.mux.write();
-            let Some(tab) = mux.get_tab_mut(tab_id) else {
-                return Ok(());
-            };
-            if tab.boot_stage != Some(codeterm_types::pty::BootStage::AgentReady)
-                || self
-                    .pending_delivery_payloads
-                    .user_sends
-                    .tab(tab_id)
-                    .revoked
-                    .load(Ordering::Acquire)
-            {
-                return Ok(());
-            }
-            take_parked_user_send(&mut tab.pending_delivery, &record_id, send_id.as_deref())
-        };
-        let Some(record) = record else {
-            return Ok(());
-        };
-        if let Err(message) = super::session_persist::persist_session_after_mutation(
-            self,
-            super::session_persist::SessionPersistUrgency::Prompt,
-        ) {
-            let mut mux = self.mux.write();
-            if let Some(tab) = mux.get_tab_mut(tab_id) {
-                if tab.pending_delivery.is_none() {
-                    tab.pending_delivery = Some(record);
-                }
-            }
-            log::warn!(
-                "[chat-send] parked send {} claim was not persisted: {message}",
-                delivery_id
-            );
-            return Err(UserDrain::ZeroWriteRefusal {
-                dispatch_generation,
-            });
-        }
-        let dispatch_generation = self
-            .pending_delivery_payloads
-            .user_sends
-            .tab(tab_id)
-            .dispatch_generation
-            .load(Ordering::Acquire);
-        let outcome = if self
-            .pending_delivery_payloads
-            .user_sends
-            .tab(tab_id)
-            .revoked
-            .load(Ordering::Acquire)
-        {
-            Err(DeliveryError::TabBusyRefused {
-                tab: tab_id.into(),
-                detail: "bootstrap owner revoked before handoff".into(),
-            })
-        } else {
-            self.submit_parked_bootstrap(tab_id, &text)
-        };
-        if let Err(error) = outcome {
-            log::warn!(
-                "[chat-send] parked send {} for Tab {tab_id} failed: {}",
-                delivery_id,
-                error.code()
-            );
-            if !error.bytes_written() {
-                let restored = {
-                    let mut mux = self.mux.write();
-                    mux.get_tab_mut(tab_id).is_some_and(|tab| {
-                        return_after_send_failure(
-                            &mut tab.pending_delivery,
-                            record,
-                            error.bytes_written(),
-                        )
-                        .is_ok()
-                    })
-                };
-                if restored {
-                    if let Err(message) = super::session_persist::persist_session_after_mutation(
-                        self,
-                        super::session_persist::SessionPersistUrgency::Prompt,
-                    ) {
-                        log::warn!(
-                            "[chat-send] parked send {} retry state was not persisted: {message}",
-                            delivery_id
-                        );
-                    }
-                } else {
-                    log::error!(
-                        "[chat-send] parked send {} pre-write failure could not be restored",
-                        delivery_id
-                    );
-                }
-                return Err(UserDrain::ZeroWriteRefusal {
-                    dispatch_generation,
-                });
-            }
-        }
-        let digest_is_live =
-            super::pending_delivery_payloads::live_payload_digests(&self.mux.read().snapshot())
-                .contains(&record.content_digest);
-        if !digest_is_live {
-            let mut consumed = Some(record);
-            if let Err(error) = self
-                .pending_delivery_payloads
-                .free_terminal_pair(&mut consumed, "interactive_send_claimed")
-            {
-                log::warn!(
-                    "[chat-send] parked send {} payload cleanup failed: {error}",
-                    delivery_id
-                );
-            }
-        }
-        Ok(())
-    }
-
-    fn submit_parked_bootstrap(&self, tab_id: &str, text: &str) -> Result<(), DeliveryError> {
-        #[cfg(test)]
-        if let Some(boundary) = tests::bootstrap_boundary(tab_id) {
-            return boundary(text);
-        }
-        self.send_chat_text_claimed(tab_id, text, None)
-    }
-
     fn user_readiness_is_current(
         &self,
         authority: &UserSendAuthority,
@@ -1177,5 +1058,6 @@ impl super::ServiceContext {
     }
 }
 
+mod bootstrap;
 #[cfg(test)]
 pub(crate) mod tests;

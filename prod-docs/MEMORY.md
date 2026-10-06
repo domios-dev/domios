@@ -92,7 +92,7 @@ The Supporter puts useful memories first, watches tabs on lifecycle events and h
 - **Activity.** The Mission Control feed shows recent decisions and verdicts. The bounded `<data dir>/supporter/journal.jsonl` records automatic actions, budget transitions, answer distributions, adapter-reported model identities and criteria hashes. Inputs are hashes, never raw screen text or tokens. No verdict for `other` triggers an action or hint.
 - **Diagnostic override.** `codeterm mem search --supporter off` skips re-rank for one search. Clearing a required token makes the active adapter unusable but keeps its saved connection; optional and token-free adapters remain connected without it.
 
-The in-app Guide opens from a standalone `@ct-guide supporter-agent` paragraph. More about Jev: https://docs.typesafe.ai.
+The in-app Guide opens from a standalone `@ds-guide supporter-agent` paragraph. More about Jev: https://docs.typesafe.ai.
 
 ### Wake-up selection
 
@@ -179,4 +179,4 @@ The prior deletion receipt must establish conversation kind, `flush:<tab> pre-co
 
 Check row/byte counts and compaction outcomes. Blob unlink, VACUUM and WAL checkpoint reclaim storage, without secure erasure. Backups, snapshots, old WAL copies, filesystem free space and provider transcripts remain untouched. No global orphan sweep runs.
 
-<!-- revision: 42 -->
+<!-- revision: 43 -->

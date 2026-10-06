@@ -85,9 +85,12 @@ function parseTranscriptDomiosMessage(content: string) {
   if (close < 0) return null;
   const end = close + DOMIOS_CLOSE_TAG.length;
   const prefix = parseDomiosMessage(content.slice(0, end));
-  if (!prefix || prefix.attrs.from !== "system" || prefix.content !== "") return null;
-  return parseDomiosMessage(buildDomiosMessage(prefix.attrs, content.slice(end)));
+  if (!prefix || !REORDERED_FRAME_CONTENT.test(prefix.content)) return null;
+  return parseDomiosMessage(buildDomiosMessage(prefix.attrs, `${content.slice(end)}${prefix.content}`));
 }
+
+// Some transcripts store a large paste after the typed frame, leaving only the reply hint inside it.
+const REORDERED_FRAME_CONTENT = /^\s*(?:\[to reply, run: [^\]\n]*\])?\s*$/;
 
 function domiosPrefix(attrs: Record<string, string>, body: string): PrefixMatch | null {
   const from = attrs.from;
