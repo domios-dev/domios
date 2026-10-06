@@ -903,6 +903,20 @@ fn provider_declared_onboarding_dialog_is_answered_for_every_launch() {
         provider.launch_onboarding_response("no prompt here"),
         None
     );
+    assert!(
+        provider.onboarding_auto_answer().answers_for_owner_launch(),
+        "Aider declares onboardingAutoAnswer: always"
+    );
+}
+
+#[test]
+fn onboarding_auto_answer_defaults_to_delegated_only() {
+    let mock = MockProvider::new("no-onboarding-policy");
+    assert_eq!(
+        mock.onboarding_auto_answer(),
+        codeterm_plugin::provider::OnboardingAutoAnswer::DelegatedOnly
+    );
+    assert!(!mock.onboarding_auto_answer().answers_for_owner_launch());
 }
 
 #[test]
