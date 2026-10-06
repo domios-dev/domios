@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
+use tauri::Manager;
 
 use crate::mem::{workers, SearchQuery};
 use crate::multiplexer::types::TabCloseReason;
@@ -360,6 +361,16 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
             });
     }
 
+    fn event_sources_changed(&self) {
+        self.contributions_changed("graph-nodes");
+        if let Some(handle) = self
+            .app_handle
+            .try_state::<crate::sentinel::scheduler::Handle>()
+        {
+            handle.notify();
+        }
+    }
+
     fn emit_graph_worker_spawned_json(&self, info_json: &str) {
         if let Ok(info) = serde_json::from_str::<workers::GraphWorkerInfo>(info_json) {
             crate::api::events::emit_everywhere(&self.app_handle, "graph-worker-spawned", &info);
@@ -408,9 +419,31 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
                 });
         match decision {
             codeterm_plugin::graph_events::AdmissionDecision::Admit => {
+                if let Some(pipeline_id) = self
+                    .graph_event_subscriptions
+                    .pipeline_id_for(subscription_id)
+                {
+                    if let Some(handle) = self
+                        .app_handle
+                        .try_state::<crate::sentinel::scheduler::Handle>()
+                    {
+                        handle.notify_event_subscription_changed(&pipeline_id);
+                    }
+                }
                 serde_json::json!({ "admitted": true }).to_string()
             }
             codeterm_plugin::graph_events::AdmissionDecision::Refuse(reason) => {
+                if let Some(pipeline_id) = self
+                    .graph_event_subscriptions
+                    .pipeline_id_for(subscription_id)
+                {
+                    if let Some(handle) = self
+                        .app_handle
+                        .try_state::<crate::sentinel::scheduler::Handle>()
+                    {
+                        handle.notify_event_subscription_changed(&pipeline_id);
+                    }
+                }
                 let reason = match reason {
                     codeterm_plugin::graph_events::AdmitRefusal::UnknownSubscription => {
                         "unknown_subscription"
