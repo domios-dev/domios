@@ -17,7 +17,7 @@
       "kind": "structural_composer",
       "timeoutSecs": 60
     },
-    "composerCursorPosition": "visible_anywhere",
+    "composerCursorPosition": "prompt_line",
     "taskDelivery": "inline_flag",
     "systemPromptDelivery": {
       "kind": "session_config"

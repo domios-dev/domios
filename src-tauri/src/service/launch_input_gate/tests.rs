@@ -880,6 +880,103 @@ fn lazy_session_spawn_with_modal_or_dead_provider_still_fails_at_deadline() {
     );
 }
 
+#[test]
+fn prompt_line_composer_is_ready_on_the_last_nonblank_row() {
+    let ready = codeterm_pty::pty::screen_state::ComposerInputState {
+        alternate_screen: false,
+        cursor_visible: true,
+        cursor_row: 5,
+        rows: 24,
+        cols: 80,
+        inverse_caret_row: None,
+        nonblank_inverse_cells: 0,
+        sole_nonblank_inverse_row: None,
+        last_nonblank_row: Some(5),
+    };
+    assert!(launch_composer_input_ready(
+        &ready,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0
+    ));
+    assert!(launch_composer_input_ready_for_frame(
+        &ready,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0,
+        false,
+    ));
+}
+
+#[test]
+fn prompt_line_composer_rejects_hidden_cursor_or_cursor_above_the_prompt_line() {
+    let hidden = codeterm_pty::pty::screen_state::ComposerInputState {
+        cursor_visible: false,
+        cursor_row: 5,
+        last_nonblank_row: Some(5),
+        ..codeterm_pty::pty::screen_state::ComposerInputState {
+            alternate_screen: false,
+            cursor_visible: true,
+            cursor_row: 5,
+            rows: 24,
+            cols: 80,
+            inverse_caret_row: None,
+            nonblank_inverse_cells: 0,
+            sole_nonblank_inverse_row: None,
+            last_nonblank_row: Some(5),
+        }
+    };
+    assert!(!launch_composer_input_ready(
+        &hidden,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0
+    ));
+    let above = codeterm_pty::pty::screen_state::ComposerInputState {
+        cursor_row: 3,
+        ..hidden
+    };
+    assert!(!launch_composer_input_ready(
+        &above,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0
+    ));
+    let unknown_bottom = codeterm_pty::pty::screen_state::ComposerInputState {
+        cursor_row: 5,
+        last_nonblank_row: None,
+        ..above
+    };
+    assert!(!launch_composer_input_ready(
+        &unknown_bottom,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0
+    ));
+}
+
+#[test]
+fn prompt_line_composer_is_never_composer_evidence_on_a_trust_frame() {
+    let input = codeterm_pty::pty::screen_state::ComposerInputState {
+        alternate_screen: false,
+        cursor_visible: true,
+        cursor_row: 5,
+        rows: 24,
+        cols: 80,
+        inverse_caret_row: None,
+        nonblank_inverse_cells: 0,
+        sole_nonblank_inverse_row: None,
+        last_nonblank_row: Some(5),
+    };
+    assert!(!launch_composer_input_ready_for_frame(
+        &input,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0,
+        true,
+    ));
+}
+
 fn diagnostic_fixture(
     provider: Box<dyn AgentProvider>,
 ) -> (crate::service::test_fixture::ServiceFixture, LaunchAttempt) {
