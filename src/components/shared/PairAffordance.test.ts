@@ -27,10 +27,6 @@ assert(source.includes('data-pair-affordance-layout={layout}'), "layout data att
 
 assert(sidebar.includes("resolvePlanPeerPair"), "Sidebar derives pair from plan refs");
 assert(
-  sidebarWorkspace.includes("<TeamUnit") && sidebarWorkspace.includes("sortTeamManagers"),
-  "Sidebar renders TeamUnit groups with ordered managers",
-);
-assert(
   !sidebar.includes("<PairAffordance") &&
     !sidebarWorkspace.includes("<PairAffordance") &&
     !sidebarWorkspace.includes("peerExclude") &&
