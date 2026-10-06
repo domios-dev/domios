@@ -20,11 +20,34 @@ export interface HistoryParseResult {
 
 const SESSION_HEADER_RE = /^# aider chat started at (.+)$/;
 
+/**
+ * Aider writes the session header in LOCAL wall-clock time with no zone
+ * suffix. `Date.parse` would read that as UTC and shift the block by the
+ * machine's offset, so the header is parsed as a local timestamp and the
+ * caller compares it against a `sinceMs` derived the same way.
+ */
 function parseSessionStartMs(line: string): number | null {
   const match = line.match(SESSION_HEADER_RE);
   if (!match) return null;
-  const ms = Date.parse(match[1].trim());
-  return Number.isNaN(ms) ? null : ms;
+  const stamp = match[1].trim();
+  const parts = stamp.match(
+    /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?$/,
+  );
+  if (!parts) {
+    const ms = Date.parse(stamp);
+    return Number.isNaN(ms) ? null : ms;
+  }
+  const [, y, mo, d, h, mi, s, frac] = parts;
+  const millis = frac ? Number(`0.${frac}`) * 1000 : 0;
+  return new Date(
+    Number(y),
+    Number(mo) - 1,
+    Number(d),
+    Number(h),
+    Number(mi),
+    Number(s),
+    Math.round(millis),
+  ).getTime();
 }
 
 /**
@@ -79,7 +102,13 @@ export function parseAiderHistory(
       flush();
       currentRole = "user";
       const userText = line.slice(5).trim();
-      if (userText) currentText.push(userText);
+      // A blank `#### ` line is not a user turn; skip it entirely so it
+      // never becomes an empty user row in Chat.
+      if (!userText) {
+        currentRole = null;
+        continue;
+      }
+      currentText.push(userText);
       continue;
     }
 
