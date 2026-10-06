@@ -23,6 +23,7 @@ struct State {
     paste_marks_working: bool,
     working_after_swallowed_key: bool,
     modal_after_swallowed_key: bool,
+    modal_closes_composer_after_swallowed_key: bool,
     pause_after_paste: bool,
 }
 
@@ -65,6 +66,7 @@ impl EventTransport {
                     paste_marks_working: false,
                     working_after_swallowed_key: false,
                     modal_after_swallowed_key: false,
+                    modal_closes_composer_after_swallowed_key: false,
                     pause_after_paste: false,
                 }),
                 event_tx,
@@ -271,7 +273,7 @@ impl SubmitTransport for EventTransport {
             }
             if state.modal_after_swallowed_key {
                 state.dialog = true;
-                state.composer_ready = true;
+                state.composer_ready = !state.modal_closes_composer_after_swallowed_key;
             }
             return Ok(());
         }
@@ -458,6 +460,34 @@ fn active_turn_deadline_never_submits_into_a_dialog() {
         InjectionError::SubmitNeverConfirmed { .. }
     ));
     assert_eq!(transport.state.lock().unwrap().writes, ["paste:busy"]);
+}
+
+#[test]
+fn busy_ready_composer_hands_off_payload_once_before_dialog_stops_recovery_keys() {
+    let (transport, paste_rx, _, _) = EventTransport::new(true, 1);
+    {
+        let mut state = transport.state.lock().unwrap();
+        state.composer_ready = true;
+        state.modal_after_swallowed_key = true;
+        state.modal_closes_composer_after_swallowed_key = true;
+    }
+    let send_transport = Arc::clone(&transport);
+    let send = std::thread::spawn(move || run_with_readiness_guard(&send_transport, "follow-up"));
+
+    paste_rx
+        .recv_timeout(Duration::from_secs(2))
+        .expect("the ready busy composer receives the payload before key recovery");
+    match join(send, "busy ready payload handoff").unwrap() {
+        Err(error) => assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. })),
+        Ok(result) => assert!(
+            !result.submit_observed && result.submit_anomaly && result.submit_key_writes == 1,
+            "a dialog after the first key must leave the send unconfirmed without recovery keys: {result:?}"
+        ),
+    }
+    assert_eq!(
+        transport.state.lock().unwrap().writes,
+        ["paste:follow-up", "enter"]
+    );
 }
 
 #[test]

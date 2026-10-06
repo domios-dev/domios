@@ -245,6 +245,167 @@ fn post_ready_queued_user_sends_have_a_blank_line_and_reconcile_together() {
     not(windows),
     ignore = "requires the shared interactive desktop ServiceContext fixture"
 )]
+fn ready_user_send_writes_without_a_follow_up_output_event_while_agent_delivery_waits() {
+    let (fixture, tab) = queue_fixture(true, None);
+    mark_ready(&fixture, &tab);
+    let agent_id = fixture
+        .service
+        .pending_delivery_payloads
+        .agent_deliveries
+        .enqueue(&tab, "pending agent delivery", None)
+        .unwrap();
+    let (writes_tx, writes_rx) = mpsc::channel();
+    let writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let count = writes.clone();
+    let _boundary = UserSubmitBoundary::install(
+        &tab,
+        Arc::new(move |record, text| {
+            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            writes_tx
+                .send((record.send_id.clone(), text.to_string()))
+                .unwrap();
+            Ok(())
+        }),
+    );
+
+    let reservation = fixture
+        .service
+        .reserve_user_send(&tab, Some("post-ready-idle-send".into()))
+        .unwrap();
+    let accepted = fixture
+        .service
+        .prepare_and_admit_user_send(reservation, FIRST_PAYLOAD.into(), false)
+        .unwrap();
+    let (send_id, payload) = writes_rx.recv_timeout(TEST_DEADLINE).unwrap();
+    assert_eq!(send_id, accepted.status.send_id);
+    assert_eq!(payload, FIRST_PAYLOAD.replace("\r\n", "\n"));
+    await_owner_idle(&fixture, &tab);
+    assert!(matches!(
+        fixture.service.drain_user_owner(&tab).unwrap(),
+        super::super::UserDrain::Idle
+    ));
+
+    assert_eq!(writes.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(matches!(
+        writes_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .agent_deliveries
+        .has_pending(&tab)
+        .unwrap());
+    assert_eq!(
+        fixture
+            .service
+            .pending_delivery_payloads
+            .agent_deliveries
+            .pending_head(&tab)
+            .unwrap()
+            .unwrap()
+            .id,
+        agent_id
+    );
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .is_empty());
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "requires the shared interactive desktop ServiceContext fixture"
+)]
+fn zero_write_refusal_retains_an_explicit_dispatch_wake_until_one_write() {
+    let (fixture, tab) = queue_fixture(true, None);
+    mark_ready(&fixture, &tab);
+    let (attempts_tx, attempts_rx) = mpsc::channel();
+    let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let attempt_count = attempts.clone();
+    let writes = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let write_count = writes.clone();
+    let _boundary = UserSubmitBoundary::install(
+        &tab,
+        Arc::new(move |record, text| {
+            let attempt = attempt_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            attempts_tx.send(text.to_string()).unwrap();
+            if attempt == 0 {
+                Err(DeliveryError::TabBusyRefused {
+                    tab: record.authority.tab_id.clone(),
+                    detail: "fixture modal refusal".into(),
+                })
+            } else {
+                write_count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }
+        }),
+    );
+
+    let reservation = fixture
+        .service
+        .reserve_user_send(&tab, Some("wake-after-refusal".into()))
+        .unwrap();
+    let accepted = fixture
+        .service
+        .prepare_and_admit_user_send(reservation, FIRST_PAYLOAD.into(), false)
+        .unwrap();
+    assert_eq!(
+        attempts_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+        FIRST_PAYLOAD.replace("\r\n", "\n")
+    );
+    await_owner_stopped(&fixture, &tab);
+    let owner = fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .tab(&tab);
+    assert!(owner
+        .waiting_for_dispatch
+        .load(std::sync::atomic::Ordering::Acquire));
+
+    fixture.service.wake_user_owner_on_state_change(&tab);
+    assert_eq!(
+        attempts_rx.recv_timeout(TEST_DEADLINE).unwrap(),
+        FIRST_PAYLOAD.replace("\r\n", "\n")
+    );
+    await_owner_idle(&fixture, &tab);
+    assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 2);
+    assert_eq!(writes.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert!(matches!(
+        attempts_rx.try_recv(),
+        Err(mpsc::TryRecvError::Empty)
+    ));
+    assert!(!owner
+        .waiting_for_dispatch
+        .load(std::sync::atomic::Ordering::Acquire));
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&accepted.status.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Unknown
+    );
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "requires the shared interactive desktop ServiceContext fixture"
+)]
 fn ready_busy_owner_writes_each_send_without_waiting_for_prior_turn_evidence() {
     let (fixture, tab) = queue_fixture(true, None);
     append_turn(&fixture, "opaque-equal");

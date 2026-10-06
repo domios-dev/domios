@@ -234,12 +234,21 @@ mod tests {
             creator: String,
             workspace: String,
             _env: codeterm_util::test_env::EnvGuard,
-            isolated_data: std::path::PathBuf,
+            _isolated_data: IsolatedDataDir,
+        }
+
+        struct IsolatedDataDir(std::path::PathBuf);
+
+        impl Drop for IsolatedDataDir {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
         }
 
         impl Fixture {
             fn new(raw: Option<&str>) -> Self {
                 let mut env = codeterm_util::test_env::EnvGuard::lock();
+                crate::session::lifecycle::TabLifecycleJournal::shared();
                 env.set(
                     "CODETERM_INSTANCE",
                     format!("sentinel-graph-test-{}", uuid::Uuid::new_v4().simple()),
@@ -316,7 +325,7 @@ mod tests {
                     creator,
                     workspace,
                     _env: env,
-                    isolated_data,
+                    _isolated_data: IsolatedDataDir(isolated_data),
                 }
             }
 
@@ -372,12 +381,6 @@ mod tests {
                     .unwrap()
                     .machine
                     .stopped
-            }
-        }
-
-        impl Drop for Fixture {
-            fn drop(&mut self) {
-                std::fs::remove_dir_all(&self.isolated_data).unwrap();
             }
         }
 

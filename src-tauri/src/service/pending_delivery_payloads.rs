@@ -262,41 +262,7 @@ impl PendingDeliveryPayloadStore {
 fn restrict_windows_acl(path: &Path) -> std::io::Result<()> {
     #[cfg(test)]
     ACL_SETUP_CALLS.with(|calls| calls.set(calls.get() + 1));
-    let username = std::env::var("USERNAME")
-        .ok()
-        .filter(|username| !username.is_empty())
-        .ok_or_else(|| std::io::Error::other("USERNAME is unavailable for payload ACL"))?;
-    let mut command = std::process::Command::new("icacls");
-    command.args([
-        path.as_os_str(),
-        std::ffi::OsStr::new("/inheritance:r"),
-        std::ffi::OsStr::new("/grant:r"),
-        std::ffi::OsStr::new(&format!("{username}:(OI)(CI)(F)")),
-    ]);
-    crate::process_util::no_window_std(&mut command);
-    let output = command.output()?;
-    if !output.status.success() {
-        Err(std::io::Error::other("icacls rejected payload ACL"))
-    } else {
-        let mut verify = std::process::Command::new("icacls");
-        verify.arg(path);
-        crate::process_util::no_window_std(&mut verify);
-        let output = verify.output()?;
-        let acl = String::from_utf8_lossy(&output.stdout).to_ascii_lowercase();
-        let user = username.to_ascii_lowercase();
-        if acl.contains(&user)
-            && acl.contains("(oi)")
-            && acl.contains("(ci)")
-            && !acl.contains("builtin\\users")
-            && !acl.contains("everyone:")
-        {
-            Ok(())
-        } else {
-            Err(std::io::Error::other(
-                "payload directory ACL is not restrictive",
-            ))
-        }
-    }
+    codeterm_mem::decision::token_store::restrict_directory_permissions(path)
 }
 
 #[cfg(all(windows, test))]

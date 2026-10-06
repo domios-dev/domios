@@ -101,13 +101,48 @@ fn restart_requires_observed_live_process_evidence() {
 #[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn surviving_shell_stale_metadata_is_cleared_before_restart_acceptance() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let pty_id = "stale-provider-pty";
+    mux.link_pty(&tab_id, pty_id.into());
     {
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some("claude".into());
-        tab.pty_id = Some("missing-pty".into());
+        tab.agent_session_id = Some("stale-session".into());
+        tab.agent_session_model = Some("stale-model".into());
+        tab.session_binding_nonce = Some("stale-provider-nonce".into());
         tab.boot_stage = Some(codeterm_types::pty::BootStage::ShellReady);
+        tab.exit_suspected_at = Some(std::time::Instant::now());
     }
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("claude").with_launch_binary("claude"),
+    ));
+    fixture
+        .service
+        .pty
+        .lock()
+        .spawn_with_id(Some(pty_id.into()), None, None, 80, 24, Default::default())
+        .expect("spawn the surviving shell PTY");
+    let tree_key = fixture
+        .service
+        .provider_tree_key_for_tab(&tab_id, pty_id)
+        .expect("Claude supplies the tab process-tree key");
+    fixture.service.provider_tree_witnesses.script_snapshot(
+        &tree_key,
+        crate::service::process_tree::ProviderProcessTreeSnapshot::Present(
+            std::collections::HashSet::from([crate::service::process_tree::ProcessIdentity {
+                pid: 52_520,
+                start_token: "stale-claude-child".into(),
+            }]),
+        ),
+    );
+    fixture
+        .service
+        .observe_provider_process_tree(&tab_id, pty_id)
+        .expect("observe the provider before it exits");
+    fixture.service.provider_tree_witnesses.script_snapshot(
+        &tree_key,
+        crate::service::process_tree::ProviderProcessTreeSnapshot::Absent,
+    );
 
     let result = fixture.service.snapshot_tab_for_restart(&tab_id);
 
