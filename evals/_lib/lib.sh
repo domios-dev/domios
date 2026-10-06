@@ -355,7 +355,7 @@ dev_api_url() {
 
 dev_assert_target() {
   local health actual_instance actual_port actual_vite_port actual_cdp_port
-  if ! health="$(curl -sS --max-time 1 "$(dev_api_url)/api/health")"; then
+  if ! health="$(curl -sS --max-time 5 "$(dev_api_url)/api/health")"; then
     dev_resolution_error "${EVAL_LIB_RESOLVED_DATA_DIR:-<unresolved>}" \
       "${EVAL_LIB_RESOLVED_DATA_DIR:-$(dev_default_data_dir)}"
     return 7
