@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 import type { Team } from "../../lib/types";
-import { addTeamCapsule, addWorkspaceCapsule, jobsEntryFilter, jobsLayout, removeJobsCapsule } from "./jobsLayout";
+import { addTeamCapsule, addWorkspaceCapsule, jobsEntryFilter, jobsLayout, jobsOpenEntry, removeJobsCapsule } from "./jobsLayout";
+import { NO_JOBS_FILTER } from "./jobsModel";
 
 const workspaces = [{ id: "ws-a", name: "Alpha" }, { id: "ws-b", name: "Beta" }];
 const team = (id: string, workspace_id: string, extra: Partial<Team> = {}): Team => ({ id, name: `Team ${id}`, lifecycle: "active", created_at: 0, workspace_id, ...extra });
 const teams = [team("t-a", "ws-a"), team("t-b", "ws-b"), team("t-remote", "ws-a", { remote_peer_name: "peer" })];
 
 const cases: Array<[string, () => void]> = [
+  ["a machine-wide open starts unfiltered and a workspace open keeps its workspace and Team", () => {
+    assert.deepEqual(jobsEntryFilter(jobsOpenEntry("ws-general", "machine")), NO_JOBS_FILTER);
+    assert.deepEqual(jobsEntryFilter(jobsOpenEntry("ws-general", "machine", "t-a")), NO_JOBS_FILTER);
+    assert.deepEqual(jobsEntryFilter(jobsOpenEntry("ws-a", "workspace")), { workspaceId: "ws-a", teamId: null });
+    assert.deepEqual(jobsEntryFilter(jobsOpenEntry("ws-a", "workspace", "t-a")), { workspaceId: "ws-a", teamId: "t-a" });
+  }],
   ["the machine entry starts with no capsule and every workspace as a source", () => {
     const layout = jobsLayout(jobsEntryFilter({ kind: "machine" }), workspaces, teams);
     assert.deepEqual(layout.capsules, []);
