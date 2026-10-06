@@ -248,6 +248,17 @@ mod tests {
     use serde_json::json;
 
     #[test]
+    fn every_routed_reason_can_record_its_route_stages() {
+        for reason in ["transition", "rearm_on_change", "other", "low_confidence"] {
+            assert!(
+                route_stage_reason_allowed(reason),
+                "{reason} must keep its route claim"
+            );
+        }
+        assert!(!route_stage_reason_allowed("no_change"));
+    }
+
+    #[test]
     fn sentinel_unavailable_wait_uses_failure_deadline_for_overdue_jobs() {
         let temp = tempfile::tempdir().unwrap();
         let clock = crate::cron::clock::MockClock::starting_at(1_000);
@@ -358,6 +369,14 @@ fn expire_escalations(store: &Arc<Mutex<Store>>, svc: &ServiceState) {
     }
 }
 
+/// Reasons the machine routes to handlers; a route claim for any other reason would strand it.
+fn route_stage_reason_allowed(reason: &str) -> bool {
+    matches!(
+        reason,
+        "transition" | "rearm_on_change" | "other" | "low_confidence"
+    )
+}
+
 pub fn record(
     runtime: &supporter::SupporterRuntime,
     job: &Sentinel,
@@ -374,7 +393,7 @@ pub fn record(
         Stage::RouteClaim | Stage::RouteCompleted | Stage::RouteFailed
     );
     if route_stage
-        && (!matches!(outcome.reason, "transition" | "other" | "low_confidence")
+        && (!route_stage_reason_allowed(outcome.reason)
             || outcome.route.is_none()
             || outcome.verdict.is_none())
     {
