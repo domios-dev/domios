@@ -5,7 +5,13 @@
 
 export type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
 import type { ChatOrigin, SlashCommand } from "@codeterm/chat-core";
-import { DOMIOS_CLOSE_TAG, parseDomiosMessage, parseMarker, systemOriginLabel } from "@codeterm/chat-core";
+import {
+  buildDomiosMessage,
+  DOMIOS_CLOSE_TAG,
+  parseDomiosMessage,
+  parseMarker,
+  systemOriginLabel,
+} from "@codeterm/chat-core";
 
 export interface PrefixMatch {
   origin: ChatOrigin;
@@ -48,7 +54,7 @@ export function detectChatPrefix(content: string): PrefixMatch | null {
 
 function detectTransportPrefix(content: string): PrefixMatch | null {
   const domios = content.startsWith("<domios")
-    ? parseDomiosMessage(stripPastedContentTags(content))
+    ? parseTranscriptDomiosMessage(stripPastedContentTags(content))
     : null;
   if (domios) return domiosPrefix(domios.attrs, domios.body);
   const marker = parseMarker(content);
@@ -70,6 +76,17 @@ function detectTransportPrefix(content: string): PrefixMatch | null {
     };
   }
   return null;
+}
+
+function parseTranscriptDomiosMessage(content: string) {
+  const parsed = parseDomiosMessage(content);
+  if (parsed) return parsed;
+  const close = content.indexOf(DOMIOS_CLOSE_TAG);
+  if (close < 0) return null;
+  const end = close + DOMIOS_CLOSE_TAG.length;
+  const prefix = parseDomiosMessage(content.slice(0, end));
+  if (!prefix || prefix.attrs.from !== "system" || prefix.content !== "") return null;
+  return parseDomiosMessage(buildDomiosMessage(prefix.attrs, content.slice(end)));
 }
 
 function domiosPrefix(attrs: Record<string, string>, body: string): PrefixMatch | null {
