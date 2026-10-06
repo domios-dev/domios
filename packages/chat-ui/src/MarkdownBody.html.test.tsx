@@ -228,33 +228,33 @@ test("standalone ct artifact directives render pages, images, and documents", as
   const imagePath = "C:\\Users\\User\\Desktop\\preview.png";
   const documentPath = "C:\\Users\\User\\Desktop\\notes.md";
   configureHtmlFileLoader(async (path) => {
-    assert(path === pagePath, "ct-page uses the existing sandboxed page loader");
+    assert(path === pagePath, "ds-page uses the existing sandboxed page loader");
     return "<main>Page from file</main>";
   });
   configureLocalArtifactLoader(async (path, kind) => {
     if (kind === "image") {
-      assert(path === imagePath, "ct-image preserves its absolute path");
+      assert(path === imagePath, "ds-image preserves its absolute path");
       return { data: "data:image/png;base64,AA==", media_type: "image/png" };
     }
-    assert(path === documentPath && kind === "document", "ct-document preserves kind and path");
+    assert(path === documentPath && kind === "document", "ds-document preserves kind and path");
     return {
       data: "# Document title\n\n![tracker](https://example.test/pixel.png)",
       media_type: "text/markdown",
     };
   });
 
-  assert(parseLocalArtifactDirective(`@ct-page "${pagePath}"`)?.path === pagePath, "quoted ct-page parses");
+  assert(parseLocalArtifactDirective(`@ds-page "${pagePath}"`)?.path === pagePath, "quoted ds-page parses");
   const { host } = await render(
-    <RichMarkdown text={`@ct-page ${pagePath}\n\n@ct-image ${imagePath}\n\n@ct-document ${documentPath}`} />,
+    <RichMarkdown text={`@ds-page ${pagePath}\n\n@ds-image ${imagePath}\n\n@ds-document ${documentPath}`} />,
   );
   await act(async () => {
     await Promise.resolve();
     await Promise.resolve();
   });
-  assert(host.querySelector("iframe")?.getAttribute("srcdoc")?.includes("Page from file"), "ct-page renders in the HTML sandbox");
-  assert(host.querySelector<HTMLImageElement>("[data-testid='chat-ct-image'] img")?.src.startsWith("data:image/png"), "ct-image renders bounded data");
-  assert(host.querySelector("[data-testid='chat-ct-document'] h1")?.textContent === "Document title", "Markdown document renders as a document");
-  assert(!host.querySelector("[data-testid='chat-ct-document'] img"), "document Markdown cannot fetch external images");
+  assert(host.querySelector("iframe")?.getAttribute("srcdoc")?.includes("Page from file"), "ds-page renders in the HTML sandbox");
+  assert(host.querySelector<HTMLImageElement>("[data-testid='chat-ds-image'] img")?.src.startsWith("data:image/png"), "ds-image renders bounded data");
+  assert(host.querySelector("[data-testid='chat-ds-document'] h1")?.textContent === "Document title", "Markdown document renders as a document");
+  assert(!host.querySelector("[data-testid='chat-ds-document'] img"), "document Markdown cannot fetch external images");
   assert(host.textContent?.includes("external image omitted"), "blocked document media is explicit");
 
   configureHtmlFileLoader(null);
@@ -272,7 +272,7 @@ test("standalone ct directives preserve Windows and forward-slash paths", async 
   });
 
   const { host } = await render(
-    <RichMarkdown text={`@ct-image ${windowsPath}\n\n@ct-image ${forwardPath}`} />,
+    <RichMarkdown text={`@ds-image ${windowsPath}\n\n@ds-image ${forwardPath}`} />,
   );
   await act(async () => {
     await Promise.resolve();
@@ -281,14 +281,14 @@ test("standalone ct directives preserve Windows and forward-slash paths", async 
 
   assert(requested[0] === windowsPath, "Markdown must not consume backslashes before punctuation");
   assert(requested[1] === forwardPath, "forward-slash paths should remain unchanged");
-  assert(host.querySelectorAll("[data-testid='chat-ct-image'] img").length === 2, "both path forms should render");
+  assert(host.querySelectorAll("[data-testid='chat-ds-image'] img").length === 2, "both path forms should render");
   configureLocalArtifactLoader(null);
 });
 
 test("ct directives inside code fences remain inert code", async () => {
-  const { host } = await render(<RichMarkdown text={"```text\n@ct-image C:\\\\secret.png\n```"} />);
-  assert(!host.querySelector("[data-testid='chat-ct-image']"), "code-fenced directive is not executed");
-  assert(host.textContent?.includes("@ct-image"), "literal directive remains visible");
+  const { host } = await render(<RichMarkdown text={"```text\n@ds-image C:\\\\secret.png\n```"} />);
+  assert(!host.querySelector("[data-testid='chat-ds-image']"), "code-fenced directive is not executed");
+  assert(host.textContent?.includes("@ds-image"), "literal directive remains visible");
 });
 
 test("html fullscreen survives a markdown parent rerender", async () => {

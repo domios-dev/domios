@@ -3,7 +3,7 @@ block. In fenced HTML, use bundled Tailwind v4 for layout, interaction states,
 transitions, and animations. Render ordinary self-contained visuals directly;
 consult `ct.help()` only when an unfamiliar Domios-specific runtime capability
 is necessary. Render a known local file without copying it via standalone
-`@ct-page ABSOLUTE_PATH`, `@ct-image ABSOLUTE_PATH`, or `@ct-document ABSOLUTE_PATH`;
+`@ds-page ABSOLUTE_PATH`, `@ds-image ABSOLUTE_PATH`, or `@ds-document ABSOLUTE_PATH`;
 use `ct.file.pick()` for unknown files. Direct network and arbitrary filesystem
 access stay blocked; use inline HTML only for light native markup. Open an
-in-app Guide section with a standalone `@ct-guide <section-id>` paragraph.
+in-app Guide section with a standalone `@ds-guide <section-id>` paragraph.

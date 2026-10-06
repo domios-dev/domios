@@ -18,7 +18,7 @@ type LoadState =
   | { status: "error"; file: null; error: string };
 
 export function parseLocalArtifactDirective(source: string): LocalArtifactDirective | null {
-  const match = /^\s*@ct-(page|image|document)\s+(?:"([^"]+)"|'([^']+)'|(.+?))\s*$/i.exec(
+  const match = /^\s*@ds-(page|image|document)\s+(?:"([^"]+)"|'([^']+)'|(.+?))\s*$/i.exec(
     source.replace(/\r/g, ""),
   );
   const path = (match?.[2] || match?.[3] || match?.[4] || "").trim();
@@ -89,7 +89,7 @@ function LoadedLocalArtifact({
 
   return (
     <section
-      data-testid={`chat-ct-${directive.kind}`}
+      data-testid={`chat-ds-${directive.kind}`}
       className="my-2 overflow-hidden rounded-lg border"
       style={{ borderColor: "var(--ct-border)", background: "var(--ct-surface)" }}
       aria-label={`${directive.kind} preview: ${name}`}

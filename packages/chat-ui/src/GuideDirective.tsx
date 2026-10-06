@@ -26,7 +26,7 @@ export function GuideNavigationProvider({
 }
 
 export function parseGuideDirective(source: string): string | null {
-  return /^[\t ]*@ct-guide[\t ]+([a-z0-9][a-z0-9-]*)[\t ]*$/i.exec(source.replace(/\r/g, ""))?.[1] ?? null;
+  return /^[\t ]*@ds-guide[\t ]+([a-z0-9][a-z0-9-]*)[\t ]*$/i.exec(source.replace(/\r/g, ""))?.[1] ?? null;
 }
 
 export function GuideDirective({ sectionId }: { sectionId: string }) {
@@ -36,7 +36,7 @@ export function GuideDirective({ sectionId }: { sectionId: string }) {
   const destination = section ?? fallback;
   const label = destination ? `Open Guide: ${destination.title}` : "Open Guide";
   return (
-    <div className="my-2" data-testid="chat-ct-guide" data-guide-section={sectionId}>
+    <div className="my-2" data-testid="chat-ds-guide" data-guide-section={sectionId}>
       {!section && (
         <p className="mb-1 text-xs opacity-70" data-testid="chat-guide-notice">
           {navigation ? "Guide section unavailable. Open the first section." : "Guide navigation is unavailable in this view."}
