@@ -1,13 +1,14 @@
 // Run: node scripts/run-ts-unit-tests.mjs src/components/Jobs/JobsView.test.tsx
 import assert from "node:assert/strict";
-import { act, useCallback, useRef, useState, type ReactElement } from "react";
+import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import type { CronJob, CronRunInfo } from "../../lib/types";
+import type { CronJob, CronRunInfo, Team } from "../../lib/types";
 import type { MeshInventoryView } from "../MeshPanel/servicesView";
 import type { Service } from "../MeshPanel/types";
 import type { MeshResourceActionAdapter } from "../MeshPanel/meshResourceActions";
 import { attachment, FixtureTransport, multiScenarioGraph } from "../Automation/fixtures.testdata";
+import type { AutomationGraph } from "../Automation/types";
 
 async function main() {
   const win = new Window({ url: "http://localhost/" });
@@ -75,14 +76,13 @@ async function main() {
     deleteCron: async (job: CronJob) => { cronJobCalls.push(`delete:${job.id}`); afterCronDelete(job); },
   };
 
-  function JobsHarness({ transport, initialScenarioId, teamId = attachment.team_id }: { transport: FixtureTransport; initialScenarioId?: string; teamId?: string | null }) {
-    const [clear, setClear] = useState<{ count: number; run: (() => void) | null }>({ count: 0, run: null });
-    const clearButton = useRef<HTMLButtonElement>(null);
-    const onClearChange = useCallback((count: number, run: (() => void) | null) => setClear({ count, run }), []);
-    return <>
-      <button ref={clearButton} type="button" aria-label={`Clear stopped${clear.count ? `, ${clear.count} jobs` : ""}`} disabled={!clear.run} onClick={() => clear.run?.()}>Clear stopped {clear.count || ""}</button>
-      <JobsView workspaceId={attachment.workspace_id} teamId={teamId} adapter={transport} initialScenarioId={initialScenarioId} cronActionAdapter={cronActions} jobActionAdapter={jobActions} onClearStoppedChange={onClearChange} clearStoppedButtonRef={clearButton} />
-    </>;
+  const workspaces = [{ id: attachment.workspace_id, name: "Workspace A" }];
+  const teams: Team[] = [{ id: attachment.team_id!, name: "Team A", lifecycle: "active", created_at: 0, workspace_id: attachment.workspace_id }];
+  const workspaceGraph = (graph: AutomationGraph): AutomationGraph => ({ ...graph, all_teams: true, team_id: null });
+  function workspaceTransport(graph: AutomationGraph = new FixtureTransport().graph) {
+    const transport = new FixtureTransport();
+    transport.graph = workspaceGraph(graph);
+    return transport;
   }
 
   async function settle(predicate: () => boolean) {
@@ -101,7 +101,7 @@ async function main() {
   }
 
   function jobsView(transport: FixtureTransport, initialScenarioId?: string, teamId: string | null = attachment.team_id) {
-    return <JobsHarness transport={transport} initialScenarioId={initialScenarioId} teamId={teamId} />;
+    return <JobsView placement="workspace" workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: attachment.workspace_id, teamId }} adapter={transport} initialScenarioId={initialScenarioId} cronActionAdapter={cronActions} jobActionAdapter={jobActions} />;
   }
 
   function entry(host: HTMLElement, key: string) {
@@ -118,8 +118,7 @@ async function main() {
   function test(name: string, run: () => Promise<void>) { tests.push([name, run]); }
 
   test("one Jobs list exposes the scope's Cron and stored Sentinel scenarios, never internal stages", async () => {
-    const transport = new FixtureTransport();
-    transport.graph = multiScenarioGraph();
+    const transport = workspaceTransport(multiScenarioGraph());
     const view = await mount(jobsView(transport));
     try {
       await settle(() => view.host.querySelectorAll('ul[aria-label="Jobs"] > li').length === 3);
@@ -132,9 +131,9 @@ async function main() {
     } finally { await view.close(); }
   });
 
-  test("All jobs merges every Team Cron and graph and derives a readable unnamed graph title", async () => {
+  test("a workspace capsule without a Team capsule merges every Team Cron and graph and derives a readable unnamed graph title", async () => {
     const transport = new FixtureTransport();
-    const graph = multiScenarioGraph();
+    const graph = workspaceGraph(multiScenarioGraph());
     const previousRoot = graph.scenarios[1].root;
     const otherRoot = { ...previousRoot, team_id: "team-b" };
     transport.graph = {
@@ -146,8 +145,7 @@ async function main() {
         ? { ...node, identity: otherRoot, name: otherRoot.id, purpose: "Inspect production health", outcomes: [{ bucket: "first-ready", handlers: [] }] }
         : node),
     };
-    const { ALL_JOBS } = await import("./jobsModel");
-    const view = await mount(jobsView(transport, undefined, ALL_JOBS));
+    const view = await mount(jobsView(transport, undefined, null));
     try {
       await settle(() => view.host.querySelectorAll('ul[aria-label="Jobs"] > li').length === 5);
       assert.ok(entry(view.host, `cron:${teamCron.id}`));
@@ -160,7 +158,7 @@ async function main() {
   });
 
   test("job action menus have names, arrow navigation, and return focus after Escape", async () => {
-    const transport = new FixtureTransport();
+    const transport = workspaceTransport();
     const graph = transport.graph;
     const rootId = graph.scenarios[0].root.id;
     transport.graph = { ...graph, nodes: graph.nodes.map((node) => node.identity.id === rootId ? { ...node, state: "active" } : node) };
@@ -189,7 +187,7 @@ async function main() {
   });
 
   test("Delete confirms the named graph, traps focus, restores focus on cancel, then refreshes after deletion", async () => {
-    const transport = new FixtureTransport();
+    const transport = workspaceTransport();
     const graph = transport.graph;
     const target = graph.scenarios[0];
     const view = await mount(jobsView(transport));
@@ -228,7 +226,7 @@ async function main() {
   });
 
   test("Clear stopped lists the count once and removes disabled crons and stopped graphs from the current filter", async () => {
-    const transport = new FixtureTransport();
+    const transport = workspaceTransport();
     const stoppedCron = cronJob("disabled-clear-me", attachment.team_id, false);
     cronList = async () => [stoppedCron];
     const graph = transport.graph;
@@ -257,7 +255,7 @@ async function main() {
   });
 
   test("a Cron opens its real controls and returning keeps the list entry focused", async () => {
-    const view = await mount(jobsView(new FixtureTransport()));
+    const view = await mount(jobsView(workspaceTransport()));
     try {
       await settle(() => entry(view.host, `cron:${teamCron.id}`) !== null);
       await act(async () => { entry(view.host, `cron:${teamCron.id}`)!.focus(); entry(view.host, `cron:${teamCron.id}`)!.click(); });
@@ -271,7 +269,7 @@ async function main() {
   });
 
   test("a Sentinel scenario opens its graph and returning restores the opener entry", async () => {
-    const transport = new FixtureTransport();
+    const transport = workspaceTransport();
     const view = await mount(jobsView(transport));
     try {
       const scenario = transport.graph.scenarios[0];
@@ -286,8 +284,7 @@ async function main() {
   });
 
   test("a requested scenario opens directly and its removal stays explicit with focus recovery", async () => {
-    const transport = new FixtureTransport();
-    transport.graph = multiScenarioGraph();
+    const transport = workspaceTransport(multiScenarioGraph());
     const target = transport.graph.scenarios[1];
     const view = await mount(jobsView(transport, target.id));
     try {
@@ -303,19 +300,20 @@ async function main() {
   });
 
   test("an unreadable Cron list is unavailable, never an empty scope", async () => {
-    const transport = new FixtureTransport();
+    const transport = workspaceTransport();
     transport.graph = { ...transport.graph, scenarios: [] };
     cronList = async () => { throw new Error("private-cron-failure"); };
     const failed = await mount(jobsView(transport));
     try {
       await settle(() => failed.host.querySelector('[role="alert"]') !== null);
-      assert.equal(failed.host.querySelector('[data-testid="jobs-empty"]'), null);
+      assert.equal(failed.host.querySelector('[role="status"][aria-label="No jobs"]'), null);
       assert.ok(!failed.host.textContent?.includes("private-cron-failure"));
     } finally { await failed.close(); }
     cronList = async () => [];
     const empty = await mount(jobsView(transport));
     try {
-      await settle(() => empty.host.querySelector('[data-testid="jobs-empty"]') !== null);
+      await settle(() => empty.host.querySelector('[role="status"][aria-label="No jobs"]') !== null);
+      assert.equal(empty.host.querySelector('ul[aria-label="Jobs"]'), null, "an empty scope renders no list");
     } finally {
       await empty.close();
       cronList = async () => [teamCron, unteamedCron];

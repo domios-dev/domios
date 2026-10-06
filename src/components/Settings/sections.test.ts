@@ -27,6 +27,13 @@ test("guide section sits between logs and about", () => {
   assert(aboutIdx === guideIdx + 1, "about should follow guide");
 });
 
+test("jobs section sits right before logs", () => {
+  const ids = SETTINGS_SECTIONS.map((s) => s.id);
+  const jobsIdx = ids.indexOf("jobs");
+  assert(jobsIdx >= 0, "missing jobs nav id");
+  assert(ids[jobsIdx + 1] === "logs", "jobs should precede logs");
+});
+
 test("guide section title resolves", () => {
   assert(sectionTitle("guide" as SectionId) === "Guide", "guide title");
 });

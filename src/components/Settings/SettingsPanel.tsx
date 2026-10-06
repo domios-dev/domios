@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "../../lib/bridge";
-import type { AppConfig } from "../../lib/types";
+import type { AppConfig, Team } from "../../lib/types";
 import {
   ChevronLeft,
   ChevronRight,
@@ -27,6 +27,8 @@ import { NotificationsOverview } from "./NotificationsTab";
 import { IntegrationsTab } from "./IntegrationsTab";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
+import { JobsView } from "../Jobs/JobsView";
+import type { JobsWorkspace } from "../Jobs/JobsFilterBar";
 import { HelpPanel } from "../../help/HelpPanel";
 import type { HelpSectionId } from "../../help/types";
 import type { GuideRequest } from "../../help/guideNavigation";
@@ -47,7 +49,12 @@ interface SettingsPanelProps {
   onClose: () => void;
   initialSection?: SectionId;
   guideRequest?: GuideRequest;
+  workspaces?: readonly JobsWorkspace[];
+  teams?: readonly Team[];
 }
+
+const NO_WORKSPACES: readonly JobsWorkspace[] = [];
+const NO_TEAMS: readonly Team[] = [];
 
 /** Names the settings dialog from its live header — one panel is mounted at a time. */
 const SETTINGS_TITLE_ID = "codeterm-settings-title";
@@ -63,6 +70,8 @@ export function SettingsPanel({
   onClose,
   initialSection,
   guideRequest,
+  workspaces = NO_WORKSPACES,
+  teams = NO_TEAMS,
 }: SettingsPanelProps) {
   const normalizedInitial = normalizeSection(initialSection);
   const [stack, setStack] = useState<Route[]>(
@@ -472,6 +481,12 @@ export function SettingsPanel({
                   onUpdate={(section, patch) => update(section, patch)}
                   onCloseSettings={onClose}
                 />
+              </SettingsPage>
+            )}
+
+            {top.kind === "section" && top.id === "jobs" && (
+              <SettingsPage title="Jobs" subtitle="Crons and Sentinel graphs on this machine.">
+                <JobsView placement="settings" workspaces={workspaces} teams={teams} />
               </SettingsPage>
             )}
 
