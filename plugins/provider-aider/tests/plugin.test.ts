@@ -327,6 +327,24 @@ console.log("\n--- chatPreprocess provider scope ---\n");
   eq(runtime.chatPreprocess!({ provider: null, text: "a\nb" }), null, "missing provider is untouched");
 }
 
+console.log("\n--- launch onboarding auto-answer ---\n");
+{
+  const gitignoreScreen = [
+    "You can skip this check with --no-gitignore",
+    "Add .aider* to .gitignore (recommended)? (Y)es/(N)o [Yes]:",
+  ].join("\n");
+  const response = runtime.launchOnboardingResponse!(gitignoreScreen);
+  assert(!!response, "gitignore prompt is a launch onboarding step");
+  eq(response!.step, "1", "gitignore onboarding step answers yes");
+  eq(runtime.launchOnboardingSafeChoice!(gitignoreScreen), "1", "gitignore safe choice is yes");
+  const docsScreen = [
+    "Warning: openai/mimo-v2.6-pro expects these environment variables - OPENAI_API_KEY: Not set",
+    "Open documentation url for more info? (Y)es/(N)o/(D)on't ask again [Yes]:",
+  ].join("\n");
+  eq(runtime.launchOnboardingSafeChoice!(docsScreen), "3", "docs url safe choice is don't-ask-again");
+  eq(runtime.launchOnboardingResponse!("no prompt here"), null, "no prompt yields no onboarding step");
+}
+
 console.log("\n--- manifest paste and preprocessor capability ---\n");
 {
   const manifest = JSON.parse(

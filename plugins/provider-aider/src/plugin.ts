@@ -271,6 +271,19 @@ const plugin: PluginModule = {
 
   buildPromptSafeChoice: promptSafeChoice,
 
+  launchOnboardingResponse(screen: string): { frameKey: string; step: string } | null {
+    const prompt = parsePromptWithContext(String(screen || ""));
+    if (!prompt) return null;
+    const choice = promptSafeChoice(prompt, String(screen || ""));
+    if (!choice) return null;
+    return { frameKey: prompt.question, step: choice };
+  },
+
+  launchOnboardingSafeChoice(screen: string): string | null {
+    const prompt = parsePromptWithContext(String(screen || ""));
+    return prompt ? promptSafeChoice(prompt, String(screen || "")) : null;
+  },
+
   chatPreprocess(ctx: { provider?: string | null; text: string }): { text: string } | null {
     if (ctx?.provider !== "aider") return null;
     const text = String(ctx?.text || "");
