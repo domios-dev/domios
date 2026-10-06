@@ -85,6 +85,7 @@ fn err(msg: &str) -> String {
 /// Run the subprocess described by `opts_json`. The binary is already
 /// permission-checked. Resolves the binary through the shared current PATH
 /// ladder, falling back to the bare name for the OS to resolve.
+#[cfg(test)]
 pub(super) fn run(opts_json: &str) -> String {
     run_with_host_env(opts_json, &HashMap::new(), &PluginSandbox::unrestricted())
 }
