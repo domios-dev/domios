@@ -11,6 +11,7 @@
 
 mod capabilities;
 mod config;
+mod graph_nodes;
 mod methods;
 mod tab_menu;
 
@@ -30,6 +31,10 @@ pub use config::{
     SerdeSessionIdInjection, SerdeSystemPromptDelivery, SerdeTaskDelivery, SerdeVerifySubmit,
     SessionFileSearchConfig, SessionsConfig, SkillsConfig, SpawnConfig, SubprocessPermission,
     TrustGrantConfig, UsageConfig, LAUNCH_TEMPLATE_PLACEHOLDERS, RESUME_TEMPLATE_PLACEHOLDERS,
+};
+pub use graph_nodes::{
+    EventSourceDecl, GraphNodesCap, NodeProperty, NodePropertySchema, NodeScalarSchema,
+    NodeScalarType, NodeSchema, SchemaError,
 };
 pub use methods::manifest_settings_sections;
 pub use tab_menu::{TabMenuAction, TabMenuItem, MAX_TAB_MENU_ITEMS};
@@ -208,6 +213,7 @@ fn default_capabilities() -> Capabilities {
         agent_provider: true,
         secret_backend: SecretBackendCap::default(),
         transcriber: false,
+        graph_nodes: GraphNodesCap::default(),
         decision_model: Default::default(),
         glance_view: false,
         status_bubble: false,

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use super::graph_nodes::GraphNodesCap;
 use super::tab_menu::TabMenuItem;
 use crate::provider::ContextOwner;
 use codeterm_types::decision::TokenMode;
@@ -351,6 +352,10 @@ pub struct Capabilities {
     pub secret_backend: SecretBackendCap,
     #[serde(default)]
     pub transcriber: bool,
+    /// Graph node declarations: media conversions and typed, bounded event
+    /// sources. Object only; see `graph_nodes` for the accepted subset.
+    #[serde(default, skip_serializing_if = "GraphNodesCap::is_empty")]
+    pub graph_nodes: GraphNodesCap,
     #[serde(default)]
     pub decision_model: DecisionModelCap,
     /// Renders a read-only "glance" popover (ViewNode tree) when pinned.

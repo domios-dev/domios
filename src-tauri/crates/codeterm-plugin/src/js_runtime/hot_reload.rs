@@ -37,6 +37,7 @@ pub struct CapabilityRegistries {
     pub decision_model:
         Arc<crate::capability::CapabilityRegistry<dyn codeterm_types::decision::DecisionModel>>,
     pub transcribe: Arc<crate::transcribe::TranscribeRegistry>,
+    pub converter: Arc<crate::converter::ConverterRegistry>,
     pub glance: crate::glance::GlanceRegistryHandle,
     pub bubble: crate::bubble::BubbleRegistryHandle,
     pub view: crate::view_host::ViewRegistryHandle,
@@ -59,9 +60,25 @@ impl CapabilityRegistries {
             self.deregister_plugin(id);
         }
         if caps.transcriber {
-            self.transcribe.register(
+            let transcriber = Arc::new(super::JsTranscriber::new(vm.clone(), id.clone()));
+            self.transcribe.register(id.clone(), transcriber.clone());
+            if caps.graph_nodes.converters.is_empty() {
+                // A transcription plugin is the audio -> text edge of the
+                // conversion seam unless it declares its own converters, which
+                // win; either way one converter entry exists per plugin id.
+                self.converter.register(
+                    id.clone(),
+                    Arc::new(crate::converter::TranscriberConverter::new(transcriber)),
+                );
+            }
+        }
+        if !caps.graph_nodes.converters.is_empty() {
+            self.converter.register(
                 id.clone(),
-                Arc::new(super::JsTranscriber::new(vm.clone(), id.clone())),
+                Arc::new(super::JsConverter::new(
+                    vm.clone(),
+                    caps.graph_nodes.converters.clone(),
+                )),
             );
         }
         if caps.decision_model.enabled {
@@ -165,6 +182,7 @@ impl CapabilityRegistries {
     fn deregister_common(&self, id: &str) {
         self.decision_model.unregister(id);
         self.transcribe.unregister(id);
+        self.converter.unregister(id);
         if let Some(reg) = &self.secret {
             reg.unregister_secret_backend(id);
         }
@@ -720,5 +738,7 @@ fn warn_stage_conflicts(
 
 #[cfg(test)]
 mod agent_verb_tests;
+#[cfg(test)]
+mod converter_tests;
 #[cfg(test)]
 mod tests;
