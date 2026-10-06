@@ -165,7 +165,7 @@ impl ServiceContext {
         let prompt = target
             .as_ref()
             .map(|target| (target.prompt.clone(), target.kind.prompt_kind()))
-            .or_else(|| parsed);
+            .or(parsed);
         Some(Gate {
             kind,
             prompt,

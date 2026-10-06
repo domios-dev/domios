@@ -2,7 +2,9 @@ use std::collections::HashSet;
 use std::path::Path;
 
 use crate::agent::reports::{ReportDetails, ReportStatus};
-use crate::plan::{AgentRef, TaskStatus};
+use crate::plan::AgentRef;
+#[cfg(test)]
+use crate::plan::TaskStatus;
 use crate::service::plan::batch::{BatchOp, BatchRequest};
 use crate::service::plan::task_attempts::BoundWorkerReport;
 use crate::service::plan::PlanStore;

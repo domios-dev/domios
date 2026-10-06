@@ -222,6 +222,7 @@ pub fn validate(
     Ok(())
 }
 
+#[cfg(test)]
 pub fn evaluate(
     machine: &mut Machine,
     output: &[u8],
@@ -243,6 +244,7 @@ pub fn evaluate(
     )
 }
 
+#[cfg(test)]
 pub fn evaluate_with_other(
     machine: &mut Machine,
     output: &[u8],

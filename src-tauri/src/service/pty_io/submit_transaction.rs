@@ -90,7 +90,6 @@ pub(crate) fn composer_region_text(lines: &[String], cursor_row: usize) -> Strin
 pub(crate) enum PtySubmitEntry {
     Messenger,
     Report,
-    Planner,
     Direct,
 }
 

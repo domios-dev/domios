@@ -180,6 +180,7 @@ pub(crate) fn spawn<H: ShadowHost>(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn spawn_with_origin<H: ShadowHost>(
     host: &H,
     config: &SupporterConfig,

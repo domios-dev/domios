@@ -1,7 +1,6 @@
 use crate::agent::prompt::ResolvedPrompt;
 use crate::multiplexer::types::PendingPrompt;
 use crate::service::ServiceContext;
-use codeterm_plugin::provider::DirectoryTrustPromptResponse;
 use codeterm_types::pty::PromptKind;
 
 impl ServiceContext {
@@ -32,17 +31,5 @@ impl ServiceContext {
             let _ = self.route_pending_prompt(tab_id, &prompt, kind);
         }
         established
-    }
-
-    pub(crate) fn provider_answers_directory_trust(&self, agent_type: &str, screen: &str) -> bool {
-        super::super::trust_candidate::may_be_directory_trust_prompt(screen)
-            && matches!(
-                self.agent_registry
-                    .with_provider(agent_type, |provider| {
-                        provider.directory_trust_prompt_response(screen)
-                    })
-                    .flatten(),
-                Some(DirectoryTrustPromptResponse::Answer { .. })
-            )
     }
 }

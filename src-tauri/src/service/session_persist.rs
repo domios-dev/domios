@@ -35,6 +35,7 @@ enum WorkerMessage {
     Persist(PersistRequest),
     InstallStorage(crate::session::store::StorageDeskAdapter),
     Unavailable(String),
+    #[cfg(test)]
     Flush(Sender<Result<(), String>>),
     Stop(Sender<()>),
 }
@@ -65,6 +66,7 @@ impl PersistenceMailbox {
                 WorkerMessage::Stop(response) => {
                     let _ = response.send(());
                 }
+                #[cfg(test)]
                 WorkerMessage::Flush(response) => {
                     let _ = response.send(Err(error.to_string()));
                 }
@@ -211,6 +213,7 @@ pub(crate) fn stop_worker(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|error| format!("desk persistence worker shutdown was not confirmed: {error}"))
 }
 
+#[cfg(test)]
 pub(crate) fn flush_session_persistence(app: &tauri::AppHandle) -> Result<(), String> {
     ensure_worker(app)?.flush()
 }
@@ -301,6 +304,7 @@ impl SessionPersistenceWorker {
         self.mailbox.push(message)
     }
 
+    #[cfg(test)]
     fn flush(&self) -> Result<(), String> {
         let (response, completion) = mpsc::channel();
         self.configure(WorkerMessage::Flush(response))?;
@@ -438,6 +442,7 @@ fn run_worker(
                 committed_desk = None;
                 mailbox.replay_before_pending(std::mem::take(&mut deferred));
             }
+            #[cfg(test)]
             WorkerMessage::Flush(response) => {
                 if matches!(&backend, PersistenceBackend::Pending) {
                     deferred.push_back(WorkerMessage::Flush(response));
@@ -456,6 +461,7 @@ fn run_worker(
                                 let _ = response.send(Err(reason.to_string()));
                             }
                         }
+                        #[cfg(test)]
                         WorkerMessage::Flush(response) => {
                             let _ = response.send(Err(reason.to_string()));
                         }

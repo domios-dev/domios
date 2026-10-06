@@ -106,7 +106,6 @@ fn supporter_spend_status_exposes_today_month_and_credit_state() {
         input_usd_per_million: 0.5,
         output_usd_per_million: 0.5,
     };
-    let empty = spend_snapshot(&runtime, "fixture", Some(&price));
     runtime.record_spend(
         "fixture",
         Some(&price),
