@@ -135,10 +135,15 @@ console.log("detectChatPrefix");
   );
   eq(r?.origin, { kind: "system", context: "sentinel:sentinel_394d9ce12d30" }, "empty system prefix is recognized as a system origin");
   eq(r?.body, "Sentinel result", "text following an empty system prefix is its body");
+  const reordered = detectChatPrefix(
+    '<domios from="tab" label="Sagan" tab="aab2d375" model="opus"> [to reply, run: codeterm send "YOUR REPLY" --tab aab2d375]</domios>Orchestrator decision\n\nDetails.',
+  );
+  eq(reordered?.origin, { kind: "tab", title: "Sagan", tabIdShort: "aab2d375", model: "opus" }, "reordered tab frame keeps its sender");
+  eq(reordered?.body, "Orchestrator decision\n\nDetails.", "body stored after a hint-only tab frame is the message body");
   eq(
-    detectChatPrefix('<domios from="tab" label="Main" tab="abc12345"></domios>tail'),
+    detectChatPrefix('<domios from="tab" label="Main" tab="abc12345">real body</domios>tail'),
     null,
-    "non-system frames still reject text outside the frame",
+    "a frame with its own body still rejects trailing text",
   );
 }
 
