@@ -4,7 +4,6 @@ use crate::service::notification::{NotificationOrigin, PushIntent};
 use crate::service::receiver_target::ReceiverTargetError;
 use crate::service::ServiceContext;
 use std::sync::Arc;
-use tauri::Manager;
 
 const RECEIVER_ID: &str = "round-trip-receiver";
 

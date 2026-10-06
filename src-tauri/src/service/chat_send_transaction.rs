@@ -444,6 +444,7 @@ impl ChatSendLedger {
         state.deferred_first_turn_by_id.remove(send_id);
     }
 
+    #[cfg(test)]
     pub(crate) fn user_confirmed(&self, send_id: &str) -> bool {
         self.state
             .lock()
@@ -864,14 +865,14 @@ impl ChatSendLedger {
         let same_launch = state
             .deferred_first_turn_by_id
             .iter()
-            .filter_map(|(send_id, evidence)| {
-                (evidence == &candidate.evidence
+            .filter(|(send_id, evidence)| {
+                *evidence == &candidate.evidence
                     && state
                         .by_id
                         .get(send_id)
-                        .is_some_and(|status| status.tab_id == tab_id))
-                .then(|| send_id.clone())
+                        .is_some_and(|status| status.tab_id == tab_id)
             })
+            .map(|(send_id, _)| send_id.clone())
             .collect::<Vec<_>>();
         for send_id in same_launch {
             state.deferred_first_turn_by_id.remove(&send_id);

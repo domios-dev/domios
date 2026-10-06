@@ -411,20 +411,6 @@ pub(crate) fn observe_directory_trust_screen(
     );
 }
 
-/// Trust responders share one claim for the full parsed prompt occurrence.
-pub(crate) fn decide<R>(
-    applies: bool,
-    tab_id: &str,
-    screen: &str,
-    ledger: &parking_lot::Mutex<TrustLedger>,
-    recognize: R,
-) -> TrustDecision
-where
-    R: FnOnce(&str) -> Option<DirectoryTrustPromptResponse>,
-{
-    decide_with_occurrence(applies, tab_id, screen, screen, ledger, recognize)
-}
-
 fn decide_with_occurrence<R>(
     applies: bool,
     tab_id: &str,

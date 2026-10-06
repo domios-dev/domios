@@ -132,11 +132,9 @@ impl ServiceContext {
 
     fn preserve_owner_prompt(&self, snapshot: &TabStateSnapshot) -> bool {
         let tab = self.mux.read().get_tab(&snapshot.tab_id).cloned();
-        let Some(tab) =
-            tab.filter(|tab| !crate::service::unattended_launch::owns_prompt_answers(tab))
-        else {
+        if !tab.is_some_and(|tab| !crate::service::unattended_launch::owns_prompt_answers(&tab)) {
             return false;
-        };
+        }
         let Some(provider) = self.agent_registry.provider_arc(&snapshot.agent_type) else {
             return false;
         };

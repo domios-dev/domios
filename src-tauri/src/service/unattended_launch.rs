@@ -46,6 +46,7 @@ pub(crate) fn owns_prompt_answers(tab: &Tab) -> bool {
 }
 
 /// Unattended and still launching: the provider has not authenticated this tab's session.
+#[cfg(test)]
 pub(crate) fn at_unattended_launch(tab: &Tab) -> bool {
     runs_unattended(tab) && tab.agent_type.is_some() && !tab.launch_session_authenticated()
 }

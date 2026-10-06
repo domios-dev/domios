@@ -99,6 +99,7 @@ pub(crate) enum ObservationTrigger {
     SpawnReady,
     SpawnDeadline,
     StartupEscalation,
+    #[cfg(test)]
     PromptCandidate,
     OutputCandidate,
     ParkedEdge,
@@ -117,8 +118,9 @@ impl ObservationTrigger {
             Self::SpawnReady => ObservationEvent::SpawnReady,
             Self::SpawnDeadline => ObservationEvent::SpawnDeadline,
             Self::StartupEscalation => ObservationEvent::StartupEscalation,
-            Self::PromptCandidate
-            | Self::OutputCandidate
+            #[cfg(test)]
+            Self::PromptCandidate => ObservationEvent::PromptCandidate,
+            Self::OutputCandidate
             | Self::ParkedEdge
             | Self::PromptEstablished
             | Self::PromptConfirmation
@@ -135,8 +137,9 @@ impl ObservationTrigger {
             Self::SpawnReady => "launch_ready",
             Self::SpawnDeadline => "startup_deadline",
             Self::StartupEscalation => "startup_escalation",
-            Self::PromptCandidate
-            | Self::OutputCandidate
+            #[cfg(test)]
+            Self::PromptCandidate => "prompt_candidate",
+            Self::OutputCandidate
             | Self::ParkedEdge
             | Self::PromptEstablished
             | Self::PromptConfirmation
@@ -165,15 +168,16 @@ impl ObservationTrigger {
     }
 
     fn is_prompt_candidate(self) -> bool {
-        matches!(
-            self,
-            Self::PromptCandidate
-                | Self::OutputCandidate
-                | Self::ParkedEdge
-                | Self::PromptEstablished
-                | Self::PromptConfirmation
-                | Self::SentinelRequest
-        )
+        match self {
+            #[cfg(test)]
+            Self::PromptCandidate => true,
+            Self::OutputCandidate
+            | Self::ParkedEdge
+            | Self::PromptEstablished
+            | Self::PromptConfirmation
+            | Self::SentinelRequest => true,
+            _ => false,
+        }
     }
 
     fn is_internal_candidate(self) -> bool {

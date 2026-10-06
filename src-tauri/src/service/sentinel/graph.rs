@@ -284,7 +284,7 @@ impl ServiceContext {
                 .try_state::<crate::CronState>()
                 .map(|state| connected_crons(&state.lock(), &scoped_jobs, workspace, team_ref))
                 .unwrap_or_default();
-            let mut snapshot = graph::project(
+            let snapshot = graph::project(
                 workspace,
                 team_ref,
                 &scoped_jobs,

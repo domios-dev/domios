@@ -35,6 +35,7 @@ pub struct Output {
     pub stderr: super::command::Capture,
 }
 
+#[cfg(test)]
 pub(super) fn run(
     command: &str,
     cwd: &Path,

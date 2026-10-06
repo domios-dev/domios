@@ -573,7 +573,7 @@ fn expected_sentinels(plan: &ImportPlan) -> Result<Vec<Sentinel>, String> {
         .unwrap_or_else(|| Ok(Vec::new()))
 }
 
-fn selected_relatives<'a>(plan: &'a ImportPlan, domain: ImportDomain) -> Vec<&'a str> {
+fn selected_relatives(plan: &ImportPlan, domain: ImportDomain) -> Vec<&str> {
     plan.provenance()
         .iter()
         .filter(|(found, _)| *found == domain)
@@ -994,10 +994,10 @@ fn compare_order<'a>(
     }
 }
 
-fn domain_comparison<'a>(
-    comparison: &'a ComparisonReport,
+fn domain_comparison(
+    comparison: &ComparisonReport,
     domain: ImportDomain,
-) -> Result<&'a DomainComparison, String> {
+) -> Result<&DomainComparison, String> {
     comparison
         .domains
         .iter()
@@ -1142,6 +1142,20 @@ fn run_tamper_leg(
     })
 }
 
+#[cfg(unix)]
+fn enable_writes(permissions: &mut fs::Permissions) {
+    use std::os::unix::fs::PermissionsExt;
+
+    permissions.set_mode(permissions.mode() | 0o200);
+}
+
+#[cfg(windows)]
+#[allow(clippy::permissions_set_readonly_false)]
+fn enable_writes(permissions: &mut fs::Permissions) {
+    // The verifier mutates only its copied tamper fixture.
+    permissions.set_readonly(false);
+}
+
 fn tamper_capture(capture: &SourceCapture) -> Result<(), String> {
     let source = capture
         .files()
@@ -1152,7 +1166,7 @@ fn tamper_capture(capture: &SourceCapture) -> Result<(), String> {
     let mut permissions = fs::metadata(&path)
         .map_err(|error| format!("read captured file permissions: {error}"))?
         .permissions();
-    permissions.set_readonly(false);
+    enable_writes(&mut permissions);
     fs::set_permissions(&path, permissions)
         .map_err(|error| format!("make captured tamper file writable: {error}"))?;
     let mut bytes =

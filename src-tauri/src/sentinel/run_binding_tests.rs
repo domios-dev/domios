@@ -94,8 +94,7 @@ fn insert_with_options(
             false,
         )
         .unwrap();
-    let job = commit(store, |store| store.stage_insert(job)).unwrap();
-    job
+    commit(store, |store| store.stage_insert(job)).unwrap()
 }
 
 #[test]
