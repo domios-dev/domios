@@ -1,6 +1,6 @@
 // Visit a tab the way a user does: activate its sidebar item, resolve once it is the
 // visible tab, then (with --dwell-lines N) once its terminal parses N more line feeds.
-// Prints {tab, readyMs}: click until the tab's terminal is visible with its history replayed.
+// Prints {tab, readyMs}: click until the tab's terminal is visible with scrollback content.
 // Usage: node visit.mjs --cdp 9263 --vite 1460 --tab TAB_ID [--dwell-lines N] [--deadline-ms 30000]
 import { connect, evaluate, pageTarget } from "./cdp.mjs";
 import { FIND_TERMINALS } from "./terminals.mjs";
@@ -33,7 +33,8 @@ const WAIT = `new Promise((resolve) => {
   const done = () => { clearTimeout(deadline); resolve({ outcome: "ok", readyMs }); };
   const terminalReady = () => {
     const el = wrapper() && wrapper().querySelector(".xterm");
-    return !!el && !!findTerminal(el) && getComputedStyle(el).visibility === "visible";
+    const term = el && findTerminal(el);
+    return !!term && term.buffer.active.baseY > 0 && getComputedStyle(el).visibility === "visible";
   };
   const awaitReady = (next) => {
     const finish = () => { readyMs = Math.round(performance.now() - startedAt); next(); };
