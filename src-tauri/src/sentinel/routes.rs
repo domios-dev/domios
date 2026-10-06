@@ -355,13 +355,17 @@ pub(super) fn pipeline_result_owner(
 ) -> String {
     if spec.owner == BlueprintOwner::Team {
         let mux = svc.mux.read();
-        if let Some(orchestrator) = mux.all_tabs().find(|tab| {
-            tab.agent_type.is_some()
-                && tab.anchors_team()
-                && tab.team_id == job.team_id
-                && mux.find_workspace_for_tab(&tab.id).as_deref() == Some(&job.workspace_id)
-        }) {
-            return orchestrator.id.clone();
+        let orchestrator = mux
+            .all_tabs()
+            .find(|tab| {
+                tab.agent_type.is_some()
+                    && tab.anchors_team()
+                    && tab.team_id == job.team_id
+                    && mux.find_workspace_for_tab(&tab.id).as_deref() == Some(&job.workspace_id)
+            })
+            .map(|tab| tab.id.clone());
+        if let Some(id) = orchestrator {
+            return id;
         }
     }
     job.creator_tab_id.clone()
