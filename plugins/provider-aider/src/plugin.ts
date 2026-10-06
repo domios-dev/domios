@@ -227,7 +227,7 @@ const plugin: PluginModule = {
     return promptSafeChoice(prompt, prompt.question);
   },
 
-  parsePrompt: parsePromptWithContext,
+  parsePrompt,
 
   settingsSchema(): SettingField[] {
     return [
