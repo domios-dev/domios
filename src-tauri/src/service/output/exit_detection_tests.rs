@@ -1,6 +1,8 @@
 use super::{
-    decide_agent_output_lifecycle, screen_ends_in_shell_prompt, should_detect_unbound_session,
-    should_heuristically_detect_session, AgentOutputLifecycleDecision,
+    decide_agent_output_lifecycle, screen_ends_in_shell_prompt, AgentOutputLifecycleDecision,
+};
+use super::trust_launch_detection::{
+    should_detect_unbound_session, should_heuristically_detect_session,
 };
 
 #[test]
