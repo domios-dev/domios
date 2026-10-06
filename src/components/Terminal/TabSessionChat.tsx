@@ -58,6 +58,7 @@ import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
+import { DsTasksChatBlock } from "./dsTasks/DsTasksChatBlock";
 
 interface Props {
   tabId: string;
@@ -800,6 +801,7 @@ export function TabSessionChat({
                 originAvatar={originProps?.originAvatar}
                 onOriginClick={originProps?.onOriginClick}
                 onFocusTab={resolveFocusTab}
+                dsTasksBlock={DsTasksChatBlock}
               />
             </div>
               {following.map(renderOutboundReport)}

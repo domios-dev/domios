@@ -39,6 +39,8 @@ import { composeAttachmentDraft } from "./meshAttachmentHandoff";
 import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { ReceiverTargetMarks } from "./ReceiverTargetMark";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
+import { ComposerMentionPicker, useComposerMentions } from "./ComposerMentionPicker";
+import { useDsTasksExpander } from "./dsTasks/useDsTasksExpander";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
@@ -404,6 +406,8 @@ function ChatComposerImpl({
       }
     }, 0);
   }, []);
+  const mentionPicker = useComposerMentions(input, setInput, refocusComposer);
+  const { expand: expandDsTasks, plansSink } = useDsTasksExpander(tabId);
 
   useLayoutEffect(() => {
     const el = textareaRef.current;
@@ -579,7 +583,7 @@ function ChatComposerImpl({
       refocusComposer();
       return;
     }
-    const { composed, transcribeFailed } = draftResult;
+    const { composed: draftText, transcribeFailed } = draftResult;
     if (placeholderId && transcribeFailed) {
       updateOptimistic(placeholderId, VOICE_TRANSCRIBE_ERROR);
       setInput("");
@@ -587,6 +591,14 @@ function ChatComposerImpl({
       refocusComposer();
       return;
     }
+    const expansion = expandDsTasks(draftText);
+    if (expansion.kind === "error") {
+      if (placeholderId) updateOptimistic(placeholderId, `⚠️ ${expansion.message}`);
+      flagComposerError(expansion.message);
+      refocusComposer();
+      return;
+    }
+    const composed = expansion.kind === "expanded" ? expansion.text : draftText;
     if (
       allAttachments.length === 0
       && modelCommandQuery !== null
@@ -886,6 +898,13 @@ function ChatComposerImpl({
             highlighted={pickerHighlight}
             onPick={pickSuggestion}
           />
+          <ComposerMentionPicker
+            mentions={mentionPicker.mentions}
+            highlighted={mentionPicker.highlighted}
+            onHighlight={mentionPicker.setHighlighted}
+            onPick={mentionPicker.pick}
+          />
+          {plansSink}
           <ModelSuggestionPicker
             models={modelSuggestionRequested && !modelCatalogLoading ? filteredModelOptions : []}
             highlighted={modelHighlight}
@@ -968,6 +987,7 @@ function ChatComposerImpl({
                   return;
                 }
               }
+              if (mentionPicker.handleKey(e)) return;
               if (pickerOpen) {
                 if (e.key === "ArrowDown") {
                   e.preventDefault();
