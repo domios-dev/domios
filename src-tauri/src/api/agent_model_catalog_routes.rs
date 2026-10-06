@@ -12,7 +12,9 @@ pub(crate) struct RefreshProviderModelsBody {
     provider_id: String,
 }
 
-/// Refresh a provider's live-required catalogue before an explicit model listing.
+/// Refresh a provider's catalogue before an explicit model listing. A
+/// live-required catalogue is forced; an optional one gets the reader-gated
+/// re-probe (TTL, credential/config/binary change, unknown verdicts).
 pub async fn refresh_agent_provider_models(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
@@ -28,10 +30,15 @@ pub async fn refresh_agent_provider_models(
     let discovery_required = provider
         .model_catalogue_capability()
         .live_discovery_required;
-    let refreshed = discovery_required
-        && crate::agent::model_catalog::refresh_models(provider, true)
+    let refreshed = if discovery_required {
+        crate::agent::model_catalog::refresh_models(provider, true)
             .await
-            .is_some();
+            .is_some()
+    } else {
+        crate::agent::model_catalog::refresh_for_reader(provider)
+            .await
+            .is_some()
+    };
     Ok(Json(serde_json::json!({
         "provider_id": body.provider_id,
         "discovery_required": discovery_required,

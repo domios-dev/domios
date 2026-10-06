@@ -344,7 +344,7 @@ impl crate::agent::provider::AgentProvider for ModelProvider {
     }
 
     fn model_catalogue_capability(&self) -> crate::agent::provider::ModelCatalogueCapability {
-        self.model_catalogue
+        self.model_catalogue.clone()
     }
 
     fn default_model(&self) -> Option<String> {
