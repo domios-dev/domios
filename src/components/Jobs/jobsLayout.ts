@@ -37,6 +37,13 @@ export interface JobsLayout {
   canWiden: boolean;
 }
 
+export type JobsOpenScope = "workspace" | "machine";
+
+/** A machine-wide open ignores the opening workspace and Team; the view starts with no capsule. */
+export function jobsOpenEntry(workspaceId: string, scope: JobsOpenScope, teamId?: string | null): JobsEntry {
+  return scope === "machine" ? { kind: "machine" } : { kind: "workspace", workspaceId, teamId: teamId ?? null };
+}
+
 export function jobsEntryFilter(entry: JobsEntry): JobsFilter {
   return entry.kind === "workspace" ? { workspaceId: entry.workspaceId, teamId: entry.teamId ?? null } : NO_JOBS_FILTER;
 }
