@@ -726,7 +726,7 @@ export function TabSessionChat({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="ct-chat-surface ct-hover-reveal-scrollbar absolute inset-0 overflow-y-auto overscroll-contain p-3 select-text"
+        className="ct-hover-reveal-scrollbar ct-chat-surface absolute inset-0 overflow-y-auto overscroll-contain p-3 select-text"
         data-testid="tab-session-chat-messages"
         role="log"
         aria-label="Conversation"
