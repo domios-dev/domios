@@ -39,6 +39,7 @@ pub struct CapabilityRegistries {
     pub transcribe: Arc<crate::transcribe::TranscribeRegistry>,
     pub converter: Arc<crate::converter::ConverterRegistry>,
     pub graph_nodes: Arc<crate::graph_nodes::GraphNodeRegistry>,
+    pub event_source: Arc<crate::event_source::EventSourceRegistry>,
     pub glance: crate::glance::GlanceRegistryHandle,
     pub bubble: crate::bubble::BubbleRegistryHandle,
     pub view: crate::view_host::ViewRegistryHandle,
@@ -81,7 +82,16 @@ impl CapabilityRegistries {
                 )),
             );
         }
-        if !caps.graph_nodes.event_sources.is_empty() {
+        if !caps.graph_nodes.event_sources.is_empty() && vm.graph_events_allowed() {
+            if let Err(error) = self.event_source.register(
+                id.clone(),
+                Arc::new(super::JsEventSource::new(
+                    vm.clone(),
+                    caps.graph_nodes.event_sources.clone(),
+                )),
+            ) {
+                log::error!("[plugin] event source registration refused: {error}");
+            }
             if let Err(error) = self.graph_nodes.register(id.clone(), &caps.graph_nodes) {
                 log::error!("[plugin] graph node catalog registration refused: {error}");
             }
@@ -189,6 +199,7 @@ impl CapabilityRegistries {
         self.transcribe.unregister(id);
         self.converter.unregister(id);
         self.graph_nodes.unregister(id);
+        self.event_source.unregister(id);
         if let Some(reg) = &self.secret {
             reg.unregister_secret_backend(id);
         }

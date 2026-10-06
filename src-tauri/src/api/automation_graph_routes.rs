@@ -42,6 +42,85 @@ pub struct DeleteBody {
     team_id: Value,
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventBody {
+    plugin_id: String,
+    event_id: String,
+    payload: Value,
+}
+
+pub async fn event_ingress(
+    State(state): State<AppState>,
+    Path(subscription_id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<EventBody>,
+) -> Result<(StatusCode, Json<Value>), GraphError> {
+    let token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .ok_or_else(|| {
+            failure((
+                StatusCode::UNAUTHORIZED,
+                "subscription bearer required".into(),
+            ))
+        })?;
+    let payload_bytes = serde_json::to_vec(&body.payload)
+        .map_err(|error| failure((StatusCode::BAD_REQUEST, error.to_string())))?
+        .len();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or_default();
+    let decision = state.svc.graph_event_subscriptions.admit(
+        codeterm_plugin::graph_events::AdmissionRequest {
+            subscription_id: &subscription_id,
+            token,
+            plugin_id: &body.plugin_id,
+            event_id: &body.event_id,
+            payload: &body.payload,
+            payload_bytes,
+            now_ms,
+        },
+    );
+    match decision {
+        codeterm_plugin::graph_events::AdmissionDecision::Admit => Ok((
+            StatusCode::ACCEPTED,
+            Json(json!({"ok":true,"admitted":true})),
+        )),
+        codeterm_plugin::graph_events::AdmissionDecision::Refuse(reason) => {
+            let (status, code) = match reason {
+                codeterm_plugin::graph_events::AdmitRefusal::UnknownSubscription => {
+                    (StatusCode::NOT_FOUND, "unknown_subscription")
+                }
+                codeterm_plugin::graph_events::AdmitRefusal::BadToken => {
+                    (StatusCode::UNAUTHORIZED, "bad_token")
+                }
+                codeterm_plugin::graph_events::AdmitRefusal::ForeignPlugin => {
+                    (StatusCode::FORBIDDEN, "foreign_plugin")
+                }
+                codeterm_plugin::graph_events::AdmitRefusal::InvalidPayload => {
+                    (StatusCode::UNPROCESSABLE_ENTITY, "invalid_payload")
+                }
+                codeterm_plugin::graph_events::AdmitRefusal::Oversize => {
+                    (StatusCode::PAYLOAD_TOO_LARGE, "oversize")
+                }
+                codeterm_plugin::graph_events::AdmitRefusal::Duplicate => {
+                    (StatusCode::CONFLICT, "duplicate")
+                }
+                codeterm_plugin::graph_events::AdmitRefusal::Backpressure => {
+                    (StatusCode::SERVICE_UNAVAILABLE, "backpressure")
+                }
+                codeterm_plugin::graph_events::AdmitRefusal::RateLimited => {
+                    (StatusCode::TOO_MANY_REQUESTS, "rate_limited")
+                }
+            };
+            Err((status, Json(json!({"ok":false,"error":{"code":code}}))))
+        }
+    }
+}
+
 pub async fn snapshot(
     State(state): State<AppState>,
     headers: HeaderMap,

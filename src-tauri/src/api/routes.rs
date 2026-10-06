@@ -139,6 +139,11 @@ pub fn create_router(state: AppState) -> Router {
             "/api/automation/blueprints/{id}",
             axum::routing::delete(super::automation_graph_routes::delete),
         )
+        .route(
+            "/api/graph/events/{subscription_id}",
+            post(super::automation_graph_routes::event_ingress)
+                .layer(axum::extract::DefaultBodyLimit::max(64 * 1024)),
+        )
         .route("/api/cli/rpc", post(super::cli_rpc_routes::dispatch))
         .route("/api/fs/list-dir", get(fs_routes::list_dir))
         .route("/api/fs/mkdir", post(fs_routes::mkdir))
