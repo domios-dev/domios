@@ -31,7 +31,15 @@ async function main() {
   });
   __setListenForTest(async () => () => undefined);
   const adapter: AutomationGraphAdapter = {
-    read: async (scope) => ({ workspace_id: scope.workspace_id, team_id: null, all_teams: true, revision: "r", scenarios: [], nodes: [], edges: [] }),
+    read: async (scope) => ({
+      workspace_id: scope.workspace_id, team_id: null, all_teams: true, revision: "r", scenarios: [], nodes: [], edges: [],
+      blueprints: [{
+        id: "blueprint-echo", name: "Echo pipeline", owner: { kind: "tab", tab_id: "tab-a", team_id: null }, state: "running", run_id: "run-a", current_step: 0, last_event_at_ms: 100,
+        trigger: { type: "event", summary: "Agent message" },
+        steps: [{ index: 0, name: "Echo", kind: "command", title: "Echo", state: "running", outcome: null, started_at_ms: 50, ended_at_ms: null, result_summary: null, reason: null }],
+        result: { target: { kind: "owner_tab", id: "tab-a" }, state: "waiting", reason: null, body_ref: null },
+      }],
+    }),
     subscribe: async () => () => undefined,
     stop: async () => undefined,
     delete: async () => undefined,
@@ -47,10 +55,17 @@ async function main() {
   const chip = host.querySelector<HTMLButtonElement>('button[aria-label="Job rust-rss-new-videos, running"]');
   assert.ok(chip, "a bound running cron renders a chip with its accessible name");
   await act(async () => { chip.click(); });
-  assert.deepEqual(opened, [{ workspaceId: "workspace-a", target: { teamId: null, cronId: "cron-rss" } }], "clicking opens the Jobs view on that job once");
+  const blueprintChip = host.querySelector<HTMLButtonElement>('button[aria-label="Blueprint Echo pipeline, running"]');
+  assert.ok(blueprintChip, "an owner tab's running Blueprint renders a chip");
+  await act(async () => { blueprintChip.click(); });
+  assert.deepEqual(opened, [
+    { workspaceId: "workspace-a", target: { teamId: null, cronId: "cron-rss" } },
+    { workspaceId: "workspace-a", target: { teamId: null, blueprintId: "blueprint-echo" } },
+  ], "clicking opens the exact Blueprint in Jobs");
 
   await act(async () => { root.render(<ComposerJobChips tabId="tab-b" workspaceId="workspace-a" adapter={adapter} />); });
   assert.equal(host.querySelector('[aria-label^="Job "]'), null, "an unbound tab shows no job chip");
+  assert.equal(host.querySelector('[aria-label^="Blueprint "]'), null, "a different tab shows no Blueprint chip");
 
   await act(async () => { root.unmount(); });
   console.log("Composer job chip wiring passed");

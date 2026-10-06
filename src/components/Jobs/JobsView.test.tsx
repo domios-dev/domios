@@ -333,6 +333,29 @@ async function main() {
     } finally { await view.close(); }
   });
 
+  test("Blueprints group by Team and render the live trigger-step-result chain", async () => {
+    const transport = workspaceTransport();
+    transport.graph = {
+      ...transport.graph,
+      blueprints: [{
+        id: "blueprint-echo", name: "Echo pipeline", owner: { kind: "team", tab_id: "creator-a", team_id: attachment.team_id }, state: "running", run_id: "run-a", current_step: 0, last_event_at_ms: 100,
+        trigger: { type: "event", summary: "Message received" },
+        steps: [{ index: 0, name: "Echo", kind: "command", title: "Echo command", state: "running", outcome: "success", started_at_ms: 50, ended_at_ms: null, result_summary: "echoed", reason: null }],
+        result: { target: { kind: "team", id: attachment.team_id }, state: "delivering", reason: null, body_ref: null },
+      }],
+    };
+    const view = await mount(jobsView(transport));
+    try {
+      await settle(() => view.host.querySelector('[aria-label="Open Blueprint Echo pipeline, running"]') !== null);
+      assert.ok(view.host.querySelector('[aria-label="Team Team A"]'), "the pipeline is grouped under its owning Team");
+      assert.ok(view.host.querySelector('[aria-current="step"]'), "the current step is highlighted accessibly");
+      const open = view.host.querySelector<HTMLButtonElement>('[aria-label="Open Blueprint Echo pipeline, running"]');
+      await act(async () => open!.click());
+      assert.ok(view.host.querySelector('[aria-label="Blueprint view"]'), "opening a pipeline enters its Blueprint view");
+      assert.ok(view.host.querySelector('[aria-label="Echo pipeline pipeline"]'), "the Blueprint view keeps the trigger-step-result chain");
+    } finally { await view.close(); }
+  });
+
   test("an unreadable Cron list is unavailable, never an empty scope", async () => {
     const transport = workspaceTransport();
     transport.graph = { ...transport.graph, scenarios: [] };
@@ -354,17 +377,23 @@ async function main() {
     }
   });
 
-  test("a Team Jobs disclosure lists stored Sentinel scenarios beside its Cron rows and opens the exact scenario", async () => {
+  test("a Team Jobs disclosure lists stored Blueprints beside its Cron and Sentinel rows", async () => {
     const transport = new FixtureTransport();
-    transport.graph = multiScenarioGraph();
+    transport.graph = {
+      ...multiScenarioGraph(),
+      blueprints: [{ id: "team-blueprint", name: "Team pipeline", owner: { kind: "team", tab_id: "creator-a", team_id: attachment.team_id }, state: "running", run_id: "run-a", current_step: 0, last_event_at_ms: 100 }],
+    };
     const opened: string[] = [];
+    const blueprintEvents: unknown[] = [];
+    const captureBlueprint = (event: Event) => blueprintEvents.push((event as CustomEvent).detail);
+    window.addEventListener("codeterm:open-job", captureBlueprint);
     const team = { id: attachment.team_id!, name: "team-fixture", lifecycle: "active" as const, created_at: 0, workspace_id: attachment.workspace_id };
     const props = { team, plan: null, tabs: {}, managers: null, managerCount: 1, workers: null, workerCount: 0, workingWorkerCount: 0, providers: [], onOpenEffort: () => {}, crons: <span data-testid="cron-entry" />, cronCount: 1 };
     const toggleOf = (host: HTMLElement) => host.querySelector<HTMLButtonElement>('[data-testid="crons-collapse-toggle"]');
     win.localStorage.clear();
     const view = await mount(<TeamJobsUnit {...props} sentinelScope={{ workspace_id: attachment.workspace_id, team_id: attachment.team_id }} sentinelAdapter={transport} onOpenSentinel={(id) => opened.push(id)} />);
     try {
-      await settle(() => toggleOf(view.host)?.textContent?.includes(String(1 + transport.graph.scenarios.length)) === true);
+      await settle(() => toggleOf(view.host)?.textContent?.includes(String(1 + transport.graph.scenarios.length + 1)) === true);
       const toggle = toggleOf(view.host);
       await act(async () => toggle!.click());
       assert.ok(view.host.querySelector('[data-testid="cron-entry"]'));
@@ -372,7 +401,12 @@ async function main() {
       assert.equal(rows.length, transport.graph.scenarios.length, "one row per stored scenario");
       await act(async () => rows[1].click());
       assert.deepEqual(opened, [transport.graph.scenarios[1].id]);
+      const blueprintRow = view.host.querySelector<HTMLButtonElement>('[data-testid="sidebar-blueprint-job"]');
+      assert.ok(blueprintRow, "a running Team-owned Blueprint appears in the Team disclosure");
+      await act(async () => blueprintRow.click());
+      assert.deepEqual(blueprintEvents, [{ workspaceId: attachment.workspace_id, target: { teamId: attachment.team_id, blueprintId: "team-blueprint" } }]);
     } finally { await view.close(); }
+    window.removeEventListener("codeterm:open-job", captureBlueprint);
     const unavailable = new FixtureTransport();
     unavailable.subscribe = async () => { throw new Error("unavailable"); };
     win.localStorage.clear();

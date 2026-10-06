@@ -103,6 +103,7 @@ export function TabContent({
         <TabTopBar
           tabId={tab.id}
           cwd={cwd}
+          workspaceId={workspaceId}
           showSwitch={showSwitch}
           usageProvider={usageProvider}
           usageVisible={usageVisible}

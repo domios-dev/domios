@@ -765,7 +765,7 @@ function AppInner() {
           )}
           {automationWorkspaceId && mainView === "workspace" && (
             <div className="absolute inset-0" style={{ zIndex: 26 }}>
-              <JobsView key={`${automationWorkspaceId}:${jobsScope}:${jobsTarget?.request ?? 0}`} workspaces={state.workspaces} teams={state.teams} initialFilter={jobsEntryFilter(jobsOpenEntry(automationWorkspaceId, jobsScope, jobsTarget?.teamId))} initialScenarioId={jobsTarget?.scenarioId} initialCronId={jobsTarget?.cronId} onClose={closeWorkspaceAutomation} />
+              <JobsView key={`${automationWorkspaceId}:${jobsScope}:${jobsTarget?.request ?? 0}`} workspaces={state.workspaces} teams={state.teams} tabs={state.tabs} initialFilter={jobsEntryFilter(jobsOpenEntry(automationWorkspaceId, jobsScope, jobsTarget?.teamId))} initialScenarioId={jobsTarget?.scenarioId} initialCronId={jobsTarget?.cronId} initialBlueprintId={jobsTarget?.blueprintId} onClose={closeWorkspaceAutomation} />
             </div>
           )}
           {workspaceMapWorkspaceId && mainView === "workspace" && (

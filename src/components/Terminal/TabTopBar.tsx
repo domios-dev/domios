@@ -14,6 +14,9 @@ import { buildTabMenu, type TabMenuAction, type TabMenuContext } from "./tabMenu
 import { performTabMenuAction } from "./tabMenuActions";
 import { useTelegramThreadMenu } from "./useTelegramThreadMenu";
 import { ReceiverTargetMarks } from "./ReceiverTargetMark";
+import { BlueprintOwnerCloseDialog } from "../Sidebar/BlueprintOwnerCloseDialog";
+import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
+import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
 
 /** Single height rhythm for every control in the bar (switch + pills). */
 export { TAB_BAR_CONTROL_H };
@@ -42,6 +45,7 @@ interface TabTopBarProps {
   watcherLastStatus?: string | null;
   isWatcherTab?: boolean;
   isActive?: boolean;
+  workspaceId?: string | null;
   tabMenu?: HeaderTabMenu;
 }
 
@@ -89,12 +93,14 @@ export function TabTopBar({
   watcherLastStatus,
   isWatcherTab = false,
   isActive = false,
+  workspaceId,
   tabMenu,
 }: TabTopBarProps) {
   const [reconnecting, setReconnecting] = useState(false);
   const [restarting, setRestarting] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [reconnectError, setReconnectError] = useState<string | null>(null);
+  const [closeBlueprints, setCloseBlueprints] = useState<string[] | null>(null);
   const menuTab = tabMenu?.tab ?? null;
   const onRename = tabMenu?.onRename;
   const canReconnect = menuTab ? tabSessionActionView(menuTab).canReconnect : false;
@@ -159,6 +165,24 @@ export function TabTopBar({
     }
     if (action.type === "restart") {
       void restartSession();
+      return;
+    }
+    if (action.type === "close") {
+      void (async () => {
+        if (!tabMenu?.onClose) return;
+        if (!workspaceId) {
+          setReconnectError("Could not read Blueprint close inventory: workspace unavailable.");
+          return;
+        }
+        try {
+          const blueprints = await readWorkspaceBlueprints(workspaceId);
+          const running = runningBlueprintNamesForOwner(blueprints, "tab", tabId);
+          if (running.length > 0) setCloseBlueprints(running);
+          else tabMenu.onClose?.();
+        } catch (error) {
+          setReconnectError(errorMessage(error));
+        }
+      })();
       return;
     }
     setReconnectError(null);
@@ -226,6 +250,12 @@ export function TabTopBar({
           />
         )}
       </div>
+      {closeBlueprints && tabMenu && <BlueprintOwnerCloseDialog
+        owner={`Tab ${menuTab?.title ?? "Tab"}`}
+        blueprints={closeBlueprints}
+        onCancel={() => setCloseBlueprints(null)}
+        onConfirm={() => { setCloseBlueprints(null); tabMenu.onClose?.(); }}
+      />}
     </div>
   );
 }
