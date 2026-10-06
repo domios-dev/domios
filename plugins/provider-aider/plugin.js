@@ -24,6 +24,7 @@ __export(plugin_exports, {
   default: () => plugin_default,
   extractBannerModel: () => extractBannerModel,
   lastNonEmptyLine: () => lastNonEmptyLine,
+  parsePromptWithContext: () => parsePromptWithContext,
   promptSafeChoice: () => promptSafeChoice
 });
 module.exports = __toCommonJS(plugin_exports);
@@ -97,8 +98,9 @@ var OUTPUT_SIGNALS = [
 var TUI_FRAGMENTS = ["aider", "tokens sent"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the configured instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
-var PROMPT_QUESTION_RE = /^(Run shell commands?\?|Add file to the chat\?|Create new file[^\n]*\?)\s*\(Y\)es\/\(N\)o\s*$/;
+var PROMPT_QUESTION_RE = /^(Run shell commands?\?|Add file to the chat\?|Create new file[^\n]*\?|Add \.aider\* to \.gitignore \(recommended\)\?)\s*\(Y\)es\/\(N\)o\s*(\[[^\]]*\])?\s*:?\s*$/;
 var SHELL_COMMAND_QUESTION_RE = /^Run shell commands?\?\s*\(Y\)es\/\(N\)o\s*$/;
+var GITIGNORE_QUESTION_RE = /^Add \.aider\* to \.gitignore \(recommended\)\?\s*\(Y\)es\/\(N\)o\s*(\[[^\]]*\])?\s*:?\s*$/;
 var COMMAND_LINE_RE = /^[ \t]*[$>][ \t]+(\S[^\n]*)$/;
 var MODE_PROMPT_RE = /^(?:[a-z]+)?>\s*$/;
 function starterPrompt(params) {
@@ -143,8 +145,20 @@ function parsePrompt(text) {
   }
   return null;
 }
+function parsePromptWithContext(text) {
+  const screen = String(text || "");
+  const lines = screen.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const question = lines[i].trim();
+    if (!PROMPT_QUESTION_RE.test(question)) continue;
+    const options = [["Yes", "1"], ["No", "2"]];
+    return { question, options };
+  }
+  return null;
+}
 function promptSafeChoice(prompt, screen) {
   if (!prompt || !prompt.question) return null;
+  if (GITIGNORE_QUESTION_RE.test(prompt.question)) return "1";
   if (!SHELL_COMMAND_QUESTION_RE.test(prompt.question)) return null;
   return isCodetermOnlyCommandList(extractPromptedCommands(screen)) ? "1" : null;
 }
@@ -189,10 +203,10 @@ var plugin = {
     return true;
   },
   hasEventMarkers(chunk) {
-    return parsePrompt(chunk) !== null;
+    return parsePrompt(chunk) !== null || parsePromptWithContext(chunk) !== null;
   },
   detectEvents(text) {
-    return parsePrompt(text) ? ["permission_request"] : [];
+    return parsePrompt(text) || parsePromptWithContext(text) ? ["permission_request"] : [];
   },
   discoverModels() {
     return null;
@@ -203,7 +217,7 @@ var plugin = {
   updatePromptSafeChoice(prompt) {
     return promptSafeChoice(prompt, prompt.question);
   },
-  parsePrompt,
+  parsePrompt: parsePromptWithContext,
   buildPromptResponse(optionIndex, _screen) {
     const ENTER = "DQ==";
     const YES = "WQ==";
