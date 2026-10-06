@@ -43,6 +43,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/windows-hook-command.test.ts
       plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-codex/tests/launch-session.test.ts
+      plugins/provider-codex/tests/user-images.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
       plugins/provider-opencode/tests/lifecycle.test.ts
       plugins/provider-cursor/tests/plugin.test.ts
@@ -96,6 +97,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/windows-hook-command.test.ts
       plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-codex/tests/launch-session.test.ts
+      plugins/provider-codex/tests/user-images.test.ts
     )
     ;;
   provider-opencode)

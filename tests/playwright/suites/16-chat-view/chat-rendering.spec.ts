@@ -367,7 +367,7 @@ test("@golden ChatView renders message blocks, code blocks, and image attachment
   await expect(imageBlock).toBeVisible();
   await imageBlock.locator('[data-testid="chat-image-attachment-button"]').click();
 
-  const imagePreview = imageBlock.locator('[data-testid="chat-image-preview"] img');
+  const imagePreview = ui.page.locator('[data-testid="chat-image-preview"] img');
   await expect(imagePreview).toBeVisible();
   await expect(imagePreview).toHaveAttribute("src", /^data:image\/png;base64,/);
 });

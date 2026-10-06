@@ -2,6 +2,7 @@ import { normalizeChatText } from "./normalize";
 import { parseMarker } from "./markers";
 import { timestampMs } from "./time";
 import type { NormalizedChatMessage } from "./types";
+import { userVisibleText } from "./userAttachments";
 
 /** Grace window (ms) subtracted from an optimistic bubble's send time when
  *  matching its real echo. Absorbs sub-second timestamp flooring in some
@@ -70,8 +71,12 @@ function tokenNeedle(content: string): string[] {
   return normalizeChatText(matchableContent(content)).toLowerCase().split(/\s+/).filter(Boolean);
 }
 
+function unquoted(token: string): string {
+  return token.replace(/^['"`]+|['"`]+$/g, "");
+}
+
 function isPathLikeToken(token: string): boolean {
-  const bare = token.replace(/^['"`]+|['"`]+$/g, "");
+  const bare = unquoted(token);
   return /^(\/|~\/|\.\.?\/|[a-z]:[\\/])/i.test(bare);
 }
 
@@ -81,6 +86,19 @@ function meaningfulTokens(content: string): string[] {
     .toLowerCase()
     .split(/\s+/)
     .filter((token) => token.length > 0 && !isPathLikeToken(token));
+}
+
+// The bubble carries the raw path; the transcript row carries it as an attachment.
+function attachmentEchoMatches(echoContent: string, candidate: NormalizedChatMessage): boolean {
+  const names = (candidate.attachments ?? [])
+    .map((attachment) => (attachment.path ? fileName(attachment.path).toLowerCase() : ""))
+    .filter(Boolean);
+  if (names.length === 0) return false;
+  const tokens = normalizeChatText(matchableContent(echoContent)).split(/\s+/).filter(Boolean);
+  const echoNames = tokens.filter(isPathLikeToken).map((token) => fileName(unquoted(token)).toLowerCase());
+  if (echoNames.length !== names.length || !echoNames.every((name) => names.includes(name))) return false;
+  const echoText = tokens.filter((token) => !isPathLikeToken(token)).join(" ").toLowerCase();
+  return echoText === normalizeChatText(userVisibleText(candidate.content, candidate.attachments)).toLowerCase();
 }
 
 function diceSimilarity(a: string[], b: string[]): { dice: number; shared: number } {
@@ -163,6 +181,7 @@ export function matchedOptimisticEchoes<T extends NormalizedChatMessage>(
         if (
           !markerMatch
           && normalizeChatText(matchableContent(candidate.content)).toLowerCase() !== wanted
+          && !attachmentEchoMatches(echo.content, candidate)
         ) {
           continue;
         }
