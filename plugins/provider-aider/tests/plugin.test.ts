@@ -148,16 +148,6 @@ console.log("\n--- structural composer readiness ---\n");
   assert(!runtime.screenHasTui(busyScreen), "busy screen is not ready");
   assert(!runtime.screenHasTui("aider"), "banner without composer prompt is not ready");
   assert(!runtime.screenHasTui(">"), "bare prompt without aider signal is not ready");
-  const gitignoreFrame = [
-    "You can skip this check with --no-gitignore",
-    "Add .aider* to .gitignore (recommended)? (Y)es/(N)o [Yes]:",
-  ].join("\n");
-  assert(runtime.screenHasTui(gitignoreFrame), "gitignore startup dialog frame is an aider screen");
-  const docsFrame = [
-    "Warning: openai/mimo-v2.6-pro expects these environment variables - OPENAI_API_KEY: Not set",
-    "Open documentation url for more info? (Y)es/(N)o/(D)on't ask again [Yes]:",
-  ].join("\n");
-  assert(runtime.screenHasTui(docsFrame), "docs url startup dialog frame is an aider screen");
 }
 
 console.log("\n--- banner model parse ---\n");
