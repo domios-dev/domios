@@ -1,5 +1,5 @@
 import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { Clock3, Network, Radar, Square, Trash2 } from "lucide-react";
+import { Clock3, Network, Radar, Square, Trash2, Workflow } from "lucide-react";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
 import { sentinelJobs } from "../Automation/scenarios";
 import type { AutomationGraphAdapter } from "../Automation/types";
@@ -7,6 +7,7 @@ import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
 import { deleteJobConfirmation, deleteMergedJob, hostJobsActionAdapter, jobWorkspace, stopMergedJob, type JobActionContext, type JobsActionAdapter } from "../Jobs/jobActions";
 import { canStopJob, jobsForTab, mergeJobs, NO_JOBS_FILTER, tabJobAccessibleName, tabJobKey, mergedJobId, type MergedJob, type TabJob } from "../Jobs/jobsModel";
 import { requestOpenJob } from "../Jobs/openJobEvent";
+import { pipelineModel } from "../Automation/pipelineModel";
 import { useCronJobs } from "../Jobs/useCronJobs";
 import { useWorkspaceGraphs } from "../Jobs/useWorkspaceGraphs";
 import { DropdownMenu } from "../shared/DropdownMenu";
@@ -45,6 +46,9 @@ export function ComposerJobChips({ tabId, workspaceId, adapter = hostAutomationA
   const graphs = useWorkspaceGraphs(adapter, "composer", sources);
   const crons = useCronJobs(null);
   const sentinels = useMemo(() => graphs.flatMap((graph) => graph.graph ? sentinelJobs(graph.graph, graph.attachment) : []), [graphs]);
+  const blueprints = useMemo(() => graphs.flatMap((graph) => (graph.graph?.blueprints ?? [])
+    .filter((blueprint) => blueprint.owner?.tab_id === tabId)
+    .map((blueprint) => ({ workspaceId: graph.attachment.workspace_id, blueprint, pipeline: pipelineModel(blueprint) }))), [graphs, tabId]);
   const merged = useMemo(() => mergeJobs(NO_JOBS_FILTER, crons.jobs ?? [], sentinels), [crons.jobs, sentinels]);
   const chips = useMemo(() => jobsForTab(merged, tabId), [merged, tabId]);
   const byKey = useMemo(() => new Map(merged.map((job) => [tabJobKey({ kind: job.kind, id: mergedJobId(job) }), job])), [merged]);
@@ -90,7 +94,7 @@ export function ComposerJobChips({ tabId, workspaceId, adapter = hostAutomationA
     setConfirming(null);
   };
 
-  if (chips.length === 0 && !confirming) return null;
+  if (chips.length === 0 && blueprints.length === 0 && !confirming) return null;
   const visible = chips.slice(0, VISIBLE_JOBS);
   const hidden = chips.slice(VISIBLE_JOBS);
   const copy = confirming ? deleteJobConfirmation(confirming) : null;
@@ -127,6 +131,20 @@ export function ComposerJobChips({ tabId, workspaceId, adapter = hostAutomationA
       className="flex shrink-0 items-center"
       trigger={<button type="button" aria-label={`${hidden.length} more jobs`} aria-haspopup="menu" className="ct-composer-activity-chip h-7 tabular-nums text-[var(--ct-muted-fg)]">+{hidden.length}</button>}
     />}
+    {blueprints.map(({ workspaceId, blueprint, pipeline }) => <button
+      key={`blueprint:${blueprint.id}`}
+      type="button"
+      data-blueprint-id={blueprint.id}
+      aria-label={`Blueprint ${blueprint.name}, ${blueprint.state}`}
+      title={`${blueprint.name}, ${blueprint.state}`}
+      className="ct-composer-activity-chip h-7 min-w-0 max-w-[16rem]"
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => requestOpenJob({ workspaceId, target: { teamId: blueprint.owner?.team_id ?? null, blueprintId: pipeline.id } })}
+    >
+      <Workflow size={12} aria-hidden="true" className="shrink-0 text-[var(--ct-muted-fg)]" />
+      <span className="ct-composer-activity-chip__primary">{blueprint.name}</span>
+      <span className={`shrink-0 ${blueprint.state === "running" ? "text-[var(--ct-accent)]" : "text-[var(--ct-muted-fg)]"}`}>{blueprint.state}</span>
+    </button>)}
     {error && !confirming && <span role="alert" className="text-xs text-[var(--ct-fg)]">{error}</span>}
     {confirming && copy && <JobConfirmationDialog
       title={copy.title}

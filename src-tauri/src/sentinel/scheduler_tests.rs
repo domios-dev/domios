@@ -17,6 +17,18 @@ fn owner() -> Owner {
     }
 }
 
+#[test]
+fn blueprint_owner_tab_close_stops_tab_owned_work() {
+    assert!(!super::routes::owner_is_live(None, false, true));
+    assert!(super::routes::owner_is_live(None, true, false));
+}
+
+#[test]
+fn blueprint_owner_team_survives_creator_close_and_stops_with_team() {
+    assert!(super::routes::owner_is_live(Some("team"), false, true));
+    assert!(!super::routes::owner_is_live(Some("team"), true, false));
+}
+
 fn create(store: &mut Store, paused: bool, handlers: serde_json::Value) -> Sentinel {
     store.create(serde_json::from_value(json!({
         "name":"scheduler-result-watch",

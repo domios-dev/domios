@@ -8,6 +8,8 @@ import type { AutomationGraph, AutomationNode } from "./types";
 import { useAutomationViewport, type AutomationCamera } from "./useAutomationViewport";
 import { AUTOMATION_TOOL, stateTone } from "./styles";
 
+export { BlueprintPipelineCanvas } from "./BlueprintPipelineCanvas";
+
 const KIND_ICON = { sentinel: Radar, cron: Clock3, worker: Bot } as const;
 const EDGE_COLORS = { active: "var(--ct-accent)", observed: "var(--ct-fg)", configured: "var(--ct-muted-fg)" } as const;
 

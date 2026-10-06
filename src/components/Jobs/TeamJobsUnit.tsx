@@ -1,10 +1,11 @@
-import { Network, Radar } from "lucide-react";
+import { Network, Radar, Workflow } from "lucide-react";
 import { usePlanPeerContext } from "../Canvas/usePlanPeerContext";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
 import { sentinelJobs, sentinelTitle } from "../Automation/scenarios";
 import type { AutomationGraphAdapter, AutomationScope } from "../Automation/types";
 import { useAutomationGraph } from "../Automation/useAutomationGraph";
 import { TeamUnit, type TeamUnitProps } from "../Sidebar/TeamUnit";
+import { requestOpenJob } from "./openJobEvent";
 
 interface SentinelSource {
   sentinelScope?: AutomationScope;
@@ -26,6 +27,17 @@ function TeamUnitWithSentinels({ scope, generation, onOpenSentinel, adapter, ...
       <span className="w-7 shrink-0" aria-hidden="true" />
     </div>;
   });
+  for (const blueprint of state.graph?.blueprints ?? []) {
+    if (blueprint.owner?.kind !== "team" || blueprint.owner.team_id !== scope.team_id) continue;
+    rows.push(<div key={`blueprint:${blueprint.id}`} className="sidebar-team-cron-row">
+      <button type="button" className="sidebar-team-cron-main" data-testid="sidebar-blueprint-job" aria-label={`Blueprint ${blueprint.name}, ${blueprint.state}`} title={blueprint.name} onClick={() => requestOpenJob({ workspaceId: scope.workspace_id, target: { teamId: scope.team_id, blueprintId: blueprint.id } })}>
+        <Workflow size={11} aria-hidden="true" />
+        <span className="sidebar-team-cron-name">{blueprint.name}</span>
+        <span className="sidebar-team-cron-state">{blueprint.state}</span>
+      </button>
+      <span className="w-7 shrink-0" aria-hidden="true" />
+    </div>);
+  }
   if (state.failed && !state.graph) rows.push(<div key="sentinels-unavailable" className="sidebar-team-cron-row"><span className="sidebar-team-cron-main cursor-default" data-testid="sidebar-sentinels-unavailable"><Radar size={11} aria-hidden="true" /><span className="sidebar-team-cron-name">Sentinels unavailable</span></span></div>);
   return <TeamUnit {...props} crons={<>{props.crons}{rows}</>} cronCount={(props.cronCount ?? 0) + rows.length} />;
 }
