@@ -180,6 +180,7 @@ struct Subscription {
     pipeline_id: String,
     kind: String,
     params_json: String,
+    registry_generation: u64,
     definition_version: u64,
     provider: Arc<dyn EventSourceProvider>,
     token: String,
