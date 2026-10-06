@@ -336,6 +336,7 @@ console.log("\n--- manifest paste and preprocessor capability ---\n");
     ),
   );
   eq(manifest.capabilities?.chatPreprocessor?.match, "text", "manifest declares the chatPreprocessor capability");
+  eq(manifest.capabilities?.agentProvider, true, "manifest declares the agentProvider capability");
   eq(manifest.spawn?.inputFallbackMs, 5000, "manifest declares the bounded input fallback");
 }
 
