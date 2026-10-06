@@ -37,6 +37,7 @@ pub(crate) mod coordinator;
 pub(crate) use candidates::{allows_prompt as candidate_allows_prompt, CandidateVerdict};
 mod delivery;
 mod identity;
+mod idle_readiness;
 mod observer;
 mod privacy;
 pub(super) mod scheduler;
@@ -761,41 +762,40 @@ impl ServiceContext {
     }
 
     pub(crate) fn observe_worker_idle_without_report(&self, tab_id: &str) {
-        let general = {
-            self.mux
-                .read()
-                .get_tab(tab_id)
-                .is_some_and(super::general_agent::is_general_agent)
-        };
-        if general {
-            self.observe_tab_state(tab_id, ObservationTrigger::WorkerIdle, "general_agent_idle");
-            return;
-        }
-        let snapshot = {
+        let (general, role, task_binding, parent_tab_id, plan_id) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
                 return;
             };
-            if tab.role != Some(codeterm_types::agent::AgentRole::Worker)
-                || tab.task_binding.is_none()
-            {
+            if !idle_readiness::idle_observation_ready(
+                tab.launch_session_authenticated(),
+                tab.agent_booting,
+                tab.boot_stage,
+            ) {
                 return;
             }
             (
-                tab.parent_tab_id
-                    .clone()
-                    .or_else(|| tab.spawned_by_tab_id.clone()),
+                super::general_agent::is_general_agent(tab),
+                tab.role,
+                tab.task_binding.is_some(),
+                tab.parent_tab_id.clone().or_else(|| tab.spawned_by_tab_id.clone()),
                 tab.task_binding
                     .as_ref()
                     .and_then(|binding| binding.plan_id.clone()),
             )
         };
-        let parent = snapshot
-            .1
+        if general {
+            self.observe_tab_state(tab_id, ObservationTrigger::WorkerIdle, "general_agent_idle");
+            return;
+        }
+        if role != Some(codeterm_types::agent::AgentRole::Worker) || !task_binding {
+            return;
+        }
+        let parent = plan_id
             .as_deref()
             .and_then(|plan_id| self.plan_store.get(plan_id))
             .and_then(|plan| plan.owner.tab_id)
-            .or(snapshot.0);
+            .or(parent_tab_id);
         let last_turn_output = state::last_output_epoch_seconds(tab_id);
         if parent.as_deref().is_some_and(|parent| {
             self.report_store
