@@ -293,6 +293,10 @@ fn decide_launch_input(
     }
 }
 
+fn input_fallback_opens(started: Instant, now: Instant, fallback_ms: u64) -> bool {
+    now.saturating_duration_since(started).as_millis() as u64 >= fallback_ms
+}
+
 fn provider_composer_is_ready(
     mode: LaunchInputMode,
     declares_structural_composer: bool,
@@ -685,7 +689,7 @@ impl ServiceContext {
             }
 
             if let Some(fallback_ms) = input_fallback_ms {
-                if started.elapsed().as_millis() as u64 >= fallback_ms {
+                if input_fallback_opens(started, Instant::now(), fallback_ms) {
                     return Ok(LaunchInputEvidence::ProviderComposer);
                 }
             }
