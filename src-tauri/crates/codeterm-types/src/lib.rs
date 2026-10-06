@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod automation_name;
+pub mod blueprint_pipeline;
 pub mod config;
 pub mod decision;
 pub mod domios;
