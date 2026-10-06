@@ -5,6 +5,7 @@
 
 use std::sync::Arc;
 
+use crate::agent_verbs::AgentVerbCatalog;
 use crate::capability::CapabilityRegistry;
 
 /// A plugin handling agent-issued commands via `onAgentCommand`. Synchronous (the `call_json` bridge is), called on the request thread.
@@ -14,6 +15,11 @@ pub trait AgentCommandProvider: Send + Sync {
     /// Whether the plugin holds the `agent_commands` grant. The dispatch refuses
     /// to route to an ungranted plugin even if a handler is registered.
     fn granted(&self) -> bool;
+
+    /// The verbs this plugin exposes to agents, for discovery surfaces.
+    fn catalog(&self) -> Option<AgentVerbCatalog> {
+        None
+    }
 
     /// Route one agent command to the plugin: `Ok` → `{ result }`, `Err` → `{ error }` (both non-fatal at the RPC layer).
     fn on_agent_command(

@@ -179,6 +179,36 @@ pub fn list_pinned(
     Ok(out)
 }
 
+/// Items of `kind` whose `source` starts with `prefix` (compared literally, not as a LIKE pattern).
+pub fn list_by_source_prefix(
+    conn: &Connection,
+    blobs_dir: &Path,
+    kind: &str,
+    prefix: &str,
+) -> Result<Vec<MemItem>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id FROM mem_items
+             WHERE kind = ?1 AND source IS NOT NULL
+               AND substr(source, 1, length(?2)) = ?2
+             ORDER BY id",
+        )
+        .map_err(|e| format!("prepare list_by_source_prefix: {}", e))?;
+    let ids: Vec<String> = stmt
+        .query_map(params![kind, prefix], |r| r.get::<_, String>(0))
+        .map_err(|e| format!("query list_by_source_prefix: {}", e))?
+        .filter_map(Result::ok)
+        .collect();
+
+    let mut out = Vec::with_capacity(ids.len());
+    for id in ids {
+        if let Some(item) = super::get(conn, &id, blobs_dir)? {
+            out.push(item);
+        }
+    }
+    Ok(out)
+}
+
 pub fn graph_full(conn: &Connection) -> Result<GraphDump, String> {
     let vector_ids: std::collections::HashSet<String> = {
         let mut set = std::collections::HashSet::new();

@@ -939,6 +939,7 @@ pub fn run() {
                     vm.set_service(Arc::downgrade(&host));
                 }
                 plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
+                crate::service::plugin_skills::spawn_sync(service_state.mem.clone(), service_state.agent_command_registry.clone());
                 let _ = chatbackend_registry.start_discovery();
             }
             app.manage(service_state.clone());

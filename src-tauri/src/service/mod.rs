@@ -84,6 +84,7 @@ mod plan_reconcile;
 mod prompt_chain;
 pub(crate) use plan_reconcile::tab_has_live_agent;
 pub mod plugin_host;
+pub mod plugin_skills;
 pub(crate) mod provider_identity;
 pub(crate) mod pty_activation;
 pub mod pty_io;

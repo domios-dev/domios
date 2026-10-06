@@ -560,6 +560,9 @@ pub enum BridgeAction {
     /// Start or restart messaging bridge (Telegram, etc.)
     Restart,
     /// Send a message to Telegram or other service
+    ///
+    /// The bridge speaks as the CodeTerm bot; to message a contact as the owner, use
+    /// the telegram-client plugin (`codeterm plugin telegram-client chats` / `send`).
     Send {
         /// Message text (also used as caption for media types)
         #[arg(allow_hyphen_values = true)]
