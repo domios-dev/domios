@@ -1,4 +1,4 @@
-import { decodeCliMessageText } from "./messageText";
+import { normalizeMessageText } from "./messageText";
 
 export interface CoordinationReportDescriptor {
   event: string;
@@ -19,7 +19,7 @@ const COORDINATION_KINDS = new Set([
 
 function displayText(value: unknown, limit: number): string | undefined {
   if (typeof value !== "string") return undefined;
-  const decoded = decodeCliMessageText(value).trim();
+  const decoded = normalizeMessageText(value).trim();
   if (!decoded) return undefined;
   return decoded.length <= limit ? decoded : `${decoded.slice(0, limit - 1)}…`;
 }
