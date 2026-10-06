@@ -356,7 +356,7 @@ fn zero_write_refusal_retains_an_explicit_dispatch_wake_until_one_write() {
         .unwrap();
     assert_eq!(
         attempts_rx.recv_timeout(TEST_DEADLINE).unwrap(),
-        FIRST_PAYLOAD
+        FIRST_PAYLOAD.replace("\r\n", "\n")
     );
     await_owner_stopped(&fixture, &tab);
     let owner = fixture
@@ -371,7 +371,7 @@ fn zero_write_refusal_retains_an_explicit_dispatch_wake_until_one_write() {
     fixture.service.wake_user_owner_on_state_change(&tab);
     assert_eq!(
         attempts_rx.recv_timeout(TEST_DEADLINE).unwrap(),
-        FIRST_PAYLOAD
+        FIRST_PAYLOAD.replace("\r\n", "\n")
     );
     await_owner_idle(&fixture, &tab);
     assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 2);
