@@ -238,11 +238,11 @@ impl ServiceContext {
             (TabVisibility::Visible, TabCommand::Shell) => self.spawn_visible_shell_impl(spec),
             (TabVisibility::Hidden, TabCommand::Shell) => self.spawn_hidden_shell_impl(spec),
             (TabVisibility::Visible, TabCommand::ChatBackend { .. }) => {
-                super::permission_policy::configured_full_access()?;
+                super::permission_policy::configured_full_access_for(&self.app_handle)?;
                 self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
             }
             (TabVisibility::Hidden, TabCommand::ChatBackend { .. }) => {
-                super::permission_policy::configured_full_access()?;
+                super::permission_policy::configured_full_access_for(&self.app_handle)?;
                 self.spawn_chatbackend_impl_with_state_change(spec, emit_state_change)
             }
         }
@@ -274,7 +274,8 @@ impl ServiceContext {
         let agent_cmd = model_selection.provider_id;
         let requested_model = model_selection.model;
         let permission_bypass_authorization =
-            super::permission_policy::configured_permission_bypass(
+            super::permission_policy::configured_permission_bypass_for(
+                &self.app_handle,
                 &self.agent_registry,
                 &agent_cmd,
             )?;
@@ -752,7 +753,8 @@ impl ServiceContext {
         }
         self.require_agent_provider_ready(&agent.provider)?;
         let permission_bypass_authorization =
-            super::permission_policy::configured_permission_bypass(
+            super::permission_policy::configured_permission_bypass_for(
+                &self.app_handle,
                 &self.agent_registry,
                 &agent.provider,
             )?;

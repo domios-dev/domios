@@ -309,6 +309,7 @@ mod spawn_pty_restore_tests {
         tab.boot_stage = Some(crate::service::boot_stage::BootStage::SpawnFailed);
 
         let fixture = ServiceFixture::new(mux);
+        fixture.set_agent_full_access(true);
         use_fixture_dir_as_tab_cwd(&fixture, &tab_id);
         let resume_context = Arc::new(parking_lot::Mutex::new(Vec::new()));
         fixture.service.agent_registry.register_provider(Box::new(

@@ -93,6 +93,7 @@ pub(crate) fn restored_launch_task(
 }
 
 pub(crate) fn restore_permission_bypass_authorization(
+    app: &tauri::AppHandle,
     registry: &AgentRegistry,
     tab_id: &str,
     provider_id: &str,
@@ -101,8 +102,11 @@ pub(crate) fn restore_permission_bypass_authorization(
     if launch.captured && !launch.permission_bypass_requested {
         return Ok(None);
     }
-    let authorization =
-        crate::service::permission_policy::configured_permission_bypass(registry, provider_id)?;
+    let authorization = crate::service::permission_policy::configured_permission_bypass_for(
+        app,
+        registry,
+        provider_id,
+    )?;
     if launch.captured && launch.permission_bypass_requested && authorization.is_none() {
         log::warn!(
             "[restore] Tab {tab_id} permission bypass denied by current policy; resuming without it"
