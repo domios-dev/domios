@@ -295,7 +295,12 @@ pub(crate) fn classify_adopted_launch_screen(svc: &ServiceContext, tab_id: &str,
     }
 }
 
-fn surface_adopted_screen_prompt(svc: &ServiceContext, tab_id: &str, agent_type: &str, screen: &str) {
+fn surface_adopted_screen_prompt(
+    svc: &ServiceContext,
+    tab_id: &str,
+    agent_type: &str,
+    screen: &str,
+) {
     let Some((prompt, prompt_kind)) = crate::agent::prompt::parse_prompt_safely(|| {
         svc.agent_registry
             .parse_interactive_prompt(agent_type, screen)

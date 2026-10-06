@@ -1113,7 +1113,9 @@ impl Sentinel {
                 .map(|handler| &handler.action)
         };
         // Answering a prompt needs an observed agent tab; a shell probe has no prompt to answer.
-        if self.observe.is_none() && actions().any(|action| matches!(action, Route::RespondPrompt(_))) {
+        if self.observe.is_none()
+            && actions().any(|action| matches!(action, Route::RespondPrompt(_)))
+        {
             Some("respond_prompt")
         } else {
             None
@@ -1144,5 +1146,5 @@ fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Trans
 }
 
 mod due;
-use due::{plan_due, scheduled_stop_notices};
 pub(super) use due::transition_budget_spent;
+use due::{plan_due, scheduled_stop_notices};

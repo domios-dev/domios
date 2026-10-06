@@ -429,13 +429,15 @@ fn storage_sentinel_rearm_configuration_survives_reopen_and_definition_history()
             .history(crate::storage::SentinelId::new(id).expect("sentinel id")),
     )
     .value;
-    assert!(history[0]
-        .definition
-        .buckets
-        .iter()
-        .find(|bucket| bucket.name == "done")
-        .expect("stored done bucket")
-        .rearm_on_change);
+    assert!(
+        history[0]
+            .definition
+            .buckets
+            .iter()
+            .find(|bucket| bucket.name == "done")
+            .expect("stored done bucket")
+            .rearm_on_change
+    );
     close(storage);
 }
 

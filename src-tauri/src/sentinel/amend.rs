@@ -178,7 +178,8 @@ impl Update {
         connected: bool,
     ) -> Result<PreparedUpdate, String> {
         let name = self.name.as_deref().ok_or_else(|| {
-            "Sentinel update definition needs a name; use a short name such as ci-green-watch".to_string()
+            "Sentinel update definition needs a name; use a short name such as ci-green-watch"
+                .to_string()
         })?;
         codeterm_types::automation_name::validate_sentinel_name(name)?;
         if self.question.trim().is_empty() || self.question.len() > 4096 {

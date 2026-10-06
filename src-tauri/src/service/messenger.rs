@@ -370,12 +370,7 @@ impl Messenger {
                 envelope
             })
             .unwrap_or_else(MessageEnvelope::from_codeterm);
-        let should_prefix = should_prefix_pty(
-            envelope.kind,
-            true,
-            &envelope.from_tab,
-            to_tab,
-        );
+        let should_prefix = should_prefix_pty(envelope.kind, true, &envelope.from_tab, to_tab);
         let routed_frame = should_prefix.then(|| Self::from(envelope.clone()).routed_frame(body));
         let wrapped = routed_frame
             .as_ref()
@@ -733,7 +728,13 @@ impl Messenger {
     pub fn build(&self) -> String {
         let mut attrs = vec![("from", self.envelope.kind.marker_kind().to_string())];
         if self.envelope.kind == MessageKind::System {
-            if let Some(context) = self.envelope.context.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+            if let Some(context) = self
+                .envelope
+                .context
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty())
+            {
                 attrs.push(("context", context.to_string()));
             }
             return domios_opening_tag(&attrs);
@@ -743,7 +744,12 @@ impl Messenger {
         }
         if self.envelope.kind == MessageKind::Pebble {
             attrs.push(("source", clean_name(&self.envelope.from_label)));
-            if let Some(plugin) = self.envelope.from_plugin.as_deref().filter(|v| !v.is_empty()) {
+            if let Some(plugin) = self
+                .envelope
+                .from_plugin
+                .as_deref()
+                .filter(|v| !v.is_empty())
+            {
                 attrs.push(("plugin", plugin.to_string()));
             }
             return domios_opening_tag(&attrs);
@@ -764,10 +770,22 @@ impl Messenger {
         };
         attrs.push(("label", label));
         attrs.push(("tab", tab.to_string()));
-        if let Some(model) = self.envelope.from_model.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        if let Some(model) = self
+            .envelope
+            .from_model
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
             attrs.push(("model", model.to_string()));
         }
-        if let Some(mesh) = self.envelope.from_mesh.as_deref().map(str::trim).filter(|v| !v.is_empty()) {
+        if let Some(mesh) = self
+            .envelope
+            .from_mesh
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+        {
             attrs.push(("mesh", mesh.to_string()));
         }
         domios_opening_tag(&attrs)
@@ -785,7 +803,14 @@ impl Messenger {
         for (key, value) in [
             ("label", Some(label)),
             ("tab", Some(tab.to_string())),
-            ("model", self.envelope.from_model.as_deref().map(str::trim).map(str::to_string)),
+            (
+                "model",
+                self.envelope
+                    .from_model
+                    .as_deref()
+                    .map(str::trim)
+                    .map(str::to_string),
+            ),
             ("set_at", set_at),
             ("fire_at", fire_at),
             ("id", self.envelope.id.clone()),
@@ -816,11 +841,7 @@ impl Messenger {
         if self.envelope.from_agent == Some(false) {
             return Some(Self::SHELL_REPLY_HINT.to_string());
         }
-        let mut command = format!(
-            "{} \"YOUR REPLY\" --tab {}",
-            Self::AGENT_REPLY_COMMAND,
-            tab
-        );
+        let mut command = format!("{} \"YOUR REPLY\" --tab {}", Self::AGENT_REPLY_COMMAND, tab);
         if let Some(mesh) = self
             .envelope
             .from_mesh
@@ -938,11 +959,30 @@ fn inbound_model_context(envelope: &MessageEnvelope, body: &str) -> String {
     for (key, value) in [
         ("label", Some(label)),
         ("tab", Some(short_id(&envelope.from_tab).to_string())),
-        ("model", envelope.from_model.as_deref().map(str::trim).map(str::to_string)),
-        ("context", envelope.context.as_deref().map(str::trim).map(str::to_string)),
+        (
+            "model",
+            envelope
+                .from_model
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_string),
+        ),
+        (
+            "context",
+            envelope
+                .context
+                .as_deref()
+                .map(str::trim)
+                .map(str::to_string),
+        ),
         (
             "mesh",
-            envelope.from_mesh.as_deref().or(envelope.peer.as_deref()).map(str::trim).map(str::to_string),
+            envelope
+                .from_mesh
+                .as_deref()
+                .or(envelope.peer.as_deref())
+                .map(str::trim)
+                .map(str::to_string),
         ),
         ("plugin", envelope.from_plugin.clone()),
     ] {

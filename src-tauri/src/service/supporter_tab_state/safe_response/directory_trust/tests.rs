@@ -166,7 +166,12 @@ fn journal_rows(fixture: &crate::service::test_fixture::ServiceFixture) -> Vec<s
 #[test]
 fn unattended_launch_prompt_jev_chooses_among_declared_trust_options() {
     let provider = claude();
-    for screen in [NO_FIRST, YES_FOCUSED, RULE_AFFIRMATIVE, PREAPPROVED_LOCAL_NO_FIRST] {
+    for screen in [
+        NO_FIRST,
+        YES_FOCUSED,
+        RULE_AFFIRMATIVE,
+        PREAPPROVED_LOCAL_NO_FIRST,
+    ] {
         let target = trust_target(screen);
         assert_eq!(target.kind, Kind::DirectoryTrust);
         let index = target
@@ -719,8 +724,10 @@ fn sentinel_respond_prompt_login_is_refused_before_dispatch() {
     fixture.service.screen_state.lock().resize(&pty, 120, 40);
     fixture.service.screen_state.lock().process(
         &pty,
-        include_str!("../../../../../../plugins/provider-claude/tests/fixtures/tab-state/auth-login.txt")
-            .as_bytes(),
+        include_str!(
+            "../../../../../../plugins/provider-claude/tests/fixtures/tab-state/auth-login.txt"
+        )
+        .as_bytes(),
     );
     let expected = serde_json::json!({
         "kind": codeterm_types::pty::PromptKind::Provider,

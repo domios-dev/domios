@@ -205,7 +205,14 @@ fn restored_owner_needs_two_adapter_verdicts_for_one_pty_generation_before_one_w
         .unwrap_or_else(std::sync::PoisonError::into_inner);
     let (fixture, tab, model, runtime, _config_guard) =
         restored_unbound_user_head(vec![DeliveryModelAnswer::Ready, DeliveryModelAnswer::Ready]);
-    let send_id = fixture.service.pending_delivery_payloads.user_sends.head(&tab).unwrap().unwrap().send_id;
+    let send_id = fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .head(&tab)
+        .unwrap()
+        .unwrap()
+        .send_id;
     let writes = Arc::new(AtomicUsize::new(0));
     let count = writes.clone();
     let _submit = UserSubmitBoundary::install(
@@ -218,12 +225,39 @@ fn restored_owner_needs_two_adapter_verdicts_for_one_pty_generation_before_one_w
 
     fixture.service.drain_user_owner(&tab).unwrap();
 
-    assert_eq!(model.calls.load(Ordering::SeqCst), 2, "head={:?} status={:?}",
-        fixture.service.pending_delivery_payloads.user_sends.head(&tab),
-        fixture.service.chat_send_ledger.status(&send_id));
-    assert_eq!(writes.load(Ordering::SeqCst), 1, "status={:?}", fixture.service.chat_send_ledger.status(&send_id));
-    assert!(fixture.service.pending_delivery_payloads.user_sends.records(&tab).unwrap().is_empty());
-    assert_eq!(fixture.service.chat_send_ledger.status(&send_id).unwrap().state, crate::service::chat_send_transaction::ChatSendState::Unknown);
+    assert_eq!(
+        model.calls.load(Ordering::SeqCst),
+        2,
+        "head={:?} status={:?}",
+        fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .head(&tab),
+        fixture.service.chat_send_ledger.status(&send_id)
+    );
+    assert_eq!(
+        writes.load(Ordering::SeqCst),
+        1,
+        "status={:?}",
+        fixture.service.chat_send_ledger.status(&send_id)
+    );
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&send_id)
+            .unwrap()
+            .state,
+        crate::service::chat_send_transaction::ChatSendState::Unknown
+    );
     let evidence = runtime.feed(100, None).unwrap();
     let readiness = evidence
         .iter()

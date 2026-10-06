@@ -377,10 +377,7 @@ pub(crate) fn mark_starter_prompt(
     text: String,
 ) -> String {
     match prompt.system_prefix() {
-        Some(prefix) => format!(
-            "{prefix}{text}{}",
-            codeterm_types::domios::DOMIOS_CLOSE_TAG
-        ),
+        Some(prefix) => format!("{prefix}{text}{}", codeterm_types::domios::DOMIOS_CLOSE_TAG),
         None => text,
     }
 }

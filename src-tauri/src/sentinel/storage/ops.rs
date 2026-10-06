@@ -167,22 +167,22 @@ impl Store {
         self.submit(
             move |repo| repo.stop(stored, stop_reason),
             finishing(move |store, outcome| match outcome {
-                Ok(commit) => match commit.outcome {
-                    MutationOutcome::Applied => {
-                        if let Some(notice) = notice {
-                            store.pending_stop_notices.push(notice);
+                Ok(commit) => {
+                    match commit.outcome {
+                        MutationOutcome::Applied => {
+                            if let Some(notice) = notice {
+                                store.pending_stop_notices.push(notice);
+                            }
+                            commit.sentinels.first().map(codec::decode).ok_or_else(|| {
+                                "sentinel stop returned no committed state".to_string()
+                            })
                         }
-                        commit
-                            .sentinels
-                            .first()
-                            .map(codec::decode)
-                            .ok_or_else(|| "sentinel stop returned no committed state".to_string())
+                        MutationOutcome::Fenced(Fence::Missing) => {
+                            Err(format!("sentinel not found: {id}"))
+                        }
+                        other => Err(format!("sentinel stop refused: {other:?}")),
                     }
-                    MutationOutcome::Fenced(Fence::Missing) => {
-                        Err(format!("sentinel not found: {id}"))
-                    }
-                    other => Err(format!("sentinel stop refused: {other:?}")),
-                },
+                }
                 Err(Failure::Failed(message)) => {
                     store.apply_stop(&id, &reason);
                     Err(message)

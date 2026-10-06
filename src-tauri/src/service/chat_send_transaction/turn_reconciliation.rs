@@ -1,5 +1,5 @@
 use super::{
-    ChatSendLedger, ChatSendState, ChatSendStatus, SendEvidenceAnchor, matching_turn_send_ids,
+    matching_turn_send_ids, ChatSendLedger, ChatSendState, ChatSendStatus, SendEvidenceAnchor,
 };
 use crate::service::pending_delivery_payloads::user_sends::UserSendAuthority;
 
@@ -9,11 +9,7 @@ fn append_key_part(key: &mut String, part: &str) {
     key.push_str(part);
 }
 
-fn merged_turn_evidence_key(
-    tab_id: &str,
-    anchor: &SendEvidenceAnchor,
-    turn_text: &str,
-) -> String {
+fn merged_turn_evidence_key(tab_id: &str, anchor: &SendEvidenceAnchor, turn_text: &str) -> String {
     let mut key = String::new();
     let normalization = format!("{:?}", anchor.turn_normalization);
     for part in [
@@ -33,7 +29,14 @@ fn merged_turn_evidence_key(
         super::EvidenceWindow::Structured { cursor } => {
             append_key_part(&mut key, "structured");
             append_key_part(&mut key, cursor.as_deref().unwrap_or(""));
-            append_key_part(&mut key, if cursor.is_some() { "present" } else { "absent" });
+            append_key_part(
+                &mut key,
+                if cursor.is_some() {
+                    "present"
+                } else {
+                    "absent"
+                },
+            );
         }
     }
     append_key_part(&mut key, turn_text);
@@ -61,7 +64,10 @@ impl ChatSendLedger {
                 && prior.provider_id == authority.provider_id;
             same_launch
                 && status.sequence < sequence
-                && matches!(status.state, ChatSendState::Written | ChatSendState::Unknown)
+                && matches!(
+                    status.state,
+                    ChatSendState::Written | ChatSendState::Unknown
+                )
         })
     }
 
@@ -231,8 +237,7 @@ impl ChatSendLedger {
                         && candidate_anchor.cwd == anchor.cwd
                         && candidate_anchor.session_id == anchor.session_id
                         && candidate_anchor.turn_normalization == anchor.turn_normalization;
-                    let active_owned =
-                        state.owned.get(send_id).is_some_and(|(_, active)| *active);
+                    let active_owned = state.owned.get(send_id).is_some_and(|(_, active)| *active);
                     if status.tab_id != tab_id
                         || status.state == ChatSendState::Sent
                         || state.terminal_failures.contains(send_id)
@@ -240,7 +245,10 @@ impl ChatSendLedger {
                         || candidate_anchor != anchor && !eligible_send_ids.contains(send_id)
                         || state.owned.contains_key(send_id) && !active_owned
                         || active_owned
-                            && !matches!(status.state, ChatSendState::Written | ChatSendState::Unknown)
+                            && !matches!(
+                                status.state,
+                                ChatSendState::Written | ChatSendState::Unknown
+                            )
                     {
                         return None;
                     }
@@ -280,54 +288,65 @@ impl ChatSendLedger {
             .cloned()
             .collect::<Vec<_>>();
         if matching_candidates.len() != matching.len()
-            || matching_candidates.iter().any(|(_, _, _, _, owned, binding)| {
-                let Some((authority, active)) = owned else { return false; };
-                if !*active {
-                    return true;
-                }
-                let binding_matches = binding.as_ref().is_none_or(|binding| {
-                    binding.session_id.as_deref().is_none_or(|session| session == anchor.session_id)
-                        && binding.binding_nonce.as_deref().is_none_or(|nonce| nonce == authority.binding_nonce)
-                });
-                !binding_matches
-                    || authority.provider_id != anchor.provider_id
-                    || owner.as_ref().is_none_or(|owner| {
-                        !owner.user_authority_is_current_session(
-                            authority,
-                            &anchor.session_id,
-                            &authority.binding_nonce,
-                        )
-                    })
-            })
+            || matching_candidates
+                .iter()
+                .any(|(_, _, _, _, owned, binding)| {
+                    let Some((authority, active)) = owned else {
+                        return false;
+                    };
+                    if !*active {
+                        return true;
+                    }
+                    let binding_matches = binding.as_ref().is_none_or(|binding| {
+                        binding
+                            .session_id
+                            .as_deref()
+                            .is_none_or(|session| session == anchor.session_id)
+                            && binding
+                                .binding_nonce
+                                .as_deref()
+                                .is_none_or(|nonce| nonce == authority.binding_nonce)
+                    });
+                    !binding_matches
+                        || authority.provider_id != anchor.provider_id
+                        || owner.as_ref().is_none_or(|owner| {
+                            !owner.user_authority_is_current_session(
+                                authority,
+                                &anchor.session_id,
+                                &authority.binding_nonce,
+                            )
+                        })
+                })
         {
             return Vec::new();
         }
         let mut state = self.state.lock();
-        let still_eligible = matching_candidates
-            .iter()
-            .all(|(send_id, _, anchor_snapshot, _, owned, binding)| {
-                let current_anchor = state.anchor_by_id.get(send_id);
-                let current_owned = state.owned.get(send_id);
-                current_anchor == Some(anchor_snapshot)
-                    && anchor_snapshot.provider_id == anchor.provider_id
-                    && anchor_snapshot.cwd == anchor.cwd
-                    && anchor_snapshot.session_id == anchor.session_id
-                    && anchor_snapshot.turn_normalization == anchor.turn_normalization
-                    && (anchor_snapshot == anchor || eligible_send_ids.contains(send_id))
-                    && !state.terminal_failures.contains(send_id)
-                    && state.by_id.get(send_id).is_some_and(|status| {
-                        status.tab_id == tab_id
-                            && status.state != ChatSendState::Sent
-                            && (current_owned.is_none()
-                                || current_owned.is_some_and(|(_, active)| *active)
-                                    && matches!(
-                                        status.state,
-                                        ChatSendState::Written | ChatSendState::Unknown
-                                    ))
-                    })
-                    && current_owned == owned.as_ref()
-                    && state.live_binding_by_id.get(send_id) == binding.as_ref()
-            });
+        let still_eligible =
+            matching_candidates
+                .iter()
+                .all(|(send_id, _, anchor_snapshot, _, owned, binding)| {
+                    let current_anchor = state.anchor_by_id.get(send_id);
+                    let current_owned = state.owned.get(send_id);
+                    current_anchor == Some(anchor_snapshot)
+                        && anchor_snapshot.provider_id == anchor.provider_id
+                        && anchor_snapshot.cwd == anchor.cwd
+                        && anchor_snapshot.session_id == anchor.session_id
+                        && anchor_snapshot.turn_normalization == anchor.turn_normalization
+                        && (anchor_snapshot == anchor || eligible_send_ids.contains(send_id))
+                        && !state.terminal_failures.contains(send_id)
+                        && state.by_id.get(send_id).is_some_and(|status| {
+                            status.tab_id == tab_id
+                                && status.state != ChatSendState::Sent
+                                && (current_owned.is_none()
+                                    || current_owned.is_some_and(|(_, active)| *active)
+                                        && matches!(
+                                            status.state,
+                                            ChatSendState::Written | ChatSendState::Unknown
+                                        ))
+                        })
+                        && current_owned == owned.as_ref()
+                        && state.live_binding_by_id.get(send_id) == binding.as_ref()
+                });
         if !still_eligible {
             return Vec::new();
         }
@@ -345,7 +364,9 @@ impl ChatSendLedger {
                         state.consumed_merged_turns.remove(&expired);
                     }
                 }
-                state.consumed_merged_turn_order.push_back(evidence_key.clone());
+                state
+                    .consumed_merged_turn_order
+                    .push_back(evidence_key.clone());
             }
             *state.consumed_merged_turns.entry(evidence_key).or_default() += 1;
         }

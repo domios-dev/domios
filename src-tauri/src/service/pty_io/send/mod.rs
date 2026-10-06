@@ -576,7 +576,9 @@ impl ServiceContext {
     ) -> Result<(), String> {
         let strategy = self
             .agent_registry
-            .with_provider(&delivery.provider_id, |provider| provider.verify_submit_strategy())
+            .with_provider(&delivery.provider_id, |provider| {
+                provider.verify_submit_strategy()
+            })
             .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
         let suffix = self.routed_frame_suffix(&delivery.provider_id, &frame.suffix)?;
         let body = sanitize_agent_prompt_input(&frame.body);

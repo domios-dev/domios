@@ -18,18 +18,13 @@ fn put_live(f: &Fixture, relative: &str, bytes: &[u8]) {
 }
 
 fn live_original_hashes(root: &Path) -> BTreeMap<String, String> {
-    [
-        "crons.json",
-        "sentinels.json",
-        LIVE_BACKUP,
-        LIVE_QUARANTINE,
-    ]
-    .into_iter()
-    .map(|relative| {
-        let bytes = fs::read(root.join(relative)).expect("live original bytes");
-        (relative.to_string(), Sha256Digest::of(&bytes).to_hex())
-    })
-    .collect()
+    ["crons.json", "sentinels.json", LIVE_BACKUP, LIVE_QUARANTINE]
+        .into_iter()
+        .map(|relative| {
+            let bytes = fs::read(root.join(relative)).expect("live original bytes");
+            (relative.to_string(), Sha256Digest::of(&bytes).to_hex())
+        })
+        .collect()
 }
 
 fn live_archive(root: &Path) -> PathBuf {
@@ -70,9 +65,7 @@ fn import_live_root_captures_seals_and_imports_without_changing_originals() {
     assert!(archive.join("capture.manifest").is_file());
     assert_eq!(
         receipt.capture_sha256,
-        Sha256Digest::of(
-            &fs::read(archive.join("capture.manifest")).expect("capture manifest")
-        )
+        Sha256Digest::of(&fs::read(archive.join("capture.manifest")).expect("capture manifest"))
     );
     assert_eq!(receipt.archive, Ok(()));
     assert!(cron_snapshot(&storage)
@@ -90,16 +83,12 @@ fn import_live_root_refuses_a_source_that_changes_during_capture() {
     let changed = f.instance().join("crons.json");
 
     let error = storage
-        .capture_live_root_observed(
-            CaptureLimits::default(),
-            DEADLINE,
-            &mut |relative| {
-                if relative == "crons.json" {
-                    fs::write(&changed, EMPTY_CRONS).expect("simulate concurrent update");
-                }
-                CaptureStep::Continue
-            },
-        )
+        .capture_live_root_observed(CaptureLimits::default(), DEADLINE, &mut |relative| {
+            if relative == "crons.json" {
+                fs::write(&changed, EMPTY_CRONS).expect("simulate concurrent update");
+            }
+            CaptureStep::Continue
+        })
         .expect_err("moving live source must refuse");
 
     assert_eq!(
@@ -122,18 +111,14 @@ fn import_live_root_restarts_a_partial_capture_idempotently() {
     let storage = f.open();
     let mut stopped = false;
     let error = storage
-        .capture_live_root_observed(
-            CaptureLimits::default(),
-            DEADLINE,
-            &mut |relative| {
-                if relative == "crons.json" && !stopped {
-                    stopped = true;
-                    CaptureStep::Interrupt
-                } else {
-                    CaptureStep::Continue
-                }
-            },
-        )
+        .capture_live_root_observed(CaptureLimits::default(), DEADLINE, &mut |relative| {
+            if relative == "crons.json" && !stopped {
+                stopped = true;
+                CaptureStep::Interrupt
+            } else {
+                CaptureStep::Continue
+            }
+        })
         .expect_err("observer interrupts after staging");
     assert!(matches!(error, MigrationError::Storage(_)));
     assert!(!live_archive(&f.instance())
@@ -161,11 +146,9 @@ fn import_live_root_reuses_a_sealed_set_after_live_sources_change() {
     seed_live_root(&f);
     let storage = f.open();
     let capture = storage
-        .capture_live_root_observed(
-            CaptureLimits::default(),
-            DEADLINE,
-            &mut |_| CaptureStep::Continue,
-        )
+        .capture_live_root_observed(CaptureLimits::default(), DEADLINE, &mut |_| {
+            CaptureStep::Continue
+        })
         .expect("seal live inventory");
     let archive = live_archive(&f.instance());
     let sealed_crons = fs::read(archive.join("originals/crons.json")).expect("sealed crons");

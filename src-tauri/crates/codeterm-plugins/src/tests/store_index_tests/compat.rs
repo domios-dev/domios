@@ -42,8 +42,7 @@ fn install_from_channel_refuses_incompatible_min_codeterm() {
         .unwrap();
         std::fs::write(
             cache.join("provider-needy/plugin.json"),
-            serde_json::json!({"id":"needy","version":"1.0.0","minCodeterm":"2.0.0"})
-                .to_string(),
+            serde_json::json!({"id":"needy","version":"1.0.0","minCodeterm":"2.0.0"}).to_string(),
         )
         .unwrap();
         std::fs::write(cache.join("provider-needy/plugin.js"), "module.exports={};").unwrap();

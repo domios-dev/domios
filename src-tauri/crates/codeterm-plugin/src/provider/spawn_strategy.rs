@@ -83,7 +83,9 @@ fn unwrap_pasted_content_wrapper(text: &str) -> Option<String> {
     let opening_start = text.find("<pasted_content id=\"")?;
     let opening_end = text[opening_start..].find('>')? + opening_start;
     let opening = &text[opening_start..=opening_end];
-    let id = opening.strip_prefix("<pasted_content id=\"")?.strip_suffix("\">")?;
+    let id = opening
+        .strip_prefix("<pasted_content id=\"")?
+        .strip_suffix("\">")?;
     if id.is_empty() {
         return None;
     }
@@ -92,7 +94,11 @@ fn unwrap_pasted_content_wrapper(text: &str) -> Option<String> {
     let close_at = text[body_start..].find(&closing)? + body_start;
     let pasted = text[body_start..close_at].trim();
     let suffix_start = close_at + closing.len();
-    Some(format!("{}{pasted}{}", &text[..opening_start], &text[suffix_start..]))
+    Some(format!(
+        "{}{pasted}{}",
+        &text[..opening_start],
+        &text[suffix_start..]
+    ))
 }
 
 /// How to wait for agent readiness after PTY spawn.
@@ -229,7 +235,10 @@ impl StarterPrompt {
             Self::StartupHandshake => "startup-handshake",
             Self::NoStarter => return None,
         };
-        Some(codeterm_types::domios::build_opening_tag(&[("from", "system"), ("context", context)]))
+        Some(codeterm_types::domios::build_opening_tag(&[
+            ("from", "system"),
+            ("context", context),
+        ]))
     }
 }
 

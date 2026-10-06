@@ -82,7 +82,9 @@ pub async fn workspace_snapshot(
 ) -> Result<Json<Snapshot>, GraphError> {
     caller_access_level(&state, &headers).map_err(failure)?;
     let snapshot = tokio::task::spawn_blocking(move || {
-        state.svc.automation_graph_workspace_snapshot(&query.workspace_id)
+        state
+            .svc
+            .automation_graph_workspace_snapshot(&query.workspace_id)
     })
     .await
     .map_err(|error| failure((StatusCode::INTERNAL_SERVER_ERROR, error.to_string())))?
@@ -500,12 +502,7 @@ mod tests {
             let body = json!({"workspace_id":fixture.workspace,"team_id":null});
             assert_eq!(
                 fixture
-                    .request(
-                        Method::DELETE,
-                        &path,
-                        Some("fixture-instance-bearer"),
-                        body,
-                    )
+                    .request(Method::DELETE, &path, Some("fixture-instance-bearer"), body,)
                     .await
                     .0,
                 StatusCode::NO_CONTENT
@@ -721,7 +718,10 @@ mod tests {
                 let tab = mux.get_tab_mut(&worker).unwrap();
                 tab.agent_type = Some("supplied-agent".into());
                 mux.link_pty(&worker, "fixture-graph-pty".into());
-                assert_eq!(mux.tab_id_for_pty("fixture-graph-pty"), Some(worker.clone()));
+                assert_eq!(
+                    mux.tab_id_for_pty("fixture-graph-pty"),
+                    Some(worker.clone())
+                );
             }
             fixture
                 .runtime

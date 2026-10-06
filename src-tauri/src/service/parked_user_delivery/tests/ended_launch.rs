@@ -111,15 +111,13 @@ fn fresh_prelaunch_send_waits_for_pty_and_rebinds_to_written_launch_once() {
     await_owner_idle(&fixture, &tab);
 
     assert_eq!(writes.load(Ordering::SeqCst), 1);
-    assert!(
-        fixture
-            .service
-            .pending_delivery_payloads
-            .user_sends
-            .records(&tab)
-            .unwrap()
-            .is_empty()
-    );
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .is_empty());
     let settled = fixture
         .service
         .chat_send_ledger
@@ -180,15 +178,13 @@ fn queued_prelaunch_send_expires_after_a_later_launch_supersedes_its_nonce() {
         .unwrap();
     assert_eq!(expired.state, ChatSendState::Failed);
     assert_eq!(expired.error.as_deref(), Some("launch_ended_before_write"));
-    assert!(
-        fixture
-            .service
-            .pending_delivery_payloads
-            .user_sends
-            .records(&tab)
-            .unwrap()
-            .is_empty()
-    );
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .is_empty());
 }
 
 #[test]

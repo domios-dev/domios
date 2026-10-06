@@ -26,6 +26,7 @@ import { isSidebarTabVisible } from "./workspaceTabs";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { cronSelectionStore } from "../Cron/cronSelectionStore";
 import { DropdownMenu } from "../shared/DropdownMenu";
+import { RowMenuButton } from "../shared/RowMenuButton";
 import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { DeclaredAttentionLevel } from "./declaredAttention";
@@ -458,17 +459,7 @@ export function SidebarWorkspaceTabs({
                 danger: true,
                 onClick: () => { void invoke("cron_delete", { id: job.id }).then(() => refreshCrons()); },
               }]}
-              trigger={
-                <button
-                  type="button"
-                  aria-label={`Cron actions for ${job.name}`}
-                  aria-haspopup="menu"
-                  title="Cron actions"
-                  className="flex h-5 w-5 items-center justify-center rounded text-[var(--ct-muted-fg)] hover:bg-[var(--ct-border)] hover:text-[var(--ct-fg)]"
-                >
-                  <span className="text-[13px] font-bold leading-none">⋮</span>
-                </button>
-              }
+              trigger={<RowMenuButton label={`Cron actions for ${job.name}`} title="Cron actions" />}
             />
           </div>
         ))}

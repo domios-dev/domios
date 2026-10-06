@@ -17,7 +17,10 @@ const PARITY: &[(&str, &str)] = &[
         "<domios from=\"telegram\" user=\"100000001\" msg=\"12345\">do the task</domios>",
         "telegram",
     ),
-    ("<domios from=\"mesh\" peer=\"peer-a\" tab=\"abc12345\">hi</domios>", "mesh"),
+    (
+        "<domios from=\"mesh\" peer=\"peer-a\" tab=\"abc12345\">hi</domios>",
+        "mesh",
+    ),
     (
         "<domios from=\"tab\" label=\"General Main\" tab=\"bda0e267\">ping</domios>",
         "tab label has space",

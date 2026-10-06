@@ -193,7 +193,10 @@ fn parse_session_delta_preserves_a_12k_user_turn() {
         .find(|message| message.role == "user")
         .expect("long Claude user record is parsed");
     assert_eq!(
-        user.blocks[0].data.get("text").and_then(|text| text.as_str()),
+        user.blocks[0]
+            .data
+            .get("text")
+            .and_then(|text| text.as_str()),
         Some(expected.as_str())
     );
 }

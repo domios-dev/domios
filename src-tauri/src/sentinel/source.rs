@@ -1,5 +1,5 @@
-use tauri::Manager;
 use serde_json::{json, Value};
+use tauri::Manager;
 
 use crate::multiplexer::{
     state::MultiplexerState,
@@ -102,9 +102,8 @@ pub(crate) fn validate_tab_scope(
     let exact_cron_run = matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
         && job.run.as_ref().is_some_and(|run| run.tab_id == tab_id)
         && tab.audience == crate::multiplexer::types::TabAudience::UserOwnedAutomation;
-    let creator_joined_team = job.team_id.is_none()
-        && job.creator_tab_id == tab_id
-        && tab.team_id.is_some();
+    let creator_joined_team =
+        job.team_id.is_none() && job.creator_tab_id == tab_id && tab.team_id.is_some();
     if tab.agent_type.is_none()
         || (tab.team_id != job.team_id && !exact_cron_run && !creator_joined_team)
         || mux.find_workspace_for_tab(tab_id).as_deref() != Some(job.workspace_id.as_str())

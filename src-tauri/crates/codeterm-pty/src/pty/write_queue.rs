@@ -397,9 +397,15 @@ mod tests {
         });
 
         queued_rx.recv_timeout(Duration::from_secs(1)).unwrap();
-        assert!(matches!(finished_rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+        assert!(matches!(
+            finished_rx.try_recv(),
+            Err(mpsc::TryRecvError::Empty)
+        ));
         release_tx.send(()).unwrap();
-        finished_rx.recv_timeout(Duration::from_secs(1)).unwrap().unwrap();
+        finished_rx
+            .recv_timeout(Duration::from_secs(1))
+            .unwrap()
+            .unwrap();
         writer.join().unwrap();
     }
 

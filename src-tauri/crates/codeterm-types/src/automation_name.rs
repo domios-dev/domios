@@ -32,7 +32,9 @@ fn is_raw_id(name: &str, prefix: &str) -> bool {
     };
     candidate.eq_ignore_ascii_case(prefix)
         && suffix.len() >= 8
-        && suffix.chars().all(|character| character.is_ascii_hexdigit())
+        && suffix
+            .chars()
+            .all(|character| character.is_ascii_hexdigit())
 }
 
 pub fn generated_handler_id(

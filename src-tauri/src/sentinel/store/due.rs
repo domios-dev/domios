@@ -1,6 +1,9 @@
 use super::*;
 
-pub(super) fn scheduled_stop_notices(jobs: &[Sentinel], changes: &[ScheduleChange]) -> Vec<StopNotice> {
+pub(super) fn scheduled_stop_notices(
+    jobs: &[Sentinel],
+    changes: &[ScheduleChange],
+) -> Vec<StopNotice> {
     changes
         .iter()
         .filter_map(|change| match change {

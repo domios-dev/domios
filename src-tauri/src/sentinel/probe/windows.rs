@@ -57,8 +57,8 @@ const STDERR_KEY: usize = 2;
 const JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO: u32 = 4;
 const JOB_OBJECT_MSG_EXIT_PROCESS: u32 = 7;
 
-mod completion;
 mod capture_prep;
+mod completion;
 
 static PIPE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 

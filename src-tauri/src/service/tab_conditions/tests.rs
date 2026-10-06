@@ -391,11 +391,7 @@ fn user_owned_cron_prompt_notifies_owner_and_tracks_waiting_state() {
         .as_deref()
         .unwrap()
         .contains("cron:owner-prompt"));
-    let generated_title = fixture
-        .service
-        .mux
-        .read()
-        .display_label_for_tab(&child);
+    let generated_title = fixture.service.mux.read().display_label_for_tab(&child);
     assert!(!notice
         .body
         .as_deref()

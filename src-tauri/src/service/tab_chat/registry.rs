@@ -102,7 +102,9 @@ fn opaque_id() -> Arc<str> {
 
 impl SourceState {
     fn binds(&self, session_id: &str, path: &Path) -> Option<bool> {
-        self.bound.as_ref().map(|(session, bound)| session == session_id && bound == path)
+        self.bound
+            .as_ref()
+            .map(|(session, bound)| session == session_id && bound == path)
     }
 }
 
@@ -117,7 +119,9 @@ impl JsonlSource {
             };
         }
         match std::fs::metadata(path) {
-            Ok(metadata) => SourceCapture::Present { len: metadata.len() },
+            Ok(metadata) => SourceCapture::Present {
+                len: metadata.len(),
+            },
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => SourceCapture::Absent {
                 witness: state.pending_absence.get_or_insert_with(opaque_id).clone(),
             },
@@ -150,7 +154,12 @@ impl JsonlSource {
         let len = metadata.len();
         let created = metadata.created().ok();
         match binds {
-            Some(false) => return SourceObservation::Present { incarnation: None, restart: false },
+            Some(false) => {
+                return SourceObservation::Present {
+                    incarnation: None,
+                    restart: false,
+                }
+            }
             Some(true) => {}
             None => {
                 *state = SourceState {
@@ -181,7 +190,10 @@ impl JsonlSource {
             || identity_changed
         {
             let absence_witness = state.pending_absence.take();
-            state.current = Some(SourceIncarnation { id: opaque_id(), absence_witness });
+            state.current = Some(SourceIncarnation {
+                id: opaque_id(),
+                absence_witness,
+            });
         }
         if state
             .current_identity
@@ -195,7 +207,10 @@ impl JsonlSource {
             Some(held) => Some(held) != current.as_ref(),
             None => offset > len,
         };
-        SourceObservation::Present { incarnation: current, restart }
+        SourceObservation::Present {
+            incarnation: current,
+            restart,
+        }
     }
 }
 
@@ -227,7 +242,11 @@ impl ChatRegistry {
     }
 
     pub fn jsonl_source(&self, tab_id: &str) -> Arc<JsonlSource> {
-        self.sources.lock().entry(tab_id.to_string()).or_default().clone()
+        self.sources
+            .lock()
+            .entry(tab_id.to_string())
+            .or_default()
+            .clone()
     }
 
     /// Attach `subscriber_id` to a live tailer bound to `session_id`.
@@ -416,7 +435,10 @@ mod tests {
         else {
             panic!("regrown file observation must carry a fresh incarnation");
         };
-        assert!(restart, "changed sampled bytes invalidate the held position");
+        assert!(
+            restart,
+            "changed sampled bytes invalidate the held position"
+        );
         assert_ne!(first.id, second.id);
         assert_eq!(second.absence_witness, None);
     }
