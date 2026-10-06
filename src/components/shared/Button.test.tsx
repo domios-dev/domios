@@ -145,6 +145,12 @@ test("Button click fires handler", async () => {
   assert(clicked, "onClick not fired");
 });
 
+test("Button forwards its ref to the native button so callers can restore focus", async () => {
+  const ref = React.createRef<HTMLButtonElement>();
+  const { host } = await render(<Button ref={ref} variant="capsule" aria-label="Remove filter">Team</Button>);
+  assert(ref.current === host.querySelector("button"), "ref must resolve to the rendered button");
+});
+
 async function main() {
   setupDom();
   let failed = 0;
