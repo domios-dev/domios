@@ -32,6 +32,7 @@ struct QueuedObservation<H: ShadowHost> {
     tab: String,
     title: String,
     observation_id: u64,
+    decision_point: &'static str,
     correlation: Option<identity::correlation::Correlation>,
     pending: bool,
     source: identity::DecisionSource,
@@ -46,7 +47,8 @@ impl<H: ShadowHost> Drop for QueuedObservation<H> {
                 identity::correlation::RecordIdentity::with_correlation(
                     self.observation_id,
                     self.correlation.as_ref(),
-                ),
+                )
+                .with_fallback_decision_point(self.decision_point),
                 self.source,
                 OTHER,
                 None,
@@ -156,6 +158,7 @@ fn enqueue_prepared_with_completion<H: ShadowHost>(
         tab: tab.clone(),
         title: prepared.1.title.clone(),
         observation_id: prepared.1.envelope.as_ref()?.observation_id,
+        decision_point: trigger.label(),
         correlation: Some(prepared.1.envelope.as_ref()?.correlation.clone()),
         pending: true,
         source: identity::DecisionSource::Budget,
@@ -771,6 +774,7 @@ pub(crate) fn prepare_observation_with_parent_and_identity<H: ShadowHost>(
         tab: tab_id.into(),
         title: tab_id.into(),
         observation_id: state::next_observation_id(),
+        decision_point: trigger.label(),
         correlation: None,
         pending: true,
         source: identity::DecisionSource::unavailable(),

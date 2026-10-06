@@ -1,19 +1,41 @@
 import type { Tab } from "../../lib/types";
+import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
 import { BusyState } from "../shared/BusyState";
 
 export type TabBootOverlayView =
   | { kind: "none" }
   | { kind: "starting"; label: string }
-  | { kind: "failed"; reason: string | null; canRetry: boolean };
+  | {
+      kind: "failed";
+      reason: string | null;
+      canRetry: boolean;
+      canStartFreshAgent: boolean;
+      canKeepShell: boolean;
+    };
 
-export function tabBootOverlayView(tab: Tab | null | undefined): TabBootOverlayView {
+export function tabBootOverlayView(
+  tab: Tab | null | undefined,
+  keepShell = false,
+): TabBootOverlayView {
+  const failure = restoreFailurePresentation(
+    {
+      bootStage: tab?.boot_stage,
+      agentType: tab?.agent_type,
+      protectedTab: tab?.protected === true,
+    },
+    tab?.boot_failure_reason,
+    keepShell,
+  );
+  if (failure.view === "launch_failure") {
+    return {
+      kind: "failed",
+      reason: failure.reason,
+      canRetry: failure.actions.retry,
+      canStartFreshAgent: failure.actions.startFreshAgent,
+      canKeepShell: failure.actions.keepShell,
+    };
+  }
   switch (tab?.boot_stage) {
-    case "spawn_failed":
-      return {
-        kind: "failed",
-        reason: tab.boot_failure_reason ?? null,
-        canRetry: tab.protected === true,
-      };
     case "pty_starting":
     case "pty_spawned":
     case "reader_ready":
@@ -40,6 +62,8 @@ interface TabBootOverlayProps {
   shellReady: boolean;
   overlayVisible: boolean;
   onRetry: () => void;
+  onStartFreshAgent: () => void;
+  onKeepShell: () => void;
 }
 
 export function TabBootOverlay({
@@ -47,6 +71,8 @@ export function TabBootOverlay({
   shellReady,
   overlayVisible,
   onRetry,
+  onStartFreshAgent,
+  onKeepShell,
 }: TabBootOverlayProps) {
   if (!overlayVisible && view.kind === "none") return null;
 
@@ -58,12 +84,14 @@ export function TabBootOverlay({
         background: "var(--ct-bg, #0d1117)",
         opacity: view.kind === "none" && shellReady ? 0 : 1,
         transition: "opacity 0.3s ease-out",
+        zIndex: view.kind === "failed" ? 20 : undefined,
       }}
     >
       {view.kind === "failed" ? (
         <div
           className="absolute bottom-6 left-1/2 max-w-[min(34rem,calc(100%-2rem))] -translate-x-1/2 rounded-md border px-3 py-2 text-center"
           data-testid="tab-boot-failed"
+          role="alert"
           style={{
             borderColor: "color-mix(in srgb, var(--ct-red, #f85149) 55%, transparent)",
             background: "color-mix(in srgb, var(--ct-bg, #0d1117) 94%, var(--ct-red, #f85149) 6%)",
@@ -72,22 +100,46 @@ export function TabBootOverlay({
         >
           <div className="text-sm font-semibold">Launch failed</div>
           {view.reason && (
-            <div className="mt-1 truncate text-xs opacity-75" title={view.reason}>
+            <div className="mt-1 break-words text-xs opacity-75">
               {view.reason}
             </div>
           )}
-          {view.canRetry && (
-            <button
-              type="button"
-              className="mt-2 rounded-md border px-2 py-1 text-xs font-medium"
-              aria-label="Retry agent launch"
-              title="Retry agent launch"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={onRetry}
-            >
-              Retry
-            </button>
-          )}
+          <div className="mt-2 flex flex-wrap justify-center gap-2">
+            {view.canRetry && (
+              <button
+                type="button"
+                className="rounded-md border px-2 py-1 text-xs font-medium"
+                aria-label="Retry agent launch"
+                title="Retry agent launch"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={onRetry}
+              >
+                Retry
+              </button>
+            )}
+            {view.canStartFreshAgent && (
+              <button
+                type="button"
+                className="rounded-md border px-2 py-1 text-xs font-medium"
+                aria-label="Start a fresh agent"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={onStartFreshAgent}
+              >
+                Start fresh agent
+              </button>
+            )}
+            {view.canKeepShell && (
+              <button
+                type="button"
+                className="rounded-md border px-2 py-1 text-xs font-medium"
+                aria-label="Keep using this shell"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={onKeepShell}
+              >
+                Keep shell
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         view.kind === "starting" && (

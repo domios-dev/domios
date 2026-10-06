@@ -898,6 +898,13 @@ impl ServiceContext {
         payload: Value,
         delivery: &impl HierarchyReportDelivery,
     ) {
+        if payload.get("kind").and_then(Value::as_str) == Some("tab_state_spawn_ok")
+            && !crate::service::supporter_notify::spawn_ok_notice_allowed(
+                crate::service::supporter_notify::launch_was_restored(parent_tab_id),
+            )
+        {
+            return;
+        }
         let attempt_id = payload.get("attempt_id").and_then(Value::as_str);
         let tab_provider = {
             self.mux

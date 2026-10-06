@@ -326,6 +326,13 @@ pub(crate) fn init_states() -> AppStates {
     let general_config = config_state.lock().general_agent.clone();
     #[allow(unused_mut)]
     let mut mux_state_inner = mux_state_inner;
+    if storage.storage().is_some() {
+        for (tab_id, reason) in
+            service::restore_exited_member::mark_legacy_role_shell_failures(&mut mux_state_inner)
+        {
+            log::warn!("[restore] Tab {tab_id} remains a role shell: {reason}");
+        }
+    }
 
     // Attach the durable closed-tab history store so reopen survives restarts.
     // On failure keep the in-memory default (history just won't persist).

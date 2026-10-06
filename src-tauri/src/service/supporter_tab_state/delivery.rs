@@ -80,7 +80,11 @@ fn publish_spawn_ok(
         .as_deref()
         .or(metadata.parent_tab_id.as_deref())
     {
-        deliver_to_target(service, target, SPAWN_OK_LINE);
+        if super::super::supporter_notify::spawn_ok_notice_allowed(
+            super::super::supporter_notify::launch_was_restored(target),
+        ) {
+            deliver_to_target(service, target, SPAWN_OK_LINE);
+        }
     }
 }
 

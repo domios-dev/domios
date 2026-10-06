@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
-import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector, useMuxState } from "../../store/multiplexer";
 import { tabFieldsEqual, selectTab } from "../../store/multiplexer/selectors";
 import {
   useXterm,
@@ -40,6 +40,7 @@ import { TabBootOverlay, tabBootOverlayView } from "./bootOverlay";
 import { TerminalViewControls } from "./TerminalViewControls";
 import { shouldOfferScrollToBottom } from "../../hooks/terminal/terminalFollowState";
 import { TERMINAL_INPUT_WRITE_FAILED_EVENT } from "../../hooks/terminal/terminalInputWrite";
+import { openNewSessionPicker } from "../../lib/newSessionChoice";
 
 interface TerminalTabProps {
   tabId: string;
@@ -76,6 +77,7 @@ export const TerminalTab = memo(function TerminalTab({
   const connectedPtyRef = useRef<string | null>(null);
 
   const { addNotification, updateTabStatus } = useMultiplexer();
+  const muxState = useMuxState();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
   useEffect(() => {
@@ -116,6 +118,7 @@ export const TerminalTab = memo(function TerminalTab({
     });
   }, [tabId, chatCapable]);
   const [uiMode, setUiMode] = useState<TabUiMode>(computeMode);
+  const [keptFailureKey, setKeptFailureKey] = useState<string | null>(null);
   const [terminalFallbackOpen, setTerminalFallbackOpen] = useState(false);
   const [historyReplaying, setHistoryReplaying] = useState(false);
   const [terminalIoReady, setTerminalIoReady] = useState(false);
@@ -410,12 +413,19 @@ export const TerminalTab = memo(function TerminalTab({
       : "transparent";
   const terminalBackground = theme.background;
   const terminalKeyBar = <TerminalKeyBar onSendKey={writePty} className="w-full" />;
-  const bootOverlay = tabBootOverlayView(tab);
+  const failureKey = `${tab?.boot_stage ?? ""}:${tab?.boot_failure_reason ?? ""}`;
+  const bootOverlay = tabBootOverlayView(tab, keptFailureKey === failureKey);
   const retryAgent = useCallback(() => {
     invoke("restart_agent_tab", { tabId }).catch((e) =>
       console.warn("restart_agent_tab failed:", e),
     );
   }, [tabId]);
+  const startFreshAgent = useCallback(() => {
+    const workspaceId = tab?.workspace_id ?? muxState.active_workspace_id;
+    if (!workspaceId) return;
+    openNewSessionPicker({ workspaceId, workspaceCwd: tab?.cwd ?? null });
+  }, [muxState.active_workspace_id, tab?.cwd, tab?.workspace_id]);
+  const keepShell = useCallback(() => setKeptFailureKey(failureKey), [failureKey]);
 
   return (
     <div
@@ -721,6 +731,8 @@ export const TerminalTab = memo(function TerminalTab({
         shellReady={shell.shellReady}
         overlayVisible={shell.overlayVisible}
         onRetry={retryAgent}
+        onStartFreshAgent={startFreshAgent}
+        onKeepShell={keepShell}
       />
 
       {/* Context menu */}

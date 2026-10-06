@@ -1,5 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, TriangleAlert } from "lucide-react";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor, listAgentDescriptors } from "../../lib/agentDescriptorCache";
@@ -15,6 +15,7 @@ import { anchorsTeam, isGeneralAgent as isGeneralAgentTab } from "../../lib/role
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { agentModelBadgeLabel, agentModelForBadge, classifyAgentLiveness } from "../../lib/agentLabel";
+import { restoreFailurePresentation } from "../../lib/restoreFailurePresentation";
 import { SidebarModelBadge } from "./SidebarModelBadge";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
@@ -202,13 +203,24 @@ function TabItemInner({
     bootStage: tab.boot_stage ?? null,
     bootInFlight: tab.agent_booting ?? false,
   });
+  const restoreFailure = restoreFailurePresentation(
+    {
+      bootStage: tab.boot_stage,
+      agentType: tab.agent_type,
+      protectedTab: tab.protected === true,
+    },
+    tab.boot_failure_reason,
+    false,
+  );
   // Compose from current tab evidence so a cached provider-only label cannot
   // mask a newer runtime model.
   const tabAgentLabel = agentModelBadgeLabel(tab.agent_type, modelEvidence, agentLiveness);
   // Only a chatBackend shell's own detected model stands alone; a PTY tab that
   // lost its provider must not keep the model half of the identity.
   const shellBadge = shellSessionModel ? formatModelBadge(shellSessionModel) : null;
-  const tabModelBadge = tabAgentLabel ?? shellBadge;
+  const tabModelBadge = restoreFailure.showIdentityBadges
+    ? tabAgentLabel ?? shellBadge
+    : null;
   // The visible badge is width-capped; the tooltip keeps the whole identity.
   const tabModelTitle = tabModel ? `${providerName} · ${tabModel}` : undefined;
   const description = tab.description ?? null;
@@ -216,7 +228,9 @@ function TabItemInner({
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
   const isGeneralAgent = isGeneralAgentTab(tab);
   const accessibleTitle = isGeneralAgent ? "General Agent" : displayTitle;
-  const roleShield = isGeneralAgent ? "General Agent" : roleShieldLabel(tab);
+  const roleShield = restoreFailure.showIdentityBadges
+    ? (isGeneralAgent ? "General Agent" : roleShieldLabel(tab))
+    : null;
   const managedBy = managedByLabel(tab);
   const localSubtitle = tab.remote_peer_id ? null : roleShield;
   const isSubTab =
@@ -321,7 +335,7 @@ function TabItemInner({
       )}
       {!editing && <button
         type="button"
-        aria-label={`${isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`}${managedBy ? `, ${managedBy}` : ""}`}
+        aria-label={`${isGeneralAgent ? accessibleTitle : `Open tab ${accessibleTitle}`}${managedBy ? `, ${managedBy}` : ""}${restoreFailure.showFailureBadge ? ", launch failed" : ""}`}
         aria-current={isActive ? "page" : undefined}
         onClick={onClick}
         className={`sidebar-tab-activation flex flex-1 items-center min-w-0 relative z-[1] border-0 bg-transparent p-0 text-left text-inherit font-inherit cursor-pointer ${touchMode ? "gap-2.5" : "gap-2"}`}
@@ -421,6 +435,17 @@ function TabItemInner({
         )}
       </div>
       </button>}
+      {restoreFailure.showFailureBadge && (
+        <span
+          role="img"
+          aria-label={`${accessibleTitle} launch failed`}
+          title="Launch failed"
+          data-testid="tab-launch-failure-badge"
+          className="shrink-0 text-[var(--ct-red,#f85149)]"
+        >
+          <TriangleAlert size={13} aria-hidden="true" />
+        </span>
+      )}
       <span
         className="sr-only"
         role="status"
@@ -525,6 +550,8 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     backingPluginId(pp) === backingPluginId(np) &&
     backingSessionId(pp) === backingSessionId(np) &&
     pp.protected === np.protected &&
+    pp.boot_stage === np.boot_stage &&
+    pp.boot_failure_reason === np.boot_failure_reason &&
     pp.role_profile === np.role_profile &&
     pp.role === np.role &&
     pp.role_profile === np.role_profile &&
