@@ -214,10 +214,6 @@ export function SecretBackendDetail({
 
       {isActive && (
         <>
-          <GroupLabel>Connection</GroupLabel>
-          {/* The plugin's own connection UI (server URL, unlock, status) runs in
-              its sandboxed iframe — the host owns only activation + defaults. The
-              iframe reports its content height, so this box sizes to fit. */}
           <div style={{ marginBottom: 18 }}>
             <PluginView pluginId={entry.id} api={config.api} embedded />
           </div>
