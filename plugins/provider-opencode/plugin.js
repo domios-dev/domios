@@ -933,7 +933,7 @@ var plugin = {
       if (!taskPath) throw new Error("failed to write OpenCode task instructions");
     }
     parts.push("opencode");
-    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
+    if (p.skipPermissions) parts.push("--auto");
     const sps = p.structuredPromptServer;
     if (sps && sps.port) {
       const platform = host.platform();
@@ -1222,7 +1222,7 @@ function resumeLaunch(sessionId, skipPermissions) {
   const parts = ["opencode"];
   if (directory) parts.push(host.shell.quoteFor(directory, platform));
   parts.push("--session", host.shell.quoteFor(sessionId, platform));
-  if (skipPermissions) parts.push("--dangerously-skip-permissions");
+  if (skipPermissions) parts.push("--auto");
   return { parts, directory };
 }
 var plugin_default = plugin;

@@ -141,7 +141,7 @@
     ],
     "stopKeyWaitForOutput": true,
     "autoApproveFlags": [
-      "--dangerously-skip-permissions"
+      "--auto"
     ],
     "modelLaunchArgsFormat": [
       "-m",

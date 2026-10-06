@@ -340,8 +340,8 @@ console.log("\n--- discoverModels ---\n");
   });
   assert(launch.includes("opencode --hostname Q(windows:127.0.0.1) --port Q(windows:4567) --session Q(windows:sess 1)"), "buildLaunchCommand quotes --session with quoteFor(platform)");
   assert(p.buildResumeCommand("sess 2").includes("opencode --session Q(windows:sess 2)"), "buildResumeCommand selects the full TUI for session resume");
-  assert(p.buildLaunchCommand({ skipPermissions: true }).includes("opencode --dangerously-skip-permissions"), "buildLaunchCommand applies the centralized full-access policy");
-  assert(p.buildResumeCommand("sess 2", true).includes("opencode --session Q(windows:sess 2) --dangerously-skip-permissions"), "buildResumeCommand applies the centralized full-access policy");
+  assert(p.buildLaunchCommand({ skipPermissions: true }).includes("opencode --auto"), "buildLaunchCommand applies the centralized full-access policy");
+  assert(p.buildResumeCommand("sess 2", true).includes("opencode --session Q(windows:sess 2) --auto"), "buildResumeCommand applies the centralized full-access policy");
 }
 
 console.log("\n--- per-launch pad-only external directory permission ---\n");
