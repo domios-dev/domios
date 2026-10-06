@@ -27,6 +27,63 @@ __export(plugin_exports, {
   promptSafeChoice: () => promptSafeChoice
 });
 module.exports = __toCommonJS(plugin_exports);
+
+// plugins/provider-aider/src/history.ts
+function parseAiderHistory(content, sinceMs, cursor) {
+  const text = String(content || "");
+  const lines = text.split(/\r?\n/);
+  const messages = [];
+  let currentRole = null;
+  let currentText = [];
+  function flush() {
+    if (currentRole && currentText.length > 0) {
+      const body = currentText.join("\n").trim();
+      if (body) {
+        messages.push({
+          role: currentRole,
+          text: body,
+          ts: null
+        });
+      }
+    }
+    currentText = [];
+  }
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith("#### ")) {
+      flush();
+      currentRole = "user";
+      const userText = line.slice(5).trim();
+      if (userText) currentText.push(userText);
+      continue;
+    }
+    if (currentRole === null) {
+      continue;
+    }
+    if (currentRole === "user" && line.trim()) {
+      flush();
+      currentRole = "assistant";
+    }
+    currentText.push(line);
+  }
+  flush();
+  const filtered = sinceMs > 0 ? messages : messages;
+  return {
+    messages: filtered,
+    cursor: cursor || null
+  };
+}
+function readAiderHistory(filePath, sinceMs, cursor) {
+  try {
+    const content = host.fs.readFile(filePath);
+    if (content === null || content === void 0) return null;
+    return parseAiderHistory(String(content), sinceMs, cursor);
+  } catch (_) {
+    return null;
+  }
+}
+
+// plugins/provider-aider/src/plugin.ts
 var TITLE_RE = /aider/i;
 var OUTPUT_MARKERS = ["aider", "Aider", "Aider Chat"];
 var OUTPUT_SIGNALS = [
@@ -204,10 +261,21 @@ var plugin = {
     return [];
   },
   usesStructuredChat() {
-    return false;
+    return true;
   },
-  readStructuredChat(_cwd, _sessionId, cursor) {
-    return { messages: [], cursor: cursor || null };
+  readStructuredChat(cwd, _sessionId, cursor) {
+    const historyPath = `${cwd}/.aider.chat.history.md`;
+    const result = readAiderHistory(historyPath, 0, cursor);
+    if (!result) return { messages: [], cursor: cursor || null };
+    return {
+      messages: result.messages.map((m, i) => ({
+        id: `hist_${i}`,
+        type: m.role,
+        content: m.text,
+        seq: i
+      })),
+      cursor: result.cursor
+    };
   },
   checkIntegration() {
     return {
