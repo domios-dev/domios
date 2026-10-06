@@ -26,7 +26,7 @@ Completion:
 - Run `codeterm plan state <plan_id>` after structural edits and `codeterm plan doctor <plan_id> --kind quality` before approval or dispatch.
 - When foreign mutations appear in your plan, record a correction stride with keep/rewrite/remove rationale.
 - Plan skills are plan-local (`codeterm plan skill list|show|edit|new`), never `codeterm mem skill`: reuse before creating, keep the proven oracle immutable, and record keep/discard/supersede with why.
-- At plan wrap-up, optionally record one useful plan note, group note, or reusable orchestration lesson. Promote proven recipes through plan skills; do not request notes after each group close.
+- At plan wrap-up, optionally note one reusable lesson; promote proven recipes through plan skills.
 
 Your handoff states what changed, what is ready, known gaps, and the next orchestration action:
 

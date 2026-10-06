@@ -105,6 +105,9 @@ fn bound_store() -> (tempfile::TempDir, PlanStore, String, String, String) {
             4,
         )
         .unwrap();
+    store
+        .acknowledge_live_task_attempt_for_tab("old-tab", Some(&plan.id), Some(&task_id), 4)
+        .unwrap();
     (dir, store, plan.id, task_id, attempt_id)
 }
 
