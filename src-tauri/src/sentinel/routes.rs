@@ -19,7 +19,11 @@ pub fn owner_live(svc: &ServiceContext, job: &Sentinel) -> bool {
 }
 
 pub(super) fn owner_is_live(team_id: Option<&str>, creator_live: bool, team_live: bool) -> bool {
-    if team_id.is_some() { team_live } else { creator_live }
+    if team_id.is_some() {
+        team_live
+    } else {
+        creator_live
+    }
 }
 
 pub(super) fn notify_stop(svc: &ServiceContext, notice: &StopNotice) {
@@ -131,7 +135,8 @@ pub(super) fn resolve_cron_target(
         .collect();
     if candidates.len() != 1 {
         return Err(
-            "blueprint cron target must resolve uniquely in the creator's Team and workspace".into(),
+            "blueprint cron target must resolve uniquely in the creator's Team and workspace"
+                .into(),
         );
     }
     Ok(candidates[0].id.clone())

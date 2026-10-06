@@ -28,7 +28,9 @@ impl MediaKind {
     }
 
     pub fn parse(value: &str) -> Option<MediaKind> {
-        MediaKind::ALL.into_iter().find(|kind| kind.as_str() == value)
+        MediaKind::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == value)
     }
 }
 
@@ -182,11 +184,10 @@ fn file_name(path: &Path) -> String {
 }
 
 fn url_host(rest: &str) -> String {
-    let authority = rest
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or_default();
-    let host = authority.rsplit_once('@').map_or(authority, |(_, host)| host);
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host = authority
+        .rsplit_once('@')
+        .map_or(authority, |(_, host)| host);
     if let Some(ipv6) = host.strip_prefix('[') {
         return ipv6.split(']').next().unwrap_or_default().to_string();
     }
@@ -230,13 +231,25 @@ mod tests {
 
         let cases = vec![
             spec(MediaKind::Text, DataRef::File(absolute("notes.txt"))),
-            spec(MediaKind::Text, DataRef::Url("https://example.com/a".into())),
+            spec(
+                MediaKind::Text,
+                DataRef::Url("https://example.com/a".into()),
+            ),
             spec(MediaKind::Audio, DataRef::File(absolute("voice.wav"))),
-            spec(MediaKind::Audio, DataRef::Url("http://example.com:8080/a?b=1".into())),
+            spec(
+                MediaKind::Audio,
+                DataRef::Url("http://example.com:8080/a?b=1".into()),
+            ),
             spec(MediaKind::Video, DataRef::File(absolute("clip.mp4"))),
-            spec(MediaKind::Video, DataRef::Url("https://example.com/clip".into())),
+            spec(
+                MediaKind::Video,
+                DataRef::Url("https://example.com/clip".into()),
+            ),
             spec(MediaKind::Image, DataRef::File(absolute("shot.png"))),
-            spec(MediaKind::Image, DataRef::Url("https://example.com/shot.png".into())),
+            spec(
+                MediaKind::Image,
+                DataRef::Url("https://example.com/shot.png".into()),
+            ),
         ];
         for case in &cases {
             assert_eq!(validate(case), Ok(()), "{:?}", case);
@@ -354,10 +367,19 @@ mod tests {
     fn data_ref_serde_is_externally_tagged() {
         for (value, expected) in [
             (json!({"text": "hello"}), DataRef::Text("hello".into())),
-            (json!({"file": "voice.wav"}), DataRef::File(PathBuf::from("voice.wav"))),
-            (json!({"url": "https://example.com/a"}), DataRef::Url("https://example.com/a".into())),
+            (
+                json!({"file": "voice.wav"}),
+                DataRef::File(PathBuf::from("voice.wav")),
+            ),
+            (
+                json!({"url": "https://example.com/a"}),
+                DataRef::Url("https://example.com/a".into()),
+            ),
         ] {
-            assert_eq!(serde_json::from_value::<DataRef>(value.clone()).unwrap(), expected);
+            assert_eq!(
+                serde_json::from_value::<DataRef>(value.clone()).unwrap(),
+                expected
+            );
             assert_eq!(serde_json::to_value(&expected).unwrap(), value);
         }
         assert!(serde_json::from_value::<DataRef>(json!("hello")).is_err());
@@ -403,13 +425,18 @@ mod tests {
         );
         assert_eq!(display_name(&DataRef::File(PathBuf::from("/"))), "");
         assert_eq!(
-            display_name(&DataRef::Url("https://example.com:8443/a/b?q=secret#f".into())),
+            display_name(&DataRef::Url(
+                "https://example.com:8443/a/b?q=secret#f".into()
+            )),
             "example.com"
         );
         assert_eq!(
             display_name(&DataRef::Url("https://user:pass@host.example/x".into())),
             "host.example"
         );
-        assert_eq!(display_name(&DataRef::Url("https://[::1]:8080/x".into())), "::1");
+        assert_eq!(
+            display_name(&DataRef::Url("https://[::1]:8080/x".into())),
+            "::1"
+        );
     }
 }

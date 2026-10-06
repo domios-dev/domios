@@ -10,6 +10,7 @@ use clap::{Parser, Subcommand};
 use crate::mesh_cli::MeshAction;
 
 use super::agent::AgentAction;
+use super::blueprint::BlueprintAction;
 use super::cron::CronAction;
 use super::debug::DebugAction;
 use super::delayed::DelayedAction;
@@ -27,7 +28,6 @@ use super::pad::PadAction;
 use super::persona::PersonaAction;
 use super::plan::PlanAction;
 use super::plugin::PluginAction;
-use super::blueprint::BlueprintAction;
 use super::service::ServiceAction;
 use super::sessions::SessionsAction;
 use super::spec::SpecAction;

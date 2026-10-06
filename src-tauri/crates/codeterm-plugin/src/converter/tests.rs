@@ -155,10 +155,13 @@ fn plan_conversion_no_converter_names_the_missing_pair() {
         Conversion::new(kind("video"), kind("audio")),
     )];
     let err = plan_conversion(&available, kind("video"), kind("text")).expect_err("no chain");
-    assert_eq!(err, NoConverter {
-        from: kind("video"),
-        to: kind("text"),
-    });
+    assert_eq!(
+        err,
+        NoConverter {
+            from: kind("video"),
+            to: kind("text"),
+        }
+    );
     let rendered = err.to_string();
     assert!(rendered.contains("video"), "{rendered}");
     assert!(rendered.contains("text"), "{rendered}");
@@ -255,10 +258,13 @@ fn plan_conversion_depends_on_edges_not_converter_names() {
 fn plan_conversion_non_text_identity_is_not_planned() {
     let err = plan_conversion(&[], MediaKind::Audio, MediaKind::Audio)
         .expect_err("only text converts to itself");
-    assert_eq!(err, NoConverter {
-        from: MediaKind::Audio,
-        to: MediaKind::Audio,
-    });
+    assert_eq!(
+        err,
+        NoConverter {
+            from: MediaKind::Audio,
+            to: MediaKind::Audio,
+        }
+    );
 }
 
 // --- registry ---
@@ -356,8 +362,9 @@ impl Transcriber for EchoTranscriber {
 
 #[test]
 fn transcriber_adapter_converts_audio_to_text() {
-    let adapter =
-        TranscriberConverter::new(Arc::new(EchoTranscriber { text: "heard".into() }));
+    let adapter = TranscriberConverter::new(Arc::new(EchoTranscriber {
+        text: "heard".into(),
+    }));
     assert_eq!(
         adapter.conversions(),
         &[Conversion::new(MediaKind::Audio, MediaKind::Text)]
