@@ -112,6 +112,7 @@ fn empty_patch() -> CronUpdateParams {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn storage_cutover_cron_reads_error_when_storage_is_unavailable() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
