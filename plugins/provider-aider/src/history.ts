@@ -66,6 +66,12 @@ export function parseAiderHistory(
       continue;
     }
     
+    // If we were in a user turn and hit non-empty content, switch to assistant
+    if (currentRole === "user" && line.trim()) {
+      flush();
+      currentRole = "assistant";
+    }
+    
     currentText.push(line);
   }
   
