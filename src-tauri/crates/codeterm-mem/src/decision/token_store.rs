@@ -35,6 +35,11 @@ pub struct TokenStatus {
     pub mode_ok: Option<bool>,
 }
 
+#[cfg(windows)]
+pub fn restrict_directory_permissions(path: &std::path::Path) -> io::Result<()> {
+    windows::restrict_dir(path)
+}
+
 impl TokenStore {
     pub fn new(base_dir: PathBuf) -> Self {
         Self { base_dir }
