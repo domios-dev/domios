@@ -18,6 +18,16 @@ fn run(dir: &Path, args: &[&str]) {
     );
 }
 
+fn head(dir: &Path) -> String {
+    let out = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(dir)
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    String::from_utf8_lossy(&out.stdout).trim().to_string()
+}
+
 fn repo() -> TempDir {
     let dir = tempfile::tempdir().unwrap();
     run(dir.path(), &["init", "--initial-branch", "main"]);
@@ -666,7 +676,7 @@ fn another_repository_sha_is_preserved_for_lane_readiness() {
         },
         Some(ReportStatusArg::InReview),
         None,
-        Some(foreign_head),
+        Some(foreign_head.clone()),
         None,
         None,
         false,

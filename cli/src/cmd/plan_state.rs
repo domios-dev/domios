@@ -22,7 +22,7 @@ fn gate_keys(val: &Value, field: &str) -> Vec<String> {
 // Group gate records remain visible while dispatch stays available.
 fn render_regression_gates(val: &Value, out: &mut String) {
     let pending = gate_keys(val, "pending_regression_gates");
-    let unwaived = gate_keys(val, "blocking_regression_gates");
+    let blocking = gate_keys(val, "blocking_regression_gates");
     let retrospectives = gate_keys(val, "pending_group_retrospectives");
     let overrides = val
         .get("regression_overrides")
