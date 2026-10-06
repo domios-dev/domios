@@ -74,8 +74,9 @@ async function main() {
     assert.deepEqual(JSON.parse(String(requests[0].init?.body)), { target_peer_id: "peer-fixture", method: "POST", path: "/api/automation/sentinels/sentinel-a/stop", body: { workspace_id: scope.workspaceId, team_id: scope.teamId } });
     console.log("✓ peer stop refusal remains unavailable without local fallback");
     await assert.rejects(invoke("automation_graph_delete_sentinel", { ...scope, id: "sentinel-a" }));
-    assert.equal(new URL(requests[0].url).pathname, "/api/mesh/relay-to");
-    const deletionRelay = JSON.parse(String(requests[0].init?.body));
+    assert.equal(requests.length, 2);
+    assert.equal(new URL(requests[1].url).pathname, "/api/mesh/relay-to");
+    const deletionRelay = JSON.parse(String(requests[1].init?.body));
     assert.equal(deletionRelay.method, "DELETE");
     assert.equal(deletionRelay.path, "/api/automation/sentinels/sentinel-a");
     console.log("✓ peer delete stays behind the host's authority refusal");
