@@ -14,7 +14,7 @@ pub mod pad;
 pub mod persona;
 pub mod plan;
 pub mod plugin;
-pub mod sentinel;
+pub mod blueprint;
 pub mod service;
 pub mod sessions;
 pub mod spec;

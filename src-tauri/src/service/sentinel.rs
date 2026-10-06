@@ -38,25 +38,25 @@ fn caller_from_mux(
     tab_id: &str,
     nonce: Option<&str>,
 ) -> Result<SentinelCaller, String> {
-    let tab = mux.get_tab(tab_id).ok_or("sentinel caller tab not found")?;
+    let tab = mux.get_tab(tab_id).ok_or("blueprint caller tab not found")?;
     if tab.session_binding_nonce.is_some() && tab.session_binding_nonce.as_deref() != nonce {
-        return Err("sentinel requires the calling tab's current session binding nonce".into());
+        return Err("blueprint requires the calling tab's current session binding nonce".into());
     }
     let workspace = mux
         .find_workspace_for_tab(tab_id)
-        .ok_or("sentinel caller workspace not found")?;
+        .ok_or("blueprint caller workspace not found")?;
     let cwd = tab
         .cwd
         .clone()
         .or_else(|| tab.provisioned_cwd.clone())
         .filter(|cwd| !cwd.is_empty())
-        .ok_or("sentinel creator cwd is unavailable")?;
+        .ok_or("blueprint creator cwd is unavailable")?;
     if tab
         .team_id
         .as_ref()
         .is_some_and(|id| mux.get_team(id).is_none())
     {
-        return Err("sentinel creator Team is gone".into());
+        return Err("blueprint creator Team is gone".into());
     }
     Ok(SentinelCaller {
         tab: tab_id.into(),
@@ -85,17 +85,17 @@ impl ServiceContext {
         let handle = self
             .app_handle
             .try_state::<Handle>()
-            .ok_or("sentinels not initialized")?;
+            .ok_or("blueprints not initialized")?;
         let staged = {
             let mux = self.mux.read();
             if !caller_is_live(&mux, caller) {
-                return Err("sentinel creator or Team is gone".into());
+                return Err("blueprint creator or Team is gone".into());
             }
             if let Some(crate::sentinel::source::TabBinding::Tab(tab_id)) = &job.observe {
                 source::validate_tab_scope(&mux, &job, tab_id)?;
             }
             validate_send_scope(&mux, &job)?;
-            let tab = mux.get_tab(&caller.tab).ok_or("sentinel creator gone")?;
+            let tab = mux.get_tab(&caller.tab).ok_or("blueprint creator gone")?;
             job.agent_authored = tab.agent_type.is_some() && tab.session_binding_nonce.is_some();
             handle.store.lock().stage_insert(job.clone())
         };
@@ -120,7 +120,7 @@ impl ServiceContext {
         let handle = self
             .app_handle
             .try_state::<Handle>()
-            .ok_or("sentinels not initialized")?;
+            .ok_or("blueprints not initialized")?;
         let connected = classify::connected_model(self).is_some();
         let mut job = handle.store.lock().prepare(
             create,
@@ -163,7 +163,7 @@ impl ServiceContext {
         {
             let mux = self.mux.read();
             if !caller_is_live(&mux, caller) {
-                return Err("sentinel creator or Team is gone".into());
+                return Err("blueprint creator or Team is gone".into());
             }
             if let Some(crate::sentinel::source::TabBinding::Tab(tab_id)) = &job.observe {
                 source::validate_tab_scope(&mux, &job, tab_id)?;
@@ -184,14 +184,14 @@ impl ServiceContext {
         let handle = self
             .app_handle
             .try_state::<Handle>()
-            .ok_or("sentinels not initialized")?;
+            .ok_or("blueprints not initialized")?;
         let note = update.note.clone();
         let cause = update.cause_transition_id.clone();
         let authored_at = handle.store.lock().clock.now_ms();
         let updated = {
             let mux = self.mux.read();
             if !caller_is_live(&mux, caller) {
-                return Err("sentinel caller scope changed".into());
+                return Err("blueprint caller scope changed".into());
             }
             validate_send_scope(&mux, &update.job)?;
             let staged = handle.store.lock().stage_update_definition(
@@ -220,7 +220,7 @@ impl ServiceContext {
                 "note": note
             }))
         {
-            log::error!("sentinel definition update journal failed: {error}");
+            log::error!("blueprint definition update journal failed: {error}");
         }
         Ok(updated)
     }
@@ -246,7 +246,7 @@ impl ServiceContext {
         let handle = self
             .app_handle
             .try_state::<Handle>()
-            .ok_or("sentinels not initialized")?;
+            .ok_or("blueprints not initialized")?;
         let current = {
             let store = handle.store.lock();
             store.ensure_available()?;
@@ -254,7 +254,7 @@ impl ServiceContext {
                 .get(id)
                 .filter(|job| caller.can_amend(job))
                 .cloned()
-                .ok_or_else(|| format!("sentinel not found in this workspace and Team: {id}"))?
+                .ok_or_else(|| format!("blueprint not found in this workspace and Team: {id}"))?
         };
         if current.definition_version != expect_version {
             return Err(amend::version_conflict(current.definition_version));
@@ -279,7 +279,7 @@ impl ServiceContext {
         {
             let mux = self.mux.read();
             if !caller_is_live(&mux, caller) {
-                return Err("sentinel caller scope changed".into());
+                return Err("blueprint caller scope changed".into());
             }
             if let Some(crate::sentinel::source::TabBinding::Tab(tab_id)) = &update.job.observe {
                 source::validate_tab_scope(&mux, &update.job, tab_id)?;
@@ -297,9 +297,9 @@ impl ServiceContext {
         let handle = self
             .app_handle
             .try_state::<Handle>()
-            .ok_or("sentinels not initialized")?;
+            .ok_or("blueprints not initialized")?;
         if !caller_is_live(&self.mux.read(), caller) {
-            return Err("sentinel caller scope changed".into());
+            return Err("blueprint caller scope changed".into());
         }
         let (job, typed_history) = {
             let store = handle.store.lock();
@@ -308,7 +308,7 @@ impl ServiceContext {
                 .get(id)
                 .filter(|job| caller.can_amend(job))
                 .cloned()
-                .ok_or_else(|| format!("sentinel not found in this workspace and Team: {id}"))?;
+                .ok_or_else(|| format!("blueprint not found in this workspace and Team: {id}"))?;
             let typed = store.typed_history(id)?;
             (job, typed)
         };
@@ -320,7 +320,7 @@ impl ServiceContext {
                     .value;
                 let versions = crate::sentinel::storage::history_versions(records);
                 if versions.is_empty() {
-                    return Err(format!("sentinel history not found: {id}"));
+                    return Err(format!("blueprint history not found: {id}"));
                 }
                 Ok(amend::from_storage_history(job.id, versions))
             }
@@ -337,23 +337,23 @@ impl ServiceContext {
         let handle = self
             .app_handle
             .try_state::<Handle>()
-            .ok_or("sentinels not initialized")?;
+            .ok_or("blueprints not initialized")?;
         let staged = {
             let mux = self.mux.read();
             if !caller_is_live(&mux, caller) {
-                return Err("sentinel caller scope changed".into());
+                return Err("blueprint caller scope changed".into());
             }
             let mut store = handle.store.lock();
             store.ensure_available()?;
             if !store.get(id).is_some_and(|job| caller.can_amend(job)) {
                 return Err(format!(
-                    "sentinel not found in this workspace and Team: {id}"
+                    "blueprint not found in this workspace and Team: {id}"
                 ));
             }
             store.stage_resolve_escalation(id, transition_id)
         };
         if !staged.settle(&handle.store)? {
-            return Err("sentinel escalation resolution was not applied".into());
+            return Err("blueprint escalation resolution was not applied".into());
         }
         handle.store.lock().wake_stage(id);
         handle.notify();
@@ -362,7 +362,7 @@ impl ServiceContext {
             .lock()
             .get(id)
             .cloned()
-            .ok_or_else(|| format!("sentinel not found: {id}"))?;
+            .ok_or_else(|| format!("blueprint not found: {id}"))?;
         if let Err(error) = crate::service::supporter::runtime_with_notifications(self)
             .sentinel_event(serde_json::json!({
                 "time": chrono::Utc::now().timestamp(),
@@ -375,7 +375,7 @@ impl ServiceContext {
                 "action": "escalation_resolved"
             }))
         {
-            log::error!("sentinel escalation resolution journal failed: {error}");
+            log::error!("blueprint escalation resolution journal failed: {error}");
         }
         Ok(resolved)
     }
@@ -384,7 +384,7 @@ impl ServiceContext {
         let handle = self
             .app_handle
             .try_state::<Handle>()
-            .ok_or("sentinels not initialized")?;
+            .ok_or("blueprints not initialized")?;
         let store = handle.store.lock();
         store.ensure_available()?;
         let jobs = store
@@ -404,14 +404,14 @@ impl ServiceContext {
         let handle = self
             .app_handle
             .try_state::<Handle>()
-            .ok_or("sentinels not initialized")?;
+            .ok_or("blueprints not initialized")?;
         let store = handle.store.lock();
         store.ensure_available()?;
         let job = store
             .get(id)
             .filter(|job| caller.owns(job))
             .cloned()
-            .ok_or_else(|| format!("sentinel not found for this creator and Team: {id}"))?;
+            .ok_or_else(|| format!("blueprint not found for this creator and Team: {id}"))?;
         Ok(job)
     }
 
@@ -423,7 +423,7 @@ impl ServiceContext {
         let handle = self
             .app_handle
             .try_state::<Handle>()
-            .ok_or("sentinels not initialized")?;
+            .ok_or("blueprints not initialized")?;
         let staged = {
             let mux = self.mux.read();
             let live = mux.get_tab(&caller.tab).is_some_and(|tab| {
@@ -431,7 +431,7 @@ impl ServiceContext {
             }) && mux.find_workspace_for_tab(&caller.tab).as_deref()
                 == Some(&caller.workspace);
             if !live {
-                return Err("sentinel caller scope changed".into());
+                return Err("blueprint caller scope changed".into());
             }
             crate::sentinel::graph::validate_scope(
                 &mux,
@@ -441,7 +441,7 @@ impl ServiceContext {
             let mut store = handle.store.lock();
             store.ensure_available()?;
             if !store.get(id).is_some_and(|job| caller.owns(job)) {
-                return Err("sentinel not found for this creator and Team".into());
+                return Err("blueprint not found for this creator and Team".into());
             }
             store.stage_stop(id, "stopped_by_creator")
         };
@@ -470,12 +470,12 @@ fn validate_send_scope(
 ) -> Result<(), String> {
     for handler in job.routes.values().flatten().chain(&job.on_other) {
         if let crate::sentinel::machine::Route::Send(id) = &handler.action {
-            let target = mux.get_tab(id).ok_or("sentinel send target disappeared")?;
+            let target = mux.get_tab(id).ok_or("blueprint send target disappeared")?;
             if target.agent_type.is_none()
                 || target.team_id != job.team_id
                 || mux.find_workspace_for_tab(id).as_deref() != Some(&job.workspace_id)
             {
-                return Err("sentinel send target scope changed".into());
+                return Err("blueprint send target scope changed".into());
             }
         }
     }

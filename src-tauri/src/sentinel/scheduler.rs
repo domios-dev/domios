@@ -117,7 +117,7 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
     match crate::crash::shutdown::subscribe_sentinel_shutdown(callback) {
         Ok(subscription) => handle._shutdown = Some(Arc::new(subscription)),
         Err(error) => {
-            log::error!("[sentinel] shutdown registration failed: {error}");
+            log::error!("[blueprint] shutdown registration failed: {error}");
             handle.store.lock().close_admission();
             handle.probe_owner.close_admission();
             return;
@@ -127,7 +127,7 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
     wake::listen_any(svc.clone(), handle.clone());
     svc.app_handle.manage(handle.clone());
     if let Err(error) = handle.store.lock().ensure_available() {
-        log::error!("[sentinel] subsystem unavailable: {error}");
+        log::error!("[blueprint] subsystem unavailable: {error}");
         return;
     }
     let store = handle.store.clone();
@@ -153,13 +153,13 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
             let unavailable = store.lock().ensure_available().err();
             if let Some(error) = &unavailable {
                 if unavailable_incident.as_ref() != Some(error) {
-                    log::error!("[sentinel] scheduler unavailable: {error}");
+                    log::error!("[blueprint] scheduler unavailable: {error}");
                     unavailable_incident = Some(error.clone());
                 }
             } else {
                 unavailable_incident = None;
                 if let Err(error) = reconciliation {
-                    log::error!("[sentinel] unconfirmed commit reconciliation failed: {error}");
+                    log::error!("[blueprint] unconfirmed commit reconciliation failed: {error}");
                 }
                 let run_handle = Handle {
                     store: store.clone(),
@@ -204,11 +204,11 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
                     Err(error) => {
                         if let Some(unavailable) = store.lock().ensure_available().err() {
                             if unavailable_incident.as_ref() != Some(&unavailable) {
-                                log::error!("[sentinel] scheduler unavailable: {unavailable}");
+                                log::error!("[blueprint] scheduler unavailable: {unavailable}");
                                 unavailable_incident = Some(unavailable);
                             }
                         } else {
-                            log::error!("[sentinel] schedule persistence failed: {error}");
+                            log::error!("[blueprint] schedule persistence failed: {error}");
                         }
                     }
                 }
@@ -357,12 +357,12 @@ fn expire_escalations(store: &Arc<Mutex<Store>>, svc: &ServiceState) {
                     handlers: Vec::new(),
                 };
                 if let Err(error) = journal(svc, &job, &outcome, Stage::EscalationExpired) {
-                    log::error!("[sentinel] escalation expiry journal failed: {error}");
+                    log::error!("[blueprint] escalation expiry journal failed: {error}");
                 }
             }
             Ok(false) => continue,
             Err(error) => {
-                log::error!("[sentinel] escalation expiry persistence failed: {error}");
+                log::error!("[blueprint] escalation expiry persistence failed: {error}");
                 return;
             }
         }
@@ -385,7 +385,7 @@ pub fn record(
 ) -> std::io::Result<()> {
     if !outcome.evidence.matches(job) {
         return Err(std::io::Error::other(
-            "sentinel observation scope or state hash mismatch",
+            "blueprint observation scope or state hash mismatch",
         ));
     }
     let route_stage = matches!(
@@ -398,7 +398,7 @@ pub fn record(
             || outcome.verdict.is_none())
     {
         return Err(std::io::Error::other(
-            "sentinel route stage requires a confident transition",
+            "blueprint route stage requires a confident transition",
         ));
     }
     let action = match stage {
@@ -520,13 +520,13 @@ fn record_unconfirmed_failure(
         });
     if let Some(error) = result.persistence_error {
         log::error!(
-            "[sentinel] probe stop persistence failed: {error}; resource failure: {}",
+            "[blueprint] probe stop persistence failed: {error}; resource failure: {}",
             failure.reason()
         );
     }
     if let Some(error) = result.journal_error {
         log::error!(
-            "[sentinel] unconfirmed probe skip journal failed: {error}; resource failure: {}",
+            "[blueprint] unconfirmed probe skip journal failed: {error}; resource failure: {}",
             failure.reason()
         );
     }
@@ -661,13 +661,13 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         |job, transition, handler, verdict| {
             use super::handlers::Status;
             if !routes::owner_live(svc, job) {
-                return Err("sentinel creator or Team is gone".into());
+                return Err("Blueprint owner or Team is gone".into());
             }
             if handler.target.is_some()
                 && crate::service::sentinel::graph::target_identity(svc, job, &handler.action)?
                     != handler.target
             {
-                return Err("sentinel exact target scope changed".into());
+                return Err("blueprint exact target scope changed".into());
             }
             match &handler.action {
                 machine::Route::Sentinel(target) => {
@@ -886,7 +886,7 @@ pub(super) fn advance(
         if let Err(error) = storage::commit(store, |current| {
             current.stage_finish_handler_result(&job.id, transition, &accepted, effect)
         }) {
-            log::error!("[sentinel] handler result persistence failed: {error}");
+            log::error!("[blueprint] handler result persistence failed: {error}");
             return;
         }
         let _ = write_journal(&job, &handler_outcome, stage);

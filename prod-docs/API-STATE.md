@@ -4,7 +4,7 @@ Secrets, sessions, web mirror, diagnostics, usage, logs, configuration, and upda
 
 ## Storage authority and recovery
 
-Each instance has one typed Storage owner for migrated desk, cron, and Sentinel state in `storage/state.db` beneath that instance's data directory. Storage opens before restore and schedulers start. Its one-time importer seals and verifies a copy of recognized legacy inputs under `storage/legacy-originals/`; it retains the original files and switches authority only after archive and semantic checks pass. A failed open, import, or verification leaves migrated state unavailable. Storage-dependent API operations return 503 with the Storage-unavailable error; they do not return or create an empty substitute.
+Each instance has one typed Storage owner for migrated desk, cron, and Blueprint state in `storage/state.db` beneath that instance's data directory. Storage opens before restore and schedulers start. Its one-time importer seals and verifies a copy of recognized legacy inputs under `storage/legacy-originals/`; it retains the original files and switches authority only after archive and semantic checks pass. A failed open, import, or verification leaves migrated state unavailable. Storage-dependent API operations return 503 with the Storage-unavailable error; they do not return or create an empty substitute.
 
 For a Storage backup, stop Domios cleanly and copy the complete `storage/` directory, including `state.db`, referenced assets, and the import archive. Restore the complete backup into an empty `storage/` root with a Storage-compatible build. Never downgrade by running an older binary against the retained legacy files: writes made after cutover are absent there. There is no supported in-place downgrade or JSON rollback; preserve both copies and use a reviewed compatible recovery path.
 
@@ -218,4 +218,4 @@ The HTTP response returns immediately (`{"status": "updating", "version": "..."}
 
 Related documents — service registration, health, and activity: `codeterm docs API-SERVICES`. Bridge and cron integrations: `codeterm docs API-INTEGRATIONS`.
 
-<!-- revision: 25 -->
+<!-- revision: 26 -->

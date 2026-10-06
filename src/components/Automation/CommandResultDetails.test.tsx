@@ -5,7 +5,7 @@ import { Window } from "happy-dom";
 import { AutomationDetails } from "./AutomationDetails";
 import { COMMAND_FACT, COMMAND_VALUE, commandResultLabel } from "./CommandResultDetails";
 import { fixtureGraph, fixtureNode, sentinelIdentity } from "./fixtures.testdata";
-import type { AutomationHandler, AutomationHandlerResult, AutomationNode, CommandResultMetadata } from "./types";
+import { automationKindLabel, type AutomationHandler, type AutomationHandlerResult, type AutomationNode, type CommandResultMetadata } from "./types";
 
 const window = new Window({ url: "http://localhost/" });
 for (const key of ["window", "document", "HTMLElement", "Element", "Node", "Event", "KeyboardEvent", "navigator"]) {
@@ -251,7 +251,7 @@ test("noncommand handlers keep their existing detail without command facts", asy
   const view = await mount(node);
   try {
     assert.equal(panel(view.host).querySelectorAll("dl[aria-label]").length, 0);
-    for (const handler of node.outcomes.flatMap((outcome) => outcome.handlers)) assert.ok(panel(view.host).textContent?.includes(`${handler.id} · ${handler.type} · ${handler.availability}`));
+    for (const handler of node.outcomes.flatMap((outcome) => outcome.handlers)) assert.ok(panel(view.host).textContent?.includes(`${handler.id} · ${automationKindLabel(handler.type)} · ${handler.availability}`));
     for (const entry of node.last_result!.handlers) assert.ok(panel(view.host).textContent?.includes(entry.execution_id!));
   } finally { await view.close(); }
 });
