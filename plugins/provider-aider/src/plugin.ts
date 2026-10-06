@@ -74,6 +74,18 @@ function parsePrompt(text: string): ParsedPrompt | null {
   return null;
 }
 
+function parsePromptWithContext(text: string): ParsedPrompt | null {
+  const screen = String(text || "");
+  const lines = screen.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const question = lines[i].trim();
+    if (!PROMPT_QUESTION_RE.test(question)) continue;
+    const options: [string, string][] = [["Yes", "1"], ["No", "2"]];
+    return { question, options };
+  }
+  return null;
+}
+
 function promptSafeChoice(prompt: ParsedPrompt | null | undefined, screen: string): string | null {
   if (!prompt || !prompt.question) return null;
   if (GITIGNORE_QUESTION_RE.test(prompt.question)) return "1";
@@ -127,11 +139,11 @@ const plugin: PluginModule = {
   },
 
   hasEventMarkers(chunk: string): boolean {
-    return parsePrompt(chunk) !== null;
+    return parsePrompt(chunk) !== null || parsePromptWithContext(chunk) !== null;
   },
 
   detectEvents(text: string): string[] {
-    return parsePrompt(text) ? ["permission_request"] : [];
+    return (parsePrompt(text) || parsePromptWithContext(text)) ? ["permission_request"] : [];
   },
 
   discoverModels(): ModelInfo[] | null {
@@ -146,7 +158,7 @@ const plugin: PluginModule = {
     return promptSafeChoice(prompt, prompt.question);
   },
 
-  parsePrompt,
+  parsePrompt: parsePromptWithContext,
 
   buildPromptResponse(optionIndex: number, _screen?: string): string[] {
     const ENTER = "DQ==";
@@ -260,4 +272,4 @@ const plugin: PluginModule = {
 };
 
 export default plugin;
-export { extractBannerModel, lastNonEmptyLine, MODE_PROMPT_RE, promptSafeChoice };
+export { extractBannerModel, lastNonEmptyLine, MODE_PROMPT_RE, promptSafeChoice, parsePromptWithContext };
