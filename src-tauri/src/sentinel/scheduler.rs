@@ -589,7 +589,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
     if lease.cancelled.load(Ordering::SeqCst) {
         return;
     }
-    if !routes::creator_live(svc, &lease.job) {
+    if !routes::owner_live(svc, &lease.job) {
         let _ = storage::commit(&handle.store, |store| {
             store.stage_stop(&lease.job.id, "creator_gone")
         });
@@ -653,7 +653,7 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         &output,
         || classify::classify(svc, &lease.job, &output.text, remaining),
         |job, transition, handler| {
-            if !routes::creator_live(svc, job) {
+            if !routes::owner_live(svc, job) {
                 return Ok(None);
             }
             let staged = handle
@@ -664,8 +664,8 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         },
         |job, transition, handler, verdict| {
             use super::handlers::Status;
-            if !routes::creator_live(svc, job) {
-                return Err("blueprint creator or Team is gone".into());
+            if !routes::owner_live(svc, job) {
+                return Err("Blueprint owner or Team is gone".into());
             }
             if handler.target.is_some()
                 && crate::service::sentinel::graph::target_identity(svc, job, &handler.action)?

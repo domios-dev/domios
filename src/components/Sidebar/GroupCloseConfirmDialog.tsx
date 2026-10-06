@@ -6,6 +6,7 @@ export function GroupCloseConfirmDialog({
   orchestratorTitle,
   members,
   crons = [],
+  blueprints = [],
   lanes = [],
   onConfirm,
   onCancel,
@@ -14,6 +15,7 @@ export function GroupCloseConfirmDialog({
   orchestratorTitle: string;
   members: OrchestrationGroupMember[];
   crons?: readonly string[];
+  blueprints?: readonly string[];
   lanes?: readonly string[];
   onConfirm: () => void;
   onCancel: () => void;
@@ -24,6 +26,9 @@ export function GroupCloseConfirmDialog({
     <>
       <div className="fixed inset-0 z-50 bg-black/40" onClick={onCancel} />
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={isTeam ? "Close Team" : "Close orchestration group"}
         data-testid="group-close-confirm"
         className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-[var(--ct-surface)] border border-[var(--ct-border)] rounded-lg shadow-2xl w-[340px] overflow-hidden"
       >
@@ -54,6 +59,8 @@ export function GroupCloseConfirmDialog({
                 {crons.map((cron, index) => <li key={`${cron}-${index}`}>{cron}</li>)}
               </ul>
             )}
+            <div className="pt-1">Running Blueprints ({blueprints.length})</div>
+            {blueprints.length > 0 && <ul className="py-1 text-[var(--ct-fg)]">{blueprints.map((blueprint) => <li key={blueprint}>{blueprint}</li>)}</ul>}
             <div className="pt-1">Lanes ({lanes.length})</div>
             {lanes.length > 0 && (
               <ul className="py-1 text-[var(--ct-fg)]">

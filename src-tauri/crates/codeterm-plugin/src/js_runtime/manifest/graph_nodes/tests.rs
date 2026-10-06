@@ -1,5 +1,5 @@
 use crate::js_runtime::manifest::graph_nodes::{
-    GraphNodesCap, NodeScalarType, NodeSchema, NodePropertySchema, MAX_SCHEMA_PROPERTIES,
+    GraphNodesCap, NodePropertySchema, NodeScalarType, NodeSchema, MAX_SCHEMA_PROPERTIES,
 };
 use crate::js_runtime::manifest::PluginManifest;
 use serde_json::json;
@@ -64,16 +64,24 @@ fn graph_nodes_accepts_converters_and_event_sources() {
     assert_eq!(params.required, vec!["chat_id".to_string()]);
     let payload = source.payload.as_ref().expect("payload schema");
     assert_eq!(payload.properties.len(), 3);
-    assert!(payload.validate_instance(&json!({"chat_id":"1","text":"hi"})).is_ok());
+    assert!(payload
+        .validate_instance(&json!({"chat_id":"1","text":"hi"}))
+        .is_ok());
 }
 
 #[test]
 fn graph_nodes_omitted_lists_default_to_empty_but_empty_block_is_refused() {
-    let only_events = parse_cap(r#"{"eventSources":[{"kind":"a.b","title":"T"}]}"#).expect("events only");
+    let only_events =
+        parse_cap(r#"{"eventSources":[{"kind":"a.b","title":"T"}]}"#).expect("events only");
     assert!(only_events.converters.is_empty());
     assert!(!only_events.is_empty());
 
-    for empty in ["{}", r#"{"converters":[]}"#, r#"{"eventSources":[]}"#, r#"{"converters":[],"eventSources":[]}"#] {
+    for empty in [
+        "{}",
+        r#"{"converters":[]}"#,
+        r#"{"eventSources":[]}"#,
+        r#"{"converters":[],"eventSources":[]}"#,
+    ] {
         let err = err_for(empty);
         assert!(err.contains("capabilities.graphNodes"), "{err}");
         assert!(err.contains("at least one"), "{err}");
@@ -111,7 +119,8 @@ fn graph_nodes_converters_refuse_bad_pairs() {
     assert!(same.contains("converters[0]"), "{same}");
     assert!(same.contains("both \"text\""), "{same}");
 
-    let duplicate = err_for(r#"{"converters":[{"from":"audio","to":"text"},{"from":"audio","to":"text"}]}"#);
+    let duplicate =
+        err_for(r#"{"converters":[{"from":"audio","to":"text"},{"from":"audio","to":"text"}]}"#);
     assert!(duplicate.contains("converters[1]"), "{duplicate}");
     assert!(duplicate.contains("duplicate conversion"), "{duplicate}");
 
@@ -160,22 +169,27 @@ fn graph_nodes_event_sources_refuse_bad_kind_title_and_duplicates() {
         "telegram.mes sage",
         "telegram.mes-sage",
     ] {
-        let err = err_for(&format!(r#"{{"eventSources":[{{"kind":"{kind}","title":"T"}}]}}"#));
+        let err = err_for(&format!(
+            r#"{{"eventSources":[{{"kind":"{kind}","title":"T"}}]}}"#
+        ));
         assert!(err.contains("eventSources[0].kind"), "kind {kind}: {err}");
     }
 
     let long_kind = format!("a.{}", "b".repeat(64));
-    let err = err_for(&format!(r#"{{"eventSources":[{{"kind":"{long_kind}","title":"T"}}]}}"#));
+    let err = err_for(&format!(
+        r#"{{"eventSources":[{{"kind":"{long_kind}","title":"T"}}]}}"#
+    ));
     assert!(err.contains("at most 64 bytes"), "{err}");
 
     for title in [String::new(), "t".repeat(129)] {
-        let err = err_for(&format!(r#"{{"eventSources":[{{"kind":"a.b","title":"{title}"}}]}}"#));
+        let err = err_for(&format!(
+            r#"{{"eventSources":[{{"kind":"a.b","title":"{title}"}}]}}"#
+        ));
         assert!(err.contains("eventSources[0].title"), "{err}");
     }
 
-    let duplicate = err_for(
-        r#"{"eventSources":[{"kind":"a.b","title":"One"},{"kind":"a.b","title":"Two"}]}"#,
-    );
+    let duplicate =
+        err_for(r#"{"eventSources":[{"kind":"a.b","title":"One"},{"kind":"a.b","title":"Two"}]}"#);
     assert!(duplicate.contains("already declared"), "{duplicate}");
 
     let stray = err_for(r#"{"eventSources":[{"kind":"a.b","title":"T","chan":1}]}"#);
@@ -231,15 +245,36 @@ fn graph_nodes_schema_accepts_scalar_and_array_properties() {
 #[test]
 fn graph_nodes_schema_refuses_the_open_json_schema_surface() {
     for (label, params) in [
-        ("nested object", r#"{"type":"object","properties":{"a":{"type":"object"}}}"#),
+        (
+            "nested object",
+            r#"{"type":"object","properties":{"a":{"type":"object"}}}"#,
+        ),
         ("ref", r##"{"type":"object","$ref":"#/defs/x"}"##),
         ("oneOf", r#"{"type":"object","oneOf":[]}"#),
-        ("anyOf", r#"{"type":"object","properties":{"a":{"anyOf":[]}}}"#),
-        ("patternProperties", r#"{"type":"object","patternProperties":{}}"#),
-        ("additionalProperties true", r#"{"type":"object","additionalProperties":true}"#),
-        ("array of arrays", r#"{"type":"object","properties":{"a":{"type":"array","items":{"type":"array","maxItems":2},"maxItems":2}}}"#),
-        ("object items", r#"{"type":"object","properties":{"a":{"type":"array","items":{"type":"object"},"maxItems":2}}}"#),
-        ("root not object", r#"{"type":"array","items":{"type":"string"}}"#),
+        (
+            "anyOf",
+            r#"{"type":"object","properties":{"a":{"anyOf":[]}}}"#,
+        ),
+        (
+            "patternProperties",
+            r#"{"type":"object","patternProperties":{}}"#,
+        ),
+        (
+            "additionalProperties true",
+            r#"{"type":"object","additionalProperties":true}"#,
+        ),
+        (
+            "array of arrays",
+            r#"{"type":"object","properties":{"a":{"type":"array","items":{"type":"array","maxItems":2},"maxItems":2}}}"#,
+        ),
+        (
+            "object items",
+            r#"{"type":"object","properties":{"a":{"type":"array","items":{"type":"object"},"maxItems":2}}}"#,
+        ),
+        (
+            "root not object",
+            r#"{"type":"array","items":{"type":"string"}}"#,
+        ),
     ] {
         let err = err_for(&format!(
             r#"{{"eventSources":[{{"kind":"a.b","title":"T","params":{params}}}]}}"#
@@ -247,7 +282,9 @@ fn graph_nodes_schema_refuses_the_open_json_schema_surface() {
         assert!(err.contains("eventSources[0].params"), "{label}: {err}");
     }
 
-    let ok = schema(r#"{"type":"object","properties":{"a":{"type":"string"}},"additionalProperties":false}"#);
+    let ok = schema(
+        r#"{"type":"object","properties":{"a":{"type":"string"}},"additionalProperties":false}"#,
+    );
     assert_eq!(ok.properties.len(), 1);
 }
 
@@ -263,15 +300,42 @@ fn graph_nodes_schema_bounds_properties_keywords_and_required() {
     assert!(err.contains("at most 32 properties"), "{err}");
 
     for (label, params) in [
-        ("required not declared", r#"{"type":"object","properties":{"a":{"type":"string"}},"required":["b"]}"#),
-        ("maxLength on integer", r#"{"type":"object","properties":{"a":{"type":"integer","maxLength":8}}}"#),
-        ("enum on integer", r#"{"type":"object","properties":{"a":{"type":"integer","enum":["1"]}}}"#),
-        ("maxLength over cap", r#"{"type":"object","properties":{"a":{"type":"string","maxLength":65537}}}"#),
-        ("maxItems over cap", r#"{"type":"object","properties":{"a":{"type":"array","items":{"type":"string"},"maxItems":257}}}"#),
-        ("array without maxItems", r#"{"type":"object","properties":{"a":{"type":"array","items":{"type":"string"}}}}"#),
-        ("array without items", r#"{"type":"object","properties":{"a":{"type":"array","maxItems":2}}}"#),
-        ("unknown property keyword", r#"{"type":"object","properties":{"a":{"type":"string","pattern":"^x"}}}"#),
-        ("enum not strings", r#"{"type":"object","properties":{"a":{"type":"string","enum":[1]}}}"#),
+        (
+            "required not declared",
+            r#"{"type":"object","properties":{"a":{"type":"string"}},"required":["b"]}"#,
+        ),
+        (
+            "maxLength on integer",
+            r#"{"type":"object","properties":{"a":{"type":"integer","maxLength":8}}}"#,
+        ),
+        (
+            "enum on integer",
+            r#"{"type":"object","properties":{"a":{"type":"integer","enum":["1"]}}}"#,
+        ),
+        (
+            "maxLength over cap",
+            r#"{"type":"object","properties":{"a":{"type":"string","maxLength":65537}}}"#,
+        ),
+        (
+            "maxItems over cap",
+            r#"{"type":"object","properties":{"a":{"type":"array","items":{"type":"string"},"maxItems":257}}}"#,
+        ),
+        (
+            "array without maxItems",
+            r#"{"type":"object","properties":{"a":{"type":"array","items":{"type":"string"}}}}"#,
+        ),
+        (
+            "array without items",
+            r#"{"type":"object","properties":{"a":{"type":"array","maxItems":2}}}"#,
+        ),
+        (
+            "unknown property keyword",
+            r#"{"type":"object","properties":{"a":{"type":"string","pattern":"^x"}}}"#,
+        ),
+        (
+            "enum not strings",
+            r#"{"type":"object","properties":{"a":{"type":"string","enum":[1]}}}"#,
+        ),
     ] {
         let err = err_for(&format!(
             r#"{{"eventSources":[{{"kind":"a.b","title":"T","params":{params}}}]}}"#
@@ -298,18 +362,50 @@ fn graph_nodes_validate_instance_table() {
     );
 
     for (label, instance, ok) in [
-        ("full instance", json!({"text":"ok","count":3,"flag":true,"tags":[1,2]}), true),
+        (
+            "full instance",
+            json!({"text":"ok","count":3,"flag":true,"tags":[1,2]}),
+            true,
+        ),
         ("optional absent", json!({"text":"fine","count":0}), true),
-        ("null not allowed for optional", json!({"text":"ok","count":1,"flag":null}), false),
-        ("unknown property", json!({"text":"ok","count":1,"extra":"x"}), false),
+        (
+            "null not allowed for optional",
+            json!({"text":"ok","count":1,"flag":null}),
+            false,
+        ),
+        (
+            "unknown property",
+            json!({"text":"ok","count":1,"extra":"x"}),
+            false,
+        ),
         ("missing required", json!({"text":"ok"}), false),
         ("string type wrong", json!({"text":5,"count":1}), false),
-        ("integer type wrong", json!({"text":"ok","count":1.5}), false),
-        ("boolean type wrong", json!({"text":"ok","count":1,"flag":"yes"}), false),
-        ("over-length string", json!({"text":"abcdefghij","count":1}), false),
+        (
+            "integer type wrong",
+            json!({"text":"ok","count":1.5}),
+            false,
+        ),
+        (
+            "boolean type wrong",
+            json!({"text":"ok","count":1,"flag":"yes"}),
+            false,
+        ),
+        (
+            "over-length string",
+            json!({"text":"abcdefghij","count":1}),
+            false,
+        ),
         ("enum violation", json!({"text":"meh","count":1}), false),
-        ("over-size array", json!({"text":"ok","count":1,"tags":[1,2,3]}), false),
-        ("array item type wrong", json!({"text":"ok","count":1,"tags":["x"]}), false),
+        (
+            "over-size array",
+            json!({"text":"ok","count":1,"tags":[1,2,3]}),
+            false,
+        ),
+        (
+            "array item type wrong",
+            json!({"text":"ok","count":1,"tags":["x"]}),
+            false,
+        ),
         ("instance not object", json!("text"), false),
     ] {
         let result = schema.validate_instance(&instance);

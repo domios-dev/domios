@@ -216,7 +216,8 @@ pub fn validate(
     }
     if !connected && patterns.is_empty() {
         return Err(
-            "blueprint requires a connected Supporter Choice adapter or --match bucket=regex".into(),
+            "blueprint requires a connected Supporter Choice adapter or --match bucket=regex"
+                .into(),
         );
     }
     Ok(())

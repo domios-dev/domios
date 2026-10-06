@@ -1,5 +1,6 @@
 pub mod agent;
 mod agent_spawn;
+pub mod blueprint;
 pub mod bridge;
 pub mod capabilities;
 pub mod cron;
@@ -62,7 +63,6 @@ pub mod report_guard;
 pub mod report_lane;
 pub mod resolved_text;
 pub mod send_text;
-pub mod blueprint;
 pub mod service;
 pub mod sessions;
 pub mod spec;

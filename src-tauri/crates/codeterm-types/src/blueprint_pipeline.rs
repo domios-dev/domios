@@ -153,7 +153,7 @@ impl StepKind {
                 Ok(buckets.iter().cloned().chain(["other".into()]).collect())
             }
             Self::Filter { bucket, .. } => {
-                let mut outcomes = ["done".into(), "failed".into()].into();
+                let mut outcomes = BTreeSet::from(["done".to_string(), "failed".to_string()]);
                 if let Some(bucket) = bucket {
                     validate_bucket("bucket", bucket)?;
                     outcomes.insert(bucket.clone());
@@ -424,7 +424,7 @@ pub fn converter_path(
     if from == to {
         return Some(Vec::new());
     }
-    let mut frontier = vec![(from, Vec::new())];
+    let mut frontier: Vec<(MediaKind, Vec<usize>)> = vec![(from, Vec::new())];
     while !frontier.is_empty() {
         let mut next = Vec::new();
         for (kind, path) in frontier {

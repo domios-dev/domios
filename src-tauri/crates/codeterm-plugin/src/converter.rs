@@ -68,7 +68,11 @@ impl std::fmt::Display for ConvertError {
             Self::InvalidRequest(e) => write!(f, "invalid convert request: {e}"),
             Self::RequestFailed(e) => write!(f, "convert request failed: {e}"),
             Self::OutputOutsideDir(p) => {
-                write!(f, "converted file outside the output directory: {}", p.display())
+                write!(
+                    f,
+                    "converted file outside the output directory: {}",
+                    p.display()
+                )
             }
             Self::NoOutput => write!(f, "empty conversion result"),
             Self::DeadlineExceeded => write!(f, "convert deadline exceeded"),
@@ -122,7 +126,9 @@ impl ConverterKey {
 
 impl std::fmt::Debug for ConverterKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("ConverterKey").field(&self.0.conversions()).finish()
+        f.debug_tuple("ConverterKey")
+            .field(&self.0.conversions())
+            .finish()
     }
 }
 
@@ -132,7 +138,10 @@ pub enum Step {
     /// `from == to == text`: there is nothing to convert.
     Identity,
     /// One invocation of `key`, which declares `conversion`.
-    Convert { key: ConverterKey, conversion: Conversion },
+    Convert {
+        key: ConverterKey,
+        conversion: Conversion,
+    },
 }
 
 impl PartialEq for Step {
@@ -270,9 +279,7 @@ impl ConverterRegistry {
 
     /// Remove every converter `id` contributed, if present.
     pub fn unregister(&self, id: &str) {
-        self.entries
-            .write()
-            .retain(|entry| entry.id.as_str() != id);
+        self.entries.write().retain(|entry| entry.id.as_str() != id);
     }
 
     /// The converters `id` contributed (empty when it registered none).
