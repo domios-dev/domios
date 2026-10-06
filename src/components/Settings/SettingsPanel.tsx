@@ -28,7 +28,7 @@ import { IntegrationsTab } from "./IntegrationsTab";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
 import { JobsView } from "../Jobs/JobsView";
-import type { JobsWorkspace } from "../Jobs/JobsFilterBar";
+import { jobsEntryFilter, type JobsWorkspace } from "../Jobs/jobsLayout";
 import { HelpPanel } from "../../help/HelpPanel";
 import type { HelpSectionId } from "../../help/types";
 import type { GuideRequest } from "../../help/guideNavigation";
@@ -485,9 +485,9 @@ export function SettingsPanel({
             )}
 
             {top.kind === "section" && top.id === "jobs" && (
-              <SettingsPage title="Jobs" subtitle="Crons and Sentinel graphs on this machine.">
-                <JobsView placement="settings" workspaces={workspaces} teams={teams} />
-              </SettingsPage>
+              <div className="-mx-5 -my-5 h-[calc(100%+2.5rem)] min-h-[420px]" data-settings-page="jobs">
+                <JobsView workspaces={workspaces} teams={teams} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={pop} />
+              </div>
             )}
 
             {top.kind === "section" && top.id === "logs" && (
