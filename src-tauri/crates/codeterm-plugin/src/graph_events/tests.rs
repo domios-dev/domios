@@ -190,7 +190,7 @@ fn graph_events_subscription_queue_is_bounded_and_delivers_each_admission_once()
                 event_id: &index.to_string(),
                 payload: &payload,
                 payload_bytes: 17,
-                now_ms: index as u64,
+                now_ms: index as u64 * 60_001,
             }),
             AdmissionDecision::Admit
         );
@@ -204,7 +204,7 @@ fn graph_events_subscription_queue_is_bounded_and_delivers_each_admission_once()
             event_id: "overflow",
             payload: &payload,
             payload_bytes: 17,
-            now_ms: 65,
+            now_ms: 65 * 60_001,
         }),
         AdmissionDecision::Refuse(AdmitRefusal::Backpressure)
     );
