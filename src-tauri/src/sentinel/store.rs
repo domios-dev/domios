@@ -124,6 +124,7 @@ pub struct Owner {
 pub struct Lease {
     pub job: Sentinel,
     pub(super) cancelled: Arc<Cancellation>,
+    pub(super) event: Option<codeterm_plugin::graph_events::EventEnvelope>,
 }
 
 #[cfg(test)]
@@ -172,6 +173,37 @@ pub(super) enum ScheduleChange {
 }
 
 impl Store {
+    pub(crate) fn stage_event_lease(
+        &mut self,
+        event: codeterm_plugin::graph_events::EventEnvelope,
+    ) -> Option<Lease> {
+        if self.admission_closed || self.ensure_available().is_err() {
+            return None;
+        }
+        let now = self.clock.now_ms();
+        let job = self.jobs.iter().find(|job| job.id == event.pipeline_id)?;
+        let matches_kind = job.pipeline.as_ref().is_some_and(|pipeline| {
+            matches!(&pipeline.trigger, codeterm_types::blueprint_pipeline::Trigger::Event { kind, .. } if kind == &event.kind)
+        });
+        if !matches_kind
+            || job.machine.stopped
+            || job.machine.paused
+            || job.machine.held.is_some()
+            || job.expires_at.is_some_and(|at| now >= at)
+            || self.active.contains_key(&job.id)
+        {
+            return None;
+        }
+        let job = job.clone();
+        let cancelled = Arc::new(Cancellation::new(false));
+        self.active.insert(job.id.clone(), cancelled.clone());
+        Some(Lease {
+            job,
+            cancelled,
+            event: Some(event),
+        })
+    }
+
     pub fn committed_revision(&self, workspace: &str, team: Option<&str>) -> Option<&str> {
         self.committed_revisions
             .get(&(workspace.into(), team.map(str::to_owned)))
@@ -748,7 +780,15 @@ impl Store {
                 let active = self.active.contains_key(&job.id);
                 let waiting_for_run = matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
                     && job.run.is_none();
-                let next = if job.machine.paused || active || waiting_for_run {
+                let event_trigger = job.pipeline.as_ref().is_some_and(|pipeline| {
+                    matches!(
+                        &pipeline.trigger,
+                        codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+                    )
+                });
+                let next = if event_trigger {
+                    None
+                } else if job.machine.paused || active || waiting_for_run {
                     None
                 } else if job.machine.held.is_some() {
                     super::escalation::expiry_at(job)
@@ -763,6 +803,24 @@ impl Store {
             .map(|at| at.saturating_sub(now))
             .unwrap_or(60_000)
             .min(60_000)
+    }
+
+    pub fn event_wait_only(&self) -> bool {
+        let live = self
+            .jobs
+            .iter()
+            .filter(|job| !job.machine.stopped)
+            .collect::<Vec<_>>();
+        !live.is_empty()
+            && live.iter().all(|job| {
+                job.expires_at.is_none()
+                    && job.pipeline.as_ref().is_some_and(|pipeline| {
+                        matches!(
+                            &pipeline.trigger,
+                            codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+                        )
+                    })
+            })
     }
 }
 

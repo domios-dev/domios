@@ -37,7 +37,7 @@ pub enum Trigger {
         every: String,
     },
     Event {
-        source: String,
+        kind: String,
         params: Value,
     },
     Input {
@@ -219,9 +219,9 @@ pub fn validate(
         Trigger::Schedule { every } if !valid_duration(every) => {
             error(&mut errors, "trigger.every", "must be a positive duration")
         }
-        Trigger::Event { source, .. } if !valid_name(source) => error(
+        Trigger::Event { kind, .. } if !valid_name(kind) => error(
             &mut errors,
-            "trigger.source",
+            "trigger.kind",
             "must be a bounded capability kind",
         ),
         Trigger::Input {
@@ -402,7 +402,7 @@ pub fn validate(
 }
 
 pub fn trigger_unavailable(trigger: &Trigger) -> bool {
-    !matches!(trigger, Trigger::Schedule { .. })
+    !matches!(trigger, Trigger::Schedule { .. } | Trigger::Event { .. })
 }
 
 pub fn ensure_trigger_available(trigger: &Trigger) -> Result<(), ValidationError> {
@@ -413,6 +413,56 @@ pub fn ensure_trigger_available(trigger: &Trigger) -> Result<(), ValidationError
         })
     } else {
         Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubscriptionOwnerState {
+    Active,
+    Stopped,
+    Expired,
+    OwnerClosed,
+    TeamClosed,
+    Amended,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubscriptionProviderState {
+    Available,
+    Missing,
+    Ungranted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubscriptionAction {
+    Subscribe,
+    Unsubscribe,
+    Unavailable,
+    Keep,
+}
+
+pub fn next_subscription_action(
+    subscribed: bool,
+    owner: SubscriptionOwnerState,
+    provider: SubscriptionProviderState,
+) -> SubscriptionAction {
+    if owner != SubscriptionOwnerState::Active {
+        return if subscribed {
+            SubscriptionAction::Unsubscribe
+        } else {
+            SubscriptionAction::Keep
+        };
+    }
+    match provider {
+        SubscriptionProviderState::Available if subscribed => SubscriptionAction::Keep,
+        SubscriptionProviderState::Available => SubscriptionAction::Subscribe,
+        SubscriptionProviderState::Missing | SubscriptionProviderState::Ungranted => {
+            if subscribed {
+                SubscriptionAction::Unsubscribe
+            } else {
+                SubscriptionAction::Unavailable
+            }
+        }
     }
 }
 
@@ -932,25 +982,50 @@ mod tests {
     }
 
     #[test]
-    fn blueprint_pipeline_event_and_input_triggers_refuse_until_runtime_is_available() {
+    fn blueprint_pipeline_event_triggers_are_available_and_input_waits_for_runtime() {
         assert!(ensure_trigger_available(&Trigger::Schedule {
             every: "20s".into()
         })
         .is_ok());
-        for trigger in [
-            Trigger::Event {
-                source: "fixture.event".into(),
-                params: Value::Null,
-            },
-            Trigger::Input {
+        assert!(ensure_trigger_available(&Trigger::Event {
+            kind: "fixture.event".into(),
+            params: Value::Null,
+        })
+        .is_ok());
+        assert_eq!(
+            ensure_trigger_available(&Trigger::Input {
                 kind: MediaKind::Text,
                 source: DataRef::Text("hello".into()),
                 convert_to: None,
-            },
+            })
+            .unwrap_err()
+            .reason,
+            "trigger_unavailable"
+        );
+    }
+
+    #[test]
+    fn blueprint_event_subscription_action_table_covers_owner_and_provider_states() {
+        use SubscriptionAction::*;
+        use SubscriptionOwnerState::*;
+        use SubscriptionProviderState::*;
+        for (subscribed, owner, provider, expected) in [
+            (false, Active, Available, Subscribe),
+            (true, Active, Available, Keep),
+            (false, Active, Missing, Unavailable),
+            (false, Active, Ungranted, Unavailable),
+            (true, Active, Missing, Unsubscribe),
+            (true, Active, Ungranted, Unsubscribe),
+            (true, Stopped, Available, Unsubscribe),
+            (true, Expired, Available, Unsubscribe),
+            (true, OwnerClosed, Available, Unsubscribe),
+            (true, TeamClosed, Available, Unsubscribe),
+            (true, Amended, Available, Unsubscribe),
+            (false, Stopped, Available, Keep),
         ] {
             assert_eq!(
-                ensure_trigger_available(&trigger).unwrap_err().reason,
-                "trigger_unavailable"
+                next_subscription_action(subscribed, owner, provider),
+                expected
             );
         }
     }

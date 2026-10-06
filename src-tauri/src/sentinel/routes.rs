@@ -44,6 +44,60 @@ pub(super) fn notify_run_unbound(svc: &ServiceContext, notice: &StopNotice) {
     );
 }
 
+pub(super) fn notify_trigger_unavailable(svc: &ServiceContext, job: &Sentinel, reason: &str) {
+    let recipient = {
+        let mux = svc.mux.read();
+        if let Some(team_id) = job.team_id.as_deref() {
+            mux.all_tabs()
+                .find(|tab| {
+                    tab.agent_type.is_some()
+                        && tab.anchors_team()
+                        && tab.team_id.as_deref() == Some(team_id)
+                        && mux.find_workspace_for_tab(&tab.id).as_deref()
+                            == Some(job.workspace_id.as_str())
+                })
+                .map(|tab| (tab.id.clone(), true))
+        } else {
+            mux.get_tab(&job.creator_tab_id)
+                .map(|tab| (tab.id.clone(), tab.agent_type.is_some()))
+        }
+    };
+    let Some((recipient, is_agent)) = recipient else {
+        return;
+    };
+    let reason = reason.chars().take(256).collect::<String>();
+    let title = format!("Blueprint {} trigger unavailable", job.id);
+    let message = format!(
+        "Blueprint '{}' cannot receive events: {reason}. Next step: inspect codeterm blueprint history {}",
+        job.name.as_deref().unwrap_or(&job.id),
+        job.id
+    );
+    if is_agent {
+        if let Err(error) = svc.gateway_deliver(
+            &recipient,
+            MessageEnvelope::codeterm_reminder(format!("blueprint:{}:unavailable", job.id)),
+            &message,
+            DeliveryClass::SystemNotice,
+        ) {
+            log::error!(
+                "[blueprint] unavailable notice delivery failed: {error}; blueprint={}",
+                job.id
+            );
+        }
+    } else {
+        svc.create_notification_ext(
+            title,
+            Some(message),
+            Some("warning"),
+            None,
+            None,
+            NotificationOrigin::local_tab(recipient),
+            PushIntent::default(),
+            None,
+        );
+    }
+}
+
 fn lifecycle_packet(notice: &StopNotice) -> String {
     format!(
         "Blueprint graph '{}' ended. Reason: {}.\nNext step: codeterm blueprint history {}",

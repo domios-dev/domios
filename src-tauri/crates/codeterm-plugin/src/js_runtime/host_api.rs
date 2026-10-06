@@ -134,6 +134,7 @@ pub(super) struct PluginSandbox {
     spawn_agents_allowed: bool,
     /// Whether `host.analytics` is permitted (`analytics` grant).
     analytics_allowed: bool,
+    graph_events_allowed: bool,
     /// The plugin's settings blob, returned by `host.settingsJson()`. Interior-mutable
     /// so a config-only hot-reload re-stamps it in place without a VM rebuild (which would wipe in-memory sessions).
     settings_json: parking_lot::Mutex<String>,
@@ -161,6 +162,7 @@ impl PluginSandbox {
             manage_workspaces_allowed: true,
             spawn_agents_allowed: true,
             analytics_allowed: true,
+            graph_events_allowed: true,
             settings_json: parking_lot::Mutex::new("null".to_string()),
             svc: LateRef::new(),
         }
@@ -184,6 +186,7 @@ impl PluginSandbox {
             manage_workspaces_allowed: false,
             spawn_agents_allowed: false,
             analytics_allowed: false,
+            graph_events_allowed: false,
             settings_json: parking_lot::Mutex::new("null".to_string()),
             svc: LateRef::new(),
         }
@@ -204,6 +207,7 @@ impl PluginSandbox {
         self.manage_workspaces_allowed = self.unrestricted || perms.manage_workspaces;
         self.spawn_agents_allowed = self.unrestricted || perms.spawn_agents;
         self.analytics_allowed = self.unrestricted || perms.analytics;
+        self.graph_events_allowed = self.unrestricted || perms.graph_events;
         self
     }
 
@@ -297,6 +301,10 @@ impl PluginSandbox {
     /// Whether the plugin may read machine-wide KPI aggregates (`host.analytics`).
     pub(super) fn analytics_allowed(&self) -> bool {
         self.analytics_allowed
+    }
+
+    pub(super) fn graph_events_allowed(&self) -> bool {
+        self.graph_events_allowed
     }
 
     /// Attach the plugin's settings blob (`config.yaml` → JSON) at load.

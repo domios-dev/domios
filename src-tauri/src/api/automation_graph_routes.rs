@@ -5,6 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::{json, Value};
+use tauri::Manager;
 
 use super::{
     auth::{caller_access_level, caller_peer_id},
@@ -40,6 +41,88 @@ pub struct StopBody {
 pub struct DeleteBody {
     workspace_id: String,
     team_id: Value,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EventBody {
+    plugin_id: String,
+    event_id: String,
+    payload: Value,
+}
+
+pub async fn event_ingress(
+    State(state): State<AppState>,
+    Path(subscription_id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<EventBody>,
+) -> Result<(StatusCode, Json<Value>), GraphError> {
+    let token = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .ok_or_else(|| {
+            failure((
+                StatusCode::UNAUTHORIZED,
+                "subscription bearer required".into(),
+            ))
+        })?;
+    let payload_bytes = serde_json::to_vec(&body.payload)
+        .map_err(|error| failure((StatusCode::BAD_REQUEST, error.to_string())))?
+        .len();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
+        .unwrap_or_default();
+    let decision = state.svc.graph_event_subscriptions.admit(
+        codeterm_plugin::graph_events::AdmissionRequest {
+            subscription_id: &subscription_id,
+            token,
+            plugin_id: &body.plugin_id,
+            event_id: &body.event_id,
+            payload: &body.payload,
+            payload_bytes,
+            now_ms,
+        },
+    );
+    match decision {
+        codeterm_plugin::graph_events::AdmissionDecision::Admit => {
+            if let Some(pipeline_id) = state
+                .svc
+                .graph_event_subscriptions
+                .pipeline_id_for(&subscription_id)
+            {
+                if let Some(handle) = state
+                    .svc
+                    .app_handle
+                    .try_state::<crate::sentinel::scheduler::Handle>()
+                {
+                    handle.notify_event_subscription_changed(&pipeline_id);
+                }
+            }
+            Ok((
+                StatusCode::ACCEPTED,
+                Json(json!({"ok":true,"admitted":true})),
+            ))
+        }
+        codeterm_plugin::graph_events::AdmissionDecision::Refuse(reason) => {
+            let (status, code) = admission_refusal_status(reason);
+            if let Some(pipeline_id) = state
+                .svc
+                .graph_event_subscriptions
+                .pipeline_id_for(&subscription_id)
+            {
+                if let Some(handle) = state
+                    .svc
+                    .app_handle
+                    .try_state::<crate::sentinel::scheduler::Handle>()
+                {
+                    handle.notify_event_subscription_changed(&pipeline_id);
+                }
+            }
+            Err((status, Json(json!({"ok":false,"error":{"code":code}}))))
+        }
+    }
 }
 
 pub async fn snapshot(
@@ -159,6 +242,22 @@ pub async fn delete(
 
 type GraphError = (StatusCode, Json<Value>);
 
+fn admission_refusal_status(
+    reason: codeterm_plugin::graph_events::AdmitRefusal,
+) -> (StatusCode, &'static str) {
+    use codeterm_plugin::graph_events::AdmitRefusal;
+    match reason {
+        AdmitRefusal::UnknownSubscription => (StatusCode::NOT_FOUND, "unknown_subscription"),
+        AdmitRefusal::BadToken => (StatusCode::UNAUTHORIZED, "bad_token"),
+        AdmitRefusal::ForeignPlugin => (StatusCode::FORBIDDEN, "foreign_plugin"),
+        AdmitRefusal::InvalidPayload => (StatusCode::UNPROCESSABLE_ENTITY, "invalid_payload"),
+        AdmitRefusal::Oversize => (StatusCode::PAYLOAD_TOO_LARGE, "oversize"),
+        AdmitRefusal::Duplicate => (StatusCode::CONFLICT, "duplicate"),
+        AdmitRefusal::Backpressure => (StatusCode::SERVICE_UNAVAILABLE, "backpressure"),
+        AdmitRefusal::RateLimited => (StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
+    }
+}
+
 fn failure((status, message): (StatusCode, String)) -> GraphError {
     let (status, code) = if message.starts_with("sentinel_store_unsupported_format:") {
         (
@@ -191,6 +290,35 @@ fn failure((status, message): (StatusCode, String)) -> GraphError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn blueprint_event_ingress_refusal_statuses_cover_admission_table() {
+        use codeterm_plugin::graph_events::AdmitRefusal::*;
+        for (reason, status, code) in [
+            (
+                UnknownSubscription,
+                StatusCode::NOT_FOUND,
+                "unknown_subscription",
+            ),
+            (BadToken, StatusCode::UNAUTHORIZED, "bad_token"),
+            (ForeignPlugin, StatusCode::FORBIDDEN, "foreign_plugin"),
+            (
+                InvalidPayload,
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "invalid_payload",
+            ),
+            (Oversize, StatusCode::PAYLOAD_TOO_LARGE, "oversize"),
+            (Duplicate, StatusCode::CONFLICT, "duplicate"),
+            (
+                Backpressure,
+                StatusCode::SERVICE_UNAVAILABLE,
+                "backpressure",
+            ),
+            (RateLimited, StatusCode::TOO_MANY_REQUESTS, "rate_limited"),
+        ] {
+            assert_eq!(admission_refusal_status(reason), (status, code));
+        }
+    }
 
     #[test]
     fn sentinel_graph_http_adapter_requires_explicit_team_and_preserves_tab_declaration() {

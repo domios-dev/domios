@@ -13,8 +13,10 @@ pub mod converter;
 pub mod detector;
 pub mod directory_trust;
 pub mod embedded;
+pub mod event_source;
 pub mod glance;
 pub mod global_writes;
+pub mod graph_events;
 pub mod graph_nodes;
 pub mod host_traits;
 pub mod js_runtime;
@@ -40,6 +42,7 @@ pub mod view_host;
 pub mod webhook;
 
 pub use capability::CapabilityRegistry;
+pub use event_source::EventSourceRegistry;
 pub use graph_nodes::GraphNodeRegistry;
 pub use host_traits::{PluginHostCtx, PluginProviderRegistrar, SecretBackendRegistrar};
 pub use js_runtime::hot_reload::{set_watcher_service, CapabilityRegistries, HotReloadRegistry};

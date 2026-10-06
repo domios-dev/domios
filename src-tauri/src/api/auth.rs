@@ -80,6 +80,9 @@ pub(crate) fn is_custom_auth(method: &Method, path: &str) -> bool {
     if is_inbound_webhook_path(method, path) {
         return true;
     }
+    if is_graph_event_path(method, path) {
+        return true;
+    }
     if path.starts_with("/api/mesh/relay-asset/") {
         return true;
     }
@@ -87,6 +90,13 @@ pub(crate) fn is_custom_auth(method: &Method, path: &str) -> bool {
     method == Method::DELETE
         && path.starts_with("/api/mesh/peers/")
         && path.matches('/').count() == 4
+}
+
+fn is_graph_event_path(method: &Method, path: &str) -> bool {
+    method == Method::POST
+        && path
+            .strip_prefix("/api/graph/events/")
+            .is_some_and(|id| !id.is_empty() && !id.contains('/') && id.len() <= 128)
 }
 
 pub(crate) fn is_inbound_webhook_path(method: &Method, path: &str) -> bool {
