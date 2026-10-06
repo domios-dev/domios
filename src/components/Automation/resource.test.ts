@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
 import { AutomationResource, type AutomationSnapshot } from "./resource";
 import { scopedAutomationGraph } from "./model";
-import { automationKey, type AutomationGraph } from "./types";
+import { automationKindLabel, automationKey, type AutomationGraph } from "./types";
 import { attachment, cronIdentity, deferred, fixtureGraph, fixtureNode, FixtureTransport, identity, multiScenarioGraph, sentinelIdentity, workerIdentity } from "./fixtures.testdata";
 
 const tests: Array<[string, () => void | Promise<void>]> = [];
 function test(name: string, run: () => void | Promise<void>) { tests.push([name, run]); }
+test("Blueprint presentation preserves stored graph identity", () => {
+  const stored = { ...sentinelIdentity };
+  assert.equal(automationKindLabel(stored.kind), "blueprint");
+  assert.equal(automationKindLabel(cronIdentity.kind), "cron");
+  assert.deepEqual(stored, sentinelIdentity);
+});
+
 function nextSnapshot(resource: AutomationResource, predicate: (snapshot: AutomationSnapshot) => boolean) {
   const ready = deferred<void>();
   const off = resource.subscribe(() => {

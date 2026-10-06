@@ -1,14 +1,14 @@
 use clap::Subcommand;
 
 #[derive(Subcommand)]
-pub enum SentinelAction {
+pub enum BlueprintAction {
     /// List built-in graph skeletons or print one ready-to-edit recipe
     Recipe { name: Option<String> },
     /// Classify a bounded probe or same-Team agent observation
     #[command(group = clap::ArgGroup::new("input_source").args(["input_file", "input_url", "input_text"]).multiple(false).required(false))]
     Create {
         /// Short meaningful name describing what is watched and what happens
-        #[arg(long, value_parser = parse_sentinel_name)]
+        #[arg(long, value_parser = parse_blueprint_name)]
         name: String,
         #[arg(long, conflicts_with = "observe", required_unless_present_any = ["observe", "input"])]
         probe: Option<String>,
@@ -40,7 +40,7 @@ pub enum SentinelAction {
         /// Owner-requested cadence (minimum 10s, default 20s)
         #[arg(long)]
         every: Option<String>,
-        /// Inline routes: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
+        /// Inline routes: bucket=notify|blueprint:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
         #[arg(long = "route", value_parser = parse_route)]
         routes: Vec<String>,
         /// Route again when this bucket's output changes without changing buckets
@@ -64,7 +64,7 @@ pub enum SentinelAction {
         /// Stop after this bucket's first confident transition
         #[arg(long)]
         until: Option<String>,
-        /// End the sentinel after this duration
+        /// End the blueprint after this duration
         #[arg(long)]
         timeout: Option<String>,
         /// Deterministic fallback when no Choice adapter is connected: bucket=regex
@@ -74,11 +74,11 @@ pub enum SentinelAction {
         #[arg(long)]
         dry_run: bool,
     },
-    /// List sentinels scoped to the calling tab and its Team
+    /// List blueprints scoped to the calling tab and its Team
     List,
-    /// Show one sentinel
+    /// Show one blueprint
     Show { id: String },
-    /// Stop one sentinel
+    /// Stop one blueprint
     Stop { id: String },
     /// Replace one definition at the expected version
     Update {
@@ -98,12 +98,12 @@ pub enum SentinelAction {
     /// Resolve an open escalation
     Escalation {
         #[command(subcommand)]
-        action: SentinelEscalationAction,
+        action: BlueprintEscalationAction,
     },
 }
 
 #[derive(Subcommand)]
-pub enum SentinelEscalationAction {
+pub enum BlueprintEscalationAction {
     /// Release a held stage and re-evaluate its observation
     Resolve { id: String, transition_id: String },
 }
@@ -116,7 +116,7 @@ fn parse_assignment(value: &str) -> Result<String, String> {
     Ok(value.into())
 }
 
-fn parse_sentinel_name(value: &str) -> Result<String, String> {
+fn parse_blueprint_name(value: &str) -> Result<String, String> {
     codeterm_types::automation_name::validate_sentinel_name(value)?;
     Ok(value.to_string())
 }
@@ -216,13 +216,13 @@ fn parse_route(value: &str) -> Result<String, String> {
         || action
             .strip_prefix("send:")
             .or_else(|| action.strip_prefix("cron:"))
-            .or_else(|| action.strip_prefix("sentinel:"))
+            .or_else(|| action.strip_prefix("blueprint:"))
             .is_some_and(|target| !target.trim().is_empty())
     {
         Ok(value)
     } else {
         Err(
-            "route must be notify, sentinel:<exact-id>, send:<tab>, cron:<name>, stop, or none"
+            "route must be notify, blueprint:<exact-id>, send:<tab>, cron:<name>, stop, or none"
                 .into(),
         )
     }
@@ -235,10 +235,20 @@ mod tests {
     use clap::Parser;
 
     #[test]
+    fn blueprint_rejects_removed_command_and_route() {
+        assert!(Cli::try_parse_from(["codeterm", "sentinel", "list"]).is_err());
+        assert!(parse_route("done=sentinel:exact-id").is_err());
+        assert_eq!(
+            parse_route("done=blueprint:exact-id").unwrap(),
+            "done=blueprint:exact-id"
+        );
+    }
+
+    #[test]
     fn sentinel_create_parse_and_json() {
         let cli = Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "create",
             "--name",
             "ci-result-watch",
@@ -272,9 +282,9 @@ mod tests {
         ])
         .unwrap();
         assert!(cli.json);
-        let Commands::Sentinel {
+        let Commands::Blueprint {
             action:
-                SentinelAction::Create {
+                BlueprintAction::Create {
                     buckets,
                     routes,
                     rearm_on_change,
@@ -292,10 +302,10 @@ mod tests {
         assert_eq!(matches, ["passed=^success$"]);
         assert_eq!(escalation_timeout_ms, Some(5000));
         for args in [
-            vec!["codeterm", "sentinel", "list", "--json"],
-            vec!["codeterm", "sentinel", "show", "id", "--json"],
-            vec!["codeterm", "sentinel", "stop", "id", "--json"],
-            vec!["codeterm", "sentinel", "history", "id", "--json"],
+            vec!["codeterm", "blueprint", "list", "--json"],
+            vec!["codeterm", "blueprint", "show", "id", "--json"],
+            vec!["codeterm", "blueprint", "stop", "id", "--json"],
+            vec!["codeterm", "blueprint", "history", "id", "--json"],
         ] {
             assert!(Cli::try_parse_from(args).unwrap().json);
         }
@@ -305,7 +315,7 @@ mod tests {
     fn sentinel_observe_parse_and_probe_conflict() {
         let cli = Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "create",
             "--name",
             "agent-state-watch",
@@ -319,8 +329,8 @@ mod tests {
             "waiting=.*",
         ])
         .unwrap();
-        let Commands::Sentinel {
-            action: SentinelAction::Create { probe, observe, .. },
+        let Commands::Blueprint {
+            action: BlueprintAction::Create { probe, observe, .. },
         } = cli.command
         else {
             panic!("wrong command")
@@ -329,7 +339,7 @@ mod tests {
         assert_eq!(observe.as_deref(), Some("tab:bound-agent"));
         assert!(Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "create",
             "--name",
             "invalid-conflict-watch",
@@ -356,7 +366,7 @@ mod tests {
     fn sentinel_update_parse_requires_expect_version_and_file() {
         let cli = Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "update",
             "sentinel_a",
             "--expect-version",
@@ -368,9 +378,9 @@ mod tests {
             "--json",
         ])
         .unwrap();
-        let Commands::Sentinel {
+        let Commands::Blueprint {
             action:
-                SentinelAction::Update {
+                BlueprintAction::Update {
                     id,
                     expect_version,
                     from_file,
@@ -385,14 +395,14 @@ mod tests {
         assert_eq!(expect_version, 4);
         assert_eq!(from_file, std::path::PathBuf::from("definition.json"));
         assert_eq!(cause.as_deref(), Some("transition_9"));
-        assert!(Cli::try_parse_from(["codeterm", "sentinel", "update", "id"]).is_err());
+        assert!(Cli::try_parse_from(["codeterm", "blueprint", "update", "id"]).is_err());
     }
 
     #[test]
     fn sentinel_escalate_resolve_parse_requires_stage_and_transition_ids() {
         let cli = Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "escalation",
             "resolve",
             "sentinel_a",
@@ -400,10 +410,10 @@ mod tests {
             "--json",
         ])
         .unwrap();
-        let Commands::Sentinel {
+        let Commands::Blueprint {
             action:
-                SentinelAction::Escalation {
-                    action: SentinelEscalationAction::Resolve { id, transition_id },
+                BlueprintAction::Escalation {
+                    action: BlueprintEscalationAction::Resolve { id, transition_id },
                 },
         } = cli.command
         else {
@@ -413,7 +423,7 @@ mod tests {
         assert_eq!(transition_id, "transition_9");
         assert!(Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "escalation",
             "resolve",
             "sentinel_a",
@@ -425,7 +435,7 @@ mod tests {
     fn sentinel_routes_closed_set() {
         for action in [
             "notify",
-            "sentinel:sentinel_child",
+            "blueprint:sentinel_child",
             "send:tab",
             "cron:check",
             "stop",
@@ -441,7 +451,7 @@ mod tests {
     fn sentinel_create_requires_a_short_non_raw_name() {
         let base = [
             "codeterm",
-            "sentinel",
+            "blueprint",
             "create",
             "--probe",
             "status",
@@ -454,7 +464,7 @@ mod tests {
         for name in ["ab", "sentinel_5d22889a8898"] {
             assert!(Cli::try_parse_from([
                 "codeterm",
-                "sentinel",
+                "blueprint",
                 "create",
                 "--name",
                 name,
@@ -469,7 +479,7 @@ mod tests {
         }
         assert!(Cli::try_parse_from([
             "codeterm",
-            "sentinel",
+            "blueprint",
             "create",
             "--name",
             "ci-green-watch",
@@ -487,7 +497,7 @@ mod tests {
     fn sentinel_composition_flags_refuse_mixed_input_and_out_of_range_budgets() {
         let prefix = [
             "codeterm",
-            "sentinel",
+            "blueprint",
             "create",
             "--name",
             "budget-validation-watch",
@@ -512,7 +522,7 @@ mod tests {
     fn input_prefix() -> Vec<&'static str> {
         vec![
             "codeterm",
-            "sentinel",
+            "blueprint",
             "create",
             "--name",
             "voice-note-watch",
@@ -541,9 +551,9 @@ mod tests {
                 .collect::<Vec<_>>(),
         )
         .unwrap();
-        let Commands::Sentinel {
+        let Commands::Blueprint {
             action:
-                SentinelAction::Create {
+                BlueprintAction::Create {
                     input,
                     input_file,
                     input_url,
@@ -569,7 +579,12 @@ mod tests {
         for invalid in [
             vec!["--input", "audio", "--probe", "status"],
             vec!["--input", "audio", "--observe", "tab:bound"],
-            vec!["--input-file", "clips/voice.wav", "--input-url", "https://e.com/a"],
+            vec![
+                "--input-file",
+                "clips/voice.wav",
+                "--input-url",
+                "https://e.com/a",
+            ],
             vec!["--input-file", "clips/voice.wav", "--input-text", "hello"],
             vec!["--input", "audio"],
             vec!["--input", "midi", "--input-file", "clips/voice.wav"],
@@ -595,11 +610,12 @@ mod tests {
 
     #[test]
     fn sentinel_input_every_conflicts_only_when_explicit() {
-        assert!(Cli::try_parse_from(
-            input_prefix()
-                .into_iter()
-                .chain(["--input-file", "clips/voice.wav", "--every", "20s"])
-        )
+        assert!(Cli::try_parse_from(input_prefix().into_iter().chain([
+            "--input-file",
+            "clips/voice.wav",
+            "--every",
+            "20s"
+        ]))
         .is_err());
         assert!(Cli::try_parse_from(
             input_prefix()

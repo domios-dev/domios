@@ -182,7 +182,7 @@ fn failure((status, message): (StatusCode, String)) -> GraphError {
     };
     (
         status,
-        Json(json!({"ok":false,"error":{"code":code,"message":message}})),
+        Json(json!({"ok":false,"error":{"code":code,"message":message.replace("Sentinels", "Blueprints").replace("Sentinel", "Blueprint").replace("sentinels ", "blueprints ").replace("sentinel ", "blueprint ")}})),
     )
 }
 
@@ -393,7 +393,7 @@ mod tests {
                 "/api/automation/graph?workspace_id={}&team_id=",
                 fixture.workspace
             );
-            let stop = format!("/api/automation/sentinels/{}/stop", job.id);
+            let stop = format!("/api/automation/blueprints/{}/stop", job.id);
             let body = json!({"workspace_id":fixture.workspace,"team_id":null});
             for token in [None, Some("invalid-token")] {
                 assert_eq!(
@@ -501,7 +501,7 @@ mod tests {
         async fn sentinel_graph_delete_removes_the_graph_from_the_list_and_persisted_file() {
             let fixture = Fixture::new(None);
             let job = fixture.create();
-            let path = format!("/api/automation/sentinels/{}", job.id);
+            let path = format!("/api/automation/blueprints/{}", job.id);
             let body = json!({"workspace_id":fixture.workspace,"team_id":null});
             assert_eq!(
                 fixture
@@ -536,7 +536,7 @@ mod tests {
         ) {
             let fixture = Fixture::new(None);
             let job = fixture.create();
-            let path = format!("/api/automation/sentinels/{}/stop", job.id);
+            let path = format!("/api/automation/blueprints/{}/stop", job.id);
             for nonce in [Value::Null, json!("stale-nonce")] {
                 let body = json!({"workspace_id":fixture.workspace,"team_id":null,"caller_tab_id":fixture.creator,"session_binding_nonce":nonce});
                 assert_eq!(
@@ -613,7 +613,7 @@ mod tests {
                     fixture
                         .request(
                             Method::POST,
-                            "/api/automation/sentinels/old/stop",
+                            "/api/automation/blueprints/old/stop",
                             Some("fixture-instance-bearer"),
                             body
                         )

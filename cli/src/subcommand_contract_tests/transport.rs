@@ -42,11 +42,11 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ApiVerdict::Unsupported("plugin management is local-only — run it on the target machine"),
     ),
     (
-        "sentinel",
-        &["codeterm", "sentinel", "list"],
+        "blueprint",
+        &["codeterm", "blueprint", "list"],
         Local::Socket,
         MeshRelay::Fallthrough,
-        ApiVerdict::Unsupported("sentinels are creator-local; run on the owning machine"),
+        ApiVerdict::Unsupported("blueprints are creator-local; run on the owning machine"),
     ),
     (
         "supporter",

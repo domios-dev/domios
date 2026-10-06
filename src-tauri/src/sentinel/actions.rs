@@ -15,7 +15,7 @@ pub(super) fn respond_prompt(
     output: &Output,
 ) -> Result<Effect, String> {
     let Route::RespondPrompt(kind) = route else {
-        return Err("sentinel respond_prompt route mismatch".into());
+        return Err("blueprint respond_prompt route mismatch".into());
     };
     let tab_id = match job.observe.as_ref() {
         Some(TabBinding::Tab(tab_id)) => tab_id.as_str(),
@@ -23,7 +23,7 @@ pub(super) fn respond_prompt(
             .run
             .as_ref()
             .map(|run| run.tab_id.as_str())
-            .ok_or("sentinel cron run binding is unavailable")?,
+            .ok_or("blueprint cron run binding is unavailable")?,
         None => return Err("respond_prompt requires a tab observation source".into()),
     };
     let observed: Value = match serde_json::from_str(&output.text) {
