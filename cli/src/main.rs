@@ -1008,7 +1008,7 @@ mod plan_cli_error_tests {
             .map(String::from)
             .collect(),
         );
-        assert!(args.contains(&"--title<domios from=tab>".to_string()));
+        assert!(args.contains(&"--title=<domios from=tab>".to_string()));
         let cli = Cli::try_parse_from(args).expect("normalized route title parses");
         match cli.command {
             Commands::Agent {
