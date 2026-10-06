@@ -16,6 +16,7 @@ use codeterm_types::sentinel_input::InputSpec;
 pub(super) const MAX_SENTINELS: usize = 256;
 pub(super) const MAX_ACTIVE: usize = 64;
 pub(super) const MAX_LIFETIME_TRANSITIONS: usize = 65_536;
+pub(super) const PIPELINE_SOURCE: &str = "blueprint-pipeline";
 
 pub(super) type ScopeKey = (String, Option<String>);
 
@@ -81,6 +82,8 @@ pub struct Sentinel {
     pub agent_authored: bool,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
     #[serde(default)]
     pub scenario_id: Option<String>,
     #[serde(default = "handlers::default_transitions")]

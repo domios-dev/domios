@@ -5,6 +5,9 @@ use super::*;
 use crate::assets::{self, Layout};
 use crate::schema::open_existing;
 use crate::{Storage, StorageConfig};
+use codeterm_types::blueprint_pipeline::{
+    BlueprintOwner, BlueprintResult, BlueprintSpec, IoType, ResultTarget, Step, StepKind, Trigger,
+};
 use codeterm_types::sentinel_input::{DataRef, InputSpec, MediaKind};
 use rusqlite::{params, Connection, OpenFlags};
 use std::path::{Path, PathBuf};
@@ -88,6 +91,7 @@ fn definition(source: StageSource) -> StageDefinition {
     StageDefinition {
         name: Some("source-round-trip".into()),
         source,
+        pipeline: None,
         question: "did it finish?".into(),
         interval_ms: 20_000,
         until: Some("done".into()),
@@ -168,7 +172,10 @@ fn sentinel_input_definition_round_trips_insert_select_and_update() {
         .expect("stored stage");
     assert_eq!(head.record.definition.version, 2);
     assert_eq!(head.record.definition.definition.source, next.source);
-    assert_eq!(head.record.definition.amendment.as_ref().unwrap().version, 2);
+    assert_eq!(
+        head.record.definition.amendment.as_ref().unwrap().version,
+        2
+    );
 
     let history = repo
         .history(id("sentinel_input_round_trip"))
@@ -178,6 +185,49 @@ fn sentinel_input_definition_round_trips_insert_select_and_update() {
     assert_eq!(history.len(), 2);
     assert_eq!(history[0].definition.source, StageSource::Input(input));
     assert_eq!(history[1].definition.source, StageSource::Input(converted));
+}
+
+#[test]
+fn blueprint_pipeline_definition_round_trips_through_versioned_storage() {
+    let (_root, storage) = storage();
+    let repo = storage.sentinels();
+    let pipeline = BlueprintSpec {
+        name: "echo pipeline".into(),
+        owner: BlueprintOwner::Team,
+        trigger: Trigger::Schedule {
+            every: "20s".into(),
+        },
+        steps: vec![Step {
+            name: "emit".into(),
+            input: IoType::Text,
+            kind: StepKind::Command {
+                command: "printf ready".into(),
+            },
+            on: Default::default(),
+        }],
+        result: BlueprintResult {
+            to: ResultTarget::Notify,
+        },
+    };
+    let mut definition = definition(StageSource::Probe("blueprint-pipeline".into()));
+    definition.pipeline = Some(pipeline.clone());
+    repo.create(SentinelCreate {
+        identity: identity("blueprint_pipeline_round_trip"),
+        scenario_id: None,
+        definition,
+        runtime: runtime(),
+        associate: Vec::new(),
+    })
+    .wait(Duration::from_secs(5))
+    .unwrap();
+
+    let stored = repo
+        .history(id("blueprint_pipeline_round_trip"))
+        .wait(Duration::from_secs(5))
+        .unwrap()
+        .value;
+    assert_eq!(stored.len(), 1);
+    assert_eq!(stored[0].definition.pipeline, Some(pipeline));
 }
 
 #[test]
@@ -213,17 +263,15 @@ fn sentinel_source_columns_refuse_zero_or_two_sources_and_admit_event() {
         )
     };
     let mut version = 0;
-    let mut refused = |kind: &str,
-                       spec: Option<&str>,
-                       probe: &str,
-                       observe: Option<(&str, &str)>| {
-        version += 1;
-        let outcome = insert(version, kind, spec, probe, observe);
-        assert!(
-            outcome.is_err(),
-            "expected refusal for {kind} {spec:?} {probe:?} {observe:?}"
-        );
-    };
+    let mut refused =
+        |kind: &str, spec: Option<&str>, probe: &str, observe: Option<(&str, &str)>| {
+            version += 1;
+            let outcome = insert(version, kind, spec, probe, observe);
+            assert!(
+                outcome.is_err(),
+                "expected refusal for {kind} {spec:?} {probe:?} {observe:?}"
+            );
+        };
 
     refused("probe", None, "", None);
     refused("observe", None, "", None);

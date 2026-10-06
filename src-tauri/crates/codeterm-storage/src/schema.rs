@@ -24,6 +24,7 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE sentinel_buckets ADD COLUMN rearm_on_change INTEGER NOT NULL DEFAULT 0 CHECK (rearm_on_change IN (0, 1));",
     // The source pair lands in one rebuild; later source kinds need no schema change.
     sentinel::SOURCE_SCHEMA,
+    sentinel::PIPELINE_SCHEMA,
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 

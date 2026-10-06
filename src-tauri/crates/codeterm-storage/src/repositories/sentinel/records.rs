@@ -125,7 +125,9 @@ impl SourceKind {
     }
 
     pub fn parse(value: &str) -> Option<SourceKind> {
-        SourceKind::ALL.into_iter().find(|kind| kind.as_str() == value)
+        SourceKind::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == value)
     }
 }
 
@@ -177,6 +179,7 @@ pub struct BucketDefinition {
 pub struct StageDefinition {
     pub name: Option<String>,
     pub source: StageSource,
+    pub pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
     pub question: String,
     pub interval_ms: u64,
     pub until: Option<String>,
@@ -578,6 +581,18 @@ impl StageDefinition {
             StageSource::Observe(observe) => identifier("observe source", &observe.reference)?,
             StageSource::Input(input) => codeterm_types::sentinel_input::validate(input)
                 .map_err(|error| StorageError::invalid("sentinel input", error.to_string()))?,
+        }
+        if let Some(pipeline) = &self.pipeline {
+            let bytes = serde_json::to_vec(pipeline)
+                .map_err(|_| StorageError::invalid("pipeline", "cannot be encoded"))?;
+            if bytes.len() > 65_536
+                || !matches!(&self.source, StageSource::Probe(probe) if probe == "blueprint-pipeline")
+            {
+                return Err(StorageError::invalid(
+                    "pipeline",
+                    "must be bounded and use the pipeline scheduler source",
+                ));
+            }
         }
         text("sentinel question", &self.question)?;
         integer("sentinel interval", self.interval_ms)?;

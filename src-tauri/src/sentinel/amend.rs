@@ -17,6 +17,8 @@ const MAX_UPDATE_BYTES: usize = 65_536;
 #[serde(deny_unknown_fields)]
 pub struct DefinitionSnapshot {
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
     pub probe: String,
     pub observe: Option<TabBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -171,6 +173,7 @@ impl DefinitionSnapshot {
     pub fn from_job(job: &Sentinel) -> Self {
         Self {
             name: job.name.clone(),
+            pipeline: job.pipeline.clone(),
             probe: job.probe.clone(),
             observe: job.observe.clone(),
             input: job.input.clone(),

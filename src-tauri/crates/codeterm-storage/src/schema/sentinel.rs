@@ -435,6 +435,26 @@ INSERT INTO sentinel_definitions
 DROP TABLE sentinel_definitions_source_hold;
 "#;
 
+pub(super) const PIPELINE_SCHEMA: &str = r#"
+ALTER TABLE sentinel_definitions ADD COLUMN pipeline_spec TEXT;
+CREATE TABLE blueprint_step_journal (
+    entry_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sentinel_id TEXT NOT NULL REFERENCES sentinels(id) ON DELETE CASCADE,
+    run_id TEXT NOT NULL CHECK (length(run_id) BETWEEN 1 AND 128),
+    step_index INTEGER NOT NULL CHECK (step_index >= -1),
+    step_name TEXT NOT NULL CHECK (length(step_name) BETWEEN 1 AND 128),
+    state TEXT NOT NULL CHECK (state IN ('running', 'done', 'failed', 'skipped')),
+    outcome TEXT CHECK (outcome IS NULL OR length(outcome) BETWEEN 1 AND 128),
+    started_at_ms INTEGER NOT NULL CHECK (started_at_ms >= 0),
+    ended_at_ms INTEGER CHECK (ended_at_ms IS NULL OR ended_at_ms >= started_at_ms),
+    result_summary TEXT CHECK (result_summary IS NULL OR length(result_summary) <= 200),
+    reason TEXT CHECK (reason IS NULL OR length(reason) <= 200),
+    CHECK ((state = 'running') = (ended_at_ms IS NULL))
+) STRICT;
+CREATE INDEX blueprint_step_journal_newest
+    ON blueprint_step_journal(sentinel_id, entry_id DESC);
+"#;
+
 /// Whether `sentinel_definitions` already carries the source pair, so `SOURCE_SCHEMA` is a no-op.
 pub(super) fn definitions_carry_source_pair(conn: &Connection) -> Result<bool, StorageError> {
     let columns: i64 = conn
