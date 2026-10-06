@@ -85,7 +85,7 @@ fn recipe_spec(name: &str) -> Result<Value, String> {
     Err(format!("unknown pipeline recipe `{name}`"))
 }
 
-fn fenced(body: &str, language: &str) -> Option<&str> {
+fn fenced<'a>(body: &'a str, language: &str) -> Option<&'a str> {
     let opening = format!("```{language}");
     let (_, tail) = body.split_once(&opening)?;
     let (content, _) = tail.split_once("```")?;
