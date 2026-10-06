@@ -445,6 +445,7 @@ pub fn run() {
             // Capability registries — populated as JS plugins load, then handed to ServiceContext.
             let secret_registry = Arc::new(crate::secrets::SecretRegistry::new());
             let transcribe_registry = Arc::new(crate::transcribe::TranscribeRegistry::new());
+            let converter_registry = Arc::new(codeterm_plugin::converter::ConverterRegistry::new());
             let decision_model_registry = crate::api::mem_routes::decision::default_registry();
             let glance_registry: crate::glance::GlanceRegistryHandle =
                 Arc::new(crate::glance::GlanceRegistry::new());
@@ -473,6 +474,7 @@ pub fn run() {
                     crate::secrets::js_backend::AppSecretBackendRegistrar::new(secret_registry.clone())
                 )),
                 transcribe: transcribe_registry.clone(),
+                converter: converter_registry.clone(),
                 glance: glance_registry.clone(),
                 bubble: bubble_registry.clone(),
                 view: view_registry.clone(),

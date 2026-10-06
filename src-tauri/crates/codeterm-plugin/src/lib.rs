@@ -9,6 +9,7 @@ pub mod capability;
 pub mod chatbackend_provider;
 pub mod chatpreprocessor;
 pub mod common;
+pub mod converter;
 pub mod detector;
 pub mod directory_trust;
 pub mod embedded;

@@ -5,17 +5,17 @@ use crate::host_traits::PluginProviderRegistrar;
 use crate::provider::AgentProvider;
 use crate::webhook::WebhookReceiveContext;
 
-struct TestRegistrar {
+pub(super) struct TestRegistrar {
     providers: parking_lot::Mutex<Vec<(String, Box<dyn AgentProvider>)>>,
 }
 
 impl TestRegistrar {
-    fn new() -> Arc<Self> {
+    pub(super) fn new() -> Arc<Self> {
         Arc::new(Self {
             providers: parking_lot::Mutex::new(Vec::new()),
         })
     }
-    fn provider_count(&self) -> usize {
+    pub(super) fn provider_count(&self) -> usize {
         self.providers.lock().len()
     }
     fn with_provider<F: FnOnce(&dyn AgentProvider) -> bool>(&self, id: &str, f: F) -> Option<bool> {
@@ -49,6 +49,7 @@ pub(super) fn test_caps() -> CapabilityRegistries {
     let capabilities = CapabilityRegistries {
         decision_model: Arc::new(crate::capability::CapabilityRegistry::new()),
         transcribe: Arc::new(crate::transcribe::TranscribeRegistry::new()),
+        converter: Arc::new(crate::converter::ConverterRegistry::new()),
         glance: Arc::new(crate::glance::GlanceRegistry::new()),
         bubble: Arc::new(crate::bubble::BubbleRegistry::new()),
         view: Arc::new(crate::view_host::ViewRegistry::new()),
