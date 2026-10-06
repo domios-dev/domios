@@ -27,6 +27,68 @@ const GITIGNORE_QUESTION_RE = /^Add \.aider\* to \.gitignore \(recommended\)\?\s
 const DOCS_URL_QUESTION_RE = /^Open documentation url for more info\?\s*\(Y\)es\/\(N\)o\/\(D\)on't ask again\s*(\[[^\]]*\])?\s*:?\s*$/;
 const COMMAND_LINE_RE = /^[ \t]*[$>][ \t]+(\S[^\n]*)$/;
 const MODE_PROMPT_RE = /^(?:[a-z]+)?>\s*$/;
+const MULTILINE_BLOCK_RE = /\{multiline\}([\s\S]*?)\{\/multiline\}/g;
+const MULTILINE_BLOCK_BODY_RE = /\{multiline\}([\s\S]*?)\{\/multiline\}/;
+const MULTILINE_BLOCK_START = "{multiline}";
+const MULTILINE_BLOCK_END = "{/multiline}";
+const MULTILINE_BLOCK_MAX_CHARS = 4000;
+
+function isMultiline(text: string): boolean {
+  return /\r?\n/.test(String(text || ""));
+}
+
+function wrapMultilineBlock(body: string): string {
+  return `${MULTILINE_BLOCK_START}\n${body}\n${MULTILINE_BLOCK_END}`;
+}
+
+function splitMultilineBlocks(text: string): string[] {
+  const source = String(text || "");
+  const blocks: string[] = [];
+  let last = 0;
+  MULTILINE_BLOCK_RE.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = MULTILINE_BLOCK_RE.exec(source)) !== null) {
+    if (match.index > last) blocks.push(source.slice(last, match.index));
+    blocks.push(match[0]);
+    last = match.index + match[0].length;
+  }
+  if (last < source.length) blocks.push(source.slice(last));
+  return blocks;
+}
+
+function wrapMultilineSegment(segment: string): string {
+  const body = segment.replace(/^\n+/, "").replace(/\n+$/, "");
+  if (!body) return segment;
+  if (body.length <= MULTILINE_BLOCK_MAX_CHARS) return wrapMultilineBlock(body);
+  const lines = body.split(/\r?\n/);
+  const chunks: string[] = [];
+  let current: string[] = [];
+  let currentLen = 0;
+  for (const line of lines) {
+    const lineLen = line.length + 1;
+    if (current.length > 0 && currentLen + lineLen > MULTILINE_BLOCK_MAX_CHARS) {
+      chunks.push(wrapMultilineBlock(current.join("\n")));
+      current = [];
+      currentLen = 0;
+    }
+    current.push(line);
+    currentLen += lineLen;
+  }
+  if (current.length > 0) chunks.push(wrapMultilineBlock(current.join("\n")));
+  return chunks.join("\n");
+}
+
+function wrapMultiline(text: string): string {
+  return splitMultilineBlocks(text)
+    .map((segment) =>
+      MULTILINE_BLOCK_BODY_RE.test(segment) ? segment : wrapMultilineSegment(segment),
+    )
+    .join("");
+}
+
+function deliverText(text: string): string {
+  return isMultiline(text) ? wrapMultiline(text) : String(text || "");
+}
 
 function withLaunchEnv(command: string, p: LaunchParams): string {
   const platform = host.platform();
@@ -246,6 +308,12 @@ const plugin: PluginModule = {
 
   buildPromptSafeChoice: promptSafeChoice,
 
+  chatPreprocess(ctx: { text: string }): { text: string } | null {
+    const text = String(ctx?.text || "");
+    const delivered = deliverText(text);
+    return delivered === text ? null : { text: delivered };
+  },
+
   detectSessionId(_cwd: string, _exclude?: string[] | string, _maxAgeMs?: number): string | null {
     return null;
   },
@@ -321,4 +389,12 @@ const plugin: PluginModule = {
 };
 
 export default plugin;
-export { extractBannerModel, lastNonEmptyLine, MODE_PROMPT_RE, promptSafeChoice, parsePromptWithContext };
+export {
+  deliverText,
+  extractBannerModel,
+  lastNonEmptyLine,
+  MODE_PROMPT_RE,
+  promptSafeChoice,
+  parsePromptWithContext,
+  wrapMultiline,
+};
