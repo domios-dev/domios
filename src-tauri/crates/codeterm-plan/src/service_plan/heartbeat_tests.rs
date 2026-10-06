@@ -58,6 +58,43 @@ fn heartbeat_learning_persists_reloads_and_dedups() {
 }
 
 #[test]
+fn heartbeat_keeps_pending_group_records_advisory_without_reflection_block() {
+    let (_dir, store, plan_id) = store_with_plan("orch-a");
+    for (index, name) in ["one", "two"].into_iter().enumerate() {
+        let task_id = store
+            .add_task(
+                &plan_id,
+                NewTask {
+                    name: name.into(),
+                    kind: "implement".into(),
+                    group: Some("phase-1".into()),
+                    ..Default::default()
+                },
+                20 + index as u64,
+            )
+            .unwrap();
+        store.start_task_for_test(&plan_id, &task_id, 30 + index as u64);
+        store
+            .close_task(
+                &plan_id,
+                &task_id,
+                None,
+                AgentRef::from_tab("orch-a"),
+                40 + index as u64,
+            )
+            .unwrap();
+    }
+
+    let shown = store.show_heartbeat(Some(&plan_id), None, None).unwrap();
+
+    assert!(shown.reinjection.contains("phase-1"));
+    assert!(shown.reinjection.contains("dispatch allowed"));
+    assert!(!shown
+        .reinjection
+        .contains(super::prompts_plan::REFLECTION_HEARTBEAT_TITLE));
+}
+
+#[test]
 fn heartbeat_lists_plan_skill_with_persisted_purpose() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     let created = super::plan_skills::create_plan_skill(

@@ -211,10 +211,17 @@ fn compact_status(value: &Value) -> Value {
         .iter()
         .take(3)
         .map(|action| {
-            json!({
+            let mut compact = json!({
                 "kind": action.get("kind").cloned().unwrap_or(Value::Null),
                 "task_id": action.get("task_id").cloned().unwrap_or(Value::Null),
-            })
+            });
+            if action.get("kind").and_then(Value::as_str) == Some("parked_for_later_groups") {
+                compact["message"] = action
+                    .get("message")
+                    .cloned()
+                    .unwrap_or(Value::Null);
+            }
+            compact
         })
         .collect();
     // Dependency-gated pending lanes are included even though `live_lanes.blocked` contains only literal Blocked statuses.
@@ -310,6 +317,14 @@ fn render_status(value: &Value) -> String {
                 .and_then(Value::as_str)
                 .map(|id| format!(" {id}"))
                 .unwrap_or_default();
+            if kind == "parked_for_later_groups" {
+                let message = action
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("tasks parked for later groups");
+                out.push_str(&format!("- {message}\n"));
+                continue;
+            }
             let command = action_command(plan_id, &action);
             out.push_str(&format!("- {kind}{task}\n  {command}\n"));
         }
@@ -625,6 +640,23 @@ mod tests {
         assert!(!encoded.contains("transcript"));
         assert!(!encoded.contains("drift body"));
         assert!(!encoded.contains("very long action body"));
+    }
+
+    #[test]
+    fn compact_status_keeps_the_parked_group_count() {
+        let compact = compact_status(&json!({
+            "plan_id": "pl_1",
+            "next_actions": [{
+                "kind": "parked_for_later_groups",
+                "task_id": null,
+                "message": "3 tasks parked for later groups"
+            }]
+        }));
+        assert_eq!(
+            compact["next_actions"][0]["message"],
+            "3 tasks parked for later groups"
+        );
+        assert!(render_status(&compact).contains("3 tasks parked for later groups"));
     }
 
     #[test]

@@ -386,6 +386,7 @@ fn task_presentation_line(val: &Value) -> Option<String> {
             Some("presentation: handoff required (sealed checkpoint awaits adoption)".into())
         }
         Some("blocked_on_subtasks") => Some("presentation: blocked on subtasks".into()),
+        Some("parked_for_later_group") => Some("presentation: parked for later groups".into()),
         Some("waiting_on_dependencies") => {
             let dependencies = val
                 .get("dependency_waits")

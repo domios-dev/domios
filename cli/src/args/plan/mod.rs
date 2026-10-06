@@ -567,7 +567,7 @@ pub enum PlanGroupsAction {
         #[arg(long)]
         groups: String,
     },
-    /// Record a group's retrospective stride: closes its reflection window and clears its retrospective dispatch gate
+    /// Record an optional retrospective stride for a completed group
     Close {
         plan_id: String,
         key: String,

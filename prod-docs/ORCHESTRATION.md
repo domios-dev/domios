@@ -74,8 +74,9 @@ The live Plan owner may cancel, pend, reassign, respawn, or dispatch a task whos
 Worker tab is gone; the recovery retires the stale attempt in the same transition.
 Ownership proof, verb allowlists, and refusals: `codeterm docs API-PLAN`.
 
-Archive without a retrospective returns `plan.retrospective_unrecorded`;
-write it first with
+Archive succeeds without a retrospective and reports the optional
+`plan.retrospective_unrecorded` advisory. If a durable note would help, record
+it at plan wrap-up with
 `codeterm plan retrospective <plan> --body-file <pad-relative-path>`.
 
 ## The loop
@@ -94,7 +95,8 @@ the user, then recover with the named `codeterm plan task respawn` command.
 2. **Reconcile.** Run `codeterm plan reconcile <plan>`; fix only owned drift.
 3. **Re-derive the frontier.** Inspect all open tasks, not only the previous focus.
 4. **Give every actionable task an exit** under the task sequencing contract;
-   plan reminders name only the actionable task ids.
+   plan reminders name actionable task ids and show later-group work once as a
+   compact parked-task count.
 5. **Keep the frontier staffed.** Do not leave a capable Worker idle while
    independent actionable work exists. Clear dispatch, dependency, review, and
    cleanup blockers first, then reuse a matching Worker or dispatch the next
@@ -152,8 +154,9 @@ grinding tiny edits.
 
 At five reviews, prioritize closures and avoid backlog growth. Backlog and credit
 debt are advisory: dispatch, competition and respawn need no capacity grant.
-Authorization, dependency, regression and acceptance checks still apply; never
-fake acceptance or adjust credit to silence warnings.
+Authorization, dependencies, review safety, and task acceptance still apply;
+pending terminal-group evidence remains advisory. Never fake acceptance or
+adjust credit to silence warnings.
 
 Owner-only `codeterm plan review authorize-capacity <plan> <task>` with
 `--class review` or `--class canonical_gate` records review-work classification;
@@ -177,4 +180,4 @@ delivered heartbeat names a next step. Reports, owner messages, decisions and
 failure alerts still reach you through their own channels. Record deliberate
 holds with `plan review hold --note`.
 
-<!-- revision: 106 -->
+<!-- revision: 107 -->

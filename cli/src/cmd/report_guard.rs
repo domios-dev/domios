@@ -263,13 +263,8 @@ fn enrich_ready_report_in_scope(
     };
     let metadata = inspection.metadata;
     if let (Some(given), Some(head)) = (sha.as_deref(), metadata.sha.as_deref()) {
-        if !sha_matches_readiness(
-            cwd,
-            given,
-            head,
-            inspection.base.as_deref(),
-            inspection.checkout,
-        ) {
+        let resolved_given = resolve_commit(cwd, given);
+        if lane_report_sha_is_stale(resolved_given.as_deref(), Some(head)) {
             return Err(ReportRefusal {
                 reason: format!(
                     "readiness report refused: provided --sha {given} does not match HEAD {head}."
@@ -331,35 +326,13 @@ pub fn is_readiness_status(status: Option<ReportStatusArg>) -> bool {
     )
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CheckoutKind {
-    SharedCanonical,
-    IsolatedWorktree,
-}
-
 struct GitWorktreeInspection {
     metadata: ReportGitMetadata,
     base: Option<String>,
-    checkout: CheckoutKind,
 }
 
-fn sha_matches_readiness(
-    cwd: &Path,
-    given: &str,
-    head: &str,
-    base: Option<&str>,
-    checkout: CheckoutKind,
-) -> bool {
-    let Some(given) = resolve_commit(cwd, given) else {
-        return false;
-    };
-    if checkout == CheckoutKind::IsolatedWorktree || base.is_none() {
-        return given == head;
-    }
-    let base = base.unwrap_or_default();
-    given != base
-        && git_success(cwd, &["merge-base", "--is-ancestor", base, &given])
-        && git_success(cwd, &["merge-base", "--is-ancestor", &given, head])
+fn lane_report_sha_is_stale(resolved_sha: Option<&str>, lane_head: Option<&str>) -> bool {
+    matches!((resolved_sha, lane_head), (Some(sha), Some(head)) if sha != head)
 }
 
 #[cfg(test)]
@@ -381,7 +354,6 @@ fn inspect_git_worktree_with_base(
     let sha = git_one(cwd, &["rev-parse", "HEAD"]).map_err(git_refusal)?;
     let branch = git_one(cwd, &["branch", "--show-current"]).ok();
     let changed = load_changed_files(cwd, base.as_deref()).map_err(git_refusal)?;
-    let checkout = checkout_kind(cwd).map_err(git_refusal)?;
     Ok(Some(GitWorktreeInspection {
         metadata: ReportGitMetadata {
             branch,
@@ -389,7 +361,6 @@ fn inspect_git_worktree_with_base(
             changed_files: Some(changed),
         },
         base,
-        checkout,
     }))
 }
 
@@ -438,31 +409,6 @@ fn resolve_commit(cwd: &Path, value: &str) -> Option<String> {
         ],
     )
     .ok()
-}
-
-fn checkout_kind(cwd: &Path) -> Result<CheckoutKind, String> {
-    let git_dir = git_recorded_path(cwd, &git_one(cwd, &["rev-parse", "--git-dir"])?)?;
-    let common_dir = git_recorded_path(cwd, &git_one(cwd, &["rev-parse", "--git-common-dir"])?)?;
-    Ok(if git_dir == common_dir {
-        CheckoutKind::SharedCanonical
-    } else {
-        CheckoutKind::IsolatedWorktree
-    })
-}
-
-fn git_recorded_path(cwd: &Path, value: &str) -> Result<PathBuf, String> {
-    let path = Path::new(value);
-    let absolute = if path.is_absolute() {
-        path.to_path_buf()
-    } else {
-        cwd.join(path)
-    };
-    std::fs::canonicalize(&absolute).map_err(|error| {
-        format!(
-            "cannot resolve git-recorded path '{}': {error}",
-            absolute.display()
-        )
-    })
 }
 
 fn git_refusal(reason: String) -> ReportRefusal {

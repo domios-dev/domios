@@ -4,20 +4,14 @@
 //! Rust code uses `include_str!()` so changes require recompilation.
 
 pub use crate::service::plan::prompts_plan::{
-    milestone_gate_suggestion, orch_defer_structure_line, reflection_block, worker_suffix,
-    HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE, MILESTONE_GATE_HEARTBEAT_TITLE,
-    MILESTONE_GATE_SUGGESTION, PEER_ORCH_DEFER_STRUCTURE_LINE, PEER_PLANNER_CHARTER_LINE,
+    orch_defer_structure_line, reflection_block, worker_suffix,
+    HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE, PEER_ORCH_DEFER_STRUCTURE_LINE, PEER_PLANNER_CHARTER_LINE,
     PEER_WAIVER_HINT, PLAN_ARCHIVE_SUGGESTION, PLAN_RETROSPECTIVE_NUDGE, PLAN_SKILLS_PRINCIPLES,
     PLAN_SKILLS_REGISTRY_LINE, PLAN_SKILLS_WORKER_LINE, QA_PIPELINE_DISCIPLINE, REFLECTION_BLOCK,
     REFLECTION_HEARTBEAT_TITLE, REGRESSION_MILESTONE_KIND, TESTING_DISCIPLINE,
     WORKER_COMPETITIVE_CONTEXT_TITLE, WORKER_COMPETITIVE_ISOLATION_RULES,
     WORKER_LOOP_CONTEXT_TITLE, WORKER_LOOP_EVIDENCE_RULE, WORKER_SUFFIX,
 };
-
-/// The testing ladder. ORCHESTRATION-OPERATIONS quotes it verbatim, so the doc
-/// and this constant are one source.
-pub const MILESTONE_GATE_LADDER: &str =
-    "Testing ladder — per task = isolated lane checks; per merged wave = one canonical batch of its focused selectors, recorded as the group regression run at group close; per release = the broad gate once on the release SHA, then the platform matrix.";
 
 /// Appended to Planner-profile Worker tasks.
 pub const PLANNER_SUFFIX: &str = include_str!("../prompts/planner_suffix.md");

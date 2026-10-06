@@ -1,6 +1,6 @@
 use crate::plan::TaskLaneMetadata;
 use crate::service::plan::milestone_gates::{
-    regression_dispatch_decision, DispatchExemption, RegressionDispatchDecision, RegressionGate,
+    regression_dispatch_decision, RegressionDispatchDecision,
 };
 use crate::service::plan::PlanError;
 use crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
@@ -332,44 +332,27 @@ fn worker_ack_timeout_event(
 use startup::complete_dispatch_transaction;
 pub(crate) use startup::DispatchStartup;
 
-fn gate_keys(gates: &[RegressionGate]) -> String {
-    gates
+pub(crate) fn regression_dispatch_warning(
+    decision: RegressionDispatchDecision,
+) -> Option<String> {
+    let RegressionDispatchDecision::Advisory {
+        regression_gates,
+        retrospectives,
+    } = decision
+    else {
+        return None;
+    };
+    let mut gates = regression_gates
         .iter()
-        .map(|g| g.key.as_str())
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-// Refuse the dispatch loudly, naming every blocking gate — no tab is spawned.
-fn regression_blocked_error(
-    gates: Vec<RegressionGate>,
-    retrospectives: Vec<RegressionGate>,
-) -> JsonRpcError {
-    let mut causes = Vec::new();
-    if !gates.is_empty() {
-        causes.push(format!(
-            "pending regression gate(s) {}: run the warm integration QA (codeterm plan qa next <plan> --group <gate> --note \"<evidence>\") or record an authorized override (codeterm plan qa override <plan> --reason \"<why>\")",
-            gate_keys(&gates)
-        ));
-    }
-    if !retrospectives.is_empty() {
-        causes.push(format!(
-            "unrecorded group retrospective(s) {}: record each with codeterm plan groups close <plan> <group> --note \"<retrospective>\"",
-            gate_keys(&retrospectives)
-        ));
-    }
-    JsonRpcError {
-        code: -32010,
-        message: format!(
-            "dispatch blocked by {}. Tag the task regression-gate/release-blocking only if it is the exception.",
-            causes.join("; ")
-        ),
-        data: Some(json!({
-            "type": "regression_gate_blocked",
-            "blocking_gates": gates,
-            "pending_retrospectives": retrospectives,
-        })),
-    }
+        .chain(&retrospectives)
+        .map(|gate| gate.key.as_str())
+        .collect::<Vec<_>>();
+    gates.sort_unstable();
+    gates.dedup();
+    Some(format!(
+        "terminal-group gate advisory (dispatch allowed): {}",
+        gates.join(", ")
+    ))
 }
 
 /// Spawn a Worker and record runtime readiness without claiming ownership.
@@ -451,8 +434,7 @@ where
         .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
     preflight_dispatch_task_status(&plan_id, &detail.task)?;
 
-    // Frontier policy: a non-blocker cannot spawn while regression gates are
-    // pending. Decide BEFORE any tab is created so a block leaves no orphan.
+    // Group records stay visible without taking the dispatch path away.
     let plan = store
         .get(&plan_id)
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
@@ -475,17 +457,8 @@ where
         data: Some(json!({ "type": "plan_orchestrator_authorization_required" })),
     })?;
     refuse_live_dispatch_startup_owner(store, svc, &plan_id, &task_id)?;
-    let mut exemption: Option<DispatchExemption> = None;
-    match regression_dispatch_decision(&plan, &detail.task) {
-        RegressionDispatchDecision::Clear => {}
-        RegressionDispatchDecision::Exempt { exemption: e, .. } => exemption = Some(e),
-        RegressionDispatchDecision::Blocked {
-            blocking,
-            retrospectives,
-        } => {
-            return Err(regression_blocked_error(blocking, retrospectives));
-        }
-    }
+    let regression_warning =
+        regression_dispatch_warning(regression_dispatch_decision(&plan));
     // Same frontier policy for the review WIP gate: decide before any tab
     // exists. A task resuming after a bounce already holds its slot.
     if matches!(
@@ -558,6 +531,9 @@ where
         None
     };
     let mut warnings: Vec<String> = Vec::new();
+    if let Some(warning) = regression_warning {
+        warnings.push(warning);
+    }
     if allowance
         .as_ref()
         .is_some_and(|allowance| allowance.is_stale(now))
@@ -1121,12 +1097,6 @@ where
     apply_dispatch_starting_contract(&mut result, &tab_id, &spawn);
     if !warnings.is_empty() {
         result["warnings"] = json!(warnings);
-    }
-    if let Some(exemption) = exemption {
-        result["regression_exception"] = json!({
-            "exemption": exemption,
-            "reason": exemption.reason(),
-        });
     }
     if let Some(model_fallback) = model_fallback {
         result["model_fallback"] = json!(model_fallback);
