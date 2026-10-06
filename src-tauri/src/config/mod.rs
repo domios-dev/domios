@@ -5,6 +5,7 @@ mod kpi_default;
 mod load;
 pub mod schema;
 
+use std::collections::{BTreeSet, HashMap};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -29,6 +30,29 @@ pub(crate) fn sanitize_plugin_settings(config: &mut AppConfig) {
             fields.remove("pinned");
         }
     }
+}
+
+pub(crate) fn changed_provider_settings(before: &AppConfig, after: &AppConfig) -> Vec<String> {
+    let mut changed = BTreeSet::new();
+    changed.extend(changed_settings_keys(&before.plugins, &after.plugins));
+    changed.extend(changed_settings_keys(&before.agents, &after.agents));
+    changed.into_iter().collect()
+}
+
+fn changed_settings_keys<T: serde::Serialize>(
+    before: &HashMap<String, T>,
+    after: &HashMap<String, T>,
+) -> Vec<String> {
+    before
+        .keys()
+        .chain(after.keys())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .filter(|id| {
+            serde_json::to_value(before.get(*id)).ok() != serde_json::to_value(after.get(*id)).ok()
+        })
+        .map(|id| id.clone())
+        .collect()
 }
 
 /// Generate the default config TOML with helpful comments.
@@ -341,6 +365,45 @@ fn apply_theme_with_overrides(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn changed_provider_settings_reports_only_changed_plugin_and_agent_entries() {
+        let mut before = AppConfig::default();
+        before
+            .plugins
+            .insert("plugin-a".into(), serde_json::json!({ "model": "one" }));
+        before
+            .plugins
+            .insert("plugin-stable".into(), serde_json::json!({ "enabled": true }));
+        before.agents.insert(
+            "agent-removed".into(),
+            schema::ProviderConfig::default(),
+        );
+        let mut after = before.clone();
+        after
+            .plugins
+            .insert("plugin-a".into(), serde_json::json!({ "model": "two" }));
+        after
+            .plugins
+            .insert("plugin-new".into(), serde_json::json!({ "model": "one" }));
+        after.agents.remove("agent-removed");
+
+        assert_eq!(
+            changed_provider_settings(&before, &after),
+            vec![
+                "agent-removed".to_string(),
+                "plugin-a".to_string(),
+                "plugin-new".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn unchanged_provider_settings_do_not_invalidate_catalogues() {
+        let config = AppConfig::default();
+
+        assert!(changed_provider_settings(&config, &config).is_empty());
+    }
 
     #[test]
     fn provider_resume_setting_uses_override_then_global_and_defaults_to_enabled() {
@@ -893,6 +956,7 @@ pub async fn update_config(
     app: AppHandle,
     config: AppConfig,
 ) -> Result<(), String> {
+    let previous_config = state.lock().clone();
     let mut resolved = config;
     sanitize_plugin_settings(&mut resolved);
     bounds::validate_app_config(&resolved)?;
@@ -916,7 +980,19 @@ pub async fn update_config(
     let new_name = resolved.mesh.instance_name.clone();
     let renamed = !new_name.is_empty() && new_name != prev_name;
 
+    let changed_catalogue_settings = changed_provider_settings(&previous_config, &resolved);
     save_config_and_apply(state.inner(), resolved.clone())?;
+
+    if !changed_catalogue_settings.is_empty() {
+        use tauri::Manager;
+        if let Some(service) = app.try_state::<crate::service::ServiceState>() {
+            crate::agent::model_binary_watch::refresh_after_settings_change(
+                &service.agent_registry,
+                &service.chatbackend_registry,
+                changed_catalogue_settings,
+            );
+        }
+    }
 
     if renamed {
         let mesh_arc = mesh_state.inner().clone();

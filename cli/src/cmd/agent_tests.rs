@@ -18,6 +18,14 @@ fn agent_models_recognizes_the_live_catalogue_wire_field() {
 }
 
 #[test]
+fn agent_models_reads_the_provider_catalogue_version() {
+    let provider = serde_json::json!({ "catalogue_version": 7 });
+
+    assert_eq!(catalogue_version(&provider), 7);
+    assert_eq!(catalogue_version(&serde_json::json!({})), 0);
+}
+
+#[test]
 fn live_discovery_warning_is_limited_to_live_required_catalogues() {
     // Preserved semantics: only a live-required catalogue that failed to
     // refresh warns; an optional catalogue's reader-gated skip stays silent.

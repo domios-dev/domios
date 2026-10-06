@@ -323,12 +323,6 @@ function ChatComposerImpl({
     () => providerDescriptor?.available_models ?? [],
     [providerDescriptor],
   );
-  // Opening the picker is an explicit user action, not a poll: it asks the
-  // catalog to re-probe. The backend TTL-gates the actual probe.
-  useEffect(() => {
-    if (!modelPickerOpen || !tabProvider) return;
-    void invoke("refresh_provider_models", { providerId: tabProvider }).catch(() => {});
-  }, [modelPickerOpen, tabProvider]);
   const touchMode = useTouchOptimizedUi();
   const compositionGate = useRef(createCompositionGate()).current;
   const textareaRef = useRef<HTMLTextAreaElement>(null);

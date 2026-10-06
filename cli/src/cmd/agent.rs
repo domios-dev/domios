@@ -22,6 +22,13 @@ fn provider_requires_live_model_discovery(provider: &serde_json::Value) -> bool 
         .unwrap_or(false)
 }
 
+fn catalogue_version(provider: &serde_json::Value) -> u64 {
+    provider
+        .get("catalogue_version")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or_default()
+}
+
 /// A live-required listing warns when its forced probe could not refresh; an
 /// optional catalogue's reader-gated skip is not a gap and stays silent.
 fn live_discovery_warning_needed(discovery_required: bool, refreshed: bool) -> bool {
@@ -372,8 +379,8 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         std::process::exit(1);
                     };
                     let discovery_required = provider_requires_live_model_discovery(target);
-                    // An explicit listing is a reader action: every catalogue
-                    // gets a refresh request (forced or reader-gated server-side).
+                    let observed_version = catalogue_version(target);
+                    // Explicit CLI listing asks core to refresh the provider catalogue.
                     let response = match local_http
                         .post(format!("{}/api/agents/providers/refresh", base))
                         .json(&serde_json::json!({"provider_id": provider.as_str()}))
@@ -391,10 +398,14 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         .get("refreshed")
                         .and_then(serde_json::Value::as_bool)
                         .unwrap_or(false);
+                    let current_version = refresh
+                        .get("version")
+                        .and_then(serde_json::Value::as_u64)
+                        .unwrap_or(observed_version);
                     if live_discovery_warning_needed(discovery_required, refreshed) {
                         eprintln!("WARNING: live model discovery did not refresh the {provider} catalogue; showing its last available snapshot.");
                     }
-                    if discovery_required || refreshed {
+                    if discovery_required || refreshed || current_version != observed_version {
                         let response = match local_http
                             .get(format!("{}/api/agents/providers", base))
                             .send()
