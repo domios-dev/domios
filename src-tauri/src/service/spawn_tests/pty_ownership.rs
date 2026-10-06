@@ -27,6 +27,8 @@ struct OwnershipRace {
     tab_id: String,
     steps: Receiver<Step>,
     step_tx: Sender<Step>,
+    // PTY readers block until cleanup closes their sessions.
+    frontend_runtimes: Arc<Mutex<Vec<tokio::runtime::Runtime>>>,
     gates: Gates,
     releases: HashMap<bool, Sender<()>>,
     actors: Vec<JoinHandle<()>>,
@@ -107,6 +109,7 @@ impl OwnershipRace {
             tab_id,
             steps,
             step_tx,
+            frontend_runtimes: Arc::default(),
             gates,
             releases: HashMap::new(),
             actors: Vec::new(),
@@ -142,13 +145,14 @@ impl OwnershipRace {
         self.frontend = None;
         let service = Arc::new(self.fixture.service.clone());
         let tab_id = self.tab_id.clone();
+        let frontend_runtimes = self.frontend_runtimes.clone();
         self.spawn_actor(move |done| {
             let attached = actor_result(|| {
                 let runtime = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
                     .build()
                     .map_err(|error| format!("frontend runtime: {error}"))?;
-                runtime.block_on(crate::commands::spawn_pty_core(
+                let attached = runtime.block_on(crate::commands::spawn_pty_core(
                     &service,
                     None,
                     None,
@@ -156,7 +160,9 @@ impl OwnershipRace {
                     24,
                     None,
                     Some(tab_id),
-                ))
+                ));
+                frontend_runtimes.lock().push(runtime);
+                attached
             });
             let _ = done.send(Step::Frontend(attached));
         });
@@ -321,6 +327,10 @@ impl Drop for OwnershipRace {
             }
         }
         self.release_owned_ptys();
+        let frontend_runtimes = std::mem::take(&mut *self.frontend_runtimes.lock());
+        for runtime in frontend_runtimes {
+            runtime.shutdown_background();
+        }
     }
 }
 
