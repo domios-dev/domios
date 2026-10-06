@@ -11,11 +11,11 @@
   "spawn": {
     "readinessStrategy": {
       "kind": "poll_shell_prompt",
-      "timeoutSecs": 30
+      "timeoutSecs": 60
     },
     "providerReadiness": {
       "kind": "structural_composer",
-      "timeoutSecs": 30
+      "timeoutSecs": 60
     },
     "composerCursorPosition": "visible_anywhere",
     "taskDelivery": "inline_flag",
