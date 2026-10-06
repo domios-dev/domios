@@ -218,8 +218,12 @@ impl Store {
         owner: Owner,
         connected: bool,
     ) -> Result<Sentinel, String> {
-        let codeterm_types::blueprint_pipeline::Trigger::Schedule { every } = &spec.trigger else {
-            return Err("trigger_unavailable".into());
+        let every = match &spec.trigger {
+            codeterm_types::blueprint_pipeline::Trigger::Schedule { every } => every.clone(),
+            codeterm_types::blueprint_pipeline::Trigger::Event { .. } => "20s".into(),
+            codeterm_types::blueprint_pipeline::Trigger::Input { .. } => {
+                return Err("trigger_unavailable".into())
+            }
         };
         let create = Create {
             name: Some(spec.name.clone()),
@@ -228,7 +232,7 @@ impl Store {
             input: None,
             question: "Pipeline step results".into(),
             buckets: vec!["done".into(), "failed".into()],
-            every: every.clone(),
+            every,
             routes: BTreeMap::new(),
             matches: BTreeMap::from([("done".into(), ".*".into()), ("failed".into(), ".*".into())]),
             rearm_on_change: BTreeSet::new(),
