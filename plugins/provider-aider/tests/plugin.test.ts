@@ -141,6 +141,21 @@ console.log("\n--- owner prompts ---\n");
   eq(promptSafeChoice(createFile!, "Create new file src/x.ts? (Y)es/(N)o"), null, "create-file prompt is not auto-answered");
 }
 
+console.log("\n--- gitignore startup prompt ---\n");
+{
+  const startupScreen = [
+    "You can skip this check with --no-gitignore",
+    "Add .aider* to .gitignore (recommended)? (Y)es/(N)o [Yes]:",
+  ].join("\n");
+  const gitignorePrompt = runtime.parsePrompt(startupScreen);
+  assert(!!gitignorePrompt, "gitignore startup prompt is parsed");
+  eq(gitignorePrompt!.question, "Add .aider* to .gitignore (recommended)? (Y)es/(N)o [Yes]:", "question text captured");
+  eq(promptSafeChoice(gitignorePrompt!, startupScreen), "1", "gitignore prompt is safe yes");
+  const noDefault = runtime.parsePrompt("Add .aider* to .gitignore (recommended)? (Y)es/(N)o");
+  assert(!!noDefault, "gitignore prompt without default is parsed");
+  eq(promptSafeChoice(noDefault!, "Add .aider* to .gitignore (recommended)? (Y)es/(N)o"), "1", "gitignore prompt without default is safe yes");
+}
+
 console.log("\n--- session/model honesty ---\n");
 {
   eq(runtime.detectSessionId("/cwd", [], 300000), null, "detectSessionId is null");
