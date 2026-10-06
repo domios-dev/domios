@@ -18,6 +18,7 @@ const DAY: i64 = 86_400_000;
 const COLD_ADAPTER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(5);
 
 pub(crate) struct DecisionEvidence<'a> {
+    pub(crate) decision_point: Option<&'a str>,
     pub(crate) model_id: Option<String>,
     pub(crate) criteria_version: &'a str,
     pub(crate) state_hash: &'a str,
@@ -271,6 +272,7 @@ impl SupporterRuntime {
         };
         let value = json!({ "time": chrono::Utc::now().timestamp(), "kind": kind, "tab": tab,
             "label": label, "confidence": confidence, "action": "verdict", "reason": "model_answer",
+            "decision_point": evidence.decision_point,
             "distribution": journal_answers(&response.answers), "usage": response.usage, "model_id": evidence.model_id,
             "criteria_version": evidence.criteria_version, "state_hash": evidence.state_hash, "question_set_hash": evidence.question_set_hash,
             "question_count": response.answers.len(), "asked": evidence.asked });

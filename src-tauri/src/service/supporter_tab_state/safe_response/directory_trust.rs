@@ -264,6 +264,16 @@ impl ServiceContext {
             return;
         };
         let kind = target.kind.prompt_kind();
+        let identity = codeterm_types::pty::PromptIdentity::new(kind, &target.prompt);
+        let chain_fingerprint = self.prompt_chain_fingerprint(kind, &target.prompt);
+        if !self.begin_automatic_prompt_answer(
+            &snapshot.tab_id,
+            target.kind.context(),
+            chain_fingerprint,
+            None,
+        ) {
+            return;
+        }
         if !self.publish_unattended_launch_prompt(
             &snapshot.tab_id,
             &snapshot.screen_text,
@@ -282,16 +292,6 @@ impl ServiceContext {
         }
         if target.kind == Kind::Update {
             super::super::super::provider_update::manual_prompt_observed(self, snapshot);
-        }
-        let identity = codeterm_types::pty::PromptIdentity::new(kind, &target.prompt);
-        let chain_fingerprint = self.prompt_chain_fingerprint(kind, &target.prompt);
-        if !self.begin_automatic_prompt_answer(
-            &snapshot.tab_id,
-            target.kind.context(),
-            chain_fingerprint,
-            None,
-        ) {
-            return;
         }
         let result = self.respond_prompt_with_identity(
             &snapshot.tab_id,
