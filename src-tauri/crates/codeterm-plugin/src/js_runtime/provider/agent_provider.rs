@@ -157,6 +157,10 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.input_fallback_ms
     }
 
+    fn onboarding_auto_answer(&self) -> provider::OnboardingAutoAnswer {
+        self.manifest.spawn.onboarding_auto_answer
+    }
+
     fn session_starts_on_first_user_turn(&self) -> bool {
         self.manifest.spawn.session_starts_on_first_user_turn
             || self
