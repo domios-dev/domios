@@ -138,11 +138,10 @@ impl CapabilityRegistries {
         if vm.agent_commands_allowed() {
             self.agent_command.register(
                 id.clone(),
-                Arc::new(super::JsAgentCommandHandler::new(
-                    vm.clone(),
-                    id.clone(),
-                    true,
-                )),
+                Arc::new(
+                    super::JsAgentCommandHandler::new(vm.clone(), id.clone(), true)
+                        .with_catalog(super::catalog_from_manifest(manifest)),
+                ),
             );
         }
         if caps.transcriber || caps.chat_preprocessor.enabled() {
@@ -351,6 +350,13 @@ impl HotReloadRegistry {
         }
     }
 
+    fn emit_agent_commands_changed(&self) {
+        let svc = self.service.lock().clone().and_then(|w| w.upgrade());
+        if let Some(svc) = svc {
+            svc.contributions_changed(crate::agent_verbs::AGENT_COMMANDS_CONTRIBUTION_KIND);
+        }
+    }
+
     fn emit_agent_provider_changed(&self) {
         #[cfg(test)]
         self.contribution_event_count
@@ -398,11 +404,13 @@ impl HotReloadRegistry {
         };
         let mut provider_changed = false;
         let mut tab_menu_changed = false;
+        let mut agent_commands_changed = false;
         for id in removed {
             self.vms.lock().remove(&id);
             provider_changed |= self.registrar.unregister_provider(&id);
             provider_changed |= self.caps.chatbackend.contains(&id);
             tab_menu_changed |= self.caps.tab_menu.contains(&id);
+            agent_commands_changed |= self.caps.agent_command.contains(&id);
             self.caps.deregister_plugin(&id);
             self.pending_reload.lock().remove(&id);
             self.activated_startup.lock().remove(&id);
@@ -413,6 +421,9 @@ impl HotReloadRegistry {
         }
         if tab_menu_changed {
             self.emit_tab_menu_changed();
+        }
+        if agent_commands_changed {
+            self.emit_agent_commands_changed();
         }
         self.failed.lock().retain(|path, _| path.exists());
     }
@@ -572,10 +583,14 @@ impl HotReloadRegistry {
                     provider.ensure_integration_on_startup(api_port);
                 }
                 let had_tab_menu = self.caps.tab_menu.contains(&id);
+                let had_agent_commands = self.caps.agent_command.contains(&id);
                 self.caps
                     .register_plugin(provider.manifest(), provider.vm());
                 if had_tab_menu || self.caps.tab_menu.contains(&id) {
                     self.emit_tab_menu_changed();
+                }
+                if had_agent_commands || self.caps.agent_command.contains(&id) {
+                    self.emit_agent_commands_changed();
                 }
                 if provider.manifest().capabilities.view {
                     self.emit_plugin_view_reloaded(&id);
@@ -703,5 +718,7 @@ fn warn_stage_conflicts(
     }
 }
 
+#[cfg(test)]
+mod agent_verb_tests;
 #[cfg(test)]
 mod tests;

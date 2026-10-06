@@ -151,7 +151,15 @@ pub const INTERACTIVE_CHILD_PTY_OPERATION: &str =
 pub const INTERACTIVE_CHILD_PTY_CAPABILITY_ID: &str = "interactive_child_pty";
 
 /// Compact CodeTerm control contract prepended to non-General agent launches.
-pub const AGENT_CODETERM_PRIMER: &str = include_str!("../prompts/agent_codeterm_primer.md");
+pub const AGENT_CODETERM_PRIMER: &str = concat!(
+    include_str!("../prompts/agent_codeterm_primer.md"),
+    "
+",
+    include_str!("../prompts/plugin_discovery_rule.md"),
+);
+
+/// Capability-based pointer from an external-service action to installed plugin verbs.
+pub const PLUGIN_DISCOVERY_RULE: &str = include_str!("../prompts/plugin_discovery_rule.md");
 
 /// The load-bearing half of the notify restriction: rare, and only for the two
 /// cases the primer names. Pinned here so a rewrite that softens the escalation

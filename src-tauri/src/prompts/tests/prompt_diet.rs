@@ -4,9 +4,9 @@
 use crate::prompts::{
     orchestrator_first_message, orchestrator_suffix, planner_suffix, worker_suffix,
     AGENT_CODETERM_PRIMER, AGENT_PAD_RULE, BRIDGE_MEM, CODETERM_RULE, PLANNING_COMPACTION_CONTRACT,
-    QA_PIPELINE_DISCIPLINE, RICH_RENDERING_GUIDANCE, TASK_SEQUENCING_CONTRACT,
-    TEAM_CREATION_CONTRACT, TESTING_DISCIPLINE, TEST_AUTHOR_GUIDANCE, WORKER_CODETERM_CONTEXT,
-    WORKER_SUFFIX,
+    PLUGIN_DISCOVERY_RULE, QA_PIPELINE_DISCIPLINE, RICH_RENDERING_GUIDANCE,
+    TASK_SEQUENCING_CONTRACT, TEAM_CREATION_CONTRACT, TESTING_DISCIPLINE, TEST_AUTHOR_GUIDANCE,
+    WORKER_CODETERM_CONTEXT, WORKER_SUFFIX,
 };
 use crate::service::plan::worker_charter::render_worker_charter;
 use crate::service::plan::worker_identity::{
@@ -204,6 +204,7 @@ fn prompt_diet_role_launches_receive_each_fragment_once() {
     let (_, brief) = worker_brief();
     let shared = [
         AGENT_CODETERM_PRIMER,
+        PLUGIN_DISCOVERY_RULE,
         AGENT_PAD_RULE,
         RICH_RENDERING_GUIDANCE,
     ];
