@@ -18,9 +18,13 @@ for (const [name, value] of Object.entries({ window, document: window.document, 
 const content = "task: pl_d17yp2/task_2iw42e\nstatus: In Review\nbranch: lane/tool-cards\nsha: 1e096cba6\ntests: 11/11 green\nSTATUS: in_review | CHANGES: Added provider matrix";
 const descriptor = parseInboundReport(content);
 if (normalizeMessageText("one\r\ntwo\rthree") !== "one\ntwo\nthree") throw new Error("transport newline normalization regression");
-if (decodeCliMessageText("one\\ntwo\\r\\nthree") !== "one\ntwo\nthree") throw new Error("CLI newline decoding regression");
+if (decodeCliMessageText("one\\ntwo\\r\\nthree") !== "one\ntwo\nthree") throw new Error("CLI newline escape decoding regression");
 const escapedDescriptor = parseInboundReport("status: in_review\\nchanges: first line\\ntests: green");
-if (!escapedDescriptor.fields.some((field) => field.label === "changes" && field.value === "first line")) throw new Error("escaped report newline regression");
+if (!escapedDescriptor.fields.some((field) => field.label === "changes" && field.value === "first line")) throw new Error("report card must decode escaped newlines in CLI reports");
+const windowsPath = "C:\\Users\\User\\.codeterm-dev\\runtime\\agent-pads\\new\\team\\update.txt";
+if (normalizeMessageText(windowsPath) !== windowsPath) throw new Error("literal path escapes must stay verbatim");
+const pathDescriptor = parseInboundReport(`status: in_review\nchanges: ${windowsPath}`);
+if (!pathDescriptor.fields.some((field) => field.label === "changes" && field.value === windowsPath)) throw new Error("report path escapes must stay verbatim");
 if (descriptor.task !== "pl_d17yp2/task_2iw42e") throw new Error("report task parse regression");
 if (descriptor.status !== "in_review") throw new Error("latest report status must win");
 if (!descriptor.fields.some((field) => field.label === "changes" && field.value === "Added provider matrix")) throw new Error("compound report fields parse regression");
@@ -77,6 +81,10 @@ harnessHost.remove();
 const host = document.createElement("div");
 document.body.append(host);
 const root = createRoot(host);
+await act(async () => root.render(
+  <MessageBubble message={{ id: "windows-path", type: "user", content: windowsPath }} />,
+));
+if (!host.textContent?.includes(windowsPath)) throw new Error("user transcript rendering changed literal path escapes");
 const focusCalls: number[] = [];
 await act(async () => root.render(
   <InboundReportCard
