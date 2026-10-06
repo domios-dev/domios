@@ -817,10 +817,10 @@ pub(crate) fn current_launch_report(
         .and_then(|identity| identity.launch_report.clone())
 }
 
-fn current_session_model_identity(
-    tab: &crate::multiplexer::types::Tab,
+fn current_session_model_identity<'a>(
+    tab: &'a crate::multiplexer::types::Tab,
     session_id: &str,
-) -> Option<&crate::multiplexer::types::SessionModelIdentity> {
+) -> Option<&'a crate::multiplexer::types::SessionModelIdentity> {
     let nonce = tab.session_binding_nonce.as_deref()?;
     if tab.agent_session_id.as_deref() != Some(session_id)
         || tab.reported_session_binding_nonce.as_deref() != Some(nonce)
