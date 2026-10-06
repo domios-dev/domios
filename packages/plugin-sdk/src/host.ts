@@ -117,6 +117,7 @@ export interface HostFs {
   makeDirs(path: string): boolean;
   fileExists(path: string): boolean;
   isSymlink(path: string): boolean | null;
+  /** `~/.codeterm/...` resolves inside the running instance's data dir (`~/.codeterm-dev` on dev). */
   expandHome(path: string): string | null;
   writeTempFile(contents: string, suffix?: string): string | null;
   readDir(path: string): DirEntry[];

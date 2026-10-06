@@ -1,4 +1,4 @@
-import { AI_HELPER_SPAWN_PATH, spawnAiHelper } from "./aiHelperSpawn";
+import { AI_HELPER_CONTEXT, AI_HELPER_SPAWN_PATH, spawnAiHelper } from "./aiHelperSpawn";
 import { configureWithAI } from "./pluginConfigure";
 import { startWebAccessSetupHelper } from "./webAccess";
 
@@ -46,13 +46,14 @@ const api = { host: "127.0.0.1", port: 7686, token: "fixture-token" };
 const opaqueTask = "ai-helper-task-token-4d21";
 const opaquePort = 48213;
 
-const buttons: Array<{ label: string; run: () => Promise<unknown>; carries: string; title: string; description: string }> = [
+const buttons: Array<{ label: string; run: () => Promise<unknown>; carries: string; title: string; description: string; userFacing: boolean }> = [
   {
     label: "Configure with AI",
     run: () => configureWithAI("fixture-plugin", "Fixture", opaqueTask, api),
     carries: opaqueTask,
     title: "Configure",
     description: "Configure Fixture",
+    userFacing: true,
   },
   {
     label: "Mesh Set up with AI",
@@ -60,6 +61,7 @@ const buttons: Array<{ label: string; run: () => Promise<unknown>; carries: stri
     carries: String(opaquePort),
     title: "WebAccess",
     description: "Set up Web Access",
+    userFacing: true,
   },
   {
     label: "shared helper",
@@ -67,6 +69,7 @@ const buttons: Array<{ label: string; run: () => Promise<unknown>; carries: stri
     carries: opaqueTask,
     title: "FixtureHelper",
     description: "Fixture helper setup",
+    userFacing: false,
   },
 ];
 
@@ -86,6 +89,9 @@ async function run() {
     assert("uses a one-word title", request.body.title === button.title && !/\s/.test(String(request.body.title)));
     assert("puts descriptive context in the description", request.body.description === button.description);
     assert("delivers its supplied content in the task", String(request.body.task).includes(button.carries));
+    if (button.userFacing) {
+      assert("carries every helper context fragment", AI_HELPER_CONTEXT.every((fragment) => String(request.body.task).includes(fragment)));
+    }
     assert("focuses the spawned General workspace tab immediately", focused.length === 1 && focused[0].tabId === "tab-helper-91" && focused[0].workspaceId === "ws-general");
 
     const exactFailure = `fixture launch refused ${button.label.length}`;
