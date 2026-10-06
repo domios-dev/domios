@@ -101,7 +101,7 @@ async function main() {
   }
 
   function jobsView(transport: FixtureTransport, initialScenarioId?: string, teamId: string | null = attachment.team_id) {
-    return <JobsView placement="workspace" workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: attachment.workspace_id, teamId }} adapter={transport} initialScenarioId={initialScenarioId} cronActionAdapter={cronActions} jobActionAdapter={jobActions} />;
+    return <JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: attachment.workspace_id, teamId }} adapter={transport} initialScenarioId={initialScenarioId} cronActionAdapter={cronActions} jobActionAdapter={jobActions} />;
   }
 
   function entry(host: HTMLElement, key: string) {

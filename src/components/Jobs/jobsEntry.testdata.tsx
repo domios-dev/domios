@@ -107,6 +107,16 @@ export async function mount(ui: ReactElement) {
 export const named = (host: ParentNode, name: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
 export const entry = (host: HTMLElement, key: string) => host.querySelector<HTMLButtonElement>(`[data-job-key="${key}"]`);
 export const renderedJobs = (host: HTMLElement) => Array.from(host.querySelectorAll<HTMLButtonElement>("[data-job-key]")).map((button) => button.dataset.jobKey).sort();
+/** The view's header controls by accessible name: the structure both entry points must share. */
+export const viewControls = (host: HTMLElement) => {
+  const section = host.querySelector<HTMLElement>('section[aria-label="Jobs"]');
+  assert.ok(section, "Jobs view rendered");
+  return {
+    heading: section.querySelector("header h2") !== null,
+    controls: Array.from(section.querySelectorAll<HTMLButtonElement>("header button")).map((button) => button.getAttribute("aria-label")),
+    jobs: renderedJobs(section),
+  };
+};
 export const removeCapsules = (host: HTMLElement) => Array.from(host.querySelectorAll<HTMLButtonElement>('[role="group"][aria-label="Job filters"] button[aria-label^="Remove filter: "]'));
 
 export async function runCases(label: string, tests: Array<[string, () => Promise<void>]>, cleanup: () => void) {

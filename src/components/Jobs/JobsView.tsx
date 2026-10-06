@@ -14,7 +14,8 @@ import { AUTOMATION_TOOL } from "../Automation/styles";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "./JobConfirmationDialog";
 import { cronMeta, JobRow, sentinelMeta, unnamedGraphId } from "./JobRow";
-import { JobsFilterBar, type JobsWorkspace } from "./JobsFilterBar";
+import { JobsFilterBar } from "./JobsFilterBar";
+import { jobsLayout, type JobsEmptyScope, type JobsWorkspace } from "./jobsLayout";
 import { useCronJobs } from "./useCronJobs";
 import { useWorkspaceGraphs } from "./useWorkspaceGraphs";
 import { clearableJobs, cronState, mergeJobs, NO_JOBS_FILTER, type JobsFilter, type MergedJob } from "./jobsModel";
@@ -23,9 +24,6 @@ export interface JobsTarget {
   teamId: string | null;
   scenarioId: string;
 }
-
-/** `workspace` is the overlay opened from a workspace; `settings` is the machine-wide entry. */
-export type JobsPlacement = "workspace" | "settings";
 
 type Selection = { kind: "cron" | "scenario"; id: string } | null;
 
@@ -49,12 +47,15 @@ function jobWorkspace(job: MergedJob): string {
   return job.kind === "cron" ? job.cron.workspace_id : job.sentinel.scenario.root.workspace_id;
 }
 
-function EmptyJobs({ filter, placement }: { filter: JobsFilter; placement: JobsPlacement }) {
-  const scoped = filter.workspaceId !== null || filter.teamId !== null;
-  const what = filter.teamId !== null ? "Crons and graphs of this Team will appear here."
-    : filter.workspaceId !== null ? "Crons and graphs of this workspace will appear here."
-      : "Crons and graphs on this machine will appear here.";
-  const hint = !scoped ? null : placement === "workspace" ? "Every job on this machine is in Settings › Jobs." : "Remove the filters to see every job on this machine.";
+const EMPTY_COPY: Record<JobsEmptyScope, string> = {
+  team: "Crons and graphs of this Team will appear here.",
+  workspace: "Crons and graphs of this workspace will appear here.",
+  machine: "Crons and graphs on this machine will appear here.",
+};
+
+function EmptyJobs({ scope, canWiden }: { scope: JobsEmptyScope; canWiden: boolean }) {
+  const what = EMPTY_COPY[scope];
+  const hint = canWiden ? "Remove the filters to see every job on this machine." : null;
   return <>
     <Workflow size={28} className="text-[var(--ct-muted)]" aria-hidden="true" />
     <p className="font-medium text-[var(--ct-fg)]">No jobs</p>
@@ -69,7 +70,8 @@ interface SurfaceProps {
   sources: readonly string[];
   cronWorkspace: string | null;
   filter: JobsFilter;
-  placement: JobsPlacement;
+  emptyScope: JobsEmptyScope;
+  canWiden: boolean;
   initialScenarioId?: string;
   cronActionAdapter?: MeshResourceActionAdapter;
   jobActionAdapter: JobsActionAdapter;
@@ -77,7 +79,7 @@ interface SurfaceProps {
   clearStoppedButtonRef: RefObject<HTMLButtonElement | null>;
 }
 
-function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, placement, initialScenarioId, cronActionAdapter, jobActionAdapter, onClearStoppedChange, clearStoppedButtonRef }: SurfaceProps) {
+function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, emptyScope, canWiden, initialScenarioId, cronActionAdapter, jobActionAdapter, onClearStoppedChange, clearStoppedButtonRef }: SurfaceProps) {
   const graphs = useWorkspaceGraphs(adapter, connectionId, sources);
   const crons = useCronJobs(cronWorkspace);
   const [selection, setSelection] = useState<Selection>(initialScenarioId ? { kind: "scenario", id: initialScenarioId } : null);
@@ -219,15 +221,15 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, pl
   }
   const reading = (crons.jobs === null && !crons.failed) || graphs.some((graph) => graph.loading);
   const empty = jobs.length === 0 && crons.jobs !== null && graphsRead && !crons.failed && !graphsFailed;
-  return <div ref={list} className="@container mx-auto flex w-full max-w-4xl flex-1 flex-col px-4 py-4 sm:px-6">
+  return <div ref={list} className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-4 sm:px-6">
     {missing && <p ref={removed} tabIndex={-1} role="alert" className="mb-3 rounded-md border border-[var(--ct-border)] px-3 py-2 outline-none">The selected Sentinel is unavailable. It may have been removed; choose another job.</p>}
     {crons.failed && <p role="alert" className="mb-3 rounded-md border border-[var(--ct-border)] px-3 py-2">Cron jobs unavailable. {crons.jobs ? "Showing the last list read." : "No cron records could be read."}</p>}
     <AutomationNotices state={notices} noun="Sentinels" />
     {reading && <p role="status" className="mb-3 text-[var(--ct-muted-fg)]">Reading jobs…</p>}
     <div role="status" aria-label={empty ? "No jobs" : undefined} className={empty ? "flex flex-1 flex-col items-center justify-center gap-1.5 py-10 text-center" : undefined}>
-      {empty && <EmptyJobs filter={filter} placement={placement} />}
+      {empty && <EmptyJobs scope={emptyScope} canWiden={canWiden} />}
     </div>
-    {!empty && <ul aria-label="Jobs" className="grid gap-2 @3xl:grid-cols-2">
+    {!empty && <ul aria-label="Jobs" className="flex flex-col gap-2">
       {jobs.map((job: MergedJob) => {
         const key = jobKey(job);
         const canStop = job.kind === "cron"
@@ -260,7 +262,6 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, pl
 export interface JobsViewProps {
   workspaces: readonly JobsWorkspace[];
   teams: readonly Team[];
-  placement: JobsPlacement;
   initialFilter?: JobsFilter;
   initialScenarioId?: string;
   onClose?: () => void;
@@ -269,8 +270,8 @@ export interface JobsViewProps {
   jobActionAdapter?: JobsActionAdapter;
 }
 
-/** The one Jobs view: crons and Sentinel graphs narrowed by optional workspace and Team capsules. */
-export function JobsView({ workspaces, teams, placement, initialFilter = NO_JOBS_FILTER, initialScenarioId, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
+/** The one Jobs view: crons and Sentinel graphs narrowed by optional workspace and Team capsules. Hosts differ only by initial filter. */
+export function JobsView({ workspaces, teams, initialFilter = NO_JOBS_FILTER, initialScenarioId, onClose, adapter = hostAutomationAdapter, cronActionAdapter, jobActionAdapter = hostJobsActionAdapter }: JobsViewProps) {
   const context = usePlanPeerContext();
   const [filter, setFilter] = useState<JobsFilter>(initialFilter);
   const [initialScenario, setInitialScenario] = useState(initialScenarioId);
@@ -278,30 +279,26 @@ export function JobsView({ workspaces, teams, placement, initialFilter = NO_JOBS
   const [clearState, setClearState] = useState<{ count: number; run: (() => void) | null }>({ count: 0, run: null });
   const setClearStopped = useCallback((count: number, run: (() => void) | null) => setClearState({ count, run }), []);
   const changeFilter = useCallback((next: JobsFilter) => { setInitialScenario(undefined); setFilter(next); }, []);
-  const team = filter.teamId === null ? null : teams.find((entry) => entry.id === filter.teamId && !entry.remote_peer_name) ?? null;
-  const teamAvailable = filter.teamId === null || team !== null;
-  const cronWorkspace = filter.workspaceId ?? team?.workspace_id ?? null;
-  const sources = useMemo(() => cronWorkspace !== null ? [cronWorkspace] : workspaces.map((workspace) => workspace.id), [cronWorkspace, workspaces]);
+  const layout = useMemo(() => jobsLayout(filter, workspaces, teams), [filter, workspaces, teams]);
+  const sourcesKey = JSON.stringify(layout.sources);
+  const sources = useMemo<string[]>(() => JSON.parse(sourcesKey), [sourcesKey]);
   const connectionId = `host:${context.ready ? context.generation : "detached"}`;
-  const labelled = placement === "workspace" ? { "aria-label": "Jobs" } : {};
-  return <section {...labelled} className="flex h-full min-h-0 flex-col bg-[var(--ct-bg)] text-[var(--ct-fg)]">
-    <header className={`flex flex-wrap items-center gap-x-3 gap-y-2 ${placement === "workspace" ? "border-b border-[var(--ct-border)] bg-[var(--ct-titlebar-bg)] px-4 py-3 sm:px-6" : "pb-1"}`}>
-      {placement === "workspace" && <>
-        <Workflow size={18} className="shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
-        <h2 className="text-[length:var(--ct-font-size-md)] font-semibold">Jobs</h2>
-      </>}
-      <JobsFilterBar filter={filter} workspaces={workspaces} teams={teams} onChange={changeFilter} />
+  return <section aria-label="Jobs" className="flex h-full min-h-0 flex-col bg-[var(--ct-bg)] text-[var(--ct-fg)]">
+    <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-titlebar-bg)_82%,transparent)] px-4 py-3 backdrop-blur-md sm:px-6">
+      <Workflow size={18} className="shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
+      <h2 className="text-[length:var(--ct-font-size-md)] font-semibold">Jobs</h2>
+      <JobsFilterBar filter={filter} layout={layout} teams={teams} onChange={changeFilter} />
       <div className="ml-auto flex shrink-0 items-center gap-2">
-        <button ref={clearStoppedButton} type="button" className={AUTOMATION_TOOL} aria-label={`Clear stopped${clearState.count ? `, ${clearState.count} jobs` : ""}`} title="Clear stopped" disabled={!clearState.run} onClick={() => clearState.run?.()}>
-          Clear stopped{clearState.count > 0 && <span className="rounded border border-[var(--ct-border)] px-1.5 py-px text-[0.6875rem]">{clearState.count}</span>}
+        <button ref={clearStoppedButton} type="button" className={`${AUTOMATION_TOOL} ct-liquid-interactive`} aria-label={`Clear stopped${clearState.count ? `, ${clearState.count} jobs` : ""}`} title="Clear stopped" disabled={!clearState.run} onClick={() => clearState.run?.()}>
+          Clear stopped{clearState.count > 0 && <span className="rounded-full border border-[var(--ct-border)] px-1.5 py-px text-[0.6875rem]">{clearState.count}</span>}
         </button>
-        {onClose && <button type="button" className={AUTOMATION_TOOL} aria-label="Close jobs" title="Close jobs" onClick={onClose}><X size={15} aria-hidden="true" /></button>}
+        {onClose && <button type="button" className={`${AUTOMATION_TOOL} ct-liquid-interactive`} aria-label="Close jobs" title="Close jobs" onClick={onClose}><X size={15} aria-hidden="true" /></button>}
       </div>
     </header>
-    <div className={`flex min-h-0 flex-1 flex-col ${placement === "workspace" ? "overflow-y-auto" : "min-h-[18rem]"}`}>
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {!context.ready ? <p role="status" className="p-4">Attaching jobs…</p>
-        : !teamAvailable ? <p role="alert" className="p-4">The selected Team is unavailable.</p>
-          : <JobsSurface key={JSON.stringify([connectionId, sources, filter])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={cronWorkspace} filter={filter} placement={placement} initialScenarioId={initialScenario} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} />}
+        : !layout.teamAvailable ? <p role="alert" className="p-4">The selected Team is unavailable.</p>
+          : <JobsSurface key={JSON.stringify([connectionId, sources, filter])} adapter={adapter} connectionId={connectionId} sources={sources} cronWorkspace={layout.cronWorkspace} filter={filter} emptyScope={layout.emptyScope} canWiden={layout.canWiden} initialScenarioId={initialScenario} cronActionAdapter={cronActionAdapter} jobActionAdapter={jobActionAdapter} onClearStoppedChange={setClearStopped} clearStoppedButtonRef={clearStoppedButton} />}
     </div>
   </section>;
 }
