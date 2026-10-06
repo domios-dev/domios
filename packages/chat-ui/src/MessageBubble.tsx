@@ -2,12 +2,10 @@ import React, { useState, useMemo, useCallback, useEffect } from "react";
 import type {
   ChatOrigin,
   NormalizedChatMessage as ChatMessage,
-  ChatAttachment as ImageAttachment,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isTabMarkerPlaceholderLabel, shortTabRef, systemOriginLabel, toolCommand } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, shortTabRef, systemOriginLabel, toolCommand, userVisibleText } from "@codeterm/chat-core";
 import {
-  Download, Image,
   Send,            // generic chat (telegram / service)
   Network,         // mesh
   ChevronsRight,   // slash-command chip
@@ -16,6 +14,7 @@ import {
   Info,
 } from "lucide-react";
 import { ToolCallBubble } from "./ToolCallBubble";
+import { ImageAttachments } from "./ImageAttachments";
 import { ThoughtLine } from "./toolcard/ThoughtLine";
 import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
@@ -137,7 +136,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
     const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
     return persisted ?? shouldAutoExpand;
   });
-  const [viewingImage, setViewingImage] = useState<ImageAttachment | null>(null);
 
   const renderedContent = useMemo(() => {
     if (message.type === "assistant") {
@@ -150,10 +148,6 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
     }
     return null;
   }, [message.type, message.content, fontScale, onOpenPlan, resolvePlanRef]);
-
-  const handleImageClick = useCallback((att: ImageAttachment) => {
-    setViewingImage(att);
-  }, []);
 
   useEffect(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
@@ -373,67 +367,20 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
       );
     })() : null;
 
+    const visibleUserContent = userVisibleText(message.content, attachments);
     const formattedUserContent = effectiveOrigin?.kind === "command" ? (
           <CommandBody commands={effectiveOrigin.commands} body={message.content} />
         ) : hasPlanRefs(message.content) ? (
           <LinkedText text={message.content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         ) : (
-          renderUserContent(message.content)
+          visibleUserContent ? renderUserContent(visibleUserContent) : null
         );
 
     const userBubbleInner = (
       <>
         {formattedUserContent}
         {attachments && attachments.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-2 pt-2" style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}>
-            {attachments.map((att) => (
-              <button
-                key={att.id}
-                data-testid="chat-image-attachment-button"
-                onClick={() => handleImageClick(att)}
-                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] transition-colors hover:brightness-125"
-                style={{
-                  background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)",
-                  color: "var(--ct-muted-fg)",
-                }}
-                title={att.data ? "Click to preview" : "Image (not loaded)"}
-              >
-                <Image size={12} strokeWidth={2} />
-                {att.mimeType.replace("image/", "").toUpperCase()}
-              </button>
-            ))}
-          </div>
-        )}
-        {viewingImage && viewingImage.data && (
-          <div
-            data-testid="chat-image-preview"
-            className="mt-2 pt-2"
-            style={{ borderTop: "1px solid color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
-          >
-            <img
-              src={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
-              alt="Attached image"
-              className="max-w-full max-h-[300px] object-contain rounded-lg"
-            />
-            <div className="flex items-center gap-2 mt-1.5">
-              <a
-                href={`data:${viewingImage.mimeType};base64,${viewingImage.data}`}
-                download={`image.${viewingImage.mimeType.replace("image/", "")}`}
-                className="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
-                style={{ color: "var(--ct-muted-fg)", background: "color-mix(in srgb, var(--ct-accent) 15%, transparent)" }}
-              >
-                <Download size={11} strokeWidth={2} />
-                Save
-              </a>
-              <button
-                onClick={() => setViewingImage(null)}
-                className="text-[11px] px-1.5 py-0.5 rounded transition-colors hover:brightness-125"
-                style={{ color: "var(--ct-muted-fg)" }}
-              >
-                Hide
-              </button>
-            </div>
-          </div>
+          <ImageAttachments attachments={attachments} separated={visibleUserContent.trim().length > 0} />
         )}
       </>
     );

@@ -43,6 +43,7 @@ export {
   normalizeChatText,
   type FingerprintableChatMessage,
 } from "./normalize";
+export { attachmentFileName, inlineAttachmentSrc, userVisibleText } from "./userAttachments";
 export { ECHO_SKEW_MS, matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
 export { mergeById } from "./merge";
 export { timestampMs } from "./time";
