@@ -4,6 +4,8 @@ use super::run_with_environment;
 use super::{MAX_OUTPUT_BYTES, PROBE_RUNTIME};
 #[cfg(unix)]
 use std::io::Write;
+#[cfg(unix)]
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
