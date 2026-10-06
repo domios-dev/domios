@@ -27,7 +27,7 @@ function edgePath(source: EssenceMapNodeLayout, target: EssenceMapNodeLayout): s
 }
 
 
-function statusLabel(project: EssenceMapProject): string {
+export function statusLabel(project: EssenceMapProject): string {
   if (project.status === "valid") return `${project.nodes.length} nodes · ${project.edges.length} links`;
   if (project.status === "empty") return "Empty essence map";
   if (project.status === "malformed") return "Malformed essence map";
