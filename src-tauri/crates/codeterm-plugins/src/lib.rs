@@ -3,7 +3,6 @@
 //! its own CLI. The socket-routed `plugin <id> <verb>` passthrough stays in the CLI crate.
 
 use std::cell::RefCell;
-use std::io::Read;
 use std::path::PathBuf;
 use std::sync::Arc;
 
