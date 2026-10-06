@@ -806,7 +806,7 @@ fn workspace_close_finishes_after_a_pre_teardown_error() {
 )]
 async fn close_team_via_service_persists_the_reduced_desk() {
     use crate::service::TeamMutationCaller;
-    use crate::session::store::SessionStore;
+    use crate::session::store::StorageDeskAdapter;
     use tauri::Manager;
 
     let (mut mux, orchestrator) = MultiplexerState::new();
@@ -825,14 +825,21 @@ async fn close_team_via_service_persists_the_reduced_desk() {
     let bystander = mux.create_tab(&workspace_id).unwrap();
 
     let fixture = ServiceFixture::new(mux);
-    let session: crate::session::SessionState = std::sync::Arc::new(parking_lot::Mutex::new(
-        SessionStore::for_test_dir(fixture.temp.path().join("sessions")),
-    ));
-    fixture._app.manage(session.clone());
-
-    crate::service::session_persist::write_session_snapshot(
-        &fixture.service.app_handle,
-        &fixture.service.mux,
+    let storage = crate::storage::Storage::open(
+        fixture.temp.path().join("workspace-close-storage"),
+        crate::storage::StorageConfig::default(),
+    )
+    .unwrap();
+    let adapter = StorageDeskAdapter::from_storage(storage.clone());
+    adapter
+        .import_snapshot(
+            &fixture.service.mux.read().to_session_snapshot(),
+            Vec::new(),
+        )
+        .expect("seed the Storage desk before Team close");
+    crate::service::session_persist::install_storage_desk_adapter(
+        fixture._app.handle(),
+        StorageDeskAdapter::from_storage(storage.clone()),
     )
     .unwrap();
     let persisted_ids = |snapshot: &crate::session::store::SessionSnapshot| -> Vec<String> {
@@ -842,11 +849,11 @@ async fn close_team_via_service_persists_the_reduced_desk() {
             .flat_map(|ws| ws.tabs.iter().map(|tab| tab.id.clone()))
             .collect()
     };
-    let before = session.lock().load_last().unwrap().expect("desk persisted");
+    let before = adapter.snapshot().expect("desk persisted");
     let before_ids = persisted_ids(&before);
     assert!(
         before_ids.contains(&orchestrator),
-        "team desk on disk first"
+        "team desk persisted first"
     );
     assert!(before_ids.contains(&worker));
 
@@ -857,15 +864,12 @@ async fn close_team_via_service_persists_the_reduced_desk() {
         .await
         .unwrap();
 
-    let after = session
-        .lock()
-        .load_last()
-        .unwrap()
-        .expect("desk re-persisted");
+    crate::service::session_persist::flush_session_persistence(fixture._app.handle()).unwrap();
+    let after = adapter.snapshot().expect("desk re-persisted");
     let after_ids = persisted_ids(&after);
     assert!(
         !after_ids.contains(&orchestrator) && !after_ids.contains(&worker),
-        "closed Team members must not survive in last.json to resurrect on restart"
+        "closed Team members must not survive in the persisted desk to resurrect on restart"
     );
     assert!(
         after_ids.contains(&bystander),
@@ -875,6 +879,11 @@ async fn close_team_via_service_persists_the_reduced_desk() {
         after.teams.iter().all(|team| team.id != team_id),
         "closed Team is gone from the snapshot"
     );
+    crate::service::session_persist::stop_worker(fixture._app.handle()).unwrap();
+    storage
+        .shutdown()
+        .wait(std::time::Duration::from_secs(30))
+        .unwrap();
 }
 
 #[tokio::test]
@@ -912,25 +921,30 @@ async fn workspace_close_after_team_close_finds_existing_workspace() {
 )]
 fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
     use crate::service::spawn::{SpawnTabSpec, TabCommand};
-    use crate::session::store::SessionStore;
+    use crate::session::store::StorageDeskAdapter;
     use tauri::Manager;
 
     let (mux, seed_tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
-    let sessions_dir = fixture.temp.path().join("sessions");
-    let session: crate::session::SessionState = std::sync::Arc::new(parking_lot::Mutex::new(
-        SessionStore::for_test_dir(sessions_dir.clone()),
-    ));
-    fixture._app.manage(session.clone());
-
-    crate::service::session_persist::write_session_snapshot(
-        &fixture.service.app_handle,
-        &fixture.service.mux,
+    let storage = crate::storage::Storage::open(
+        fixture.temp.path().join("chatbackend-rollback-storage"),
+        crate::storage::StorageConfig::default(),
     )
     .unwrap();
-    // Only the rollback path's own save can bring last.json back; a rollback
-    // that skips persistence leaves the file missing and fails the test.
-    std::fs::remove_file(sessions_dir.join("last.json")).unwrap();
+    let adapter = StorageDeskAdapter::from_storage(storage.clone());
+    let mut stale_mux =
+        MultiplexerState::from_session_snapshot(&fixture.service.mux.read().to_session_snapshot());
+    let workspace_id = stale_mux.find_workspace_for_tab(&seed_tab).unwrap();
+    let stale_tab = stale_mux.create_tab(&workspace_id).unwrap();
+    adapter
+        .import_snapshot(&stale_mux.to_session_snapshot(), Vec::new())
+        .expect("seed a stale persisted tab for the rollback reduction");
+    crate::service::session_persist::install_storage_desk_adapter(
+        fixture._app.handle(),
+        StorageDeskAdapter::from_storage(storage.clone()),
+    )
+    .unwrap();
+    let before_revision = adapter.state().unwrap().revision;
     let tabs_before = fixture.service.mux.read().snapshot().tabs.len();
 
     // Genuine failure injection through the REAL spawn path: the tab is
@@ -956,10 +970,13 @@ fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
         tabs_before,
         "provisional tab rolled back from the live desk"
     );
-    let persisted = std::fs::read_to_string(sessions_dir.join("last.json"))
-        .expect("the rollback path must persist the authorized reduction");
-    let snapshot: crate::session::store::SessionSnapshot =
-        serde_json::from_str(&persisted).unwrap();
+    crate::service::session_persist::flush_session_persistence(fixture._app.handle()).unwrap();
+    let after_state = adapter.state().unwrap();
+    assert!(
+        after_state.revision > before_revision,
+        "rollback must commit its authorized desk reduction"
+    );
+    let snapshot = adapter.snapshot().unwrap();
     let persisted_ids: Vec<String> = snapshot
         .workspaces
         .iter()
@@ -970,4 +987,10 @@ fn chatbackend_launch_failure_rolls_back_and_persists_the_reduced_desk() {
         vec![seed_tab],
         "persisted desk holds exactly the pre-spawn tabs — no provisional tab, nothing lost"
     );
+    assert!(!persisted_ids.contains(&stale_tab));
+    crate::service::session_persist::stop_worker(fixture._app.handle()).unwrap();
+    storage
+        .shutdown()
+        .wait(std::time::Duration::from_secs(30))
+        .unwrap();
 }

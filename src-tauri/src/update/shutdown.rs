@@ -247,19 +247,21 @@ mod tests {
         mux.set_tab_role(&worker, AgentRole::Worker, Some(&orch))
             .unwrap();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let svc = &fixture.service;
         let storage = Storage::open(
             fixture.temp.path().join("instance"),
             StorageConfig::default(),
         )
         .expect("storage owner");
         let adapter = StorageDeskAdapter::from_storage(storage.clone());
+        adapter
+            .import_snapshot(&svc.mux.read().to_session_snapshot(), Vec::new())
+            .expect("seed the Storage desk before teardown persistence");
         crate::service::session_persist::install_storage_desk_adapter(
             fixture._app.handle(),
-            StorageDeskAdapter::from_storage(storage),
+            StorageDeskAdapter::from_storage(storage.clone()),
         )
         .expect("install Storage desk adapter");
-
-        let svc = &fixture.service;
         let teardown = async {
             let reservation = svc.mux.write().reserve_tab_close(&worker)?;
             svc.mux
@@ -288,6 +290,11 @@ mod tests {
             snapshot_tab_ids(&recorded).contains(&worker),
             "recorded desk must keep the pre-teardown tab set"
         );
+        crate::service::session_persist::stop_worker(fixture._app.handle()).unwrap();
+        storage
+            .shutdown()
+            .wait(std::time::Duration::from_secs(30))
+            .unwrap();
     }
 
     #[test]

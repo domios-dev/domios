@@ -1067,9 +1067,7 @@ pub(super) fn owner_directory(path: &Path) -> Result<(), String> {
     }
     #[cfg(windows)]
     {
-        let tool_path = path.to_str().ok_or("user owner directory is not Unicode")?;
-        let tool_path = codeterm_paths::strip_verbatim_prefix(tool_path);
-        super::restrict_windows_acl(Path::new(&tool_path)).map_err(io_error)?;
+        super::restrict_windows_acl(path).map_err(io_error)?;
     }
     if !existed {
         if let Some(parent) = path.parent() {
