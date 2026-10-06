@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::service::ServiceState;
 
-use super::{epoch_ms, plan_authority_err, plan_err, text_err, PlanRouteResult};
+use super::{epoch_ms, plan_authority_err, plan_err, text_err};
 
 /// REST twin of the socket gate's recovery classification: only these verbs may
 /// be widened for the live Plan owner. `task_rm` is deliberately excluded.

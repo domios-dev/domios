@@ -449,7 +449,6 @@ fn assert_prompt_fixture_stops_recovery(
     screen: &str,
     prompt: codeterm_types::pty::PendingPrompt,
 ) {
-    use codeterm_plugin::provider::AgentProvider;
     use codeterm_plugin::tab_state::{TabState, TabStateClassification, TabStateSnapshot};
 
     let provider = crate::agent::test_provider::MockProvider::new("fixture")

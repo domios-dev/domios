@@ -403,23 +403,3 @@ mod tests {
         );
     }
 }
-
-impl ServiceContext {
-    pub(crate) fn general_agent_model_recovery_connected(&self, tab_id: &str) -> bool {
-        if !self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .is_some_and(super::super::is_general_agent)
-        {
-            return false;
-        }
-        let config = crate::config::load_config().supporter;
-        let tokens = crate::service::supporter::read_token_snapshot(
-            &crate::service::supporter::runtime_with_notifications(self),
-            &crate::api::mem_routes::decision::token_store(),
-            config.active_id().unwrap_or(""),
-        );
-        crate::service::supporter::supporter_connected(&config, &self.supporter_models, &tokens)
-    }
-}

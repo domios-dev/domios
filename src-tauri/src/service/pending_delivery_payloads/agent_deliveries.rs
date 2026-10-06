@@ -427,19 +427,17 @@ impl AgentDeliveryStore {
             if name == "index.json" || live.contains(&name) {
                 continue;
             }
-            if name == "index.next.json"
+            if (name == "index.next.json"
                 || name
                     .strip_suffix(".payload")
-                    .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok())
-            {
-                if entry
+                    .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok()))
+                && entry
                     .file_type()
                     .map_err(|error| format!("agent delivery persistence: {error}"))?
                     .is_file()
-                {
-                    fs::remove_file(entry.path())
-                        .map_err(|error| format!("agent delivery persistence: {error}"))?;
-                }
+            {
+                fs::remove_file(entry.path())
+                    .map_err(|error| format!("agent delivery persistence: {error}"))?;
             }
         }
         Ok(())

@@ -226,7 +226,6 @@ fn service_with_provider_dialog(
 }
 
 fn assert_plain_text_is_held_until_provider_dialog_clears(dialog: ProviderDialogFixture) {
-    use crate::agent::provider::AgentProvider;
     use crate::service::chat_send_transaction::ChatSendState;
     use crate::service::delivery_error::DeliveryError;
     use crate::service::parked_user_delivery::tests::{
