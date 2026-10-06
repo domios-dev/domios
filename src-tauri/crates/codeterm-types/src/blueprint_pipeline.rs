@@ -37,7 +37,7 @@ pub enum Trigger {
         every: String,
     },
     Event {
-        source: String,
+        kind: String,
         params: Value,
     },
     Input {
@@ -219,9 +219,9 @@ pub fn validate(
         Trigger::Schedule { every } if !valid_duration(every) => {
             error(&mut errors, "trigger.every", "must be a positive duration")
         }
-        Trigger::Event { source, .. } if !valid_name(source) => error(
+        Trigger::Event { kind, .. } if !valid_name(kind) => error(
             &mut errors,
-            "trigger.source",
+            "trigger.kind",
             "must be a bounded capability kind",
         ),
         Trigger::Input {
@@ -413,6 +413,56 @@ pub fn ensure_trigger_available(trigger: &Trigger) -> Result<(), ValidationError
         })
     } else {
         Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubscriptionOwnerState {
+    Active,
+    Stopped,
+    Expired,
+    OwnerClosed,
+    TeamClosed,
+    Amended,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubscriptionProviderState {
+    Available,
+    Missing,
+    Ungranted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubscriptionAction {
+    Subscribe,
+    Unsubscribe,
+    Unavailable,
+    Keep,
+}
+
+pub fn next_subscription_action(
+    subscribed: bool,
+    owner: SubscriptionOwnerState,
+    provider: SubscriptionProviderState,
+) -> SubscriptionAction {
+    if owner != SubscriptionOwnerState::Active {
+        return if subscribed {
+            SubscriptionAction::Unsubscribe
+        } else {
+            SubscriptionAction::Keep
+        };
+    }
+    match provider {
+        SubscriptionProviderState::Available if subscribed => SubscriptionAction::Keep,
+        SubscriptionProviderState::Available => SubscriptionAction::Subscribe,
+        SubscriptionProviderState::Missing | SubscriptionProviderState::Ungranted => {
+            if subscribed {
+                SubscriptionAction::Unsubscribe
+            } else {
+                SubscriptionAction::Unavailable
+            }
+        }
     }
 }
 
@@ -939,7 +989,7 @@ mod tests {
         .is_ok());
         for trigger in [
             Trigger::Event {
-                source: "fixture.event".into(),
+                kind: "fixture.event".into(),
                 params: Value::Null,
             },
             Trigger::Input {

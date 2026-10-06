@@ -264,6 +264,10 @@ impl ServiceFixture {
             graph_node_registry: Arc::new(
                 codeterm_plugin::graph_nodes::GraphNodeRegistry::default(),
             ),
+            event_source_registry: Arc::new(
+                codeterm_plugin::event_source::EventSourceRegistry::default(),
+            ),
+            graph_event_subscriptions: codeterm_plugin::graph_events::SubscriptionTable::new(),
             supporter_models: Arc::new(crate::api::mem_routes::decision::SupporterRegistry::new()),
             glance_registry: Arc::new(crate::glance::GlanceRegistry::new()),
             bubble_registry: Arc::new(crate::bubble::BubbleRegistry::new()),

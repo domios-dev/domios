@@ -683,8 +683,8 @@ fn trigger_view(trigger: &codeterm_types::blueprint_pipeline::Trigger) -> Value 
         Trigger::Schedule { every } => {
             json!({"type":"schedule","summary":format!("every {every}")})
         }
-        Trigger::Event { source, .. } => {
-            json!({"type":"event","summary":format!("event source {source}")})
+        Trigger::Event { kind, .. } => {
+            json!({"type":"event","summary":format!("event {kind}")})
         }
         Trigger::Input {
             kind,

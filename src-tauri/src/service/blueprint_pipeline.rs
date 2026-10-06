@@ -425,7 +425,7 @@ fn validate_result_scope(
 fn chain_summary(spec: &BlueprintSpec) -> String {
     let trigger = match &spec.trigger {
         Trigger::Schedule { every } => format!("schedule:{every}"),
-        Trigger::Event { source, .. } => format!("event:{source}"),
+        Trigger::Event { kind, .. } => format!("event:{kind}"),
         Trigger::Input { kind, .. } => format!("input:{}", kind.as_str()),
     };
     let steps = spec.steps.iter().map(|step| {
