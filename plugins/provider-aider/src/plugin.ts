@@ -31,7 +31,10 @@ const MODE_PROMPT_RE = /^(?:[a-z]+)?>\s*$/;
 function withLaunchEnv(command: string, p: LaunchParams): string {
   const platform = host.platform();
   const quote = (v: string) => host.shell.quoteFor(v, platform);
-  const isPowerShell = /powershell|pwsh/i.test(String(platform));
+  // The host's quoting helper knows the target shell: PowerShell wraps in
+  // double quotes, POSIX shells in single quotes. `platform()` is an OS id
+  // ("win32"), never a shell name.
+  const isPowerShell = quote("x") === '"x"';
   const exports: string[] = [];
   const apiBase = typeof p.apiBase === "string" && p.apiBase ? p.apiBase : null;
   if (apiBase) {
