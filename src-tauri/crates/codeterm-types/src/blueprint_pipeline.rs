@@ -111,7 +111,7 @@ pub struct Step {
     pub name: String,
     pub input: IoType,
     pub kind: StepKind,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub on: BTreeMap<String, String>,
 }
 
@@ -670,6 +670,9 @@ pub struct StepJournalEntry {
 impl StepJournalEntry {
     pub fn bound_summary(value: &str) -> String {
         value
+            .lines()
+            .next()
+            .unwrap_or_default()
             .chars()
             .filter(|character| !character.is_control())
             .take(MAX_RESULT_SUMMARY_CHARS)
