@@ -882,17 +882,39 @@ fn lazy_session_spawn_with_modal_or_dead_provider_still_fails_at_deadline() {
 
 #[test]
 fn input_fallback_opens_input_when_the_provider_signal_never_fires() {
-    let fallback_ms = 5000u64;
     let started = Instant::now();
-    let elapsed = started.elapsed().as_millis() as u64;
+    let fallback_ms = 5000u64;
     assert!(
-        elapsed < fallback_ms,
-        "the fallback must not fire before its deadline"
+        !input_fallback_opens(started, started, fallback_ms),
+        "the fallback must not open input at the launch instant"
     );
-    let after_deadline = started + std::time::Duration::from_millis(fallback_ms);
     assert!(
-        Instant::now() >= after_deadline,
-        "the fallback must fire once its deadline elapses"
+        !input_fallback_opens(
+            started,
+            started + std::time::Duration::from_millis(fallback_ms - 1),
+            fallback_ms
+        ),
+        "the fallback must not open input before its deadline"
+    );
+    assert!(
+        input_fallback_opens(
+            started,
+            started + std::time::Duration::from_millis(fallback_ms),
+            fallback_ms
+        ),
+        "the fallback must open input once its deadline elapses"
+    );
+    assert!(
+        input_fallback_opens(
+            started,
+            started + std::time::Duration::from_millis(fallback_ms + 250),
+            fallback_ms
+        ),
+        "the fallback stays open past its deadline"
+    );
+    assert!(
+        !input_fallback_opens(started, started, 0) == false,
+        "a zero fallback opens input immediately"
     );
 }
 
