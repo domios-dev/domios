@@ -165,7 +165,7 @@ fi
 # --- 7. dev_run composes the connection for a non-CLI child ----------
 CURL_LOG="$FIXTURE/child-curl.log"
 child_output="$(probe "$POISON"'source "$1"; dev_run "$2/child-probe"')"
-if ! grep -Fqx "CHILD port=$DEV_PORT api_url=http://127.0.0.1:$DEV_PORT data_dir=$FIXTURE/home/.codeterm-dev vite=1420 cdp=9223 instance= auth=Authorization: Bearer dev-token" <<<"$child_output"; then
+if ! grep -Fqx "CHILD port=$DEV_PORT api_url=http://127.0.0.1:$DEV_PORT data_dir=$FIXTURE/home/.codeterm-dev vite=1420 cdp=9223 instance=unset auth=Authorization: Bearer dev-token" <<<"$child_output"; then
   fail "dev_run did not compose the dev connection for its child: $child_output"
 fi
 
