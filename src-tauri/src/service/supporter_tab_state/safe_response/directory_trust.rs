@@ -26,10 +26,10 @@ pub(super) fn provider_target(provider: &dyn AgentProvider, screen: &str) -> Opt
         return None;
     }
     let choice = prompt.options[index].value.clone();
-    let frame_key = format!(
-        "directory-trust:{}",
-        frame_hash(&serde_json::to_string(&(&prompt, &step)).ok()?)
-    );
+    let step = crate::service::directory_trust::full_directory_trust_key(
+        provider, &prompt, screen, &step,
+    )?;
+    let frame_key = crate::service::directory_trust::directory_trust_occurrence(&prompt);
     (unique_choice(&prompt, &choice) && !step.is_empty()).then_some(Target {
         kind: Kind::DirectoryTrust,
         prompt,

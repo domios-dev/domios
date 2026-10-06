@@ -999,6 +999,32 @@ fn startup_notice_exposes_inspect_respond_and_hold_without_task_resend() {
 }
 
 #[test]
+fn startup_overdue_notice_is_suppressed_after_binding_is_observed() {
+    let (fixture, parent_tab_id, child_tab_id) = lifecycle_fixture(true);
+    let authority = StartupAuthority::new(&parent_tab_id, &child_tab_id, "launch-a")
+        .for_binding(Some("session-a"), "nonce-a");
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&child_tab_id).expect("child tab");
+        tab.pty_id = Some("launch-a".into());
+        tab.agent_session_id = Some("session-a".into());
+        tab.session_binding_nonce = Some("nonce-a".into());
+        tab.reported_session_binding_nonce = Some("nonce-a".into());
+    }
+
+    assert!(fixture.service.startup_attempt_binding_observed(&authority));
+
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&child_tab_id)
+        .unwrap()
+        .reported_session_binding_nonce = None;
+    assert!(!fixture.service.startup_attempt_binding_observed(&authority));
+}
+
+#[test]
 fn expired_startup_reports_a_surviving_tab_without_cleanup_schema() {
     let event = agent_startup_failed_event(
         "child",
