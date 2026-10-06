@@ -301,7 +301,7 @@ console.log("\n--- multi-line chat delivery ---\n");
   const wrapped = deliverText(long);
   assert(wrapped.startsWith("{domios\n"), "long multi-line text starts with one block");
   assert(wrapped.endsWith("domios}"), "long multi-line text ends with one block");
-  const blocks = wrapped.match(/\{[a-z0-9]+\}[\s\S]*?\{\/[a-z0-9]+\}/g) || [];
+  const blocks = wrapped.match(/^\{[a-z0-9]+\n[\s\S]*\n[a-z0-9]+\}$/g) || [];
   eq(blocks.length, 1, "one send is exactly one block");
   assert(wrapped.includes("line 0\n") && wrapped.includes("line 299"), "the whole payload stays inside the block");
 }
