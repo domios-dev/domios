@@ -34,9 +34,6 @@
     "publicSendWaitsForStartupTurnCompletion": true,
     "supportsStructuredPrompts": false
   },
-  "integration": {
-    "kind": "none"
-  },
   "modelGroups": [
     {
       "id": "openai",
