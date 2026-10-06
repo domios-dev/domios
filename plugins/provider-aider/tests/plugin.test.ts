@@ -105,6 +105,10 @@ console.log("\n--- secret-safe launch command ---\n");
   assert(!posix.includes("sk-secret-value"), "posix command carries no secret value");
   const winHost = aiderHost({
     platform: () => "win32",
+    shell: {
+      quoteFor: (v: unknown) => `"${String(v)}"`,
+      quote: (v: unknown) => `"${String(v)}"`,
+    },
     secretGet: (name: string) => (name === "my-key" ? "sk-secret-value" : null),
   });
   const win = loadAiderWithHost(winHost).buildLaunchCommand({ apiKeySecret: "my-key" });
