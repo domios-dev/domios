@@ -313,8 +313,8 @@ console.log("\n--- tagged block tag selection ---\n");
   eq(pickTaggedBlockTag("has {/domios} inside"), "domios1", "tag avoids a closing marker in the text");
   eq(pickTaggedBlockTag("{domios} and {domios1}"), "domios2", "tag skips every colliding candidate");
   const collision = deliverText("body {domios} tail\nmore");
-  assert(collision.startsWith("{domios1}\n"), "colliding text uses the next free tag");
-  assert(collision.endsWith("{/domios1}"), "colliding text closes with the same tag");
+  assert(collision.startsWith("{domios1\n"), "colliding text uses the next free tag");
+  assert(collision.endsWith("domios1}"), "colliding text closes with the same tag");
   assert(collision.includes("body {domios} tail"), "the payload is never rewritten");
 }
 
@@ -322,7 +322,7 @@ console.log("\n--- chatPreprocess provider scope ---\n");
 {
   eq(runtime.chatPreprocess!({ provider: "claude", text: "a\nb" }), null, "other providers are untouched");
   eq(runtime.chatPreprocess!({ provider: "codex", text: "a\nb" }), null, "codex is untouched");
-  eq(runtime.chatPreprocess!({ provider: "aider", text: "a\nb" }), { text: "{domios}\na\nb\n{/domios}" }, "aider text is wrapped");
+  eq(runtime.chatPreprocess!({ provider: "aider", text: "a\nb" }), { text: "{domios\na\nb\ndomios}" }, "aider text is wrapped");
   eq(runtime.chatPreprocess!({ provider: "aider", text: "single" }), null, "single-line aider text passes through");
   eq(runtime.chatPreprocess!({ provider: null, text: "a\nb" }), null, "missing provider is untouched");
 }
@@ -336,7 +336,7 @@ console.log("\n--- manifest paste and preprocessor capability ---\n");
     ),
   );
   eq(manifest.capabilities?.chatPreprocessor?.match, "text", "manifest declares the chatPreprocessor capability");
-  eq(manifest.spawn?.paste, "plain_lines", "manifest declares plain-line paste for --no-fancy-input");
+  eq(manifest.spawn?.inputFallbackMs, 5000, "manifest declares the bounded input fallback");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
