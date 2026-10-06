@@ -27,16 +27,16 @@ mod prompt_steps;
 #[path = "output/shell_markers.rs"]
 mod shell_markers;
 #[cfg(test)]
-pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
-pub(super) use prompt_steps::write_bound_prompt_steps;
-use prompt_steps::write_prompt_steps;
-#[cfg(test)]
 pub(super) use manual_update::parse_manual_update_prompt;
 pub(super) use manual_update::{
     claim_manual_update_occurrence, clear_manual_update_occurrence, manual_update_prompt_candidate,
     parse_manual_update_prompt_with_response, release_model_update_step,
     resolve_classified_manual_update_prompt, resolve_classified_manual_update_prompt_fallback,
 };
+#[cfg(test)]
+pub(super) use prompt_steps::prompt_step_dispatch_count_for_test;
+pub(super) use prompt_steps::write_bound_prompt_steps;
+use prompt_steps::write_prompt_steps;
 
 #[cfg(test)]
 fn parse_directory_trust_prompt(
@@ -254,6 +254,15 @@ impl ServiceContext {
                 .get_screen_text(pty_id)
                 .unwrap_or_default()
         });
+        if let (Some(tab_id), Some(agent_type), Some(screen)) = (
+            tab_id.as_deref(),
+            agent_type.as_deref(),
+            changed_screen.as_deref(),
+        ) {
+            super::directory_trust::observe_directory_trust_screen(
+                self, tab_id, agent_type, screen,
+            );
+        }
         let model_owned = tab_id.is_some() && agent_type.is_some() && self.scrape_model_connected();
         if !model_owned && matches!(current_status, TabStatus::Idle | TabStatus::Waiting) {
             if let (Some(tab_id), Some(agent_type), Some(_)) = (
@@ -671,10 +680,10 @@ impl ServiceContext {
         }
     }
 
-    /// Heuristic detection is limited to hookless, file-backed providers. A
-    /// hooked provider that missed its launch deadline reads its own launch record.
+    /// Hookless providers use session heuristics; hooked providers inspect launch
+    /// records after trust clears or the binding deadline expires.
     fn maybe_detect_agent_session(&self, tab_id: &str, agent_type: &str) {
-        let (cwd, set_at_elapsed, current_session, deadline_elapsed) = {
+        let (cwd, set_at_elapsed, current_session, binding_nonce, deadline_elapsed) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
                 return;
@@ -687,7 +696,13 @@ impl ServiceContext {
                 || tab.agent_set_at.is_some_and(|set_at| {
                     set_at.elapsed() >= crate::service::worker_ack::STARTUP_BINDING_DEADLINE
                 });
-            (cwd, elapsed, sid, deadline_elapsed)
+            (
+                cwd,
+                elapsed,
+                sid,
+                tab.session_binding_nonce.clone(),
+                deadline_elapsed,
+            )
         };
         if !should_detect_unbound_session(current_session.as_deref()) {
             return;
@@ -709,7 +724,15 @@ impl ServiceContext {
                 )
             })
             .unwrap_or((false, false));
-        let launch_detection = !heuristic && hooked && deadline_elapsed;
+        let trust_prompt_resolved = binding_nonce.as_deref().is_some_and(|nonce| {
+            super::directory_trust::trust_prompt_resolved_for_launch(tab_id, nonce)
+        });
+        let launch_detection = launch_session_detection_due(
+            heuristic,
+            hooked,
+            deadline_elapsed,
+            trust_prompt_resolved,
+        );
         if !heuristic && !launch_detection {
             return;
         }
@@ -882,7 +905,7 @@ impl ServiceContext {
                 } else {
                     self.respond_to_directory_trust(tab_id, screen_text)
                 };
-                if trust.owns_prompt() {
+                if trust.owns_prompt() && trust != super::directory_trust::TrustDecision::Held {
                     return;
                 }
                 if auto_approve && !directory_trust_prompt && !require_user_confirmation {
@@ -1084,6 +1107,15 @@ impl ServiceContext {
     }
 }
 
+fn launch_session_detection_due(
+    heuristic: bool,
+    hooked: bool,
+    deadline_elapsed: bool,
+    trust_prompt_resolved: bool,
+) -> bool {
+    !heuristic && hooked && (deadline_elapsed || trust_prompt_resolved)
+}
+
 fn should_detect_unbound_session(current_session: Option<&str>) -> bool {
     current_session.is_none()
 }
@@ -1182,6 +1214,9 @@ mod exit_detection_tests;
 #[path = "output/agent_lifecycle_tests.rs"]
 mod agent_lifecycle_tests;
 
+#[cfg(test)]
+#[path = "output/launch_session_detection_tests.rs"]
+mod launch_session_detection_tests;
 #[cfg(test)]
 #[path = "output/manual_update_prompt_tests.rs"]
 mod manual_update_prompt_tests;
