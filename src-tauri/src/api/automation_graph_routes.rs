@@ -234,7 +234,7 @@ mod tests {
             creator: String,
             workspace: String,
             _env: codeterm_util::test_env::EnvGuard,
-            isolated_data: IsolatedDataDir,
+            _isolated_data: IsolatedDataDir,
         }
 
         struct IsolatedDataDir(std::path::PathBuf);
@@ -325,7 +325,7 @@ mod tests {
                     creator,
                     workspace,
                     _env: env,
-                    isolated_data: IsolatedDataDir(isolated_data),
+                    _isolated_data: IsolatedDataDir(isolated_data),
                 }
             }
 
