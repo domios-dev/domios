@@ -30,7 +30,7 @@ async function main() {
       const [open, setOpen] = useState<string | null>(null);
       return <>
         <WorkspaceNavigationActions workspaceId={workspaceA} workspaceName="Workspace A" onOpenJobs={setOpen} onOpenMap={() => {}} />
-        {open && <JobsView placement="workspace" workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: open, teamId: null }} adapter={transport} onClose={() => setOpen(null)} />}
+        {open && <JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: open, teamId: null }} adapter={transport} onClose={() => setOpen(null)} />}
       </>;
     }
     const view = await mount(<Harness />);
@@ -47,7 +47,7 @@ async function main() {
   });
 
   test("adding and removing capsules changes the rendered job set and keeps focus on the filter controls", async () => {
-    const view = await mount(<JobsView placement="workspace" workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: workspaceA, teamId: null }} adapter={machineTransport()} />);
+    const view = await mount(<JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: workspaceA, teamId: null }} adapter={machineTransport()} />);
     try {
       await settle(() => renderedJobs(view.host).length === 3);
       await pickFromMenu(view.host, "Add Team filter", "Team A");
@@ -75,11 +75,11 @@ async function main() {
   });
 
   test("a Team capsule alone narrows every workspace to that Team, and an unknown Team stays unavailable", async () => {
-    const view = await mount(<JobsView placement="settings" workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: null, teamId: teamA.id }} adapter={machineTransport()} />);
+    const view = await mount(<JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: null, teamId: teamA.id }} adapter={machineTransport()} />);
     try {
       await settle(() => renderedJobs(view.host).length === 2);
       assert.deepEqual(renderedJobs(view.host), [`cron:${teamCron.id}`, scenarioA].sort());
-      await act(async () => view.root.render(<JobsView placement="settings" workspaces={workspaces} teams={[remoteTeam]} initialFilter={{ workspaceId: null, teamId: teamA.id }} adapter={machineTransport()} />));
+      await act(async () => view.root.render(<JobsView workspaces={workspaces} teams={[remoteTeam]} initialFilter={{ workspaceId: null, teamId: teamA.id }} adapter={machineTransport()} />));
       assert.ok(view.host.querySelector('[role="alert"]'), "a removed Team is reported, not shown as empty");
       assert.equal(view.host.querySelector('ul[aria-label="Jobs"]'), null);
       assert.ok(named(view.host, "Remove filter: Team Unavailable Team"), "the stale capsule stays removable");
@@ -89,7 +89,7 @@ async function main() {
   test("an empty filter announces a centered status and removing the capsule reveals jobs elsewhere", async () => {
     machine.crons = [foreignCron];
     machine.graphs = { [workspaceA]: { ...graphA, scenarios: [] }, [workspaceB]: graphB };
-    const view = await mount(<JobsView placement="workspace" workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: workspaceA, teamId: null }} adapter={machineTransport()} />);
+    const view = await mount(<JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: workspaceA, teamId: null }} adapter={machineTransport()} />);
     try {
       await settle(() => view.host.querySelector('[role="status"][aria-label="No jobs"]') !== null);
       assert.equal(view.host.querySelector('ul[aria-label="Jobs"]'), null);
@@ -104,7 +104,7 @@ async function main() {
 
   test("a peer reset detaches the listed records and the rebind attaches the next connection", async () => {
     const transport = machineTransport();
-    const view = await mount(<JobsView placement="workspace" workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: workspaceA, teamId: null }} adapter={transport} />);
+    const view = await mount(<JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: workspaceA, teamId: null }} adapter={transport} />);
     try {
       await settle(() => renderedJobs(view.host).length === 3);
       await act(async () => { win.dispatchEvent(new win.CustomEvent("codeterm-peer-switch-reset", { detail: { switchId: 1 } })); });
