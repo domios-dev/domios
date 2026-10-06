@@ -109,7 +109,7 @@ impl SentinelRepository {
             )));
         }
         self.storage
-            .submit_read(move |cx| pipeline::log(cx.conn, id.as_str(), limit))
+            .submit_read(move |cx| pipeline::log(cx, id.as_str(), limit))
     }
 
     pub fn blueprint_logs(

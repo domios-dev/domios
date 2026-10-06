@@ -228,8 +228,7 @@ impl ServiceContext {
             .chain(&mut prepared.job.on_other)
         {
             let action = routes::resolve(self, &resolution_source, &handler.action)?;
-            handler.target =
-                crate::sentinel::graph::target_identity(self, &resolution_source, &action)?;
+            handler.target = graph::target_identity(self, &resolution_source, &action)?;
             handler.action = action;
         }
         let size = serde_json::to_vec(&DefinitionSnapshot::from_job(&prepared.job))

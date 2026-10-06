@@ -214,7 +214,7 @@ impl ServiceContext {
             .ok_or("blueprints not initialized")?;
         graph::validate_scope(&self.mux.read(), workspace, team)?;
         let (jobs, live_leases) = storage::committed_scope(&handle.store, workspace, team)?;
-        let journals = pipeline_journals(handle, &jobs)?;
+        let journals = pipeline_journals(&handle, &jobs)?;
         let crons = self
             .app_handle
             .try_state::<crate::CronState>()
@@ -251,7 +251,7 @@ impl ServiceContext {
             graph::validate_scope(&mux, workspace, None)?;
         }
         let (jobs, live_leases) = storage::committed_workspace(&handle.store, workspace)?;
-        let journals = pipeline_journals(handle, &jobs)?;
+        let journals = pipeline_journals(&handle, &jobs)?;
         let mut grouped: BTreeMap<Option<String>, Vec<Sentinel>> = BTreeMap::new();
         for job in jobs.iter().filter(|job| {
             (job.agent_authored || job.pipeline.is_some())
