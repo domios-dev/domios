@@ -83,7 +83,9 @@ fn converter_registry_registers_graph_node_converters_and_deregisters() {
         other => panic!("expected a conversion step, got {other:?}"),
     }
     assert!(
-        caps.converter.plan(MediaKind::Audio, MediaKind::Text).is_err(),
+        caps.converter
+            .plan(MediaKind::Audio, MediaKind::Text)
+            .is_err(),
         "undeclared pairs stay unplannable"
     );
 
@@ -166,7 +168,10 @@ fn reload_replaces_stale_converters() {
         };"#,
     );
     watcher.tick();
-    assert!(caps.converter.plan(MediaKind::Video, MediaKind::Audio).is_ok());
+    assert!(caps
+        .converter
+        .plan(MediaKind::Video, MediaKind::Audio)
+        .is_ok());
 
     write(
         &dir.join("plugin.json"),
@@ -186,7 +191,9 @@ fn reload_replaces_stale_converters() {
     watcher.tick();
 
     assert!(
-        caps.converter.plan(MediaKind::Video, MediaKind::Audio).is_err(),
+        caps.converter
+            .plan(MediaKind::Video, MediaKind::Audio)
+            .is_err(),
         "the stale edge leaves with the reload"
     );
     let plan = caps
@@ -198,7 +205,9 @@ fn reload_replaces_stale_converters() {
     std::fs::remove_dir_all(&dir).unwrap();
     watcher.tick();
     assert!(
-        caps.converter.plan(MediaKind::Image, MediaKind::Text).is_err(),
+        caps.converter
+            .plan(MediaKind::Image, MediaKind::Text)
+            .is_err(),
         "folder removal leaves no stale converter"
     );
     assert_eq!(

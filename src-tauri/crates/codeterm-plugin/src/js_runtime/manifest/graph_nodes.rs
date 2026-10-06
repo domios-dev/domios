@@ -123,9 +123,7 @@ impl NodeSchema {
             let Some(property) = self.properties.iter().find(|p| p.name == name.as_str()) else {
                 return Err(SchemaError::new(format!("$.{name}"), "unknown property"));
             };
-            property
-                .schema
-                .validate(value, &format!("$.{name}"))?;
+            property.schema.validate(value, &format!("$.{name}"))?;
         }
         for name in &self.required {
             if !object.contains_key(name) {
@@ -324,10 +322,7 @@ fn parse_converters(value: &Value) -> Result<Vec<Conversion>, String> {
                 from.as_str()
             ));
         }
-        if let Some(previous) = declared
-            .iter()
-            .position(|c| c.from == from && c.to == to)
-        {
+        if let Some(previous) = declared.iter().position(|c| c.from == from && c.to == to) {
             return Err(format!(
                 "{entry_path}: duplicate conversion {} -> {} (already declared at index {previous})",
                 from.as_str(),
@@ -376,17 +371,11 @@ fn parse_event_sources(value: &Value) -> Result<Vec<EventSourceDecl>, String> {
         let title = parse_title(object.get("title"), &format!("{entry_path}.title"))?;
         let params = match object.get("params") {
             None | Some(Value::Null) => None,
-            Some(schema) => Some(parse_node_schema(
-                schema,
-                &format!("{entry_path}.params"),
-            )?),
+            Some(schema) => Some(parse_node_schema(schema, &format!("{entry_path}.params"))?),
         };
         let payload = match object.get("payload") {
             None | Some(Value::Null) => None,
-            Some(schema) => Some(parse_node_schema(
-                schema,
-                &format!("{entry_path}.payload"),
-            )?),
+            Some(schema) => Some(parse_node_schema(schema, &format!("{entry_path}.payload"))?),
         };
         declared.push(EventSourceDecl {
             kind,
@@ -468,10 +457,7 @@ fn parse_node_schema(value: &Value, path: &str) -> Result<NodeSchema, String> {
         for (name, schema) in map {
             properties.push(NodeProperty {
                 name: name.clone(),
-                schema: parse_property_schema(
-                    schema,
-                    &format!("{path}.properties.{name}"),
-                )?,
+                schema: parse_property_schema(schema, &format!("{path}.properties.{name}"))?,
             });
         }
     }
@@ -510,10 +496,7 @@ fn parse_property_schema(value: &Value, path: &str) -> Result<NodePropertySchema
     match kind {
         "array" => {
             for key in object.keys() {
-                if !matches!(
-                    key.as_str(),
-                    "type" | "description" | "items" | "maxItems"
-                ) {
+                if !matches!(key.as_str(), "type" | "description" | "items" | "maxItems") {
                     return Err(format!("{path}: unsupported schema field `{key}`"));
                 }
             }
@@ -534,9 +517,7 @@ fn parse_property_schema(value: &Value, path: &str) -> Result<NodePropertySchema
                 max_items,
             })
         }
-        "object" => Err(format!(
-            "{path}.type: nested objects are not supported"
-        )),
+        "object" => Err(format!("{path}.type: nested objects are not supported")),
         _ => {
             for key in object.keys() {
                 if !matches!(key.as_str(), "type" | "description" | "enum" | "maxLength") {
@@ -544,7 +525,9 @@ fn parse_property_schema(value: &Value, path: &str) -> Result<NodePropertySchema
                 }
             }
             Ok(NodePropertySchema::Scalar(parse_scalar_fields(
-                object, path, description,
+                object,
+                path,
+                description,
             )?))
         }
     }
@@ -596,7 +579,9 @@ fn parse_scalar_fields(
         None | Some(Value::Null) => None,
         Some(declared) => {
             if kind != NodeScalarType::String {
-                return Err(format!("{path}.enum: only string properties may declare enum"));
+                return Err(format!(
+                    "{path}.enum: only string properties may declare enum"
+                ));
             }
             let list = declared
                 .as_array()
@@ -624,9 +609,12 @@ fn parse_scalar_fields(
                     "{path}.maxLength: only string properties may declare maxLength"
                 ));
             }
-            let length = declared.as_u64().filter(|n| *n <= MAX_STRING_LENGTH as u64).ok_or_else(|| {
-                format!("{path}.maxLength: expected an integer <= {MAX_STRING_LENGTH}")
-            })? as u32;
+            let length = declared
+                .as_u64()
+                .filter(|n| *n <= MAX_STRING_LENGTH as u64)
+                .ok_or_else(|| {
+                    format!("{path}.maxLength: expected an integer <= {MAX_STRING_LENGTH}")
+                })? as u32;
             Some(length)
         }
     };

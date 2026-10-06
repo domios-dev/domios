@@ -57,7 +57,11 @@ const JS_FIXTURE: &str = r#"module.exports.default = {
     }
 };"#;
 
-fn fixture_request(input: &std::path::Path, dir: &std::path::Path, to: MediaKind) -> ConvertRequest {
+fn fixture_request(
+    input: &std::path::Path,
+    dir: &std::path::Path,
+    to: MediaKind,
+) -> ConvertRequest {
     ConvertRequest {
         input_path: input.to_path_buf(),
         from: if to == MediaKind::Text {

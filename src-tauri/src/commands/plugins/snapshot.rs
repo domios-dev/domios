@@ -757,10 +757,17 @@ mod tests {
         });
         let mut entry = serde_json::json!({ "id": "grapher" });
         enrich_from_manifest_with_icon(&mut entry, &dir, &manifest, None);
-        assert_eq!(entry["capabilities"]["graph_nodes"], serde_json::json!(true));
-        assert_eq!(entry["capabilities"]["agent_provider"], serde_json::json!(false));
+        assert_eq!(
+            entry["capabilities"]["graph_nodes"],
+            serde_json::json!(true)
+        );
+        assert_eq!(
+            entry["capabilities"]["agent_provider"],
+            serde_json::json!(false)
+        );
 
-        let plain = serde_json::json!({ "id": "plain", "version": "1.0.0", "displayName": "Plain" });
+        let plain =
+            serde_json::json!({ "id": "plain", "version": "1.0.0", "displayName": "Plain" });
         let mut plain_entry = serde_json::json!({ "id": "plain" });
         enrich_from_manifest_with_icon(&mut plain_entry, &dir, &plain, None);
         assert_eq!(

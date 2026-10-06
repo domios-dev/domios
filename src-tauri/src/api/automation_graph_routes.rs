@@ -182,7 +182,9 @@ fn failure((status, message): (StatusCode, String)) -> GraphError {
     };
     (
         status,
-        Json(json!({"ok":false,"error":{"code":code,"message":message.replace("Sentinels", "Blueprints").replace("Sentinel", "Blueprint").replace("sentinels ", "blueprints ").replace("sentinel ", "blueprint ")}})),
+        Json(
+            json!({"ok":false,"error":{"code":code,"message":message.replace("Sentinels", "Blueprints").replace("Sentinel", "Blueprint").replace("sentinels ", "blueprints ").replace("sentinel ", "blueprint ")}}),
+        ),
     )
 }
 
