@@ -429,6 +429,70 @@ fn session_identity_bind_and_rebind_round_trip_expected_red() {
     not(windows),
     ignore = "the real Tauri service fixture requires Windows"
 )]
+fn team_orchestrator_provider_and_session_round_trip_expected_pass() {
+    let root = tempfile::tempdir().unwrap();
+    let (mut mux, tab_id) = MultiplexerState::new();
+    mux.set_orchestrator_role(&tab_id).unwrap();
+    let team_id = mux.get_tab(&tab_id).unwrap().team_id.clone().unwrap();
+    {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("codex".into());
+        tab.agent_type_locked = true;
+        tab.agent_session_id = Some("orchestrator-session".into());
+        tab.session_binding_nonce = Some("orchestrator-binding".into());
+        tab.reported_session_binding_nonce = Some("orchestrator-binding".into());
+        tab.cwd = Some(root.path().to_string_lossy().into_owned());
+    }
+    let instance = super::ServiceInstance::open_with_mux(root.path(), mux);
+    crate::service::session_persist::write_session_snapshot_with_intent(
+        instance.fixture._app.handle(),
+        &instance.fixture.service.mux,
+        crate::session::store::SaveIntent::AuthorizedReduction,
+    )
+    .expect("persist the Orchestrator provider and session");
+
+    let saved = StorageDeskAdapter::from_storage(instance.storage.clone())
+        .state()
+        .expect("read the persisted Team desk");
+    let persisted_tab = saved
+        .snapshot
+        .workspaces
+        .iter()
+        .flat_map(|workspace| &workspace.tabs)
+        .find(|tab| tab.id == tab_id)
+        .expect("persisted Orchestrator row exists");
+    let codeterm_storage::DeskLayoutNode::Leaf { fields, .. } = &persisted_tab.layout else {
+        panic!("a tab row has a leaf layout");
+    };
+    assert_eq!(fields.values["agent_type"].as_str(), Some("codex"));
+    assert_eq!(
+        fields.values["claude_session_id"].as_str(),
+        Some("orchestrator-session")
+    );
+    assert_eq!(fields.values["role"].as_str(), Some("Manager"));
+    assert_eq!(fields.values["role_profile"].as_str(), Some("orchestrator"));
+    assert_eq!(fields.values["team_id"].as_str(), Some(team_id.as_str()));
+
+    let restarted = instance.restart(root.path());
+    let claim =
+        crate::service::pty_io::claim_restored_pty_boot(&restarted.fixture.service.mux, &tab_id)
+            .expect("restored Orchestrator is claimable")
+            .expect("restored provider remains an agent");
+    assert_eq!(claim.provider_id, "codex");
+    assert_eq!(claim.session_id.as_deref(), Some("orchestrator-session"));
+    let mux = restarted.fixture.service.mux.read();
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
+    assert_eq!(tab.role_profile.as_deref(), Some("orchestrator"));
+    drop(mux);
+    close(restarted);
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the real Tauri service fixture requires Windows"
+)]
 fn team_create_round_trip_expected_red() {
     let root = tempfile::tempdir().unwrap();
     let (mut mux, tab_id) = MultiplexerState::new();

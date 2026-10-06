@@ -579,6 +579,12 @@ impl ServiceContext {
             }
             result
         };
+        self.set_and_lock_tab_agent_type_from(
+            &tab_id,
+            agent_cmd.to_string(),
+            crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
+            params.creator_tab_id.as_deref(),
+        );
         if emit_state_change {
             self.emit_state_changed();
         }
@@ -672,14 +678,6 @@ impl ServiceContext {
             }
         }
 
-        // Pin agent_type before launch so detect_from_output can start session-id polling.
-        // Without this tag, restarts can lose session_id and resume fails silently.
-        self.set_and_lock_tab_agent_type_from(
-            &tab_id,
-            agent_cmd.to_string(),
-            crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
-            params.creator_tab_id.as_deref(),
-        );
         let task_identity = params.task_launch_authority.as_ref().map(|authority| {
             crate::service::startup_lease::StartupTaskIdentity {
                 plan_id: authority.plan_id.clone(),

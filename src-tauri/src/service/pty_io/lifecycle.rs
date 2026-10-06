@@ -344,7 +344,7 @@ where
 impl ServiceContext {
     pub(crate) fn recover_missing_restored_provider(&self, tab_id: &str) -> Result<(), String> {
         use crate::agent::provider_identity::{
-            provider_for_claimed_session, ProviderIdentityEvidence,
+            provider_for_restored_session, ProviderIdentityEvidence,
         };
         use crate::session::lifecycle::AgentTypeWriteOrigin;
 
@@ -368,9 +368,15 @@ impl ServiceContext {
                 tab.pty_id.clone(),
             )
         };
-        let provider = evidence.cwd.as_deref().zip(evidence.session_id.as_deref())
-            .and_then(|(cwd, session)| provider_for_claimed_session(&self.agent_registry, cwd, session))
-            .ok_or_else(|| format!("restored_provider_unresolved: Tab {tab_id} retains its session but has no unique provider owner"))?;
+        let journal = crate::session::lifecycle::TabLifecycleJournal::shared().load();
+        let Some(provider) = provider_for_restored_session(&journal, tab_id, &evidence) else {
+            let reason = format!(
+                "restored_provider_unresolved: Tab {tab_id} retains its session but has no unique lifecycle journal owner"
+            );
+            self.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason.as_str()));
+            self.emit_state_changed();
+            return Err(reason);
+        };
         let result = self.commit_verified_tab_agent_type_with_origin(
             tab_id,
             provider,
