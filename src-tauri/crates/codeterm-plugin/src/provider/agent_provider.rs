@@ -94,6 +94,12 @@ pub trait AgentProvider: Send + Sync {
         None
     }
 
+    /// When a provider-declared startup dialog is auto-answered during launch.
+    /// Default: delegated roles only (Worker / planner Manager).
+    fn onboarding_auto_answer(&self) -> OnboardingAutoAnswer {
+        OnboardingAutoAnswer::default()
+    }
+
     fn session_starts_on_first_user_turn(&self) -> bool {
         false
     }
