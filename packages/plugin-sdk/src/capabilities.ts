@@ -780,7 +780,7 @@ export interface AgentCommandCtx {
 }
 
 export interface AgentCommandHandler {
-  onAgentCommand(ctx: AgentCommandCtx): { result: string } | { error: string };
+  onAgentCommand(ctx: AgentCommandCtx): { result: string; catalogueChanged?: boolean } | { error: string };
 }
 
 // ── The default-export shape: every capability method optional ──

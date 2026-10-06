@@ -100,6 +100,7 @@ export function OrchestrationRoleRow({
             options={modelOptions}
             value={modelId}
             onChange={onModelChange}
+            prefix="Model"
             disabled={models.length === 0 || providerDisabled}
             menuMaxHeight={MODEL_MENU_MAX_HEIGHT}
           />

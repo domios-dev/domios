@@ -1035,7 +1035,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn model_catalogue_capability(&self) -> provider::ModelCatalogueCapability {
-        self.manifest.model_catalogue
+        self.manifest.model_catalogue.clone()
     }
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
@@ -1065,7 +1065,9 @@ impl AgentProvider for JsProvider {
     }
 
     fn model_credential_files(&self) -> Vec<PathBuf> {
-        super::host_credentials::declared_files(&self.manifest.credentials)
+        self.manifest.model_catalogue.fingerprint_files(
+            super::host_credentials::declared_files(&self.manifest.credentials),
+        )
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {

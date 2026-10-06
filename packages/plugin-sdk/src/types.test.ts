@@ -147,7 +147,9 @@ void wrongSlot;
 
 const cmd: AgentCommandHandler = {
   onAgentCommand: (ctx: AgentCommandCtx) =>
-    ctx.verb === "ping" ? { result: ctx.args.join(",") } : { error: "unknown verb" },
+    ctx.verb === "ping"
+      ? { result: ctx.args.join(","), catalogueChanged: true }
+      : { error: "unknown verb" },
 };
 void cmd;
 
