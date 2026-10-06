@@ -137,6 +137,25 @@ Dev logs: `~/.codeterm-dev/logs/codeterm.log`. Live tail: `tail -f ~/.codeterm-d
 
 Full testing guide: `.agents/skills/testing/SKILL.md`; authoring contract: `prod-docs/TEST-AUTHORING.md`.
 
+**Test logic in isolated units, not through the UI.** Put every decision (filters,
+gates, state machines, ordering, retries, parsing, classification) in a pure
+function or a small model module with no React, DOM, Tauri, PTY or daemon inside,
+and unit-test that module directly with plain inputs and outputs: `jobsModel`,
+`sendGate`, `retainMountedTabs`, `matchesJobsFilter` are the pattern. Rust follows
+the same rule: logic lives in functions that take data, tested without a
+`ServiceFixture`; a fixture or a real runtime is the exception for wiring, not the
+default for logic.
+
+- A UI test only proves wiring: a control with an accessible role and name exists,
+  fires its handler once, and shows the model's result. Never assert CSS classes,
+  inline styles, layout placement, copy, or component internals.
+- One behavior, one fast test. Seconds, not minutes: no sleeps, no real network,
+  no live agents; inject clocks, fixtures and fakes at the module boundary.
+- When logic is tangled into a component or a service, extract it first and test the
+  extracted module; do not test it through rendering or a full fixture.
+- Workers run only the tests of the modules they touched, in their lane; the broad
+  suite and live DEV checks run once at the end on the release SHA.
+
 **Never assert prompt wording.** Test the mechanism — that a recipient receives
 the fragments it should, that placeholders were substituted, that a surface stays
 within its size bound — never which words a prompt contains, and never that a
