@@ -220,7 +220,7 @@ const plugin: PluginModule = {
       if (!taskPath) throw new Error("failed to write OpenCode task instructions");
     }
     parts.push("opencode");
-    if (p.skipPermissions) parts.push("--dangerously-skip-permissions");
+    if (p.skipPermissions) parts.push("--auto");
     // reply over HTTP instead of scraping the PTY picker.
     const sps = p.structuredPromptServer;
     if (sps && sps.port) {
@@ -565,7 +565,7 @@ function resumeLaunch(sessionId: string, skipPermissions?: boolean): { parts: st
   const parts = ["opencode"];
   if (directory) parts.push(host.shell.quoteFor(directory, platform));
   parts.push("--session", host.shell.quoteFor(sessionId, platform));
-  if (skipPermissions) parts.push("--dangerously-skip-permissions");
+  if (skipPermissions) parts.push("--auto");
   return { parts, directory };
 }
 
