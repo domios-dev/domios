@@ -66,6 +66,11 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
     let mut ids = std::collections::BTreeSet::new();
     for job in &jobs {
         machine::validate(&job.buckets, &job.matches, true, job.interval_ms)?;
+        if job.pipeline.is_some() != (job.probe == PIPELINE_SOURCE)
+            || (job.pipeline.is_some() && (job.observe.is_some() || job.input.is_some()))
+        {
+            return Err("invalid stored pipeline source".into());
+        }
         if job
             .rearm_on_change
             .iter()
@@ -207,6 +212,39 @@ pub(in crate::sentinel) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>
 }
 
 impl Store {
+    pub fn prepare_pipeline(
+        &self,
+        spec: codeterm_types::blueprint_pipeline::BlueprintSpec,
+        owner: Owner,
+        connected: bool,
+    ) -> Result<Sentinel, String> {
+        let codeterm_types::blueprint_pipeline::Trigger::Schedule { every } = &spec.trigger else {
+            return Err("trigger_unavailable".into());
+        };
+        let create = Create {
+            name: Some(spec.name.clone()),
+            probe: Some(PIPELINE_SOURCE.into()),
+            observe: None,
+            input: None,
+            question: "Pipeline step results".into(),
+            buckets: vec!["done".into(), "failed".into()],
+            every: every.clone(),
+            routes: BTreeMap::new(),
+            matches: BTreeMap::from([("done".into(), ".*".into()), ("failed".into(), ".*".into())]),
+            rearm_on_change: BTreeSet::new(),
+            until: None,
+            timeout: None,
+            paused: false,
+            handlers: None,
+            escalation_timeout_ms: None,
+            max_transitions: Some(256),
+            max_actions: Some(1024),
+        };
+        let mut job = self.prepare(create, owner, connected)?;
+        job.pipeline = Some(spec);
+        Ok(job)
+    }
+
     pub fn prepare(
         &self,
         params: Create,
@@ -330,6 +368,7 @@ impl Store {
             revision: 0,
             agent_authored: false,
             name: params.name,
+            pipeline: None,
             scenario_id: if params.paused { None } else { Some(id) },
             max_transitions,
             max_actions,

@@ -110,6 +110,56 @@ and permission share `provider`, so the handler not matching the live screen rec
 Owned launch tabs answer trust and onboarding without a graph through the same writer, one answer per prompt; the graph
 adds a journaled branch per prompt and escalates the rest.
 
+## Pipeline authoring
+
+Create a pipeline from one JSON or YAML file, or start with a named recipe and replace its declared placeholders. Use
+`--dry-run` to see the normalized chain and each validation check before creating it.
+Use `codeterm blueprint nodes [--json]` to inspect the available trigger, step, converter and event-source capabilities;
+use `codeterm blueprint log <ID> [--limit N] [--json]` to inspect bounded per-step run history.
+
+<!-- blueprint-pipeline-recipe:echo -->
+### echo
+
+**Purpose:** Run one fixed command, match its output, and return the result to the owner tab.
+
+```yaml
+name: Echo pipeline
+owner: tab
+trigger:
+  type: schedule
+  every: 20s
+steps:
+  - name: emit
+    input: text
+    kind:
+      kind: command
+      command: "printf '{{message}}'"
+  - name: match
+    input: text
+    kind:
+      kind: filter
+      pattern: "^{{message}}$"
+      bucket: matched
+    on:
+      matched: stop
+result:
+  to: owner
+```
+
+```bash
+codeterm blueprint create --recipe echo --set message=ready --dry-run
+```
+<!-- /blueprint-pipeline-recipe -->
+
+## Update a definition from history
+
+Save the JSON history response unchanged and pass it back as the update file with the current expected version:
+
+```bash
+codeterm blueprint history <ID> --json > history.json
+codeterm blueprint update <ID> --expect-version <VERSION> --from-file history.json
+```
+
 <!-- blueprint-recipe:all-finished -->
 ### Several agents or jobs all finished
 
@@ -147,4 +197,4 @@ escalation handler when it needs attention. With an existing same-Team cron and 
 codeterm blueprint create --name ci-result-review-watch --probe "gh run view 456 --json status,conclusion" --question "passed for completed successful CI; failed for completed unsuccessful CI; other while running" --buckets passed,failed --route passed=cron:review_pr --route failed=send:repair_worker --timeout 1h
 ```
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

@@ -298,6 +298,12 @@ pub(super) fn insert_version(
     let sql_version = to_sql_u64("definition version", version)?;
     let created = to_sql_u64("revision", cx.revision.0)?;
     let source = source_columns(&definition.source)?;
+    let pipeline_spec = definition
+        .pipeline
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|_| StorageError::invalid("pipeline", "cannot be encoded for storage"))?;
     let escalation = definition
         .escalation_timeout_ms
         .map(|timeout| to_sql_u64("escalation timeout", timeout))
@@ -310,11 +316,11 @@ pub(super) fn insert_version(
         .transpose()?;
     cx.write(
         "INSERT INTO sentinel_definitions (sentinel_id, version, provenance, name, source_kind, \
-         source_spec, probe, observe_kind, observe_ref, question, interval_ms, until_bucket, \
+         source_spec, pipeline_spec, probe, observe_kind, observe_ref, question, interval_ms, until_bucket, \
          escalation_timeout_ms, max_transitions, max_actions, replaced_version, author_tab_id, \
          cause_transition_id, authored_at, created_revision) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
-         ?18, ?19, ?20)",
+         ?18, ?19, ?20, ?21)",
         params![
             id,
             sql_version,
@@ -322,6 +328,7 @@ pub(super) fn insert_version(
             definition.name,
             source.kind.as_str(),
             source.spec,
+            pipeline_spec,
             source.probe,
             source.observe_kind,
             source.observe_ref,
@@ -513,6 +520,7 @@ struct Header {
     name: Option<String>,
     source_kind: String,
     source_spec: Option<String>,
+    pipeline_spec: Option<String>,
     probe: String,
     observe_kind: Option<String>,
     observe_ref: Option<String>,
@@ -537,7 +545,7 @@ pub(super) fn load_version(
     let sql_version = to_sql_u64("definition version", version)?;
     let header = conn
         .prepare_cached(
-            "SELECT provenance, name, source_kind, source_spec, probe, observe_kind, \
+            "SELECT provenance, name, source_kind, source_spec, pipeline_spec, probe, observe_kind, \
              observe_ref, question, interval_ms, until_bucket, escalation_timeout_ms, \
              max_transitions, max_actions, replaced_version, author_tab_id, \
              cause_transition_id, authored_at, created_revision \
@@ -551,20 +559,21 @@ pub(super) fn load_version(
                         name: row.get(1)?,
                         source_kind: row.get(2)?,
                         source_spec: row.get(3)?,
-                        probe: row.get(4)?,
-                        observe_kind: row.get(5)?,
-                        observe_ref: row.get(6)?,
-                        question: row.get(7)?,
-                        interval_ms: row.get(8)?,
-                        until: row.get(9)?,
-                        escalation_timeout_ms: row.get(10)?,
-                        max_transitions: row.get(11)?,
-                        max_actions: row.get(12)?,
-                        replaced_version: row.get(13)?,
-                        author_tab_id: row.get(14)?,
-                        cause_transition_id: row.get(15)?,
-                        authored_at: row.get(16)?,
-                        created_revision: row.get(17)?,
+                        pipeline_spec: row.get(4)?,
+                        probe: row.get(5)?,
+                        observe_kind: row.get(6)?,
+                        observe_ref: row.get(7)?,
+                        question: row.get(8)?,
+                        interval_ms: row.get(9)?,
+                        until: row.get(10)?,
+                        escalation_timeout_ms: row.get(11)?,
+                        max_transitions: row.get(12)?,
+                        max_actions: row.get(13)?,
+                        replaced_version: row.get(14)?,
+                        author_tab_id: row.get(15)?,
+                        cause_transition_id: row.get(16)?,
+                        authored_at: row.get(17)?,
+                        created_revision: row.get(18)?,
                     })
                 })
                 .optional()
@@ -574,6 +583,12 @@ pub(super) fn load_version(
     let budget = |field: &'static str, value: i64| u16::try_from(value).map_err(|_| corrupt(field));
     let (buckets, on_other) = load_buckets(conn, id, sql_version)?;
     let observe = observe_from(header.observe_kind, header.observe_ref)?;
+    let pipeline = header
+        .pipeline_spec
+        .map(|spec| {
+            serde_json::from_str(&spec).map_err(|_| corrupt("pipeline spec does not decode"))
+        })
+        .transpose()?;
     Ok(StoredDefinition {
         version,
         provenance: provenance_from(&header.provenance)?,
@@ -593,6 +608,7 @@ pub(super) fn load_version(
                 header.probe,
                 observe,
             )?,
+            pipeline,
             question: header.question,
             interval_ms: from_sql_u64("sentinel interval", header.interval_ms)?,
             until: header.until,

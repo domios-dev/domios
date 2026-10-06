@@ -260,6 +260,10 @@ impl ServiceFixture {
             secrets,
             secret_registry,
             transcribe_registry: Arc::new(crate::transcribe::TranscribeRegistry::new()),
+            converter_registry: Arc::new(codeterm_plugin::converter::ConverterRegistry::new()),
+            graph_node_registry: Arc::new(
+                codeterm_plugin::graph_nodes::GraphNodeRegistry::default(),
+            ),
             supporter_models: Arc::new(crate::api::mem_routes::decision::SupporterRegistry::new()),
             glance_registry: Arc::new(crate::glance::GlanceRegistry::new()),
             bubble_registry: Arc::new(crate::bubble::BubbleRegistry::new()),

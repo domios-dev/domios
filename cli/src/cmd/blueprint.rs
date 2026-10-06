@@ -5,6 +5,7 @@ use crate::args::blueprint::{BlueprintAction, BlueprintEscalationAction};
 use crate::client::SocketClient;
 use crate::cmd::print::{fail, print_json};
 mod handlers;
+mod pipeline_spec;
 mod recipes;
 
 pub fn handle_recipe(json_mode: bool, name: Option<&str>) {
@@ -23,6 +24,33 @@ fn assignments(values: Vec<String>) -> Result<BTreeMap<String, String>, String> 
 }
 
 fn render(job: &Value) {
+    if let Some(pipeline) = job.get("pipeline") {
+        let current_step = job["current_step"]
+            .as_u64()
+            .map(|index| format!(" current_step={index}"))
+            .unwrap_or_default();
+        println!(
+            "{} [pipeline] trigger={}{}",
+            job["id"].as_str().unwrap_or("?"),
+            pipeline["trigger"]["type"].as_str().unwrap_or("?"),
+            current_step
+        );
+        if let Some(steps) = job["steps"].as_array() {
+            for step in steps {
+                println!(
+                    "  {} {} {}{}",
+                    step["index"].as_u64().unwrap_or_default(),
+                    step["name"].as_str().unwrap_or("?"),
+                    step["state"].as_str().unwrap_or("waiting"),
+                    step["result_summary"]
+                        .as_str()
+                        .map(|summary| format!(" result={summary}"))
+                        .unwrap_or_default()
+                );
+            }
+        }
+        return;
+    }
     println!(
         "{} [{}] bucket={} every={}ms{}",
         job["id"].as_str().unwrap_or("?"),
@@ -84,6 +112,128 @@ fn escalation_resolved_message(transition_id: Option<&str>, result: &Value) -> S
     )
 }
 
+fn render_nodes(nodes: &Value) {
+    if let Some(nodes) = nodes.as_array() {
+        for node in nodes {
+            println!(
+                "{}: {}",
+                node["kind"].as_str().unwrap_or("?"),
+                node["title"].as_str().unwrap_or("?")
+            );
+            if let Some(schema) = node.get("params_schema") {
+                println!("  params: {schema}");
+            }
+        }
+    }
+}
+
+fn render_log(entries: &Value) {
+    if let Some(entries) = entries.as_array() {
+        for entry in entries {
+            println!(
+                "{} {} {} outcome={} result={} reason={}",
+                entry["started_at_ms"].as_u64().unwrap_or_default(),
+                entry["step_index"].as_u64().unwrap_or_default(),
+                entry["state"].as_str().unwrap_or("?"),
+                entry["outcome"].as_str().unwrap_or("-"),
+                entry["result_summary"].as_str().unwrap_or("-"),
+                entry["reason"].as_str().unwrap_or("-")
+            );
+        }
+    }
+}
+
+fn pipeline_preview_summary(value: &Value) -> String {
+    let spec = value.get("normalized_spec").unwrap_or(value);
+    let mut lines = vec![format!(
+        "Blueprint: {}",
+        spec["name"].as_str().unwrap_or("?")
+    )];
+    let trigger = &spec["trigger"];
+    match trigger["type"].as_str() {
+        Some("schedule") => lines.push(format!(
+            "Trigger: schedule every {}",
+            trigger["every"].as_str().unwrap_or("?")
+        )),
+        Some("input") => lines.push(format!(
+            "Trigger: input kind={} source={} convert_to={}",
+            trigger["kind"].as_str().unwrap_or("?"),
+            input_ref_summary(&trigger["source"]),
+            trigger["convert_to"].as_str().unwrap_or("-")
+        )),
+        Some("event") => lines.push(format!(
+            "Trigger: event source={}",
+            trigger["source"].as_str().unwrap_or("?")
+        )),
+        _ => lines.push("Trigger: ?".into()),
+    }
+    if let Some(steps) = spec["steps"].as_array() {
+        for (index, step) in steps.iter().enumerate() {
+            lines.push(format!(
+                "Step {}: {} ({}) input={}",
+                index + 1,
+                step["name"].as_str().unwrap_or("?"),
+                step["kind"]["kind"].as_str().unwrap_or("?"),
+                step["input"].as_str().unwrap_or("?")
+            ));
+        }
+    }
+    lines.push(format!(
+        "Result: {}",
+        spec.pointer("/result/to")
+            .and_then(Value::as_str)
+            .unwrap_or("owner")
+    ));
+    if let Some(checks) = value["checks"].as_array() {
+        lines.push("Checks:".into());
+        for check in checks {
+            lines.push(format!(
+                "  {} {}{}",
+                if check["passed"].as_bool().unwrap_or(false) {
+                    "PASS"
+                } else {
+                    "FAIL"
+                },
+                check["field"].as_str().unwrap_or("validation"),
+                check["reason"]
+                    .as_str()
+                    .map(|reason| format!(": {reason}"))
+                    .unwrap_or_default()
+            ));
+        }
+    }
+    lines.join("\n")
+}
+
+fn input_ref_summary(value: &Value) -> String {
+    if let Some(path) = value.get("file").and_then(Value::as_str) {
+        return format!(
+            "file:{}",
+            std::path::Path::new(path)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        );
+    }
+    if let Some(url) = value.get("url").and_then(Value::as_str) {
+        let host = url
+            .split_once("://")
+            .and_then(|(_, rest)| {
+                rest.split(|character| matches!(character, '/' | '?' | '#'))
+                    .next()
+            })
+            .unwrap_or("?")
+            .rsplit('@')
+            .next()
+            .unwrap_or("?");
+        return host.to_string();
+    }
+    if value.get("text").is_some() {
+        return "text".into();
+    }
+    "?".into()
+}
+
 pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: BlueprintAction) {
     let (method, params) = request(
         action,
@@ -99,6 +249,30 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         print_json(&result);
         return;
     }
+    if method == "blueprint.pipeline.nodes" {
+        render_nodes(&result);
+        return;
+    }
+    if method == "blueprint.log" {
+        render_log(&result);
+        return;
+    }
+    if method == "blueprint.pipeline.create" {
+        println!(
+            "{} owner={} chain={}",
+            result["id"].as_str().unwrap_or("?"),
+            result
+                .pointer("/owner/kind")
+                .and_then(Value::as_str)
+                .unwrap_or("tab"),
+            result["chain"].as_str().unwrap_or("?")
+        );
+        return;
+    }
+    if method.starts_with("blueprint.pipeline.validate") {
+        println!("{}", pipeline_preview_summary(&result));
+        return;
+    }
     if method.starts_with("blueprint.validate.") {
         println!("{}", preview_summary(&result));
         return;
@@ -107,7 +281,7 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         render_history(&result);
         return;
     }
-    if method == "blueprint.update" {
+    if method == "blueprint.update" || method == "blueprint.pipeline.update" {
         println!(
             "Updated {} to definition version {}.",
             result["id"].as_str().unwrap_or("?"),
@@ -133,6 +307,7 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         render(&result);
         if method == "blueprint.show" {
             let source = input_source_line(&result)
+                .or_else(|| pipeline_input_source_line(&result))
                 .or_else(|| {
                     result
                         .pointer("/observe/kind")
@@ -164,6 +339,10 @@ fn request(
     let method = match action {
         BlueprintAction::Recipe { .. } => return Err("blueprint recipe is handled locally".into()),
         BlueprintAction::Create {
+            spec,
+            recipe,
+            set,
+            owner,
             name,
             probe,
             observe,
@@ -188,8 +367,53 @@ fn request(
             matches,
             dry_run,
         } => {
-            let (routes, handlers) =
-                handlers::declared_outputs(routes, handlers_file.as_deref(), &buckets)?;
+            if spec.is_some() || recipe.is_some() {
+                if name.is_some()
+                    || probe.is_some()
+                    || observe.is_some()
+                    || input.is_some()
+                    || input_file.is_some()
+                    || input_url.is_some()
+                    || input_text.is_some()
+                    || question.is_some()
+                    || buckets.is_some()
+                    || every.is_some()
+                    || !routes.is_empty()
+                    || !rearm_on_change.is_empty()
+                    || handlers_file.is_some()
+                    || escalation_timeout_ms.is_some()
+                    || paused
+                    || max_transitions.is_some()
+                    || max_actions.is_some()
+                    || until.is_some()
+                    || timeout.is_some()
+                    || !matches.is_empty()
+                {
+                    return Err("pipeline and legacy stage create options cannot be mixed".into());
+                }
+                params["spec"] = pipeline_spec::load(
+                    spec.as_deref(),
+                    recipe.as_deref(),
+                    &set,
+                    owner.as_deref(),
+                )?;
+                return Ok((
+                    if dry_run {
+                        "blueprint.pipeline.validate"
+                    } else {
+                        "blueprint.pipeline.create"
+                    },
+                    params,
+                ));
+            }
+            if !set.is_empty() || owner.is_some() {
+                return Err("--set and --owner require --spec or --recipe".into());
+            }
+            let (routes, handlers) = handlers::declared_outputs(
+                routes,
+                handlers_file.as_deref(),
+                buckets.as_deref().ok_or("--buckets is required")?,
+            )?;
             let observe = observe
                 .map(|source| observation_binding(&source))
                 .transpose()?;
@@ -201,7 +425,7 @@ fn request(
                 convert_to,
                 convert_timeout,
             )?;
-            params["create"] = json!({ "name": name, "probe": probe, "observe": observe, "input": input, "question": question, "buckets": buckets, "every": every.unwrap_or_else(|| "20s".into()), "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
+            params["create"] = json!({ "name": name.ok_or("--name is required")?, "probe": probe, "observe": observe, "input": input, "question": question.ok_or("--question is required")?, "buckets": buckets.ok_or("--buckets is required")?, "every": every.unwrap_or_else(|| "20s".into()), "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
             if dry_run {
                 "blueprint.validate.create"
             } else {
@@ -209,6 +433,7 @@ fn request(
             }
         }
         BlueprintAction::List => "blueprint.list",
+        BlueprintAction::Nodes => "blueprint.pipeline.nodes",
         BlueprintAction::Show { id } => {
             params["id"] = json!(id);
             "blueprint.show"
@@ -226,16 +451,34 @@ fn request(
         } => {
             params["id"] = json!(id);
             params["expect_version"] = json!(expect_version);
-            params["update"] = read_update(&from_file, cause.as_deref())?;
-            if dry_run {
-                "blueprint.validate.update"
+            let update = read_update(&from_file, cause.as_deref())?;
+            if let Some(spec) = pipeline_update_spec(&update)? {
+                params["spec"] = spec;
+                if let Some(cause) = cause {
+                    params["cause"] = json!(cause);
+                }
+                if dry_run {
+                    "blueprint.pipeline.validate.update"
+                } else {
+                    "blueprint.pipeline.update"
+                }
             } else {
-                "blueprint.update"
+                params["update"] = update;
+                if dry_run {
+                    "blueprint.validate.update"
+                } else {
+                    "blueprint.update"
+                }
             }
         }
         BlueprintAction::History { id } => {
             params["id"] = json!(id);
             "blueprint.history"
+        }
+        BlueprintAction::Log { id, limit } => {
+            params["id"] = json!(id);
+            params["limit"] = json!(limit);
+            "blueprint.log"
         }
         BlueprintAction::Escalation { action } => match action {
             BlueprintEscalationAction::Resolve { id, transition_id } => {
@@ -281,6 +524,22 @@ fn input_source_line(value: &Value) -> Option<String> {
         line.push_str(&format!(" → {}", convert_to.as_str()));
     }
     Some(line)
+}
+
+fn pipeline_input_source_line(value: &Value) -> Option<String> {
+    let trigger = value.pointer("/pipeline/trigger")?;
+    if trigger.get("type")?.as_str()? != "input" {
+        return None;
+    }
+    Some(format!(
+        "Input: {} source={} convert_to={}",
+        trigger.get("kind")?.as_str()?,
+        input_ref_summary(trigger.get("source")?),
+        trigger
+            .get("convert_to")
+            .and_then(Value::as_str)
+            .unwrap_or("-")
+    ))
 }
 
 fn absolute_path(path: std::path::PathBuf) -> Result<std::path::PathBuf, String> {
@@ -349,6 +608,28 @@ fn read_update(path: &std::path::Path, cause: Option<&str>) -> Result<Value, Str
         object.insert("cause".into(), json!(cause));
     }
     Ok(update)
+}
+
+fn pipeline_update_spec(update: &Value) -> Result<Option<Value>, String> {
+    if update.get("trigger").is_some() {
+        return Ok(Some(update.clone()));
+    }
+    let history = update.get("versions");
+    let Some(versions) = history.and_then(Value::as_array) else {
+        return Ok(update.get("pipeline").cloned());
+    };
+    let current = update
+        .get("current_version")
+        .and_then(Value::as_u64)
+        .ok_or("history file needs current_version")?;
+    let version = versions
+        .iter()
+        .find(|version| version.get("version").and_then(Value::as_u64) == Some(current))
+        .ok_or("history file has no current definition version")?;
+    Ok(version
+        .pointer("/definition/pipeline")
+        .filter(|pipeline| !pipeline.is_null())
+        .cloned())
 }
 
 fn preview_summary(job: &Value) -> String {
@@ -468,527 +749,5 @@ fn map_none_route(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn sentinel_repeated_route_wire_preserves_order_and_stable_ids() {
-        let (routes, handlers) = handlers::declared_outputs(
-            vec!["done=notify".into(), "done=stop".into()],
-            None,
-            &["done".into()],
-        )
-        .unwrap();
-        assert!(routes.is_empty());
-        assert_eq!(
-            handlers.unwrap(),
-            json!({"done":[
-                {"id":"notify-on-done","type":"notify","parameters":{}},
-                {"id":"stop-on-done","type":"stop","parameters":{}}
-            ]})
-        );
-    }
-
-    #[test]
-    fn sentinel_none_route_is_an_empty_handler_array_and_can_mix_with_routes() {
-        let quiet = ["quiet".into()];
-        let (routes, handlers) =
-            handlers::declared_outputs(vec!["quiet=none".into()], None, &quiet).unwrap();
-        assert_eq!(routes, BTreeMap::from([("quiet".into(), "none".into())]));
-        assert!(handlers.is_none());
-
-        let buckets = ["quiet".into(), "done".into()];
-        let (routes, handlers) = handlers::declared_outputs(
-            vec![
-                "quiet=none".into(),
-                "done=notify".into(),
-                "done=stop".into(),
-            ],
-            None,
-            &buckets,
-        )
-        .unwrap();
-        assert!(routes.is_empty());
-        let handlers = handlers.unwrap();
-        assert_eq!(handlers["quiet"], json!([]));
-        assert_eq!(handlers["done"].as_array().unwrap().len(), 2);
-
-        assert!(handlers::declared_outputs(
-            vec!["done=none".into(), "done=notify".into()],
-            None,
-            &["done".into()]
-        )
-        .is_err());
-    }
-
-    #[test]
-    fn sentinel_handlers_file_refuses_mixed_duplicate_unknown_and_command() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("handlers.json");
-        std::fs::write(
-            &path,
-            r#"{"done":[{"id":"h","type":"notify","parameters":{}}]}"#,
-        )
-        .unwrap();
-        assert!(handlers::declared_outputs(Vec::new(), Some(&path), &["done".into()]).is_ok());
-        assert!(handlers::declared_outputs(
-            vec!["done=stop".into()],
-            Some(&path),
-            &["done".into()]
-        )
-        .is_err());
-        for raw in [
-            r#"{"done":[{"id":"h","type":"notify","parameters":{}},{"id":"h","type":"stop","parameters":{}}]}"#,
-            r#"{"done":[{"id":"h","type":"notify","parameters":{},"extra":true}]}"#,
-            r#"{"done":[{"id":"h","type":"notify","parameters":{"extra":true}}]}"#,
-            r#"{"done":[{"id":"h","type":"command","parameters":{}}]}"#,
-            r#"{"done":[{"id":"h","type":"unknown","parameters":{}}]}"#,
-        ] {
-            std::fs::write(&path, raw).unwrap();
-            assert!(handlers::declared_outputs(Vec::new(), Some(&path), &["done".into()]).is_err());
-        }
-    }
-
-    #[test]
-    fn sentinel_handlers_file_accepts_respond_prompt_kind_parameter() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("handlers.json");
-        std::fs::write(
-            &path,
-            r#"{"prompt":[{"id":"answer","type":"respond_prompt","parameters":{"target":"permission"}}]}"#,
-        )
-        .unwrap();
-
-        let (_, handlers) =
-            handlers::declared_outputs(Vec::new(), Some(&path), &["prompt".into()]).unwrap();
-
-        assert_eq!(
-            handlers.unwrap()["prompt"][0],
-            json!({"id":"answer","type":"respond_prompt","parameters":{"target":"permission"}})
-        );
-        for parameters in ["{}", r#"{"target":"  "}"#, r#"{"target":"permission\n"}"#] {
-            std::fs::write(
-                &path,
-                format!(r#"{{"prompt":[{{"id":"answer","type":"respond_prompt","parameters":{parameters}}}]}}"#),
-            )
-            .unwrap();
-            assert!(
-                handlers::declared_outputs(Vec::new(), Some(&path), &["prompt".into()]).is_err()
-            );
-        }
-    }
-
-    #[test]
-    fn update_handler_definitions_generate_ids_for_buckets_and_other() {
-        let mut definition = json!({
-            "buckets": ["passed"],
-            "handlers": {"passed": [{"type":"notify", "parameters":{}}]},
-            "on_other": [{"type":"escalate", "parameters":{"target":"creator"}}]
-        });
-
-        normalize_update_handlers(definition.as_object_mut().unwrap()).unwrap();
-
-        assert_eq!(
-            definition["handlers"]["passed"][0]["id"],
-            "notify-on-passed"
-        );
-        assert_eq!(
-            definition["on_other"][0]["id"],
-            "escalate-to-owner-on-other"
-        );
-    }
-
-    #[test]
-    fn sentinel_escalation_resolve_message_prints_requested_transition_id() {
-        assert_eq!(
-            escalation_resolved_message(Some("transition_9"), &json!({"id":"sentinel_a"})),
-            "Resolved escalation transition_9 for sentinel_a."
-        );
-    }
-
-    #[test]
-    fn sentinel_escalate_handlers_file_accepts_reserved_other_handler() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("handlers.json");
-        std::fs::write(
-            &path,
-            r#"{"other":[{"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}}]}"#,
-        )
-        .unwrap();
-
-        let (_, handlers) = handlers::declared_outputs(Vec::new(), Some(&path), &[]).unwrap();
-
-        assert_eq!(
-            handlers.unwrap()["other"][0],
-            json!({"id":"ask_creator","type":"escalate","parameters":{"target":"creator"}})
-        );
-    }
-
-    #[test]
-    fn sentinel_escalate_resolve_request_preserves_stage_and_transition_ids() {
-        let action = BlueprintAction::Escalation {
-            action: BlueprintEscalationAction::Resolve {
-                id: "sentinel_a".into(),
-                transition_id: "transition_9".into(),
-            },
-        };
-
-        let (method, params) =
-            request(action, Some("creator".into()), Some("nonce".into())).unwrap();
-
-        assert_eq!(method, "blueprint.escalation.resolve");
-        assert_eq!(params["id"], "sentinel_a");
-        assert_eq!(params["transition_id"], "transition_9");
-    }
-
-    #[test]
-    fn create_dry_run_uses_validation_rpc() {
-        use clap::Parser;
-
-        let cli = crate::args::cli::Cli::try_parse_from([
-            "codeterm",
-            "blueprint",
-            "create",
-            "--name",
-            "ci-green-watch",
-            "--probe",
-            "status",
-            "--question",
-            "classify-result",
-            "--buckets",
-            "passed",
-            "--match",
-            "passed=.*",
-            "--dry-run",
-        ])
-        .unwrap();
-        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
-            panic!("unexpected command")
-        };
-
-        let (method, params) =
-            request(action, Some("creator".into()), Some("nonce".into())).unwrap();
-
-        assert_eq!(method, "blueprint.validate.create");
-        assert_eq!(params["create"]["name"], "ci-green-watch");
-    }
-    #[test]
-    fn sentinel_create_rpc_request_preserves_declared_handlers_and_tab_nonce() {
-        use clap::Parser;
-        let cli = crate::args::cli::Cli::try_parse_from([
-            "codeterm",
-            "blueprint",
-            "create",
-            "--name",
-            "Supplied name",
-            "--probe",
-            "status",
-            "--question",
-            "state?",
-            "--buckets",
-            "done",
-            "--route",
-            "done=notify",
-            "--route",
-            "done=blueprint:sentinel_child",
-            "--rearm-on-change",
-            "done",
-            "--paused",
-            "--timeout",
-            "1h",
-            "--max-transitions",
-            "7",
-            "--max-actions",
-            "9",
-        ])
-        .unwrap();
-        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
-            panic!("unexpected command")
-        };
-        let (method, params) = request(
-            action,
-            Some("supplied-creator".into()),
-            Some("supplied-nonce".into()),
-        )
-        .unwrap();
-        assert_eq!(method, "blueprint.create");
-        assert_eq!(params["caller_tab_id"], "supplied-creator");
-        assert_eq!(params["session_binding_nonce"], "supplied-nonce");
-        let create = &params["create"];
-        assert_eq!(create["name"], "Supplied name");
-        assert_eq!(create["paused"], true);
-        assert_eq!(create["max_transitions"], 7);
-        assert_eq!(create["max_actions"], 9);
-        assert_eq!(create["routes"], json!({}));
-        assert_eq!(create["rearm_on_change"], json!(["done"]));
-        assert_eq!(
-            create["handlers"]["done"][1],
-            json!({"id":"activate-sentinel-child-on-done","type":"blueprint","parameters":{"target":"sentinel_child"}})
-        );
-        assert_eq!(create["timeout"], "1h");
-    }
-
-    #[test]
-    fn sentinel_update_cli_json_round_trip_preserves_definition_and_history_request() {
-        use clap::Parser;
-
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("definition.json");
-        let definition = json!({
-            "name": "Updated graph",
-            "question": "Did it finish?",
-            "buckets": ["done"],
-            "every": "30s",
-            "routes": {"done": "notify"},
-            "matches": {"done": "^done$"},
-            "until": "done",
-            "on_other": [],
-            "max_transitions": 8,
-            "max_actions": 12,
-            "note": "new completion condition"
-        });
-        std::fs::write(&path, serde_json::to_vec(&definition).unwrap()).unwrap();
-        let cli = crate::args::cli::Cli::try_parse_from([
-            "codeterm",
-            "blueprint",
-            "update",
-            "sentinel_a",
-            "--expect-version",
-            "3",
-            "--from-file",
-            path.to_str().unwrap(),
-            "--cause",
-            "transition_2",
-        ])
-        .unwrap();
-        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
-            panic!("unexpected command")
-        };
-        let (method, params) =
-            request(action, Some("editor".into()), Some("nonce".into())).unwrap();
-        assert_eq!(method, "blueprint.update");
-        assert_eq!(params["caller_tab_id"], "editor");
-        assert_eq!(params["session_binding_nonce"], "nonce");
-        assert_eq!(params["expect_version"], 3);
-        let mut expected = definition;
-        expected["cause"] = json!("transition_2");
-        assert_eq!(params["update"], expected);
-
-        let cli = crate::args::cli::Cli::try_parse_from([
-            "codeterm",
-            "blueprint",
-            "update",
-            "sentinel_a",
-            "--expect-version",
-            "3",
-            "--from-file",
-            path.to_str().unwrap(),
-            "--dry-run",
-        ])
-        .unwrap();
-        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
-            panic!("unexpected command")
-        };
-        let (method, _) = request(action, Some("editor".into()), Some("nonce".into())).unwrap();
-        assert_eq!(method, "blueprint.validate.update");
-
-        let cli = crate::args::cli::Cli::try_parse_from([
-            "codeterm",
-            "blueprint",
-            "history",
-            "sentinel_a",
-        ])
-        .unwrap();
-        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
-            panic!("unexpected command")
-        };
-        let (method, params) = request(action, Some("reader".into()), None).unwrap();
-        assert_eq!(method, "blueprint.history");
-        assert_eq!(params["id"], "sentinel_a");
-    }
-}
-
-#[cfg(test)]
-mod command_tests {
-    use super::*;
-    use clap::Parser;
-
-    #[test]
-    fn sentinel_observe_request_roundtrips_tab_and_cron_run_bindings() {
-        for (source, expected) in [
-            ("tab:bound-agent", json!({"kind":"tab", "id":"bound-agent"})),
-            (
-                "cron-run:nightly",
-                json!({"kind":"cron_run", "id":"nightly"}),
-            ),
-        ] {
-            let cli = crate::args::cli::Cli::try_parse_from([
-                "codeterm",
-                "blueprint",
-                "create",
-                "--name",
-                "agent-state-watch",
-                "--observe",
-                source,
-                "--question",
-                "tab state?",
-                "--buckets",
-                "waiting",
-                "--match",
-                "waiting=.*",
-                "--json",
-            ])
-            .unwrap();
-            let crate::args::cli::Commands::Blueprint { action } = cli.command else {
-                panic!("wrong command")
-            };
-            let (method, params) =
-                request(action, Some("creator".into()), Some("nonce".into())).unwrap();
-            assert_eq!(method, "blueprint.create");
-            assert_eq!(params["create"]["probe"], Value::Null);
-            assert_eq!(params["create"]["observe"], expected);
-            let encoded = serde_json::to_string(&params["create"]).unwrap();
-            let decoded: Value = serde_json::from_str(&encoded).unwrap();
-            assert_eq!(decoded, params["create"]);
-        }
-    }
-
-    #[test]
-    fn sentinel_command_handlers_file_reaches_authenticated_create_request_unchanged() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("handlers.json");
-        let command = "printf '$model ${output} `raw`'";
-        let definitions = json!({"done":[{"id":"fixed", "type":"command", "parameters":{"command":command, "label":"Fixed text", "timeout_ms":1000}}]});
-        std::fs::write(&path, serde_json::to_vec(&definitions).unwrap()).unwrap();
-        let cli = crate::args::cli::Cli::try_parse_from([
-            "codeterm",
-            "blueprint",
-            "create",
-            "--name",
-            "command-result-watch",
-            "--probe",
-            "status",
-            "--question",
-            "state?",
-            "--buckets",
-            "done",
-            "--match",
-            "done=done",
-            "--timeout",
-            "1h",
-            "--handlers-file",
-            path.to_str().unwrap(),
-        ])
-        .unwrap();
-        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
-            panic!("wrong command");
-        };
-        let (method, params) =
-            request(action, Some("creator".into()), Some("nonce".into())).unwrap();
-        assert_eq!(method, "blueprint.create");
-        assert_eq!(params["caller_tab_id"], "creator");
-        assert_eq!(params["session_binding_nonce"], "nonce");
-        assert_eq!(params["create"]["handlers"], definitions);
-        assert_eq!(params["create"]["routes"], json!({}));
-    }
-
-    #[test]
-    fn sentinel_create_input_request_carries_spec_and_resolves_relative_file() {
-        let cli = crate::args::cli::Cli::try_parse_from([
-            "codeterm",
-            "blueprint",
-            "create",
-            "--name",
-            "voice-note-watch",
-            "--input",
-            "audio",
-            "--input-file",
-            "clips/voice.wav",
-            "--convert-to",
-            "text",
-            "--convert-timeout",
-            "15m",
-            "--question",
-            "transcribed?",
-            "--buckets",
-            "done",
-        ])
-        .unwrap();
-        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
-            panic!("wrong command")
-        };
-        let (method, params) =
-            request(action, Some("creator".into()), Some("nonce".into())).unwrap();
-        assert_eq!(method, "blueprint.create");
-        let input = &params["create"]["input"];
-        assert_eq!(input["kind"], "audio");
-        let file = input["data"]["file"].as_str().unwrap();
-        assert!(
-            std::path::Path::new(file).is_absolute(),
-            "expected absolute path, got {file}"
-        );
-        assert!(file.ends_with("clips\\voice.wav") || file.ends_with("clips/voice.wav"));
-        assert_eq!(input["convert_to"], "text");
-        assert_eq!(input["convert_timeout_ms"], 900_000);
-        assert_eq!(params["create"]["probe"], Value::Null);
-        assert_eq!(params["create"]["observe"], Value::Null);
-    }
-
-    #[test]
-    fn sentinel_create_input_dry_run_uses_validation_rpc() {
-        let cli = crate::args::cli::Cli::try_parse_from([
-            "codeterm",
-            "blueprint",
-            "create",
-            "--name",
-            "voice-note-watch",
-            "--input",
-            "audio",
-            "--input-url",
-            "https://example.com/clip.wav",
-            "--question",
-            "transcribed?",
-            "--buckets",
-            "done",
-            "--dry-run",
-        ])
-        .unwrap();
-        let crate::args::cli::Commands::Blueprint { action } = cli.command else {
-            panic!("wrong command")
-        };
-        let (method, params) =
-            request(action, Some("creator".into()), Some("nonce".into())).unwrap();
-        assert_eq!(method, "blueprint.validate.create");
-        assert_eq!(params["create"]["input"]["kind"], "audio");
-        assert_eq!(
-            params["create"]["input"]["data"]["url"],
-            "https://example.com/clip.wav"
-        );
-    }
-
-    #[test]
-    fn sentinel_update_input_field_passes_through_read_update() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("definition.json");
-        let definition = json!({
-            "question": "transcribed?",
-            "buckets": ["done"],
-            "input": {"data": {"file": "/tmp/clip.wav"}, "convert_to": "text"}
-        });
-        std::fs::write(&path, serde_json::to_vec(&definition).unwrap()).unwrap();
-        let update = read_update(&path, Some("transition_1")).unwrap();
-        assert_eq!(
-            update["input"],
-            json!({"data": {"file": "/tmp/clip.wav"}, "convert_to": "text"})
-        );
-        assert_eq!(update["cause"], "transition_1");
-    }
-
-    #[test]
-    fn sentinel_input_inline_text_renders_without_leaking_content() {
-        let value = json!({"input": {"kind": "text", "data": {"text": "secret content"}, "convert_to": null}});
-        let line = input_source_line(&value).unwrap();
-        assert!(!line.contains("secret content"));
-        assert!(line.contains("text"));
-    }
-}
+#[path = "blueprint/tests.rs"]
+mod tests;

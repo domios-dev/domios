@@ -52,6 +52,57 @@ pub(super) fn dispatch(
         .and_then(Value::as_str);
     let caller = svc.sentinel_caller(&tab, nonce).map_err(error)?;
     let result = match method {
+        "blueprint.pipeline.nodes" => Ok(svc.blueprint_pipeline_nodes()),
+        "blueprint.pipeline.validate" => {
+            let spec = pipeline_spec_param(params)?;
+            svc.blueprint_pipeline_validate(&caller, spec)
+                .map_err(error)
+        }
+        "blueprint.pipeline.validate.update" => {
+            let id = get_string_param(params, "id")?;
+            let expect_version = params
+                .as_ref()
+                .and_then(|value| value.get("expect_version"))
+                .and_then(Value::as_u64)
+                .ok_or_else(|| error("expect_version must be an unsigned integer"))?;
+            let spec = pipeline_spec_param(params)?;
+            svc.blueprint_pipeline_validate_update(&caller, &id, expect_version, spec)
+                .map_err(error)
+        }
+        "blueprint.pipeline.create" => {
+            let spec = pipeline_spec_param(params)?;
+            svc.blueprint_pipeline_create(&caller, spec).map_err(error)
+        }
+        "blueprint.pipeline.update" => {
+            let id = get_string_param(params, "id")?;
+            let expect_version = params
+                .as_ref()
+                .and_then(|value| value.get("expect_version"))
+                .and_then(Value::as_u64)
+                .ok_or_else(|| error("expect_version must be an unsigned integer"))?;
+            let spec = pipeline_spec_param(params)?;
+            let cause = params
+                .as_ref()
+                .and_then(|value| value.get("cause"))
+                .and_then(Value::as_str)
+                .map(str::to_owned);
+            serde_json::to_value(
+                svc.blueprint_pipeline_update(&caller, &id, expect_version, spec, cause)
+                    .map_err(error)?,
+            )
+            .map_err(|e| error(e.to_string()))
+        }
+        "blueprint.log" => {
+            let id = get_string_param(params, "id")?;
+            let limit = params
+                .as_ref()
+                .and_then(|value| value.get("limit"))
+                .and_then(Value::as_u64)
+                .unwrap_or(50)
+                .clamp(1, 200) as u16;
+            serde_json::to_value(svc.blueprint_log(&caller, &id, limit).map_err(error)?)
+                .map_err(|e| error(e.to_string()))
+        }
         "blueprint.create" => {
             let create = params
                 .as_ref()
@@ -84,8 +135,13 @@ pub(super) fn dispatch(
             .map_err(|e| error(e.to_string())),
         "blueprint.show" => {
             let id = get_string_param(params, "id")?;
-            serde_json::to_value(svc.sentinel_show(&caller, &id).map_err(error)?)
-                .map_err(|e| error(e.to_string()))
+            let job = svc.sentinel_show(&caller, &id).map_err(error)?;
+            let mut value = serde_json::to_value(&job).map_err(|e| error(e.to_string()))?;
+            if let Some(spec) = &job.pipeline {
+                let entries = svc.blueprint_log(&caller, &id, 200).map_err(error)?;
+                add_pipeline_show(&mut value, spec, &entries);
+            }
+            Ok(value)
         }
         "blueprint.stop" => {
             let id = get_string_param(params, "id")?;
@@ -103,13 +159,22 @@ pub(super) fn dispatch(
                 .as_ref()
                 .and_then(|value| value.get("update"))
                 .ok_or_else(|| error("update params required"))?;
-            let update = serde_json::from_value(stored_definition(update.clone())?)
-                .map_err(|e| error(format!("invalid blueprint update: {e}")))?;
-            serde_json::to_value(
-                svc.sentinel_update(&caller, &id, expect_version, update)
-                    .map_err(error)?,
-            )
-            .map_err(|e| error(e.to_string()))
+            let update = stored_definition(update.clone())?;
+            if update.get("versions").is_some() {
+                serde_json::to_value(
+                    svc.sentinel_update_from_history(&caller, &id, expect_version, &update)
+                        .map_err(error)?,
+                )
+                .map_err(|e| error(e.to_string()))
+            } else {
+                let update = serde_json::from_value(update)
+                    .map_err(|e| error(format!("invalid blueprint update: {e}")))?;
+                serde_json::to_value(
+                    svc.sentinel_update(&caller, &id, expect_version, update)
+                        .map_err(error)?,
+                )
+                .map_err(|e| error(e.to_string()))
+            }
         }
         "blueprint.validate.update" => {
             let id = get_string_param(params, "id")?;
@@ -122,13 +187,19 @@ pub(super) fn dispatch(
                 .as_ref()
                 .and_then(|value| value.get("update"))
                 .ok_or_else(|| error("update params required"))?;
-            let update = serde_json::from_value(stored_definition(update.clone())?)
-                .map_err(|e| error(format!("invalid blueprint update: {e}")))?;
-            serde_json::to_value(
-                svc.sentinel_validate_update(&caller, &id, expect_version, update)
-                    .map_err(error)?,
-            )
-            .map_err(|e| error(e.to_string()))
+            let update = stored_definition(update.clone())?;
+            if update.get("versions").is_some() {
+                svc.sentinel_validate_history_update(&caller, &id, expect_version, &update)
+                    .map_err(error)
+            } else {
+                let update = serde_json::from_value(update)
+                    .map_err(|e| error(format!("invalid blueprint update: {e}")))?;
+                serde_json::to_value(
+                    svc.sentinel_validate_update(&caller, &id, expect_version, update)
+                        .map_err(error)?,
+                )
+                .map_err(|e| error(e.to_string()))
+            }
         }
         "blueprint.history" => {
             let id = get_string_param(params, "id")?;
@@ -150,7 +221,125 @@ pub(super) fn dispatch(
             data: None,
         }),
     }?;
-    Ok(exposed_definition(result))
+    if method.starts_with("blueprint.pipeline.") || method == "blueprint.log" {
+        Ok(result)
+    } else {
+        Ok(exposed_definition(result))
+    }
+}
+
+fn pipeline_spec_param(
+    params: &Option<Value>,
+) -> Result<codeterm_types::blueprint_pipeline::BlueprintSpec, JsonRpcError> {
+    let value = params
+        .as_ref()
+        .and_then(|params| params.get("spec"))
+        .cloned()
+        .ok_or_else(|| error("spec params required"))?;
+    serde_json::from_value(value)
+        .map_err(|parse_error| error(format!("invalid pipeline spec: {parse_error}")))
+}
+
+fn add_pipeline_show(
+    value: &mut Value,
+    spec: &codeterm_types::blueprint_pipeline::BlueprintSpec,
+    entries: &[crate::storage::BlueprintJournalEntry],
+) {
+    use codeterm_types::blueprint_pipeline::StepKind;
+    let latest_run = entries.first().map(|entry| entry.run_id.as_str());
+    let run_entries = latest_run
+        .map(|run_id| {
+            entries
+                .iter()
+                .filter(|entry| entry.run_id == run_id)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let closed = run_entries.iter().any(|entry| {
+        entry.step_name == "$run"
+            && matches!(
+                entry.outcome.as_deref(),
+                Some("done" | "failed" | "skipped")
+            )
+    });
+    let current_step = if latest_run.is_none() || closed {
+        None
+    } else {
+        run_entries
+            .iter()
+            .find(|entry| entry.step_index >= 0 && entry.state == "running")
+            .map(|entry| entry.step_index as usize)
+            .or_else(|| {
+                (0..spec.steps.len()).find(|index| {
+                    !run_entries.iter().any(|entry| {
+                        entry.step_index == *index as i64
+                            && matches!(entry.state.as_str(), "done" | "failed" | "skipped")
+                    })
+                })
+            })
+    };
+    value["run_id"] = json!(latest_run);
+    value["current_step"] = json!(current_step);
+    value["last_event_at_ms"] = json!(entries
+        .iter()
+        .map(|entry| entry.ended_at_ms.unwrap_or(entry.started_at_ms))
+        .max());
+    value["steps"] = json!(spec
+        .steps
+        .iter()
+        .enumerate()
+        .map(|(index, step)| {
+            let accepted = match &step.kind {
+                StepKind::Command { .. } | StepKind::Convert { .. } => {
+                    vec!["done".to_string(), "failed".to_string()]
+                }
+                StepKind::Ask { buckets, .. } => buckets
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once("other".into()))
+                    .collect(),
+                StepKind::Filter { bucket, .. } => bucket
+                    .iter()
+                    .cloned()
+                    .chain(["done".into(), "failed".into()])
+                    .collect(),
+            };
+            let outcome = run_entries.iter().find(|entry| {
+                entry.step_index == index as i64
+                    && entry.outcome.as_ref().is_some_and(|outcome| accepted.contains(outcome))
+            }).or_else(|| {
+                run_entries.iter().find(|entry| {
+                    entry.step_index == index as i64
+                        && matches!(entry.state.as_str(), "running" | "skipped")
+                })
+            });
+            let summary = run_entries
+                .iter()
+                .find(|entry| entry.step_index == index as i64 && entry.result_summary.is_some());
+            json!({
+                "index":index,
+                "name":step.name,
+                "kind":step_kind_name(&step.kind),
+                "title":format!("{}: {}", step_kind_name(&step.kind), step.name),
+                "state":outcome.map_or("waiting", |entry| entry.state.as_str()),
+                "outcome":outcome.filter(|entry| !entry.outcome.as_deref().is_some_and(|value| value.starts_with("skip:"))).and_then(|entry| entry.outcome.clone()),
+                "started_at_ms":outcome.map(|entry| entry.started_at_ms),
+                "ended_at_ms":outcome.and_then(|entry| entry.ended_at_ms),
+                "result_summary":summary.and_then(|entry| entry.result_summary.clone()),
+                "reason":outcome.and_then(|entry| entry.reason.clone())
+            })
+        })
+        .collect::<Vec<_>>());
+}
+
+fn step_kind_name(kind: &codeterm_types::blueprint_pipeline::StepKind) -> &'static str {
+    use codeterm_types::blueprint_pipeline::StepKind;
+    match kind {
+        StepKind::Command { .. } => "command",
+        StepKind::Convert { .. } => "convert",
+        StepKind::Ask { .. } => "ask",
+        StepKind::Filter { .. } => "filter",
+    }
 }
 
 fn stored_definition(mut value: Value) -> Result<Value, JsonRpcError> {

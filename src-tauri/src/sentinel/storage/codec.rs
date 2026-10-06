@@ -15,7 +15,7 @@ use crate::storage::{
     DefinitionUpdate, EscalateTarget as StoredEscalateTarget, HandlerAction, HandlerDefinition,
     HandlerResultRecord, HandlerStatus, NewTransition, ObserveKind, ObserveSource, RunRecord,
     RuntimeOutcome, SafeKind as StoredSafeKind, SentinelCreate, SentinelId, SentinelIdentity,
-    SentinelImport, SentinelScope, StageDefinition, StageSource, StageRuntime, StoredDefinition,
+    SentinelImport, SentinelScope, StageDefinition, StageRuntime, StageSource, StoredDefinition,
     StoredSentinel, TargetIdentity, TransitionRecord,
 };
 
@@ -334,6 +334,7 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
     Ok(StageDefinition {
         name: job.name.clone(),
         source,
+        pipeline: job.pipeline.clone(),
         question: job.question.clone(),
         interval_ms: job.interval_ms,
         until: job.until.clone(),
@@ -398,6 +399,7 @@ pub(super) fn history_version(stored: StoredDefinition) -> DefinitionVersion {
         .into(),
         definition: DefinitionSnapshot {
             name: definition.name,
+            pipeline: definition.pipeline,
             probe,
             observe,
             input,
@@ -594,6 +596,7 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
             .map(domain_handler)
             .collect(),
         escalation_timeout_ms: definition.escalation_timeout_ms,
+        pipeline: definition.pipeline,
         definition_version,
         amendments: record
             .amendments

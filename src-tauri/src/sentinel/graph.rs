@@ -101,7 +101,10 @@ pub fn scoped_inventory(
 pub fn reachable_ids(jobs: &[Sentinel]) -> BTreeSet<String> {
     let mut pending: Vec<_> = jobs
         .iter()
-        .filter(|job| job.agent_authored && job.scenario_id.as_deref() == Some(job.id.as_str()))
+        .filter(|job| {
+            (job.agent_authored || job.pipeline.is_some())
+                && job.scenario_id.as_deref() == Some(job.id.as_str())
+        })
         .map(|job| job.id.clone())
         .collect();
     let mut seen = BTreeSet::new();
@@ -109,7 +112,10 @@ pub fn reachable_ids(jobs: &[Sentinel]) -> BTreeSet<String> {
         if !seen.insert(id.clone()) {
             continue;
         }
-        let Some(source) = jobs.iter().find(|job| job.id == id && job.agent_authored) else {
+        let Some(source) = jobs
+            .iter()
+            .find(|job| job.id == id && (job.agent_authored || job.pipeline.is_some()))
+        else {
             continue;
         };
         pending.extend(source.routes.values().flatten().filter_map(|handler| {
@@ -137,7 +143,7 @@ pub fn host_delete_staged(
     let root = store.get(id).ok_or("Blueprint scenario not found")?;
     if root.workspace_id != workspace
         || root.team_id.as_deref() != team
-        || !root.agent_authored
+        || (!root.agent_authored && root.pipeline.is_none())
         || root.scenario_id.as_deref() != Some(id)
         || !reachable_ids(store.list()).contains(id)
     {
@@ -400,7 +406,7 @@ pub fn project(
     let mut scenarios: Vec<_> = jobs
         .iter()
         .filter(|j| {
-            j.agent_authored
+            (j.agent_authored || j.pipeline.is_some())
                 && j.workspace_id == workspace
                 && j.team_id.as_deref() == team
                 && j.scenario_id.as_deref() == Some(j.id.as_str())
@@ -434,7 +440,7 @@ pub fn project(
             .or_insert_with(|| placeholder(&exact));
         let Some(job) = jobs
             .iter()
-            .find(|j| identity(j) == exact && j.agent_authored)
+            .find(|j| identity(j) == exact && (j.agent_authored || j.pipeline.is_some()))
         else {
             continue;
         };
