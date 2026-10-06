@@ -74,6 +74,7 @@ pub struct MultiplexerState {
     /// `team_id`; this holds the team's own metadata (name, lifecycle). Persisted
     /// in the session snapshot.
     teams: HashMap<String, Team>,
+    team_order: Vec<String>,
     /// Monotonic snapshot generation. Every `snapshot()` stamps a strictly
     /// increasing value so the frontend reducer can ignore a stale snapshot
     /// (older generation) that resolves after a newer one — kills the
@@ -107,6 +108,7 @@ impl TeamCloseTransaction {
         target.pty_to_tab = self.staged.pty_to_tab;
         target.tab_aliases = self.staged.tab_aliases;
         target.teams = self.staged.teams;
+        target.team_order = self.staged.team_order;
         target.generation.store(
             self.staged.generation.load(Ordering::Relaxed),
             Ordering::Relaxed,
@@ -157,6 +159,7 @@ impl MultiplexerState {
                 pty_to_tab: self.pty_to_tab.clone(),
                 tab_aliases: self.tab_aliases.clone(),
                 teams: self.teams.clone(),
+                team_order: self.team_order.clone(),
                 generation: AtomicU64::new(self.generation.load(Ordering::Relaxed)),
                 closed_store: ClosedTabsStore::in_memory(),
                 workspace_close_reservations: self.workspace_close_reservations.clone(),
@@ -198,6 +201,7 @@ impl MultiplexerState {
             pty_to_tab: HashMap::new(),
             tab_aliases: HashMap::new(),
             teams: HashMap::new(),
+            team_order: Vec::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
             workspace_close_reservations: HashMap::new(),
@@ -206,6 +210,9 @@ impl MultiplexerState {
 
     /// Register or replace a team by its id.
     pub fn upsert_team(&mut self, team: Team) {
+        if !self.teams.contains_key(&team.id) {
+            self.team_order.push(team.id.clone());
+        }
         self.teams.insert(team.id.clone(), team);
     }
 
@@ -245,14 +252,19 @@ impl MultiplexerState {
 
     /// Remove a team by id, returning it if present.
     pub fn remove_team(&mut self, id: &str) -> Option<Team> {
-        self.teams.remove(id)
+        let removed = self.teams.remove(id);
+        if removed.is_some() {
+            self.team_order.retain(|team_id| team_id != id);
+        }
+        removed
     }
 
-    /// All registered teams (unordered).
+    /// All registered teams in their persistence order.
     pub fn list_teams(&self) -> Vec<Team> {
-        let mut teams: Vec<_> = self.teams.values().cloned().collect();
-        teams.sort_by(|a, b| a.id.cmp(&b.id));
-        teams
+        self.team_order
+            .iter()
+            .filter_map(|team_id| self.teams.get(team_id).cloned())
+            .collect()
     }
 
     pub fn rename_team(&mut self, id: &str, name: String) -> Result<Team, String> {
@@ -392,6 +404,7 @@ impl MultiplexerState {
             pty_to_tab: HashMap::new(),
             tab_aliases: HashMap::new(),
             teams: HashMap::new(),
+            team_order: Vec::new(),
             generation: AtomicU64::new(0),
             closed_store: ClosedTabsStore::in_memory(),
             workspace_close_reservations: HashMap::new(),

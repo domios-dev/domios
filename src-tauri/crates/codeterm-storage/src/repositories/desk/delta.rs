@@ -3,8 +3,8 @@ use super::super::records::{
 };
 use super::super::{queries, retain_orphan_teams, DeskRepository};
 use super::{
-    insert_identity, insert_layout, insert_tab, insert_team, insert_workspace, park_ordered_rows,
-    OrderedTable,
+    insert_identity, insert_layout, insert_tab, insert_team, insert_workspace,
+    renumber_ordered_rows_if_needed, OrderedTable,
 };
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
@@ -281,24 +281,20 @@ fn apply_tabs(
     target: &DeskSnapshot,
 ) -> Result<(), StorageError> {
     let current_tabs = indexed_tabs(current);
-    let mut moved = Vec::new();
     for workspace in &target.workspaces {
-        let owner = workspace.record.id.as_str();
         for (ordinal, tab) in workspace.tabs.iter().enumerate() {
-            if let Some((old_workspace, old_ordinal, _)) = current_tabs.get(tab.id.as_str()) {
-                if *old_workspace != owner || *old_ordinal != ordinal {
-                    moved.push(tab.id.clone());
-                }
+            if !current_tabs.contains_key(tab.id.as_str()) {
+                insert_tab(cx, workspace.record.id.as_str(), tab, ordinal as i64)?;
             }
         }
     }
-    park_ordered_rows(cx, OrderedTable::Tabs, &moved)?;
     for workspace in &target.workspaces {
+        let owner = workspace.record.id.as_str();
+        let target_ids: Vec<String> = workspace.tabs.iter().map(|tab| tab.id.clone()).collect();
+        renumber_ordered_rows_if_needed(cx, OrderedTable::Tabs, Some(owner), &target_ids)?;
         for (ordinal, tab) in workspace.tabs.iter().enumerate() {
-            let owner = workspace.record.id.as_str();
             let Some((old_workspace, old_ordinal, old_tab)) = current_tabs.get(tab.id.as_str())
             else {
-                insert_tab(cx, owner, tab, ordinal as i64)?;
                 continue;
             };
             let changed = *old_workspace != owner
@@ -467,12 +463,8 @@ fn apply_teams(
     let current_order: Vec<&str> = current_ordinals.iter().map(|(id, _)| id.as_str()).collect();
     let target_order: Vec<&str> = target.teams.iter().map(|team| team.id.as_str()).collect();
     let moved = moved_ids(&current_order, &target_order);
-    let moved_order: Vec<String> = target_order
-        .iter()
-        .filter(|id| moved.contains(**id))
-        .map(|id| (*id).to_owned())
-        .collect();
-    park_ordered_rows(cx, OrderedTable::Teams, &moved_order)?;
+    let target_ids: Vec<String> = target_order.iter().map(|id| (*id).to_owned()).collect();
+    renumber_ordered_rows_if_needed(cx, OrderedTable::Teams, None, &target_ids)?;
     for (ordinal, team) in target.teams.iter().enumerate() {
         let was_present = current_ids.contains(team.id.as_str());
         let record_changed = current
@@ -591,12 +583,8 @@ fn apply_workspaces(
         .collect();
     let order_changed = current_order != target_order;
     let moved = moved_ids(&current_order, &target_order);
-    let moved_order: Vec<String> = target_order
-        .iter()
-        .filter(|id| moved.contains(**id))
-        .map(|id| (*id).to_owned())
-        .collect();
-    park_ordered_rows(cx, OrderedTable::Workspaces, &moved_order)?;
+    let target_ids: Vec<String> = target_order.iter().map(|id| (*id).to_owned()).collect();
+    renumber_ordered_rows_if_needed(cx, OrderedTable::Workspaces, None, &target_ids)?;
 
     let current_workspaces: HashMap<&str, &DeskWorkspace> = current
         .snapshot
@@ -607,9 +595,6 @@ fn apply_workspaces(
     for (ordinal, workspace) in target.workspaces.iter().enumerate() {
         let id = workspace.record.id.as_str();
         let Some(previous) = current_workspaces.get(id) else {
-            if moved.contains(workspace.record.id.as_str()) {
-                update_new_workspace_ordinal(cx, id, ordinal as i64)?;
-            }
             continue;
         };
         let record_changed = previous.record != workspace.record;
@@ -668,22 +653,6 @@ fn apply_workspaces(
         }
     }
     Ok(order_changed)
-}
-
-fn update_new_workspace_ordinal(
-    cx: &mut WriteCx<'_>,
-    id: &str,
-    ordinal: i64,
-) -> Result<(), StorageError> {
-    let revision = to_sql_u64("desk revision", cx.revision.0)?;
-    let changed = cx.write(
-        "UPDATE workspaces SET ordinal = ?2, revision = ?3 WHERE id = ?1 AND revision = ?3",
-        params![id, ordinal, revision],
-    )?;
-    if changed != 1 {
-        return Err(corrupt(format!("new workspace {id} lost its inserted row")));
-    }
-    Ok(())
 }
 
 fn workspace_ordinals(cx: &WriteCx<'_>) -> Result<Vec<(String, i64)>, StorageError> {

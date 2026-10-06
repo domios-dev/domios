@@ -159,6 +159,51 @@ fn session_persist_projection_drops_only_orphan_teams_deterministically() {
     );
 }
 
+#[test]
+fn runtime_team_projection_preserves_persisted_order_and_appends_new_teams() {
+    use codeterm_types::team::{Team, TeamLifecycle};
+
+    let mut persisted = desk_delta_snapshot(1);
+    persisted.teams = ["team-z", "team-a"]
+        .into_iter()
+        .enumerate()
+        .map(|(index, id)| Team {
+            id: id.into(),
+            name: None,
+            lifecycle: TeamLifecycle::Active,
+            created_at: index as u64,
+            workspace_id: "ws-0".into(),
+        })
+        .collect();
+    let mut mux = crate::multiplexer::state::MultiplexerState::from_session_snapshot(&persisted);
+    assert_eq!(
+        mux.to_session_snapshot()
+            .teams
+            .iter()
+            .map(|team| team.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["team-z", "team-a"]
+    );
+
+    mux.upsert_team(Team {
+        id: "team-new".into(),
+        name: None,
+        lifecycle: TeamLifecycle::Forming,
+        created_at: 3,
+        workspace_id: "ws-0".into(),
+    });
+    let projected =
+        crate::session::store::project_snapshot(&mux.to_session_snapshot(), Vec::new()).unwrap();
+    assert_eq!(
+        projected
+            .teams
+            .iter()
+            .map(|team| team.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["team-z", "team-a", "team-new"]
+    );
+}
+
 fn queue_barrier(
     worker: &SessionPersistenceWorker,
     snapshot: crate::session::SessionSnapshot,
@@ -323,7 +368,7 @@ fn desk_facade_never_reports_durable_before_commit() {
 }
 
 #[test]
-fn failed_commit_is_retried_on_the_next_change_without_a_retry_loop() {
+fn failed_boot_resync_is_retried_by_the_next_mutation() {
     let (attempt_tx, attempt_rx) = mpsc::channel();
     let writer = move |revision| {
         attempt_tx.send(revision).unwrap();
@@ -337,7 +382,7 @@ fn failed_commit_is_retried_on_the_next_change_without_a_retry_loop() {
 
     assert_eq!(
         worker
-            .submit_snapshot(test_snapshot(1), SaveIntent::PreserveDesk, true)
+            .submit_snapshot(test_snapshot(1), SaveIntent::AuthorizedReduction, true)
             .unwrap_err(),
         "temporary commit failure"
     );
@@ -513,7 +558,7 @@ fn desk_delta_rename_touches_three_rows_in_a_large_inventory() {
 }
 
 #[test]
-fn desk_delta_adjacent_reorder_touches_constant_rows_in_a_large_inventory() {
+fn desk_delta_adjacent_reorder_normalizes_the_full_large_inventory() {
     let root = tempfile::tempdir().unwrap();
     let adapter = test_adapter(root.path());
     let mut snapshot = desk_delta_snapshot(512);
@@ -534,7 +579,7 @@ fn desk_delta_adjacent_reorder_touches_constant_rows_in_a_large_inventory() {
         .wait(std::time::Duration::from_secs(30))
         .unwrap();
 
-    assert_eq!(committed.receipt.rows_written, 7);
+    assert!(committed.receipt.rows_written >= 1024);
     let saved = adapter.state().unwrap();
     assert_eq!(saved.snapshot.workspaces[255].record.id.as_str(), "ws-256");
     assert_eq!(saved.snapshot.workspaces[256].record.id.as_str(), "ws-255");
