@@ -21,6 +21,7 @@ import {
   type TerminalHistoryClaim,
 } from "./terminalHistoryReplay";
 import { terminalHistorySource } from "./scrollbackReplay";
+import { setTerminalReadingHistory } from "./terminalHistoryReaders";
 
 async function fetchTabHistory(tabId: string): Promise<string> {
   try {
@@ -138,9 +139,13 @@ export function usePtyConnection({
     const term = termRef.current;
     const request = ++viewportRestoreRequestRef.current;
     if (!renderEnabled) {
-      if (term) hiddenViewportRef.current = captureTerminalViewport(term);
+      if (term) {
+        hiddenViewportRef.current = captureTerminalViewport(term);
+        setTerminalReadingHistory(tabId, !hiddenViewportRef.current.followOutput);
+      }
       return;
     }
+    setTerminalReadingHistory(tabId, false);
     if (term) {
       restoreTerminalViewportAfterQueue(
         term,
@@ -148,7 +153,9 @@ export function usePtyConnection({
         () => request === viewportRestoreRequestRef.current,
       );
     }
-  }, [renderEnabled, termRef]);
+  }, [renderEnabled, tabId, termRef]);
+
+  useEffect(() => () => setTerminalReadingHistory(tabId, false), [tabId]);
 
   useEffect(() => () => {
     cancelReplay();
