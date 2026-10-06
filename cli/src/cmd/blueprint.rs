@@ -5,6 +5,7 @@ use crate::args::blueprint::{BlueprintAction, BlueprintEscalationAction};
 use crate::client::SocketClient;
 use crate::cmd::print::{fail, print_json};
 mod handlers;
+mod pipeline_spec;
 mod recipes;
 
 pub fn handle_recipe(json_mode: bool, name: Option<&str>) {
@@ -84,6 +85,122 @@ fn escalation_resolved_message(transition_id: Option<&str>, result: &Value) -> S
     )
 }
 
+fn render_nodes(nodes: &Value) {
+    if let Some(nodes) = nodes.as_array() {
+        for node in nodes {
+            println!(
+                "{}: {}",
+                node["kind"].as_str().unwrap_or("?"),
+                node["title"].as_str().unwrap_or("?")
+            );
+            if let Some(schema) = node.get("params_schema") {
+                println!("  params: {schema}");
+            }
+        }
+    }
+}
+
+fn render_log(entries: &Value) {
+    if let Some(entries) = entries.as_array() {
+        for entry in entries {
+            println!(
+                "{} {} {} outcome={} result={} reason={}",
+                entry["started_at_ms"].as_u64().unwrap_or_default(),
+                entry["step_index"].as_u64().unwrap_or_default(),
+                entry["state"].as_str().unwrap_or("?"),
+                entry["outcome"].as_str().unwrap_or("-"),
+                entry["result_summary"].as_str().unwrap_or("-"),
+                entry["reason"].as_str().unwrap_or("-")
+            );
+        }
+    }
+}
+
+fn pipeline_preview_summary(value: &Value) -> String {
+    let spec = value.get("normalized_spec").unwrap_or(value);
+    let mut lines = vec![format!(
+        "Blueprint: {}",
+        spec["name"].as_str().unwrap_or("?")
+    )];
+    let trigger = &spec["trigger"];
+    match trigger["type"].as_str() {
+        Some("schedule") => lines.push(format!(
+            "Trigger: schedule every {}",
+            trigger["every"].as_str().unwrap_or("?")
+        )),
+        Some("input") => lines.push(format!(
+            "Trigger: input kind={} source={} convert_to={}",
+            trigger["kind"].as_str().unwrap_or("?"),
+            input_ref_summary(&trigger["source"]),
+            trigger["convert_to"].as_str().unwrap_or("-")
+        )),
+        Some("event") => lines.push(format!(
+            "Trigger: event source={}",
+            trigger["source"].as_str().unwrap_or("?")
+        )),
+        _ => lines.push("Trigger: ?".into()),
+    }
+    if let Some(steps) = spec["steps"].as_array() {
+        for (index, step) in steps.iter().enumerate() {
+            lines.push(format!(
+                "Step {}: {} ({}) input={}",
+                index + 1,
+                step["name"].as_str().unwrap_or("?"),
+                step["kind"]["kind"].as_str().unwrap_or("?"),
+                step["input"].as_str().unwrap_or("?")
+            ));
+        }
+    }
+    lines.push(format!(
+        "Result: {}",
+        spec.pointer("/result/to")
+            .and_then(Value::as_str)
+            .unwrap_or("owner")
+    ));
+    if let Some(checks) = value["checks"].as_array() {
+        lines.push("Checks:".into());
+        for check in checks {
+            lines.push(format!(
+                "  {} {}{}",
+                if check["passed"].as_bool().unwrap_or(false) {
+                    "PASS"
+                } else {
+                    "FAIL"
+                },
+                check["field"].as_str().unwrap_or("validation"),
+                check["reason"]
+                    .as_str()
+                    .map(|reason| format!(": {reason}"))
+                    .unwrap_or_default()
+            ));
+        }
+    }
+    lines.join("\n")
+}
+
+fn input_ref_summary(value: &Value) -> String {
+    if let Some(path) = value.get("file").and_then(Value::as_str) {
+        return format!(
+            "file:{}",
+            std::path::Path::new(path)
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        );
+    }
+    if let Some(url) = value.get("url").and_then(Value::as_str) {
+        return url
+            .split_once("://")
+            .map(|(_, rest)| rest.split('/').next().unwrap_or("?"))
+            .unwrap_or("?")
+            .to_string();
+    }
+    if value.get("text").is_some() {
+        return "text".into();
+    }
+    "?".into()
+}
+
 pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: BlueprintAction) {
     let (method, params) = request(
         action,
@@ -97,6 +214,30 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
         .unwrap_or_else(|error| fail(1, error.to_string()));
     if json_mode {
         print_json(&result);
+        return;
+    }
+    if method == "blueprint.pipeline.nodes" {
+        render_nodes(&result);
+        return;
+    }
+    if method == "blueprint.log" {
+        render_log(&result);
+        return;
+    }
+    if method == "blueprint.pipeline.create" {
+        println!(
+            "{} owner={} chain={}",
+            result["id"].as_str().unwrap_or("?"),
+            result
+                .pointer("/owner/kind")
+                .and_then(Value::as_str)
+                .unwrap_or("tab"),
+            result["chain"].as_str().unwrap_or("?")
+        );
+        return;
+    }
+    if method == "blueprint.pipeline.validate" {
+        println!("{}", pipeline_preview_summary(&result));
         return;
     }
     if method.starts_with("blueprint.validate.") {
@@ -164,6 +305,10 @@ fn request(
     let method = match action {
         BlueprintAction::Recipe { .. } => return Err("blueprint recipe is handled locally".into()),
         BlueprintAction::Create {
+            spec,
+            recipe,
+            set,
+            owner,
             name,
             probe,
             observe,
@@ -188,8 +333,53 @@ fn request(
             matches,
             dry_run,
         } => {
-            let (routes, handlers) =
-                handlers::declared_outputs(routes, handlers_file.as_deref(), &buckets)?;
+            if spec.is_some() || recipe.is_some() {
+                if name.is_some()
+                    || probe.is_some()
+                    || observe.is_some()
+                    || input.is_some()
+                    || input_file.is_some()
+                    || input_url.is_some()
+                    || input_text.is_some()
+                    || question.is_some()
+                    || buckets.is_some()
+                    || every.is_some()
+                    || !routes.is_empty()
+                    || !rearm_on_change.is_empty()
+                    || handlers_file.is_some()
+                    || escalation_timeout_ms.is_some()
+                    || paused
+                    || max_transitions.is_some()
+                    || max_actions.is_some()
+                    || until.is_some()
+                    || timeout.is_some()
+                    || !matches.is_empty()
+                {
+                    return Err("pipeline and legacy stage create options cannot be mixed".into());
+                }
+                params["spec"] = pipeline_spec::load(
+                    spec.as_deref(),
+                    recipe.as_deref(),
+                    &set,
+                    owner.as_deref(),
+                )?;
+                return Ok((
+                    if dry_run {
+                        "blueprint.pipeline.validate"
+                    } else {
+                        "blueprint.pipeline.create"
+                    },
+                    params,
+                ));
+            }
+            if !set.is_empty() || owner.is_some() {
+                return Err("--set and --owner require --spec or --recipe".into());
+            }
+            let (routes, handlers) = handlers::declared_outputs(
+                routes,
+                handlers_file.as_deref(),
+                buckets.as_deref().ok_or("--buckets is required")?,
+            )?;
             let observe = observe
                 .map(|source| observation_binding(&source))
                 .transpose()?;
@@ -201,7 +391,7 @@ fn request(
                 convert_to,
                 convert_timeout,
             )?;
-            params["create"] = json!({ "name": name, "probe": probe, "observe": observe, "input": input, "question": question, "buckets": buckets, "every": every.unwrap_or_else(|| "20s".into()), "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
+            params["create"] = json!({ "name": name.ok_or("--name is required")?, "probe": probe, "observe": observe, "input": input, "question": question.ok_or("--question is required")?, "buckets": buckets.ok_or("--buckets is required")?, "every": every.unwrap_or_else(|| "20s".into()), "routes": routes, "handlers": handlers, "rearm_on_change": rearm_on_change, "escalation_timeout_ms": escalation_timeout_ms, "paused": paused, "max_transitions": max_transitions, "max_actions": max_actions, "matches": assignments(matches)?, "until": until, "timeout": timeout });
             if dry_run {
                 "blueprint.validate.create"
             } else {
@@ -209,6 +399,7 @@ fn request(
             }
         }
         BlueprintAction::List => "blueprint.list",
+        BlueprintAction::Nodes => "blueprint.pipeline.nodes",
         BlueprintAction::Show { id } => {
             params["id"] = json!(id);
             "blueprint.show"
@@ -236,6 +427,11 @@ fn request(
         BlueprintAction::History { id } => {
             params["id"] = json!(id);
             "blueprint.history"
+        }
+        BlueprintAction::Log { id, limit } => {
+            params["id"] = json!(id);
+            params["limit"] = json!(limit);
+            "blueprint.log"
         }
         BlueprintAction::Escalation { action } => match action {
             BlueprintEscalationAction::Resolve { id, transition_id } => {

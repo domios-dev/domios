@@ -7,13 +7,25 @@ pub enum BlueprintAction {
     /// Classify a bounded probe or same-Team agent observation
     #[command(group = clap::ArgGroup::new("input_source").args(["input_file", "input_url", "input_text"]).multiple(false).required(false))]
     Create {
+        /// JSON or YAML pipeline specification, or `-` to read standard input
+        #[arg(long, conflicts_with = "recipe")]
+        spec: Option<std::path::PathBuf>,
+        /// Create from a named pipeline recipe
+        #[arg(long, conflicts_with = "spec")]
+        recipe: Option<String>,
+        /// Replace recipe placeholders with key=value pairs
+        #[arg(long = "set", value_parser = parse_assignment)]
+        set: Vec<String>,
+        /// Assign the pipeline to its creator tab or Team
+        #[arg(long, value_parser = ["tab", "team"])]
+        owner: Option<String>,
         /// Short meaningful name describing what is watched and what happens
-        #[arg(long, value_parser = parse_blueprint_name)]
-        name: String,
-        #[arg(long, conflicts_with = "observe", required_unless_present_any = ["observe", "input"])]
+        #[arg(long, value_parser = parse_blueprint_name, required_unless_present_any = ["spec", "recipe"])]
+        name: Option<String>,
+        #[arg(long, conflicts_with = "observe", required_unless_present_any = ["observe", "input", "spec", "recipe"])]
         probe: Option<String>,
         /// Observe a same-Team agent tab or cron run
-        #[arg(long, conflicts_with = "probe", required_unless_present_any = ["probe", "input"], value_parser = parse_observe)]
+        #[arg(long, conflicts_with = "probe", required_unless_present_any = ["probe", "input", "spec", "recipe"], value_parser = parse_observe)]
         observe: Option<String>,
         /// Watch data instead of a probe or observation: text|audio|video|image
         #[arg(long, value_parser = parse_input_kind, requires = "input_source", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"])]
@@ -33,10 +45,10 @@ pub enum BlueprintAction {
         /// Bound the one-time conversion, in the --every duration syntax
         #[arg(long, value_name = "DURATION", requires = "input", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"], value_parser = parse_convert_timeout)]
         convert_timeout: Option<u64>,
-        #[arg(long)]
-        question: String,
-        #[arg(long, value_delimiter = ',', required = true)]
-        buckets: Vec<String>,
+        #[arg(long, required_unless_present_any = ["spec", "recipe"])]
+        question: Option<String>,
+        #[arg(long, value_delimiter = ',', required_unless_present_any = ["spec", "recipe"])]
+        buckets: Option<Vec<String>>,
         /// Owner-requested cadence (minimum 10s, default 20s)
         #[arg(long)]
         every: Option<String>,
@@ -74,6 +86,8 @@ pub enum BlueprintAction {
         #[arg(long)]
         dry_run: bool,
     },
+    /// List trigger, step, converter and event-source capabilities
+    Nodes,
     /// List blueprints scoped to the calling tab and its Team
     List,
     /// Show one blueprint
@@ -95,6 +109,12 @@ pub enum BlueprintAction {
     },
     /// Show immutable definition versions
     History { id: String },
+    /// List bounded run journal entries, newest first
+    Log {
+        id: String,
+        #[arg(long, default_value_t = 50, value_parser = clap::value_parser!(u16).range(1..=200))]
+        limit: u16,
+    },
     /// Resolve an open escalation
     Escalation {
         #[command(subcommand)]
@@ -296,7 +316,7 @@ mod tests {
         else {
             panic!("wrong command")
         };
-        assert_eq!(buckets, ["pending", "passed", "failed"]);
+        assert_eq!(buckets.unwrap(), ["pending", "passed", "failed"]);
         assert_eq!(routes.len(), 3);
         assert_eq!(rearm_on_change, ["pending", "failed"]);
         assert_eq!(matches, ["passed=^success$"]);
@@ -623,5 +643,66 @@ mod tests {
                 .chain(["--input-file", "clips/voice.wav"])
         )
         .is_ok());
+    }
+
+    #[test]
+    fn blueprint_pipeline_create_nodes_and_log_parse() {
+        let spec = Cli::try_parse_from([
+            "codeterm",
+            "blueprint",
+            "create",
+            "--spec",
+            "pipeline.yaml",
+            "--owner",
+            "team",
+            "--dry-run",
+        ])
+        .unwrap();
+        let Commands::Blueprint {
+            action:
+                BlueprintAction::Create {
+                    spec,
+                    owner,
+                    dry_run,
+                    ..
+                },
+        } = spec.command
+        else {
+            panic!("wrong command")
+        };
+        assert_eq!(spec, Some(std::path::PathBuf::from("pipeline.yaml")));
+        assert_eq!(owner.as_deref(), Some("team"));
+        assert!(dry_run);
+
+        assert!(Cli::try_parse_from([
+            "codeterm",
+            "blueprint",
+            "create",
+            "--recipe",
+            "echo",
+            "--set",
+            "message=ready"
+        ])
+        .is_ok());
+        assert!(Cli::try_parse_from(["codeterm", "blueprint", "nodes", "--json"]).is_ok());
+        assert!(Cli::try_parse_from([
+            "codeterm",
+            "blueprint",
+            "log",
+            "blueprint-id",
+            "--limit",
+            "200",
+            "--json"
+        ])
+        .is_ok());
+        assert!(Cli::try_parse_from([
+            "codeterm",
+            "blueprint",
+            "log",
+            "blueprint-id",
+            "--limit",
+            "201"
+        ])
+        .is_err());
     }
 }
