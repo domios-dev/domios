@@ -17,10 +17,63 @@ impl JsEventSource {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_source_js_mapping_passes_subscription_identity_and_handles_refusal() {
+        let vm = Arc::new(
+            PluginVm::from_source(
+                "fixture",
+                r#"module.exports.default = {
+                    subscribe(value) {
+                        return value.kind === "fixture.message" && value.params.room === "one"
+                            && value.subscriptionId === "sub" && value.token === "secret"
+                            ? {} : { error: "subscription mapping mismatch" };
+                    },
+                    unsubscribe(value) {
+                        return value.kind === "fixture.message" && value.subscriptionId === "sub"
+                            ? {} : { error: "unsubscribe mapping mismatch" };
+                    }
+                };"#
+                .into(),
+            )
+            .unwrap(),
+        );
+        let provider = JsEventSource::new(
+            vm,
+            vec![EventSourceDecl {
+                kind: "fixture.message".into(),
+                title: "Fixture message".into(),
+                params: None,
+                payload: None,
+            }],
+        );
+
+        provider
+            .subscribe(
+                "fixture.message",
+                &serde_json::json!({"room":"one"}),
+                "sub",
+                "secret",
+            )
+            .unwrap();
+        provider.unsubscribe("fixture.message", "sub").unwrap();
+        assert!(provider
+            .subscribe("fixture.message", &serde_json::json!({}), "bad", "secret")
+            .is_err());
+    }
+}
+
 #[derive(Deserialize)]
 struct EventSourceResult {
     #[serde(default)]
     error: Option<String>,
+    #[serde(default)]
+    admitted: Option<bool>,
+    #[serde(default)]
+    reason: Option<String>,
 }
 
 impl EventSourceProvider for JsEventSource {
@@ -58,9 +111,14 @@ impl JsEventSource {
     fn call_export(&self, name: &str, payload: serde_json::Value) -> Result<(), String> {
         let result = call_json::<EventSourceResult>(&self.vm, name, &[payload])
             .map_err(|error| format!("plugin {name} failed: {error:?}"))?;
-        match result.error {
-            Some(error) => Err(error),
-            None => Ok(()),
+        if let Some(error) = result.error {
+            return Err(error);
         }
+        if result.admitted == Some(false) {
+            return Err(result
+                .reason
+                .unwrap_or_else(|| "event admission refused".into()));
+        }
+        Ok(())
     }
 }

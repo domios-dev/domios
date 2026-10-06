@@ -1,9 +1,10 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use parking_lot::{Condvar, Mutex};
+use parking_lot::Mutex;
 use serde_json::Value;
 
+use crate::event_source::EventSourceProvider;
 use crate::js_runtime::manifest::NodeSchema;
 
 pub const MAX_SUBSCRIPTIONS: usize = 1024;
@@ -31,6 +32,8 @@ pub enum AdmitRefusal {
 #[derive(Clone, Debug, PartialEq)]
 pub struct EventEnvelope {
     pub subscription_id: String,
+    pub pipeline_id: String,
+    pub kind: String,
     pub event_id: String,
     pub payload: Value,
     pub admitted_at_ms: u64,
@@ -67,6 +70,7 @@ pub enum AdmissionDecision {
 pub enum JournalOutcome {
     Refused(AdmitRefusal),
     Cancelled,
+    RetentionOverflow,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -75,6 +79,26 @@ pub struct JournalEntry {
     pub event_id: String,
     pub outcome: JournalOutcome,
     pub at_ms: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EventSubscriptionSnapshot {
+    pub state: String,
+    pub delivered: u64,
+    pub refused: u64,
+    pub last_event_at_ms: Option<u64>,
+    pub reason: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EventSubscriptionBinding {
+    pub subscription_id: String,
+    pub pipeline_id: String,
+    pub kind: String,
+    pub plugin_id: String,
+    pub params_json: String,
+    pub registry_generation: u64,
+    pub definition_version: u64,
 }
 
 pub fn admit(
@@ -142,17 +166,22 @@ pub struct SubscriptionTable(Arc<Inner>);
 
 struct Inner {
     state: Mutex<State>,
-    ready: Condvar,
 }
 
 struct State {
     subscriptions: HashMap<String, Subscription>,
     order: VecDeque<String>,
+    pipeline_states: HashMap<String, EventSubscriptionSnapshot>,
     refusals: VecDeque<JournalEntry>,
     pending: usize,
 }
 
 struct Subscription {
+    pipeline_id: String,
+    kind: String,
+    params_json: String,
+    definition_version: u64,
+    provider: Arc<dyn EventSourceProvider>,
     token: String,
     plugin_id: String,
     payload_schema: Option<NodeSchema>,
@@ -173,16 +202,22 @@ impl SubscriptionTable {
             state: Mutex::new(State {
                 subscriptions: HashMap::new(),
                 order: VecDeque::new(),
+                pipeline_states: HashMap::new(),
                 refusals: VecDeque::new(),
                 pending: 0,
             }),
-            ready: Condvar::new(),
         }))
     }
 
     pub fn subscribe(
         &self,
         subscription_id: String,
+        pipeline_id: String,
+        kind: String,
+        params_json: String,
+        registry_generation: u64,
+        definition_version: u64,
+        provider: Arc<dyn EventSourceProvider>,
         token: String,
         plugin_id: String,
         payload_schema: Option<NodeSchema>,
@@ -193,6 +228,11 @@ impl SubscriptionTable {
             || token.len() > MAX_SUBSCRIPTION_TOKEN_BYTES
             || plugin_id.is_empty()
             || plugin_id.len() > MAX_ID_BYTES
+            || pipeline_id.is_empty()
+            || pipeline_id.len() > MAX_ID_BYTES
+            || kind.is_empty()
+            || kind.len() > MAX_ID_BYTES
+            || params_json.len() > MAX_EVENT_BYTES
         {
             return Err("subscription identity or token is invalid".into());
         }
@@ -203,10 +243,31 @@ impl SubscriptionTable {
         if state.subscriptions.len() >= MAX_SUBSCRIPTIONS {
             return Err("subscription table is full".into());
         }
+        if state.pipeline_states.len() >= MAX_SUBSCRIPTIONS
+            && !state.pipeline_states.contains_key(&pipeline_id)
+        {
+            return Err("event subscription state table is full".into());
+        }
+        state
+            .pipeline_states
+            .entry(pipeline_id.clone())
+            .or_insert_with(|| EventSubscriptionSnapshot {
+                state: "subscribing".into(),
+                delivered: 0,
+                refused: 0,
+                last_event_at_ms: None,
+                reason: None,
+            });
         state.order.push_back(subscription_id.clone());
         state.subscriptions.insert(
             subscription_id,
             Subscription {
+                pipeline_id,
+                kind,
+                params_json,
+                registry_generation,
+                definition_version,
+                provider,
                 token,
                 plugin_id,
                 payload_schema,
@@ -216,6 +277,13 @@ impl SubscriptionTable {
             },
         );
         Ok(())
+    }
+
+    pub fn mark_subscribed(&self, pipeline_id: &str) {
+        if let Some(summary) = self.0.state.lock().pipeline_states.get_mut(pipeline_id) {
+            summary.state = "subscribed".into();
+            summary.reason = None;
+        }
     }
 
     pub fn unsubscribe(&self, subscription_id: &str) -> bool {
@@ -236,7 +304,188 @@ impl SubscriptionTable {
         }
         state.pending -= subscription.queue.len();
         state.order.retain(|id| id != subscription_id);
+        if !state
+            .subscriptions
+            .values()
+            .any(|item| item.pipeline_id == subscription.pipeline_id)
+        {
+            if let Some(summary) = state.pipeline_states.get_mut(&subscription.pipeline_id) {
+                if summary.state != "unavailable" {
+                    summary.state = "stopped".into();
+                }
+            }
+        }
+        drop(state);
+        if let Err(error) = subscription
+            .provider
+            .unsubscribe(&subscription.kind, subscription_id)
+        {
+            log::warn!("[graph-events] provider unsubscribe failed: {error}");
+        }
         true
+    }
+
+    pub fn mark_unavailable(&self, pipeline_id: &str, reason: &str) {
+        let mut state = self.0.state.lock();
+        if !state.pipeline_states.contains_key(pipeline_id)
+            && state.pipeline_states.len() >= MAX_SUBSCRIPTIONS
+        {
+            return;
+        }
+        let summary = state
+            .pipeline_states
+            .entry(pipeline_id.into())
+            .or_insert_with(|| EventSubscriptionSnapshot {
+                state: "unavailable".into(),
+                delivered: 0,
+                refused: 0,
+                last_event_at_ms: None,
+                reason: None,
+            });
+        summary.state = "unavailable".into();
+        summary.reason = Some(reason.chars().take(256).collect());
+    }
+
+    pub fn mark_unavailable_once(&self, pipeline_id: &str, reason: &str) -> bool {
+        let mut state = self.0.state.lock();
+        if !state.pipeline_states.contains_key(pipeline_id)
+            && state.pipeline_states.len() >= MAX_SUBSCRIPTIONS
+        {
+            return false;
+        }
+        let summary = state
+            .pipeline_states
+            .entry(pipeline_id.into())
+            .or_insert_with(|| EventSubscriptionSnapshot {
+                state: "unavailable".into(),
+                delivered: 0,
+                refused: 0,
+                last_event_at_ms: None,
+                reason: None,
+            });
+        let notify = summary.state != "unavailable";
+        summary.state = "unavailable".into();
+        summary.reason = Some(reason.chars().take(256).collect());
+        notify
+    }
+
+    pub fn clear_pipeline(&self, pipeline_id: &str) {
+        let subscription_ids = self
+            .0
+            .state
+            .lock()
+            .subscriptions
+            .iter()
+            .filter(|(_, subscription)| subscription.pipeline_id == pipeline_id)
+            .map(|(id, _)| id.clone())
+            .collect::<Vec<_>>();
+        for id in subscription_ids {
+            self.unsubscribe(&id);
+        }
+        self.0.state.lock().pipeline_states.remove(pipeline_id);
+    }
+
+    pub fn summary(&self, pipeline_id: &str) -> Option<EventSubscriptionSnapshot> {
+        self.0
+            .state
+            .lock()
+            .pipeline_states
+            .get(pipeline_id)
+            .cloned()
+    }
+
+    pub fn pipeline_ids(&self) -> Vec<String> {
+        self.0
+            .state
+            .lock()
+            .pipeline_states
+            .keys()
+            .cloned()
+            .collect()
+    }
+
+    pub fn subscription_ids_for(&self, pipeline_id: &str) -> Vec<String> {
+        self.0
+            .state
+            .lock()
+            .subscriptions
+            .iter()
+            .filter(|(_, subscription)| subscription.pipeline_id == pipeline_id)
+            .map(|(id, _)| id.clone())
+            .collect()
+    }
+
+    pub fn bindings_for(&self, pipeline_id: &str) -> Vec<EventSubscriptionBinding> {
+        self.0
+            .state
+            .lock()
+            .subscriptions
+            .iter()
+            .filter(|(_, subscription)| subscription.pipeline_id == pipeline_id)
+            .map(|(subscription_id, subscription)| EventSubscriptionBinding {
+                subscription_id: subscription_id.clone(),
+                pipeline_id: subscription.pipeline_id.clone(),
+                kind: subscription.kind.clone(),
+                plugin_id: subscription.plugin_id.clone(),
+                params_json: subscription.params_json.clone(),
+                registry_generation: subscription.registry_generation,
+                definition_version: subscription.definition_version,
+            })
+            .collect()
+    }
+
+    pub fn bindings(&self) -> Vec<EventSubscriptionBinding> {
+        self.0
+            .state
+            .lock()
+            .subscriptions
+            .iter()
+            .map(|(subscription_id, subscription)| EventSubscriptionBinding {
+                subscription_id: subscription_id.clone(),
+                pipeline_id: subscription.pipeline_id.clone(),
+                kind: subscription.kind.clone(),
+                plugin_id: subscription.plugin_id.clone(),
+                params_json: subscription.params_json.clone(),
+                registry_generation: subscription.registry_generation,
+                definition_version: subscription.definition_version,
+            })
+            .collect()
+    }
+
+    pub fn pipeline_id_for(&self, subscription_id: &str) -> Option<String> {
+        self.0
+            .state
+            .lock()
+            .subscriptions
+            .get(subscription_id)
+            .map(|subscription| subscription.pipeline_id.clone())
+    }
+
+    pub fn next_for(&self, pipeline_id: &str) -> Option<EventEnvelope> {
+        let state = self.0.state.lock();
+        state.order.iter().find_map(|id| {
+            let subscription = state.subscriptions.get(id)?;
+            if subscription.pipeline_id == pipeline_id {
+                subscription.queue.front().cloned()
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn consume(&self, subscription_id: &str, event_id: &str) -> Option<EventEnvelope> {
+        let mut state = self.0.state.lock();
+        let subscription = state.subscriptions.get_mut(subscription_id)?;
+        if subscription.queue.front()?.event_id != event_id {
+            return None;
+        }
+        let event = subscription.queue.pop_front()?;
+        if let Some(summary) = state.pipeline_states.get_mut(&event.pipeline_id) {
+            summary.delivered = summary.delivered.saturating_add(1);
+            summary.last_event_at_ms = Some(event.admitted_at_ms);
+        }
+        state.pending -= 1;
+        Some(event)
     }
 
     pub fn admit(&self, request: AdmissionRequest<'_>) -> AdmissionDecision {
@@ -261,6 +510,8 @@ impl SubscriptionTable {
                 };
                 subscription.queue.push_back(EventEnvelope {
                     subscription_id: request.subscription_id.into(),
+                    pipeline_id: subscription.pipeline_id.clone(),
+                    kind: subscription.kind.clone(),
                     event_id: request.event_id.into(),
                     payload: request.payload.clone(),
                     admitted_at_ms: request.now_ms,
@@ -268,6 +519,9 @@ impl SubscriptionTable {
                 subscription.event_ids.push_back(request.event_id.into());
                 if subscription.event_ids.len() > MAX_DEDUP_IDS {
                     subscription.event_ids.pop_front();
+                }
+                if subscription.admitted_at_ms.len() == MAX_EVENTS_PER_MINUTE {
+                    subscription.admitted_at_ms.pop_front();
                 }
                 subscription.admitted_at_ms.push_back(request.now_ms);
                 while subscription
@@ -278,9 +532,19 @@ impl SubscriptionTable {
                     subscription.admitted_at_ms.pop_front();
                 }
                 state.pending += 1;
-                self.0.ready.notify_one();
             }
             AdmissionDecision::Refuse(reason) => {
+                let pipeline_id = state
+                    .subscriptions
+                    .get(request.subscription_id)
+                    .map(|subscription| subscription.pipeline_id.clone());
+                if let Some(summary) = pipeline_id
+                    .as_deref()
+                    .and_then(|id| state.pipeline_states.get_mut(id))
+                {
+                    summary.refused = summary.refused.saturating_add(1);
+                    summary.reason = Some(refusal_name(reason).into());
+                }
                 push_journal(
                     &mut state,
                     JournalEntry {
@@ -295,63 +559,6 @@ impl SubscriptionTable {
         decision
     }
 
-    pub fn take_next(&self) -> Option<EventEnvelope> {
-        let mut state = self.0.state.lock();
-        let subscription_id = state
-            .order
-            .iter()
-            .find(|id| {
-                state
-                    .subscriptions
-                    .get(*id)
-                    .is_some_and(|item| !item.queue.is_empty())
-            })?
-            .clone();
-        let event = state
-            .subscriptions
-            .get_mut(&subscription_id)?
-            .queue
-            .pop_front()?;
-        state.pending -= 1;
-        if let Some(index) = state.order.iter().position(|id| id == &subscription_id) {
-            state.order.rotate_left(index + 1);
-        }
-        Some(event)
-    }
-
-    pub fn wait_next(&self, deadline: std::time::Instant) -> Option<EventEnvelope> {
-        let mut state = self.0.state.lock();
-        loop {
-            if let Some(subscription_id) = state
-                .order
-                .iter()
-                .find(|id| {
-                    state
-                        .subscriptions
-                        .get(*id)
-                        .is_some_and(|item| !item.queue.is_empty())
-                })
-                .cloned()
-            {
-                if let Some(event) = state
-                    .subscriptions
-                    .get_mut(&subscription_id)
-                    .and_then(|subscription| subscription.queue.pop_front())
-                {
-                    state.pending -= 1;
-                    if let Some(index) = state.order.iter().position(|id| id == &subscription_id) {
-                        state.order.rotate_left(index + 1);
-                    }
-                    return Some(event);
-                }
-            }
-            let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
-            if self.0.ready.wait_for(&mut state, remaining).timed_out() {
-                return None;
-            }
-        }
-    }
-
     pub fn admission_journal(&self) -> Vec<JournalEntry> {
         self.0.state.lock().refusals.iter().cloned().collect()
     }
@@ -364,6 +571,13 @@ impl SubscriptionTable {
 fn push_journal(state: &mut State, entry: JournalEntry) {
     if state.refusals.len() == MAX_REFUSAL_JOURNAL {
         state.refusals.pop_front();
+        state.refusals.pop_front();
+        state.refusals.push_back(JournalEntry {
+            subscription_id: String::new(),
+            event_id: String::new(),
+            outcome: JournalOutcome::RetentionOverflow,
+            at_ms: entry.at_ms,
+        });
     }
     state.refusals.push_back(JournalEntry {
         subscription_id: bounded_id(&entry.subscription_id),
@@ -371,6 +585,19 @@ fn push_journal(state: &mut State, entry: JournalEntry) {
         outcome: entry.outcome,
         at_ms: entry.at_ms,
     });
+}
+
+fn refusal_name(reason: AdmitRefusal) -> &'static str {
+    match reason {
+        AdmitRefusal::UnknownSubscription => "unknown_subscription",
+        AdmitRefusal::BadToken => "bad_token",
+        AdmitRefusal::ForeignPlugin => "foreign_plugin",
+        AdmitRefusal::InvalidPayload => "invalid_payload",
+        AdmitRefusal::Oversize => "oversize",
+        AdmitRefusal::Duplicate => "duplicate",
+        AdmitRefusal::Backpressure => "backpressure",
+        AdmitRefusal::RateLimited => "rate_limited",
+    }
 }
 
 fn bounded_id(value: &str) -> String {
@@ -384,3 +611,6 @@ fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
     }
     difference == 0
 }
+
+#[cfg(test)]
+mod tests;

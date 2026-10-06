@@ -249,6 +249,17 @@ pub fn set_watcher_service(svc: std::sync::Weak<dyn PluginHostCtx>) {
 }
 
 impl HotReloadRegistry {
+    fn notify_event_sources_changed(&self) {
+        if let Some(service) = self
+            .service
+            .lock()
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+        {
+            service.event_sources_changed();
+        }
+    }
+
     pub fn new(
         roots: Vec<PathBuf>,
         registrar: Arc<dyn PluginProviderRegistrar>,
@@ -440,6 +451,7 @@ impl HotReloadRegistry {
         let mut provider_changed = false;
         let mut tab_menu_changed = false;
         let mut agent_commands_changed = false;
+        let event_sources_changed = !removed.is_empty();
         for id in removed {
             self.vms.lock().remove(&id);
             provider_changed |= self.registrar.unregister_provider(&id);
@@ -459,6 +471,9 @@ impl HotReloadRegistry {
         }
         if agent_commands_changed {
             self.emit_agent_commands_changed();
+        }
+        if event_sources_changed {
+            self.notify_event_sources_changed();
         }
         self.failed.lock().retain(|path, _| path.exists());
     }
@@ -621,6 +636,7 @@ impl HotReloadRegistry {
                 let had_agent_commands = self.caps.agent_command.contains(&id);
                 self.caps
                     .register_plugin(provider.manifest(), provider.vm());
+                self.notify_event_sources_changed();
                 if had_tab_menu || self.caps.tab_menu.contains(&id) {
                     self.emit_tab_menu_changed();
                 }
