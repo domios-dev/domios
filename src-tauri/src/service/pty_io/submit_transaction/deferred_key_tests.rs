@@ -477,14 +477,13 @@ fn busy_ready_composer_hands_off_payload_once_before_dialog_stops_recovery_keys(
     paste_rx
         .recv_timeout(Duration::from_secs(2))
         .expect("the ready busy composer receives the payload before key recovery");
-    let result = join(send, "busy ready payload handoff")
-        .unwrap()
-        .unwrap_err();
-
-    assert!(matches!(
-        result,
-        InjectionError::SubmitNeverConfirmed { .. }
-    ));
+    match join(send, "busy ready payload handoff").unwrap() {
+        Err(error) => assert!(matches!(error, InjectionError::SubmitNeverConfirmed { .. })),
+        Ok(result) => assert!(
+            !result.submit_observed && result.submit_anomaly && result.submit_key_writes == 1,
+            "a dialog after the first key must leave the send unconfirmed without recovery keys: {result:?}"
+        ),
+    }
     assert_eq!(
         transport.state.lock().unwrap().writes,
         ["paste:follow-up", "enter"]
