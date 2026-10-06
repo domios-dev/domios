@@ -2733,10 +2733,16 @@ Cheap hash-gated watchers with closed-set routes
 Classify a bounded probe or same-Team agent observation
 
 - `--buckets`
+- `--convert-timeout` — Bound the one-time conversion, in the --every duration syntax
+- `--convert-to` — Convert the input to another kind once: text|audio
 - `--dry-run` — Validate and print the resulting graph without creating it
 - `--escalation-timeout-ms` — Bound how long an `other` escalation may hold this stage, in milliseconds
-- `--every` — Owner-requested cadence (minimum 10s)
+- `--every` — Owner-requested cadence (minimum 10s, default 20s)
 - `--handlers-file` — JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`
+- `--input` — Watch data instead of a probe or observation: text|audio|video|image
+- `--input-file` — Absolute or caller-cwd-relative path of the input data file
+- `--input-text` — Inline input text (only for --input text)
+- `--input-url` — http or https URL of the input data
 - `--match` — Deterministic fallback when no Choice adapter is connected: bucket=regex
 - `--max-actions` — Finite action-attempt budget (maximum 1024)
 - `--max-transitions` — Finite accepted transition budget (maximum 256)

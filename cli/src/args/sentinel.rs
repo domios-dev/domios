@@ -5,22 +5,41 @@ pub enum SentinelAction {
     /// List built-in graph skeletons or print one ready-to-edit recipe
     Recipe { name: Option<String> },
     /// Classify a bounded probe or same-Team agent observation
+    #[command(group = clap::ArgGroup::new("input_source").args(["input_file", "input_url", "input_text"]).multiple(false).required(false))]
     Create {
         /// Short meaningful name describing what is watched and what happens
         #[arg(long, value_parser = parse_sentinel_name)]
         name: String,
-        #[arg(long, conflicts_with = "observe", required_unless_present = "observe")]
+        #[arg(long, conflicts_with = "observe", required_unless_present_any = ["observe", "input"])]
         probe: Option<String>,
         /// Observe a same-Team agent tab or cron run
-        #[arg(long, conflicts_with = "probe", required_unless_present = "probe", value_parser = parse_observe)]
+        #[arg(long, conflicts_with = "probe", required_unless_present_any = ["probe", "input"], value_parser = parse_observe)]
         observe: Option<String>,
+        /// Watch data instead of a probe or observation: text|audio|video|image
+        #[arg(long, value_parser = parse_input_kind, requires = "input_source", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"])]
+        input: Option<String>,
+        /// Absolute or caller-cwd-relative path of the input data file
+        #[arg(long, value_name = "PATH", requires = "input", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"])]
+        input_file: Option<std::path::PathBuf>,
+        /// http or https URL of the input data
+        #[arg(long, requires = "input", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"], value_parser = parse_input_url)]
+        input_url: Option<String>,
+        /// Inline input text (only for --input text)
+        #[arg(long, requires = "input", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"])]
+        input_text: Option<String>,
+        /// Convert the input to another kind once: text|audio
+        #[arg(long, value_name = "KIND", requires = "input", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"], value_parser = parse_convert_to)]
+        convert_to: Option<String>,
+        /// Bound the one-time conversion, in the --every duration syntax
+        #[arg(long, value_name = "DURATION", requires = "input", conflicts_with_all = ["probe", "observe", "every", "rearm_on_change"], value_parser = parse_convert_timeout)]
+        convert_timeout: Option<u64>,
         #[arg(long)]
         question: String,
         #[arg(long, value_delimiter = ',', required = true)]
         buckets: Vec<String>,
-        /// Owner-requested cadence (minimum 10s)
-        #[arg(long, default_value = "20s")]
-        every: String,
+        /// Owner-requested cadence (minimum 10s, default 20s)
+        #[arg(long)]
+        every: Option<String>,
         /// Inline routes: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
         #[arg(long = "route", value_parser = parse_route)]
         routes: Vec<String>,
@@ -111,6 +130,81 @@ fn parse_observe(value: &str) -> Result<String, String> {
         return Err("--observe target must be nonempty and bounded".into());
     }
     Ok(value.into())
+}
+
+fn parse_input_kind(value: &str) -> Result<String, String> {
+    codeterm_types::sentinel_input::MediaKind::parse(value)
+        .map(|kind| kind.as_str().to_string())
+        .ok_or_else(|| "--input: use text, audio, video or image".into())
+}
+
+fn parse_convert_to(value: &str) -> Result<String, String> {
+    match value {
+        "text" | "audio" => Ok(value.into()),
+        _ => Err("--convert-to: use text or audio".into()),
+    }
+}
+
+fn parse_input_url(value: &str) -> Result<String, String> {
+    use codeterm_types::sentinel_input::{validate, DataRef, InputSpec, MediaKind};
+    let probe = InputSpec {
+        kind: MediaKind::Audio,
+        data: DataRef::Url(value.to_string()),
+        convert_to: None,
+        convert_timeout_ms: None,
+    };
+    validate(&probe).map_err(|error| format!("--input-url: {error}"))?;
+    Ok(value.into())
+}
+
+fn parse_convert_timeout(value: &str) -> Result<u64, String> {
+    if value.len() > 32
+        || !value
+            .chars()
+            .all(|c| c.is_ascii_digit() || matches!(c, 's' | 'm' | 'h' | 'd'))
+    {
+        return Err("duration: use seconds, minutes, hours or days, e.g. 30s or 15m".into());
+    }
+    if value.chars().any(|c| c.is_ascii_alphabetic())
+        && value.ends_with(|c: char| c.is_ascii_digit())
+    {
+        return Err("duration: every component needs a unit".into());
+    }
+    let mut number = String::new();
+    let mut bound = 0u64;
+    for c in value.chars() {
+        if c.is_ascii_digit() {
+            number.push(c);
+            continue;
+        }
+        let n: u64 = number.parse().map_err(|_| "duration: invalid number")?;
+        number.clear();
+        let factor = match c {
+            's' => 1000,
+            'm' => 60_000,
+            'h' => 3_600_000,
+            'd' => 86_400_000,
+            _ => unreachable!(),
+        };
+        bound = bound
+            .checked_add(n.checked_mul(factor).ok_or("duration: overflow")?)
+            .ok_or("duration: overflow")?;
+    }
+    if !number.is_empty() {
+        bound = bound
+            .checked_add(
+                number
+                    .parse::<u64>()
+                    .map_err(|_| "duration: invalid number")?
+                    .checked_mul(60_000)
+                    .ok_or("duration: overflow")?,
+            )
+            .ok_or("duration: overflow")?;
+    }
+    if bound == 0 {
+        return Err("duration: must be positive".into());
+    }
+    Ok(bound)
 }
 
 fn parse_route(value: &str) -> Result<String, String> {
@@ -413,5 +507,105 @@ mod tests {
         ] {
             assert!(Cli::try_parse_from(prefix.into_iter().chain(suffix)).is_err());
         }
+    }
+
+    fn input_prefix() -> Vec<&'static str> {
+        vec![
+            "codeterm",
+            "sentinel",
+            "create",
+            "--name",
+            "voice-note-watch",
+            "--input",
+            "audio",
+            "--question",
+            "transcribed?",
+            "--buckets",
+            "done",
+        ]
+    }
+
+    #[test]
+    fn sentinel_input_flags_parse_and_conflict() {
+        let cli = Cli::try_parse_from(
+            input_prefix()
+                .into_iter()
+                .chain([
+                    "--input-file",
+                    "clips/voice.wav",
+                    "--convert-to",
+                    "text",
+                    "--convert-timeout",
+                    "30s",
+                ])
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
+        let Commands::Sentinel {
+            action:
+                SentinelAction::Create {
+                    input,
+                    input_file,
+                    input_url,
+                    input_text,
+                    convert_to,
+                    convert_timeout,
+                    ..
+                },
+        } = cli.command
+        else {
+            panic!("wrong command")
+        };
+        assert_eq!(input.as_deref(), Some("audio"));
+        assert_eq!(
+            input_file.as_deref(),
+            Some(std::path::Path::new("clips/voice.wav"))
+        );
+        assert_eq!(input_url, None);
+        assert_eq!(input_text, None);
+        assert_eq!(convert_to.as_deref(), Some("text"));
+        assert_eq!(convert_timeout, Some(30_000));
+
+        for invalid in [
+            vec!["--input", "audio", "--probe", "status"],
+            vec!["--input", "audio", "--observe", "tab:bound"],
+            vec!["--input-file", "clips/voice.wav", "--input-url", "https://e.com/a"],
+            vec!["--input-file", "clips/voice.wav", "--input-text", "hello"],
+            vec!["--input", "audio"],
+            vec!["--input", "midi", "--input-file", "clips/voice.wav"],
+            vec!["--input", "audio", "--convert-to", "video"],
+            vec!["--input", "audio", "--input-url", "ftp://example.com/a"],
+            vec!["--input", "audio", "--convert-timeout", "forever"],
+            vec![
+                "--input",
+                "audio",
+                "--input-file",
+                "clips/voice.wav",
+                "--rearm-on-change",
+                "done",
+            ],
+        ] {
+            assert!(
+                Cli::try_parse_from(input_prefix().into_iter().chain(invalid.iter().copied()))
+                    .is_err(),
+                "{invalid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn sentinel_input_every_conflicts_only_when_explicit() {
+        assert!(Cli::try_parse_from(
+            input_prefix()
+                .into_iter()
+                .chain(["--input-file", "clips/voice.wav", "--every", "20s"])
+        )
+        .is_err());
+        assert!(Cli::try_parse_from(
+            input_prefix()
+                .into_iter()
+                .chain(["--input-file", "clips/voice.wav"])
+        )
+        .is_ok());
     }
 }

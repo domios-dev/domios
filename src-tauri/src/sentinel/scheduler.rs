@@ -431,6 +431,27 @@ pub fn record(
     }))
 }
 
+/// Input evaluation lives in the runtime lane; this arm records a typed skip, runs no probe
+/// and spends no Choice request until that lane replaces it.
+fn record_input_unavailable(handle: &Handle, svc: &ServiceState, lease: &Lease) {
+    let mut job = lease.job.clone();
+    job.last_reason = Some("input_runtime_unavailable".into());
+    if storage::commit(&handle.store, |store| store.stage_finish(&job)).unwrap_or(false) {
+        let _ = journal(
+            svc,
+            &job,
+            &machine::Outcome {
+                evidence: Evidence::new(Scope::from(&lease.job), None),
+                reason: "input_runtime_unavailable",
+                verdict: None,
+                route: None,
+                handlers: Vec::new(),
+            },
+            Stage::Skip,
+        );
+    }
+}
+
 fn record_failure(
     handle: &Handle,
     svc: &ServiceState,
@@ -555,6 +576,10 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
         let _ = storage::commit(&handle.store, |store| {
             store.stage_stop(&lease.job.id, "capability_unavailable")
         });
+        return;
+    }
+    if lease.job.input.is_some() {
+        record_input_unavailable(handle, svc, lease);
         return;
     }
     let remaining = {

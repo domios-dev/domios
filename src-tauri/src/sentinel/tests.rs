@@ -278,6 +278,7 @@ fn create_params() -> super::store::Create {
         name: Some("ci-result-watch".into()),
         probe: Some("check-ci".into()),
         observe: None,
+        input: None,
         question: "CI result?".into(),
         buckets: buckets(),
         every: "10s".into(),

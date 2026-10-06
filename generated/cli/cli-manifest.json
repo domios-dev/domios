@@ -12952,6 +12952,26 @@
               "aliases": []
             },
             {
+              "name": "convert-timeout",
+              "positional": false,
+              "required": false,
+              "value_name": "DURATION",
+              "possible_values": [],
+              "default": null,
+              "help": "Bound the one-time conversion, in the --every duration syntax",
+              "aliases": []
+            },
+            {
+              "name": "convert-to",
+              "positional": false,
+              "required": false,
+              "value_name": "KIND",
+              "possible_values": [],
+              "default": null,
+              "help": "Convert the input to another kind once: text|audio",
+              "aliases": []
+            },
+            {
               "name": "dry-run",
               "positional": false,
               "required": false,
@@ -12977,8 +12997,8 @@
               "required": false,
               "value_name": "EVERY",
               "possible_values": [],
-              "default": "20s",
-              "help": "Owner-requested cadence (minimum 10s)",
+              "default": null,
+              "help": "Owner-requested cadence (minimum 10s, default 20s)",
               "aliases": []
             },
             {
@@ -12989,6 +13009,46 @@
               "possible_values": [],
               "default": null,
               "help": "JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`",
+              "aliases": []
+            },
+            {
+              "name": "input",
+              "positional": false,
+              "required": false,
+              "value_name": "INPUT",
+              "possible_values": [],
+              "default": null,
+              "help": "Watch data instead of a probe or observation: text|audio|video|image",
+              "aliases": []
+            },
+            {
+              "name": "input-file",
+              "positional": false,
+              "required": false,
+              "value_name": "PATH",
+              "possible_values": [],
+              "default": null,
+              "help": "Absolute or caller-cwd-relative path of the input data file",
+              "aliases": []
+            },
+            {
+              "name": "input-text",
+              "positional": false,
+              "required": false,
+              "value_name": "INPUT_TEXT",
+              "possible_values": [],
+              "default": null,
+              "help": "Inline input text (only for --input text)",
+              "aliases": []
+            },
+            {
+              "name": "input-url",
+              "positional": false,
+              "required": false,
+              "value_name": "INPUT_URL",
+              "possible_values": [],
+              "default": null,
+              "help": "http or https URL of the input data",
               "aliases": []
             },
             {

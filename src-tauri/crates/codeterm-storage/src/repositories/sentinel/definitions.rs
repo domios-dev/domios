@@ -2,12 +2,14 @@
 
 use super::records::{
     AmendmentRecord, BucketDefinition, CommandParameters, DefinitionProvenance, EscalateTarget,
-    HandlerAction, HandlerDefinition, ObserveKind, ObserveSource, SafeKind, StageDefinition,
-    StoredDefinition, TargetIdentity, MAX_SENTINEL_LINEAGE, OTHER_BUCKET,
+    HandlerAction, HandlerDefinition, ObserveKind, ObserveSource, SafeKind, SourceKind,
+    StageDefinition, StageSource, StoredDefinition, TargetIdentity, MAX_SENTINEL_LINEAGE,
+    OTHER_BUCKET,
 };
 use crate::error::{sqlite_error, StorageError};
 use crate::owner::WriteCx;
 use crate::repositories::{from_sql_u64, to_sql_u64, Revision};
+use codeterm_types::sentinel_input::InputSpec;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use std::collections::HashMap;
 
@@ -50,6 +52,68 @@ fn observe_from(
         _ => return Err(corrupt("observe source columns disagree")),
     };
     Ok(reference.map(|reference| ObserveSource { kind, reference }))
+}
+
+/// The `source_kind`/`source_spec`/`probe`/`observe_*` column group of one definition row.
+struct SourceColumns {
+    kind: SourceKind,
+    spec: Option<String>,
+    probe: String,
+    observe_kind: Option<&'static str>,
+    observe_ref: Option<String>,
+}
+
+fn source_columns(source: &StageSource) -> Result<SourceColumns, StorageError> {
+    Ok(match source {
+        StageSource::Probe(command) => SourceColumns {
+            kind: SourceKind::Probe,
+            spec: None,
+            probe: command.clone(),
+            observe_kind: None,
+            observe_ref: None,
+        },
+        StageSource::Observe(observe) => SourceColumns {
+            kind: SourceKind::Observe,
+            spec: None,
+            probe: String::new(),
+            observe_kind: Some(observe_kind_text(observe.kind)),
+            observe_ref: Some(observe.reference.clone()),
+        },
+        StageSource::Input(input) => SourceColumns {
+            kind: SourceKind::Input,
+            spec: Some(serde_json::to_string(input).map_err(|_| {
+                StorageError::invalid("sentinel input", "cannot be encoded for storage")
+            })?),
+            probe: String::new(),
+            observe_kind: None,
+            observe_ref: None,
+        },
+    })
+}
+
+fn source_from(
+    kind: &str,
+    spec: Option<String>,
+    probe: String,
+    observe: Option<ObserveSource>,
+) -> Result<StageSource, StorageError> {
+    match SourceKind::parse(kind) {
+        Some(SourceKind::Probe) if !probe.is_empty() && observe.is_none() && spec.is_none() => {
+            Ok(StageSource::Probe(probe))
+        }
+        Some(SourceKind::Observe) if probe.is_empty() && spec.is_none() => observe
+            .map(StageSource::Observe)
+            .ok_or_else(|| corrupt("observe source columns disagree")),
+        Some(SourceKind::Input) if probe.is_empty() && observe.is_none() => {
+            let spec = spec.ok_or_else(|| corrupt("input source lacks its spec"))?;
+            let input: InputSpec = serde_json::from_str(&spec)
+                .map_err(|_| corrupt("input source spec does not decode"))?;
+            Ok(StageSource::Input(input))
+        }
+        Some(_) => Err(corrupt("stage source columns disagree")),
+        None if kind == "event" => Err(corrupt("event source is not readable in this build")),
+        None => Err(corrupt("unknown source kind")),
+    }
 }
 
 fn safe_kind_text(kind: &SafeKind) -> &str {
@@ -233,7 +297,7 @@ pub(super) fn insert_version(
     }
     let sql_version = to_sql_u64("definition version", version)?;
     let created = to_sql_u64("revision", cx.revision.0)?;
-    let observe = definition.observe.as_ref();
+    let source = source_columns(&definition.source)?;
     let escalation = definition
         .escalation_timeout_ms
         .map(|timeout| to_sql_u64("escalation timeout", timeout))
@@ -245,19 +309,22 @@ pub(super) fn insert_version(
         .map(|amendment| to_sql_u64("amendment time", amendment.authored_at))
         .transpose()?;
     cx.write(
-        "INSERT INTO sentinel_definitions (sentinel_id, version, provenance, name, probe, \
-         observe_kind, observe_ref, question, interval_ms, until_bucket, escalation_timeout_ms, \
-         max_transitions, max_actions, replaced_version, author_tab_id, cause_transition_id, \
-         authored_at, created_revision) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)",
+        "INSERT INTO sentinel_definitions (sentinel_id, version, provenance, name, source_kind, \
+         source_spec, probe, observe_kind, observe_ref, question, interval_ms, until_bucket, \
+         escalation_timeout_ms, max_transitions, max_actions, replaced_version, author_tab_id, \
+         cause_transition_id, authored_at, created_revision) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, \
+         ?18, ?19, ?20)",
         params![
             id,
             sql_version,
             provenance_text(provenance),
             definition.name,
-            definition.probe,
-            observe.map(|observe| observe_kind_text(observe.kind)),
-            observe.map(|observe| observe.reference.as_str()),
+            source.kind.as_str(),
+            source.spec,
+            source.probe,
+            source.observe_kind,
+            source.observe_ref,
             definition.question,
             to_sql_u64("sentinel interval", definition.interval_ms)?,
             definition.until,
@@ -444,6 +511,8 @@ pub(super) fn head_handler(
 struct Header {
     provenance: String,
     name: Option<String>,
+    source_kind: String,
+    source_spec: Option<String>,
     probe: String,
     observe_kind: Option<String>,
     observe_ref: Option<String>,
@@ -468,9 +537,10 @@ pub(super) fn load_version(
     let sql_version = to_sql_u64("definition version", version)?;
     let header = conn
         .prepare_cached(
-            "SELECT provenance, name, probe, observe_kind, observe_ref, question, interval_ms, \
-             until_bucket, escalation_timeout_ms, max_transitions, max_actions, \
-             replaced_version, author_tab_id, cause_transition_id, authored_at, created_revision \
+            "SELECT provenance, name, source_kind, source_spec, probe, observe_kind, \
+             observe_ref, question, interval_ms, until_bucket, escalation_timeout_ms, \
+             max_transitions, max_actions, replaced_version, author_tab_id, \
+             cause_transition_id, authored_at, created_revision \
              FROM sentinel_definitions WHERE sentinel_id = ?1 AND version = ?2",
         )
         .and_then(|mut statement| {
@@ -479,20 +549,22 @@ pub(super) fn load_version(
                     Ok(Header {
                         provenance: row.get(0)?,
                         name: row.get(1)?,
-                        probe: row.get(2)?,
-                        observe_kind: row.get(3)?,
-                        observe_ref: row.get(4)?,
-                        question: row.get(5)?,
-                        interval_ms: row.get(6)?,
-                        until: row.get(7)?,
-                        escalation_timeout_ms: row.get(8)?,
-                        max_transitions: row.get(9)?,
-                        max_actions: row.get(10)?,
-                        replaced_version: row.get(11)?,
-                        author_tab_id: row.get(12)?,
-                        cause_transition_id: row.get(13)?,
-                        authored_at: row.get(14)?,
-                        created_revision: row.get(15)?,
+                        source_kind: row.get(2)?,
+                        source_spec: row.get(3)?,
+                        probe: row.get(4)?,
+                        observe_kind: row.get(5)?,
+                        observe_ref: row.get(6)?,
+                        question: row.get(7)?,
+                        interval_ms: row.get(8)?,
+                        until: row.get(9)?,
+                        escalation_timeout_ms: row.get(10)?,
+                        max_transitions: row.get(11)?,
+                        max_actions: row.get(12)?,
+                        replaced_version: row.get(13)?,
+                        author_tab_id: row.get(14)?,
+                        cause_transition_id: row.get(15)?,
+                        authored_at: row.get(16)?,
+                        created_revision: row.get(17)?,
                     })
                 })
                 .optional()
@@ -501,6 +573,7 @@ pub(super) fn load_version(
         .ok_or_else(|| corrupt("head names a missing version"))?;
     let budget = |field: &'static str, value: i64| u16::try_from(value).map_err(|_| corrupt(field));
     let (buckets, on_other) = load_buckets(conn, id, sql_version)?;
+    let observe = observe_from(header.observe_kind, header.observe_ref)?;
     Ok(StoredDefinition {
         version,
         provenance: provenance_from(&header.provenance)?,
@@ -514,8 +587,12 @@ pub(super) fn load_version(
         )?,
         definition: StageDefinition {
             name: header.name,
-            probe: header.probe,
-            observe: observe_from(header.observe_kind, header.observe_ref)?,
+            source: source_from(
+                &header.source_kind,
+                header.source_spec,
+                header.probe,
+                observe,
+            )?,
             question: header.question,
             interval_ms: from_sql_u64("sentinel interval", header.interval_ms)?,
             until: header.until,
