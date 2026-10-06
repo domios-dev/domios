@@ -183,6 +183,8 @@ pub use usage_snapshot::*;
 pub struct ProviderDescriptor {
     pub schema_version: u32,
     pub id: String,
+    #[serde(default)]
+    pub catalogue_version: u64,
     pub display_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_hint: Option<String>,
@@ -317,7 +319,7 @@ pub struct ProviderUpdateAvailability {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 17;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 18;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file

@@ -21,6 +21,8 @@ use super::{load_one, JsProvider};
 
 #[path = "parity_test/decision_model.rs"]
 mod decision_model;
+#[path = "parity_test/agent_commands.rs"]
+mod agent_commands;
 #[path = "parity_test/delivery_modal.rs"]
 mod delivery_modal;
 #[path = "parity_test/model_catalogue.rs"]
@@ -332,6 +334,22 @@ impl ChatBackendProvider for ModelCapabilityNativeStub {
     fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError> {
         self.outcome.clone().map_err(ChatBackendError::Call)
     }
+
+    fn model_catalogue_capability(&self) -> crate::provider::ModelCatalogueCapability {
+        crate::provider::ModelCatalogueCapability {
+            authority: crate::provider::ModelCatalogueAuthority::Authoritative,
+            live_discovery_required: true,
+            config_files: vec![
+                "/tmp/chatbackend-model-parity-config.json".into(),
+            ],
+        }
+    }
+
+    fn model_catalogue_input_files(&self) -> Vec<PathBuf> {
+        self.model_catalogue_capability().fingerprint_files(vec![
+            "/tmp/chatbackend-model-parity-auth.json".into(),
+        ])
+    }
 }
 
 fn model_capability_fixture() -> Vec<ModelInfo> {
@@ -370,6 +388,9 @@ fn js_model_capability(source: &str) -> super::JsChatBackend {
         "id":"chatbackend-model-parity-fixture",
         "version":"0.1.0",
         "displayName":"Model parity fixture",
+        "credentials":[{"id":"fixtureAuth","file":"/tmp/chatbackend-model-parity-auth.json"}],
+        "modelCatalogue":{"authority":"authoritative","liveDiscoveryRequired":true,
+                           "configFiles":["/tmp/chatbackend-model-parity-config.json"]},
         "capabilities":{"chatBackend":{"spawnable":true}}
     }"#;
     let manifest: super::PluginManifest = serde_json::from_str(manifest_json).unwrap();
@@ -396,6 +417,9 @@ fn native_and_js_chatbackend_model_capability_are_identical() {
     let native = native_registry
         .descriptor("chatbackend-model-parity-fixture")
         .unwrap();
+    let native_provider = native_registry
+        .get("chatbackend-model-parity-fixture")
+        .unwrap();
 
     let js_registry = ChatBackendRegistry::new();
     js_registry.register_and_wait(
@@ -412,11 +436,22 @@ fn native_and_js_chatbackend_model_capability_are_identical() {
     let js = js_registry
         .descriptor("chatbackend-model-parity-fixture")
         .unwrap();
+    let js_provider = js_registry
+        .get("chatbackend-model-parity-fixture")
+        .unwrap();
 
     assert_eq!(native.available_models, js.available_models);
     assert_eq!(native.available_models, model_capability_fixture());
     assert_eq!(native.default_model, None);
     assert_eq!(js.default_model, None);
+    assert_eq!(
+        native_provider.model_catalogue_capability(),
+        js_provider.model_catalogue_capability()
+    );
+    assert_eq!(
+        native_provider.model_catalogue_input_files(),
+        js_provider.model_catalogue_input_files()
+    );
 
     let native_missing = ChatBackendRegistry::new();
     native_missing.register_and_wait(

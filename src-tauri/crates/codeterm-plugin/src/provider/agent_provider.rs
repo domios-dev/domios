@@ -892,6 +892,7 @@ pub trait AgentProvider: Send + Sync {
         ProviderDescriptor {
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             id: self.id().to_string(),
+            catalogue_version: crate::model_catalog::current_version(self.id()),
             display_name: self.display_name().to_string(),
             icon_hint: self.icon_hint().map(|s| s.to_string()),
             icon_svg: self.icon_svg().map(|s| s.to_string()),

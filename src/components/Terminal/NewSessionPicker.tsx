@@ -91,23 +91,6 @@ export function NewSessionPicker({
     writePersistedNewSessionChoice(choice);
   }, [choice]);
 
-  // Opening the picker is an explicit user action, not a poll: it asks the
-  // catalog to re-probe the providers whose models are shown. The backend
-  // TTL-gates the actual probe.
-  const shownProviderIds = useMemo(() => {
-    const ids = choice.mode === "single"
-      ? [choice.providerId]
-      : [choice.orchestratorProviderId, choice.plannerProviderId];
-    return [...new Set(ids.filter((id) => id.length > 0))];
-  }, [choice]);
-  const shownProviderKey = shownProviderIds.join("|");
-  useEffect(() => {
-    for (const providerId of shownProviderKey.split("|")) {
-      if (!providerId) continue;
-      void invoke("refresh_provider_models", { providerId }).catch(() => {});
-    }
-  }, [shownProviderKey]);
-
   useEffect(() => {
     let cancelled = false;
     const probe = () => {
