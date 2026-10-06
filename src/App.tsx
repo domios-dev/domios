@@ -32,8 +32,7 @@ import { EssenceMapCanvas } from "./components/Canvas/EssenceMapCanvas";
 import { PlansProvider } from "./components/Canvas/PlansProvider";
 import { PlanSidePanelHost } from "./components/Canvas/PlanSidePanelHost";
 import { canvasFocusStore, useCanvasFocusOpen, useCanvasFocusTarget, useCanvasWorkspaceDismissed, useCanvasWorkspaceOpen } from "./components/Canvas/canvasFocusStore";
-import { WorkspaceAutomationView } from "./components/Automation/WorkspaceAutomationView";
-import type { JobsTarget } from "./components/Jobs/JobsView";
+import { JobsView, type JobsTarget } from "./components/Jobs/JobsView";
 import { CronWorkspaceView } from "./components/Cron/CronWorkspaceView";
 import { cronSelectionStore, useCronSelection } from "./components/Cron/cronSelectionStore";
 import { useConfig } from "./hooks/useConfig";
@@ -671,6 +670,8 @@ function AppInner() {
                 onClose={() => { setSettingsSection(undefined); setSettingsOpen(false); }}
                 initialSection={settingsSection}
                 guideRequest={requestedGuide}
+                workspaces={state.workspaces}
+                teams={state.teams}
               />
             </div>
           )}
@@ -752,7 +753,7 @@ function AppInner() {
           )}
           {automationWorkspaceId && mainView === "workspace" && (
             <div className="absolute inset-0" style={{ zIndex: 26 }}>
-              <WorkspaceAutomationView key={`${automationWorkspaceId}:${jobsTarget?.request ?? 0}`} workspaceId={automationWorkspaceId} teams={state.teams} initialTeamId={jobsTarget?.teamId ?? null} initialScenarioId={jobsTarget?.scenarioId} onClose={closeWorkspaceAutomation} />
+              <JobsView key={`${automationWorkspaceId}:${jobsTarget?.request ?? 0}`} placement="workspace" workspaces={state.workspaces} teams={state.teams} initialFilter={{ workspaceId: automationWorkspaceId, teamId: jobsTarget?.teamId ?? null }} initialScenarioId={jobsTarget?.scenarioId} onClose={closeWorkspaceAutomation} />
             </div>
           )}
           {workspaceMapWorkspaceId && mainView === "workspace" && (

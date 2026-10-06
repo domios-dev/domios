@@ -29,13 +29,14 @@ const crossTeamGraph = {
 };
 const sentinelEntries = sentinelJobs(crossTeamGraph, { workspace_id: "workspace-a", team_id: ALL_JOBS });
 
-const all = mergeJobs("workspace-a", ALL_JOBS, [cron("team-cron", "team-a"), cron("no-team-cron", null), cron("foreign-cron", null, "workspace-b")], sentinelEntries);
+const all = mergeJobs({ workspaceId: "workspace-a", teamId: null }, [cron("team-cron", "team-a"), cron("no-team-cron", null), cron("foreign-cron", null, "workspace-b")], sentinelEntries);
 assert.deepEqual(all.map((job) => job.title).sort(), ["first-completed", "no-team-cron", "question: inspect workspace", "team-cron", "Sentinel no team", "Sentinel scenario A"].sort());
-assert.equal(mergeJobs("workspace-a", "team-a", [cron("team-cron", "team-a"), cron("no-team-cron", null)], sentinelEntries).length, 2);
-assert.deepEqual(mergeJobs("workspace-a", null, [cron("team-cron", "team-a"), cron("no-team-cron", null)], sentinelEntries).map((job) => job.title), ["no-team-cron", "Sentinel no team"]);
-assert.equal(clearableJobs(all).filter((job) => job.kind === "sentinel").length, 2);
+assert.equal(mergeJobs({ workspaceId: "workspace-a", teamId: "team-a" }, [cron("team-cron", "team-a"), cron("no-team-cron", null)], sentinelEntries).length, 2);
+assert.deepEqual(mergeJobs({ workspaceId: null, teamId: "team-b" }, [cron("team-cron", "team-a"), cron("foreign-team-cron", "team-b", "workspace-b")], sentinelEntries).map((job) => job.title), ["foreign-team-cron", "question: inspect workspace"]);
+assert.equal(mergeJobs({ workspaceId: null, teamId: null }, [cron("team-cron", "team-a"), cron("foreign-cron", null, "workspace-b")], sentinelEntries).length, 2 + sentinelEntries.length, "no capsules shows every job");
+assert.equal(clearableJobs(all).filter((job) => job.kind === "sentinel").length, 3, "every stopped graph in the filter is clearable");
 const activeGraph = { ...crossTeamGraph, nodes: crossTeamGraph.nodes.map((node) => node.identity.id === graph.scenarios[0].root.id ? { ...node, state: "active" } : node) };
 assert.equal(activeJobsCount("workspace-a", [cron("team-cron", "team-a"), cron("no-team-cron", null), cron("foreign", null, "workspace-b")], sentinelJobs(activeGraph, { workspace_id: "workspace-a", team_id: ALL_JOBS })), 3);
 const runningGraph = { ...crossTeamGraph, nodes: crossTeamGraph.nodes.map((node) => node.identity.id === otherTeam.id ? { ...node, state: "running" } : node) };
 assert.equal(activeJobsCount("workspace-a", [cron("team-cron", "team-a"), cron("disabled-cron", null, "workspace-a", false)], sentinelJobs(runningGraph, { workspace_id: "workspace-a", team_id: ALL_JOBS })), 2);
-console.log("5 Jobs model cases passed");
+console.log("6 Jobs model cases passed");
