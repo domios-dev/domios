@@ -279,7 +279,8 @@ fn stale_readiness_sha_is_refused() {
         let dir = repo();
         let old_sha = head(dir.path());
         fs::write(dir.path().join("README.md"), "new commit\n").unwrap();
-        run(dir.path(), &["commit", "-am", "new head"]);
+        run(dir.path(), &["add", "README.md"]);
+        run(dir.path(), &["commit", "-m", "new head"]);
         enrich_ready_report_in(
             dir.path(),
             Some(ReportStatusArg::InReview),

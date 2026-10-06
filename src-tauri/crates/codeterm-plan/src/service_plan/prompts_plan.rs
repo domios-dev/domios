@@ -17,7 +17,7 @@ pub const HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE: &str = "Competitive attempts:";
 pub const REGRESSION_MILESTONE_KIND: &str = "regression";
 
 pub const REFLECTION_HEARTBEAT_TITLE: &str = "Reflection:";
-pub const REFLECTION_BLOCK: &str = "{trigger} — optional self-review at plan wrap-up (tasks closed: {closed}, bounces: {bounces}, gate leaks: {leaks}). Route useful lessons to an existing home; reusable procedures belong in plan skills, and prompt defects go to the Planner.";
+pub const REFLECTION_BLOCK: &str = "{trigger} — optional self-review at plan wrap-up (tasks closed: {closed}, bounces: {bounces}, gate leaks: {leaks}). Route useful lessons with `codeterm orchestrator learn`; reusable procedures belong in plan skills, and prompt defects go to the Planner.";
 
 pub fn reflection_block(trigger: &str, window: &super::reflection::ReflectionWindow) -> String {
     REFLECTION_BLOCK

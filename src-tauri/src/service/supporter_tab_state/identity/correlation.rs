@@ -377,14 +377,11 @@ pub(crate) fn project_diagnostics(value: &Value, entry: &mut Value) {
         });
     }
     if correlation.is_some() || decision_point.is_some() {
+        // Action phases need a valid correlation; classification phases may stand alone.
+        let action_allowed = correlation.is_some();
         if let Some(phase) = value["phase"].as_str().filter(|phase| {
-            [
-                "classification_completed",
-                "classification_rejected",
-                "action_authorized",
-                "action_stale",
-            ]
-            .contains(phase)
+            ["classification_completed", "classification_rejected"].contains(phase)
+                || (action_allowed && ["action_authorized", "action_stale"].contains(phase))
         }) {
             entry["phase"] = json!(phase);
         }
