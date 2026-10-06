@@ -5,6 +5,7 @@ import { isMac } from "../../lib/keybindings";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useConfig } from "../../hooks/useConfig";
 import { DropdownMenu, type DropdownMenuItem } from "../shared/DropdownMenu";
+import { RowMenuButton } from "../shared/RowMenuButton";
 import { FolderIcon, ShieldCheckIcon } from "../Icons";
 import { AgentIcon } from "../AgentIcon";
 import { SidebarDisclosure } from "./SidebarDisclosure";
@@ -250,15 +251,7 @@ function WorkspaceItemInner({
               ? "shrink-0 flex h-11 w-11 items-center justify-center"
               : "shrink-0 opacity-0 group-hover:opacity-60 hover:!opacity-100 transition-opacity"
           }
-          trigger={
-            <button
-              aria-label={`Actions for ${workspace.name}`}
-              className={`${touchMode ? "h-11 w-11" : "w-5 h-5"} flex items-center justify-center rounded hover:bg-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] transition-colors`}
-              title="Workspace actions"
-            >
-              <span className={`${touchMode ? "text-[20px]" : "text-[13px]"} leading-none font-bold`}>⋮</span>
-            </button>
-          }
+          trigger={<RowMenuButton label={`Actions for ${workspace.name}`} title="Workspace actions" touchMode={touchMode} />}
         />
       </div>
     </div>
