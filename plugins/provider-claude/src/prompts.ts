@@ -148,7 +148,8 @@ export function parseClaudeNumberedPrompt(text: string): ParsedPrompt | null {
       && index <= lastOption.line + 5
       && /(?:Esc\s*to\s*(?:cancel|reject|exit)|Enter\s*to\s*(?:confirm|select)|Tab\s*to\s*amend)/i.test(line),
   );
-  if (!hasActiveFooter) return null;
+  const cursorOnOption = options.some((option) => /^\s*❯/.test(lines[option.line] || ""));
+  if (!hasActiveFooter && !cursorOnOption) return null;
   const before = lines.slice(0, options[0].line).join("\n");
   const question = findQuestion(before) || "Choose an option";
   return {
