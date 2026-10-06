@@ -29,6 +29,14 @@ struct StepResult {
     uncertain: bool,
 }
 
+fn effect_after_claim<T>(claim: impl FnOnce() -> bool, effect: impl FnOnce() -> T) -> Option<T> {
+    if claim() {
+        Some(effect())
+    } else {
+        None
+    }
+}
+
 pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
     let Some(spec) = lease.job.pipeline.as_ref() else {
         return;
@@ -64,14 +72,16 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
         }
         let step = &spec.steps[index];
         let started = now(handle);
-        if !claim_step(handle, lease, &run_id, index as i64, &step.name, started) {
+        let Some(result) = effect_after_claim(
+            || claim_step(handle, lease, &run_id, index as i64, &step.name, started),
+            || execute_step(handle, svc, lease, step, index, &text),
+        ) else {
             let _ = storage::commit(&handle.store, |store| {
                 store.stage_stop(&lease.job.id, "uncertain_pipeline_claim")
             });
             handle.notify();
             return;
-        }
-        let result = execute_step(handle, svc, lease, step, index, &text);
+        };
         let ended = now(handle);
         if result.uncertain {
             let _ = write_journal(
@@ -539,3 +549,6 @@ fn record_run_stop(handle: &Handle, lease: &Lease, reason: &str, decision: &str)
 fn now(handle: &Handle) -> u64 {
     handle.store.lock().clock.now_ms()
 }
+
+#[cfg(test)]
+mod tests;
