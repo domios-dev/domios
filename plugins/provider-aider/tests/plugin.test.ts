@@ -335,7 +335,7 @@ console.log("\n--- launch onboarding auto-answer ---\n");
   ].join("\n");
   const response = runtime.launchOnboardingResponse!(gitignoreScreen);
   assert(!!response, "gitignore prompt is a launch onboarding step");
-  eq(response!.step, "1", "gitignore onboarding step answers yes");
+  eq(response!.step, "WQ==", "gitignore onboarding step answers yes");
   eq(runtime.launchOnboardingSafeChoice!(gitignoreScreen), "1", "gitignore safe choice is yes");
   const docsScreen = [
     "Warning: openai/mimo-v2.6-pro expects these environment variables - OPENAI_API_KEY: Not set",

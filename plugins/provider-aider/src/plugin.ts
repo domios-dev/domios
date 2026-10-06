@@ -276,7 +276,8 @@ const plugin: PluginModule = {
     if (!prompt) return null;
     const choice = promptSafeChoice(prompt, String(screen || ""));
     if (!choice) return null;
-    return { frameKey: prompt.question, step: choice };
+    const keys = this.buildPromptResponse!(Number(choice) - 1, String(screen || ""));
+    return { frameKey: prompt.question, step: keys[0] };
   },
 
   launchOnboardingSafeChoice(screen: string): string | null {
