@@ -153,6 +153,10 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.composer_cursor_position
     }
 
+    fn input_fallback_ms(&self) -> Option<u64> {
+        self.manifest.spawn.input_fallback_ms
+    }
+
     fn session_starts_on_first_user_turn(&self) -> bool {
         self.manifest.spawn.session_starts_on_first_user_turn
             || self
