@@ -308,7 +308,8 @@ const plugin: PluginModule = {
 
   buildPromptSafeChoice: promptSafeChoice,
 
-  chatPreprocess(ctx: { text: string }): { text: string } | null {
+  chatPreprocess(ctx: { provider?: string | null; text: string }): { text: string } | null {
+    if (ctx?.provider !== "aider") return null;
     const text = String(ctx?.text || "");
     const delivered = deliverText(text);
     return delivered === text ? null : { text: delivered };
@@ -394,6 +395,7 @@ export {
   extractBannerModel,
   lastNonEmptyLine,
   MODE_PROMPT_RE,
+  pickTaggedBlockTag,
   promptSafeChoice,
   parsePromptWithContext,
   wrapMultiline,

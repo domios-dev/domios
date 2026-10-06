@@ -13,6 +13,7 @@ import runtime, {
   extractBannerModel,
   lastNonEmptyLine,
   MODE_PROMPT_RE,
+  pickTaggedBlockTag,
   promptSafeChoice,
   wrapMultiline,
 } from "../src/plugin";
@@ -293,22 +294,49 @@ console.log("\n--- history session blocks ---\n");
 console.log("\n--- multi-line chat delivery ---\n");
 {
   eq(deliverText("hello"), "hello", "single-line text is untouched");
-  eq(deliverText("hello\nworld"), "{multiline}\nhello\nworld\n{/multiline}", "multi-line text becomes one block");
-  eq(deliverText("a\nb\n\nc\nd"), "{multiline}\na\nb\n\nc\nd\n{/multiline}", "blank lines stay inside one block");
-  eq(deliverText("first\nsecond\n\n{multiline}\nthird\n{/multiline}"), "{multiline}\nfirst\nsecond\n\n{/multiline}{multiline}\nthird\n{/multiline}", "existing blocks are preserved and gaps are wrapped");
-  eq(deliverText("{multiline}\nthird\n{/multiline}"), "{multiline}\nthird\n{/multiline}", "a lone existing block is untouched");
-  eq(deliverText("a\nb\n{multiline}\nc\n{/multiline}\nd\ne"), "{multiline}\na\nb\n{/multiline}{multiline}\nc\n{/multiline}{multiline}\nd\ne\n{/multiline}", "mixed content wraps each gap");
+  eq(deliverText("hello\nworld"), "{domios}\nhello\nworld\n{/domios}", "multi-line text becomes one block");
+  eq(deliverText("a\nb\n\nc\nd"), "{domios}\na\nb\n\nc\nd\n{/domios}", "blank lines stay inside one block");
   eq(deliverText("x\ny"), wrapMultiline("x\ny"), "wrapMultiline matches deliverText for multi-line input");
   const long = Array.from({ length: 300 }, (_, i) => `line ${i}`).join("\n");
   const wrapped = deliverText(long);
-  assert(wrapped.startsWith("{multiline}\n"), "long multi-line text starts with a block");
-  assert(wrapped.endsWith("{/multiline}"), "long multi-line text ends with a block");
-  assert(!/\{multiline\}[\s\S]*\{multiline\}/.test(wrapped.replace(/\{\/multiline\}\{/g, "{/multiline} {")), "long text is split into separate blocks");
-  const blocks = wrapped.match(/\{multiline\}[\s\S]*?\{\/multiline\}/g) || [];
-  assert(blocks.length > 1, "long multi-line text is split into multiple blocks");
-  for (const block of blocks) {
-    assert(block.length <= 4000 + 30, "each block stays within the size bound");
-  }
+  assert(wrapped.startsWith("{domios}\n"), "long multi-line text starts with one block");
+  assert(wrapped.endsWith("{/domios}"), "long multi-line text ends with one block");
+  const blocks = wrapped.match(/\{[a-z0-9]+\}[\s\S]*?\{\/[a-z0-9]+\}/g) || [];
+  eq(blocks.length, 1, "one send is exactly one block");
+  assert(wrapped.includes("line 0\n") && wrapped.includes("line 299"), "the whole payload stays inside the block");
+}
+
+console.log("\n--- tagged block tag selection ---\n");
+{
+  eq(pickTaggedBlockTag("plain text"), "domios", "default tag when text carries none");
+  eq(pickTaggedBlockTag("has {domios} inside"), "domios1", "tag avoids an opening marker in the text");
+  eq(pickTaggedBlockTag("has {/domios} inside"), "domios1", "tag avoids a closing marker in the text");
+  eq(pickTaggedBlockTag("{domios} and {domios1}"), "domios2", "tag skips every colliding candidate");
+  const collision = deliverText("body {domios} tail\nmore");
+  assert(collision.startsWith("{domios1}\n"), "colliding text uses the next free tag");
+  assert(collision.endsWith("{/domios1}"), "colliding text closes with the same tag");
+  assert(collision.includes("body {domios} tail"), "the payload is never rewritten");
+}
+
+console.log("\n--- chatPreprocess provider scope ---\n");
+{
+  eq(runtime.chatPreprocess!({ provider: "claude", text: "a\nb" }), null, "other providers are untouched");
+  eq(runtime.chatPreprocess!({ provider: "codex", text: "a\nb" }), null, "codex is untouched");
+  eq(runtime.chatPreprocess!({ provider: "aider", text: "a\nb" }), { text: "{domios}\na\nb\n{/domios}" }, "aider text is wrapped");
+  eq(runtime.chatPreprocess!({ provider: "aider", text: "single" }), null, "single-line aider text passes through");
+  eq(runtime.chatPreprocess!({ provider: null, text: "a\nb" }), null, "missing provider is untouched");
+}
+
+console.log("\n--- manifest paste and preprocessor capability ---\n");
+{
+  const manifest = JSON.parse(
+    fs.readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.json"),
+      "utf8",
+    ),
+  );
+  eq(manifest.capabilities?.chatPreprocessor?.match, "text", "manifest declares the chatPreprocessor capability");
+  eq(manifest.spawn?.paste, "plain_lines", "manifest declares plain-line paste for --no-fancy-input");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

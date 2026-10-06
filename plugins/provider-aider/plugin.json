@@ -8,6 +8,11 @@
   "cliBinary": "aider",
   "iconColor": "var(--ct-fg)",
   "entry": "plugin.js",
+  "capabilities": {
+    "chatPreprocessor": {
+      "match": "text"
+    }
+  },
   "spawn": {
     "readinessStrategy": {
       "kind": "poll_shell_prompt",
@@ -26,6 +31,7 @@
       "kind": "tui_input_drained"
     },
     "sessionIdInjection": "none",
+    "paste": "plain_lines",
     "statusBarRows": 2,
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
