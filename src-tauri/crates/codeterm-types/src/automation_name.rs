@@ -62,9 +62,11 @@ pub fn generated_handler_id(
         "command" => format!("run-{}", slug(label.unwrap_or("command"), 24)),
         _ => slug(kind, 16),
     };
-    let suffix = (ordinal > 1)
-        .then(|| format!("-{ordinal}"))
-        .unwrap_or_default();
+    let suffix = if ordinal > 1 {
+        format!("-{ordinal}")
+    } else {
+        String::new()
+    };
     let mut id = format!("{action}-on-{}", slug(bucket, 24));
     id.truncate(64usize.saturating_sub(suffix.len()));
     id = id.trim_end_matches('-').to_string();
