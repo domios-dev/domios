@@ -1,6 +1,7 @@
 use crate::error::StorageError;
 use crate::repositories::{to_sql_u64, Revision};
 use codeterm_types::sentinel_input::InputSpec;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 /// Repository bounds protect the mailbox and reads; domain rules stay in the domain.
