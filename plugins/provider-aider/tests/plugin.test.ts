@@ -195,12 +195,11 @@ console.log("\n--- docs url startup prompt ---\n");
     "Warning: openai/mimo-v2.6-pro expects these environment variables - OPENAI_API_KEY: Not set",
     "Open documentation url for more info? (Y)es/(N)o/(D)on't ask again [Yes]:",
   ].join("\n");
-  const docsPrompt = runtime.parsePrompt(docsScreen);
-  assert(!!docsPrompt, "docs url prompt is parsed");
-  eq(promptSafeChoice(docsPrompt!, docsScreen), "3", "docs url prompt is safe don't-ask-again");
-  const noDefault = runtime.parsePrompt("Open documentation url for more info? (Y)es/(N)o/(D)on't ask again");
-  assert(!!noDefault, "docs url prompt without default is parsed");
-  eq(promptSafeChoice(noDefault!, "Open documentation url for more info? (Y)es/(N)o/(D)on't ask again"), "3", "docs url prompt without default is safe don't-ask-again");
+  eq(runtime.parsePrompt(docsScreen), null, "docs url prompt is not an owner prompt");
+  eq(runtime.launchOnboardingSafeChoice!(docsScreen), "3", "docs url prompt is safe don't-ask-again");
+  const noDefault = "Open documentation url for more info? (Y)es/(N)o/(D)on't ask again";
+  eq(runtime.parsePrompt(noDefault), null, "docs url prompt without default is not an owner prompt");
+  eq(runtime.launchOnboardingSafeChoice!(noDefault), "3", "docs url prompt without default is safe don't-ask-again");
 }
 
 console.log("\n--- gitignore startup prompt ---\n");
@@ -209,13 +208,14 @@ console.log("\n--- gitignore startup prompt ---\n");
     "You can skip this check with --no-gitignore",
     "Add .aider* to .gitignore (recommended)? (Y)es/(N)o [Yes]:",
   ].join("\n");
-  const gitignorePrompt = runtime.parsePrompt(startupScreen);
-  assert(!!gitignorePrompt, "gitignore startup prompt is parsed");
-  eq(gitignorePrompt!.question, "Add .aider* to .gitignore (recommended)? (Y)es/(N)o [Yes]:", "question text captured");
-  eq(promptSafeChoice(gitignorePrompt!, startupScreen), "1", "gitignore prompt is safe yes");
-  const noDefault = runtime.parsePrompt("Add .aider* to .gitignore (recommended)? (Y)es/(N)o");
-  assert(!!noDefault, "gitignore prompt without default is parsed");
-  eq(promptSafeChoice(noDefault!, "Add .aider* to .gitignore (recommended)? (Y)es/(N)o"), "1", "gitignore prompt without default is safe yes");
+  eq(runtime.parsePrompt(startupScreen), null, "gitignore startup prompt is not an owner prompt");
+  const onboarding = runtime.launchOnboardingResponse!(startupScreen);
+  assert(!!onboarding, "gitignore startup prompt is a launch onboarding step");
+  eq(onboarding!.step, "WQ==", "gitignore onboarding step answers yes");
+  eq(runtime.launchOnboardingSafeChoice!(startupScreen), "1", "gitignore safe choice is yes");
+  const noDefault = "Add .aider* to .gitignore (recommended)? (Y)es/(N)o";
+  eq(runtime.parsePrompt(noDefault), null, "gitignore prompt without default is not an owner prompt");
+  assert(!!runtime.launchOnboardingResponse!(noDefault), "gitignore prompt without default is a launch onboarding step");
 }
 
 console.log("\n--- session/model honesty ---\n");
@@ -343,6 +343,8 @@ console.log("\n--- launch onboarding auto-answer ---\n");
   ].join("\n");
   eq(runtime.launchOnboardingSafeChoice!(docsScreen), "3", "docs url safe choice is don't-ask-again");
   eq(runtime.launchOnboardingResponse!("no prompt here"), null, "no prompt yields no onboarding step");
+  eq(runtime.parsePrompt(gitignoreScreen), null, "parsePrompt leaves the gitignore startup dialog to onboarding");
+  assert(!!runtime.launchOnboardingResponse!(gitignoreScreen), "launchOnboardingResponse still answers the gitignore startup dialog");
 }
 
 console.log("\n--- manifest paste and preprocessor capability ---\n");
