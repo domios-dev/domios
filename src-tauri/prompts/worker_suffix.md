@@ -22,7 +22,7 @@ FOLLOWUP: Orchestrator reviews and closes the task
 EOF
 codeterm agent report --status in_review --sha YOUR_OWN_COMMIT_SHA --from-pad report.md
 
-Replace `YOUR_OWN_COMMIT_SHA` with your own commit's literal hex SHA, never `HEAD`, a variable, or another Worker's commit; drop `--sha` when you made no commit. For unfinished work, use the same body with STATUS `partial` or `blocked`, CHANGES as completed progress, TESTS RUN as executed checks or 'none', GATES REQUESTED: none, and FOLLOWUP as the exact remaining work or external blocker:
+Replace `YOUR_OWN_COMMIT_SHA` with your own commit's literal hex SHA, never `HEAD`, a variable, or another Worker's commit; drop `--sha` when you made no commit. A readiness SHA is compared with lane HEAD only when it resolves in that lane, so preserve a task-declared commit from another repository as its own SHA. For unfinished work, use the same body with STATUS `partial` or `blocked`, CHANGES as completed progress, TESTS RUN as executed checks or 'none', GATES REQUESTED: none, and FOLLOWUP as the exact remaining work or external blocker:
 
 codeterm agent report --status partial --from-pad report.md
 codeterm agent report --status blocked --from-pad report.md

@@ -15,8 +15,7 @@ pub enum NextActionKind {
     Dispatch,
     ClaimQa,
     SpawnTester,
-    RegressionGate,
-    GroupRetrospective,
+    ParkedForLaterGroups,
     Continue,
     ReviewWipBlocked,
     WaitingOnDependency,
@@ -134,27 +133,18 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         }
     }
 
-    for gate in &s.pending_regression_gates {
+    let parked_count = s
+        .open_lanes
+        .iter()
+        .filter(|lane| lane.presentation == super::state::TaskPresentation::ParkedForLaterGroup)
+        .count();
+    if parked_count > 0 {
         actions.push(NextAction {
             priority: 2,
-            kind: NextActionKind::RegressionGate,
+            kind: NextActionKind::ParkedForLaterGroups,
             task_id: None,
             loop_id: None,
-            message: super::prompts_plan::milestone_gate_suggestion(&gate.key, &gate.label),
-        });
-    }
-
-    for gate in &s.pending_group_retrospectives {
-        actions.push(NextAction {
-            priority: 2,
-            kind: NextActionKind::GroupRetrospective,
-            task_id: None,
-            loop_id: None,
-            message: super::prompts_plan::group_retrospective_suggestion(
-                &s.plan_id,
-                &gate.key,
-                &gate.label,
-            ),
+            message: format!("{parked_count} tasks parked for later groups"),
         });
     }
 
@@ -169,11 +159,10 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
     }
 
     // Dependency-gated lanes must remain visible as pending work while their unblocking task runs.
-    for lane in s
-        .open_lanes
-        .iter()
-        .filter(|lane| lane.waiting_on_dependencies)
-    {
+    for lane in s.open_lanes.iter().filter(|lane| {
+        lane.waiting_on_dependencies
+            && lane.presentation != super::state::TaskPresentation::ParkedForLaterGroup
+    }) {
         actions.push(NextAction {
             priority: 2,
             kind: NextActionKind::WaitingOnDependency,
@@ -198,10 +187,10 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         });
     }
 
-    let has_unblocked_work = s
-        .open_lanes
-        .iter()
-        .any(|lane| lane.status == TaskStatus::Pending);
+    let has_unblocked_work = s.open_lanes.iter().any(|lane| {
+        lane.presentation == super::state::TaskPresentation::ActionablePending
+            && !lane.waiting_on_dependencies
+    });
     let qa_only = !s.open_lanes.is_empty()
         && s.open_lanes.iter().all(|lane| {
             lane.status == TaskStatus::InReview && lane.review_stage == ReviewStage::Qa
@@ -237,7 +226,10 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
     let pending_lanes = s
         .open_lanes
         .iter()
-        .filter(|lane| lane.status == TaskStatus::Pending && !lane.waiting_on_dependencies)
+        .filter(|lane| {
+            lane.presentation == super::state::TaskPresentation::ActionablePending
+                && !lane.waiting_on_dependencies
+        })
         .collect::<Vec<_>>();
     for lane in pending_lanes {
         let message = if let Some(summary) = lane.competition.as_deref() {
@@ -251,20 +243,21 @@ pub fn compute_next_actions(s: &PlanStateSnapshot) -> Vec<NextAction> {
         } else {
             format!("dispatch {} ({})", lane.task_id, lane.name)
         };
-        let message = if s.blocking_regression_gates.is_empty()
-            && s.pending_group_retrospectives.is_empty()
-        {
+        let mut gates = s
+            .pending_regression_gates
+            .iter()
+            .chain(&s.pending_group_retrospectives)
+            .map(|gate| gate.key.as_str())
+            .collect::<Vec<_>>();
+        gates.sort_unstable();
+        gates.dedup();
+        let message = if gates.is_empty() {
             message
         } else {
-            let mut gates = s
-                .blocking_regression_gates
-                .iter()
-                .chain(&s.pending_group_retrospectives)
-                .map(|g| g.key.as_str())
-                .collect::<Vec<_>>();
-            gates.sort_unstable();
-            gates.dedup();
-            format!("{message} — BLOCKED by closed group gate(s): {}; record the regression run and group retrospective, tag the task release-blocking/regression-gate, or record an authorized override for the regression run", gates.join(", "))
+            format!(
+                "{message} — terminal-group gate advisory (dispatch allowed): {}",
+                gates.join(", ")
+            )
         };
         actions.push(NextAction {
             priority: 5,
@@ -575,53 +568,64 @@ mod tests {
     }
 
     #[test]
-    fn regression_gate_fires_from_pending_group_and_is_advisory() {
+    fn pending_regression_record_is_an_advisory() {
         let mut s = empty();
+        s.open_lanes = vec![lane("t_next", TaskStatus::Pending)];
         s.pending_regression_gates = vec![super::super::milestone_gates::RegressionGate {
             key: "phase-1".into(),
             label: "Phase 1".into(),
         }];
         let a = compute_next_actions(&s);
-        assert_eq!(a.len(), 1);
-        assert_eq!(a[0].kind, NextActionKind::RegressionGate);
-        assert!(a[0].message.contains("Phase 1"));
-        assert!(a[0].message.contains("--group phase-1"));
-        assert!(a[0].task_id.is_none());
-
-        s.pending_regression_gates = vec![];
-        assert!(compute_next_actions(&s)
+        let dispatch = a
             .iter()
-            .all(|x| x.kind != NextActionKind::RegressionGate));
+            .find(|action| action.kind == NextActionKind::Dispatch)
+            .expect("pending task remains dispatchable");
+        assert!(dispatch.message.contains("phase-1"));
+        assert!(dispatch.message.contains("advisory (dispatch allowed)"));
     }
 
     #[test]
-    fn milestone_retrospective_contract_next_actions_name_the_group_and_block_dispatch() {
+    fn pending_group_retrospective_is_visible_without_blocking_dispatch() {
         let mut s = empty();
-        s.plan_id = "pl_retro".into();
         s.open_lanes = vec![lane("t_next", TaskStatus::Pending)];
         s.pending_group_retrospectives = vec![super::super::milestone_gates::RegressionGate {
             key: "phase-1".into(),
             label: "Phase 1".into(),
         }];
         let actions = compute_next_actions(&s);
-        let retro = actions
-            .iter()
-            .find(|a| a.kind == NextActionKind::GroupRetrospective)
-            .expect("retrospective action");
-        assert!(retro.message.contains("pl_retro"));
-        assert!(retro.message.contains("phase-1"));
         let dispatch = actions
             .iter()
             .find(|a| a.kind == NextActionKind::Dispatch)
-            .expect("dispatch action");
+            .expect("pending task remains dispatchable");
         assert!(dispatch.message.contains("phase-1"));
+        assert!(dispatch.message.contains("advisory (dispatch allowed)"));
+        assert!(!dispatch.message.contains("record"));
+    }
 
-        s.pending_group_retrospectives = vec![];
-        let cleared = compute_next_actions(&s);
-        assert!(cleared
+    #[test]
+    fn later_group_tasks_are_summarized_once() {
+        let mut s = empty();
+        let mut parked = lane("t_later", TaskStatus::Pending);
+        parked.presentation = super::super::state::TaskPresentation::ParkedForLaterGroup;
+        parked.waiting_on_dependencies = true;
+        parked.dependency_waits = vec![super::super::state::DependencyWait {
+            task_id: "t_release".into(),
+            name: "release task".into(),
+            status: Some(TaskStatus::InProgress),
+            missing: false,
+        }];
+        s.open_lanes = vec![parked];
+
+        let actions = compute_next_actions(&s);
+        let parked_action = actions
             .iter()
-            .all(|a| a.kind != NextActionKind::GroupRetrospective));
-        assert!(cleared.iter().all(|a| !a.message.contains("phase-1")));
+            .find(|action| action.kind == NextActionKind::ParkedForLaterGroups)
+            .expect("parked task count");
+        assert_eq!(parked_action.message, "1 tasks parked for later groups");
+        assert!(actions.iter().all(|action| !matches!(
+            action.kind,
+            NextActionKind::Dispatch | NextActionKind::WaitingOnDependency
+        )));
     }
 
     #[test]

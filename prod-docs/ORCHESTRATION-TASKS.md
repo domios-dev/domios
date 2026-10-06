@@ -40,17 +40,20 @@ any open state → cancelled
   from open work and resumes when the gate is answered or the provider recovers.
 ## Group milestones
 
-Group tasks with `--group` and declare the groups with `codeterm plan groups
-set`. The group close the task sequencing contract requires has two records,
-and dispatch waits for both once every task in the group is terminal and at
-least one is done:
+Group tasks with `--group` and declare their sequence with `codeterm plan groups
+set`. Pending tasks in later groups, including after-release work, stay parked
+until their group reaches the frontier. They do not appear in actionable-task
+reminders or stale-task drift; the reminder gives one count for parked work.
 
-1. the regression run: `codeterm plan qa next <plan> --group <group> --note "<evidence>"`;
-2. the retrospective: `codeterm plan groups close <plan> <group> --note "<what worked, what failed, what changes next>"`.
+Regression records and group notes are optional recordkeeping. `codeterm plan
+qa next`, `codeterm plan qa override`, and `codeterm plan groups close --note`
+remain available, and pending records appear as dispatch advisories. They never
+block an otherwise authorized dispatch. Run focused checks for each change and
+merged wave; run the broad regression suite once on the release SHA.
 
-An authorized `codeterm plan qa override` waives only the regression run, never
-the retrospective. Tasks tagged `regression-gate` or `release-blocking` still
-dispatch. Plan pause and resume are part of the same contract.
+A readiness report rejects `--sha` only when it resolves in that report's lane
+and differs from the lane's HEAD. Keep a task-declared commit from another
+repository as its own SHA.
 ## Dispatch contract
 
 Before a wave:
@@ -85,4 +88,4 @@ Pause only when an owner decision blocks all tasks. Ask once with
 Paused plans have no heartbeat or reminders. Resume with
 `codeterm plan resume <plan_id>` and continue the frontier.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
