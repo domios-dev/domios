@@ -48,6 +48,18 @@ pub(crate) fn record_launch(tab_id: &str, restored: bool) {
     update_launch(tab_id, false, restored);
 }
 
+pub(crate) fn launch_was_restored(tab_id: &str) -> Option<bool> {
+    LAUNCHES
+        .lock()
+        .as_ref()
+        .and_then(|records| records.get(tab_id))
+        .map(|record| record.restored)
+}
+
+pub(crate) fn spawn_ok_notice_allowed(recipient_was_restored: Option<bool>) -> bool {
+    recipient_was_restored == Some(false)
+}
+
 fn update_launch(tab_id: &str, ui: bool, restored: bool) {
     let mut all = LAUNCHES.lock();
     let Some(records) = all.as_mut() else {
