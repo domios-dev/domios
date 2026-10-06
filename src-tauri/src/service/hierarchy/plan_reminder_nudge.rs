@@ -627,10 +627,15 @@ impl ServiceContext {
             }
             ReminderKind::Owner | ReminderKind::ModeChange | ReminderKind::StalledTeam => {
                 let mut text = if scope.kind == ReminderKind::StalledTeam {
-                    crate::service::plan::reminders::ORCHESTRATOR_STALLED_TEAM_REMINDER.replace(
-                        "{actionable}",
-                        &orchestrator_actionable_task_ids(plan).join(", "),
-                    )
+                    crate::service::plan::reminders::ORCHESTRATOR_STALLED_TEAM_REMINDER
+                        .replace(
+                            "{actionable}",
+                            &orchestrator_actionable_task_ids(plan).join(", "),
+                        )
+                        .replace(
+                            "{parked}",
+                            &crate::service::plan::reminders::parked_later_group_summary(plan),
+                        )
                 } else {
                     crate::service::plan::reminders::orchestrator_nudge_text(plan)
                 };
@@ -802,12 +807,18 @@ fn owner_reminder_eligible(plan: &Plan) -> bool {
 }
 
 fn worker_reminder_eligible(plan: &Plan, task: &Task) -> bool {
-    active_execution(plan)
-        && matches!(
+    if !active_execution(plan)
+        || !matches!(
             task.status,
             TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked
         )
-        && task_projection(plan, task).presentation != TaskPresentation::WaitingOnDependencies
+    {
+        return false;
+    }
+    !matches!(
+        task_projection(plan, task).presentation,
+        TaskPresentation::WaitingOnDependencies | TaskPresentation::ParkedForLaterGroup
+    )
 }
 
 pub(crate) fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
@@ -893,6 +904,7 @@ fn aged_task_status_text(
                 .join(", ");
             format!("waiting on dependencies: {waits}")
         }
+        TaskPresentation::ParkedForLaterGroup => "parked for later groups".into(),
         TaskPresentation::InProgress => "in progress".into(),
         TaskPresentation::InReview => "in review".into(),
         TaskPresentation::QueuedForQa => {

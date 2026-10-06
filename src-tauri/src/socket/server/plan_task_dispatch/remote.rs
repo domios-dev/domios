@@ -98,16 +98,8 @@ pub(super) fn dispatch(
     .map_err(super::super::model_errors::invalid_model_rpc_error)?;
     super::preflight::preflight_review_capacity(&plan, &detail.task)
         .map_err(super::super::plan::plan_rpc_err)?;
-    match super::regression_dispatch_decision(&plan, &detail.task) {
-        super::RegressionDispatchDecision::Clear
-        | super::RegressionDispatchDecision::Exempt { .. } => {}
-        super::RegressionDispatchDecision::Blocked {
-            blocking,
-            retrospectives,
-        } => {
-            return Err(super::regression_blocked_error(blocking, retrospectives));
-        }
-    }
+    let regression_warning =
+        super::regression_dispatch_warning(super::regression_dispatch_decision(&plan));
     if p.and_then(|value| value.get("placement"))
         .and_then(Value::as_str)
         .is_some_and(|placement| placement == "canonical_writer")
@@ -281,7 +273,7 @@ pub(super) fn dispatch(
         &origin_tab_id,
     );
     super::emit_plan_changed(app, &plan_id);
-    Ok(json!({
+    let mut result = json!({
         "accepted": false,
         "spawned": true,
         "state": "awaiting_worker_ack",
@@ -295,7 +287,11 @@ pub(super) fn dispatch(
         "worktree_path": worktree_path,
         "base": lane_base,
         "readiness": {"ready": false, "awaiting_event": "worker_ack"}
-    }))
+    });
+    if let Some(warning) = regression_warning {
+        result["warnings"] = json!([warning]);
+    }
+    Ok(result)
 }
 
 pub(crate) fn merge_lane(

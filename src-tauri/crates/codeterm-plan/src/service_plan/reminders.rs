@@ -13,9 +13,9 @@ pub enum NudgeKind {
 
 pub const WORKER_REMINDER: &str = "Plan reminder: you are assigned to an active task. Run `codeterm agent report --plan <plan_id> --task <task_id> \"status update\"` so your parent can see progress.";
 
-pub const ORCHESTRATOR_REMINDER: &str = "Plan reminder: actionable tasks: {actionable}. Dispatch, judge, unblock, or replan each of them. Tasks waiting on dependencies and machine-paused tasks need nothing; they advance when the dependency lands or the hold clears. Pause the plan only when the owner must decide before any task can advance. Read `codeterm docs ORCHESTRATION` if the loop is unclear.";
+pub const ORCHESTRATOR_REMINDER: &str = "Plan reminder: actionable tasks: {actionable}. {parked} Dispatch, judge, unblock, or replan each actionable task. Tasks waiting on dependencies and machine-paused tasks need nothing; they advance when the dependency lands or the hold clears. Pause the plan only when the owner must decide before any task can advance. Read `codeterm docs ORCHESTRATION` if the loop is unclear.";
 
-pub const ORCHESTRATOR_STALLED_TEAM_REMINDER: &str = "Stalled team: no live Worker remains for actionable tasks: {actionable}. Dispatch, unblock, or replan them.";
+pub const ORCHESTRATOR_STALLED_TEAM_REMINDER: &str = "Stalled team: no live Worker remains for actionable tasks: {actionable}. {parked} Dispatch, unblock, or replan actionable tasks.";
 
 pub fn worker_nudge_text() -> String {
     WORKER_REMINDER.to_string()
@@ -28,7 +28,18 @@ pub fn orchestrator_nudge_text(plan: &Plan) -> String {
     } else {
         actionable.join(", ")
     };
-    ORCHESTRATOR_REMINDER.replace("{actionable}", &listed)
+    ORCHESTRATOR_REMINDER
+        .replace("{actionable}", &listed)
+        .replace("{parked}", &parked_later_group_summary(plan))
+}
+
+pub fn parked_later_group_summary(plan: &Plan) -> String {
+    let count = super::state::parked_later_group_task_count(plan);
+    if count == 0 {
+        String::new()
+    } else {
+        format!("{count} tasks parked for later groups.")
+    }
 }
 
 pub const UNCHANGED_REMINDER_COOLDOWN_SECS: u64 = 300;
@@ -192,6 +203,7 @@ impl TurnCounter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::plan::{OrchestratorRef, TaskGroup};
 
     #[test]
     fn digest_rule_rate_limit_blocks_repeat_within_interval() {
@@ -236,6 +248,67 @@ mod tests {
             "plan:1",
             100 + UNCHANGED_REMINDER_COOLDOWN_SECS
         ));
+    }
+
+    #[test]
+    fn owner_reminder_lists_later_group_work_as_one_count() {
+        let mut plan = Plan::new(
+            "P".into(),
+            "/repo".into(),
+            OrchestratorRef::from_tab("orch"),
+        );
+        plan.task_groups = vec![
+            TaskGroup {
+                key: "release".into(),
+                label: "Release".into(),
+                color: None,
+            },
+            TaskGroup {
+                key: "after-release".into(),
+                label: "After release".into(),
+                color: None,
+            },
+        ];
+        plan.tasks = vec![
+            serde_json::from_value(serde_json::json!({
+                "id": "release-task",
+                "name": "Release",
+                "type": "implement",
+                "model": null,
+                "model_rationale": null,
+                "test_plan": null,
+                "correctness": null,
+                "status": "in_progress",
+                "status_label": null,
+                "intent": null,
+                "assigned_tab_id": null,
+                "peer": null,
+                "group": "release"
+            }))
+            .unwrap(),
+            serde_json::from_value(serde_json::json!({
+                "id": "after-release-task",
+                "name": "After release",
+                "type": "implement",
+                "model": null,
+                "model_rationale": null,
+                "test_plan": null,
+                "correctness": null,
+                "status": "pending",
+                "status_label": null,
+                "intent": null,
+                "assigned_tab_id": null,
+                "peer": null,
+                "group": "after-release",
+                "depends_on": ["planned-later"]
+            }))
+            .unwrap(),
+        ];
+
+        let text = orchestrator_nudge_text(&plan);
+        let summary = "1 tasks parked for later groups.";
+        assert_eq!(text.matches(summary).count(), 1);
+        assert!(!text.contains("after-release-task"));
     }
 
     #[test]
