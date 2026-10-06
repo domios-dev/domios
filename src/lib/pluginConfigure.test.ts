@@ -1,6 +1,6 @@
 import { parseMarker } from "@codeterm/chat-core";
-import { AI_HELPER_SPAWN_PATH } from "./aiHelperSpawn";
-import { buildConfigureTask, CONFIG_PREAMBLE, configureWithAI } from "./pluginConfigure";
+import { AI_HELPER_CONTEXT, AI_HELPER_SPAWN_PATH } from "./aiHelperSpawn";
+import { buildConfigureTask, configureWithAI, PLUGIN_CONFIG_RULES } from "./pluginConfigure";
 
 let passed = 0;
 let failed = 0;
@@ -17,22 +17,18 @@ function assert(label: string, cond: boolean) {
 
 console.log("buildConfigureTask:");
 
-const task = buildConfigureTask("lmstudio", "LM Studio", "set the model");
-
-assert("includes the core preamble", task.includes(CONFIG_PREAMBLE));
-assert(
-  "wraps help in the safety envelope",
-  task.includes("<PLUGIN CONFIG — ASK THE USER, DO NOT ACT AUTOMATICALLY>") &&
-    task.includes("set the model") &&
-    task.includes("</PLUGIN CONFIG>"),
-);
-
+const helpToken = "plugin-config-help-token-5b02";
+const task = buildConfigureTask("lmstudio", "LM Studio", helpToken);
 const parsed = parseMarker(task);
 assert("parses to a marker", parsed !== null);
 assert("kind is plugin_config", parsed?.kind === "plugin_config");
 assert("plugin attr round-trips", parsed?.attrs.plugin === "lmstudio");
 assert("name attr round-trips", parsed?.attrs.name === "LM Studio");
-assert("payload carries the wrapped help", parsed?.payload.includes("set the model") ?? false);
+const payload = parsed?.payload ?? "";
+assert("payload carries the plugin configHelp", payload.includes(helpToken));
+assert("payload carries every helper context fragment", AI_HELPER_CONTEXT.length > 0 && AI_HELPER_CONTEXT.every((fragment) => payload.includes(fragment)));
+assert("payload carries every plugin config rule", PLUGIN_CONFIG_RULES.length > 0 && PLUGIN_CONFIG_RULES.every((rule) => payload.includes(rule)));
+assert("core context precedes the plugin-authored help", PLUGIN_CONFIG_RULES.every((rule) => payload.indexOf(rule) < payload.indexOf(helpToken)));
 
 async function asyncTests() {
   console.log("\nconfigureWithAI:");
