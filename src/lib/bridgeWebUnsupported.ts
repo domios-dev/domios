@@ -31,7 +31,7 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
   get_rest_api_status:
     "REST listener recovery is owned by the desktop supervisor",
   refresh_provider_models:
-    "The model probe execs the provider CLI on the daemon host; the web mirror cannot spawn a host subprocess and receives the refreshed catalog through models-updated and the binary watcher instead",
+    "Explicit catalogue refresh runs provider code on the daemon host; the web mirror receives versioned catalogue changes from the daemon",
   provider_model_usage:
     "Per-group model usage is read from a provider-owned store on the daemon host; the web mirror renders the picker without it",
   restart_rest_api:

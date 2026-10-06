@@ -2,9 +2,8 @@
  * Live list of agent providers contributed by active plugins.
  *
  * Single source of truth: the backend's `list_agent_providers` Tauri command,
- * which calls `dispatch::Command::ListAgentProviders` → `AgentRegistry::list_descriptors()`.
- * Auto-refetches when a `contributions-changed { kind: "agent_provider" }` event
- * arrives, and when the backend emits `models-updated` after refreshing live model catalogs.
+ * which returns the transport-tagged ProviderRegistry snapshot.
+ * Auto-refetches when provider contributions or a versioned model catalogue changes.
  *
  * Adding a new bundled or third-party agent plugin requires ZERO changes here —
  * the descriptor flows through automatically.
@@ -12,14 +11,14 @@
 import { useCallback, useEffect, useLayoutEffect } from "react";
 import { invoke, listen, type UnlistenFn } from "../lib/bridge";
 
-import type { ProviderDescriptor } from "../lib/types";
-import { setAgentDescriptors } from "../lib/agentDescriptorCache";
+import type { ModelCatalogueChanged, ProviderDescriptor } from "../lib/types";
+import { acceptModelCatalogueChange, setAgentDescriptors } from "../lib/agentDescriptorCache";
 import { useContributions } from "./useContributions";
 
 const EMPTY_AGENT_PROVIDERS: ProviderDescriptor[] = [];
 
 export function shouldRefreshAgentProviders(eventType: string): boolean {
-  return eventType === "contributions-changed" || eventType === "models-updated";
+  return eventType === "contributions-changed" || eventType === "model-catalogue-changed";
 }
 
 export function visibleAgentProviders(
@@ -47,15 +46,15 @@ export function syncAgentDescriptorCache(
   setAgentDescriptors(visibleAgentProviders(items, loading, error));
 }
 
-export function attachModelsUpdatedRefresh(
+export function attachModelCatalogueChangedRefresh(
   refetch: () => void,
   listenImpl: typeof listen = listen,
 ): () => void {
   let active = true;
   let unlisten: UnlistenFn | undefined;
 
-  void listenImpl<{ provider: string }>("models-updated", () => {
-    if (active) refetch();
+  void listenImpl<ModelCatalogueChanged>("model-catalogue-changed", (event) => {
+    if (active && acceptModelCatalogueChange(event.payload)) refetch();
   }).then((fn) => {
     if (active) {
       unlisten = fn;
@@ -84,7 +83,7 @@ export function useAgentProviders(): {
     fetcher,
   );
   useEffect(() => {
-    return attachModelsUpdatedRefresh(refetch);
+    return attachModelCatalogueChangedRefresh(refetch);
   }, [refetch]);
   return { providers: visibleAgentProviders(items, loading, error), loading, error, refetch };
 }

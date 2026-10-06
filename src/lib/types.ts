@@ -1020,6 +1020,7 @@ export type ModelSwitchMode = "restart_resume" | "unsupported";
 export interface ProviderDescriptor {
   schema_version: number;
   id: string;
+  catalogue_version?: number;
   display_name: string;
   /** Runtime backing — the spawn discriminant (replaces the old `kind` string). */
   transport: ProviderTransport;
@@ -1083,6 +1084,11 @@ export interface ProviderDescriptor {
   /// Absent (older peer) means nothing was observed — read it as `unknown`,
   /// never as the negative. Use `providerAvailability()` rather than this field.
   availability?: ProviderAvailability;
+}
+
+export interface ModelCatalogueChanged {
+  provider: string;
+  version: number;
 }
 
 /** Input for `createOrchestrationPair` — camelCase for ergonomic call sites;

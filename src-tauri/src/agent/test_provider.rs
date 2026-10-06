@@ -494,7 +494,7 @@ impl AgentProvider for MockProvider {
         self.models.clone()
     }
     fn model_catalogue_capability(&self) -> codeterm_plugin::provider::ModelCatalogueCapability {
-        self.model_catalogue
+        self.model_catalogue.clone()
     }
     fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
         if effort.is_empty() {

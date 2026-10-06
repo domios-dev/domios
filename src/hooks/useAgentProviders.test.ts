@@ -1,10 +1,10 @@
 // Run: npx tsx src/hooks/useAgentProviders.test.ts
 
-import { getAgentDescriptor, listAgentDescriptors, setAgentDescriptors } from "../lib/agentDescriptorCache";
+import { acceptModelCatalogueChange, getAgentDescriptor, listAgentDescriptors, setAgentDescriptors } from "../lib/agentDescriptorCache";
 import type { ProviderDescriptor } from "../lib/types";
 import {
   agentProvidersFromResponse,
-  attachModelsUpdatedRefresh,
+  attachModelCatalogueChangedRefresh,
   shouldRefreshAgentProviders,
   syncAgentDescriptorCache,
   visibleAgentProviders,
@@ -73,9 +73,9 @@ test("sync allows empty registry after a completed load", () => {
   assert(getAgentDescriptor("loaded-provider") === undefined, "empty completed fetch clears cache");
 });
 
-test("models-updated refresh is wired alongside contributions changes", () => {
+test("catalogue version changes refresh provider descriptors", () => {
   assert(shouldRefreshAgentProviders("contributions-changed"), "contribution event should refresh");
-  assert(shouldRefreshAgentProviders("models-updated"), "models-updated should refresh");
+  assert(shouldRefreshAgentProviders("model-catalogue-changed"), "catalogue change should refresh");
   assert(!shouldRefreshAgentProviders("tab-focused"), "irrelevant events must not refresh");
 });
 
@@ -97,34 +97,36 @@ test("malformed catalog responses expose an honest empty catalog", () => {
   assert(agentProvidersFromResponse(catalog) === catalog, "array response preserves catalog identity");
 });
 
-test("models-updated listener refetches while mounted", () => {
+test("catalogue listener refetches a newer provider version while mounted", () => {
   let refetches = 0;
-  let trigger: (() => void) | undefined;
-  const cleanup = attachModelsUpdatedRefresh(
+  let trigger: ((version: number) => void) | undefined;
+  setAgentDescriptors([provider("codex")]);
+  const cleanup = attachModelCatalogueChangedRefresh(
     () => {
       refetches += 1;
     },
-    async <T>(_event: string, handler: (event: { payload: T }) => void) => {
-      trigger = () => handler({ payload: { provider: "codex" } as T });
+    async <T>(event: string, handler: (event: { payload: T }) => void) => {
+      assert(event === "model-catalogue-changed", "listener must use the versioned event");
+      trigger = (version) => handler({ payload: { provider: "codex", version } as T });
       return () => {
         trigger = undefined;
       };
     },
   );
 
-  trigger?.();
+  trigger?.(1);
   cleanup();
 
   assert(refetches === 1, "listener should refetch while active");
 });
 
-test("models-updated listener releases a late registration after cleanup", async () => {
+test("catalogue listener releases a late registration after cleanup", async () => {
   let refetches = 0;
   let unlistenCalls = 0;
   const registration = deferred<() => void>();
   const unlistenObserved = deferred<void>();
 
-  const cleanup = attachModelsUpdatedRefresh(() => {
+  const cleanup = attachModelCatalogueChangedRefresh(() => {
     refetches += 1;
   }, async () => registration.promise);
 
@@ -140,7 +142,7 @@ test("models-updated listener releases a late registration after cleanup", async
   assert(refetches === 0, "cleanup must block late events");
 });
 
-test("models-updated listener swallows a rejected registration", async () => {
+test("catalogue listener swallows a rejected registration", async () => {
   let refetches = 0;
   let caught = false;
   const originalUnhandled = process.listeners("unhandledRejection");
@@ -151,7 +153,7 @@ test("models-updated listener swallows a rejected registration", async () => {
   process.removeAllListeners("unhandledRejection");
   process.on("unhandledRejection", unhandled);
 
-  attachModelsUpdatedRefresh(
+  attachModelCatalogueChangedRefresh(
     () => {
       refetches += 1;
     },
@@ -168,6 +170,27 @@ test("models-updated listener swallows a rejected registration", async () => {
 
   assert(!caught, "registration rejection must not surface as unhandled");
   assert(refetches === 0, "registration failure must not refetch");
+});
+
+test("catalogue listener ignores duplicate and older versions", () => {
+  setAgentDescriptors([{ ...provider("versioned"), catalogue_version: 4 }]);
+  assert(!acceptModelCatalogueChange({ provider: "versioned", version: 4 }), "same version is cached");
+  assert(!acceptModelCatalogueChange({ provider: "versioned", version: 3 }), "older version is ignored");
+  assert(acceptModelCatalogueChange({ provider: "versioned", version: 5 }), "new version invalidates the cache");
+});
+
+test("provider cache does not roll back after a newer catalogue event", () => {
+  const current = { ...provider("monotonic"), catalogue_version: 2 };
+  setAgentDescriptors([current]);
+  assert(acceptModelCatalogueChange({ provider: "monotonic", version: 3 }), "new catalogue version is accepted");
+
+  setAgentDescriptors([{ ...current, available_models: [{ id: "stale", display_name: "Stale" }] }]);
+
+  assert(
+    getAgentDescriptor("monotonic")?.available_models.length === 0,
+    "a stale in-flight response must not replace the cached catalogue",
+  );
+  assert(!acceptModelCatalogueChange({ provider: "monotonic", version: 3 }), "the event remains deduplicated");
 });
 
 test("listAgentDescriptors preserves registry order and identity", () => {

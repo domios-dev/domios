@@ -119,7 +119,11 @@
   ],
   "defaultModel": "anthropic/claude-opus-4-8",
   "modelCatalogue": {
-    "authority": "free_form"
+    "authority": "free_form",
+    "configFiles": [
+      "~/.config/opencode/opencode.json",
+      "~/.config/opencode/opencode.jsonc"
+    ]
   },
   "installer": {
     "macos": "curl -fsSL https://opencode.ai/install | bash",

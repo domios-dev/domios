@@ -93,6 +93,15 @@ pub trait ChatBackendProvider: Send + Sync {
         None
     }
 
+    fn model_catalogue_capability(&self) -> crate::provider::ModelCatalogueCapability {
+        crate::provider::ModelCatalogueCapability::default()
+    }
+
+    fn model_catalogue_input_files(&self) -> Vec<std::path::PathBuf> {
+        self.model_catalogue_capability()
+            .fingerprint_files(Vec::new())
+    }
+
     /// Open a session for a tab (`ctx` = `{ tabId, config, systemPrompt?, preset?, model? }`); returns the plugin-chosen session id.
     fn open_session(&self, ctx: serde_json::Value) -> Result<String, ChatBackendError>;
 
@@ -191,12 +200,13 @@ pub trait ChatBackendProvider: Send + Sync {
         ProviderDescriptor {
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             id: self.id().to_string(),
+            catalogue_version: model_catalog::current_version(self.id()),
             display_name: self.display_name().to_string(),
             icon_hint: self.icon_hint().map(|s| s.to_string()),
             icon_svg: self.icon_svg().map(|s| s.to_string()),
             icon_color: self.icon_color().map(|s| s.to_string()),
             available_models: catalog.models,
-            model_catalogue: crate::provider::ModelCatalogueCapability::default(),
+            model_catalogue: self.model_catalogue_capability(),
             model_groups: Vec::new(),
             default_model: catalog.default,
             reasoning_efforts: Vec::new(),
@@ -268,14 +278,19 @@ impl ChatBackendRegistry {
     fn register_cached(&self, id: String, provider: Arc<dyn ChatBackendProvider>) {
         let mut descriptor = provider.describe();
         descriptor.id = id.clone();
-        self.entries.write().insert(
-            id,
+        let mut entries = self.entries.write();
+        entries.insert(
+            id.clone(),
             RegisteredChatBackend {
                 provider,
                 descriptor,
                 model_error: None,
             },
         );
+        let change = model_catalog::invalidate(&id);
+        if let Some(entry) = entries.get_mut(&id) {
+            entry.descriptor.catalogue_version = change.version;
+        }
     }
 
     fn refresh_background(
@@ -298,6 +313,21 @@ impl ChatBackendRegistry {
                 None
             }
         }
+    }
+
+    pub fn refresh_and_wait(&self, id: &str) -> bool {
+        let Some(provider) = self.get(id) else {
+            return false;
+        };
+        self.refresh_background(id.to_string(), provider)
+            .is_some_and(|handle| handle.join().is_ok())
+    }
+
+    pub fn refresh_provider(&self, id: &str) -> bool {
+        let Some(provider) = self.get(id) else {
+            return false;
+        };
+        self.refresh_background(id.to_string(), provider).is_some()
     }
 
     #[doc(hidden)]
@@ -367,12 +397,17 @@ impl ChatBackendRegistry {
         let catalog = model_catalog::registered_snapshot(id);
         entry.descriptor.available_models = catalog.models;
         entry.descriptor.default_model = catalog.default;
+        entry.descriptor.catalogue_version = model_catalog::current_version(id);
         entry.model_error = model_error;
     }
 
     pub fn unregister(&self, id: &str) {
         if self.entries.write().remove(id).is_some() {
+            let previous_version = model_catalog::current_version(id);
             model_catalog::unregister(id);
+            if model_catalog::current_version(id) == previous_version {
+                model_catalog::invalidate(id);
+            }
         }
     }
 
@@ -380,7 +415,9 @@ impl ChatBackendRegistry {
     /// resolves the new models asynchronously; clearing the catalog first leaves
     /// a window where the plugin is registered and answers with none.
     pub fn unregister_for_reload(&self, id: &str) {
-        self.entries.write().remove(id);
+        if self.entries.write().remove(id).is_some() {
+            model_catalog::invalidate(id);
+        }
     }
 
     pub fn get(&self, id: &str) -> Option<Arc<dyn ChatBackendProvider>> {
@@ -660,6 +697,36 @@ mod tests {
             "describe reads the central snapshot without calling list_models"
         );
         registry.unregister("chatbackend-populates-fixture");
+    }
+
+    #[test]
+    fn explicit_refresh_reruns_chatbackend_models_and_publishes_its_version() {
+        let id = "chatbackend-refresh-event-fixture";
+        let registry = ChatBackendRegistry::new();
+        let calls = Arc::new(CatalogCallTracker::default());
+        registry.register_and_wait(
+            id,
+            Arc::new(ListingBackend {
+                id,
+                calls: calls.clone(),
+                models: Ok(vec![model("first-model", "First model", Some(true))]),
+            }),
+        );
+        let initial_version = model_catalog::current_version(id);
+        let mut changes = model_catalog::subscribe_changes();
+
+        assert!(registry.refresh_and_wait(id));
+
+        let version = model_catalog::current_version(id);
+        assert!(version > initial_version);
+        assert_eq!(calls.count(), 2);
+        assert_eq!(registry.descriptor(id).unwrap().catalogue_version, version);
+        let mut completion_seen = false;
+        while let Ok(change) = changes.try_recv() {
+            completion_seen |= change.provider == id && change.version == version;
+        }
+        assert!(completion_seen, "the completed refresh must publish its version");
+        registry.unregister(id);
     }
 
     #[test]

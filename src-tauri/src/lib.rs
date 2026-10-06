@@ -488,12 +488,39 @@ pub fn run() {
             plugin_manager.set_registrar(agent_registry.clone());
             plugin_manager.set_event_sink(states.event_broadcaster.clone());
 
+            {
+                let mut changes = agent::model_catalog::subscribe_changes();
+                let app = app_handle.clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        match changes.recv().await {
+                            Ok(change) => crate::api::events::emit_everywhere(
+                                &app,
+                                "model-catalogue-changed",
+                                change,
+                            ),
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                                for change in agent::model_catalog::version_snapshot() {
+                                    crate::api::events::emit_everywhere(
+                                        &app,
+                                        "model-catalogue-changed",
+                                        change,
+                                    );
+                                }
+                            }
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                        }
+                    }
+                });
+            }
+
             // Bridge ContributionsChanged → frontend event + mem bridge rule refresh.
             {
                 use tauri::Emitter;
                 let mut sub = states.event_broadcaster.subscribe();
                 let bridge_handle = app_handle.clone();
                 let bridge_registry = agent_registry.clone();
+                let bridge_chatbackend_registry = chatbackend_registry.clone();
                 tauri::async_runtime::spawn(async move {
                     while let Ok(ev) = sub.recv().await {
                         if let crate::api::events::SystemEvent::ContributionsChanged { kind } =
@@ -508,6 +535,15 @@ pub fn run() {
                                     &bridge_registry,
                                 );
                                 crate::commands::mirror_skills_to_providers();
+                                for provider in bridge_registry.all_provider_arcs() {
+                                    crate::agent::model_binary_watch::install(provider);
+                                }
+                                for provider in bridge_chatbackend_registry.active() {
+                                    crate::agent::model_binary_watch::install_chatbackend(
+                                        provider,
+                                        bridge_chatbackend_registry.clone(),
+                                    );
+                                }
                             }
                         }
                     }
@@ -676,29 +712,16 @@ pub fn run() {
 
             agent::model_catalog::refresh_example_files();
 
-            // background refresh per provider off the async runtime (never gates startup; emits `models-updated`).
+            // Background refresh per provider off the async runtime never gates startup.
             {
                 let providers = agent_registry.all_provider_arcs();
                 for p in &providers {
                     agent::model_catalog::prime_from_cache(p.id());
+                    agent::model_binary_watch::install(p.clone());
                 }
-                let app_for_models = app_handle.clone();
                 tauri::async_runtime::spawn(async move {
                     for provider in providers {
-                        let id = provider.id().to_string();
-                        if agent::model_catalog::refresh_models(provider.clone(), false)
-                            .await
-                            .is_some()
-                        {
-                            crate::api::events::emit_everywhere(
-                                &app_for_models,
-                                "models-updated",
-                                serde_json::json!({ "provider": id }),
-                            );
-                        }
-                        // Watched only after the first probe, because the path
-                        // to watch is the one the resolver actually resolved.
-                        agent::model_binary_watch::install(provider, app_for_models.clone());
+                        let _ = agent::model_catalog::refresh_models(provider, false).await;
                     }
                 });
             }
@@ -940,6 +963,12 @@ pub fn run() {
                 }
                 plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
                 crate::service::plugin_skills::spawn_sync(service_state.mem.clone(), service_state.agent_command_registry.clone());
+                for provider in chatbackend_registry.active() {
+                    crate::agent::model_binary_watch::install_chatbackend(
+                        provider,
+                        chatbackend_registry.clone(),
+                    );
+                }
                 let _ = chatbackend_registry.start_discovery();
             }
             app.manage(service_state.clone());

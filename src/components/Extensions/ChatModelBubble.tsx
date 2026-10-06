@@ -175,6 +175,7 @@ export function ChatModelBubble({
                 onClick={() => void choose(model)}
                 role="menuitemradio"
                 aria-checked={selected}
+                aria-label={model.display_name}
                 className="w-full grid grid-cols-[0.75rem_minmax(0,1fr)] gap-2 rounded px-2 py-1 text-left text-xs"
                 style={{
                   background: selected

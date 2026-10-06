@@ -11,33 +11,37 @@ use std::sync::Arc;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::Mutex;
 
+use codeterm_plugin::chatbackend_provider::ChatBackendProvider;
 use codeterm_plugin::provider::AgentProvider;
 
 use crate::agent::model_catalog;
 
-/// Keeps one watcher per provider alive for the daemon's lifetime; dropping the
-/// registry stops every watch.
+/// Keeps one watcher per provider alive for the daemon's lifetime.
 #[derive(Default)]
 pub struct ProviderBinaryWatchers {
     watchers: Mutex<HashMap<String, RecommendedWatcher>>,
 }
 
 impl ProviderBinaryWatchers {
-    /// Watch the path the resolver actually resolved to — never a guessed one.
-    /// A provider whose CLI never resolved has nothing to watch yet; the next
-    /// forced refresh re-resolves and this can be called again.
-    pub fn watch(
+    fn watch(
         &self,
-        provider: Arc<dyn AgentProvider>,
-        on_change: Arc<dyn Fn(Arc<dyn AgentProvider>) + Send + Sync>,
+        key: String,
+        targets: Vec<PathBuf>,
+        on_change: Arc<dyn Fn() + Send + Sync>,
     ) -> Option<PathBuf> {
-        let bin = provider.cli_binary()?.to_string();
-        let resolved = codeterm_plugin::js_runtime::resolved_bin_path(&bin)?;
-        // A self-update replaces the file rather than editing it, so the
-        // directory entry is what carries the event on every platform.
-        let dir = resolved.parent()?.to_path_buf();
-        let provider_id = provider.id().to_string();
-        let target = resolved.clone();
+        targets.sort();
+        targets.dedup();
+        let watch_dirs: Vec<PathBuf> = targets
+            .iter()
+            .filter_map(|target| target.parent().map(Path::to_path_buf))
+            .filter(|dir| dir.is_dir())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        if watch_dirs.is_empty() {
+            return None;
+        }
+        let watched_targets = targets.clone();
         let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
             let Ok(event) = event else { return };
             if !matches!(
@@ -46,36 +50,39 @@ impl ProviderBinaryWatchers {
             ) {
                 return;
             }
-            if !touches(&event, &target) {
+            if !touches_any(&event, &watched_targets) {
                 return;
             }
-            on_change(provider.clone());
+            on_change();
         })
         .ok()?;
-        watcher.watch(&dir, RecursiveMode::NonRecursive).ok()?;
-        self.watchers.lock().insert(provider_id, watcher);
-        Some(resolved)
+        for dir in watch_dirs {
+            watcher.watch(&dir, RecursiveMode::NonRecursive).ok()?;
+        }
+        self.watchers.lock().insert(key, watcher);
+        targets.into_iter().next()
     }
 }
 
-fn touches(event: &Event, target: &Path) -> bool {
-    event.paths.iter().any(|path| path == target)
+fn touches_any(event: &Event, targets: &[PathBuf]) -> bool {
+    event.paths.iter().any(|path| targets.iter().any(|target| path == target))
 }
 
-/// The change handler the daemon installs: drop the resolver memo, re-probe
-/// without the TTL, and tell every surface the answer moved.
-pub fn on_binary_changed<F>(provider: Arc<dyn AgentProvider>, notify_updated: F)
-where
-    F: Fn(String) + Send + 'static,
-{
+/// Re-probe without the TTL after a declared catalogue input changes.
+pub fn on_catalogue_input_changed(provider: Arc<dyn AgentProvider>) {
+    model_catalog::invalidate(provider.id());
+    refresh_agent_provider(provider, true);
+}
+
+pub fn refresh_agent_provider(provider: Arc<dyn AgentProvider>, force: bool) {
+    install(provider.clone());
     tauri::async_runtime::spawn(async move {
-        let provider_id = provider.id().to_string();
-        if model_catalog::refresh_after_binary_change(provider)
-            .await
-            .is_some()
-        {
-            notify_updated(provider_id);
-        }
+        let _ = if force {
+            model_catalog::refresh_after_catalogue_input_change(provider.clone()).await
+        } else {
+            model_catalog::refresh_models(provider.clone(), false).await
+        };
+        install(provider);
     });
 }
 
@@ -86,23 +93,57 @@ fn watchers() -> &'static ProviderBinaryWatchers {
 
 /// Install the watch and the refresh it triggers. A provider whose CLI has not
 /// resolved yet is simply not watched; the next forced refresh resolves it.
-pub fn install(provider: Arc<dyn AgentProvider>, app: tauri::AppHandle) {
-    let on_change: Arc<dyn Fn(Arc<dyn AgentProvider>) + Send + Sync> =
-        Arc::new(move |changed: Arc<dyn AgentProvider>| {
-            let app = app.clone();
-            on_binary_changed(changed, move |provider_id| {
-                crate::api::events::emit_everywhere(
-                    &app,
-                    "models-updated",
-                    serde_json::json!({ "provider": provider_id }),
-                );
-            });
-        });
-    match watchers().watch(provider, on_change) {
-        Some(path) => log::info!(
-            "[model_catalog] watching {} for provider-binary changes",
-            path.display()
-        ),
-        None => log::debug!("[model_catalog] no resolved provider binary to watch yet"),
+pub fn install(provider: Arc<dyn AgentProvider>) {
+    let mut targets = provider.model_catalogue_capability().fingerprint_files(
+        provider.model_credential_files(),
+    );
+    let binary = provider
+        .cli_binary()
+        .and_then(codeterm_plugin::js_runtime::resolved_bin_path);
+    if let Some(binary) = &binary {
+        targets.push(binary.clone());
+    }
+    let watched_provider = provider.clone();
+    let key = format!("pty:{}", provider.id());
+    let on_change: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        on_catalogue_input_changed(watched_provider.clone());
+    });
+    match watchers().watch(key, targets, on_change) {
+        Some(path) => log::info!("[model_catalog] watching catalogue input {}", path.display()),
+        None => log::debug!("[model_catalog] no declared catalogue inputs to watch"),
+    }
+}
+
+pub fn install_chatbackend(
+    provider: Arc<dyn ChatBackendProvider>,
+    registry: crate::chatbackend::ChatBackendRegistryHandle,
+) {
+    let id = provider.id().to_string();
+    let targets = provider.model_catalogue_input_files();
+    let refresh_registry = registry.clone();
+    let refresh_id = id.clone();
+    let on_change: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+        model_catalog::invalidate(&refresh_id);
+        let _ = refresh_registry.refresh_provider(&refresh_id);
+    });
+    match watchers().watch(format!("chatbackend:{id}"), targets, on_change) {
+        Some(path) => log::info!("[model_catalog] watching catalogue input {}", path.display()),
+        None => log::debug!("[model_catalog] no declared chatBackend catalogue inputs to watch"),
+    }
+}
+
+pub fn refresh_after_settings_change(
+    agents: &crate::agent::registry::AgentRegistry,
+    chat_backends: &crate::chatbackend::ChatBackendRegistry,
+    provider_ids: impl IntoIterator<Item = String>,
+) {
+    for provider_id in provider_ids {
+        if chat_backends.get(&provider_id).is_some() {
+            model_catalog::invalidate(&provider_id);
+            let _ = chat_backends.refresh_provider(&provider_id);
+        } else if let Some(provider) = agents.provider_arc(&provider_id) {
+            model_catalog::invalidate(&provider_id);
+            refresh_agent_provider(provider, true);
+        }
     }
 }
