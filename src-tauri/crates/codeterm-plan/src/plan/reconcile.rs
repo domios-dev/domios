@@ -454,8 +454,8 @@ fn item(
 mod tests {
     use super::*;
     use crate::plan::{
-        OrchestratorRef, Plan, Task, TaskExecutionAttempt, TaskExecutionReportSnapshot,
-        TaskGroup, TaskPriority, TaskStatus,
+        OrchestratorRef, Plan, Task, TaskExecutionAttempt, TaskExecutionReportSnapshot, TaskGroup,
+        TaskPriority, TaskStatus,
     };
 
     fn task(id: &str, status: TaskStatus) -> Task {

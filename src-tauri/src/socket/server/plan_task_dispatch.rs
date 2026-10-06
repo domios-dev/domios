@@ -332,9 +332,7 @@ fn worker_ack_timeout_event(
 use startup::complete_dispatch_transaction;
 pub(crate) use startup::DispatchStartup;
 
-pub(crate) fn regression_dispatch_warning(
-    decision: RegressionDispatchDecision,
-) -> Option<String> {
+pub(crate) fn regression_dispatch_warning(decision: RegressionDispatchDecision) -> Option<String> {
     let RegressionDispatchDecision::Advisory {
         regression_gates,
         retrospectives,
@@ -457,8 +455,7 @@ where
         data: Some(json!({ "type": "plan_orchestrator_authorization_required" })),
     })?;
     refuse_live_dispatch_startup_owner(store, svc, &plan_id, &task_id)?;
-    let regression_warning =
-        regression_dispatch_warning(regression_dispatch_decision(&plan));
+    let regression_warning = regression_dispatch_warning(regression_dispatch_decision(&plan));
     // Same frontier policy for the review WIP gate: decide before any tab
     // exists. A task resuming after a bounce already holds its slot.
     if matches!(

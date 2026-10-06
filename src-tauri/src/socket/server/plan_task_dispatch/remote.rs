@@ -98,9 +98,8 @@ pub(super) fn dispatch(
     .map_err(super::super::model_errors::invalid_model_rpc_error)?;
     super::preflight::preflight_review_capacity(&plan, &detail.task)
         .map_err(super::super::plan::plan_rpc_err)?;
-    let regression_warning = super::regression_dispatch_warning(
-        super::regression_dispatch_decision(&plan),
-    );
+    let regression_warning =
+        super::regression_dispatch_warning(super::regression_dispatch_decision(&plan));
     if p.and_then(|value| value.get("placement"))
         .and_then(Value::as_str)
         .is_some_and(|placement| placement == "canonical_writer")

@@ -202,9 +202,11 @@ fn reports_optional_retrospective_record_without_affecting_dispatch() {
     let flagged = |plan: &Value| {
         inspect_plan(Path::new("pl_1.json"), plan, "structure")
             .iter()
-            .any(|f| f.kind == "group_missing_retrospective"
-                && f.severity == "info"
-                && f.detail.contains("phase-1"))
+            .any(|f| {
+                f.kind == "group_missing_retrospective"
+                    && f.severity == "info"
+                    && f.detail.contains("phase-1")
+            })
     };
     assert!(flagged(&plan));
 

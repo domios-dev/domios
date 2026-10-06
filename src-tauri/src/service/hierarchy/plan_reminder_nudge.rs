@@ -627,13 +627,15 @@ impl ServiceContext {
             }
             ReminderKind::Owner | ReminderKind::ModeChange | ReminderKind::StalledTeam => {
                 let mut text = if scope.kind == ReminderKind::StalledTeam {
-                    crate::service::plan::reminders::ORCHESTRATOR_STALLED_TEAM_REMINDER.replace(
-                        "{actionable}",
-                        &orchestrator_actionable_task_ids(plan).join(", "),
-                    ).replace(
-                        "{parked}",
-                        &crate::service::plan::reminders::parked_later_group_summary(plan),
-                    )
+                    crate::service::plan::reminders::ORCHESTRATOR_STALLED_TEAM_REMINDER
+                        .replace(
+                            "{actionable}",
+                            &orchestrator_actionable_task_ids(plan).join(", "),
+                        )
+                        .replace(
+                            "{parked}",
+                            &crate::service::plan::reminders::parked_later_group_summary(plan),
+                        )
                 } else {
                     crate::service::plan::reminders::orchestrator_nudge_text(plan)
                 };

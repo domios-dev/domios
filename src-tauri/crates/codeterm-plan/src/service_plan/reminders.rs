@@ -252,7 +252,11 @@ mod tests {
 
     #[test]
     fn owner_reminder_lists_later_group_work_as_one_count() {
-        let mut plan = Plan::new("P".into(), "/repo".into(), OrchestratorRef::from_tab("orch"));
+        let mut plan = Plan::new(
+            "P".into(),
+            "/repo".into(),
+            OrchestratorRef::from_tab("orch"),
+        );
         plan.task_groups = vec![
             TaskGroup {
                 key: "release".into(),

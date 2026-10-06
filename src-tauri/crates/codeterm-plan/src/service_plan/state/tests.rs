@@ -434,7 +434,10 @@ fn later_group_missing_dependency_stays_parked_until_the_group_is_current() {
     plan.tasks = vec![active, later.clone()];
 
     let projection = task_projection(&plan, &later);
-    assert_eq!(projection.presentation, TaskPresentation::ParkedForLaterGroup);
+    assert_eq!(
+        projection.presentation,
+        TaskPresentation::ParkedForLaterGroup
+    );
     assert!(!projection.needs_orchestrator_action());
     assert_eq!(parked_later_group_task_count(&plan), 1);
     assert!(!orchestrator_actionable_task_ids(&plan).contains(&later.id));
