@@ -14,6 +14,26 @@ fn answer(label: &str, confidence: f64, visible: f64, area: &str) -> DecisionRes
 }
 
 #[test]
+fn supporter_first_opinion_cold_call_budget_does_not_extend_receipt_authorization() {
+    let captured_at = Instant::now();
+    let call_started_at = captured_at + std::time::Duration::from_secs(4);
+    let receipt_deadline = candidates::receipt_authorization_deadline(captured_at, 3_000);
+    let directory = tempfile::tempdir().unwrap();
+    let runtime = crate::service::supporter::SupporterRuntime::new(
+        directory.path().join("supporter"),
+    );
+    let call_deadline = runtime.decision_deadline("fixture", 3_000, call_started_at);
+
+    assert_eq!(receipt_deadline, captured_at + std::time::Duration::from_secs(3));
+    assert_eq!(
+        call_deadline,
+        call_started_at + std::time::Duration::from_secs(5)
+    );
+    assert!(receipt_deadline < call_started_at);
+    assert!(receipt_deadline < call_deadline);
+}
+
+#[test]
 fn supporter_first_opinion_scrape_model_decides_without_heuristic_veto() {
     for (label, visible, area, live) in [
         (TRUST_OR_PERMISSION_PROMPT, 0.95, "active_modal", true),
@@ -303,7 +323,9 @@ fn supporter_first_opinion_scrape_service_persists_only_evidenced_prompt() {
 fn supporter_first_opinion_safe_response_provider_choice_in_same_redacted_batch() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&id, "safe-choice-batch-pty".into());
-    mux.get_tab_mut(&id).unwrap().agent_type = Some("fixture-provider".into());
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("fixture-provider".into());
+    tab.role = Some(codeterm_types::agent::AgentRole::Worker);
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let mut update = update_prompt();
     update.options[1].value = "opaque-skip-value".into();
@@ -422,12 +444,13 @@ fn supporter_first_opinion_safe_response_bound_receipt_cancels_user_nonce_and_di
         );
         let selected = Arc::new(Mutex::new(None));
         let save = selected.clone();
+        let config = SupporterConfig {
+            adapter: Some("fixture".into()),
+            ..Default::default()
+        };
         candidates::spawn(
             &host,
-            &SupporterConfig {
-                adapter: Some("fixture".into()),
-                ..Default::default()
-            },
+            &config,
             &id,
             None,
             move |verdict, source, valid| {
@@ -441,7 +464,12 @@ fn supporter_first_opinion_safe_response_bound_receipt_cancels_user_nonce_and_di
         .unwrap();
         let verdict = selected.lock().clone().unwrap();
         let receipt = verdict.receipt.unwrap();
-        let ledgers = receipt.metadata.envelope.as_ref().unwrap().ledgers.clone();
+        let envelope = receipt.metadata.envelope.as_ref().unwrap();
+        let ledgers = envelope.ledgers.clone();
+        assert_eq!(
+            receipt.deadline,
+            candidates::receipt_authorization_deadline(envelope.captured_at, config.deadline_ms)
+        );
         assert!(receipt.current(&host, &id, &ledgers));
         let mut expired = receipt.clone();
         expired.deadline = Instant::now();

@@ -48,17 +48,16 @@ impl TokenStore {
         };
         let mut ids = Vec::new();
         for entry in entries {
-            let path = entry?.path();
-            if path.file_name().is_some_and(|name| name == "spend.json")
-                || path.extension().is_none_or(|extension| extension != "json")
-            {
+            let entry = entry?;
+            if !entry.file_type()?.is_file() {
                 continue;
             }
-            let holds_token = fs::read(&path)
-                .ok()
-                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-                .is_some_and(|value| value.get("token").is_some_and(serde_json::Value::is_string));
-            if !holds_token {
+            let path = entry.path();
+            if path
+                .file_name()
+                .is_some_and(|name| RESERVED_FILES.iter().any(|reserved| name == *reserved))
+                || path.extension().is_none_or(|extension| extension != "json")
+            {
                 continue;
             }
             if let Some(id) = path.file_stem().and_then(|id| id.to_str()) {

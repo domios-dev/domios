@@ -98,6 +98,7 @@ fn supporter_status_exposes_activity_and_budget() {
             usage: None,
         },
         DecisionEvidence {
+            decision_point: None,
             model_id: Some("fixture-model".into()),
             criteria_version: "fixture-version",
             state_hash: "fixture-hash",
@@ -172,6 +173,7 @@ fn supporter_journal_hashes_recovery_option_values_without_losing_probabilities(
             usage: None,
         },
         DecisionEvidence {
+            decision_point: None,
             model_id: Some("reported".into()),
             criteria_version: "criteria",
             state_hash: "state-hash",
@@ -329,6 +331,7 @@ fn supporter_sentinel_verdict_is_visible_in_activity_feed() {
             usage: None,
         },
         DecisionEvidence {
+            decision_point: None,
             model_id: Some("fixture-model".into()),
             criteria_version: "fixture-criteria",
             state_hash: "private-state",
@@ -389,7 +392,7 @@ fn supporter_feed_sentinel_budget_preserves_safe_fields_and_redaction() {
         feed,
         vec![json!({
             "time": 100, "team_id": "team_aabbccdd", "kind": "sentinel", "label": "redacted",
-            "confidence_band": "unknown", "action": "decision", "reason": "budget_exhausted",
+            "confidence_band": "unknown", "action": "decision", "decision_point": "sentinel", "reason": "budget_exhausted",
             "budget_reached": true, "fallback": true
         })]
     );
