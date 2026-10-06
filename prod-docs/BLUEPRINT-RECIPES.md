@@ -114,6 +114,8 @@ adds a journaled branch per prompt and escalates the rest.
 
 Create a pipeline from one JSON or YAML file, or start with a named recipe and replace its declared placeholders. Use
 `--dry-run` to see the normalized chain and each validation check before creating it.
+Use `codeterm blueprint nodes [--json]` to inspect the available trigger, step, converter and event-source capabilities;
+use `codeterm blueprint log <ID> [--limit N] [--json]` to inspect bounded per-step run history.
 
 <!-- blueprint-pipeline-recipe:echo -->
 ### echo
