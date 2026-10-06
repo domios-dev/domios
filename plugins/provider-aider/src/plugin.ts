@@ -118,12 +118,17 @@ function isCodetermOnlyCommandList(commands: string[]): boolean {
   return commands.length > 0 && commands.every((command) => command.startsWith("codeterm "));
 }
 
+function isStartupDialog(question: string): boolean {
+  return GITIGNORE_QUESTION_RE.test(question) || DOCS_URL_QUESTION_RE.test(question);
+}
+
 function parsePrompt(text: string): ParsedPrompt | null {
   const screen = String(text || "");
   const lines = screen.split(/\r?\n/);
   for (let i = 0; i < lines.length; i++) {
     const question = lines[i].trim();
     if (!PROMPT_QUESTION_RE.test(question)) continue;
+    if (isStartupDialog(question)) continue;
     const options: [string, string][] = [["Yes", "1"], ["No", "2"]];
     return { question, options };
   }
