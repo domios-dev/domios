@@ -458,7 +458,9 @@ fn blueprint_delivery_route_claim_journal_failure_finishes_failed_without_replay
         |_, _, _, _| panic!("journal refusal prevents effect"),
         |_, _, stage| {
             if matches!(stage, super::provenance::Stage::RouteClaim) {
-                Err(std::io::Error::other("interrupted after durable claim"))
+                Err(super::scheduler::known_pre_effect_journal_refusal(
+                    "route claim rejected before effect",
+                ))
             } else {
                 Ok(())
             }
@@ -488,6 +490,51 @@ fn blueprint_delivery_route_claim_journal_failure_finishes_failed_without_replay
     assert_eq!(
         records[0].handlers[0].reason.as_deref(),
         Some("journal_route_claim_failed")
+    );
+}
+
+#[test]
+fn blueprint_delivery_ambiguous_route_claim_journal_error_stays_unconfirmed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sentinels.json");
+    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let store = Arc::new(Mutex::new(Store::new(path.clone(), clock.clone())));
+    let job = create(
+        &mut store.lock(),
+        false,
+        json!({"done":[{"id":"attempt","type":"notify","parameters":{}}]}),
+    );
+    let lease = store.lock().due().unwrap().remove(0);
+    super::scheduler::advance(
+        &store,
+        &lease,
+        &super::probe::Output {
+            bytes: b"done".to_vec(),
+            text: "done".into(),
+            ..Default::default()
+        },
+        || {
+            Classification::regex(Verdict {
+                bucket: "done".into(),
+                confidence: 1.0,
+            })
+        },
+        |job, transition, handler| store.lock().claim_handler(job, transition, handler),
+        |_, _, _, _| panic!("ambiguous route claim must not run the effect"),
+        |_, _, stage| {
+            if matches!(stage, super::provenance::Stage::RouteClaim) {
+                Err(std::io::Error::other("interrupted after durable claim"))
+            } else {
+                Ok(())
+            }
+        },
+    );
+    let current = store.lock();
+    let claim = &current.get(&job.id).unwrap().transitions[0].handlers[0];
+    assert_eq!(claim.status, Status::Unconfirmed);
+    assert_eq!(
+        claim.reason.as_deref(),
+        Some("route_claim_journal_unconfirmed")
     );
 }
 
