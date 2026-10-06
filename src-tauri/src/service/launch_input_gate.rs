@@ -514,7 +514,10 @@ impl ServiceContext {
                     provider.directory_trust_prompt_response(&screen).is_some()
                 })
                 .unwrap_or(false);
-            if delegated_role {
+            let onboarding_response = self.agent_registry.with_provider(agent_id, |provider| {
+                provider.launch_onboarding_response(&screen)
+            });
+            if delegated_role || onboarding_response.is_some() {
                 let decision = self.respond_to_launch_onboarding(
                     &attempt.tab_id,
                     agent_id,
