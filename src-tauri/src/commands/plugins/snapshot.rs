@@ -77,6 +77,7 @@ fn enrich_from_manifest_with_icon(
         "view": cap_bool("view"),
         "chat_backend": cap_bool("chatBackend") || cap_present("chatBackend"),
         "chat_preprocessor": cap_bool("chatPreprocessor") || cap_present("chatPreprocessor"),
+        "graph_nodes": cap_enabled("graphNodes"),
     });
     // Persisted grants.yaml override wins over the manifest request. Keys are canonical snake_case, camelCase accepted as fallback.
     let grants = crate::plugin::js_runtime::grants::load_grants(dir);
@@ -735,5 +736,50 @@ mod tests {
         // Second row isn't in the channel cache → still present, installed flag honest.
         assert_eq!(market[1]["installed"], serde_json::json!(true));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn enrich_reports_graph_nodes_capability() {
+        let dir = std::env::temp_dir().join(format!("ct-graph-nodes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let manifest = serde_json::json!({
+            "id": "grapher",
+            "version": "1.0.0",
+            "displayName": "Grapher",
+            "capabilities": {
+                "graphNodes": {
+                    "converters": [{ "from": "video", "to": "audio" }],
+                    "eventSources": [{ "kind": "fixture.event", "title": "Fixture" }]
+                }
+            },
+        });
+        let mut entry = serde_json::json!({ "id": "grapher" });
+        enrich_from_manifest_with_icon(&mut entry, &dir, &manifest, None);
+        assert_eq!(entry["capabilities"]["graph_nodes"], serde_json::json!(true));
+        assert_eq!(entry["capabilities"]["agent_provider"], serde_json::json!(false));
+
+        let plain = serde_json::json!({ "id": "plain", "version": "1.0.0", "displayName": "Plain" });
+        let mut plain_entry = serde_json::json!({ "id": "plain" });
+        enrich_from_manifest_with_icon(&mut plain_entry, &dir, &plain, None);
+        assert_eq!(
+            plain_entry["capabilities"]["graph_nodes"],
+            serde_json::json!(false)
+        );
+
+        let disabled = serde_json::json!({
+            "id": "off",
+            "version": "1.0.0",
+            "displayName": "Off",
+            "capabilities": { "graphNodes": false },
+        });
+        let mut disabled_entry = serde_json::json!({ "id": "off" });
+        enrich_from_manifest_with_icon(&mut disabled_entry, &dir, &disabled, None);
+        assert_eq!(
+            disabled_entry["capabilities"]["graph_nodes"],
+            serde_json::json!(false)
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
