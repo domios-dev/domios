@@ -114,6 +114,15 @@ console.log("\n--- idle / busy detection ---\n");
   assert(!MODE_PROMPT_RE.test(lastNonEmptyLine(busyScreen)), "busy screen does not end with prompt");
 }
 
+console.log("\n--- structural composer readiness ---\n");
+{
+  assert(runtime.screenHasTui(idleScreen), "idle aider screen with composer prompt is ready");
+  assert(runtime.screenHasTui("ask>"), "mode-prefixed composer prompt is ready");
+  assert(!runtime.screenHasTui(busyScreen), "busy screen is not ready");
+  assert(!runtime.screenHasTui("aider"), "banner without composer prompt is not ready");
+  assert(!runtime.screenHasTui(">"), "bare prompt without aider signal is not ready");
+}
+
 console.log("\n--- banner model parse ---\n");
 {
   eq(extractBannerModel("Model: openai/gpt-5.4-mini\n"), "openai/gpt-5.4-mini", "banner model parsed");
