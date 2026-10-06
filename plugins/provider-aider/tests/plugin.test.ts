@@ -345,6 +345,12 @@ console.log("\n--- launch onboarding auto-answer ---\n");
   eq(runtime.launchOnboardingResponse!("no prompt here"), null, "no prompt yields no onboarding step");
   eq(runtime.parsePrompt(gitignoreScreen), null, "parsePrompt leaves the gitignore startup dialog to onboarding");
   assert(!!runtime.launchOnboardingResponse!(gitignoreScreen), "launchOnboardingResponse still answers the gitignore startup dialog");
+  const trailingSpaceScreen = [
+    "You can skip this check with --no-gitignore",
+    "Add .aider* to .gitignore (recommended)? (Y)es/(N)o [Yes]: ",
+  ].join("\n");
+  eq(runtime.parsePrompt(trailingSpaceScreen), null, "trailing-space gitignore line is not an owner prompt");
+  assert(!!runtime.launchOnboardingResponse!(trailingSpaceScreen), "trailing-space gitignore line is still a launch onboarding step");
 }
 
 console.log("\n--- manifest paste and preprocessor capability ---\n");
