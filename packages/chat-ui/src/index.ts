@@ -39,3 +39,4 @@ export {
   shortSha,
 } from "./codeterm/reportOutcome";
 export type { ReportOutcomeClass, ReportTaskOutcome } from "./codeterm/reportOutcome";
+export type { DsTasksBlockComponent } from "./MessageBubble";
