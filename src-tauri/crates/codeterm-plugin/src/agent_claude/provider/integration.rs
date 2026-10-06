@@ -591,8 +591,11 @@ mod tests {
         let current = serde_json::json!({
             "hooks": [{
                 "type": "command",
-                "command": "curl \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" -H \"Authorization: Bearer $CODETERM_API_TOKEN\"",
-                "_source": CODETERM_HOOK_MARKER
+                "command": format!(
+                    "{} --silent --request POST \"$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/session_start\" --header \"Content-Type: application/json\" --header \"Authorization: Bearer $CODETERM_API_TOKEN\" {} --header \"X-CodeTerm-Binding-Nonce: $CODETERM_SESSION_BINDING_NONCE\" --data-binary \"@-\"",
+                    if cfg!(windows) { "curl.exe" } else { "curl" },
+                    marker_header_arg()
+                )
             }]
         });
 
