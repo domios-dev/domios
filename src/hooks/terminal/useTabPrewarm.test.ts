@@ -181,7 +181,11 @@ test("App provider key invokes the hook prewarm callback exactly once", async ()
 
 test("switching through many tabs keeps the mounted set bounded and keeps a history reader", async () => {
   installDom();
-  const workspaces = { "ws-1": ["a1", "a2", "a3", "a4"], "ws-2": ["b1", "b2", "b3", "b4"] };
+  const tabsPerWorkspace = MOUNTED_TAB_CAPACITY + 2;
+  const workspaces = {
+    "ws-1": Array.from({ length: tabsPerWorkspace }, (_, index) => `a${index + 1}`),
+    "ws-2": Array.from({ length: tabsPerWorkspace }, (_, index) => `b${index + 1}`),
+  };
   const live = [...workspaces["ws-1"], ...workspaces["ws-2"]];
   let mounted: ReadonlySet<string> = new Set();
   function Probe({ workspaceId, activeTabId }: { workspaceId: "ws-1" | "ws-2"; activeTabId: string }) {

@@ -3,7 +3,7 @@ import { isTerminalReadingHistory } from "./terminalHistoryReaders";
 
 export const TAB_PREWARM_LIMIT = 2;
 /** Each mounted terminal holds a full scrollback buffer and a WebGL context. */
-export const MOUNTED_TAB_CAPACITY = 4;
+export const MOUNTED_TAB_CAPACITY = 6;
 
 export function recordRecentTab(
   recent: readonly string[],
