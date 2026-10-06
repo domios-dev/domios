@@ -469,6 +469,21 @@ impl ServiceContext {
             })
     }
 
+    pub(super) fn startup_attempt_binding_observed(&self, authority: &StartupAuthority) -> bool {
+        self.mux
+            .read()
+            .get_tab(&authority.child_tab_id)
+            .is_some_and(|tab| {
+                tab.pty_id.as_deref() == Some(authority.attempt_id.as_str())
+                    && tab.session_binding_nonce == authority.binding_nonce
+                    && authority
+                        .session_id
+                        .as_ref()
+                        .is_none_or(|session| tab.agent_session_id.as_ref() == Some(session))
+                    && tab.launch_session_authenticated()
+            })
+    }
+
     pub(crate) fn publish_agent_startup_report(
         &self,
         supervisor_tab_id: &str,
@@ -641,7 +656,9 @@ impl ServiceContext {
                 AgentStartupNoticeOutcome::Resolved => return,
                 AgentStartupNoticeOutcome::Overdue { exit_code } => exit_code,
             };
-            if !service.startup_attempt_is_current(&authority) {
+            if !service.startup_attempt_is_current(&authority)
+                || service.startup_attempt_binding_observed(&authority)
+            {
                 return;
             }
             let mut notice = agent_startup_notice_event(&agent_tab_id, &agent_title, &attempt_id);
@@ -649,6 +666,11 @@ impl ServiceContext {
                 crate::service::launch_readiness::owner_prompt_is_active(&agent_tab_id);
             if waiting_for_owner_prompt {
                 notice["waiting_for_owner_prompt"] = serde_json::Value::Bool(true);
+            }
+            if !service.startup_attempt_is_current(&authority)
+                || service.startup_attempt_binding_observed(&authority)
+            {
+                return;
             }
             service.publish_agent_startup_report(
                 &supervisor_tab_id,

@@ -169,24 +169,26 @@ fn unattended_launch_prompt_jev_chooses_among_declared_trust_options() {
     for screen in [NO_FIRST, YES_FOCUSED, RULE_AFFIRMATIVE, PREAPPROVED_LOCAL_NO_FIRST] {
         let target = trust_target(screen);
         assert_eq!(target.kind, Kind::DirectoryTrust);
-        assert_eq!(
-            provider.directory_trust_prompt_response(screen),
-            Some(DirectoryTrustPromptResponse::Answer {
-                step: target.step.clone()
-            }),
-            "the written step is exactly the provider-declared trust key"
-        );
         let index = target
             .prompt
             .options
             .iter()
             .position(|option| option.value == target.choice)
             .unwrap();
+        let steps = provider
+            .live_prompt_response(index, screen)
+            .expect("provider-declared trust key sequence");
         assert_eq!(
-            provider
-                .live_prompt_response(index, screen)
-                .and_then(|steps| steps.into_iter().next()),
-            Some(target.step.clone())
+            provider.directory_trust_prompt_response(screen),
+            Some(DirectoryTrustPromptResponse::Answer {
+                step: steps[0].clone()
+            }),
+            "the first classified key identifies the provider-declared option"
+        );
+        assert_eq!(
+            steps.concat(),
+            target.step,
+            "the target contains the entire provider-declared key sequence"
         );
         let DecisionQuestion::Choice { options } =
             safe_choice::safe_choice_question(&metadata_for(&target)).expect("choice question")
@@ -217,7 +219,7 @@ fn unattended_launch_prompt_jev_chooses_among_declared_trust_options() {
             UnattendedRoute::Model
         );
     }
-    assert_eq!(trust_target(NO_FIRST).step, b"j");
+    assert_eq!(trust_target(NO_FIRST).step, b"j\r");
     assert_eq!(trust_target(YES_FOCUSED).step, b"\r");
     assert_eq!(
         trust_target(NO_FIRST).choice,
@@ -428,6 +430,11 @@ fn unattended_launch_prompt_fallback_runs_the_deterministic_responder() {
     let (mux, tab_id) = cron_tab();
     let (fixture, _guard) = fixture_for(mux);
     let pty = pty_of(&fixture, &tab_id);
+    {
+        let mut screen_state = fixture.service.screen_state.lock();
+        screen_state.resize(&pty, 120, 40);
+        screen_state.process(&pty, NO_FIRST.as_bytes());
+    }
     let declared = trust_target(NO_FIRST).choice;
     for verdict in [
         adapter_verdict(TRUST_OR_PERMISSION_PROMPT, Some(OTHER), 0.95),
@@ -646,7 +653,7 @@ fn sentinel_respond_prompt_preapproved_folder_trust_uses_declared_target() {
         })
         .expect("declared affirmative option");
     assert_eq!(target.prompt.options[affirmative].value, target.choice);
-    assert_eq!(target.step, b"j");
+    assert_eq!(target.step, b"j\r");
 
     let expected = serde_json::json!({
         "kind": codeterm_types::pty::PromptKind::DirectoryTrust,

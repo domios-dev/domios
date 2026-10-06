@@ -780,6 +780,7 @@ impl ServiceContext {
             receipt.metadata.session_key, envelope.observation.occurrence
         );
         let occurrence = format!("{episode}:{}", target.frame_key);
+        let trust_occurrence = target.frame_key.clone();
         let screen = snapshot.screen_text.clone();
         let claimed = match target.kind {
             Kind::Update => {
@@ -791,7 +792,7 @@ impl ServiceContext {
                 &target.frame_key,
             ),
             Kind::DirectoryTrust => {
-                super::super::directory_trust::claim_model_trust_step(tab_id, &screen)
+                super::super::directory_trust::claim_model_trust_step(tab_id, &trust_occurrence)
             }
             Kind::Permission => self
                 .prompt_detector
@@ -815,7 +816,7 @@ impl ServiceContext {
                 super::super::directory_trust::model_onboarding_step_revision(&target.frame_key)
             }
             Kind::DirectoryTrust => {
-                super::super::directory_trust::model_trust_step_revision(&screen)
+                super::super::directory_trust::model_trust_step_revision(&trust_occurrence)
             }
             Kind::Permission => super::super::permission_auto_confirm::observation_revision(tab_id),
         };
@@ -878,7 +879,9 @@ impl ServiceContext {
                         )
                     }
                     Kind::DirectoryTrust => super::super::directory_trust::finish_model_trust_step(
-                        &tab, &screen, current,
+                        &tab,
+                        &trust_occurrence,
+                        current,
                     ),
                     Kind::Permission => {}
                     Kind::Update if !current => {
