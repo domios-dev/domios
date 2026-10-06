@@ -27,6 +27,8 @@ mod agent_commands;
 mod delivery_modal;
 #[path = "parity_test/model_catalogue.rs"]
 mod model_catalogue;
+#[path = "parity_test/model_switch.rs"]
+mod model_switch;
 #[path = "parity_test/unbound_submit_recovery.rs"]
 mod unbound_submit_recovery;
 #[path = "parity_test/update_prompt.rs"]
