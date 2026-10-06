@@ -50,7 +50,7 @@ A tab title is one word. A tab that is not task-bound may choose a stable name w
 
 ### Rendering in the chat
 
-Replies render as GitHub-flavored markdown. When a picture beats a paragraph, a `mermaid` fence renders a diagram (labels are sanitized and click handlers disabled) and an `html` fence runs with bundled Tailwind v4, CSS, and JavaScript. Render a known local file without copying it via standalone `@ct-page ABSOLUTE_PATH`, `@ct-image ABSOLUTE_PATH`, or `@ct-document ABSOLUTE_PATH`; unknown files go through `ct.file.pick()`. Open an in-app Guide section with a standalone `@ct-guide <section-id>` paragraph. Direct network and arbitrary filesystem access are blocked. Inline HTML is for light markup (`<kbd>`, `<mark>`, `<details>`/`<summary>`, `<sub>`, `<sup>`, `<span style="color:…">`, `colspan`); scripts, iframes, event handlers, and `position:`/`url()` styles are stripped.
+Replies render as GitHub-flavored markdown. When a picture beats a paragraph, a `mermaid` fence renders a diagram (labels are sanitized and click handlers disabled) and an `html` fence runs with bundled Tailwind v4, CSS, and JavaScript. Render a known local file without copying it via standalone `@ds-page ABSOLUTE_PATH`, `@ds-image ABSOLUTE_PATH`, or `@ds-document ABSOLUTE_PATH`; unknown files go through `ct.file.pick()`. Open an in-app Guide section with a standalone `@ds-guide <section-id>` paragraph. Direct network and arbitrary filesystem access are blocked. Inline HTML is for light markup (`<kbd>`, `<mark>`, `<details>`/`<summary>`, `<sub>`, `<sup>`, `<span style="color:…">`, `colspan`); scripts, iframes, event handlers, and `position:`/`url()` styles are stripped.
 
 ### Secrets
 
