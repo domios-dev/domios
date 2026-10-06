@@ -400,7 +400,8 @@ async fn delivery_reaches_the_general_agent_once_as_a_pebble_event() {
     assert_eq!(marker.kind, "pebble");
     assert_eq!(marker.attr("plugin"), Some("pebble"));
     assert_eq!(marker.attr("trust"), None);
-    assert!(wrapped.ends_with("\nFocus mode enabled"));
+    let message = codeterm_types::domios::parse_message(wrapped).expect("closed Domios frame");
+    assert_eq!(message.body, "Focus mode enabled");
 }
 
 #[tokio::test]
@@ -546,7 +547,8 @@ async fn pebble_receiver_target_live_binding_receives_the_event_with_the_pebble_
     let marker = crate::message_markers::parse_host_injected(wrapped).expect("leading marker");
     assert_eq!(marker.kind, "pebble");
     assert_eq!(marker.attr("trust"), None);
-    assert!(wrapped.ends_with("\nFocus mode enabled"));
+    let message = codeterm_types::domios::parse_message(wrapped).expect("closed Domios frame");
+    assert_eq!(message.body, "Focus mode enabled");
 }
 
 #[tokio::test]

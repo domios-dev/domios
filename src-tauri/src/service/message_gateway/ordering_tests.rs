@@ -12,6 +12,7 @@ use crate::service::test_fixture::ServiceFixture;
 use crate::service::WorkerTurnSignal;
 
 struct BoundWorker {
+    _pty: crate::service::test_fixture::TestPtyGuard,
     fx: ServiceFixture,
     worker: String,
     orch: String,
@@ -50,6 +51,10 @@ fn seed_bound_worker() -> BoundWorker {
     mux.get_tab_mut(&worker).unwrap().agent_type = Some("claude".into());
 
     let fx = ServiceFixture::new(mux);
+    fx.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("claude"),
+    ));
+    let pty = fx.bind_test_pty_session(&worker, "worker-session", "worker-nonce");
     let mut plan = Plan::new(
         "rearm ordering".into(),
         fx.temp.path().display().to_string(),
@@ -76,6 +81,7 @@ fn seed_bound_worker() -> BoundWorker {
         .assign_task(&plan.id, &task_id, &worker, None, 3)
         .unwrap();
     BoundWorker {
+        _pty: pty,
         fx,
         worker,
         orch,
@@ -87,13 +93,6 @@ fn seed_bound_worker() -> BoundWorker {
 /// Bind the exact live Worker session on both sides of the seam: the tab record
 /// the daemon reads, and the attempt the plan write authorizes against.
 fn bind_live_worker_session(bw: &BoundWorker) {
-    {
-        let mut mux = bw.fx.service.mux.write();
-        let tab = mux.get_tab_mut(&bw.worker).unwrap();
-        tab.agent_session_id = Some("worker-session".into());
-        tab.session_binding_nonce = Some("worker-nonce".into());
-        tab.reported_session_binding_nonce = Some("worker-nonce".into());
-    }
     bw.fx
         .service
         .plan_store

@@ -22,6 +22,17 @@ pub(crate) struct ServiceFixture {
     pub(crate) temp: tempfile::TempDir,
 }
 
+pub(crate) struct TestPtyGuard {
+    pty: Arc<TimedMutex<crate::pty::manager::PtyManager>>,
+    pty_id: String,
+}
+
+impl Drop for TestPtyGuard {
+    fn drop(&mut self) {
+        let _ = self.pty.lock().kill(&self.pty_id);
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct RecordingHierarchyReportDelivery {
     pub(crate) writes: Mutex<Vec<(String, String)>>,
@@ -83,6 +94,34 @@ impl ServiceFixture {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(data_dir).unwrap();
         Self::build(mux, temp, Some(data_dir.to_path_buf()))
+    }
+
+    pub(crate) fn bind_test_pty_session(
+        &self,
+        tab_id: &str,
+        session_id: &str,
+        binding_nonce: &str,
+    ) -> TestPtyGuard {
+        let (pty_id, _) = self
+            .service
+            .pty
+            .lock()
+            .spawn(None, None, 80, 24, HashMap::new())
+            .expect("test PTY");
+        {
+            let mut mux = self.service.mux.write();
+            let tab = mux.get_tab_mut(tab_id).expect("test tab");
+            tab.backing = crate::multiplexer::types::TabBacking::Pty;
+            tab.pty_id = Some(pty_id.clone());
+            tab.agent_session_id = Some(session_id.to_string());
+            tab.session_binding_nonce = Some(binding_nonce.to_string());
+            tab.reported_session_binding_nonce = Some(binding_nonce.to_string());
+            tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
+        }
+        TestPtyGuard {
+            pty: Arc::clone(&self.service.pty),
+            pty_id,
+        }
     }
 
     fn build(
