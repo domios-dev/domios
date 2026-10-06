@@ -190,7 +190,7 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
 
 /// The node source shape: probe, observe kind, or input metadata without inline text,
 /// path directories or the URL query.
-fn source_descriptor(job: &Sentinel) -> Value {
+pub(crate) fn source_descriptor(job: &Sentinel) -> Value {
     if let Some(input) = &job.input {
         use codeterm_types::sentinel_input::DataRef;
         let ref_type = match &input.data {

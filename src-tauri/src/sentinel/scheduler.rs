@@ -24,7 +24,7 @@ pub struct Handle {
     pub store: Arc<Mutex<Store>>,
     pending_run_bindings: Arc<Mutex<BTreeMap<String, super::run_binding::PendingRunBinding>>>,
     wake: Arc<(std::sync::Mutex<u64>, std::sync::Condvar)>,
-    probe_owner: Arc<probe::owner::ProbeResourceOwner>,
+    pub(super) probe_owner: Arc<probe::owner::ProbeResourceOwner>,
     app: Option<tauri::AppHandle>,
     _shutdown: Option<Arc<crate::crash::shutdown::ShutdownSubscription>>,
 }
