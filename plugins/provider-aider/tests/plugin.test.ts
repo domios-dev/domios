@@ -294,13 +294,13 @@ console.log("\n--- history session blocks ---\n");
 console.log("\n--- multi-line chat delivery ---\n");
 {
   eq(deliverText("hello"), "hello", "single-line text is untouched");
-  eq(deliverText("hello\nworld"), "{domios}\nhello\nworld\n{/domios}", "multi-line text becomes one block");
-  eq(deliverText("a\nb\n\nc\nd"), "{domios}\na\nb\n\nc\nd\n{/domios}", "blank lines stay inside one block");
+  eq(deliverText("hello\nworld"), "{domios\nhello\nworld\ndomios}", "multi-line text becomes one block");
+  eq(deliverText("a\nb\n\nc\nd"), "{domios\na\nb\n\nc\nd\ndomios}", "blank lines stay inside one block");
   eq(deliverText("x\ny"), wrapMultiline("x\ny"), "wrapMultiline matches deliverText for multi-line input");
   const long = Array.from({ length: 300 }, (_, i) => `line ${i}`).join("\n");
   const wrapped = deliverText(long);
-  assert(wrapped.startsWith("{domios}\n"), "long multi-line text starts with one block");
-  assert(wrapped.endsWith("{/domios}"), "long multi-line text ends with one block");
+  assert(wrapped.startsWith("{domios\n"), "long multi-line text starts with one block");
+  assert(wrapped.endsWith("domios}"), "long multi-line text ends with one block");
   const blocks = wrapped.match(/\{[a-z0-9]+\}[\s\S]*?\{\/[a-z0-9]+\}/g) || [];
   eq(blocks.length, 1, "one send is exactly one block");
   assert(wrapped.includes("line 0\n") && wrapped.includes("line 299"), "the whole payload stays inside the block");

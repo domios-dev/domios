@@ -31,7 +31,7 @@
       "kind": "tui_input_drained"
     },
     "sessionIdInjection": "none",
-    "paste": "plain_lines",
+    "inputFallbackMs": 5000,
     "statusBarRows": 2,
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
