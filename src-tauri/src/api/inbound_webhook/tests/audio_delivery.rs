@@ -285,7 +285,10 @@ impl Run {
         let marker = crate::message_markers::parse_host_injected(wrapped).expect("leading marker");
         assert_eq!(marker.kind, "pebble");
         assert_eq!(marker.attr("trust"), None);
-        (target.clone(), marker.payload.lines().map(str::to_string).collect())
+        (
+            target.clone(),
+            marker.payload.lines().map(str::to_string).collect(),
+        )
     }
 
     fn engine_calls(&self) -> usize {

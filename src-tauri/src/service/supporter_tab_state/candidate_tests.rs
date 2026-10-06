@@ -19,12 +19,14 @@ fn supporter_first_opinion_cold_call_budget_does_not_extend_receipt_authorizatio
     let call_started_at = captured_at + std::time::Duration::from_secs(4);
     let receipt_deadline = candidates::receipt_authorization_deadline(captured_at, 3_000);
     let directory = tempfile::tempdir().unwrap();
-    let runtime = crate::service::supporter::SupporterRuntime::new(
-        directory.path().join("supporter"),
-    );
+    let runtime =
+        crate::service::supporter::SupporterRuntime::new(directory.path().join("supporter"));
     let call_deadline = runtime.decision_deadline("fixture", 3_000, call_started_at);
 
-    assert_eq!(receipt_deadline, captured_at + std::time::Duration::from_secs(3));
+    assert_eq!(
+        receipt_deadline,
+        captured_at + std::time::Duration::from_secs(3)
+    );
     assert_eq!(
         call_deadline,
         call_started_at + std::time::Duration::from_secs(5)
@@ -448,17 +450,11 @@ fn supporter_first_opinion_safe_response_bound_receipt_cancels_user_nonce_and_di
             adapter: Some("fixture".into()),
             ..Default::default()
         };
-        candidates::spawn(
-            &host,
-            &config,
-            &id,
-            None,
-            move |verdict, source, valid| {
-                assert!(valid());
-                assert_eq!(source, identity::DecisionSource::Adapter);
-                *save.lock() = verdict;
-            },
-        )
+        candidates::spawn(&host, &config, &id, None, move |verdict, source, valid| {
+            assert!(valid());
+            assert_eq!(source, identity::DecisionSource::Adapter);
+            *save.lock() = verdict;
+        })
         .unwrap()
         .join()
         .unwrap();

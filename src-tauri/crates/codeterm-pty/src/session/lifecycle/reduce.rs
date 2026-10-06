@@ -458,7 +458,9 @@ fn retained_remote_ownership_release_sequences(
         .into_values()
         .flat_map(|mut seqs| {
             seqs.sort_unstable();
-            let skip = seqs.len().saturating_sub(REMOTE_OWNERSHIP_RELEASE_AUDIT_LIMIT);
+            let skip = seqs
+                .len()
+                .saturating_sub(REMOTE_OWNERSHIP_RELEASE_AUDIT_LIMIT);
             seqs.into_iter().skip(skip)
         })
         .collect()

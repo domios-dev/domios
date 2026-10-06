@@ -249,9 +249,10 @@ impl ServiceContext {
         }
         let (jobs, live_leases) = storage::committed_workspace(&handle.store, workspace)?;
         let mut grouped: BTreeMap<Option<String>, Vec<Sentinel>> = BTreeMap::new();
-        for job in jobs.iter().filter(|job| {
-            job.agent_authored && job.scenario_id.as_deref() == Some(job.id.as_str())
-        }) {
+        for job in jobs
+            .iter()
+            .filter(|job| job.agent_authored && job.scenario_id.as_deref() == Some(job.id.as_str()))
+        {
             grouped.entry(job.team_id.clone()).or_default();
         }
         if grouped.is_empty() {
@@ -310,12 +311,16 @@ impl ServiceContext {
             if snapshot.nodes.len() > node_room {
                 combined.truncated = true;
             }
-            combined.nodes.extend(snapshot.nodes.into_iter().take(node_room));
+            combined
+                .nodes
+                .extend(snapshot.nodes.into_iter().take(node_room));
             let edge_room = graph::MAX_EDGES.saturating_sub(combined.edges.len());
             if snapshot.edges.len() > edge_room {
                 combined.truncated = true;
             }
-            combined.edges.extend(snapshot.edges.into_iter().take(edge_room));
+            combined
+                .edges
+                .extend(snapshot.edges.into_iter().take(edge_room));
         }
         combined.revision = format!("{:x}", Sha256::digest(revisions.join("|")));
         combined.all_teams = true;

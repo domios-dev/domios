@@ -107,10 +107,7 @@ struct Pending<H: ShadowHost> {
     model_verdict: Option<identity::correlation::ModelVerdict>,
 }
 
-pub(super) fn receipt_authorization_deadline(
-    captured_at: Instant,
-    configured_ms: u64,
-) -> Instant {
+pub(super) fn receipt_authorization_deadline(captured_at: Instant, configured_ms: u64) -> Instant {
     captured_at + std::time::Duration::from_millis(configured_ms.max(1)).min(DEADLINE)
 }
 

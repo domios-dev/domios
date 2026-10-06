@@ -91,7 +91,12 @@ impl ServiceContext {
                 })
                 .flatten()
             {
-                resolve_classified_manual_update_prompt_fallback(self, snapshot, prompt, safe_choice);
+                resolve_classified_manual_update_prompt_fallback(
+                    self,
+                    snapshot,
+                    prompt,
+                    safe_choice,
+                );
             }
             return;
         }
@@ -127,9 +132,9 @@ impl ServiceContext {
 
     fn preserve_owner_prompt(&self, snapshot: &TabStateSnapshot) -> bool {
         let tab = self.mux.read().get_tab(&snapshot.tab_id).cloned();
-        let Some(tab) = tab.filter(|tab| {
-            !crate::service::unattended_launch::owns_prompt_answers(tab)
-        }) else {
+        let Some(tab) =
+            tab.filter(|tab| !crate::service::unattended_launch::owns_prompt_answers(tab))
+        else {
             return false;
         };
         let Some(provider) = self.agent_registry.provider_arc(&snapshot.agent_type) else {
@@ -139,9 +144,9 @@ impl ServiceContext {
             provider.parse_prompt(&snapshot.screen_text)
         });
         let update = crate::service::output::manual_update_prompt_candidate(&snapshot.screen_text)
-            && parsed.as_ref().is_some_and(|prompt| {
-                provider.update_prompt_safe_choice(prompt).is_some()
-            });
+            && parsed
+                .as_ref()
+                .is_some_and(|prompt| provider.update_prompt_safe_choice(prompt).is_some());
         let trust = provider
             .parse_directory_trust_prompt(&snapshot.screen_text)
             .is_some();

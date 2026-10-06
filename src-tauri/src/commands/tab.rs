@@ -821,7 +821,9 @@ pub async fn chat_send_text(
         crate::chatpipeline::is_user_turn_send(false, false, svc.tab_has_agent(&tab_id));
     let reservation = if svc.tab_chat_backing(&tab_id).is_none() {
         Some(svc.reserve_user_send(&tab_id, client_token.clone())?)
-    } else { None };
+    } else {
+        None
+    };
     let svc = svc.inner().clone();
     tokio::task::spawn_blocking(move || {
         if let Some(reservation) = reservation {
@@ -829,9 +831,13 @@ pub async fn chat_send_text(
         } else {
             let (text, pad_file) = svc.prepare_chat_send_text(&tab_id, text, run_stages)?;
             let status = svc.start_chat_send(&tab_id, text, None, client_token)?;
-            Ok(crate::service::agent_pad::ChatSendResult::new(status, pad_file))
+            Ok(crate::service::agent_pad::ChatSendResult::new(
+                status, pad_file,
+            ))
         }
-    }).await.map_err(|error| error.to_string())?
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]

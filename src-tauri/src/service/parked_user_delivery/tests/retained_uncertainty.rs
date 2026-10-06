@@ -12,7 +12,11 @@ fn unresolved_written_payload_stays_uncertain_without_holding_the_owner() {
     let accepted = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-retained");
     let writes = Arc::new(AtomicUsize::new(0));
     let count = writes.clone();
-    let owner = fixture.service.pending_delivery_payloads.user_sends.tab(&tab);
+    let owner = fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .tab(&tab);
     let _boundary = UserSubmitBoundary::install(
         &tab,
         Arc::new(move |_, _| {

@@ -50,7 +50,10 @@ fn supporter_decision_error_categories_are_sanitized_into_records() {
             DecisionError::Unavailable("token=private-unavailable".into()),
             DecisionErrorCategory::Unavailable,
         ),
-        (DecisionError::Unsupported, DecisionErrorCategory::Unsupported),
+        (
+            DecisionError::Unsupported,
+            DecisionErrorCategory::Unsupported,
+        ),
         (
             DecisionError::Parse("token=private-parse".into()),
             DecisionErrorCategory::Parse,

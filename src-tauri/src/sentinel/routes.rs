@@ -370,7 +370,10 @@ mod tests {
         let notification_store = fixture.service.notif.lock();
         let notifications = notification_store.list(false);
         assert_eq!(notifications.len(), 1);
-        assert_eq!(notifications[0].tab_id.as_deref(), Some(creator_tab_id.as_str()));
+        assert_eq!(
+            notifications[0].tab_id.as_deref(),
+            Some(creator_tab_id.as_str())
+        );
         assert_eq!(
             notifications[0].body.as_deref(),
             Some("Reason: transition_budget_exhausted")

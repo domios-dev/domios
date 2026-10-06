@@ -11,14 +11,8 @@ fn tab_release_ownership_defaults_to_the_calling_tab_and_accepts_an_explicit_id(
         }
     ));
 
-    let explicit = Cli::try_parse_from([
-        "codeterm",
-        "tab",
-        "release-ownership",
-        "--tab",
-        "tab-a",
-    ])
-    .expect("release-ownership accepts an explicit tab");
+    let explicit = Cli::try_parse_from(["codeterm", "tab", "release-ownership", "--tab", "tab-a"])
+        .expect("release-ownership accepts an explicit tab");
     assert!(matches!(
         explicit.command,
         Commands::Tab {

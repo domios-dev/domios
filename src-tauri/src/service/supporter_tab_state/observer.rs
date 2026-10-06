@@ -216,7 +216,11 @@ pub(super) fn observe_user_delivery_readiness(
         .get(&adapter_id)
         .ok_or_else(|| "supporter_adapter_unavailable".to_string())?;
     let mut prepared = prepared;
-    let envelope = prepared.1.envelope.as_mut().ok_or("supporter_observation_invalid")?;
+    let envelope = prepared
+        .1
+        .envelope
+        .as_mut()
+        .ok_or("supporter_observation_invalid")?;
     envelope.adapter = Some(adapter.clone());
     envelope.pty_session_generation = Some(pty_session_generation);
     let metadata = prepared.1.clone();
@@ -263,8 +267,12 @@ pub(super) fn observe_user_delivery_readiness(
     receiver
         .recv_timeout(super::DEADLINE + Duration::from_secs(1))
         .map_err(|error| match error {
-            std::sync::mpsc::RecvTimeoutError::Timeout => "supporter_observation_deadline".to_string(),
-            std::sync::mpsc::RecvTimeoutError::Disconnected => "supporter_observation_cancelled".to_string(),
+            std::sync::mpsc::RecvTimeoutError::Timeout => {
+                "supporter_observation_deadline".to_string()
+            }
+            std::sync::mpsc::RecvTimeoutError::Disconnected => {
+                "supporter_observation_cancelled".to_string()
+            }
         })?
 }
 
@@ -894,7 +902,10 @@ pub(super) fn observation_answers(response: DecisionResponse) -> Result<ShadowVe
                 .or_else(|| probabilities.get(&choice).copied())
                 .filter(|value| value.is_finite() && (0.0..=1.0).contains(value))
                 .ok_or("decision model gave invalid input_area confidence")?;
-            if !matches!(choice.as_str(), "active_modal" | "composer" | "historical_or_draft_text" | OTHER) {
+            if !matches!(
+                choice.as_str(),
+                "active_modal" | "composer" | "historical_or_draft_text" | OTHER
+            ) {
                 return Err("decision model gave unknown input_area".into());
             }
             Some((choice, confidence))

@@ -90,12 +90,12 @@ pub fn read_local_preview_file_core(path: &str, kind: &str) -> Result<LocalPrevi
                 "webp" => "image/webp",
                 "bmp" => "image/bmp",
                 "avif" => "image/avif",
-                _ => {
-                    return Err(
-                        "Image preview supports .png, .jpg, .jpeg, .gif, .webp, .bmp, or .avif"
-                            .into(),
-                    )
-                }
+                // Rendered only through <img>, where SVG scripts and external loads do not run.
+                "svg" => "image/svg+xml",
+                _ => return Err(
+                    "Image preview supports .png, .jpg, .jpeg, .gif, .webp, .bmp, .avif, or .svg"
+                        .into(),
+                ),
             };
             let bytes = bounded_file(&canonical, "Image", IMAGE_PREVIEW_FILE_LIMIT)?;
             Ok(LocalPreviewFile {
@@ -160,6 +160,17 @@ mod tests {
         assert!(read_html_preview_file_core(oversized.to_str().unwrap())
             .unwrap_err()
             .contains("exceeds"));
+    }
+
+    #[test]
+    fn reads_svg_images_as_svg_data_urls() {
+        let temp = tempfile::tempdir().unwrap();
+        let svg = temp.path().join("qr.svg");
+        std::fs::write(&svg, "<svg xmlns='http://www.w3.org/2000/svg'/>").unwrap();
+
+        let image = read_local_preview_file_core(svg.to_str().unwrap(), "image").unwrap();
+        assert_eq!(image.media_type, "image/svg+xml");
+        assert!(image.data.starts_with("data:image/svg+xml;base64,"));
     }
 
     #[test]

@@ -102,11 +102,13 @@ fn insert_with_options(
 fn sentinel_cron_run_transition_budget_resets_without_dropping_history_both_backends() {
     for_backends(|store, _| {
         let job = insert_with_options(store, false, Some(1));
-        assert!(commit(store, |store| {
-            store.stage_bind_run(&job.id, "cron-nightly", "run-one", "tab-one")
-        })
-        .unwrap()
-        .changed);
+        assert!(
+            commit(store, |store| {
+                store.stage_bind_run(&job.id, "cron-nightly", "run-one", "tab-one")
+            })
+            .unwrap()
+            .changed
+        );
         let first = commit(store, Store::stage_due).unwrap().pop().unwrap();
         assert!(commit(store, |store| {
             store.stage_accept_transition(&first.job, "waiting", "transition-one")
@@ -119,16 +121,20 @@ fn sentinel_cron_run_transition_budget_resets_without_dropping_history_both_back
             tab_id: "tab-one".into(),
             bound_at: 1_000,
         };
-        assert!(commit(store, |store| {
-            store.stage_unbind_run(&job.id, &first_binding, "cron_run_finished")
-        })
-        .unwrap()
-        .changed);
-        assert!(commit(store, |store| {
-            store.stage_bind_run(&job.id, "cron-nightly", "run-two", "tab-two")
-        })
-        .unwrap()
-        .changed);
+        assert!(
+            commit(store, |store| {
+                store.stage_unbind_run(&job.id, &first_binding, "cron_run_finished")
+            })
+            .unwrap()
+            .changed
+        );
+        assert!(
+            commit(store, |store| {
+                store.stage_bind_run(&job.id, "cron-nightly", "run-two", "tab-two")
+            })
+            .unwrap()
+            .changed
+        );
 
         let second = commit(store, Store::stage_due).unwrap().pop().unwrap();
         assert_eq!(second.job.run_transitions, 0);

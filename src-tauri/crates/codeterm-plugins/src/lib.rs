@@ -259,7 +259,9 @@ fn dispatch(action: PluginAction) -> Result<serde_json::Value, String> {
             &id,
             &set,
             values_json.as_deref(),
-            secret.as_ref().map(|(field, value)| (field.as_str(), value)),
+            secret
+                .as_ref()
+                .map(|(field, value)| (field.as_str(), value)),
             &grant,
             &revoke,
         ),

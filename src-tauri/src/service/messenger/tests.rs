@@ -117,7 +117,10 @@ fn empty_model_and_mesh_are_dropped() {
 #[test]
 fn brackets_in_name_are_stripped() {
     let p = Messenger::message("Main [dev]", "abcdef12").build();
-    assert_eq!(p, "<domios from=\"tab\" label=\"Main dev\" tab=\"abcdef12\">");
+    assert_eq!(
+        p,
+        "<domios from=\"tab\" label=\"Main dev\" tab=\"abcdef12\">"
+    );
 }
 
 #[test]
@@ -137,9 +140,9 @@ fn mesh_reply_hint_carries_the_return_peer() {
         .from_agent(Some(true))
         .mesh(Some("BLACKSTAR".into()));
     let wrapped = p.wrap("hello");
-    assert!(
-        wrapped.starts_with("<domios from=\"tab\" label=\"Edison\" tab=\"e8a0ac20\" mesh=\"BLACKSTAR\">hello ")
-    );
+    assert!(wrapped.starts_with(
+        "<domios from=\"tab\" label=\"Edison\" tab=\"e8a0ac20\" mesh=\"BLACKSTAR\">hello "
+    ));
     assert!(wrapped.contains("--tab e8a0ac20 --mesh BLACKSTAR]"));
     assert!(wrapped.ends_with(codeterm_types::domios::DOMIOS_CLOSE_TAG));
 }
@@ -175,7 +178,10 @@ fn codeterm_system_events_have_no_tab_or_reply_address() {
     assert!(!plain.contains(Messenger::SHELL_REPLY_HINT));
 
     let contextual = Messenger::from(MessageEnvelope::codeterm_reminder("plan")).wrap("check");
-    assert_eq!(contextual, "<domios from=\"system\" context=\"plan\">check</domios>");
+    assert_eq!(
+        contextual,
+        "<domios from=\"system\" context=\"plan\">check</domios>"
+    );
     assert!(!contextual.contains("tab="));
     assert!(!contextual.contains(Messenger::AGENT_REPLY_HINT_PREFIX));
     assert!(!contextual.contains(Messenger::SHELL_REPLY_HINT));
@@ -211,7 +217,10 @@ fn peer_qualifies_label() {
     let p = Messenger::message("Edison", "e8a0ac20")
         .peer(Some("BLACKSTAR".into()))
         .build();
-    assert_eq!(p, "<domios from=\"tab\" label=\"Edison@BLACKSTAR\" tab=\"e8a0ac20\">");
+    assert_eq!(
+        p,
+        "<domios from=\"tab\" label=\"Edison@BLACKSTAR\" tab=\"e8a0ac20\">"
+    );
 }
 
 #[test]
@@ -220,7 +229,10 @@ fn peer_without_label_uses_peer_alone() {
     let p = Messenger::message("", "e8a0ac20")
         .peer(Some("BLACKSTAR".into()))
         .build();
-    assert_eq!(p, "<domios from=\"tab\" label=\"BLACKSTAR\" tab=\"e8a0ac20\">");
+    assert_eq!(
+        p,
+        "<domios from=\"tab\" label=\"BLACKSTAR\" tab=\"e8a0ac20\">"
+    );
 }
 
 #[test]
@@ -259,7 +271,16 @@ fn reminder_wraps_body() {
 
 #[test]
 fn delivery_local_agent_recipient_gets_complete_frame() {
-    let p = delivery_message(true, "e8a0ac20", "ce9bce56", "Edison", Some("opus"), None, true, "hello");
+    let p = delivery_message(
+        true,
+        "e8a0ac20",
+        "ce9bce56",
+        "Edison",
+        Some("opus"),
+        None,
+        true,
+        "hello",
+    );
     assert_eq!(
         p.as_deref(),
         Some("<domios from=\"tab\" label=\"Edison\" tab=\"e8a0ac20\" model=\"opus\">hello [to reply, run: codeterm send \"YOUR REPLY\" --tab e8a0ac20]</domios>")

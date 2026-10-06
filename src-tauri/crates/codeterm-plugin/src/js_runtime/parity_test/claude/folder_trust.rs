@@ -195,10 +195,9 @@ fn preapproved_folder_trust_selects_the_declared_option_from_live_focus() {
         return;
     }
     let (native, js) = pair();
-    let screen = std::fs::read_to_string(
-        fixtures_dir().join("trust-local-preapproved-no-first.txt"),
-    )
-    .expect("pre-approved folder trust fixture");
+    let screen =
+        std::fs::read_to_string(fixtures_dir().join("trust-local-preapproved-no-first.txt"))
+            .expect("pre-approved folder trust fixture");
     let native_prompt = native
         .parse_directory_trust_prompt(&screen)
         .expect("native parses pre-approved folder trust");
@@ -215,7 +214,10 @@ fn preapproved_folder_trust_selects_the_declared_option_from_live_focus() {
         })
         .expect("declared affirmative option");
     let down_enter = vec![b"j".to_vec(), b"\r".to_vec()];
-    assert_eq!(native.build_prompt_response(affirmative, &screen), down_enter);
+    assert_eq!(
+        native.build_prompt_response(affirmative, &screen),
+        down_enter
+    );
     assert_eq!(js.build_prompt_response(affirmative, &screen), down_enter);
 
     let labels = native_prompt
@@ -223,11 +225,7 @@ fn preapproved_folder_trust_selects_the_declared_option_from_live_focus() {
         .iter()
         .map(|option| option.label.clone())
         .collect::<Vec<_>>();
-    let focused = focus_option(
-        &screen,
-        &labels,
-        &native_prompt.options[affirmative].label,
-    );
+    let focused = focus_option(&screen, &labels, &native_prompt.options[affirmative].label);
     let enter = vec![b"\r".to_vec()];
     assert_eq!(native.build_prompt_response(affirmative, &focused), enter);
     assert_eq!(js.build_prompt_response(affirmative, &focused), enter);

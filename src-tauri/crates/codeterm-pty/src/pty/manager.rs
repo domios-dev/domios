@@ -107,7 +107,10 @@ impl PtySession {
         on_enqueued: impl FnOnce(),
     ) -> Result<(), String> {
         self.write_queue.send_frames_and_wait_guarded_with_enqueued(
-            vec![data], permit, timeout, on_enqueued,
+            vec![data],
+            permit,
+            timeout,
+            on_enqueued,
         )
     }
 

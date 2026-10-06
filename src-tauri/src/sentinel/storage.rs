@@ -701,9 +701,12 @@ pub(crate) fn committed_workspace(
         }
     };
     let (repo, leases) = repo;
-    let read = repo.workspace(workspace.to_string()).wait(COMMIT_DEADLINE).map_err(|error| {
-        format!("sentinel_store_load_failed: committed workspace read failed: {error}")
-    })?;
+    let read = repo
+        .workspace(workspace.to_string())
+        .wait(COMMIT_DEADLINE)
+        .map_err(|error| {
+            format!("sentinel_store_load_failed: committed workspace read failed: {error}")
+        })?;
     Ok((read.value.iter().map(codec::decode).collect(), leases))
 }
 

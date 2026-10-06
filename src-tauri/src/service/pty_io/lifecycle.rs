@@ -922,11 +922,8 @@ mod restore_boot_stage_tests {
             "precondition: the Tab starts with a latched failure"
         );
 
-        let reattached = reattach_boot_stage(
-            tab.boot_stage,
-            tab.boot_failure_reason.as_deref(),
-        )
-        .expect("reattach clears the latch");
+        let reattached = reattach_boot_stage(tab.boot_stage, tab.boot_failure_reason.as_deref())
+            .expect("reattach clears the latch");
         apply_boot_stage(tab, reattached, None);
         sequence.push(tab.boot_stage.unwrap());
 

@@ -15,9 +15,9 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
+use super::registry::{JsonlSource, SourceIncarnation, SourceObservation};
 use crate::agent::chat_types::RichMessage;
 use crate::agent::registry::AgentRegistry;
-use super::registry::{JsonlSource, SourceIncarnation, SourceObservation};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SourceRange {

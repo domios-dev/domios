@@ -149,8 +149,7 @@ pub fn suppress_continue(
     {
         return false;
     }
-    let current = mark
-        .get_or_insert_with(|| TurnResumeMark::new(session_id, start_epoch, None));
+    let current = mark.get_or_insert_with(|| TurnResumeMark::new(session_id, start_epoch, None));
     current.settled = Some(TurnResumeSettlement {
         start_epoch: start_epoch.to_string(),
         outcome: TurnResumeOutcome::Skipped("not_requested".into()),

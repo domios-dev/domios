@@ -410,8 +410,10 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         let planner = matches!(
             svc.classify_planning_caller(&detail.plan_id, &caller),
             Ok(crate::plan::PlanningAuthor::Planner { .. })
-        ) && crate::service::planner_forbidden_task_field(params.as_ref().unwrap_or(&Value::Null))
-            .is_none();
+        ) && crate::service::planner_forbidden_task_field(
+            params.as_ref().unwrap_or(&Value::Null),
+        )
+        .is_none();
         if !owner && !planner {
             return Err(authority_refusal(
                 TaskAuthorityRefusal::BlockAuthorityRequired,

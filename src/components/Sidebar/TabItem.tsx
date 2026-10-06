@@ -8,6 +8,7 @@ import { buildTabMenu, type TabMenuAction } from "../Terminal/tabMenuModel";
 import { performTabMenuAction } from "../Terminal/tabMenuActions";
 import { useTelegramThreadMenu } from "../Terminal/useTelegramThreadMenu";
 import { ActivityDots } from "../shared/ActivityDots";
+import { RowMenuButton } from "../shared/RowMenuButton";
 import { ChoiceIcon, TelegramIcon, TerminalIcon } from "../Icons";
 import { ProviderGlyph } from "../ProviderGlyph";
 import type { Tab, TabStatus } from "../../lib/types";
@@ -472,17 +473,7 @@ function TabItemInner({
                 ? "flex h-11 w-11 items-center justify-center"
                 : "sidebar-tab-close absolute inset-y-0 right-0 flex items-center"
             }
-            trigger={
-              <button
-                type="button"
-                aria-label="Tab actions"
-                aria-haspopup="menu"
-                className={`${touchMode ? "h-11 w-11 text-[var(--ct-muted-fg)]" : "w-5 h-5 text-[var(--ct-muted-fg)]"} flex items-center justify-center rounded hover:text-[var(--ct-fg)] hover:bg-[var(--ct-border)] transition-colors`}
-                title="Tab actions"
-              >
-                <span className={`${touchMode ? "text-[20px]" : "text-[13px]"} leading-none font-bold`}>⋮</span>
-              </button>
-            }
+            trigger={<RowMenuButton label="Tab actions" touchMode={touchMode} />}
           />
         )}
       </div>

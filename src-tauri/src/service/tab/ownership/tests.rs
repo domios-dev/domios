@@ -3,14 +3,7 @@ use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
 use codeterm_types::pty::{RemoteOwnership, RemoteOwnershipTeam};
 
-fn ownership_fixture() -> (
-    MultiplexerState,
-    String,
-    String,
-    String,
-    String,
-    String,
-) {
+fn ownership_fixture() -> (MultiplexerState, String, String, String, String, String) {
     let (mut mux, orchestrator) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&orchestrator).unwrap();
     mux.set_tab_role_kind(
