@@ -7464,7 +7464,7 @@
           "subcommands": [
             {
               "name": "close",
-              "about": "Record a group's retrospective stride: closes its reflection window and clears its retrospective dispatch gate",
+              "about": "Record an optional retrospective stride for a completed group",
               "aliases": [],
               "args": [
                 {
