@@ -93,22 +93,23 @@ const aiderHost = (over: Record<string, unknown>) => ({
   assert(!withSecret.includes("--api-key"), "secret not in argv");
 }
 
+const idleScreen = [
+  "Aider v0.82",
+  "Model: openai/gpt-5.4-mini",
+  "",
+  "Tokens: 1.2k sent, 3.4k received.",
+  "",
+  ">",
+].join("\n");
+const busyScreen = [
+  "Aider v0.82",
+  "Model: openai/gpt-5.4-mini",
+  "",
+  "Thinking...",
+].join("\n");
+
 console.log("\n--- idle / busy detection ---\n");
 {
-  const idleScreen = [
-    "Aider v0.82",
-    "Model: openai/gpt-5.4-mini",
-    "",
-    "Tokens: 1.2k sent, 3.4k received.",
-    "",
-    ">",
-  ].join("\n");
-  const busyScreen = [
-    "Aider v0.82",
-    "Model: openai/gpt-5.4-mini",
-    "",
-    "Thinking...",
-  ].join("\n");
   assert(MODE_PROMPT_RE.test(lastNonEmptyLine(idleScreen)), "idle screen ends with bare prompt");
   assert(MODE_PROMPT_RE.test(lastNonEmptyLine("ask>")), "mode-prefixed prompt is idle");
   assert(!MODE_PROMPT_RE.test(lastNonEmptyLine(busyScreen)), "busy screen does not end with prompt");
