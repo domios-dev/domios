@@ -1,5 +1,6 @@
 use crate::error::StorageError;
 use crate::repositories::{to_sql_u64, Revision};
+use codeterm_types::sentinel_input::InputSpec;
 use std::collections::HashSet;
 
 /// Repository bounds protect the mailbox and reads; domain rules stay in the domain.
@@ -103,6 +104,49 @@ pub struct ObserveSource {
     pub reference: String,
 }
 
+/// Column tag of a stage source. The event lane adds its variant; `event` already exists in
+/// the schema, so that costs no migration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SourceKind {
+    Probe,
+    Observe,
+    Input,
+}
+
+impl SourceKind {
+    pub const ALL: [SourceKind; 3] = [SourceKind::Probe, SourceKind::Observe, SourceKind::Input];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SourceKind::Probe => "probe",
+            SourceKind::Observe => "observe",
+            SourceKind::Input => "input",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<SourceKind> {
+        SourceKind::ALL.into_iter().find(|kind| kind.as_str() == value)
+    }
+}
+
+/// The one source one definition version evaluates; `event` arrives with the event lane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StageSource {
+    Probe(String),
+    Observe(ObserveSource),
+    Input(InputSpec),
+}
+
+impl StageSource {
+    pub fn kind(&self) -> SourceKind {
+        match self {
+            StageSource::Probe(_) => SourceKind::Probe,
+            StageSource::Observe(_) => SourceKind::Observe,
+            StageSource::Input(_) => SourceKind::Input,
+        }
+    }
+}
+
 /// Exact historical target identity; it never implies a live tab, cron or Team exists.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetIdentity {
@@ -132,8 +176,7 @@ pub struct BucketDefinition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageDefinition {
     pub name: Option<String>,
-    pub probe: String,
-    pub observe: Option<ObserveSource>,
+    pub source: StageSource,
     pub question: String,
     pub interval_ms: u64,
     pub until: Option<String>,
@@ -530,15 +573,11 @@ impl HandlerDefinition {
 impl StageDefinition {
     pub(super) fn validate(&self) -> Result<(), StorageError> {
         optional_text("sentinel name", &self.name)?;
-        text("sentinel probe", &self.probe)?;
-        if let Some(observe) = &self.observe {
-            identifier("observe source", &observe.reference)?;
-        }
-        if self.observe.is_some() != self.probe.is_empty() {
-            return Err(StorageError::invalid(
-                "sentinel source",
-                "requires exactly one of a probe or an observe source",
-            ));
+        match &self.source {
+            StageSource::Probe(command) => text("sentinel probe", command)?,
+            StageSource::Observe(observe) => identifier("observe source", &observe.reference)?,
+            StageSource::Input(input) => codeterm_types::sentinel_input::validate(input)
+                .map_err(|error| StorageError::invalid("sentinel input", error.to_string()))?,
         }
         text("sentinel question", &self.question)?;
         integer("sentinel interval", self.interval_ms)?;
@@ -621,11 +660,13 @@ impl StageDefinition {
             .sum();
         RECORD_OVERHEAD
             + optional_len(&self.name)
-            + self.probe.len()
-            + self
-                .observe
-                .as_ref()
-                .map_or(0, |observe| observe.reference.len())
+            + match &self.source {
+                StageSource::Probe(command) => command.len(),
+                StageSource::Observe(observe) => observe.reference.len(),
+                StageSource::Input(input) => {
+                    serde_json::to_vec(input).map_or(0, |bytes| bytes.len())
+                }
+            }
             + self.question.len()
             + optional_len(&self.until)
             + buckets
@@ -940,10 +981,10 @@ fn validate_run_transition_count(
     definition: &StageDefinition,
     runtime: &StageRuntime,
 ) -> Result<(), StorageError> {
-    let cron_run = definition
-        .observe
-        .as_ref()
-        .is_some_and(|source| source.kind == ObserveKind::CronRun);
+    let cron_run = matches!(
+        &definition.source,
+        StageSource::Observe(observe) if observe.kind == ObserveKind::CronRun
+    );
     if runtime.run_transitions > definition.max_transitions
         || (runtime.run_transitions > 0 && (!cron_run || runtime.run.is_none()))
     {

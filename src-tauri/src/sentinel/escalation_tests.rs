@@ -472,6 +472,7 @@ fn sentinel_escalate_forbidden_on_other_kinds_fail_create_and_amend() {
         matches: job.matches.clone(),
         rearm_on_change: Default::default(),
         until: None,
+        input: None,
         handlers: None,
         on_other: vec![Definition {
             id: "bad_action".into(),

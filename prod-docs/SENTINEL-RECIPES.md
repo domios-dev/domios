@@ -124,6 +124,20 @@ codeterm sentinel create --name agents-all-finished-watch --probe "<ONE_VERDICT_
 ```
 <!-- /sentinel-recipe -->
 
+<!-- sentinel-recipe:voice-note-to-text -->
+### voice-note-to-text
+
+**Purpose:** Convert a voice note to text and classify the transcript.
+
+```json
+{"done":[{"type":"notify","parameters":{}}]}
+```
+
+```bash
+codeterm sentinel create --name voice-note-to-text --input audio --input-file '<PATH_TO_VOICE_NOTE>' --convert-to text --question what-does-the-voice-note-say --buckets done --handlers-file handlers.json --timeout 1h --dry-run
+```
+<!-- /sentinel-recipe -->
+
 ## CI result routed to review or repair
 
 For quiet PR waiting, declare only terminal outcomes; classify still-running CI as `other`, and add an `other`
@@ -133,4 +147,4 @@ escalation handler when it needs attention. With an existing same-Team cron and 
 codeterm sentinel create --name ci-result-review-watch --probe "gh run view 456 --json status,conclusion" --question "passed for completed successful CI; failed for completed unsuccessful CI; other while running" --buckets passed,failed --route passed=cron:review_pr --route failed=send:repair_worker --timeout 1h
 ```
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

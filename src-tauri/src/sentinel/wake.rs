@@ -64,6 +64,7 @@ mod tests {
                     name: Some("agent-state-watch".into()),
                     probe: None,
                     observe: Some(TabBinding::Tab("bound-agent".into())),
+                    input: None,
                     question: "state?".into(),
                     buckets: vec!["waiting".into()],
                     every: "20s".into(),

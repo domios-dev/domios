@@ -7,4 +7,8 @@ validate create or update with `--dry-run`, and read `codeterm docs SENTINELS` f
 sources, buckets, handlers, escalation, versioned updates and limits.
 `codeterm sentinel create --help` has the flags.
 
-<!-- revision: 6 -->
+An input stage watches data instead of a probe: `--input <text|audio|video|image>`
+with `--input-file`, `--input-url` or `--input-text`, and optional `--convert-to <text|audio>`.
+See `codeterm docs SENTINELS` for the full input stage reference.
+
+<!-- revision: 7 -->
