@@ -501,6 +501,7 @@ impl ServiceContext {
     ) {
         let (
             current_model,
+            current_model_is_verified,
             planned_model,
             requested_model,
             provider_resolved_model,
@@ -516,6 +517,7 @@ impl ServiceContext {
             }
             (
                 tab.agent_session_model.clone(),
+                current_session_model_identity(tab, sid).is_some(),
                 tab.agent_planned_model.clone(),
                 tab.agent_requested_model.clone(),
                 tab.agent_provider_resolved_model.clone(),
@@ -530,7 +532,10 @@ impl ServiceContext {
             provider_resolved_model.as_deref(),
             current_fallback.clone(),
             &model,
-            (current_model.is_some() && current_mismatch.is_none() && current_fallback.is_none())
+            (current_model.is_some()
+                && current_model_is_verified
+                && current_mismatch.is_none()
+                && current_fallback.is_none())
                 || requested_model.as_deref().is_none_or(|requested| {
                     session_model_matches(&self.agent_registry, agent_id, requested, &model)
                 }),
@@ -808,12 +813,25 @@ pub(crate) fn current_launch_report(
     tab: &crate::multiplexer::types::Tab,
     session_id: &str,
 ) -> Option<crate::multiplexer::types::LaunchModelReport> {
-    let identity = tab.agent_session_model_identity.as_ref()?;
-    let current = session_model_identity(tab, session_id, None, false)?;
-    (current.session_id == identity.session_id
-        && current.session_binding_nonce == identity.session_binding_nonce)
-        .then(|| identity.launch_report.clone())
-        .flatten()
+    current_session_model_identity(tab, session_id)
+        .and_then(|identity| identity.launch_report.clone())
+}
+
+fn current_session_model_identity(
+    tab: &crate::multiplexer::types::Tab,
+    session_id: &str,
+) -> Option<&crate::multiplexer::types::SessionModelIdentity> {
+    let nonce = tab.session_binding_nonce.as_deref()?;
+    if tab.agent_session_id.as_deref() != Some(session_id)
+        || tab.reported_session_binding_nonce.as_deref() != Some(nonce)
+    {
+        return None;
+    }
+    tab.agent_session_model_identity
+        .as_ref()
+        .filter(|identity| {
+            identity.session_id == session_id && identity.session_binding_nonce == nonce
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
