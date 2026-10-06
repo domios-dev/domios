@@ -184,8 +184,6 @@ const plugin: PluginModule = {
     for (let i = 0; i < TUI_FRAGMENTS.length; i++) {
       if (lower.indexOf(TUI_FRAGMENTS[i]) !== -1) { hasFragment = true; break; }
     }
-    // Aider's own startup dialogs are part of its screen, not a foreign TUI.
-    if (isStartupDialog(lastNonEmptyLine(text))) return true;
     const prompt = lastNonEmptyLine(text);
     if (!MODE_PROMPT_RE.test(prompt)) return false;
     // A mode-prefixed prompt (e.g. "ask>") is itself an aider signal.
