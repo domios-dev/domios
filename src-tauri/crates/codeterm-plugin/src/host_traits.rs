@@ -41,6 +41,7 @@ pub trait PluginHostCtx: Send + Sync {
 
     // ── Events ──────────────────────────────────────────────────────────
     fn contributions_changed(&self, kind: &str);
+    fn event_sources_changed(&self) {}
     fn emit_graph_worker_spawned_json(&self, info_json: &str);
     fn emit_graph_event_json(&self, _plugin_id: &str, _event_json: &str) -> String {
         r#"{"error":"graph_events_unavailable"}"#.to_string()

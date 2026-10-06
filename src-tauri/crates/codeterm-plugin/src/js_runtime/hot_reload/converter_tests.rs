@@ -233,3 +233,33 @@ fn event_sources_alone_register_no_converter() {
     assert!(caps.converter.converters_for("events-fixture").is_empty());
     caps.deregister_plugin("events-fixture");
 }
+
+#[test]
+fn event_source_registry_refuses_plugin_without_graph_events_grant() {
+    let caps = test_caps();
+    let manifest: PluginManifest = serde_json::from_str(&manifest_with(
+        "ungranted-events",
+        r#""graphNodes":{"eventSources":[{"kind":"fixture.event","title":"Fixture"}]}"#,
+    ))
+    .expect("manifest");
+    let sandbox = Arc::new(
+        crate::js_runtime::host_api::PluginSandbox::restricted(vec![], vec![])
+            .with_identity_and_perms(
+                "ungranted-events",
+                &crate::js_runtime::manifest::PermissionsConfig::default(),
+            ),
+    );
+    let vm = Arc::new(
+        PluginVm::from_source_sandboxed(
+            "ungranted-events",
+            "module.exports.default = {};".into(),
+            None,
+            sandbox,
+        )
+        .expect("vm"),
+    );
+
+    caps.register_plugin(&manifest, &vm);
+
+    assert!(caps.event_source.select_provider("fixture.event").is_none());
+}
