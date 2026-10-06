@@ -894,7 +894,7 @@ fn provider_declared_onboarding_dialog_is_answered_for_every_launch() {
     let response = provider
         .launch_onboarding_response(&screen)
         .expect("the gitignore startup dialog is a declared onboarding step");
-    assert_eq!(response.step, b"WQ==".to_vec());
+    assert_eq!(response.step, b"Y".to_vec());
     assert_eq!(
         provider.launch_onboarding_safe_choice(&screen).as_deref(),
         Some("1")
