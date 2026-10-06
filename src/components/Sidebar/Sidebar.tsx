@@ -34,6 +34,8 @@ import { buildSidebarCycleItems, cycleStep } from "./sidebarCycle";
 import { matchesBinding } from "../../lib/keybindings";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import type { JobsTarget } from "../Jobs/JobsView";
+import { NO_JOBS_FILTER } from "../Jobs/jobsModel";
+import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
 import { loadSelectedWorkspaceId, persistSelectedWorkspaceId } from "./workspaceCardMetadata";
 import type { SidebarTeamActions } from "./TeamUnit";
@@ -88,7 +90,7 @@ interface SidebarProps {
   uiFontScale?: number;
   workspaceCanvasActive?: boolean;
   onOpenWorkspaceMap?: (workspaceId: string) => void;
-  onOpenWorkspaceAutomation?: (workspaceId: string, target?: JobsTarget) => void;
+  onOpenWorkspaceAutomation?: (workspaceId: string, target?: JobsTarget, scope?: JobsOpenScope) => void;
   teamActions?: Partial<SidebarTeamActions>;
 }
 
@@ -681,10 +683,12 @@ export function Sidebar({
                     </div>
                     {(onOpenWorkspaceMap || onOpenWorkspaceAutomation) && (onOpenWorkspaceAutomation
                       ? <LiveWorkspaceNavigationActions
+                        scope={NO_JOBS_FILTER}
+                        workspaces={state.workspaces}
                         workspaceId={generalWorkspace.id}
                         workspaceName={generalWorkspace.name}
                         onOpenMap={onOpenWorkspaceMap}
-                        onOpenJobs={onOpenWorkspaceAutomation}
+                        onOpenJobs={(id) => onOpenWorkspaceAutomation(id, undefined, "machine")}
                         touchMode={touchMode}
                       />
                       : <WorkspaceNavigationActions workspaceId={generalWorkspace.id} workspaceName={generalWorkspace.name} onOpenMap={onOpenWorkspaceMap} touchMode={touchMode} />)}
