@@ -350,12 +350,23 @@ pub(super) fn deliver_pipeline_result(
         verdict.bucket,
         path.display()
     );
-    match svc.gateway_deliver(
-        target,
-        MessageEnvelope::codeterm_reminder(format!("blueprint:{}:result", job.id)),
-        &packet,
-        DeliveryClass::SystemNotice,
-    ) {
+    deliver_pipeline_result_with(target, &packet, body_ref, |target, packet| {
+        svc.gateway_deliver(
+            target,
+            MessageEnvelope::codeterm_reminder(format!("blueprint:{}:result", job.id)),
+            packet,
+            DeliveryClass::SystemNotice,
+        )
+    })
+}
+
+pub(super) fn deliver_pipeline_result_with(
+    target: &str,
+    packet: &str,
+    body_ref: String,
+    deliver: impl FnOnce(&str, &str) -> Result<Delivery, String>,
+) -> PipelineResultDelivery {
+    match deliver(target, packet) {
         Ok(Delivery::Pending { .. }) => PipelineResultDelivery {
             state: "unconfirmed",
             reason: "delivery_pending",

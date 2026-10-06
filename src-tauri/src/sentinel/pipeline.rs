@@ -219,15 +219,7 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
                 let _ = write_journal(
                     handle,
                     &lease.job,
-                    BlueprintJournalWrite::Finish {
-                        run_id: run_id.clone(),
-                        step_index: -1,
-                        state: "failed".into(),
-                        outcome: "handler_failed".into(),
-                        ended_at_ms: now(handle),
-                        result_summary: format!("body_ref:{body_ref}"),
-                        reason: Some("result_target_unresolved".into()),
-                    },
+                    unresolved_target_finish(&run_id, now(handle), &body_ref),
                 );
             }
             close_run(handle, lease, &run_id, "failed", "result_target_unresolved");
@@ -562,6 +554,22 @@ fn record_result_failure(
         );
     }
     close_run(handle, lease, run_id, "failed", reason);
+}
+
+fn unresolved_target_finish(
+    run_id: &str,
+    ended_at_ms: u64,
+    body_ref: &str,
+) -> BlueprintJournalWrite {
+    BlueprintJournalWrite::Finish {
+        run_id: run_id.into(),
+        step_index: -1,
+        state: "failed".into(),
+        outcome: "handler_failed".into(),
+        ended_at_ms,
+        result_summary: format!("body_ref:{body_ref}"),
+        reason: Some("result_target_unresolved".into()),
+    }
 }
 
 fn claim_step(

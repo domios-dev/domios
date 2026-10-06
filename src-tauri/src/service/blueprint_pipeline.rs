@@ -104,6 +104,13 @@ impl super::ServiceContext {
         if spec.owner == BlueprintOwner::Team && caller.team.is_none() {
             return Err("owner: --owner team requires the creating tab to belong to a Team".into());
         }
+        {
+            let mux = self.mux.read();
+            if !super::sentinel::caller_is_live(&mux, caller) {
+                return Err("blueprint creator or Team is gone".into());
+            }
+            validate_pipeline_result_scope(&mux, caller, spec.owner, &spec.result.to)?;
+        }
         let handle = self
             .app_handle
             .try_state::<Handle>()
@@ -470,4 +477,53 @@ fn chain_summary(spec: &BlueprintSpec) -> String {
         .chain(std::iter::once(format!("result:{:?}", spec.result.to)))
         .collect::<Vec<_>>()
         .join(" -> ")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+    use codeterm_types::blueprint_pipeline::{BlueprintResult, IoType, Step, Trigger};
+
+    #[test]
+    #[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+    fn blueprint_delivery_unresolvable_named_target_is_refused_at_create_with_reason() {
+        let (mut mux, creator) = MultiplexerState::new();
+        let workspace = mux.find_workspace_for_tab(&creator).unwrap();
+        mux.get_tab_mut(&creator).unwrap().cwd = Some(".".into());
+        let fixture = ServiceFixture::new(mux);
+        let caller = super::super::sentinel::SentinelCaller {
+            tab: creator,
+            team: None,
+            workspace,
+            cwd: ".".into(),
+            nonce: None,
+        };
+        let spec = BlueprintSpec {
+            name: "create-target-refusal".into(),
+            owner: BlueprintOwner::Tab,
+            trigger: Trigger::Schedule {
+                every: "20s".into(),
+            },
+            steps: vec![Step {
+                name: "emit".into(),
+                input: IoType::Text,
+                kind: StepKind::Command {
+                    command: "echo result".into(),
+                },
+                on: Default::default(),
+            }],
+            result: BlueprintResult {
+                to: ResultTarget::Tab("missing_target".into()),
+            },
+        };
+
+        let error = fixture
+            .service
+            .blueprint_pipeline_create(&caller, spec)
+            .unwrap_err();
+
+        assert_eq!(error, "result.to: tab not found");
+    }
 }
