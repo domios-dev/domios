@@ -734,7 +734,10 @@ mod tests {
             crate::agent::provider::StarterPrompt::AssignedTask,
             provider_text.clone(),
         );
-        assert!(marked.ends_with(&provider_text));
+        assert!(marked.ends_with(&format!(
+            "{provider_text}{}",
+            codeterm_types::domios::DOMIOS_CLOSE_TAG
+        )));
         assert_ne!(marked, provider_text);
     }
 
