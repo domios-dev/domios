@@ -48,7 +48,7 @@ fn render_regression_gates(val: &Value, out: &mut String) {
             retrospectives.join(", ")
         ));
     }
-    let mut advisory = pending.clone();
+    let mut advisory = blocking.clone();
     advisory.extend(retrospectives);
     advisory.sort();
     advisory.dedup();

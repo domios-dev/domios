@@ -1,8 +1,6 @@
 # Domios Configuration
 
-Config file: `%APPDATA%/codeterm/config.toml` (Windows) or `~/.config/codeterm/config.toml` (Linux/macOS).
-
-Auto-created on first run with defaults.
+Config file: `%APPDATA%/codeterm/config.toml` (Windows) or `~/.config/codeterm/config.toml` (Linux/macOS), auto-created with defaults on first run.
 
 ## Full Reference
 
@@ -66,10 +64,8 @@ open_settings = "Ctrl+,"
 [agent]
 # poll_interval_ms: how often the agent polls for new commands.
 # idle_timeout_s: seconds of idle before treating agent as idle (used for output streaming).
-# resume_sessions: auto-resume agent sessions on restart; a saved session id whose
-#                  JSONL is missing on disk is cleared and the agent launches fresh.
-#                  Set false to launch restored agents fresh; [agents.<provider-id>]
-#                  can override this setting. The default is true.
+# resume_sessions: resume agent sessions on restart (default true; [agents.<id>] overrides);
+#                  a session whose JSONL is missing, or false, launches fresh.
 # continue_after_restart: one system continue per mid-turn agent tab after any stop.
 # full_access: one global permission choice for every agent provider.
 # Omit it until onboarding or the first agent launch asks the user.
@@ -241,4 +237,4 @@ Provisioning creates an isolated git worktree and launches the agent there; it i
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
 
-<!-- revision: 93 -->
+<!-- revision: 94 -->
