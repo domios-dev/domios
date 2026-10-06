@@ -2,9 +2,16 @@ import { useState, useEffect } from "react";
 import { AlertTriangle, X } from "lucide-react";
 import { checkBuildMismatch, onMismatch, type BuildMismatch } from "../lib/buildMismatchGuard";
 import { IS_WEB } from "../lib/webApi";
+import { invoke } from "../lib/bridge";
 
 // No-op during Tauri E2E tests or wherever __BUILD_HASH__ is "dev".
 // The check is gated inside checkBuildMismatch itself (skips "dev" hash).
+
+async function ownApiBase(): Promise<string | null> {
+  if (IS_WEB) return window.location.origin;
+  const info = await invoke<{ api_port?: number }>("get_network_info").catch(() => null);
+  return info?.api_port ? `http://127.0.0.1:${info.api_port}` : null;
+}
 
 export function StaleBuildBanner() {
   const [mismatch, setMismatch] = useState<BuildMismatch | null>(null);
@@ -14,12 +21,10 @@ export function StaleBuildBanner() {
     // Subscribe before checking so we don't miss a synchronous resolution.
     const unlisten = onMismatch(setMismatch);
 
-    // Derive API base: in Tauri use the local dev daemon; in web use current origin.
-    const apiBase = IS_WEB
-      ? window.location.origin
-      : "http://127.0.0.1:7686";
-
-    checkBuildMismatch(apiBase).catch(() => {});
+    // Check this window's own daemon; a fixed port compared prod against dev.
+    void ownApiBase().then((apiBase) => {
+      if (apiBase) checkBuildMismatch(apiBase).catch(() => {});
+    });
 
     return unlisten;
   }, []);
