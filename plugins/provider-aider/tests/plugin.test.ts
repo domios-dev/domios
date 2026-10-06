@@ -262,6 +262,19 @@ console.log("\n--- history parser ---\n");
 
   const emptyResult = parseAiderHistory("", 0);
   eq(emptyResult.messages.length, 0, "empty content has no messages");
+
+  const blankTurns = [
+    "#### ",
+    "",
+    "#### Real question",
+    "",
+    "Real answer",
+  ].join("\n");
+  const blankResult = parseAiderHistory(blankTurns, 0);
+  eq(blankResult.messages.length, 2, "blank #### turns are skipped");
+  eq(blankResult.messages[0].role, "user", "blank turn does not become a user row");
+  eq(blankResult.messages[0].text, "Real question", "real user turn survives");
+  eq(blankResult.messages[1].role, "assistant", "assistant turn survives");
 }
 
 console.log("\n--- history session blocks ---\n");
@@ -289,6 +302,21 @@ console.log("\n--- history session blocks ---\n");
   const all = parseAiderHistory(twoSessions, 0);
   eq(all.messages.length, 4, "sinceMs 0 keeps every session block");
   eq(all.messages[0].text, "Old question", "first session kept when unfiltered");
+
+  const localHeader = [
+    "# aider chat started at 2026-10-06 12:00:00.000",
+    "",
+    "#### Local question",
+    "",
+    "Local answer",
+  ].join("\n");
+  const localLaunch = new Date(2026, 9, 6, 11, 0, 0, 0).getTime();
+  const localResult = parseAiderHistory(localHeader, localLaunch);
+  eq(localResult.messages.length, 2, "local-time header block is accepted at local launch time");
+  eq(localResult.messages[0].text, "Local question", "local-time user turn parsed");
+  const localBefore = new Date(2026, 9, 6, 13, 0, 0, 0).getTime();
+  const localExcluded = parseAiderHistory(localHeader, localBefore);
+  eq(localExcluded.messages.length, 0, "local-time header block is excluded when launch is later");
 }
 
 console.log("\n--- multi-line chat delivery ---\n");

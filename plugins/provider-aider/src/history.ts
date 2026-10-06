@@ -145,7 +145,17 @@ export function readAiderHistory(
   cursor?: string | null,
 ): HistoryParseResult | null {
   try {
-    const content = host.fs.readFile(filePath);
+    const fs = (host as any).fs || {};
+    const read =
+      typeof fs.readFile === "function"
+        ? fs.readFile
+        : typeof fs.readTextFile === "function"
+          ? fs.readTextFile
+          : typeof (host as any).readFile === "function"
+            ? (host as any).readFile
+            : null;
+    if (!read) return null;
+    const content = read.call(fs.readFile ? fs : host, filePath);
     if (content === null || content === undefined) return null;
     return parseAiderHistory(String(content), sinceMs, cursor);
   } catch (_) {
