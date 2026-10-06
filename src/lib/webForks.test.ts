@@ -32,7 +32,7 @@ const INVENTORY: ForkSite[] = [
   { file: "src/components/Terminal/sessionBindingApi.ts", anchor: "if (IS_WEB) {", ordinal: 1, cls: "transport-shim", note: "session rebind uses the web bridge mapping vs authenticated native daemon fetch" },
   { file: "src/components/Sidebar/Sidebar.tsx", anchor: "if (IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog" },
   { file: "src/components/Sidebar/Sidebar.tsx", anchor: "if (IS_WEB) {", ordinal: 2, cls: "platform-adaptation", note: "web folder-picker modal vs native Tauri dialog (new workspace)" },
-  { file: "src/components/StaleBuildBanner.tsx", anchor: "const apiBase = IS_WEB", ordinal: 1, cls: "transport-shim", note: "build-check API base: window.location.origin vs local dev daemon" },
+  { file: "src/components/StaleBuildBanner.tsx", anchor: "if (IS_WEB) return window.location.origin;", ordinal: 1, cls: "transport-shim", note: "build-check API base: window origin vs this window's local daemon" },
   { file: "src/components/FrontendCrashBoundary.tsx", anchor: "const appWindow = \"__TAURI_INTERNALS__\" in window ? getCurrentWindow() : null;", ordinal: 1, cls: "platform-adaptation", note: "native crash fallback can reload the Tauri window directly" },
   { file: "src/components/Terminal/composerFiles.ts", anchor: "if (!IS_WEB) {", ordinal: 1, cls: "platform-adaptation", note: "browser DOM drag/drop vs native Tauri webview drag/drop" },
   { file: "src/components/Terminal/terminalOwnership.ts", anchor: "const isWeb = args.isWeb ?? IS_WEB;", ordinal: 1, cls: "capability-gate", note: "background-tab PTY suspension only applies where tabs can background (web)" },
