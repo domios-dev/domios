@@ -79,6 +79,18 @@ const aiderHost = (over: Record<string, unknown>) => ({
 
   const withConfig = p.buildLaunchCommand({ configPath: "/home/u/.aider.conf.yml" });
   assert(withConfig.includes("--config '/home/u/.aider.conf.yml'"), "config flag present when set");
+  assert(launch.includes("--no-show-model-warnings"), "launch suppresses model warnings");
+
+  const secretHost = aiderHost({
+    secretGet: (name: string) => (name === "my-key" ? "sk-secret-value" : null),
+  });
+  const withSecret = loadAiderWithHost(secretHost).buildLaunchCommand({
+    apiBase: "https://api.example.com/v1",
+    apiKeySecret: "my-key",
+  });
+  assert(withSecret.includes("OPENAI_API_BASE='https://api.example.com/v1'"), "api base exported");
+  assert(withSecret.includes("OPENAI_API_KEY='sk-secret-value'"), "api key exported");
+  assert(!withSecret.includes("--api-key"), "secret not in argv");
 }
 
 console.log("\n--- idle / busy detection ---\n");
@@ -139,6 +151,20 @@ console.log("\n--- owner prompts ---\n");
   const createFile = runtime.parsePrompt("Create new file src/x.ts? (Y)es/(N)o");
   assert(!!createFile, "create-file prompt is parsed");
   eq(promptSafeChoice(createFile!, "Create new file src/x.ts? (Y)es/(N)o"), null, "create-file prompt is not auto-answered");
+}
+
+console.log("\n--- docs url startup prompt ---\n");
+{
+  const docsScreen = [
+    "Warning: openai/mimo-v2.6-pro expects these environment variables - OPENAI_API_KEY: Not set",
+    "Open documentation url for more info? (Y)es/(N)o/(D)on't ask again [Yes]:",
+  ].join("\n");
+  const docsPrompt = runtime.parsePrompt(docsScreen);
+  assert(!!docsPrompt, "docs url prompt is parsed");
+  eq(promptSafeChoice(docsPrompt!, docsScreen), "3", "docs url prompt is safe don't-ask-again");
+  const noDefault = runtime.parsePrompt("Open documentation url for more info? (Y)es/(N)o/(D)on't ask again");
+  assert(!!noDefault, "docs url prompt without default is parsed");
+  eq(promptSafeChoice(noDefault!, "Open documentation url for more info? (Y)es/(N)o/(D)on't ask again"), "3", "docs url prompt without default is safe don't-ask-again");
 }
 
 console.log("\n--- gitignore startup prompt ---\n");
