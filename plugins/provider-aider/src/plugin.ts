@@ -31,15 +31,15 @@ const MODE_PROMPT_RE = /^(?:[a-z]+)?>\s*$/;
 function withLaunchEnv(command: string, p: LaunchParams): string {
   const platform = host.platform();
   const quote = (v: string) => host.shell.quoteFor(v, platform);
-  let out = command;
+  const exports: string[] = [];
   const apiBase = typeof p.apiBase === "string" && p.apiBase ? p.apiBase : null;
-  if (apiBase) out = `OPENAI_API_BASE=${quote(apiBase)} ${out}`;
+  if (apiBase) exports.push(`export OPENAI_API_BASE=${quote(apiBase)};`);
   const apiKeySecret = typeof p.apiKeySecret === "string" && p.apiKeySecret ? p.apiKeySecret : null;
   if (apiKeySecret) {
     const secret = host.secretGet(apiKeySecret);
-    if (secret) out = `OPENAI_API_KEY=${quote(secret)} ${out}`;
+    if (secret) exports.push(`export OPENAI_API_KEY=${quote(secret)};`);
   }
-  return out;
+  return exports.length > 0 ? `${exports.join(" ")} ${command}` : command;
 }
 
 function starterPrompt(params: LaunchParams): string | undefined {
