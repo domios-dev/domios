@@ -5,7 +5,6 @@ use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin,
 use crate::service::startup_lease::StartupHoldRejection;
 use serde_json::json;
 use std::sync::Arc;
-use tauri::Manager;
 
 impl ServiceContext {
     fn startup_provider_output(&self, attempt_id: &str) -> Option<String> {

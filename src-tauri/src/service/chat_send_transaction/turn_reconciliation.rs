@@ -101,6 +101,7 @@ impl ChatSendLedger {
         self.confirm_delivered_user_turn_scoped(tab_id, source_session_id, None, turn_text)
     }
 
+    #[cfg(test)]
     pub(crate) fn confirm_delivered_user_turn_scoped(
         &self,
         tab_id: &str,

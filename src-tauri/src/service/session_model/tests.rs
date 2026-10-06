@@ -70,13 +70,6 @@ mod model_refresh_tests {
             }
         }
 
-        fn counting(models: &[(&str, &str)]) -> (Self, Arc<AtomicUsize>) {
-            let calls = Arc::new(AtomicUsize::new(0));
-            let mut provider = Self::new(models);
-            provider.session_detection_calls = Some(calls.clone());
-            (provider, calls)
-        }
-
         fn with_provider(
             provider_id: &str,
             session_ids: &[&str],

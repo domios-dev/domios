@@ -258,11 +258,6 @@ impl super::ServiceContext {
         self.mux.read().get_tab(tab_id).map(key_for_tab)
     }
 
-    pub(crate) fn claim_pending_prompt_notice(&self, tab_id: &str, prompt: &PendingPrompt) -> bool {
-        self.claim_pending_prompt_notice_event_key(tab_id, prompt)
-            .is_some()
-    }
-
     pub(crate) fn claim_pending_prompt_notice_event_key(
         &self,
         tab_id: &str,

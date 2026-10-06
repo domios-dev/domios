@@ -400,6 +400,9 @@ impl Store {
         if let Err(error) = self.ensure_available() {
             return Staged::ready(finish(self, Err(Failure::Failed(error))));
         }
+        #[cfg(not(test))]
+        let Backend::Sqlite(backend) = &mut self.backend;
+        #[cfg(test)]
         let backend = match &mut self.backend {
             Backend::Sqlite(backend) => backend,
             #[cfg(test)]

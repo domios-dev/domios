@@ -42,7 +42,7 @@ fn make_tree_writable(path: &Path) {
     }
     let mut permissions = metadata.permissions();
     if permissions.readonly() {
-        permissions.set_readonly(false);
+        enable_writes(&mut permissions);
         let _ = fs::set_permissions(path, permissions);
     }
 }

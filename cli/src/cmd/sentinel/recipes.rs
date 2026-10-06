@@ -136,7 +136,7 @@ mod tests {
                 .map(|index| index + 1)
                 .unwrap();
             command[handlers_arg] = path.to_string_lossy().into_owned();
-            assert_eq!(command.get(0).map(String::as_str), Some("codeterm"));
+            assert_eq!(command.first().map(String::as_str), Some("codeterm"));
             assert_eq!(command.get(1).map(String::as_str), Some("sentinel"));
             assert_eq!(command.get(2).map(String::as_str), Some("create"));
             let buckets = command
