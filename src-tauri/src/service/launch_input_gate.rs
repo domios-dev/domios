@@ -514,10 +514,20 @@ impl ServiceContext {
                     provider.directory_trust_prompt_response(&screen).is_some()
                 })
                 .unwrap_or(false);
-            let onboarding_response = self.agent_registry.with_provider(agent_id, |provider| {
-                provider.launch_onboarding_response(&screen)
-            });
-            if delegated_role || onboarding_response.is_some() {
+            let onboarding_response = self
+                .agent_registry
+                .with_provider(agent_id, |provider| {
+                    provider.launch_onboarding_response(&screen)
+                })
+                .flatten();
+            let onboarding_auto_answer = self
+                .agent_registry
+                .with_provider(agent_id, |provider| provider.onboarding_auto_answer())
+                .unwrap_or_default();
+            if delegated_role
+                || (onboarding_response.is_some()
+                    && onboarding_auto_answer.answers_for_owner_launch())
+            {
                 let decision = self.respond_to_launch_onboarding(
                     &attempt.tab_id,
                     agent_id,

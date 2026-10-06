@@ -33,6 +33,7 @@
     },
     "sessionIdInjection": "none",
     "inputFallbackMs": 5000,
+    "onboardingAutoAnswer": "always",
     "statusBarRows": 2,
     "agentStateStatusReconciliation": true,
     "supportsLazySkills": false,
