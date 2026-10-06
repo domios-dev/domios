@@ -39,6 +39,7 @@ fn supporter_feed_tab_state_groups_named_questions_without_option_text() {
         None,
         &response,
         DecisionEvidence {
+            decision_point: Some(context.decision_point()),
             model_id: None,
             criteria_version: "fixture",
             state_hash: "fixture",
@@ -48,6 +49,7 @@ fn supporter_feed_tab_state_groups_named_questions_without_option_text() {
     );
     let feed = runtime.feed(10, None).unwrap();
     assert_eq!(feed.len(), 1);
+    assert_eq!(feed[0]["decision_point"], "launch_ready");
     let asked = feed[0]["asked"].as_array().unwrap();
     assert_eq!(asked.len(), 3);
     assert_eq!(

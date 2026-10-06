@@ -107,6 +107,13 @@ struct Pending<H: ShadowHost> {
     model_verdict: Option<identity::correlation::ModelVerdict>,
 }
 
+pub(super) fn receipt_authorization_deadline(
+    captured_at: Instant,
+    configured_ms: u64,
+) -> Instant {
+    captured_at + std::time::Duration::from_millis(configured_ms.max(1)).min(DEADLINE)
+}
+
 impl<H: ShadowHost> Pending<H> {
     fn current(&self, adapter_id: &str, adapter: &Arc<dyn DecisionModel>) -> bool {
         let Some(envelope) = self.metadata.envelope.as_ref() else {
@@ -269,8 +276,10 @@ pub(crate) fn spawn_with_origin_and_id<H: ShadowHost>(
             if !pending.current(&adapter_id, &adapter) {
                 return None;
             }
+            let captured_at = pending.metadata.envelope.as_ref()?.captured_at;
             let runtime = pending.host.supporter_runtime();
-            let deadline =
+            let receipt_deadline = receipt_authorization_deadline(captured_at, config.deadline_ms);
+            let adapter_deadline =
                 runtime.decision_deadline(&adapter_id, config.deadline_ms, Instant::now());
             let result = if observer::choice_model(&pending.host.supporter_models(), &adapter_id)
                 .is_none()
@@ -290,7 +299,7 @@ pub(crate) fn spawn_with_origin_and_id<H: ShadowHost>(
                         decision_point: trigger.label().into(),
                     }),
                 );
-                model.decide_questions(&request, deadline)
+                model.decide_questions(&request, adapter_deadline)
             };
             pending.model_verdict = result
                 .as_ref()
@@ -319,7 +328,7 @@ pub(crate) fn spawn_with_origin_and_id<H: ShadowHost>(
                     metadata: pending.metadata.clone(),
                     adapter_id: adapter_id.clone(),
                     ticket: ticket.clone(),
-                    deadline,
+                    deadline: receipt_deadline,
                 });
             }
             let valid = || {

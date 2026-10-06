@@ -108,6 +108,7 @@ fn supporter_feed_multi_question_request_one_row_expands() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     let feed = runtime.feed(10, None).unwrap();
     assert_eq!(feed.len(), 1);
+    assert_eq!(feed[0]["decision_point"], "memory_rerank");
     let asked = feed[0]["asked"].as_array().unwrap();
     assert_eq!(asked.len(), titles.len());
     for (index, title) in titles.iter().enumerate() {
@@ -119,6 +120,35 @@ fn supporter_feed_multi_question_request_one_row_expands() {
     for private in ["private screen", "private token", "opaque"] {
         assert!(!feed[0].to_string().contains(private));
     }
+}
+
+#[test]
+fn supporter_successful_tab_state_response_keeps_decision_point() {
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = Arc::new(SupporterRuntime::new(dir.path().into()));
+    let model = budgeted_model_with_activity(
+        Arc::new(Model {
+            calls: Arc::default(),
+            exhausted: false,
+        }),
+        runtime.clone(),
+        0,
+        VerdictKind::TabState,
+        Some("fixture-tab".into()),
+        Some("fixture-criteria".into()),
+        Some(ActivityContext::TabState {
+            title: "fixture-tab".into(),
+            declared_safe_choice: None,
+            decision_point: "launch_ready".into(),
+        }),
+    );
+    model
+        .decide_questions(&request(1), Instant::now() + Duration::from_secs(2))
+        .unwrap();
+
+    let feed = runtime.feed(10, None).unwrap();
+    assert_eq!(feed.len(), 1);
+    assert_eq!(feed[0]["decision_point"], "launch_ready");
 }
 
 #[test]

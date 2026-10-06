@@ -41,6 +41,7 @@ struct StaticModalModel {
 struct CapturedScreens {
     count: usize,
     snapshots: Vec<BoundedText>,
+    question_sets: Vec<Vec<String>>,
     truncated: bool,
     adjacent_equal: bool,
     previous_screen: Option<String>,
@@ -69,6 +70,7 @@ impl std::fmt::Debug for CapturedScreens {
             .debug_struct("CapturedScreens")
             .field("count", &self.count)
             .field("snapshots", &self.snapshots)
+            .field("question_sets", &self.question_sets)
             .field("truncated", &self.truncated)
             .field("adjacent_equal", &self.adjacent_equal)
             .finish()
@@ -105,9 +107,13 @@ impl DecisionModel for StaticModalModel {
         request: &DecisionQuestionsRequest,
         _: Instant,
     ) -> Result<DecisionResponse, DecisionError> {
-        self.screens
-            .lock()
-            .record(request.state["screen"].as_str().unwrap_or_default());
+        let mut screens = self.screens.lock();
+        screens.record(request.state["screen"].as_str().unwrap_or_default());
+        let question_set = request.questions.keys().cloned().collect::<Vec<_>>();
+        if !screens.question_sets.contains(&question_set) {
+            screens.question_sets.push(question_set);
+        }
+        drop(screens);
         let mut answers = BTreeMap::new();
         for (name, question) in &request.questions {
             let answer = match &question.question {
@@ -439,6 +445,19 @@ fn supporter_first_opinion_safe_response_qualified_static_onboarding_planner_com
         )]),
         ..Default::default()
     };
+    let _qualification = override_qualification_for_test(
+        &adapter,
+        &model_id,
+        &criteria_version(),
+        serde_json::json!({"fixture_authorized": true}),
+    );
+    assert!(qualified_for(
+        &adapter,
+        Some(&model_id),
+        &criteria_version(),
+        "",
+        LOGIN_OR_AUTH_REQUIRED
+    ));
     let screens = Arc::new(Mutex::new(CapturedScreens::default()));
     fixture.service.supporter_models.register(
         &adapter,
@@ -486,7 +505,7 @@ if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) 
         )
         .expect("spawn the modal fixture child in the ServiceContext PTY");
     fixture.service.screen_state.lock().resize(&pty, 120, 40);
-    let mut child = PtyChild::new(fixture.service.clone(), pty, tab_id, session);
+    let mut child = PtyChild::new(fixture.service.clone(), pty, tab_id.clone(), session);
     let journal_path = fixture.temp.path().join("supporter/journal.jsonl");
     let primary = catch_unwind(AssertUnwindSafe(|| run_modal(&mut child, &command)));
     let primary = match primary {
@@ -499,6 +518,70 @@ if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) 
         .ok()
         .map(|_| verify_qualified_journey(&evidence, child.completion.as_ref()));
     let completion = child.completion.clone();
+    let journal = std::fs::read_to_string(&journal_path).unwrap_or_default();
+    let safe_response_rows = journal
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .filter(|row| {
+            row["action"] == "owned_prompt_answer" || row["decision_point"] == "safe_response"
+        })
+        .map(|row| {
+            let asked_names = row["asked"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|answer| answer["name"].as_str())
+                .collect::<Vec<_>>();
+            serde_json::json!({
+                "action": row["action"],
+                "phase": row["phase"],
+                "reason": row["reason"],
+                "decision_point": row["decision_point"],
+                "observation_id": row["observation_id"],
+                "observation_status": row["observation_status"],
+                "decided_by": row["decided_by"],
+                "asked_names": asked_names,
+            })
+        })
+        .collect::<Vec<_>>();
+    let current_identity = evidence.identity.is_some_and(IdentityMatches::all_match)
+        && evidence.manager_generation_matches;
+    let model_screen_captured = evidence.captured_screens.has_model_capture();
+    let agreement_observations = AGREEMENT
+        .lock()
+        .get(&tab_id)
+        .map(|agreement| agreement.count);
+    let pending_prompt = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab_id)
+        .map(|tab| {
+            serde_json::json!({
+                "present": tab.pending_prompt.is_some(),
+                "kind": tab.pending_prompt_kind.map(|kind| format!("{kind:?}")),
+                "options": tab.pending_prompt.as_ref().map(|prompt| prompt.options.len()),
+                "session_authenticated": tab.launch_session_authenticated(),
+            })
+        });
+    let completion_matches = completion.as_ref().is_some_and(CompletionEvidence::succeeds)
+        && completion
+            .as_ref()
+            .is_some_and(|c| c.child_exit == evidence.child_exit_before_cleanup);
+    eprintln!(
+        "qualified fixture validation facts: reader_started={} reader_finished={} model_screen_captured={} current_identity={} agreement_observations={:?} pending_prompt={:?} completion_matches={}",
+        evidence.reader_started,
+        evidence.reader.reader_finished,
+        model_screen_captured,
+        current_identity,
+        agreement_observations,
+        pending_prompt,
+        completion_matches
+    );
+    eprintln!(
+        "qualified fixture safe-response activity: {:?}",
+        bounded_diagnostic(&format!("{safe_response_rows:?}"))
+    );
     let identity = evidence.identity.unwrap_or(IdentityMatches {
         prompt_cleared: false,
         session_matches: false,
@@ -519,9 +602,10 @@ if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) 
         evidence.manager_generation_matches
     );
     eprintln!(
-        "qualified fixture model capture summary: calls={} diagnostic_snapshots={} adjacent_equal={} truncated={}",
+        "qualified fixture model capture summary: calls={} diagnostic_snapshots={} question_sets={:?} adjacent_equal={} truncated={}",
         evidence.captured_screens.count,
         evidence.captured_screens.snapshots.len(),
+        evidence.captured_screens.question_sets,
         evidence.captured_screens.adjacent_equal,
         evidence.captured_screens.truncated
     );

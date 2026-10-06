@@ -315,6 +315,10 @@ impl DecisionModel for BudgetedModel {
             self.tab.as_deref(),
             &response,
             activity::DecisionEvidence {
+                decision_point: self
+                    .activity_context
+                    .as_ref()
+                    .map(ActivityContext::decision_point),
                 model_id,
                 criteria_version,
                 state_hash: &criteria_hash(&serde_json::to_vec(&request.state).unwrap_or_default()),
