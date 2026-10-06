@@ -8,6 +8,7 @@ pub mod message_markers;
 pub mod notification;
 pub mod plan;
 pub mod pty;
+pub mod sentinel_input;
 pub mod startup_records;
 pub mod team;
 pub mod update;
