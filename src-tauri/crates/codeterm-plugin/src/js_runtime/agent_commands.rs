@@ -52,6 +52,8 @@ struct AgentCommandOut {
     result: Option<String>,
     #[serde(default)]
     error: Option<String>,
+    #[serde(default, rename = "catalogueChanged")]
+    catalogue_changed: bool,
 }
 
 impl AgentCommandProvider for JsAgentCommandHandler {
@@ -72,14 +74,17 @@ impl AgentCommandProvider for JsAgentCommandHandler {
         session_id: &str,
         verb: &str,
         args: &[String],
-    ) -> Result<String, String> {
+    ) -> Result<crate::agent_commands::AgentCommandResult, String> {
         let ctx = json!({ "sessionId": session_id, "verb": verb, "args": args });
         match call_json::<AgentCommandOut>(&self.vm, "onAgentCommand", &[ctx]) {
             Ok(out) => {
                 if let Some(e) = out.error {
                     Err(e)
                 } else {
-                    Ok(out.result.unwrap_or_default())
+                    Ok(crate::agent_commands::AgentCommandResult {
+                        result: out.result.unwrap_or_default(),
+                        catalogue_changed: out.catalogue_changed,
+                    })
                 }
             }
             Err(e) => Err(format!("plugin onAgentCommand failed: {e:?}")),
@@ -108,7 +113,23 @@ mod tests {
         let out = h
             .on_agent_command("s1", "say", &["hello".into(), "world".into()])
             .unwrap();
-        assert_eq!(out, "s1/say/hello+world");
+        assert_eq!(out.result, "s1/say/hello+world");
+        assert!(!out.catalogue_changed);
+    }
+
+    #[test]
+    fn catalogue_changed_flag_is_returned_from_agent_command() {
+        let vm = vm_with(
+            r#"module.exports.default = {
+                onAgentCommand() { return { result: "updated", catalogueChanged: true }; }
+            }"#,
+        );
+        let h = JsAgentCommandHandler::new(vm, "provider-plugin", true);
+
+        let out = h.on_agent_command("s1", "refresh", &[]).unwrap();
+
+        assert_eq!(out.result, "updated");
+        assert!(out.catalogue_changed);
     }
 
     #[test]

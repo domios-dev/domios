@@ -19,12 +19,18 @@ use crate::{
 
 use super::{load_one, JsProvider};
 
+#[path = "parity_test/agent_commands.rs"]
+mod agent_commands;
 #[path = "parity_test/decision_model.rs"]
 mod decision_model;
 #[path = "parity_test/delivery_modal.rs"]
 mod delivery_modal;
 #[path = "parity_test/model_catalogue.rs"]
 mod model_catalogue;
+#[path = "parity_test/model_providers.rs"]
+mod model_providers;
+#[path = "parity_test/model_switch.rs"]
+mod model_switch;
 #[path = "parity_test/unbound_submit_recovery.rs"]
 mod unbound_submit_recovery;
 #[path = "parity_test/update_prompt.rs"]
@@ -160,6 +166,13 @@ struct DiscoverModelsNativeStub;
 
 #[async_trait::async_trait]
 impl AgentProvider for DiscoverModelsNativeStub {
+    fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
+        if effort.is_empty() {
+            Vec::new()
+        } else {
+            vec!["--variant".into(), effort.into()]
+        }
+    }
     fn id(&self) -> &str {
         "discover-fixture"
     }
@@ -332,6 +345,19 @@ impl ChatBackendProvider for ModelCapabilityNativeStub {
     fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError> {
         self.outcome.clone().map_err(ChatBackendError::Call)
     }
+
+    fn model_catalogue_capability(&self) -> crate::provider::ModelCatalogueCapability {
+        crate::provider::ModelCatalogueCapability {
+            authority: crate::provider::ModelCatalogueAuthority::Authoritative,
+            live_discovery_required: true,
+            config_files: vec!["/tmp/chatbackend-model-parity-config.json".into()],
+        }
+    }
+
+    fn model_catalogue_input_files(&self) -> Vec<PathBuf> {
+        self.model_catalogue_capability()
+            .fingerprint_files(vec!["/tmp/chatbackend-model-parity-auth.json".into()])
+    }
 }
 
 fn model_capability_fixture() -> Vec<ModelInfo> {
@@ -370,6 +396,9 @@ fn js_model_capability(source: &str) -> super::JsChatBackend {
         "id":"chatbackend-model-parity-fixture",
         "version":"0.1.0",
         "displayName":"Model parity fixture",
+        "credentials":[{"id":"fixtureAuth","file":"/tmp/chatbackend-model-parity-auth.json"}],
+        "modelCatalogue":{"authority":"authoritative","liveDiscoveryRequired":true,
+                           "configFiles":["/tmp/chatbackend-model-parity-config.json"]},
         "capabilities":{"chatBackend":{"spawnable":true}}
     }"#;
     let manifest: super::PluginManifest = serde_json::from_str(manifest_json).unwrap();
@@ -396,6 +425,9 @@ fn native_and_js_chatbackend_model_capability_are_identical() {
     let native = native_registry
         .descriptor("chatbackend-model-parity-fixture")
         .unwrap();
+    let native_provider = native_registry
+        .get("chatbackend-model-parity-fixture")
+        .unwrap();
 
     let js_registry = ChatBackendRegistry::new();
     js_registry.register_and_wait(
@@ -412,11 +444,20 @@ fn native_and_js_chatbackend_model_capability_are_identical() {
     let js = js_registry
         .descriptor("chatbackend-model-parity-fixture")
         .unwrap();
+    let js_provider = js_registry.get("chatbackend-model-parity-fixture").unwrap();
 
     assert_eq!(native.available_models, js.available_models);
     assert_eq!(native.available_models, model_capability_fixture());
     assert_eq!(native.default_model, None);
     assert_eq!(js.default_model, None);
+    assert_eq!(
+        native_provider.model_catalogue_capability(),
+        js_provider.model_catalogue_capability()
+    );
+    assert_eq!(
+        native_provider.model_catalogue_input_files(),
+        js_provider.model_catalogue_input_files()
+    );
 
     let native_missing = ChatBackendRegistry::new();
     native_missing.register_and_wait(
@@ -1067,70 +1108,7 @@ fn agent_state_status_reconciliation_capability_contract() {
     );
 }
 
-/// `model_launch_args` pins each provider's REAL CLI model flag — codex/opencode
-/// take `-m`, claude/cursor take `--model`. A manifest edit that flips the flag
-/// would launch the agent with a flag its CLI rejects; an empty model must add
-/// no flag on every provider. Non-vacuous: it encodes the actual CLI contract,
-/// not a tautology.
-#[test]
-fn model_launch_args_match_each_cli_flag_format() {
-    if require_plugins().is_none() {
-        return;
-    }
-    let cases = [
-        ("claude", "--model"),
-        ("codex", "-m"),
-        ("cursor", "--model"),
-        ("opencode", "-m"),
-    ];
-    for (id, flag) in cases {
-        let p = load_js(id);
-        assert!(
-            p.model_launch_args("").is_empty(),
-            "{id}: empty model must produce no launch flags"
-        );
-        assert_eq!(
-            p.model_launch_args("some-model"),
-            vec![flag.to_string(), "some-model".to_string()],
-            "{id}: model flag format"
-        );
-    }
-}
-
-/// `supports_stop` (the UI Stop-affordance flag in the provider descriptor)
-/// must stay in lockstep with `stop_keys().is_some()` for every bundled
-/// provider — they are two reads of the same capability and a split would show
-/// a Stop button that sends nothing (or hide one that works). This is the
-/// drift class that hid the R1 native-Claude bug; here it guards the JS path.
-#[test]
-fn supports_stop_matches_stop_sequence() {
-    if require_plugins().is_none() {
-        return;
-    }
-    for id in ["claude", "codex", "opencode", "cursor"] {
-        let p = load_js(id);
-        assert_eq!(
-            p.describe().supports_stop,
-            p.stop_keys().is_some(),
-            "{id}: descriptor supports_stop must equal stop_keys().is_some()"
-        );
-    }
-}
-
-#[test]
-fn permission_bypass_descriptor_matches_provider_capability() {
-    if require_plugins().is_none() {
-        return;
-    }
-    for id in ["claude", "codex", "opencode", "cursor"] {
-        let provider = load_js(id);
-        assert_eq!(
-            provider.describe().supports_permission_bypass,
-            !provider.auto_approve_flags().is_empty(),
-            "{id}: UI bypass choice must be derived from provider capability"
-        );
-    }
-}
+mod launch_controls;
 
 // Hook event roster parity + fail-closed registration (DN-3 stage 1).
 

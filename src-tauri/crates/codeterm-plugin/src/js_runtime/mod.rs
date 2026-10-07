@@ -18,6 +18,7 @@ mod host_net;
 pub mod hot_reload;
 pub mod loader;
 pub mod manifest;
+mod model_providers;
 pub mod plugin_config;
 mod provider;
 pub(crate) mod toolcall_parse;

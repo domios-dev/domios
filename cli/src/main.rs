@@ -170,6 +170,9 @@ fn main_impl() {
     }
 
     if let Some(mesh_target) = cli.mesh.clone() {
+        if matches!(&cli.command, Commands::ModelProvider { .. }) {
+            cmd::print::fail(1, "model provider secrets and configuration are local-only");
+        }
         if matches!(&cli.command, Commands::Supporter { .. }) {
             cmd::print::fail(
                 7,
@@ -441,6 +444,11 @@ fn main_impl() {
 
         Commands::Integration { action } => {
             cmd::integration::handle_integration(cli.json, &action);
+            return;
+        }
+
+        Commands::ModelProvider { action } => {
+            cmd::model_provider::handle(&mut client, cli.json, action);
             return;
         }
 

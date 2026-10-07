@@ -80,11 +80,14 @@ impl Default for ModelCatalogueAuthority {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct ModelCatalogueCapability {
     pub authority: ModelCatalogueAuthority,
     pub live_discovery_required: bool,
+    /// Config files whose change voids a cached model snapshot (e.g. the
+    /// provider's own model registry). Fingerprint-only, never a sandboxed read.
+    pub config_files: Vec<String>,
 }
 
 impl ModelCatalogueCapability {
@@ -92,6 +95,7 @@ impl ModelCatalogueCapability {
         Self {
             authority: ModelCatalogueAuthority::Authoritative,
             live_discovery_required: false,
+            config_files: Vec::new(),
         }
     }
 
@@ -99,16 +103,33 @@ impl ModelCatalogueCapability {
         Self {
             authority: ModelCatalogueAuthority::Authoritative,
             live_discovery_required: true,
+            config_files: Vec::new(),
         }
+    }
+
+    /// Cache-fingerprint inputs: credential files first, then the declared
+    /// config paths. Fingerprint-only - never feeds declared_files/denied_reads.
+    pub fn fingerprint_files(
+        &self,
+        credential_files: Vec<std::path::PathBuf>,
+    ) -> Vec<std::path::PathBuf> {
+        let mut files = credential_files;
+        files.extend(
+            self.config_files
+                .iter()
+                .filter_map(|path| crate::js_runtime::PluginManifest::expand_home(path)),
+        );
+        files
     }
 }
 
 /// How a live agent tab changes its model without touching the provider's
-/// machine-global default. `RestartResume` relaunches the same session with the
-/// model launch args and needs a session-start report naming the running model.
+/// machine-global default. `Live` changes a running session through a provider
+/// session API; `RestartResume` relaunches the same session with model launch args.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelSwitchMode {
+    Live,
     RestartResume,
     #[default]
     Unsupported,

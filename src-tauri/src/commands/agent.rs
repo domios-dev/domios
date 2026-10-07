@@ -175,13 +175,16 @@ pub async fn switch_agent_model(
     svc: State<'_, ServiceState>,
     tab_id: String,
     model: String,
+    reasoning_effort: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let svc = (*svc).clone();
-    tokio::task::spawn_blocking(move || svc.agent_switch_model(&tab_id, &model))
-        .await
-        .map_err(|error| format!("model switch worker failed: {error}"))?
-        .map(|outcome| crate::api::agent_model_routes::model_switch_success_body(&outcome))
-        .map_err(|error| error.to_string())
+    tokio::task::spawn_blocking(move || {
+        svc.agent_switch_model_with_reasoning(&tab_id, &model, reasoning_effort.as_deref())
+    })
+    .await
+    .map_err(|error| format!("model switch worker failed: {error}"))?
+    .map(|outcome| crate::api::agent_model_routes::model_switch_success_body(&outcome))
+    .map_err(|error| error.to_string())
 }
 
 /// Re-probe one CLI binary through the shared resolver, dropping its memo first
@@ -345,29 +348,27 @@ mod install_provider_tests {
     }
 }
 
-/// TTL-gated re-probe for a reader that just opened the model picker. An open
-/// is an explicit user action, not a poll, and the TTL bounds it to at most one
-/// probe per window — except while a verdict is still unknown, which is retried.
+/// Explicitly refresh a provider's catalogue for a caller that requests it.
+/// The live refresh runs on the blocking pool or the chatBackend catalogue thread.
 #[tauri::command]
 pub async fn refresh_provider_models(
-    app: tauri::AppHandle,
     svc: State<'_, ServiceState>,
     provider_id: String,
 ) -> Result<bool, String> {
-    let Some(provider) = svc.agent_registry.provider_arc(&provider_id) else {
-        return Ok(false);
-    };
-    let refreshed = crate::agent::model_catalog::refresh_for_reader(provider)
-        .await
-        .is_some();
-    if refreshed {
-        crate::api::events::emit_everywhere(
-            &app,
-            "models-updated",
-            serde_json::json!({ "provider": provider_id }),
-        );
+    if let Some(provider) = svc.agent_registry.provider_arc(&provider_id) {
+        crate::agent::model_catalog::invalidate(&provider_id);
+        return Ok(crate::agent::model_catalog::refresh_models(provider, true)
+            .await
+            .is_some());
     }
-    Ok(refreshed)
+    if svc.chatbackend_registry.get(&provider_id).is_none() {
+        return Ok(false);
+    }
+    crate::agent::model_catalog::invalidate(&provider_id);
+    let registry = svc.chatbackend_registry.clone();
+    tokio::task::spawn_blocking(move || registry.refresh_and_wait(&provider_id))
+        .await
+        .map_err(|error| format!("chatBackend catalogue refresh failed: {error}"))
 }
 
 /// Per-group usage for the model picker. The provider owns both the grouping

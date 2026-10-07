@@ -3,6 +3,8 @@
 
 // ── Shared context ──
 
+import type { ModelProviderConfig } from "./modelProviders";
+
 export interface TabContext {
   cwd?: string | null;
 }
@@ -882,7 +884,7 @@ export interface AgentCommandCtx {
 }
 
 export interface AgentCommandHandler {
-  onAgentCommand(ctx: AgentCommandCtx): { result: string } | { error: string };
+  onAgentCommand(ctx: AgentCommandCtx): { result: string; catalogueChanged?: boolean } | { error: string };
 }
 
 // ── The default-export shape: every capability method optional ──
@@ -896,7 +898,8 @@ export interface PluginModule
     Partial<ChatBackend>,
     Partial<ChatPreprocessor>,
     Partial<WebhookReceiver>,
-    Partial<AgentCommandHandler> {
+    Partial<AgentCommandHandler>,
+    Partial<ModelProviderConfig> {
   statusBubble?(ctx: TabContext): StatusBubble | null;
   renderGlance?(ctx: TabContext): GlanceView;
   viewCall?: ViewCall;

@@ -22,6 +22,7 @@ pub mod host_traits;
 pub mod js_runtime;
 pub mod jsonl_window;
 pub mod model_catalog;
+pub mod model_providers;
 pub mod permission_prompt;
 pub mod plugin_icon;
 pub mod plugin_manager;

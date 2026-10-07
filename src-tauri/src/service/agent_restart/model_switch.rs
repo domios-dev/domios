@@ -17,6 +17,7 @@ pub(crate) const MODEL_OBSERVE_TIMEOUT_SECS: u64 = 20;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ModelSwitchEvidence {
+    LiveSessionRecord,
     SessionStartReport,
     FirstPostRelaunchTurn,
 }
@@ -32,12 +33,39 @@ pub(crate) enum ModelSwitchConfirmation {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ModelSwitchOutcome {
-    pub restart: RestartOutcome,
+    pub tab_id: String,
+    pub provider: String,
+    pub session_id: String,
+    pub restart: Option<RestartOutcome>,
     pub mechanism: ModelSwitchMode,
+    pub fallback_reason: Option<String>,
     pub previous_model: Option<String>,
     pub requested_model: String,
     pub launched_model: String,
+    pub confirmation_detail: Option<String>,
     pub confirmation: ModelSwitchConfirmation,
+}
+
+fn effective_model_switch_mode(
+    declared: ModelSwitchMode,
+    live_result: Option<&crate::service::structured_prompt::LiveModelSwitchResult>,
+) -> (ModelSwitchMode, Option<String>) {
+    match (declared, live_result) {
+        (
+            ModelSwitchMode::Live,
+            Some(crate::service::structured_prompt::LiveModelSwitchResult::Applied { .. }),
+        ) => (ModelSwitchMode::Live, None),
+        (
+            ModelSwitchMode::Live,
+            Some(crate::service::structured_prompt::LiveModelSwitchResult::Unsupported { reason }),
+        ) => (ModelSwitchMode::RestartResume, Some(reason.clone())),
+        (ModelSwitchMode::RestartResume, _) => (ModelSwitchMode::RestartResume, None),
+        (ModelSwitchMode::Unsupported, _) => (ModelSwitchMode::Unsupported, None),
+        (ModelSwitchMode::Live, None) => (
+            ModelSwitchMode::RestartResume,
+            Some("the live switch route was not probed".into()),
+        ),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,6 +95,7 @@ pub(crate) enum ModelSwitchError {
         launched_model: String,
         observed_model: String,
     },
+    LiveSwitchFailed(String),
 }
 
 impl std::fmt::Display for ModelSwitchError {
@@ -93,6 +122,9 @@ impl std::fmt::Display for ModelSwitchError {
                 formatter,
                 "relaunched with {launched_model}, but the current session reported {observed}"
             ),
+            Self::LiveSwitchFailed(reason) => {
+                write!(formatter, "live model switch failed: {reason}")
+            }
         }
     }
 }
@@ -316,6 +348,15 @@ impl ServiceContext {
         tab_id: &str,
         requested: &str,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+        self.agent_switch_model_with_reasoning(tab_id, requested, None)
+    }
+
+    pub(crate) fn agent_switch_model_with_reasoning(
+        &self,
+        tab_id: &str,
+        requested: &str,
+        requested_effort: Option<&str>,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
         let requested = requested.trim();
         let (resolved_tab, provider) = {
             let mux = self.mux.read();
@@ -330,13 +371,13 @@ impl ServiceContext {
                 })?;
             (resolved, provider)
         };
-        let mechanism = self
+        let declared_mode = self
             .agent_registry
             .with_provider(&provider, |p| p.model_switch())
             .ok_or_else(|| {
                 ModelSwitchError::NotSwitchable(format!("unknown agent provider: {provider}"))
             })?;
-        if mechanism == ModelSwitchMode::Unsupported {
+        if declared_mode == ModelSwitchMode::Unsupported {
             return Err(ModelSwitchError::Unsupported { provider });
         }
         if self.general_agent_restart_snapshot(&resolved_tab).is_some() {
@@ -353,12 +394,29 @@ impl ServiceContext {
         .map_err(ModelSwitchError::InvalidModel)?;
         let snap = self.snapshot_tab_for_restart(&resolved_tab)?;
         let session_id = self.verified_resumable_session(&snap)?;
-        if !self.tab_is_idle(&snap.tab_id) {
-            return Err(ModelSwitchError::NotSwitchable(
-                "the agent is mid-turn or waiting on a prompt; switch its model once it is idle"
-                    .to_string(),
-            ));
-        }
+        let effort = requested_effort.map(str::to_owned).or_else(|| {
+            let saved = self
+                .mux
+                .read()
+                .get_tab(&snap.tab_id)
+                .and_then(|tab| recorded_launch_parameters(tab).resolved_reasoning_effort);
+            saved.filter(|effort| {
+                crate::service::spawn::validate_agent_reasoning_effort(
+                    &self.agent_registry,
+                    &provider,
+                    Some(requested),
+                    Some(effort),
+                )
+                .is_ok()
+            })
+        });
+        crate::service::spawn::validate_agent_reasoning_effort(
+            &self.agent_registry,
+            &provider,
+            Some(requested),
+            effort.as_deref(),
+        )
+        .map_err(ModelSwitchError::NotSwitchable)?;
         let previous_model = {
             let mux = self.mux.read();
             mux.get_tab(&snap.tab_id).and_then(|tab| {
@@ -367,7 +425,88 @@ impl ServiceContext {
                     .or_else(|| tab.agent_provider_resolved_model.clone())
             })
         };
-        let launch = ModelSwitchLaunch::prepare(self, &snap, &session_id, requested)?;
+        let live_result = if declared_mode == ModelSwitchMode::Live {
+            Some(
+                crate::service::structured_prompt::live_switch_for_tab(
+                    &snap.tab_id,
+                    &session_id,
+                    requested,
+                    effort.as_deref(),
+                )
+                .map_err(ModelSwitchError::LiveSwitchFailed)?,
+            )
+        } else {
+            None
+        };
+        let (mechanism, fallback_reason) =
+            effective_model_switch_mode(declared_mode, live_result.as_ref());
+        if let Some(crate::service::structured_prompt::LiveModelSwitchResult::Applied {
+            observed_model,
+            confirmation_detail,
+        }) = live_result
+        {
+            self.record_live_model_request(
+                &snap.tab_id,
+                &provider,
+                &session_id,
+                requested,
+                effort.as_deref(),
+            )?;
+            let confirmed = observed_model.as_deref().is_some_and(|observed| {
+                crate::service::structured_prompt::same_model_id(requested, observed)
+                    && self.record_live_model_confirmation(
+                        &snap.tab_id,
+                        &provider,
+                        &session_id,
+                        requested,
+                        observed,
+                    )
+            });
+            let detail = if confirmed {
+                None
+            } else {
+                confirmation_detail.or_else(|| {
+                    Some("the bound session model has not confirmed the request".into())
+                })
+            };
+            let confirmation = if confirmed {
+                ModelSwitchConfirmation::Observed {
+                    model: observed_model.clone().unwrap_or_default(),
+                    evidence: ModelSwitchEvidence::LiveSessionRecord,
+                }
+            } else {
+                ModelSwitchConfirmation::Pending
+            };
+            return Ok(ModelSwitchOutcome {
+                tab_id: snap.tab_id,
+                provider,
+                session_id,
+                restart: None,
+                mechanism: ModelSwitchMode::Live,
+                fallback_reason: None,
+                previous_model,
+                requested_model: requested.to_string(),
+                launched_model: requested.to_string(),
+                confirmation_detail: detail,
+                confirmation,
+            });
+        }
+        if mechanism == ModelSwitchMode::Unsupported {
+            return Err(ModelSwitchError::Unsupported { provider });
+        }
+        if !self.tab_is_idle(&snap.tab_id) {
+            let suffix = fallback_reason
+                .as_deref()
+                .map(|reason| format!(" Live mode was unavailable: {reason}."))
+                .unwrap_or_default();
+            return Err(ModelSwitchError::NotSwitchable(format!(
+                "the agent is mid-turn or waiting on a prompt; RestartResume requires an idle tab.{suffix}"
+            )));
+        }
+        let mut launch = ModelSwitchLaunch::prepare(self, &snap, &session_id, requested)?;
+        launch.params.reasoning_effort = effort.clone();
+        launch.launch.requested_reasoning_effort = effort.clone();
+        launch.launch.resolved_reasoning_effort = effort;
         let launched_model = launch.launched_model().to_string();
         log::info!(
             "[agent-model] tab={} provider={} session={} {:?} -> {}",
@@ -407,12 +546,126 @@ impl ServiceContext {
             }
         };
         Ok(ModelSwitchOutcome {
-            restart,
+            tab_id: restart.tab_id.clone(),
+            provider: restart.provider.clone(),
+            session_id: session_id.clone(),
+            restart: Some(restart),
             mechanism,
+            fallback_reason,
             previous_model,
             requested_model: requested.to_string(),
             launched_model,
+            confirmation_detail: None,
             confirmation,
+        })
+    }
+
+    fn record_live_model_request(
+        &self,
+        tab_id: &str,
+        provider: &str,
+        session_id: &str,
+        requested_model: &str,
+        effort: Option<&str>,
+    ) -> Result<(), ModelSwitchError> {
+        let updated = {
+            let mut mux = self.mux.write();
+            let Some(tab) = mux.get_tab_mut(tab_id) else {
+                return Err(ModelSwitchError::NotFound(format!(
+                    "Tab {tab_id} not found"
+                )));
+            };
+            if tab.agent_type.as_deref() != Some(provider)
+                || tab.agent_session_id.as_deref() != Some(session_id)
+                || tab.session_binding_nonce.is_none()
+                || tab.session_binding_nonce != tab.reported_session_binding_nonce
+            {
+                return Err(ModelSwitchError::NotSwitchable(
+                    "the tab's verified session binding changed during the live model switch"
+                        .into(),
+                ));
+            }
+            tab.agent_requested_model = Some(requested_model.to_string());
+            tab.agent_provider_resolved_model = Some(requested_model.to_string());
+            tab.restorable_launch.captured = true;
+            tab.restorable_launch.requested_model = Some(requested_model.to_string());
+            tab.restorable_launch.model = Some(requested_model.to_string());
+            tab.restorable_launch.requested_reasoning_effort = effort.map(str::to_owned);
+            tab.restorable_launch.resolved_reasoning_effort = effort.map(str::to_owned);
+            crate::service::reasoning_effort::persist_launch_identity(tab, effort, effort);
+            true
+        };
+        if updated {
+            if let Err(error) = crate::service::session_persist::persist_session_after_mutation(
+                self,
+                crate::service::session_persist::SessionPersistUrgency::Prompt,
+            ) {
+                log::warn!(
+                    "[agent-model] tab={tab_id} failed to persist the live model request: {error}"
+                );
+            }
+            self.persist_current_attempt_session_model(tab_id);
+            self.emit_state_changed();
+        }
+        Ok(())
+    }
+
+    fn record_live_model_confirmation(
+        &self,
+        tab_id: &str,
+        provider: &str,
+        session_id: &str,
+        requested_model: &str,
+        observed_model: &str,
+    ) -> bool {
+        if !crate::service::session_model::session_model_matches(
+            &self.agent_registry,
+            provider,
+            requested_model,
+            observed_model,
+        ) {
+            return false;
+        }
+        let binding_nonce = {
+            let mux = self.mux.read();
+            let Some(tab) = mux.get_tab(tab_id) else {
+                return false;
+            };
+            if tab.agent_type.as_deref() != Some(provider)
+                || tab.agent_session_id.as_deref() != Some(session_id)
+                || tab.session_binding_nonce.is_none()
+                || tab.session_binding_nonce != tab.reported_session_binding_nonce
+            {
+                return false;
+            }
+            tab.session_binding_nonce.clone().unwrap_or_default()
+        };
+        self.apply_session_model(
+            tab_id,
+            provider,
+            session_id,
+            observed_model.to_string(),
+            None,
+            Some(&binding_nonce),
+            false,
+        );
+        let mux = self.mux.read();
+        mux.get_tab(tab_id).is_some_and(|tab| {
+            tab.agent_type.as_deref() == Some(provider)
+                && tab.agent_session_id.as_deref() == Some(session_id)
+                && tab.agent_session_model.as_deref().is_some_and(|model| {
+                    crate::service::structured_prompt::same_model_id(model, observed_model)
+                })
+                && tab
+                    .agent_session_model_identity
+                    .as_ref()
+                    .is_some_and(|identity| {
+                        identity.session_id == session_id
+                            && identity.session_binding_nonce == binding_nonce
+                            && tab.session_binding_nonce.as_deref() == Some(binding_nonce.as_str())
+                            && tab.reported_session_binding_nonce.as_deref()
+                                == Some(binding_nonce.as_str())
+                    })
         })
     }
 
