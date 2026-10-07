@@ -1,4 +1,5 @@
 import type { RemoteChannelAvailabilityMap } from "./remoteTabTransportState";
+import type {ProviderSignals} from "./providerSignals";
 
 /** Title priority: higher levels cannot be overwritten by lower ones. */
 export enum TitleLevel {
@@ -153,6 +154,7 @@ export interface Tab {
   purpose?: import("./shellCommandState").ShellPurpose;
   shell_command_state?: import("./shellCommandState").ShellCommandState;
   context?: { used_tokens: number; window_tokens: number; cost_usd: number | null; source: string };
+  provider_signals?: ProviderSignals;
   id: string;
   workspace_id?: string | null;
   /** Per-group sibling ordinal within the owning workspace or hierarchy. */
@@ -1036,6 +1038,7 @@ export interface ModelCatalogueCapability {
 export type ModelSwitchMode = "live" | "next_turn" | "restart_resume" | "unsupported";
 
 export interface ProviderDescriptor {
+  supports_session_fork?: boolean;
   cli_status?: import("./providerCli").ProviderCliStatus;
   schema_version: number;
   id: string;

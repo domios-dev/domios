@@ -21,6 +21,12 @@ impl ServiceContext {
         let bound_session_id = session_id.clone();
         let mut mux = self.mux.write();
         if let Some(ref new_sid) = session_id {
+            if mux
+                .get_tab(tab_id)
+                .is_some_and(|tab| tab.fork_source_session_id.is_some())
+            {
+                return;
+            }
             let conflict = mux
                 .tab_ids_with_session(new_sid)
                 .into_iter()
@@ -43,6 +49,7 @@ impl ServiceContext {
             tab.reported_session_binding_nonce = None;
             if changed {
                 clear_runtime_model_evidence(tab);
+                tab.provider_signals = Default::default();
             }
         }
         drop(mux);
@@ -54,6 +61,7 @@ impl ServiceContext {
             // The binding commit shuts this tab's tailer down, and chat reads
             // its authority from the tab record: no broadcast, no re-attach.
             self.emit_state_changed();
+            crate::service::provider_signals::refresh_auth(self, tab_id);
             let _ = crate::service::session_persist::persist_session_after_mutation(
                 self,
                 crate::service::session_persist::SessionPersistUrgency::Prompt,
@@ -132,10 +140,12 @@ impl ServiceContext {
             tab.remember_superseded_binding_nonce();
             tab.session_binding_nonce = Some(nonce.clone());
             tab.reported_session_binding_nonce = None;
+            tab.provider_signals = Default::default();
             if let Some(session_id) = resume_target {
                 tab.remember_resume_binding_nonce(session_id);
             }
         }
+        crate::service::provider_signals::refresh_auth(self, tab_id);
         nonce
     }
 
@@ -159,6 +169,7 @@ impl ServiceContext {
         // A freshly minted nonce is a new launch, so it starts a new operation.
         if minted {
             self.open_lifecycle_epoch(tab_id);
+            crate::service::provider_signals::refresh_auth(self, tab_id);
         }
         nonce
     }
@@ -214,5 +225,27 @@ mod tests {
             after_bind,
             "an unchanged binding must not broadcast"
         );
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn agent_fork_legacy_guess_cannot_bind_a_distinct_session() {
+        let (mut mux, tab) = MultiplexerState::new();
+        mux.get_tab_mut(&tab).unwrap().fork_source_session_id = Some("source".into());
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .set_agent_session_id(&tab, Some("guessed-distinct".into()));
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab)
+            .unwrap()
+            .agent_session_id
+            .is_none());
     }
 }

@@ -300,6 +300,7 @@ pub async fn spawn_agent(
         system_prompt: body.system_prompt,
         preset: body.preset,
         resume_session_id: None,
+        fork_session: false,
         charter: body.charter,
         tick_interval_secs: body.tick_interval_secs,
         nudge_cooldown_secs: body.nudge_cooldown_secs,
