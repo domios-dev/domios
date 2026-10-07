@@ -8,6 +8,7 @@ import type {
 import {
   listAiderHistoryBlocks,
   parseAiderHistory,
+  parseAiderHistoryDelta,
   readHistoryFile,
 } from "./history";
 
@@ -368,30 +369,13 @@ const plugin: PluginModule = {
     return [];
   },
 
-  usesStructuredChat(): boolean {
-    return true;
+  sessionJsonlPath(cwd: string, _sessionId: string): string | null {
+    if (!cwd) return null;
+    return `${cwd}/.aider.chat.history.md`;
   },
 
-  readStructuredChat(cwd: string, sessionId: string, cursor?: string | null): unknown {
-    const historyPath = `${cwd}/.aider.chat.history.md`;
-    const blocks = historyBlocks(cwd);
-    const block = sessionId
-      ? blocks.filter((b) => b.id === sessionId).pop()
-      : blocks[blocks.length - 1];
-    const content = block
-      ? block.content
-      : readHistoryFile(historyPath) || "";
-    const id = block ? block.id : "default";
-    const result = parseAiderHistory(content, 0, cursor);
-    return {
-      messages: result.messages.map((m, i) => ({
-        id: `${id}_${i}`,
-        type: m.role,
-        content: m.text,
-        seq: i,
-      })),
-      cursor: result.cursor,
-    };
+  parseSessionDelta(chunk: string): unknown {
+    return parseAiderHistoryDelta(String(chunk || ""));
   },
 
   checkIntegration(): unknown {

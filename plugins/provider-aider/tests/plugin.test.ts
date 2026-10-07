@@ -18,7 +18,7 @@ import runtime, {
   promptSafeChoice,
   wrapMultiline,
 } from "../src/plugin";
-import { parseAiderHistory } from "../src/history";
+import { parseAiderHistory, parseAiderHistoryDelta } from "../src/history";
 
 let passed = 0;
 let failed = 0;
@@ -544,6 +544,94 @@ console.log("\n--- manifest paste and preprocessor capability ---\n");
   );
   const keys = schema.flatMap((section: any) => (section.fields || []).map((f: any) => f.key));
   eq(keys, ["configPath", "apiBase", "apiKeySecret"], "settings schema declares the three launch settings");
+}
+
+console.log("\n--- parseSessionDelta (file-tail chat route) ---\n");
+{
+  const chunk = [
+    "#### Hello, what can you do?",
+    "",
+    "I can help you with coding tasks.",
+    "",
+    "#### Second question",
+    "",
+    "<thinking-content-abc>",
+    "internal reasoning",
+    "</thinking-content-abc>",
+    "Second answer",
+  ].join("\n");
+  const delta = parseAiderHistoryDelta(chunk) as {
+    messages: Array<{ id: string; type: string; content: string; recordIndex: number }>;
+  };
+  eq(delta.messages.length, 3, "delta yields user + assistant + user + assistant minus blank");
+  eq(delta.messages[0].type, "user", "first delta row is user");
+  eq(delta.messages[0].content, "Hello, what can you do?", "first delta user text");
+  eq(delta.messages[1].type, "assistant", "second delta row is assistant");
+  eq(delta.messages[1].content, "I can help you with coding tasks.", "first delta assistant text");
+  eq(delta.messages[2].type, "user", "third delta row is user");
+  eq(delta.messages[2].content, "Second question", "second delta user text");
+  eq(delta.messages[3].type, "assistant", "fourth delta row is assistant");
+  eq(delta.messages[3].content, "Second answer", "thinking block stripped from delta assistant text");
+  eq(delta.messages[0].recordIndex, 0, "recordIndex is the chunk line");
+  eq(delta.messages[1].recordIndex, 2, "assistant recordIndex is its first line");
+
+  const blankOnly = parseAiderHistoryDelta("#### \n\n#### Real\n\nAnswer\n") as {
+    messages: Array<{ type: string; content: string }>;
+  };
+  eq(blankOnly.messages.length, 2, "blank #### turns are skipped in delta");
+  eq(blankOnly.messages[0].content, "Real", "real user turn survives in delta");
+  eq(blankOnly.messages[1].content, "Answer", "assistant turn survives in delta");
+
+  const thinkingOnly = parseAiderHistoryDelta(
+    "#### Q\n\n<thinking-content-x>\nhidden\n</thinking-content-x>\n",
+  ) as { messages: Array<{ type: string }> };
+  eq(thinkingOnly.messages.length, 1, "assistant row with only thinking is dropped in delta");
+  eq(thinkingOnly.messages[0].type, "user", "user row survives in delta");
+
+  const empty = parseAiderHistoryDelta("") as { messages: unknown[] };
+  eq(empty.messages.length, 0, "empty chunk yields no rows");
+}
+
+console.log("\n--- detectSessionId (newest history block id) ---\n");
+{
+  const twoBlocks = [
+    "# aider chat started at 2026-10-06 10:00:00.000",
+    "",
+    "#### Old question",
+    "",
+    "Old answer",
+    "",
+    "# aider chat started at 2026-10-06 12:00:00.000",
+    "",
+    "#### New question",
+    "",
+    "New answer",
+  ].join("\n");
+  const readVia = (host: any) => {
+    const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
+    const source = fs.readFileSync(pluginPath, "utf8");
+    const context = { host, console, module: { exports: {} as any }, exports: {} };
+    new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+    return context.module.exports.default;
+  };
+  const historyPath = "/ws/.aider.chat.history.md";
+  const hostWith = (content: string) => ({
+    platform: () => "linux",
+    shell: { quoteFor: (v: any) => `'${v}'` },
+    fs: { readFile: (p: string) => (p === historyPath ? content : null) },
+    log: () => {},
+  });
+  const p = readVia(hostWith(twoBlocks));
+  const newest = p.detectSessionId("/ws", [], 0);
+  eq(newest, "2026-10-06 12:00:00.000", "detectSessionId returns the newest block id");
+  eq(p.detectSessionId("/ws", [newest!], 0), "2026-10-06 10:00:00.000", "exclude list skips the named block");
+  eq(p.detectSessionId("/ws", [], 1), null, "maxAgeMs excludes blocks older than the window");
+  eq(p.sessionExists("/ws", "2026-10-06 12:00:00.000"), true, "sessionExists finds a known block");
+  eq(p.sessionExists("/ws", "nope"), false, "sessionExists rejects an unknown id");
+  eq(p.sessionJsonlPath("/ws", "2026-10-06 12:00:00.000"), "/ws/.aider.chat.history.md", "sessionJsonlPath returns the history file");
+  eq(p.sessionJsonlPath("", "x"), null, "sessionJsonlPath rejects empty cwd");
+  eq(p.usesStructuredChat, undefined, "usesStructuredChat is removed");
+  eq(p.readStructuredChat, undefined, "readStructuredChat is removed");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
