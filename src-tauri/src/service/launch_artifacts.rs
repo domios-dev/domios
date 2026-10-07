@@ -72,6 +72,12 @@ fn has_live_provider_process_evidence(
 }
 
 pub(crate) fn sweep_after_restore(service: &ServiceContext) {
+    for error in super::codex_rpc::process::sweep(
+        &crate::paths::data_dir().join("codex-rpc"),
+        crate::paths::codeterm_instance_id(),
+    ) {
+        log::error!("[codex-rpc] orphan sweep: {error}");
+    }
     let task_files = super::task_files::sweep_after_restore(service);
     if !task_files.is_empty() {
         log::info!("[startup] removed orphaned task files: {:?}", task_files);

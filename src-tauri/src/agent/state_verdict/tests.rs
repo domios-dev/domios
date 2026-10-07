@@ -159,3 +159,11 @@ fn permission_request_verdict_maps_to_the_expected_live_state() {
         TimelineState::Idle
     );
 }
+
+#[test]
+fn codex_rpc_control_waiting_maps_to_question_state() {
+    assert_eq!(
+        live_state_for(ProviderStateVerdict::Waiting).state,
+        TimelineState::Question
+    );
+}

@@ -14,7 +14,9 @@ use crate::api::{
 };
 
 pub(crate) mod context_feed;
+mod hook_authority;
 pub(crate) mod permission_decision;
+use hook_authority::{stop_report_verdict, StopReportVerdict};
 mod provider_events;
 mod run_session;
 mod session_ack;
@@ -255,6 +257,9 @@ pub async fn hook_permission(
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "permission")?;
+    if let Some(response) = hook_authority::telemetry_response(&tab_id, "permission") {
+        return Ok(response);
+    }
     if let Some(raw) = body.as_ref() {
         if let Some(response) = permission_decision::handle(&state, &tab_id, &headers, raw).await {
             return Ok(Json(response));
@@ -403,27 +408,6 @@ pub async fn hook_permission(
     Ok(Json(response))
 }
 
-/// Verdict for a provider-reported Stop POST. A carried nonce must equal the
-/// tab's own launch nonce (completion-via-report); a nonce-less POST stays on
-/// the legacy inference-tolerant path; anything else is a foreign reporter.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum StopReportVerdict {
-    Verified,
-    Legacy,
-    Foreign,
-}
-
-fn stop_report_verdict(
-    launch_nonce: Option<&str>,
-    report_nonce: Option<&str>,
-) -> StopReportVerdict {
-    match (launch_nonce, report_nonce) {
-        (Some(expected), Some(got)) if got == expected => StopReportVerdict::Verified,
-        (_, Some(_)) => StopReportVerdict::Foreign,
-        (_, None) => StopReportVerdict::Legacy,
-    }
-}
-
 /// Hook endpoint: agent stopped (task complete). Called by the Stop hook of
 /// whichever provider declares the stop route in its roster.
 pub async fn hook_stop(
@@ -433,6 +417,9 @@ pub async fn hook_stop(
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "stop")?;
+    if let Some(response) = hook_authority::telemetry_response(&tab_id, "stop") {
+        return Ok(response);
+    }
     log::debug!("[hook_stop] fired for Tab {}", tab_id);
     let body = body.unwrap_or(serde_json::Value::Null);
     let report_nonce = body
@@ -511,6 +498,9 @@ pub async fn hook_session_start(
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "session_start")?;
+    if let Some(response) = hook_authority::telemetry_response(&tab_id, "session_start") {
+        return Ok(response);
+    }
     let body = body.unwrap_or(serde_json::Value::Null);
     let session_id = session_start_session_id(&body);
     let source = body

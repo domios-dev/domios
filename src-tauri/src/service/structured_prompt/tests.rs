@@ -93,7 +93,7 @@ fn endpoint_and_active_round_trip_per_tab() {
     clear_tab(tab);
     assert!(pending_for_tab(tab).is_none());
     assert!(route_for_tab(tab).is_none());
-    assert!(ENDPOINTS.lock().get(tab).is_none());
+    assert!(super::super::structured_endpoint::get(tab).is_none());
 }
 
 #[test]

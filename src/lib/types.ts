@@ -177,6 +177,8 @@ export interface Tab {
   agent_session_name?: string | null;
   agent_session_model?: string | null;
   agent_requested_model?: string | null;
+  structured_control_active?: boolean;
+  structured_runtime_mode?: string | null;
   agent_provider_resolved_model?: string | null;
   agent_label?: string | null;
   reasoning_effort_identity?: {
@@ -1028,7 +1030,7 @@ export interface ModelCatalogueCapability {
   liveDiscoveryRequired: boolean;
 }
 
-export type ModelSwitchMode = "live" | "restart_resume" | "unsupported";
+export type ModelSwitchMode = "live" | "next_turn" | "restart_resume" | "unsupported";
 
 export interface ProviderDescriptor {
   cli_status?: import("./providerCli").ProviderCliStatus;

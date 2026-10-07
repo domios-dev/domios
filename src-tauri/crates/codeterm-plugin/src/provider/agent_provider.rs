@@ -6,6 +6,9 @@ use std::time::Duration;
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
 pub trait AgentProvider: Send + Sync {
+    fn structured_control(&self) -> Option<StructuredControl> {
+        None
+    }
     /// Unique identifier for this provider (e.g. "claude").
     fn id(&self) -> &str;
 
@@ -940,6 +943,18 @@ pub trait AgentProvider: Send + Sync {
     fn describe(&self) -> ProviderDescriptor {
         let platform = current_platform_tag();
         let mut settings = self.settings_schema();
+        if self.structured_control().is_some() {
+            settings.push(SettingField::Section {
+                title: "Structured control".into(),
+                description: None,
+                fields: vec![SettingField::Toggle {
+                    key: "structured_control_enabled".into(),
+                    label: "Enable structured control".into(),
+                    default: true,
+                    description: None,
+                }],
+            });
+        }
         if self.usage_parser().is_some() {
             let probe_cmd = self.usage_probe_command().unwrap_or("/usage");
             settings.push(usage_tracking_section(probe_cmd));
@@ -947,6 +962,7 @@ pub trait AgentProvider: Send + Sync {
             settings.push(usage_store_tracking_section());
         }
         ProviderDescriptor {
+            structured_control: self.structured_control(),
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             cli_status: None,
             id: self.id().to_string(),

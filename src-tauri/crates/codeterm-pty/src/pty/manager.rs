@@ -454,7 +454,7 @@ pub const STRIPPED_PTY_ENV: &[&str] = &[
     "CONTINUOUS_INTEGRATION",
 ];
 
-const INHERITED_ORCHESTRATION_ENV: &[&str] = &[
+pub const INHERITED_ORCHESTRATION_ENV: &[&str] = &[
     "CODETERM_PLAN_ID",
     "CODETERM_TASK_ID",
     "CODETERM_LANE_BASE",

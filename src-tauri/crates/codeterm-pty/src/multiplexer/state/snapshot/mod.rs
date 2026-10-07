@@ -585,6 +585,8 @@ fn install_leaf(
             pending_model_switch_observation: None,
             agent_planned_model: agent_planned_model.clone(),
             agent_requested_model: agent_requested_model.clone(),
+            structured_control_active: false,
+            structured_runtime_mode: restorable_launch.structured_runtime_mode.clone(),
             agent_provider_resolved_model: agent_provider_resolved_model.clone(),
             model_fallback: model_fallback.clone(),
             model_identity_mismatch: model_identity_mismatch.clone(),
