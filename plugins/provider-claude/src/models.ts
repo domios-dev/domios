@@ -37,7 +37,7 @@ export function discoverAnthropicModels(): ModelInfo[] | null {
   const live = fetchLiveModels(key);
   if (!live) return applyInstalledCapabilities(manifestModels(), installed);
   const mapped = mapAliasesToLive(manifestModels(), live);
-  return mapped.length ? applyInstalledCapabilities(mapped, installed) : null;
+  return mapped.length ? applyInstalledCapabilities(mapped, installed, true) : null;
 }
 
 export function manifestModels(): ModelInfo[] {
@@ -95,12 +95,12 @@ function probeInstalledCli(): CliProbe {
   return { kind: "version", version: [Number(match[1]), Number(match[2]), Number(match[3])] };
 }
 
-function applyInstalledCapabilities(models: ModelInfo[], probe: CliProbe): ModelInfo[] {
+function applyInstalledCapabilities(models: ModelInfo[], probe: CliProbe, liveDiscovery = false): ModelInfo[] {
   return models.map((model) => {
     const declaredMinimum = manifest()?.cliCompatibility?.modelMinimumCli?.[model.id];
     const minimum = declaredMinimum?.split(".").map(Number);
     if (!minimum) return { ...model };
-    const verdict = decideAvailability(probe, minimum, model.available);
+    const verdict = decideAvailability(probe, minimum, liveDiscovery ? model.available : undefined);
     // An unknown verdict publishes no boolean at all: a boolean here is what
     // the cache would freeze and the picker would grey out.
     if (verdict === "unknown") {
