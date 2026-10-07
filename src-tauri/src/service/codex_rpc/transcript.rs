@@ -111,11 +111,11 @@ pub fn start(
     svc: &ServiceContext,
     tab: &str,
     subscription: String,
-) -> Result<crate::commands::tab::ChatStartResult, String> {
+) -> Result<crate::commands::ChatStartResult, String> {
     let (messages, thread, nonce) = snapshot(svc, tab)?;
     let total = messages.len();
     let start = total.saturating_sub(200);
-    Ok(crate::commands::tab::ChatStartResult {
+    Ok(crate::commands::ChatStartResult {
         text: String::new(),
         start_offset: start as u64,
         offset: total as u64,
@@ -133,11 +133,11 @@ pub fn backfill(
     svc: &ServiceContext,
     tab: &str,
     before: u64,
-) -> Result<crate::commands::tab::ChatBackfillResult, String> {
+) -> Result<crate::commands::ChatBackfillResult, String> {
     let (messages, thread, nonce) = snapshot(svc, tab)?;
     let end = (before as usize).min(messages.len());
     let start = end.saturating_sub(200);
-    Ok(crate::commands::tab::ChatBackfillResult {
+    Ok(crate::commands::ChatBackfillResult {
         text: String::new(),
         start_offset: start as u64,
         end_offset: end as u64,
