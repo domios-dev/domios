@@ -133,7 +133,9 @@ fn worker_tab_death_pushes_orchestrator_event() {
     assert_eq!(event["lane"]["state"], "dirty");
     assert_eq!(event["lane"]["changes"], 1);
     assert_eq!(event["cause"], "tab_gone");
-    assert_eq!(event["delivery"], "delivered");
+    assert!(event["delivery"]
+        .as_str()
+        .is_some_and(|delivery| delivery.starts_with("failed: tab_busy_refused:")));
     assert_eq!(
         event["recovery"],
         recovery_command(&busy.plan_id, &busy.task_id, Some("attempt_lost")).as_str()
