@@ -66,6 +66,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         )
         .route("/api/tabs/{id}/link-pty", post(tab_routes::link_pty))
         .route(
+            "/api/agents/providers/{id}/cli",
+            get(super::provider_cli_routes::status).post(super::provider_cli_routes::run),
+        )
+        .route(
             "/api/agents/providers/{id}/install-in-tab",
             post(agent_routes::install_provider_in_tab),
         )

@@ -4,6 +4,7 @@
 //! handles the one path the crate can't — the `plugin <id> <verb>` passthrough,
 //! which routes over the daemon socket.
 
+pub(crate) mod cli_status;
 mod receiver_target;
 mod validate;
 
@@ -22,6 +23,17 @@ fn plugin_ctx() -> PluginCtx {
 
 pub fn handle_plugin(json: bool, action: PluginAction) {
     let ctx = plugin_ctx();
+    let report_cli = matches!(
+        &action,
+        PluginAction::Install { .. }
+            | PluginAction::Update { .. }
+            | PluginAction::UpdateSystem { .. }
+    );
+    let requested_id = match &action {
+        PluginAction::Update { id } => id.clone(),
+        _ => None,
+    };
+    let root = ctx.data_root.clone();
     let result = match action {
         PluginAction::Validate { dir } => {
             validate::run(json, std::path::Path::new(&dir));
@@ -44,11 +56,15 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
     };
 
     match result {
-        Ok(value) => {
+        Ok(mut value) => {
+            if report_cli {
+                cli_status::attach(&mut value, &root, requested_id.as_deref());
+            }
             if json {
                 println!("{}", serde_json::to_string_pretty(&value).unwrap());
             } else {
                 print_human(&value);
+                cli_status::print(&value);
             }
         }
         Err(e) => {

@@ -929,6 +929,9 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
         crate::AgentAction::Ledger { .. } => unsupported_agent_action("ledger"),
         crate::AgentAction::Compact { .. } => unsupported_agent_action("compact"),
         crate::AgentAction::Model { .. } => unsupported_agent_action("model"),
+        crate::AgentAction::Cli { .. } => unsupported(
+            "agent cli is local-only: run it in a tab on the target peer so the utility tab and completion report have a local caller",
+        ),
     }
 }
 

@@ -190,6 +190,7 @@ pub trait ChatBackendProvider: Send + Sync {
         let catalog = model_catalog::registered_snapshot(self.id());
         ProviderDescriptor {
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
+            cli_status: None,
             id: self.id().to_string(),
             display_name: self.display_name().to_string(),
             icon_hint: self.icon_hint().map(|s| s.to_string()),

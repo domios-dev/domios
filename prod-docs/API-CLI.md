@@ -13,6 +13,34 @@ port; a host:port grant is scoped to that port. Schemes, paths, credentials,
 wildcards, and subdomains are not accepted. The manifest's `permissions.network.allow`
 entries remain unchanged and combine with user grants when the plugin loads.
 
+### Provider plugins and their CLIs
+
+`codeterm plugin install` and `codeterm plugin update` report each provider's CLI
+status from the installed manifest. Missing CLIs produce a warning with the exact
+installer for this OS and the management verb. Plugin installation and CLI
+installation are separate operations; chat backends require no CLI.
+
+```bash
+codeterm agent cli status <provider>
+codeterm agent cli install <provider>
+codeterm agent cli update <provider>
+```
+
+The `agent cli` verbs are local-only; run them in a tab on the target peer.
+Status returns `required`, `installed` (true/false/null for unknown), `binary`,
+`resolved_path`, `availability`, `searched`, `installer`, and `updater`. Install
+and update refuse if that OS has no manifest command. They open a visible utility
+tab in the caller's workspace and Team and return `tab_id` with
+`launch_state: "command_dispatched"`. Shell completion or exit produces a report
+back to the caller, a retained result in the tab description, and a
+`provider-cli-completed` event with a fresh status. A completion deadline reports
+uncertainty; dispatch alone never means installation succeeded. Settings > Agents
+and provider plugin views use the same status and Install action.
+`agent providers` names missing CLIs; `agent spawn` refuses before creating a tab
+and names the installer and CLI fix. REST: `GET /api/agents/providers/{id}/cli`
+returns status; `POST` accepts `{operation: "install"|"update", caller_tab_id?}`.
+Plugin `--json` responses add `cli_status`, keyed by installed provider id.
+
 Message and pad file options accept `-` as UTF-8 stdin, including
 `plan task dispatch --message-file -`, `send --from-file -`, and `--from-pad -`.
 For `plan create`, an implicit project path from a Team-bound caller is the
@@ -152,7 +180,7 @@ observable first-message card. Shells are discovered and spawned through the sam
 surfaces as agents:
 
 - **Discover:** `GET /api/agents/providers` (CLI `codeterm agent providers`) lists
-  installed shells alongside PTY agents, tagged `kind: "shell"`. There is no
+  installed shells alongside PTY agents, tagged `transport: "chat_backend"`. There is no
   hardcoded shell list — core enumerates the `chatBackend` registry. Every row
   carries `availability` (`available` / `unavailable` / `unknown`); the CLI marks
   the latter two inline, and the UI provider picker reads the same field.
@@ -207,4 +235,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 25 -->
+<!-- revision: 27 -->

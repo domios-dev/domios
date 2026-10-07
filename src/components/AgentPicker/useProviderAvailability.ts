@@ -1,25 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "../../lib/bridge";
+import type { ProviderCliStatus } from "../../lib/providerCli";
 import type { ProviderDescriptor } from "../../lib/types";
 
 export type ProviderAvailabilityState = "idle" | "checking" | "ready" | "error";
 
-/**
- * Re-check drops each declared binary's memoized resolution, then re-reads the
- * descriptors so the picker shows the same field the API serves and the CLI
- * renders. The picker never probes binaries itself.
- */
 export async function recheckProviderDescriptors(
   providers: ProviderDescriptor[],
 ): Promise<ProviderDescriptor[]> {
-  const binaries = [
-    ...new Set(providers.map((p) => p.cli_binary).filter((b): b is string => Boolean(b))),
-  ];
-  await Promise.all(
-    binaries.map((binary) =>
-      invoke<boolean>("check_cli_installed", { binary }).catch(() => false),
-    ),
-  );
+  await Promise.all(providers.map((provider) =>
+    invoke<ProviderCliStatus>("provider_cli_status", { providerId: provider.id }),
+  ));
   const refreshed = await invoke<unknown>("list_agent_providers");
   return Array.isArray(refreshed) ? (refreshed as ProviderDescriptor[]) : providers;
 }

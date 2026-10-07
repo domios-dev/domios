@@ -6,7 +6,7 @@ import type { HelpSectionId } from "../../help/types";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
-import { ProviderInstallCard } from "./ProviderInstallCard";
+import { ProviderInstallCard, ProviderCliControls } from "./ProviderInstallCard";
 import { SupporterAgentCard } from "./SupporterAgentCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
@@ -92,23 +92,25 @@ export function AgentsOverview({
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {providers.map((p) => (
-            <Button
-              variant="ghost"
-              key={p.id}
-              className="h-auto min-h-0 justify-start gap-3 p-4 text-left"
-              data-testid="settings-agent-provider-row"
-              data-provider-id={p.id}
-              onClick={() => onOpenProvider(p.id)}
-            >
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-[18px] shrink-0">
-                <AgentIcon providerId={p.id} title={p.display_name} />
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="text-[13px] font-medium text-[var(--ct-fg)]">{p.display_name}</div>
-                <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5">{p.id}</div>
-              </div>
-              <ChevronRight size={14} className="shrink-0 text-[var(--ct-muted)]" />
-            </Button>
+            <div key={p.id} className="space-y-2">
+              <Button
+                variant="ghost"
+                className="h-auto min-h-0 justify-start gap-3 p-4 text-left"
+                data-testid="settings-agent-provider-row"
+                data-provider-id={p.id}
+                onClick={() => onOpenProvider(p.id)}
+              >
+                <div className="w-9 h-9 rounded-lg flex items-center justify-center bg-[var(--ct-accent)]/15 text-[var(--ct-accent)] text-[18px] shrink-0">
+                  <AgentIcon providerId={p.id} title={p.display_name} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-[13px] font-medium text-[var(--ct-fg)]">{p.display_name}</div>
+                  <div className="text-[11px] text-[var(--ct-muted-fg)] mt-0.5">{p.id}</div>
+                </div>
+                <ChevronRight size={14} className="shrink-0 text-[var(--ct-muted)]" />
+              </Button>
+            <ProviderCliControls providerId={p.id} compact />
+            </div>
           ))}
         </div>
       </SettingsCard>

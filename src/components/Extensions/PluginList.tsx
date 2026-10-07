@@ -9,6 +9,7 @@ import { DropdownMenu } from "../shared/DropdownMenu";
 import { ChevronRight, Ellipsis, Trash2 } from "lucide-react";
 import type { PluginActivity } from "../../lib/types";
 import { resolvePluginActivityDisplay, type PluginActivityDisplayMap } from "../../lib/usePluginActivity";
+import { ProviderCliControls } from "../Settings/ProviderInstallCard";
 import { PluginActivityInline } from "./PluginActivityInline";
 
 const CORE_CHANNEL = "codeterm-core";
@@ -340,57 +341,60 @@ function PluginRow({
   onSelect: () => void;
 }) {
   return (
-    <div
-      role="button"
-      data-testid="extensions-plugin-row"
-      data-plugin-id={entry.id}
-      data-plugin-installed={entry.installed ? "true" : "false"}
-      data-plugin-update-available={entry.updateAvailable ? "true" : "false"}
-      data-plugin-version={entry.version ?? ""}
-      data-plugin-channel={entry.channel ?? ""}
-      data-plugin-verified={entry.verified ? "true" : "false"}
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") onSelect();
-      }}
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        padding: "8px 10px",
-        borderRadius: 8,
-        cursor: "pointer",
-        background: selected ? "var(--ct-bg-selected)" : "transparent",
-      }}
-      onMouseEnter={(e) => {
-        if (!selected) e.currentTarget.style.background = "var(--ct-bg-hover)";
-      }}
-      onMouseLeave={(e) => {
-        if (!selected) e.currentTarget.style.background = "transparent";
-      }}
-    >
-      <div style={{ width: 26, height: 26, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", background: "var(--ct-bg-elev)", border: "1px solid var(--ct-border-subtle)" }}>
-        <PluginIcon plugin={iconOf(entry)} size={15} />
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          <span style={{ fontSize: 12.5, fontWeight: 560, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {entry.displayName}
-          </span>
-          {entry.dev ? (
-            <Badge tone="dev">Dev</Badge>
-          ) : (
-            entry.installed && <Badge tone="installed">Installed</Badge>
-          )}
-          {entry.updateAvailable && <Badge tone="update">Update</Badge>}
+    <div>
+      <div
+        role="button"
+        data-testid="extensions-plugin-row"
+        data-plugin-id={entry.id}
+        data-plugin-installed={entry.installed ? "true" : "false"}
+        data-plugin-update-available={entry.updateAvailable ? "true" : "false"}
+        data-plugin-version={entry.version ?? ""}
+        data-plugin-channel={entry.channel ?? ""}
+        data-plugin-verified={entry.verified ? "true" : "false"}
+        tabIndex={0}
+        onClick={onSelect}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") onSelect();
+        }}
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "8px 10px",
+          borderRadius: 8,
+          cursor: "pointer",
+          background: selected ? "var(--ct-bg-selected)" : "transparent",
+        }}
+        onMouseEnter={(e) => {
+          if (!selected) e.currentTarget.style.background = "var(--ct-bg-hover)";
+        }}
+        onMouseLeave={(e) => {
+          if (!selected) e.currentTarget.style.background = "transparent";
+        }}
+      >
+        <div style={{ width: 26, height: 26, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", flex: "none", background: "var(--ct-bg-elev)", border: "1px solid var(--ct-border-subtle)" }}>
+          <PluginIcon plugin={iconOf(entry)} size={15} />
         </div>
-        <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10, color: "var(--ct-muted)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-          {catalogKindLabel(entry)}
-          {entry.version ? ` · v${entry.version}` : entry.remoteVersion ? ` · v${entry.remoteVersion}` : ""}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 560, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {entry.displayName}
+            </span>
+            {entry.dev ? (
+              <Badge tone="dev">Dev</Badge>
+            ) : (
+              entry.installed && <Badge tone="installed">Installed</Badge>
+            )}
+            {entry.updateAvailable && <Badge tone="update">Update</Badge>}
+          </div>
+          <div style={{ fontFamily: '"JetBrains Mono", ui-monospace, monospace', fontSize: 10, color: "var(--ct-muted)", marginTop: 2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+            {catalogKindLabel(entry)}
+            {entry.version ? ` · v${entry.version}` : entry.remoteVersion ? ` · v${entry.remoteVersion}` : ""}
+          </div>
+          <PluginActivityInline activity={activity} display={display} compact />
         </div>
-        <PluginActivityInline activity={activity} display={display} compact />
       </div>
+    {entry.installed && (entry.capabilities?.agent_provider || entry.capabilities?.chat_backend) && <ProviderCliControls providerId={entry.id} compact />}
     </div>
   );
 }

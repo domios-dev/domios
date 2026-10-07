@@ -1,107 +1,41 @@
-import { useCallback, useEffect, useState } from "react";
-import { invoke } from "../../lib/bridge";
+import { useState } from "react";
 import type { ProviderDescriptor } from "../../lib/types";
 import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
-import { Chip } from "../shared/Chip";
 import { launchProviderInstaller } from "../../lib/providerInstall";
+import { providerCliPresentation } from "../../lib/providerCli";
+import { useProviderCliStatus } from "../../hooks/useProviderCliStatus";
 
-type Status = "checking" | "installed" | "missing";
-
-/// Per-provider Install card on the Agent settings screen. Probes
-/// `which <cli_binary>` and renders an Install button that spawns a
-/// terminal tab running the provider's install_command. Hidden when
-/// the provider declares no CLI binary (nothing to install).
-export function ProviderInstallCard({ provider }: { provider: ProviderDescriptor }) {
-  const cliBinary = provider.cli_binary ?? null;
-  const installCommand = provider.install_command ?? null;
-  const [status, setStatus] = useState<Status>("checking");
+export function ProviderCliControls({ providerId, compact = false }: { providerId: string; compact?: boolean }) {
+  const { status, error, summary, refresh } = useProviderCliStatus(providerId);
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    if (!cliBinary) return;
-    setStatus("checking");
-    try {
-      const installed = await invoke<boolean>("check_cli_installed", { binary: cliBinary });
-      setStatus(installed ? "installed" : "missing");
-    } catch {
-      setStatus("missing");
-    }
-  }, [cliBinary]);
-
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-
-  const onInstall = useCallback(async () => {
+  const [launchError, setLaunchError] = useState<string | null>(null);
+  const model = providerCliPresentation(status);
+  const install = async () => {
     setBusy(true);
-    setError(null);
-    try {
-      await launchProviderInstaller(provider.id);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  }, [provider.id]);
-
-  if (!cliBinary) return null;
-
+    setLaunchError(null);
+    try { await launchProviderInstaller(providerId); }
+    catch (error) { setLaunchError(String(error)); }
+    finally { setBusy(false); }
+  };
   return (
-    <Card className="p-4 space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <div className="text-xs font-medium text-[var(--ct-fg)]">CLI installation</div>
-          <div className="text-[10px] text-[var(--ct-muted-fg)] mt-0.5 font-mono truncate">{cliBinary}</div>
-        </div>
-        <StatusBadge status={status} />
-      </div>
-
-      {installCommand ? (
-        <div className="text-[10px] text-[var(--ct-muted)] font-mono bg-[var(--ct-bg)] rounded px-2 py-1.5 overflow-x-auto">
-          {installCommand}
-        </div>
-      ) : (
-        <div className="text-[10px] text-[var(--ct-muted-fg)]">
-          No install command available for this platform — install manually.
-        </div>
-      )}
-
-      <div className="flex items-center justify-between gap-2">
-        <Button
-          variant="ghost"
-          size="compact"
-          onClick={refresh}
-          disabled={status === "checking"}
-          className="text-[10px]"
-        >
-          Re-check
+    <div role="group" aria-label={`${providerId} CLI`} className="space-y-2">
+      <span role="status">{error ? "CLI availability unknown" : model.label}</span>
+      {!compact && status?.binary && <div className="text-xs font-mono">{status.resolved_path ?? status.binary}</div>}
+      {!compact && status?.installer && <pre className="text-xs overflow-x-auto">{status.installer}</pre>}
+      {model.canInstall && (
+        <Button size="compact" variant="primary" disabled={busy} aria-label={`Install CLI for ${providerId}`} onClick={() => void install()}>
+          {busy ? "Launching…" : "Install CLI"}
         </Button>
-        {installCommand && status !== "installed" && (
-          <Button
-            variant="primary"
-            size="compact"
-            onClick={onInstall}
-            disabled={busy}
-            className="text-[11px]"
-          >
-            {busy ? "Spawning…" : "Install"}
-          </Button>
-        )}
-      </div>
-
-      {error && <div className="text-[10px] text-[var(--ct-red)]">{error}</div>}
-    </Card>
+      )}
+      {!compact && <Button size="compact" variant="ghost" onClick={() => void refresh()}>Re-check CLI</Button>}
+      {!compact && status?.required && !status.installer && status.installed === false && <p>No installer declared for this OS.</p>}
+      {(launchError || error) && <div role="alert">{launchError ?? error}</div>}
+      {summary && <p role="status">{summary}</p>}
+    </div>
   );
 }
 
-function StatusBadge({ status }: { status: Status }) {
-  if (status === "checking") {
-    return <Chip variant="muted" className="text-[9px]">checking…</Chip>;
-  }
-  if (status === "installed") {
-    return <Chip variant="success" className="text-[9px]">installed</Chip>;
-  }
-  return <Chip variant="danger" className="text-[9px]">not installed</Chip>;
+export function ProviderInstallCard({ provider }: { provider: ProviderDescriptor }) {
+  return <Card className="p-4"><ProviderCliControls providerId={provider.id} /></Card>;
 }
