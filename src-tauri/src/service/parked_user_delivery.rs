@@ -746,6 +746,9 @@ impl super::ServiceContext {
             if !store.eligible(&head) {
                 return Ok(self.pending_user_send(&head, "owner_head_not_eligible"));
             }
+            if let Some(result) = self.drain_rpc_user_queue(&head) {
+                return result;
+            }
             if self.chat_send_ledger.has_written_user_send_before(
                 &head.authority,
                 head.ledger_sequence,
@@ -1088,5 +1091,6 @@ impl super::ServiceContext {
 }
 
 mod bootstrap;
+mod rpc_queue;
 #[cfg(test)]
 pub(crate) mod tests;

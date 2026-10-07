@@ -1,5 +1,7 @@
+mod busy;
 mod gate;
 mod startup;
+pub(crate) use busy::{joined_text, user_turn_pending};
 
 pub(crate) use startup::{admit_startup, send_startup};
 
@@ -51,6 +53,17 @@ pub fn try_send(
     text: &str,
     origin: Origin,
     send_id: Option<&str>,
+) -> Option<Result<(), DeliveryError>> {
+    try_send_group(svc, tab, text, origin, send_id, &[])
+}
+
+pub(crate) fn try_send_group(
+    svc: &ServiceContext,
+    tab: &str,
+    text: &str,
+    origin: Origin,
+    send_id: Option<&str>,
+    members: &[&str],
 ) -> Option<Result<(), DeliveryError>> {
     if send_id.is_some_and(|id| svc.chat_send_ledger.has_rpc_handoff(id)) {
         return Some(Err(DeliveryError::SubmitUnconfirmed {
@@ -135,6 +148,19 @@ pub fn try_send(
             }));
         }
     };
+    let mut admission = match busy::Admission::acquire(
+        &sidecar,
+        origin,
+        super::control::active_turn(tab).is_some(),
+    ) {
+        Ok(admission) => admission,
+        Err(detail) => {
+            return Some(Err(DeliveryError::TabBusyRefused {
+                tab: tab.into(),
+                detail: detail.into(),
+            }))
+        }
+    };
     let pending = match send_id {
         Some(id) => svc.chat_send_ledger.status(id),
         None => match svc.chat_send_ledger.try_start_scoped_with_normalization(
@@ -159,18 +185,26 @@ pub fn try_send(
             detail: "RPC ledger admission absent".into(),
         }));
     };
-    if !svc.chat_send_ledger.bind_rpc_send(
-        &pending.send_id,
-        SendLiveBinding {
-            session_id: Some(thread.clone()),
-            binding_nonce: Some(nonce),
-        },
-    ) {
+    let ids = if members.is_empty() {
+        vec![pending.send_id.as_str()]
+    } else {
+        members.to_vec()
+    };
+    if ids.first().copied() != Some(pending.send_id.as_str())
+        || !svc.chat_send_ledger.bind_rpc_group(
+            &ids,
+            SendLiveBinding {
+                session_id: Some(thread.clone()),
+                binding_nonce: Some(nonce),
+            },
+        )
+    {
         return Some(Err(DeliveryError::SubmitUnconfirmed {
             tab: tab.into(),
             detail: "RPC send was already claimed; replay refused".into(),
         }));
     }
+    admission.commit();
     observe(svc, tab, &sidecar);
     let cwd = svc.mux.read().get_tab(tab).and_then(|tab| tab.cwd.clone());
     let params = start_params(
@@ -180,13 +214,22 @@ pub fn try_send(
         cwd.as_deref(),
         super::model::turn_overrides(tab),
     );
-    let active = super::control::active_turn(tab);
-    let result = tauri::async_runtime::block_on(submit(
-        origin,
-        active.as_deref(),
-        params,
-        |method, params| sidecar.client.request(method, params),
-    ));
+    let result = tauri::async_runtime::block_on(submit(origin, None, params, |method, params| {
+        sidecar.client.request(method, params)
+    }));
+    if origin == Origin::User {
+        if let Ok(reply) = &result {
+            if let Some(turn) = reply.pointer("/turn/id").and_then(Value::as_str) {
+                let mut control = sidecar.control.lock();
+                if control.started(&thread, turn) {
+                    sidecar.busy.store(true, Ordering::Release);
+                }
+            }
+        }
+    }
+    for id in ids.iter().skip(1) {
+        let _ = finish_handoff(svc, tab, &thread, id, result.clone());
+    }
     Some(finish_handoff(svc, tab, &thread, &pending.send_id, result))
 }
 
@@ -200,7 +243,9 @@ fn finish_handoff(
     match result {
         Ok(_) => {
             if let Some(status) = svc.chat_send_ledger.mark_rpc_accepted(send_id) {
-                log::info!("[codex-rpc-send] tab={tab} thread={thread} clientUserMessageId={send_id} state=written");
+                log::info!(
+                    "[codex-rpc-send] tab={tab} thread={thread} send_id={send_id} state=written"
+                );
                 emit(svc, &status);
             }
             Ok(())
@@ -250,14 +295,10 @@ where
     F: FnMut(&'static str, Value) -> Fut,
     Fut: std::future::Future<Output = Result<Value, ClientError>>,
 {
-    if let (Origin::User, Some(active)) = (origin, active) {
-        log::info!("[codex-rpc-send] method=turn/steer thread={} clientUserMessageId={} expectedTurnId={active}", params["threadId"], params["clientUserMessageId"]);
-        let steer = json!({"threadId":params["threadId"], "expectedTurnId":active,
-            "input":params["input"], "clientUserMessageId":params["clientUserMessageId"]});
-        match request("turn/steer", steer).await {
-            Err(ClientError::Rpc(error)) if not_steerable(&error) => {}
-            result => return result,
-        }
+    if busy::hold(origin, active.is_some()) {
+        return Err(ClientError::Closed(
+            "busy user input must remain in the durable queue before RPC claim".into(),
+        ));
     }
     log::info!(
         "[codex-rpc-send] method=turn/start thread={} clientUserMessageId={}",
@@ -265,19 +306,6 @@ where
         params["clientUserMessageId"]
     );
     request("turn/start", params).await
-}
-
-fn not_steerable(error: &super::protocol::RpcError) -> bool {
-    error.data.as_ref().is_some_and(|data| {
-        data.get("codexErrorInfo").is_some_and(|info| {
-            info.get("activeTurnNotSteerable")
-                .and_then(Value::as_object)
-                .is_some()
-        }) || data
-            .get("activeTurnNotSteerable")
-            .and_then(Value::as_object)
-            .is_some()
-    })
 }
 
 pub(crate) fn user_client_id<'a>(method: &str, params: &'a Value) -> Option<(&'a str, &'a str)> {
@@ -347,8 +375,8 @@ fn observe(svc: &ServiceContext, tab: &str, sidecar: &Arc<Sidecar>) {
                             .and_then(|tab| tab.session_binding_nonce.clone())
                     };
                     if let Some(nonce) = nonce {
-                        if let Some(status) = svc.chat_send_ledger.confirm_rpc_send(&tab, thread, &nonce, client_id) {
-                            log::info!("[codex-rpc-send] tab={tab} thread={thread} clientUserMessageId={client_id} state=delivered");
+                        for status in svc.chat_send_ledger.confirm_rpc_group(&tab, thread, &nonce, client_id) {
+                            log::info!("[codex-rpc-send] tab={tab} thread={thread} clientUserMessageId={client_id} send_id={} state=delivered", status.send_id);
                             emit(&svc, &status);
                         }
                     }
