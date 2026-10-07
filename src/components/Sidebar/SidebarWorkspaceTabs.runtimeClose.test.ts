@@ -1,10 +1,7 @@
-// Run: npx tsx src/components/Sidebar/hierarchyRuntimeClose.test.ts
-// Runtime-close sibling of hierarchyTabGone.test.ts (structural derivation).
-
 import { reducer } from "../../store/multiplexer/reducer";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import type { MultiplexerState, Tab, TabStatus } from "../../lib/types";
-import { buildHierarchySubtree } from "./HierarchyTree";
+import { groupWorkspaceTeamMembers, visibleWorkspaceTabs } from "./workspaceTeamModel";
 
 let failures = 0;
 function test(name: string, fn: () => void) {
@@ -28,6 +25,7 @@ function tab(id: string, role: Tab["role"], parent?: string): Tab {
     title: id,
     cwd: null,
     role,
+    team_id: "team",
     parent_tab_id: parent ?? null,
   } as Tab;
 }
@@ -71,27 +69,22 @@ const statuses: Record<string, TabStatus> = {
   "worker-gone": "Working",
 };
 
-function subtreeIds(tabs: Record<string, Tab>): string[] {
-  const nodes = buildHierarchySubtree("orch", tabs, statuses);
-  const walk = (ns: typeof nodes): string[] =>
-    ns.flatMap((n) => [n.tab.id, ...walk(n.children)]);
-  return walk(nodes);
+function teamMemberIds(tabs: Record<string, Tab>): string[] {
+  const visible = visibleWorkspaceTabs(Object.values(tabs), tabs);
+  return (groupWorkspaceTeamMembers(visible).get("team") ?? []).map((member) => member.tab.id);
 }
 
-// A backend snapshot with both workers → both render under the orchestrator.
 const withBoth = reducer(base(), {
   type: "SET_STATE",
   state: snapshot(1, { orch, "worker-live": liveWorker, "worker-gone": goneWorker }),
 });
 
 test("both workers render before the runtime close", () => {
-  const ids = subtreeIds(withBoth.tabs);
+  const ids = teamMemberIds(withBoth.tabs);
   assert(ids.includes("worker-live"), "live worker present");
   assert(ids.includes("worker-gone"), "gone worker present pre-close");
 });
 
-// Runtime close: a fresh higher-generation snapshot prunes worker-gone; the
-// reducer must drop it from state.tabs.
 const afterClose = reducer(withBoth, {
   type: "SET_STATE",
   state: snapshot(2, { orch, "worker-live": liveWorker }),
@@ -103,17 +96,14 @@ test("closed worker leaves state.tabs on the next snapshot", () => {
 });
 
 test("closed worker is not rendered as a live child after the close", () => {
-  const ids = subtreeIds(afterClose.tabs);
+  const ids = teamMemberIds(afterClose.tabs);
   assert(ids.includes("worker-live"), "live worker still rendered");
   assert(!ids.includes("worker-gone"), "closed worker must NOT render as a live child");
 });
 
-// Poisoned fixture: a stale status entry for worker-gone (missed Dead event) must
-// not resurrect a row — rows derive from state.tabs membership, not the status map.
 test("stale status entry for a gone Tab does not resurrect a row", () => {
   assert(statuses["worker-gone"] === "Working", "fixture keeps the stale status entry");
-  const nodes = buildHierarchySubtree("orch", afterClose.tabs, statuses);
-  const ids = nodes.flatMap((n) => [n.tab.id, ...n.children.map((c) => c.tab.id)]);
+  const ids = teamMemberIds(afterClose.tabs);
   assert(!ids.includes("worker-gone"), "stale status fixture must not add a ghost row");
 });
 
@@ -121,4 +111,4 @@ if (failures > 0) {
   console.error(`\n${failures} test(s) failed`);
   process.exit(1);
 }
-console.log("\n✓ hierarchy runtime-close: pruned worker never renders as a ghost row");
+console.log("\n✓ workspace runtime-close: pruned worker never renders as a ghost row");
