@@ -311,22 +311,7 @@ pub async fn ensure_for_spawn(
         } else {
             super::model::RuntimeMode::AutoAcceptEdits
         });
-    let instructions = super::compaction::developer_instructions(spawn.instructions.as_deref());
-    let mut params = json!({"cwd":spawn.cwd,"developerInstructions":instructions,
-        "model":spawn.model,"config":{},
-        "approvalPolicy":if spawn.full_access {"never"} else {"on-request"},
-        "approvalsReviewer":"user", "sandbox":if spawn.full_access {"danger-full-access"} else {"workspace-write"}});
-    let overrides = runtime_mode.overrides();
-    params["approvalPolicy"] = overrides["approvalPolicy"].clone();
-    params["approvalsReviewer"] = overrides["approvalsReviewer"].clone();
-    params["sandbox"] = json!(match runtime_mode {
-        super::model::RuntimeMode::ApprovalRequired => "read-only",
-        super::model::RuntimeMode::FullAccess => "danger-full-access",
-        _ => "workspace-write",
-    });
-    if let Some(effort) = spawn.effort {
-        params["config"]["model_reasoning_effort"] = json!(effort);
-    }
+    let mut params = super::thread_start::parameters(&spawn, runtime_mode);
     let resume = spawn
         .resume
         .filter(|_| crate::config::resume_sessions_enabled(&spawn.provider));
@@ -340,31 +325,8 @@ pub async fn ensure_for_spawn(
             .await
             .map_err(rpc_error)?
     };
-    let response: super::schema::ThreadResponse =
-        serde_json::from_value(response).map_err(|error| error.to_string())?;
-    let thread = response.thread.id;
-    if resume.is_none() {
-        client.request("thread/inject_items", json!({"threadId":thread,"items":[{
-            "type":"message","role":"developer","content":[{"type":"input_text","text":super::compaction::CONTRACT}]
-        }]})).await.map_err(rpc_error)?;
-    }
-    let read = client
-        .request(
-            "thread/read",
-            json!({"threadId":thread,"includeTurns":false}),
-        )
-        .await
-        .map_err(rpc_error)?;
-    if !super::routing::verified_user_thread(&thread, &read) {
-        client.close("Thread identity unverified");
-        return Err("Sidecar thread identity unverified".into());
-    }
-    let auth = client
-        .request("account/read", json!({"refreshToken":false}))
-        .await
-        .map(|response| super::auth::account_state(&response))
-        .unwrap_or_default();
-    let history = super::transcript::history(&client, &thread).await?;
+    let (thread, auth, history) =
+        super::thread_start::initial_state(&client, response, resume.is_some()).await?;
     if !svc
         .mux
         .read()
@@ -453,6 +415,9 @@ pub async fn ensure_for_spawn(
         remote_listener,
         sidecar.process.death.clone(),
     );
+    if resume.is_none() {
+        super::thread_start::refresh_account(svc.clone(), tab.into(), sidecar.clone());
+    }
     crate::service::launch_diagnostics::log_rpc_sidecar(tab);
     artifacts.committed = true;
     Ok(sidecar)
