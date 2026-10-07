@@ -7,7 +7,7 @@ use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{
-    atomic::{AtomicBool, AtomicI64, Ordering},
+    atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
     Arc,
 };
 use std::time::Duration;
@@ -34,7 +34,9 @@ struct Inner {
     state: Mutex<State>,
     next_id: AtomicI64,
     initialized: AtomicBool,
-    outgoing: mpsc::Sender<Message>,
+    outgoing: Mutex<mpsc::Sender<Message>>,
+    epoch: AtomicU64,
+    resync: watch::Sender<u64>,
     events: broadcast::Sender<Frame>,
     observations: broadcast::Sender<Frame>,
     death: watch::Sender<Option<String>>,
@@ -45,6 +47,31 @@ pub struct Client(Arc<Inner>);
 
 impl Client {
     pub async fn connect(port: u16, token: &str) -> Result<Self, String> {
+        let (outgoing, _) = mpsc::channel(64);
+        let (events, _) = broadcast::channel(512);
+        let (observations, _) = broadcast::channel(512);
+        let (death, _) = watch::channel(None);
+        let client = Self(Arc::new(Inner {
+            state: Mutex::new(State {
+                closed: None,
+                pending: HashMap::new(),
+                buffer: NotificationBuffer::new(128, 32),
+                additional_context: HashMap::new(),
+            }),
+            next_id: AtomicI64::new(1),
+            initialized: AtomicBool::new(false),
+            outgoing: Mutex::new(outgoing),
+            epoch: AtomicU64::new(0),
+            resync: watch::channel(0).0,
+            events,
+            observations,
+            death,
+        }));
+        client.reconnect(port, token).await?;
+        Ok(client)
+    }
+
+    pub async fn reconnect(&self, port: u16, token: &str) -> Result<(), String> {
         let mut request = format!("ws://127.0.0.1:{port}")
             .into_client_request()
             .map_err(|error| error.to_string())?;
@@ -66,25 +93,13 @@ impl Client {
         .map_err(|_| "RPC WebSocket connection failed")?;
         let (mut writer, mut reader) = socket.split();
         let (outgoing, mut messages) = mpsc::channel(64);
-        let (events, _) = broadcast::channel(512);
-        let (observations, _) = broadcast::channel(512);
-        let (death, _) = watch::channel(None);
-        let client = Self(Arc::new(Inner {
-            state: Mutex::new(State {
-                closed: None,
-                pending: HashMap::new(),
-                buffer: NotificationBuffer::new(128, 32),
-                additional_context: HashMap::new(),
-            }),
-            next_id: AtomicI64::new(1),
-            initialized: AtomicBool::new(false),
-            outgoing,
-            events,
-            observations,
-            death,
-        }));
-        let sender = client.clone();
-        let mut shutdown = client.0.death.subscribe();
+        let epoch = self.0.epoch.fetch_add(1, Ordering::AcqRel) + 1;
+        *self.0.outgoing.lock() = outgoing;
+        self.0.state.lock().closed = None;
+        self.0.initialized.store(false, Ordering::Release);
+        self.0.death.send_replace(None);
+        let sender = self.clone();
+        let mut shutdown = self.0.death.subscribe();
         tauri::async_runtime::spawn(async move {
             loop {
                 tokio::select! {
@@ -95,7 +110,7 @@ impl Client {
                                 _ = shutdown.changed() => break,
                                 sent = tokio::time::timeout(Duration::from_secs(15), writer.send(message)) => sent,
                             };
-                            if !matches!(sent, Ok(Ok(()))) { sender.close("RPC writer exited"); break; }
+                            if !matches!(sent, Ok(Ok(()))) { sender.close_epoch(epoch, "RPC writer exited"); break; }
                         },
                         None => break,
                     }
@@ -103,25 +118,35 @@ impl Client {
             }
             let _ = tokio::time::timeout(Duration::from_secs(1), writer.close()).await;
         });
-        let receiver = client.clone();
-        let mut shutdown = client.0.death.subscribe();
+        let receiver = self.clone();
+        let mut shutdown = self.0.death.subscribe();
         tauri::async_runtime::spawn(async move {
             loop {
                 tokio::select! {
                     _ = shutdown.changed() => break,
                     message = reader.next() => match message {
                         Some(Ok(Message::Text(text))) => match protocol::decode(&text) {
-                            Ok(frame) => if let Err(error) = receiver.ingest(frame) { receiver.close(&error); break; },
-                            Err(_) => { receiver.close("Invalid RPC frame"); break; }
+                            Ok(frame) => if receiver.0.epoch.load(Ordering::Acquire) != epoch { break; } else if let Err(error) = receiver.ingest(frame) { receiver.close_epoch(epoch, &error); break; },
+                            Err(_) => { receiver.close_epoch(epoch, "Invalid RPC frame"); break; }
                         },
-                        Some(Ok(Message::Ping(bytes))) => { let _ = receiver.0.outgoing.try_send(Message::Pong(bytes)); },
+                        Some(Ok(Message::Ping(bytes))) => { let _ = receiver.0.outgoing.lock().try_send(Message::Pong(bytes)); },
                         Some(Ok(Message::Pong(_))) => {},
-                        _ => { receiver.close("RPC reader exited"); break; }
+                        _ => { receiver.close_epoch(epoch, "RPC reader exited"); break; }
                     }
                 }
             }
         });
-        Ok(client)
+        Ok(())
+    }
+
+    fn close_epoch(&self, epoch: u64, reason: &str) {
+        if self.0.epoch.load(Ordering::Acquire) == epoch {
+            self.close(reason);
+        }
+    }
+
+    pub fn resync(&self) -> watch::Receiver<u64> {
+        self.0.resync.subscribe()
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Frame> {
@@ -159,7 +184,20 @@ impl Client {
                 let _ = reply.send(result.map_err(ClientError::Rpc));
             }
         } else {
-            let frame = self.0.state.lock().buffer.accept(frame)?;
+            let buffered = self.0.state.lock().buffer.accept(frame.clone());
+            let frame = match buffered {
+                Ok(frame) => frame,
+                Err(_) => {
+                    self.0
+                        .resync
+                        .send_modify(|generation| *generation = generation.wrapping_add(1));
+                    if matches!(frame, Frame::ServerRequest { .. }) {
+                        Some(frame)
+                    } else {
+                        None
+                    }
+                }
+            };
             if let Some(frame) = frame {
                 let _ = self.0.events.send(frame);
             }
@@ -247,6 +285,7 @@ impl Client {
         };
         self.0
             .outgoing
+            .lock()
             .try_send(Message::Text(
                 json!({"id":id,"method":method,"params":params})
                     .to_string()
@@ -274,6 +313,7 @@ impl Client {
         };
         self.0
             .outgoing
+            .lock()
             .try_send(Message::Text(frame.to_string().into()))
             .map_err(|_| ClientError::Closed("RPC reply queue unavailable".into()))
     }
@@ -281,6 +321,7 @@ impl Client {
     fn notify(&self, method: &str, params: Value) -> Result<(), ClientError> {
         self.0
             .outgoing
+            .lock()
             .try_send(Message::Text(
                 json!({"method":method,"params":params}).to_string().into(),
             ))

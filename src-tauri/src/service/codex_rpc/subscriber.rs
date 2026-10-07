@@ -8,13 +8,45 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
     let mut events = sidecar.client.subscribe();
     let mut observations = sidecar.client.observe();
     let mut death = sidecar.client.death();
+    let mut resync = sidecar.client.resync();
     let mut process_death = sidecar.process.death.clone();
     sidecar.client.release_thread(&sidecar.thread.lock());
+    let (discovery_tx, mut discovery_rx) = tokio::sync::mpsc::channel::<Frame>(128);
+    let (discovery_svc, discovery_tab, discovery_weak) = (svc.clone(), tab.clone(), weak.clone());
+    tauri::async_runtime::spawn(async move {
+        while let Some(frame) = discovery_rx.recv().await {
+            let Some(sidecar) = discovery_weak.upgrade() else {
+                break;
+            };
+            if !owns_endpoint(&discovery_tab, &sidecar) {
+                break;
+            }
+            let current = sidecar.thread.lock().clone();
+            discover(&discovery_svc, &discovery_tab, &sidecar, &current, &frame).await;
+        }
+    });
     tauri::async_runtime::spawn(async move {
         loop {
             let (frame, discovery) = tokio::select! {
-                _ = death.changed() => break,
+                _ = death.changed() => {
+                    if death.borrow().is_none() { continue; }
+                    let Some(sidecar) = weak.upgrade() else { break };
+                    if !owns_endpoint(&tab, &sidecar) { break; }
+                    match super::lifecycle::reconnect(&tab, &sidecar).await {
+                        Ok(()) => {
+                            resynchronize(&svc, &tab, &sidecar).await;
+                            super::delivery::refresh(&svc, &tab);
+                            continue;
+                        },
+                        Err(error) => { log::error!("[codex-rpc] tab={tab} reconnect failed: {error}"); break; }
+                    }
+                },
                 _ = process_death.changed() => break,
+                _ = resync.changed() => {
+                    let Some(sidecar) = weak.upgrade() else { break };
+                    resynchronize(&svc, &tab, &sidecar).await;
+                    continue;
+                },
                 frame = events.recv() => (frame, false),
                 frame = observations.recv() => (frame, true),
             };
@@ -22,13 +54,19 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
             if !owns_endpoint(&tab, &sidecar) {
                 break;
             }
-            let Ok(frame) = frame else {
-                sidecar.client.close("RPC event subscriber lost continuity");
-                break;
+            let frame = match frame {
+                Ok(frame) => frame,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                    resynchronize(&svc, &tab, &sidecar).await;
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
             };
             let current = sidecar.thread.lock().clone();
             if discovery {
-                discover(&svc, &tab, &sidecar, &current, &frame).await;
+                if discovery_tx.try_send(frame).is_err() {
+                    resynchronize(&svc, &tab, &sidecar).await;
+                }
                 continue;
             }
             if let Frame::ServerRequest { id, method, params } = frame {
@@ -160,31 +198,47 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
                         .request("thread/inject_items", injection)
                         .await
                     {
-                        sidecar
-                            .client
-                            .close(&format!("Contract reinjection failed: {error:?}"));
+                        sidecar.verified.store(false, Ordering::Release);
+                        log::error!("[codex-rpc] tab={tab} contract reinjection failed: {error:?}; sends held");
                     }
                 }
             }
         }
-        if weak.upgrade().is_some_and(|sidecar| {
-            super::lifecycle::for_tab(&tab).is_some_and(|current| Arc::ptr_eq(&sidecar, &current))
-        }) {
-            if let Some(sidecar) = weak.upgrade() {
-                if super::recovery::try_start(
-                    &svc,
-                    &tab,
-                    &sidecar.launch_nonce,
-                    "app-server connection ended before launch completion",
-                ) {
-                    return;
-                }
-            }
-            super::lifecycle::clear_tab(&tab);
-            svc.push_structured_prompt(&tab, None);
+        if weak
+            .upgrade()
+            .is_some_and(|sidecar| owns_endpoint(&tab, &sidecar))
+        {
+            super::delivery::disconnected(&tab);
+            log::error!(
+                "[codex-rpc] tab={tab} control unavailable; server retained and sends held"
+            );
             svc.emit_state_changed();
         }
     });
+}
+
+async fn resynchronize(svc: &ServiceContext, tab: &str, sidecar: &Sidecar) {
+    let thread = sidecar.thread.lock().clone();
+    match super::transcript::history(&sidecar.client, &thread).await {
+        Ok(history) if owns_endpoint(tab, sidecar) && *sidecar.thread.lock() == thread => {
+            *sidecar.normalizer.lock() =
+                super::normalize::Normalizer::from_history(&thread, history.messages.clone());
+            sidecar.control.lock().restore(
+                &thread,
+                history.active_turn.as_deref(),
+                &history.completed_turns,
+            );
+            sidecar
+                .busy
+                .store(history.active_turn.is_some(), Ordering::Release);
+            for message in history.messages {
+                super::transcript::emit(svc, tab, &thread, message);
+            }
+            refresh_request_state(svc, tab, &thread, sidecar);
+        }
+        Err(error) => log::error!("[codex-rpc] tab={tab} resync failed: {error}; server retained"),
+        _ => {}
+    }
 }
 
 async fn discover(
@@ -278,7 +332,7 @@ async fn discover(
             let history = match super::transcript::history(&sidecar.client, candidate).await {
                 Ok(history) => history,
                 Err(error) => {
-                    sidecar.client.close(&error);
+                    log::error!("[codex-rpc] tab={tab} discovery history failed: {error}");
                     return;
                 }
             };
@@ -304,9 +358,9 @@ async fn discover(
             sidecar.verified.store(true, Ordering::Release);
             super::delivery::refresh(svc, tab);
         }
-        Err(error) => sidecar
-            .client
-            .close(&format!("Thread subscription failed: {error:?}")),
+        Err(error) => {
+            log::error!("[codex-rpc] tab={tab} subscription failed: {error:?}; server retained")
+        }
     }
 }
 
