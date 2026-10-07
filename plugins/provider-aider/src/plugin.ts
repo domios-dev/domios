@@ -326,10 +326,10 @@ const plugin: PluginModule = {
     const dirQuoted = escapeDir(historyDirPath);
     const chatHistoryPath = isPowerShell
       ? `"$($dirQuoted)/$($env:CODETERM_SESSION_BINDING_NONCE).md"`
-      : `"${dirQuoted}/${CODETERM_SESSION_BINDING_NONCE}.md"`;
+      : `"${dirQuoted}/\${CODETERM_SESSION_BINDING_NONCE}.md"`;
     const inputHistoryPath = isPowerShell
       ? `"$($dirQuoted)/$($env:CODETERM_SESSION_BINDING_NONCE).input"`
-      : `"${dirQuoted}/${CODETERM_SESSION_BINDING_NONCE}.input"`;
+      : `"${dirQuoted}/\${CODETERM_SESSION_BINDING_NONCE}.input"`;
     const parts: string[] = ["aider"];
     if (p.args && p.args.length > 0) {
       for (let i = 0; i < p.args.length; i++) {
