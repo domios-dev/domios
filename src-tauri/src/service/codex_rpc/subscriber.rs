@@ -22,7 +22,22 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
                     let Ok(frame) = frame else { break };
                     let Some(sidecar) = weak.upgrade() else { break };
                     let Frame::Notification { method, params } = frame else { continue };
+                    if method == "account/login/completed" {
+                        let response = sidecar.client.request("account/read", json!({"refreshToken":false})).await;
+                        if let Ok(response) = response {
+                            let auth = super::auth::account_state(&response);
+                            *sidecar.auth.lock() = auth.clone();
+                            svc.notify_event("codex-rpc-auth", json!({"tab_id":tab,"auth":auth}));
+                        }
+                    }
                     let current = sidecar.thread.lock().clone();
+                    if params.get("threadId").and_then(|id| id.as_str()) == Some(&current) {
+                        if method == "turn/started" { sidecar.busy.store(true, Ordering::Release); }
+                        if method == "turn/completed" {
+                            sidecar.busy.store(false, Ordering::Release);
+                            crate::service::provider_update::tab_became_idle(&svc, &tab);
+                        }
+                    }
                     let candidate = if method == "thread/started" {
                         params.get("thread").and_then(|thread| thread.get("id")).and_then(|id| id.as_str()).map(str::to_owned)
                     } else {

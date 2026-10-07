@@ -50,7 +50,13 @@ impl Drop for Job {
 }
 
 pub fn terminate_orphan(pid: u32, start_token: &str) -> bool {
-    let process = unsafe { OpenProcess(PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    let process = unsafe {
+        OpenProcess(
+            PROCESS_TERMINATE | PROCESS_QUERY_LIMITED_INFORMATION,
+            0,
+            pid,
+        )
+    };
     if process.is_null() {
         return false;
     }
@@ -58,9 +64,12 @@ pub fn terminate_orphan(pid: u32, start_token: &str) -> bool {
     let mut exited = FILETIME::default();
     let mut kernel = FILETIME::default();
     let mut user = FILETIME::default();
-    let identity = unsafe { GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user) != 0 };
-    let observed = ((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime)).to_string();
-    let result = identity && observed == start_token && unsafe { TerminateProcess(process, 1) != 0 };
+    let identity =
+        unsafe { GetProcessTimes(process, &mut created, &mut exited, &mut kernel, &mut user) != 0 };
+    let observed =
+        ((u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime)).to_string();
+    let result =
+        identity && observed == start_token && unsafe { TerminateProcess(process, 1) != 0 };
     unsafe {
         CloseHandle(process);
     }

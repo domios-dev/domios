@@ -16,6 +16,8 @@ pub struct Sidecar {
     pub version: String,
     pub thread: Mutex<String>,
     pub verified: std::sync::atomic::AtomicBool,
+    pub busy: std::sync::atomic::AtomicBool,
+    pub auth: Mutex<super::auth::AuthState>,
     token: String,
     pub process: Process,
 }
@@ -132,7 +134,10 @@ pub async fn ensure_for_spawn(
     let token = token_for_tab(tab);
     write_token(&token_file, &token)?;
     let mut env = svc.tab_env(tab);
-    env.extend(svc.model_provider_launch_env(&spawn.provider).map_err(|error| error.to_string())?);
+    env.extend(
+        svc.model_provider_launch_env(&spawn.provider)
+            .map_err(|error| error.to_string())?,
+    );
     let process = super::process::spawn(
         &binary,
         &spawn.cwd,
@@ -155,7 +160,9 @@ pub async fn ensure_for_spawn(
         "model":spawn.model,"config":{},
         "approvalPolicy":if spawn.full_access {"never"} else {"on-request"},
         "approvalsReviewer":"user", "sandbox":if spawn.full_access {"danger-full-access"} else {"workspace-write"}});
-    if let Some(effort) = spawn.effort { params["config"]["model_reasoning_effort"] = json!(effort); }
+    if let Some(effort) = spawn.effort {
+        params["config"]["model_reasoning_effort"] = json!(effort);
+    }
     let resume = spawn
         .resume
         .filter(|_| crate::config::resume_sessions_enabled(&spawn.provider));
@@ -188,7 +195,14 @@ pub async fn ensure_for_spawn(
         client.close("Thread identity unverified");
         return Err("Sidecar thread identity unverified".into());
     }
+    let auth = client
+        .request("account/read", json!({"refreshToken":false}))
+        .await
+        .map(|response| super::auth::account_state(&response))
+        .unwrap_or_default();
     let sidecar = Arc::new(Sidecar {
+        auth: Mutex::new(auth),
+        busy: std::sync::atomic::AtomicBool::new(false),
         client,
         port,
         binary,
@@ -204,6 +218,7 @@ pub async fn ensure_for_spawn(
     );
     bind(svc, tab, thread);
     super::subscriber::start(svc.clone(), tab.into(), &sidecar);
+    crate::service::launch_diagnostics::log_rpc_sidecar(tab);
     Ok(sidecar)
 }
 
