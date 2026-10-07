@@ -251,7 +251,7 @@ export interface AgentProvider {
   sweepLaunchArtifacts?(request: LaunchArtifactSweepRequest): LaunchArtifactSweepReport | null;
   buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string;
   /** Implement only when a resumed session drops the launch-time system prompt. */
-  buildResumeCommandWithContext?(params: ResumeParams): string;
+  buildResumeCommandWithContext?(params: ResumeParams): string | null;
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
   /** Directory-trust dialog on the live screen: one base64 key, `[]` to hold it, `null` when none is shown. */
   directoryTrustPromptResponse?(screen: string): string[] | null;

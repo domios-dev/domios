@@ -86,10 +86,39 @@ fn claude_statusline_settings_preserve_command_padding_and_do_not_mutate_user_se
     assert!(settings(&json!({"statusLine":false})).is_none());
     assert_eq!(
         launch_args(&["--model".into(), "opaque".into()]),
-        vec!["--model", "opaque"]
+        Some(vec![
+            "--model".into(),
+            "opaque".into(),
+            "--settings".into(),
+            "{\"showThinkingSummaries\":true}".into()
+        ])
     );
     assert_eq!(
         launch_args(&[FLAG.into(), "--settings".into(), "opaque".into()]),
-        vec!["--settings", "opaque"]
+        None
     );
+}
+
+#[test]
+fn claude_thinking_settings_merge_inline_and_file_without_writes() {
+    let user = json!({"hooks":{"opaque":[]},"statusLine":{"type":"command","command":"cat"},"showThinkingSummaries":false});
+    let original = user.to_string();
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("settings.json");
+    std::fs::write(&path, &original).unwrap();
+    for raw in [original.clone(), path.to_string_lossy().into_owned()] {
+        for args in [
+            vec!["--settings".into(), raw.clone()],
+            vec![format!("--settings={raw}")],
+        ] {
+            let composed = launch_args(&args).unwrap();
+            assert_eq!(composed.len(), 2);
+            let overlay: Value = serde_json::from_str(&composed[1]).unwrap();
+            assert_eq!(overlay["showThinkingSummaries"], true);
+            assert_eq!(overlay["hooks"], user["hooks"]);
+            assert_eq!(overlay["statusLine"], user["statusLine"]);
+        }
+    }
+    assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+    assert!(launch_args(&["--settings".into()]).is_none());
 }

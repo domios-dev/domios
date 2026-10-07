@@ -342,6 +342,10 @@ const plugin: PluginModule = {
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
     const launchArgs = statuslineLaunchArgs(p.args || []);
+    if (!launchArgs) {
+      host.log("error", "[claude-launch] cannot compose launch settings");
+      return "";
+    }
     if (launchArgs.length > 0) {
       // Quote each caller-supplied arg — it reaches a shell (a mesh peer could inject `; cmd`).
       for (const arg of launchArgs) parts.push(host.shell.quoteFor(String(arg), host.platform()));
@@ -361,26 +365,18 @@ const plugin: PluginModule = {
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    const win = host.platform() === "windows";
-    const unset = win
-      ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "
-        + "$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = "
-        + "[System.Text.Encoding]::UTF8; "
-        + "$PSNativeCommandArgumentPassing = 'Standard';"
-      : "unset CLAUDECODE &&";
-    const parts = [unset, "claude"];
-    if (skipPermissions) parts.push("--dangerously-skip-permissions");
-    parts.push("--resume");
-    parts.push(host.shell.quoteFor(sessionId, host.platform()));
-    return parts.join(" ");
+    return [resumeBase(sessionId, skipPermissions), ...statuslineLaunchArgs([])!.map(quoteArg)].join(" ");
   },
 
   // `--resume` restores the transcript but not the launch-time system prompt,
   // so it is re-applied through the same declared flag buildLaunchCommand uses.
-  buildResumeCommandWithContext(params: ResumeParams): string {
+  buildResumeCommandWithContext(params: ResumeParams): string | null {
     const p = params || ({} as ResumeParams);
-    const parts = [this.buildResumeCommand!(p.sessionId, p.skipPermissions)];
     const resumeArgs = statuslineLaunchArgs(p.args || []);
+    if (!resumeArgs) return null;
+
+
+    const parts = [resumeBase(p.sessionId, p.skipPermissions)];
     if (resumeArgs.length > 0) {
       for (const arg of resumeArgs) parts.push(quoteArg(String(arg)));
     }
@@ -1130,5 +1126,22 @@ function randomShortHex(len: number): string {
   for (let i = 0; i < len; i++) out += hex.charAt((Math.random() * 16) | 0);
   return out;
 }
+
+function resumeBase(sessionId: string, skipPermissions?: boolean): string {
+    const win = host.platform() === "windows";
+    const unset = win
+      ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "
+        + "$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = "
+        + "[System.Text.Encoding]::UTF8; "
+        + "$PSNativeCommandArgumentPassing = 'Standard';"
+      : "unset CLAUDECODE &&";
+    const parts = [unset, "claude"];
+    if (skipPermissions) parts.push("--dangerously-skip-permissions");
+    parts.push("--resume");
+    parts.push(host.shell.quoteFor(sessionId, host.platform()));
+
+    return parts.join(" ");
+}
+
 
 export default plugin;
