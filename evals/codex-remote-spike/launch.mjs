@@ -18,6 +18,7 @@ if (!dir || !path.isAbsolute(dir) || !Number.isInteger(port) || port < 1024 || p
 }
 if (!process.env.CODETERM_TAB_ID || !process.env.CODETERM_SESSION_BINDING_NONCE) throw new Error('Run inside the authorized Domios utility tab');
 fs.mkdirSync(dir, { recursive: true });
+fs.writeFileSync(path.join(dir, 'launcher-pid'), String(process.pid));
 const tokenFile = path.join(dir, 'token');
 const token = crypto.randomBytes(32).toString('hex');
 fs.writeFileSync(tokenFile, token, { flag: 'wx', mode: 0o600 });
