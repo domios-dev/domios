@@ -3,6 +3,9 @@ use crate::{AgentAction, Commands};
 use clap::Parser;
 
 const ACTIONS: &[(&str, &[&str], Option<(&str, &str, bool)>)] = &[
+    ("cli status", &["cli", "status", "fixture"], None),
+    ("cli install", &["cli", "install", "fixture"], None),
+    ("cli update", &["cli", "update", "fixture"], None),
     (
         "set-orchestrator",
         &["set-orchestrator", "--tab", "peer-tab"],

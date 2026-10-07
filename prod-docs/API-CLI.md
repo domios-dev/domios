@@ -26,6 +26,7 @@ codeterm agent cli install <provider>
 codeterm agent cli update <provider>
 ```
 
+The `agent cli` verbs are local-only; run them in a tab on the target peer.
 Status returns `required`, `installed` (true/false/null for unknown), `binary`,
 `resolved_path`, `availability`, `searched`, `installer`, and `updater`. Install
 and update refuse if that OS has no manifest command. They open a visible utility
@@ -234,4 +235,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->
