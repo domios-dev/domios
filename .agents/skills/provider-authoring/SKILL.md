@@ -40,6 +40,14 @@ parity fixtures. The host runs probes on a worker thread and consumes observatio
 only when the provider's `structured_signals` setting is enabled (default false).
 No new sandbox host function is exposed by these capabilities.
 
+`modelCatalogueSeed()` decorates the manifest seed once at provider registration;
+it must be pure and must not probe a binary or network. Per-model effort launch
+mapping uses `reasoningEffortLaunchArgsForModel(model, effort)` with native parity.
+Claude's `model-capabilities.json` owns effort maps and compact windows separately
+from CLI version compatibility. `--codeterm-model-capabilities` explicitly opts
+launch/resume into its per-launch compact-window environment overlay; absent that
+flag, the provider's automatic compaction policy remains authoritative.
+
 A JS provider never sees the ~70-method Rust `AgentProvider` trait. It sees two
 surfaces:
 

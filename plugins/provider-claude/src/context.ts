@@ -35,6 +35,7 @@ export function parseContextUsage(record: any): TurnContext | null {
     source: hasStatusline ? "claude-statusline" : "claude-jsonl" };
 }
 
+import {modelSettings} from "./modelCapabilities";
 export const STATUSLINE_FLAG = "--codeterm-statusline";
 export const STATUSLINE_FORWARD = 'payload=$(cat); if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then printf \'%s\' "$payload" | curl -s --max-time 2 -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/context" -H \'Content-Type: application/json\' -H "Authorization: Bearer $CODETERM_API_TOKEN" -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE:-}" --data-binary @- || true; fi';
 
@@ -71,6 +72,8 @@ function sortedJson(value: unknown): string {
 }
 
 export function statuslineLaunchArgs(args: string[]): string[] | null {
+  const model = modelSettings(args);
+  args = model.args;
   const enabled = args.includes(STATUSLINE_FLAG);
   const rest: string[] = [];
   let overlay: Record<string, unknown> = {};
@@ -91,5 +94,10 @@ export function statuslineLaunchArgs(args: string[]): string[] | null {
     if (composed) overlay = { ...overlay, ...JSON.parse(composed) };
   }
   overlay.showThinkingSummaries = true;
+  if (Object.keys(model.env).length) {
+    const existing = overlay.env;
+    if (existing !== undefined && (!existing || typeof existing !== "object" || Array.isArray(existing))) return null;
+    overlay.env = {...existing as Record<string,unknown>, ...model.env};
+  }
   return [...rest, "--settings", sortedJson(overlay)];
 }

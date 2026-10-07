@@ -141,10 +141,10 @@ fn build_agent_command_inner(
         } else {
             match registry.with_provider(agent_cmd, |provider| {
                 let supported = provider.reasoning_efforts_for_model(resolved_model.as_deref());
-                supported
-                    .iter()
-                    .any(|level| level.id == effort)
-                    .then(|| provider.reasoning_effort_launch_args(effort))
+                supported.iter().any(|level| level.id == effort).then(|| {
+                    provider
+                        .reasoning_effort_launch_args_for_model(resolved_model.as_deref(), effort)
+                })
             }) {
                 Some(Some(args)) => args,
                 _ => {

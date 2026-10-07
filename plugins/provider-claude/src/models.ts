@@ -1,6 +1,7 @@
 // /v1/models list mapped onto the aliases accepted by the installed CLI.
 import type { ModelInfo } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
+import {modelWithCapabilities} from "./modelCapabilities";
 
 interface AnthropicModelsResponse { data?: AnthropicModel[] }
 interface AnthropicModel { id?: string; display_name?: string; displayName?: string }
@@ -42,7 +43,8 @@ export function discoverAnthropicModels(): ModelInfo[] | null {
 export function manifestModels(): ModelInfo[] {
   const m = manifest();
   if (!Array.isArray(m && m.models)) return [];
-  return m!.models!.map((model) => ({
+  return m!.models!.map((model) => modelWithCapabilities({
+    ...model,
     id: model.id,
     displayName: model.displayName,
     ...(model.description ? { description: model.description } : {}),
@@ -125,6 +127,7 @@ function mapAliasesToLive(aliases: ModelInfo[], live: AnthropicModel[]): ModelIn
     const family = familyOf(alias);
     const match = family ? bestLiveMatch(live, family) : null;
     const mapped: ModelInfo = {
+      ...alias,
       id: alias.id,
       displayName: match && !alias.id.endsWith("[1m]")
         ? withVersion(alias.displayName, versionOf(match))

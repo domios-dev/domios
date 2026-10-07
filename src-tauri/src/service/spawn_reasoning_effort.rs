@@ -32,7 +32,7 @@ pub(crate) fn validate_agent_reasoning_effort(
                 .map_err(|rejection| rejection.to_string())?;
         }
         // An advertised level the provider cannot put on its command line would be dropped at launch.
-        if p.reasoning_effort_launch_args(effort).is_empty() {
+        if p.reasoning_effort_launch_args_for_model(model, effort).is_empty() {
             return Err(format!(
                 "provider '{provider_id}' declares no launch flag for reasoning effort '{effort}'; omit --reasoning-effort"
             ));

@@ -13,6 +13,7 @@ pub mod integration;
 mod interactive;
 mod launch;
 pub(crate) mod launch_session;
+mod model_capabilities;
 mod onboarding;
 mod permission_hook;
 mod permission_prompt;
@@ -55,6 +56,13 @@ impl ClaudeProvider {
 }
 
 impl AgentProvider for ClaudeProvider {
+    fn reasoning_effort_launch_args_for_model(
+        &self,
+        model: Option<&str>,
+        effort: &str,
+    ) -> Vec<String> {
+        model_capabilities::effort_args(model, effort)
+    }
     fn auth_status_probe(&self) -> Option<crate::provider::AuthStatusProbe> {
         Some(signals::probe())
     }

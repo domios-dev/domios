@@ -109,7 +109,7 @@ pub(super) fn launch_args(args: &[String]) -> Option<Vec<String>> {
     let mut overlay = serde_json::Map::new();
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
-        if arg == FLAG {
+        if arg == FLAG || arg == super::model_capabilities::FLAG {
             continue;
         }
         let raw = if arg == "--settings" {
@@ -145,6 +145,13 @@ pub(super) fn launch_args(args: &[String]) -> Option<Vec<String>> {
         }
     }
     overlay.insert("showThinkingSummaries".into(), Value::Bool(true));
+    if let Some(window) = super::model_capabilities::compact_env(args) {
+        let env = overlay.entry("env").or_insert_with(|| json!({}));
+        env.as_object_mut()?.insert(
+            "CLAUDE_CODE_AUTO_COMPACT_WINDOW".into(),
+            Value::String(window),
+        );
+    }
     rest.extend(["--settings".into(), Value::Object(overlay).to_string()]);
     Some(rest)
 }
