@@ -54,6 +54,29 @@ fn lane_turn_stats_capture_unstaged_staged_and_untracked_files() {
 }
 
 #[test]
+fn lane_turn_stats_never_rewrite_the_lane_index() {
+    let root = repository();
+    let index = root.path().join(".git").join("index");
+    let tracked = root.path().join("tracked.txt");
+    let rewritten_at = fs::metadata(&index).unwrap().modified().unwrap() + Duration::from_secs(2);
+    fs::write(&tracked, "base\n").unwrap();
+    fs::File::options()
+        .write(true)
+        .open(&tracked)
+        .unwrap()
+        .set_modified(rewritten_at)
+        .unwrap();
+    let before = fs::read(&index).unwrap();
+
+    let (unstaged, staged, _) =
+        capture_change_stats(root.path(), Instant::now() + Duration::from_secs(4)).unwrap();
+
+    assert_eq!(fs::read(&index).unwrap(), before);
+    assert!(unstaged.trim().is_empty(), "{unstaged}");
+    assert!(staged.trim().is_empty(), "{staged}");
+}
+
+#[test]
 fn lane_turn_stats_deduplicates_repeated_settlement_for_same_transcript_turn() {
     let messages = vec![crate::agent::chat_types::ChatMsg {
         id: "assistant-message-1".into(),

@@ -18,7 +18,7 @@ description: "Review Domios changes for evidence, tests, docs, code quality, and
 ## Documentation
 - [ ] Revision tags bumped on every touched `.md` file
 - [ ] File size check passes (no source file over 1200 lines; there is no exception)
-- [ ] Generated artifacts (CLI manifest/reference/command paths, `essences/map.jsonl`) are regenerated from their source and committed with the change, never hand-edited; see `essences/build.md#generated-artifacts-and-the-embedded-doc-boundary`
+- [ ] Generated artifacts (`generated/cli/*`, command paths, `essences/map.jsonl`) are regenerated from their source and committed with the change, never hand-edited; see `.agents/skills/build/SKILL.md#generated-artifacts-and-the-embedded-doc-boundary`
 - [ ] A document production agents read is registered in the embedded docs registry (or excluded with a reason); `prod-docs/` holds only embedded docs and everything else stays in `essences/`
 
 ## Code Quality

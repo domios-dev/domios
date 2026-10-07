@@ -8,9 +8,13 @@ pub(super) fn detect_from_title(title: &str) -> bool {
     if lower.contains("claude") {
         return true;
     }
-    // Claude Code v2.1+ uses Braille spinner chars or ✳ as title prefix e.g. "⠐ General coding session", "✳ Claude Code"
+    // Busy title glyphs: Braille before Claude Code 2.1.228, quarter circles since; ✳/✻ at rest.
     let first = title.chars().next().unwrap_or('\0');
-    (('\u{2801}'..='\u{28ff}').contains(&first) || first == '✳' || first == '✻') && title.len() > 2
+    (('\u{2801}'..='\u{28ff}').contains(&first)
+        || ('\u{25d0}'..='\u{25d3}').contains(&first)
+        || first == '✳'
+        || first == '✻')
+        && title.len() > 2
 }
 
 pub(super) fn detect_from_output(text: &str) -> bool {
@@ -227,6 +231,9 @@ mod tests {
         assert!(detect_from_title("⠂ General coding session"));
         assert!(detect_from_title("✳ Claude Code"));
         assert!(detect_from_title("✳ Fix bug in parser"));
+        assert!(detect_from_title("◐ General coding session"));
+        assert!(detect_from_title("◓ Fix bug in parser"));
+        assert!(!detect_from_title("◔ Not a spinner"));
         assert!(!detect_from_title("Aider"));
         assert!(!detect_from_title("C:\\WINDOWS\\System32\\powershell.exe"));
         assert!(!detect_from_title("PS C:\\Users\\User>"));
