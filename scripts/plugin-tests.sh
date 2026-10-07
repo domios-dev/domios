@@ -20,6 +20,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/file-diffs.test.ts
       plugins/provider-claude/tests/subagents.test.ts
       plugins/provider-claude/tests/launch-session.test.ts
+      plugins/provider-claude/tests/account-home.test.ts
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/resume-compatibility.test.ts
       plugins/provider-codex/tests/models.test.ts
@@ -43,6 +44,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/windows-hook-command.test.ts
       plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-codex/tests/launch-session.test.ts
+      plugins/provider-codex/tests/account-home.test.ts
       plugins/provider-codex/tests/user-images.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
       plugins/provider-opencode/tests/lifecycle.test.ts
@@ -72,6 +74,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/file-diffs.test.ts
       plugins/provider-claude/tests/subagents.test.ts
       plugins/provider-claude/tests/launch-session.test.ts
+      plugins/provider-claude/tests/account-home.test.ts
     )
     ;;
   provider-codex)
@@ -97,6 +100,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/windows-hook-command.test.ts
       plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-codex/tests/launch-session.test.ts
+      plugins/provider-codex/tests/account-home.test.ts
       plugins/provider-codex/tests/user-images.test.ts
     )
     ;;

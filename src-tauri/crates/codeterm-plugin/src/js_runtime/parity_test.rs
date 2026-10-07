@@ -40,6 +40,9 @@ mod unbound_submit_recovery;
 #[path = "parity_test/update_prompt.rs"]
 mod update_prompt;
 
+#[path = "parity_test/account_home.rs"]
+mod account_home;
+
 type PluginsDir = PathBuf;
 
 fn workspace_plugins_root() -> PathBuf {
