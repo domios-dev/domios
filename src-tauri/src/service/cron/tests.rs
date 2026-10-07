@@ -47,9 +47,15 @@ fn fixture() -> (
 }
 
 // Launch preflight refuses a provider whose CLI is missing, so the fixture launches a real shell.
+fn launchable(provider: MockProvider) -> MockProvider {
+    provider.with_launch_binary(if cfg!(windows) { "cmd.exe" } else { "sh" })
+}
+
 fn tiered_provider() -> MockProvider {
-    MockProvider::with_reasoning_efforts("tiered", &["low", "medium", "high"])
-        .with_launch_binary(if cfg!(windows) { "cmd.exe" } else { "sh" })
+    launchable(MockProvider::with_reasoning_efforts(
+        "tiered",
+        &["low", "medium", "high"],
+    ))
 }
 
 fn create_params(name: &str, effort: Option<&str>) -> CronCreateParams {
@@ -437,7 +443,7 @@ fn cron_create_validates_agent_model_cwd() {
         },
     );
     fixture.service.agent_registry.register_provider(Box::new(
-        MockProvider::new("cron-catalogue")
+        launchable(MockProvider::new("cron-catalogue"))
             .with_models(models)
             .with_authoritative_model_catalogue(),
     ));
