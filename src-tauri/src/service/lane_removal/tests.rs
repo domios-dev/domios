@@ -39,6 +39,80 @@ fn branch_exists(project: &Path, branch: &str) -> bool {
         .success()
 }
 
+fn link_dir(link: &Path, target: &Path) {
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, link).expect("create directory symlink");
+    #[cfg(windows)]
+    {
+        let mut command = Command::new("cmd");
+        process_util::no_window_std(&mut command);
+        let output = command
+            .args(["/C", "mklink", "/J"])
+            .arg(link)
+            .arg(target)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[test]
+fn lane_removal_links_preserves_canonical_marker_and_removes_lane() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let marker = project.join("canonical-marker");
+    std::fs::create_dir(&marker).unwrap();
+    let marker_file = marker.join("proof.bin");
+    let bytes = [0, 1, 2, 127, 128, 254, 255];
+    std::fs::write(&marker_file, bytes).unwrap();
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "link-marker").unwrap();
+    link_dir(&Path::new(&lane.cwd).join("canonical-link"), &marker);
+
+    remove_lane(
+        &LaneRemovalRequest {
+            worktree_path: lane.cwd.clone(),
+            branch: Some(lane.branch.clone()),
+            canonical_cwd: Some(project.display().to_string()),
+        },
+        &[],
+    )
+    .expect("lane with a link to canonical content removes safely");
+
+    assert!(!Path::new(&lane.cwd).exists());
+    assert_eq!(std::fs::read(marker_file).unwrap(), bytes);
+}
+
+#[test]
+fn lane_removal_links_refuses_a_lane_with_leftover_content() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "leftover-content").unwrap();
+    let leftover = Path::new(&lane.cwd).join("untracked-leftover");
+    std::fs::write(&leftover, "retain this lane content").unwrap();
+
+    let error = remove_lane(
+        &LaneRemovalRequest {
+            worktree_path: lane.cwd.clone(),
+            branch: Some(lane.branch.clone()),
+            canonical_cwd: Some(project.display().to_string()),
+        },
+        &[],
+    )
+    .unwrap_err();
+
+    assert!(error.contains("lane removal failed"), "{error}");
+    assert!(error.contains(&lane.cwd), "{error}");
+    assert_eq!(
+        std::fs::read_to_string(leftover).unwrap(),
+        "retain this lane content"
+    );
+    assert!(Path::new(&lane.cwd).is_dir());
+}
+
 fn task_store(root: &Path, project: &Path) -> (PlanStore, String, String) {
     let store = PlanStore::new_for_test(root);
     let plan = store
