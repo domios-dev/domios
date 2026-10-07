@@ -29,7 +29,19 @@ impl Launch {
         }
     }
 
+    fn select_plain(&mut self, nonce: &str) -> bool {
+        let changed = self.state != DeliveryState::Plain;
+        self.nonce = nonce.into();
+        self.state = DeliveryState::Plain;
+        self.connections.clear();
+        self.attach_failed = false;
+        changed
+    }
+
     fn advance(&mut self, verified: bool) -> bool {
+        if self.state == DeliveryState::Plain {
+            return false;
+        }
         let next = if !self.connections.is_empty()
             && self.bootstrap_consumed
             && verified
@@ -178,11 +190,22 @@ pub fn startup_complete(svc: &ServiceContext, tab: &str, nonce: &str) {
     }
 }
 
-pub fn plain_launch(tab: &str, nonce: &str) {
-    if let Some(launch) = LAUNCHES.lock().get_mut(tab) {
-        launch.nonce = nonce.into();
-        launch.state = DeliveryState::Pending;
-        launch.connections.clear();
+pub fn plain_launch(svc: &ServiceContext, tab: &str, nonce: &str) {
+    if !svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .is_some_and(|tab| tab.session_binding_nonce.as_deref() == Some(nonce))
+    {
+        return;
+    }
+    let changed = LAUNCHES
+        .lock()
+        .get_mut(tab)
+        .is_some_and(|launch| launch.select_plain(nonce));
+    CHANGED.notify_all();
+    if changed {
+        wake(svc, tab);
     }
 }
 
@@ -244,6 +267,21 @@ fn wake(svc: &ServiceContext, tab: &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_rpc_send_plain_fallback_is_terminal_without_rpc_attach_or_bootstrap() {
+        let mut launch = Launch::new("starting");
+        assert_eq!(launch.state, DeliveryState::Pending);
+        assert!(launch.select_plain("plain-launch"));
+        assert_eq!(launch.state, DeliveryState::Plain);
+        assert_eq!(launch.nonce, "plain-launch");
+        assert!(!launch.bootstrap_consumed);
+        assert!(launch.connections.is_empty());
+        assert!(!launch.advance(false));
+        assert!(!launch.advance(true));
+        assert_eq!(launch.state, DeliveryState::Plain);
+        assert!(!launch.select_plain("plain-launch"));
+    }
 
     #[test]
     fn codex_rpc_attach_delivery_waits_for_both_latches_and_wakes_once() {

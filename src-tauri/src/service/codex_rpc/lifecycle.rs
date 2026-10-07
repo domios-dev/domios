@@ -25,8 +25,8 @@ pub fn startup_complete(svc: &ServiceContext, tab: &str, nonce: &str) {
     super::delivery::startup_complete(svc, tab, nonce);
 }
 
-pub fn plain_launch(tab: &str, nonce: &str) {
-    super::delivery::plain_launch(tab, nonce);
+pub fn plain_launch(svc: &ServiceContext, tab: &str, nonce: &str) {
+    super::delivery::plain_launch(svc, tab, nonce);
 }
 
 pub fn wait_attached(tab: &str, nonce: &str, timeout: std::time::Duration) -> bool {

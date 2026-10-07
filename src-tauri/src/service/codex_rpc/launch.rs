@@ -81,6 +81,7 @@ pub fn defer(
 pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String) -> String {
     if command != DEFERRED {
         if super::lifecycle::for_tab(tab).is_none() {
+            super::lifecycle::plain_launch(svc, tab, &svc.ensure_session_binding_nonce(tab));
             if let Some(tab) = svc.mux.write().get_tab_mut(tab) {
                 tab.structured_control_active = false;
             }
@@ -92,6 +93,7 @@ pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String)
         if let Some(sidecar) = super::lifecycle::for_tab(tab) {
             return remote_command(&sidecar);
         }
+        super::lifecycle::plain_launch(svc, tab, &svc.ensure_session_binding_nonce(tab));
         let params = svc
             .mux
             .read()
@@ -116,6 +118,7 @@ pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String)
     if super::lifecycle::for_tab(tab).is_none() {
         svc.rotate_session_binding_nonce(tab);
     }
+    let launch_nonce = svc.ensure_session_binding_nonce(tab);
     let instructions = svc
         .agent_registry
         .with_provider(provider, |p| {
@@ -139,6 +142,7 @@ pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String)
                 return remote_command(&sidecar);
             }
             log::error!("[codex-rpc] tab={tab} sidecar unavailable, plain PTY fallback: {error}");
+            super::lifecycle::plain_launch(svc, tab, &launch_nonce);
             super::diagnostics::fallback(svc, tab, provider, &error);
             crate::service::orchestrator::build_agent_command(
                 provider,
