@@ -3,7 +3,7 @@ use crate::cmd::docs::{canonical_name, DOCS};
 use std::collections::HashSet;
 
 fn references(text: &str) -> Vec<String> {
-    let pattern = regex::Regex::new(r"\bcodeterm\s+docs\s+([A-Za-z][A-Za-z0-9-]*)").unwrap();
+    let pattern = regex::Regex::new(r"\bcodeterm[ \t]+docs[ \t]+([A-Za-z][A-Za-z0-9-]*)").unwrap();
     pattern
         .captures_iter(text)
         .map(|capture| capture[1].to_string())
@@ -64,8 +64,8 @@ fn doc_reference_checks_reject_broken_and_orphaned_targets() {
         ["MISSING-DOCUMENT"]
     );
     assert_eq!(
-        unreferenced_documents(["CONFIG", "MISSING-DOCUMENT"], "`codeterm docs CONFIG`"),
-        ["MISSING-DOCUMENT"]
+        unreferenced_documents(["CONFIG", "ROUTING"], "`codeterm docs CONFIG`"),
+        ["ROUTING"]
     );
     assert!(unknown_references(
         "codeterm docs <NAME>; codeterm docs --help; codeterm docs SENTINELS"
