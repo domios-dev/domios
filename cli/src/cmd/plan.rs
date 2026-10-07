@@ -378,9 +378,10 @@ fn run_plan(
         PlanAction::LaneRemove {
             worktree,
             branch,
+            force,
             project,
         } => {
-            let mut params = json!({ "worktree_path": worktree });
+            let mut params = json!({ "worktree_path": worktree, "force": force });
             if let Some(branch) = branch {
                 params["branch"] = json!(branch);
             }
