@@ -1,0 +1,39 @@
+:root {
+  --ct-composer-gutter-x: 0.75rem;
+  --ct-composer-gutter-b: var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)));
+  --ct-composer-lane-max: 56rem;
+  --ct-composer-radius: 1.35rem;
+  --ct-composer-editor-max: min(230px, 40dvh);
+  --ct-composer-dock-hysteresis: 40px;
+  --ct-composer-float-min-width: 30rem;
+}
+.ct-composer-dock {
+  padding: 0 var(--ct-composer-gutter-x) var(--ct-composer-gutter-b);
+  overflow: visible;
+  transition: padding 160ms ease;
+}
+.ct-composer-lane { max-width: var(--ct-composer-lane-max); }
+.ct-composer-card {
+  border: 1px solid var(--ct-border);
+  border-radius: var(--ct-composer-radius);
+  background: var(--ct-bg-elev, var(--ct-surface));
+  box-shadow: 0 8px 24px rgb(0 0 0 / 20%);
+  overflow: visible;
+  transition: border-radius 160ms ease, box-shadow 160ms ease;
+}
+.ct-composer-card textarea { max-height: var(--ct-composer-editor-max); }
+.ct-composer-dock[data-composer-mode="docked"] {
+  padding: 0 0 var(--ct-safe-bottom, 0px);
+  border-top: 1px solid var(--ct-border);
+}
+.ct-composer-dock[data-composer-mode="docked"] .ct-composer-card {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.ct-composer-action-shell, .ct-voice-lock-pill, .ct-composer-voice-bubble { overflow: visible; }
+@media (prefers-reduced-motion: reduce) {
+  .ct-composer-dock, .ct-composer-card { transition: none; }
+}
+
+.ct-composer-readonly, .ct-composer-status { padding-inline: var(--ct-composer-gutter-x); }
