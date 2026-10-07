@@ -43,7 +43,12 @@ pub(crate) fn role_onboarding_task(
     {
         Some(worker_agent_system_prompt(assignment.as_deref(), kind))
     } else {
-        Some(agent_system_prompt(assignment.as_deref()))
+        let mut prompt = agent_system_prompt(assignment.as_deref());
+        if resolved.is_none() {
+            prompt.push_str("\n\n");
+            prompt.push_str(crate::prompts::MEM_MANAGEMENT.trim());
+        }
+        Some(prompt)
     }
 }
 
