@@ -210,6 +210,8 @@ pub use usage_snapshot::*;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ProviderDescriptor {
+    #[serde(default)]
+    pub supports_session_fork: bool,
     pub schema_version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cli_status: Option<crate::provider_cli::ProviderCliStatus>,
@@ -350,7 +352,7 @@ pub struct ProviderUpdateAvailability {
 }
 
 /// Current `ProviderDescriptor` schema version. Bump on breaking change.
-pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 18;
+pub const PROVIDER_DESCRIPTOR_SCHEMA_VERSION: u32 = 19;
 
 /// One provider-owned usage log to ingest for a session. `session_id` scopes a
 /// log shared by many sessions (e.g. one sqlite database); a per-session file

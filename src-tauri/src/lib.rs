@@ -218,6 +218,7 @@ pub fn run() {
             commands::restart_general_agent,
             commands::restart_general_agent_tab,
             commands::restart_agent_tab,
+            commands::fork_agent_tab,
             commands::switch_agent_model,
             commands::complete_general_agent_first_run,
             commands::get_network_info,

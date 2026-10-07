@@ -543,6 +543,22 @@ pub fn chat_start_core(
         &snap,
     );
     let read_ms = read_started.elapsed().as_millis();
+    if let Some(nonce) = session_binding_nonce.as_deref() {
+        crate::service::provider_signals::apply(
+            svc,
+            &tab_id,
+            &session_id,
+            nonce,
+            &snap.runtime_observations,
+        );
+        crate::service::background_work::apply(
+            svc,
+            &tab_id,
+            &session_id,
+            nonce,
+            &snap.runtime_observations,
+        );
+    }
     crate::api::hook_routes::context_feed::apply_snapshot(
         svc,
         &tab_id,

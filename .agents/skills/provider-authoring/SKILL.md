@@ -48,6 +48,14 @@ from CLI version compatibility. `--codeterm-model-capabilities` explicitly opts
 launch/resume into its per-launch compact-window environment overlay; absent that
 flag, the provider's automatic compaction policy remains authoritative.
 
+`spawn.forkSessionArgs` declares session forking. Core opens a separate tab,
+resumes the source with those arguments, and accepts only a distinct session
+proved by the new launch's nonce. No session id is prebound for a fork.
+`tracksBackgroundWork()` plus `parseBackgroundWork(record)` declare structured
+background task observations. The bounded per-tab roster is session-scoped;
+`background_work_guard` defaults false. When enabled, restart refuses live work,
+provider updates wait for a roster change event, and explicit force is reported.
+
 A JS provider never sees the ~70-method Rust `AgentProvider` trait. It sees two
 surfaces:
 

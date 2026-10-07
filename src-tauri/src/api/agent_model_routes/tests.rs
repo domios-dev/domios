@@ -1,6 +1,18 @@
 use super::*;
 
 #[test]
+fn restart_guard_model_switch_refusal_names_running_items() {
+    let items = vec!["shell-fixture".into(), "agent-fixture".into()];
+    let error = ModelSwitchError::BackgroundWork {
+        items: items.clone(),
+    };
+    assert_eq!(model_switch_error_status(&error), StatusCode::CONFLICT);
+    let body = model_switch_error_body(&error);
+    assert_eq!(body["reason"], "background_work_running");
+    assert_eq!(body["running_items"], serde_json::json!(items));
+}
+
+#[test]
 fn pending_model_switch_success_reports_ready_same_session_relaunch() {
     let session_id = "session-8b2c";
     let launched_model = "model-9e";

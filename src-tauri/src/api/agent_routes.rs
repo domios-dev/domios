@@ -299,6 +299,7 @@ pub async fn spawn_agent(
         system_prompt: body.system_prompt,
         preset: body.preset,
         resume_session_id: None,
+        fork_session: false,
         charter: body.charter,
         tick_interval_secs: body.tick_interval_secs,
         nudge_cooldown_secs: body.nudge_cooldown_secs,
@@ -891,6 +892,9 @@ pub async fn agent_restart_handler(
         Err(crate::service::agent_restart::RestartAttemptError::Request(
             crate::service::agent_restart::AgentRestartError::NotFound(m),
         )) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": m}))).into_response(),
+        Err(crate::service::agent_restart::RestartAttemptError::Request(
+            crate::service::agent_restart::AgentRestartError::BackgroundWork {items},
+        )) => (StatusCode::CONFLICT, Json(serde_json::json!({"reason":"background_work_running","running_items":items,"error":"restart refused while background work is running"}))).into_response(),
         Err(crate::service::agent_restart::RestartAttemptError::Request(
             crate::service::agent_restart::AgentRestartError::BadRequest(m),
         )) => (

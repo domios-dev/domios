@@ -213,6 +213,9 @@ pub enum AgentAction {
     },
     /// Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`.
     Model {
+        /// Explicitly override the background-work restart guard and report the affected work.
+        #[arg(long)]
+        force: bool,
         /// Model id. Run `agent models PROVIDER` to list.
         name: String,
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
@@ -222,6 +225,11 @@ pub enum AgentAction {
     /// List available agent providers (claude, codex, ...) with their
     /// display names, default models, and capability flags.
     Providers,
+    /// Open a new tab from a provider-declared session fork; bind only from its own session evidence.
+    Fork {
+        #[arg(long = "tab", value_name = "TAB")]
+        tab: Option<String>,
+    },
     /// Inspect or manage a provider's CLI using its manifest commands.
     Cli {
         #[command(subcommand)]
@@ -627,7 +635,12 @@ mod tests {
     #[test]
     fn spawn_watcher_role_maps_to_manager_profile() {
         let cli = Cli::try_parse_from([
-            "codeterm", "agent", "spawn", "fixture-backend", "--role", "Watcher",
+            "codeterm",
+            "agent",
+            "spawn",
+            "fixture-backend",
+            "--role",
+            "Watcher",
         ])
         .expect("watcher role parses");
         match cli.command {

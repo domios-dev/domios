@@ -17,6 +17,39 @@ fn bound_session(mux: &MuxState, tab_id: &str) -> Option<String> {
 }
 
 #[test]
+fn agent_fork_binding_requires_a_distinct_session_and_exact_nonce() {
+    let (mux, tab_id) = launched_tab("claude", Some("fork-nonce"));
+    mux.write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .fork_source_session_id = Some("source".into());
+    let registry = registry(&["claude"]);
+    assert!(bind_reported_session(
+        &mux,
+        &registry,
+        &tab_id,
+        "claude",
+        "source",
+        Some("fork-nonce")
+    )
+    .is_err());
+    assert!(bind_reported_session(&mux, &registry, &tab_id, "claude", "new", None).is_err());
+    assert!(bind_detected_session(&mux, &registry, &tab_id, "claude", "new", "stale").is_err());
+    assert!(bound_session(&mux, &tab_id).is_none());
+    let claim = bind_reported_session(
+        &mux,
+        &registry,
+        &tab_id,
+        "claude",
+        "new",
+        Some("fork-nonce"),
+    )
+    .unwrap();
+    assert!(claim.nonce_verified);
+    assert_eq!(bound_session(&mux, &tab_id).as_deref(), Some("new"));
+}
+
+#[test]
 fn detected_session_binds_the_launch_it_names() {
     let (mux, tab_id) = launched_tab("claude", Some("nonce-1"));
     let registry = registry(&["claude"]);

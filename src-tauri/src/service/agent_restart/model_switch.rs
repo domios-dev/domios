@@ -76,6 +76,9 @@ struct ModelSwitchObservation {
 
 #[derive(Debug)]
 pub(crate) enum ModelSwitchError {
+    BackgroundWork {
+        items: Vec<String>,
+    },
     NotFound(String),
     Unsupported {
         provider: String,
@@ -101,6 +104,7 @@ pub(crate) enum ModelSwitchError {
 impl std::fmt::Display for ModelSwitchError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::BackgroundWork {items}=>write!(formatter,"restart refused while background work is running: {}",items.join(", ")),
             Self::NotFound(message) | Self::NotSwitchable(message) => formatter.write_str(message),
             Self::Unsupported { provider } => write!(
                 formatter,
@@ -149,6 +153,7 @@ impl From<RestartAttemptError> for ModelSwitchError {
 impl From<AgentRestartError> for ModelSwitchError {
     fn from(error: AgentRestartError) -> Self {
         match error {
+            AgentRestartError::BackgroundWork { items } => Self::BackgroundWork { items },
             AgentRestartError::NotFound(message) => Self::NotFound(message),
             AgentRestartError::BadRequest(message) | AgentRestartError::Internal(message) => {
                 Self::NotSwitchable(message)
@@ -359,6 +364,16 @@ impl ServiceContext {
         requested: &str,
         requested_effort: Option<&str>,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+        self.agent_switch_model_with_options(tab_id, requested, requested_effort, false)
+    }
+
+    pub(crate) fn agent_switch_model_with_options(
+        &self,
+        tab_id: &str,
+        requested: &str,
+        requested_effort: Option<&str>,
+        force: bool,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
         let requested = requested.trim();
         let (resolved_tab, provider) = {
             let mux = self.mux.read();
@@ -496,6 +511,7 @@ impl ServiceContext {
         if mechanism == ModelSwitchMode::Unsupported {
             return Err(ModelSwitchError::Unsupported { provider });
         }
+        self.require_background_work_safe(&snap.tab_id, force)?;
         if !self.tab_is_idle(&snap.tab_id) {
             let suffix = fallback_reason
                 .as_deref()
@@ -520,7 +536,7 @@ impl ServiceContext {
         );
         let restart = self.restart_live_agent(
             snap,
-            false,
+            force,
             DEFAULT_GRACE_SECS,
             Some(&launch),
             super::RestartMode::Standard,

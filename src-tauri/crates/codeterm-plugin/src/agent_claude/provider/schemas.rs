@@ -54,6 +54,13 @@ pub(super) fn launch_permissions() -> Option<provider::LaunchPermissionCapabilit
     manifest.spawn.launch_permissions
 }
 
+pub(super) fn fork_session_args() -> Option<Vec<String>> {
+    serde_json::from_str::<crate::js_runtime::PluginManifest>(BUNDLED_MANIFEST)
+        .ok()?
+        .spawn
+        .fork_session_args
+}
+
 /// Resolved list — registered defaults unless the user dropped
 /// `<data_dir>/models/claude.toml` to override.
 pub(super) fn available_models() -> Vec<ModelInfo> {

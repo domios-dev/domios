@@ -161,6 +161,10 @@ pub async fn restart_agent_tab(svc: State<'_, ServiceState>, tab_id: String) -> 
     .map_err(|error| format!("restart worker failed: {error}"))?
     .map(|_| ())
     .map_err(|error| match error {
+        crate::service::agent_restart::AgentRestartError::BackgroundWork { items } => format!(
+            "restart refused while background work is running: {}",
+            items.join(", ")
+        ),
         crate::service::agent_restart::AgentRestartError::NotFound(message)
         | crate::service::agent_restart::AgentRestartError::BadRequest(message)
         | crate::service::agent_restart::AgentRestartError::Internal(message) => message,
@@ -168,6 +172,17 @@ pub async fn restart_agent_tab(svc: State<'_, ServiceState>, tab_id: String) -> 
             format!("Retry is available in {retry_after_secs} seconds")
         }
     })
+}
+
+#[tauri::command]
+pub async fn fork_agent_tab(
+    svc: State<'_, ServiceState>,
+    tab_id: String,
+) -> Result<crate::service::agent_fork::ForkResult, String> {
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || svc.agent_fork(&tab_id))
+        .await
+        .map_err(|error| error.to_string())?
 }
 
 #[tauri::command]

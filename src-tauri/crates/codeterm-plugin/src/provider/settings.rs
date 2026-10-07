@@ -282,6 +282,8 @@ pub fn structured_signals_section() -> SettingField {
         fields: vec![SettingField::Toggle {
             key: "structured_signals".into(), label: "Read structured login and transcript state".into(), default: false,
             description: Some("Probe login status and show API errors and plan-mode drift from the tab's own session.".into()),
+        }, SettingField::Toggle {
+            key:"background_work_guard".into(),label:"Protect running background work from restarts".into(),default:false,description:None,
         }],
     }
 }

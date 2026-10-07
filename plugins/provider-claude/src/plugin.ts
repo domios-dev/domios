@@ -12,6 +12,7 @@ import { manifest } from "./shared";
 import { permissionHookCapability } from "./permissionHook";
 import { parseContextUsage, statuslineLaunchArgs } from "./context";
 import { authStatusProbe, parseAuthStatus, parseSessionObservations } from "./signals";
+import {parseBackgroundWork} from "./backgroundWork";
 import { detectClaudeLaunchSession } from "./launchSession";
 import {
   fetchClaudeUsage,
@@ -176,6 +177,8 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
 
 const plugin: PluginModule = {
   authStatusProbe,
+  tracksBackgroundWork: () => true,
+  parseBackgroundWork,
   reasoningEffortLaunchArgsForModel,
   modelCatalogueSeed: manifestModels,
   parseAuthStatus,
@@ -742,6 +745,8 @@ const plugin: PluginModule = {
       out.push({
         ...(context ? { context_usage: context } : {}),
         provider_observations: parseSessionObservations(v),
+        provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null,
+        background_work: parseBackgroundWork(v),
         role: role,
         blocks: blocks,
         ts: ts,

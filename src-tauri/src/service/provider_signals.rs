@@ -98,6 +98,13 @@ pub(crate) fn apply(
         }
         let previous = tab.provider_signals.clone();
         for record in records {
+            if record
+                .provider_session_id
+                .as_deref()
+                .is_some_and(|id| id != session)
+            {
+                continue;
+            }
             if let Some(observation) = &record.provider_observations {
                 tab.provider_signals.observe(observation);
             }

@@ -932,11 +932,34 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 }
             }
         }
-        AgentAction::Model { name, tab } => {
+        AgentAction::Fork { tab } => {
+            let tab_id = resolve_tab(client, tab);
+            let response = local_http
+                .post(format!("{}/api/tabs/{}/agent/fork", base, tab_id))
+                .send()
+                .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
+            let status = response.status();
+            let text = response.text().unwrap_or_default();
+            if !status.is_success() {
+                crate::cmd::print::fail_http(1, status.as_u16(), &text);
+            }
+            let result: serde_json::Value = serde_json::from_str(&text)
+                .unwrap_or_else(|error| crate::cmd::print::fail(1, error.to_string()));
+            if json {
+                crate::cmd::print::print_json(&result);
+            } else {
+                println!(
+                    "Fork opened in tab {} (session binding pending: {})",
+                    result["tab_id"].as_str().unwrap_or_default(),
+                    result["binding_pending"]
+                );
+            }
+        }
+        AgentAction::Model { name, tab, force } => {
             let tab_id = resolve_tab(client, tab);
             let result = local_http
                 .post(format!("{}/api/tabs/{}/agent/model", base, tab_id))
-                .json(&serde_json::json!({ "model": name }))
+                .json(&serde_json::json!({ "model": name, "force":force }))
                 .send()
                 .map_err(|error| crate::cmd::print::CliError::new(error.to_string()))
                 .and_then(|resp| {
