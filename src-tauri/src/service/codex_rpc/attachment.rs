@@ -2,7 +2,46 @@ use super::protocol::{decode, Frame, RequestId};
 use crate::service::ServiceContext;
 use futures_util::{SinkExt, StreamExt};
 use std::collections::HashMap;
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    Arc,
+};
 use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
+
+#[derive(Default)]
+struct Connections {
+    active: AtomicUsize,
+    peak: AtomicUsize,
+}
+
+struct LiveConnection {
+    counts: Arc<Connections>,
+    tab: String,
+    nonce: String,
+    id: String,
+}
+
+impl LiveConnection {
+    fn open(counts: Arc<Connections>, tab: &str, nonce: &str, id: &str) -> Self {
+        let active = counts.active.fetch_add(1, Ordering::AcqRel) + 1;
+        let peak = counts.peak.fetch_max(active, Ordering::AcqRel).max(active);
+        log::info!("[codex-rpc-attach] tab={tab} nonce={nonce} connection={id} phase=authenticated active={active} peak={peak}");
+        Self {
+            counts,
+            tab: tab.into(),
+            nonce: nonce.into(),
+            id: id.into(),
+        }
+    }
+}
+
+impl Drop for LiveConnection {
+    fn drop(&mut self) {
+        let active = self.counts.active.fetch_sub(1, Ordering::AcqRel) - 1;
+        let peak = self.counts.peak.load(Ordering::Acquire);
+        log::info!("[codex-rpc-attach] tab={} nonce={} connection={} phase=closed active={active} peak={peak}", self.tab, self.nonce, self.id);
+    }
+}
 
 #[derive(Default)]
 struct Evidence {
@@ -49,16 +88,19 @@ pub fn start(
     mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) {
     tauri::async_runtime::spawn(async move {
-        let connections = std::sync::Arc::new(tokio::sync::Semaphore::new(2));
+        let handshakes = Arc::new(tokio::sync::Semaphore::new(32));
+        let connections = Arc::new(Connections::default());
         loop {
+            let permit = tokio::select! {
+                _ = shutdown.changed() => break,
+                permit = handshakes.clone().acquire_owned() => match permit { Ok(permit) => permit, Err(_) => break },
+            };
             let accepted = tokio::select! {
                 _ = shutdown.changed() => break,
                 accepted = listener.accept() => accepted,
             };
             let Ok((stream, _)) = accepted else { break };
-            let Ok(permit) = connections.clone().try_acquire_owned() else {
-                continue;
-            };
+            let connections = connections.clone();
             let (svc, tab, nonce, thread, token, mut shutdown) = (
                 svc.clone(),
                 tab.clone(),
@@ -68,10 +110,7 @@ pub fn start(
                 shutdown.clone(),
             );
             tauri::async_runtime::spawn(async move {
-                let _permit = permit;
                 let connection = uuid::Uuid::new_v4().to_string();
-                let authorized = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-                let authenticated = authorized.clone();
                 let relay = async {
                     let expected = format!("Bearer {token}");
                     let config =
@@ -82,7 +121,6 @@ pub fn start(
                         stream,
                         move |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
                             if request.headers().get("Authorization").and_then(|v| v.to_str().ok()) == Some(expected.as_str()) {
-                                authenticated.store(true, std::sync::atomic::Ordering::Release);
                                 Ok(response)
                             } else {
                                 Err(tokio_tungstenite::tungstenite::http::Response::builder()
@@ -90,6 +128,8 @@ pub fn start(
                             }
                         }, Some(config.clone()),
                     )).await.map_err(|_| "remote handshake deadline")?.map_err(|_| "remote authentication/handshake failed")?;
+                    drop(permit);
+                    let _live = LiveConnection::open(connections, &tab, &nonce, &connection);
                     let mut request = format!("ws://127.0.0.1:{upstream}")
                         .into_client_request()
                         .map_err(|_| "invalid upstream address")?;
@@ -121,8 +161,9 @@ pub fn start(
                                 let attached = matches!(&message, Message::Text(text) if evidence.response(text.as_ref(), &thread));
                                 remote_write.send(message).await.map_err(|_| "remote response write failed")?;
                                 if attached {
-                                    log::info!("[codex-rpc-attach] tab={tab} nonce={nonce} thread={thread} evidence=initialize_and_resume");
                                     super::delivery::attached(&svc, &tab, &nonce, &connection);
+                                    let qualified = super::delivery::attached_count(&tab, &nonce);
+                                    log::info!("[codex-rpc-attach] tab={tab} nonce={nonce} thread={thread} connection={connection} evidence=initialize_and_resume qualified={qualified}");
                                 }
                             }
                         }
@@ -133,12 +174,14 @@ pub fn start(
                     _ = shutdown.changed() => Ok(()),
                     result = relay => result,
                 };
-                super::delivery::detached(&tab, &nonce, &connection);
-                if authorized.load(std::sync::atomic::Ordering::Acquire)
-                    && !super::delivery::attached_for_launch(&tab, &nonce)
-                {
-                    super::delivery::attach_failed(&tab, &nonce);
-                    super::recovery::try_start(&svc, &tab, &nonce, "remote TUI connection ended");
+                let last_attached_closed = super::delivery::detached(&tab, &nonce, &connection);
+                if last_attached_closed {
+                    super::recovery::try_start(
+                        &svc,
+                        &tab,
+                        &nonce,
+                        "last attached remote TUI connection ended",
+                    );
                 }
                 if let Err(reason) = result {
                     log::warn!("[codex-rpc-attach] tab={tab} nonce={nonce} reason={reason}");
