@@ -19,6 +19,10 @@ entries remain unchanged and combine with user grants when the plugin loads.
 status from the installed manifest. Missing CLIs produce a warning with the exact
 installer for this OS and the management verb. Plugin installation and CLI
 installation are separate operations; chat backends require no CLI.
+When connected to the daemon, plugin install/update waits for live provider
+registration acknowledgement before returning. JSON `provider_registration` is
+`acknowledged`, or `offline` when no daemon connection is available. An offline
+install takes effect when the daemon loads plugins.
 
 ```bash
 codeterm agent cli status <provider>
@@ -255,4 +259,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 28 -->
+<!-- revision: 29 -->
