@@ -5,12 +5,19 @@ use tokio::time::{timeout, timeout_at, Instant};
 use super::recovery::{Frames, Recovery, CONNECT_DEADLINE, RECONCILE_DEADLINE};
 use super::{handle_event, reconcile, ChatStreamState, ServiceContext};
 
+#[derive(Clone, Copy, Default)]
+pub(super) struct Wake {
+    pub output: u64,
+    pub snapshot: u64,
+}
+
 pub(super) async fn run(
     svc: ServiceContext,
     tab_id: String,
     base_url: String,
     cwd: String,
-    mut signal: watch::Receiver<u64>,
+    mut signal: watch::Receiver<Wake>,
+    live: std::sync::Arc<parking_lot::Mutex<bool>>,
 ) {
     // Async reqwest has no total timeout; each event wait has a silence deadline instead.
     let client = match reqwest::Client::builder()
@@ -39,6 +46,7 @@ pub(super) async fn run(
             &mut signal,
             &mut state,
             &mut recovery,
+            &live,
         )
         .await;
         if signal.has_changed().is_err() {
@@ -47,16 +55,26 @@ pub(super) async fn run(
         let error = result.err().unwrap_or_else(|| "event stream ended".into());
         transport_state(&svc, &tab_id, "reconnecting", &error);
         if recovery.failed() {
+            let bound = svc
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .is_some_and(|tab| tab.agent_session_id.is_some());
+            let status = if recovery.ever_healthy || bound {
+                "failed"
+            } else {
+                "awaiting_server"
+            };
             transport_state(
                 &svc,
                 &tab_id,
-                "failed",
+                status,
                 "Reconnect budget exhausted; waiting for provider output or binding evidence.",
             );
             if signal.changed().await.is_err() {
                 return;
             }
-            recovery.healthy();
+            recovery.retry_after_event();
         }
     }
 }
@@ -68,9 +86,10 @@ async fn follow(
     base_url: &str,
     cwd: &str,
     client: &reqwest::Client,
-    signal: &mut watch::Receiver<u64>,
+    signal: &mut watch::Receiver<Wake>,
     state: &mut ChatStreamState,
     recovery: &mut Recovery,
+    live: &parking_lot::Mutex<bool>,
 ) -> Result<(), String> {
     let request = client
         .get(format!("{base_url}/event"))
@@ -81,7 +100,7 @@ async fn follow(
         result = timeout(CONNECT_DEADLINE, request) => result.map_err(|_| "event connect deadline")?.map_err(|error| error.to_string())?.error_for_status().map_err(|error| error.to_string())?,
         _ = signal.wait_for(|_| false) => return Ok(()),
     };
-    let snapshot = reconcile::reconcile(svc, tab_id, client, base_url, cwd, state);
+    let snapshot = reconcile::reconcile(svc, tab_id, client, base_url, cwd, state, live);
     tokio::select! {
         result = timeout(RECONCILE_DEADLINE, snapshot) => result.map_err(|_| "reconciliation deadline")??,
         _ = signal.wait_for(|_| false) => return Ok(()),
@@ -89,16 +108,23 @@ async fn follow(
     let mut frames = Frames::default();
     let mut deadline = super::recovery::heartbeat_deadline(Instant::now());
     let mut healthy = false;
+    let mut snapshot_revision = signal.borrow().snapshot;
     loop {
-        tokio::select! {
-            changed = signal.changed() => {
-                changed.map_err(|_| "subscriber cancelled")?;
-                let bound = svc.mux.read().get_tab(tab_id).and_then(|tab| tab.agent_session_id.clone());
-                if bound != state.session_id {
-                    timeout(RECONCILE_DEADLINE, reconcile::reconcile(svc, tab_id, client, base_url, cwd, state))
-                        .await.map_err(|_| "binding reconciliation deadline")??;
-                }
+        let bound = svc
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.agent_session_id.clone());
+        let revision = signal.borrow().snapshot;
+        if bound != state.session_id || revision != snapshot_revision {
+            snapshot_revision = revision;
+            tokio::select! {
+                result = timeout(RECONCILE_DEADLINE, reconcile::reconcile(svc, tab_id, client, base_url, cwd, state, live)) => result.map_err(|_| "binding reconciliation deadline")??,
+                _ = signal.wait_for(|_| false) => return Ok(()),
             }
+        }
+        tokio::select! {
+            changed = signal.changed() => { changed.map_err(|_| "subscriber cancelled")?; }
             chunk = timeout_at(deadline, response.chunk()) => {
                 let chunk = chunk.map_err(|_| "event heartbeat silence deadline")?
                     .map_err(|error| error.to_string())?.ok_or("event stream ended")?;
@@ -111,7 +137,7 @@ async fn follow(
                         transport_state(svc, tab_id, "connected", "Event stream reconciled.");
                     }
                     tokio::select! {
-                        result = apply_event(svc, tab_id, client, base_url, cwd, &event, state) => result?,
+                        result = apply_event(svc, tab_id, client, base_url, cwd, &event, state, live) => result?,
                         _ = signal.wait_for(|_| false) => return Ok(()),
                     }
                 }
@@ -128,6 +154,7 @@ async fn apply_event(
     cwd: &str,
     event: &Value,
     state: &mut ChatStreamState,
+    live: &parking_lot::Mutex<bool>,
 ) -> Result<(), String> {
     if let super::ParsedEvent::PartUpdated { update } = super::parse_event(event) {
         if state.recovered_parts.contains(&update.part_id) {
@@ -145,6 +172,10 @@ async fn apply_event(
                 ),
             )
             .await?;
+            let guard = live.lock();
+            if !*guard {
+                return Ok(());
+            }
             for event in
                 reconcile::snapshot_events(&update.session_id, &serde_json::json!([message]))?
             {
@@ -156,6 +187,10 @@ async fn apply_event(
             }
             return Ok(());
         }
+    }
+    let guard = live.lock();
+    if !*guard {
+        return Ok(());
     }
     handle_event(svc, tab_id, event, state);
     Ok(())

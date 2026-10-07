@@ -94,6 +94,7 @@ pub(super) async fn reconcile(
     base_url: &str,
     cwd: &str,
     state: &mut ChatStreamState,
+    live: &parking_lot::Mutex<bool>,
 ) -> Result<(), String> {
     let binding = {
         let mux = svc.mux.read();
@@ -115,7 +116,25 @@ pub(super) async fn reconcile(
     .await?;
     let permissions = read(client, base_url, cwd, "/permission").await?;
     let questions = read(client, base_url, cwd, "/question").await?;
+    let permissions_v2 = read(
+        client,
+        base_url,
+        cwd,
+        &format!("/api/session/{session_id}/permission"),
+    )
+    .await?;
+    let questions_v2 = read(
+        client,
+        base_url,
+        cwd,
+        &format!("/api/session/{session_id}/question"),
+    )
+    .await?;
     let statuses = read(client, base_url, cwd, "/session/status").await?;
+    let generation = live.lock();
+    if !*generation {
+        return Err("subscriber generation ended".into());
+    }
     let current = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
         tab.agent_session_id.as_deref() == Some(&session_id) && tab.session_binding_nonce == nonce
     });
@@ -124,7 +143,24 @@ pub(super) async fn reconcile(
     }
     state.reset_session(&session_id);
     let events = snapshot_events(&session_id, &messages)?;
-    let pending = pending_events(&session_id, &permissions, &questions)?;
+    let mut pending = pending_events(&session_id, &permissions, &questions)?;
+    let v2 = pending_events(
+        &session_id,
+        permissions_v2
+            .get("data")
+            .ok_or("invalid v2 permission snapshot")?,
+        questions_v2
+            .get("data")
+            .ok_or("invalid v2 question snapshot")?,
+    )?;
+    for mut event in v2 {
+        event["type"] = json!(if event["type"] == "permission.asked" {
+            "permission.v2.asked"
+        } else {
+            "question.v2.asked"
+        });
+        pending.push(event);
+    }
     let status = status_event(&session_id, &statuses)?;
     for event in events {
         // Historical user messages must never confirm a newly written send.
@@ -134,21 +170,25 @@ pub(super) async fn reconcile(
             handle_event(svc, tab_id, &event, state);
         }
     }
-    let stale = ACTIVE.lock().get(tab_id).is_some_and(|active| {
-        !pending.iter().any(|event| {
-            event.pointer("/properties/id").and_then(Value::as_str)
-                == Some(&active.route.request_id)
-        })
-    });
-    if stale {
-        ACTIVE.lock().remove(tab_id);
-        svc.push_structured_prompt(tab_id, None);
+    let listed: std::collections::HashSet<_> = pending
+        .iter()
+        .filter_map(|event| event.pointer("/properties/id").and_then(Value::as_str))
+        .collect();
+    if let Some(queued) = super::QUEUED.lock().get_mut(tab_id) {
+        queued.retain(|entry| listed.contains(entry.route.request_id.as_str()));
     }
-    let missing = ACTIVE.lock().get(tab_id).is_none();
-    if missing {
-        if let Some(event) = pending.first() {
-            handle_event(svc, tab_id, event, state);
+    {
+        let mut active = ACTIVE.lock();
+        if active
+            .get(tab_id)
+            .is_some_and(|entry| !listed.contains(entry.route.request_id.as_str()))
+        {
+            active.remove(tab_id);
         }
+    }
+    svc.push_structured_prompt(tab_id, super::promote_prompt(tab_id));
+    for event in &pending {
+        handle_event(svc, tab_id, event, state);
     }
     handle_event(svc, tab_id, &status, state);
     if status["type"] == "session.idle" {

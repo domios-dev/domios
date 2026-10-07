@@ -12,10 +12,16 @@ pub(super) fn heartbeat_deadline(last_frame: tokio::time::Instant) -> tokio::tim
 #[derive(Default)]
 pub(super) struct Recovery {
     failures: usize,
+    pub(super) ever_healthy: bool,
 }
 
 impl Recovery {
     pub(super) fn healthy(&mut self) {
+        self.ever_healthy = true;
+        self.retry_after_event();
+    }
+
+    pub(super) fn retry_after_event(&mut self) {
         self.failures = 0;
     }
 

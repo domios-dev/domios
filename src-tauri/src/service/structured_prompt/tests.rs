@@ -26,11 +26,20 @@ fn rejected_question_clears_only_the_matching_pending_request() {
             tab_id.to_string(),
             Active {
                 prompt: dummy_prompt(tab_id),
+                in_flight: false,
                 route: ResponseRoute {
                     session_id: format!("ses_{tab_id}"),
                     request_id: request_id.into(),
                     kind: PromptKind::Question,
                     option_labels: vec!["A".into()],
+                    questions: vec![super::questions::Question {
+                        header: "H".into(),
+                        text: "Q".into(),
+                        labels: vec!["A".into()],
+                        multiple: false,
+                        custom: false,
+                    }],
+                    answers: Vec::new(),
                 },
             },
         );
@@ -61,11 +70,20 @@ fn endpoint_and_active_round_trip_per_tab() {
         tab.to_string(),
         Active {
             prompt: dummy_prompt("Pick one"),
+            in_flight: false,
             route: ResponseRoute {
                 session_id: "ses_1".into(),
                 request_id: "que_1".into(),
                 kind: PromptKind::Question,
                 option_labels: vec!["A".into(), "B".into()],
+                questions: vec![super::questions::Question {
+                    header: "H".into(),
+                    text: "Q".into(),
+                    labels: vec!["A".into(), "B".into()],
+                    multiple: false,
+                    custom: false,
+                }],
+                answers: Vec::new(),
             },
         },
     );
@@ -88,6 +106,71 @@ fn allocate_server_returns_loopback_port() {
 #[test]
 fn pending_for_unknown_tab_is_none() {
     assert!(pending_for_tab("test-tab-sp-never-registered").is_none());
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn structured_multi_select_advances_without_a_pty_or_clearing_the_next_prompt() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_session_id = Some("own".into());
+    tab.agent_type = Some("fixture".into());
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let event = serde_json::json!({"type":"question.asked", "properties":{
+        "id":"transaction", "sessionID":"own", "questions":[
+            {"question":"same text", "multiple":true, "options":[{"label":"A"},{"label":"B"}]},
+            {"question":"same text", "custom":false, "options":[{"label":"C"}]}
+        ]
+    }});
+    let mut state = ChatStreamState::default();
+    handle_event(&fixture.service, &tab_id, &event, &mut state);
+    assert_eq!(
+        fixture.service.respond_prompt(&tab_id, "10003").unwrap(),
+        crate::service::tab::RespondPromptOutcome::Structured
+    );
+    let next = pending_for_tab(&tab_id).unwrap();
+    assert_eq!(next.options[0].label, "C");
+    assert_eq!(
+        route_for_tab(&tab_id).unwrap().answers,
+        vec![vec!["A", "B"]]
+    );
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .pending_prompt
+            .as_ref(),
+        Some(&next)
+    );
+    handle_event(&fixture.service, &tab_id, &event, &mut state);
+    assert_eq!(pending_for_tab(&tab_id).unwrap(), next);
+    clear_tab(&tab_id);
+}
+
+#[test]
+fn promotion_preserves_an_already_active_request() {
+    let tab_id = "test-structured-promotion";
+    let active = Active {
+        prompt: dummy_prompt("queued"),
+        route: ResponseRoute {
+            session_id: "own".into(),
+            request_id: "queued".into(),
+            kind: PromptKind::Permission,
+            option_labels: vec!["once".into()],
+            questions: Vec::new(),
+            answers: Vec::new(),
+        },
+        in_flight: false,
+    };
+    QUEUED.lock().insert(tab_id.into(), vec![active]);
+    assert_eq!(promote_prompt(tab_id).unwrap().question, "queued");
+    assert_eq!(route_for_tab(tab_id).unwrap().request_id, "queued");
+    assert_eq!(promote_prompt(tab_id).unwrap().question, "queued");
+    assert!(QUEUED.lock()[tab_id].is_empty());
+    clear_tab(tab_id);
 }
 
 #[test]
