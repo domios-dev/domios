@@ -1,3 +1,4 @@
+pub use super::delivery::DeliveryState;
 use super::{
     client::{Client, ClientError},
     process::Process,
@@ -8,6 +9,18 @@ use rand::RngCore;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
+
+pub fn delivery_state(tab: &str) -> DeliveryState {
+    super::delivery::state(tab)
+}
+
+pub fn startup_complete(svc: &ServiceContext, tab: &str, nonce: &str) {
+    super::delivery::startup_complete(svc, tab, nonce);
+}
+
+pub fn plain_launch(tab: &str, nonce: &str) {
+    super::delivery::plain_launch(tab, nonce);
+}
 
 pub struct Sidecar {
     pub client: Client,
@@ -69,6 +82,7 @@ pub fn for_tab(tab: &str) -> Option<Arc<Sidecar>> {
     crate::service::structured_endpoint::rpc(tab)
 }
 pub fn clear_tab(tab: &str) {
+    super::delivery::disconnected(tab);
     let sidecar = for_tab(tab);
     if let Some(sidecar) = sidecar {
         super::approvals::clear_tab(tab);
@@ -99,6 +113,7 @@ pub async fn ensure_for_spawn(
     tab: &str,
     spawn: Spawn,
 ) -> Result<Arc<Sidecar>, String> {
+    super::delivery::begin(tab, &svc.ensure_session_binding_nonce(tab));
     let gate = STARTING
         .lock()
         .entry(tab.into())
@@ -160,6 +175,9 @@ pub async fn ensure_for_spawn(
     };
     let mut env = svc.tab_env(tab);
     let launch_nonce = env.get("CODETERM_SESSION_BINDING_NONCE").cloned();
+    let attach_nonce = launch_nonce
+        .clone()
+        .ok_or("Structured launch requires a binding nonce")?;
     env.extend(
         svc.model_provider_launch_env(&spawn.provider)
             .map_err(|error| error.to_string())?,
@@ -263,6 +281,13 @@ pub async fn ensure_for_spawn(
         history.active_turn.as_deref(),
         &history.completed_turns,
     );
+    let remote_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .map_err(|error| error.to_string())?;
+    let remote_port = remote_listener
+        .local_addr()
+        .map_err(|error| error.to_string())?
+        .port();
     let sidecar = Arc::new(Sidecar {
         normalizer: Mutex::new(super::normalize::Normalizer::from_history(
             &thread,
@@ -281,7 +306,7 @@ pub async fn ensure_for_spawn(
         turn_settled: tokio::sync::watch::channel(0).0,
         busy: std::sync::atomic::AtomicBool::new(busy),
         client,
-        port,
+        port: remote_port,
         binary,
         version: init.user_agent,
         thread: Mutex::new(thread.clone()),
@@ -307,6 +332,16 @@ pub async fn ensure_for_spawn(
         crate::agent::state_verdict::observe_declared_event(svc, tab, &thread, "turn/started");
     }
     super::subscriber::start(svc.clone(), tab.into(), &sidecar);
+    super::attachment::start(
+        svc.clone(),
+        tab.into(),
+        attach_nonce,
+        thread,
+        sidecar.token.clone(),
+        port,
+        remote_listener,
+        sidecar.client.death(),
+    );
     crate::service::launch_diagnostics::log_rpc_sidecar(tab);
     artifacts.committed = true;
     Ok(sidecar)

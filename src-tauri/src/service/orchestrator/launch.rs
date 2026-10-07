@@ -972,6 +972,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         }
         delivery_gate.mark_provider_ready();
 
+        let mut bootstrap_consumed = fallback_spec.is_none();
         if let Some(spec) = fallback_spec {
             let task_text = spec.payload.clone();
             set_booting(false);
@@ -1042,6 +1043,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                     if receipt.outcome
                         == crate::service::launch_delivery::LaunchConsumptionOutcome::Confirmed =>
                 {
+                    bootstrap_consumed = true;
                     svc.confirm_pending_delivery(
                         &tab_id,
                         receipt
@@ -1125,6 +1127,13 @@ pub(crate) fn launch_agent_in_background_with_env(
         }
         LAUNCH_REGISTRY.lock().finish(&launch);
         public_send_guard.complete();
+        if let Some(nonce) = launch
+            .binding_nonce
+            .as_deref()
+            .filter(|_| bootstrap_consumed)
+        {
+            crate::service::codex_rpc::lifecycle::startup_complete(&svc, &tab_id, nonce);
+        }
         log::info!(
             "launch_agent: agent ready in Tab {} after {}ms",
             tab_id,

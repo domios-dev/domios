@@ -1,10 +1,12 @@
 pub mod approvals;
+mod attachment;
 pub mod auth;
 pub mod buffer;
 pub mod capability;
 pub mod client;
 pub mod compaction;
 pub mod control;
+mod delivery;
 pub mod diagnostics;
 pub mod launch;
 pub mod lifecycle;

@@ -24,6 +24,9 @@ impl LaunchGeneration {
                 None => svc.rotate_session_binding_nonce(&self.tab_id),
             }
         };
+        if sidecar.is_none() {
+            crate::service::codex_rpc::lifecycle::plain_launch(&self.tab_id, &nonce);
+        }
         svc.arm_spawn_reply_relay(&self.tab_id, &nonce);
         self.binding_nonce = Some(nonce.clone());
         LAUNCH_REGISTRY
