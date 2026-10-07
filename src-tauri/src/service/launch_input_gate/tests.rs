@@ -981,7 +981,7 @@ fn structured_chat_serves_rows_without_a_session_id() {
                     ..Default::default()
                 }],
                 cursor: Some("1".into()),
-                done: false,
+                done: Some(false),
             }
         }
     }
