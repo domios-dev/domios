@@ -474,7 +474,11 @@ fn execute_step(
                         state: if success { "done" } else { "failed" },
                         summary,
                         reason: (!success).then(|| "command_failed".into()),
-                        next_text: output.text,
+                        next_text: output
+                            .stdout_text()
+                            .trim_end_matches(['
+', ''])
+                            .to_string(),
                         decision: None,
                         uncertain: false,
                     }

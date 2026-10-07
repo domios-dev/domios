@@ -66,6 +66,7 @@ const GRANTABLE_PERMS: &[&str] = &[
     "spawn_agents",
     "agent_commands",
     "secrets",
+    "graph_events",
 ];
 
 /// `codeterm plugin config <id> [--set k=v]... [--secret FIELD] [--values-json '{…}'] [--grant P]... [--revoke P]...`.
