@@ -3,9 +3,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::provider::{
     BusySubmitStrategy, ComposerCursorPosition, HookEventBinding, HookIngestionRoute,
-    ModelAvailability, ModelInfo, PasteCapability, ProviderReadinessStrategy, ProviderStateVerdict,
-    ReadinessStrategy, ReasoningEffortInfo, SandboxedLinuxLaunchCapability, SessionIdInjection,
-    SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization, VerifySubmitStrategy,
+    ModelAvailability, ModelInfo, OnboardingAutoAnswer, PasteCapability, ProviderReadinessStrategy,
+    ProviderStateVerdict, ReadinessStrategy, ReasoningEffortInfo, SandboxedLinuxLaunchCapability,
+    SessionIdInjection, SystemPromptDelivery, TaskDelivery, TurnEvidenceNormalization,
+    VerifySubmitStrategy,
 };
 
 /// Hosts/origins a plugin may reach via `host.fetch`.
@@ -35,6 +36,13 @@ pub struct SpawnConfig {
     pub paste_limit_bytes: Option<usize>,
     #[serde(default)]
     pub paste: Option<PasteCapability>,
+    /// Bounded input fallback: when the provider's own readiness signal never
+    /// fires, open input at this deadline instead of blocking the tab forever.
+    #[serde(default)]
+    pub input_fallback_ms: Option<u64>,
+    /// When a provider-declared startup dialog is auto-answered during launch.
+    #[serde(default)]
+    pub onboarding_auto_answer: OnboardingAutoAnswer,
     pub readiness_strategy: SerdeReadinessStrategy,
     pub task_delivery: SerdeTaskDelivery,
     #[serde(default)]

@@ -880,6 +880,266 @@ fn lazy_session_spawn_with_modal_or_dead_provider_still_fails_at_deadline() {
     );
 }
 
+#[test]
+fn provider_declared_onboarding_dialog_is_answered_for_every_launch() {
+    let plugins = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../plugins"));
+    let provider =
+        crate::plugin::js_runtime::load_one(&plugins.join("provider-aider").join("plugin.json"))
+            .expect("load the bundled Aider provider");
+    let screen = [
+        "You can skip this check with --no-gitignore",
+        "Add .aider* to .gitignore (recommended)? (Y)es/(N)o [Yes]:",
+    ]
+    .join("\n");
+    let response = provider
+        .launch_onboarding_response(&screen)
+        .expect("the gitignore startup dialog is a declared onboarding step");
+    assert_eq!(response.step, b"Y".to_vec());
+    assert_eq!(
+        provider.launch_onboarding_safe_choice(&screen).as_deref(),
+        Some("1")
+    );
+    assert_eq!(
+        provider.launch_onboarding_response("no prompt here"),
+        None
+    );
+    assert!(
+        provider.onboarding_auto_answer().answers_for_owner_launch(),
+        "Aider declares onboardingAutoAnswer: always"
+    );
+}
+
+#[test]
+fn structured_chat_serves_rows_without_a_session_id() {
+    use codeterm_plugin::provider::AgentProvider;
+    use codeterm_types::agent::chat_types::StructuredChat;
+
+    struct SessionlessChatProvider;
+    impl AgentProvider for SessionlessChatProvider {
+        fn id(&self) -> &str {
+            "sessionless-chat"
+        }
+        fn display_name(&self) -> &str {
+            "Sessionless Chat"
+        }
+        fn build_launch_command(
+            &self,
+            _params: &codeterm_plugin::provider::AgentLaunchParams,
+        ) -> String {
+            String::new()
+        }
+        fn readiness_strategy(&self) -> codeterm_plugin::provider::ReadinessStrategy {
+            codeterm_plugin::provider::ReadinessStrategy::PollShellPrompt {
+                timeout: std::time::Duration::from_secs(1),
+            }
+        }
+        fn task_delivery(&self) -> codeterm_plugin::provider::TaskDelivery {
+            codeterm_plugin::provider::TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _title: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _text: &str) -> bool {
+            false
+        }
+        fn session_file_path(
+            &self,
+            _cwd: &str,
+            _session_id: &str,
+        ) -> Option<std::path::PathBuf> {
+            None
+        }
+        fn detect_session_id(
+            &self,
+            _cwd: &str,
+            _exclude: &[String],
+            _max_age: Option<std::time::Duration>,
+        ) -> Option<String> {
+            None
+        }
+        fn build_resume_command(
+            &self,
+            _session_id: &str,
+            _skip_permissions: bool,
+        ) -> Option<String> {
+            None
+        }
+        fn uses_structured_chat(&self) -> bool {
+            true
+        }
+        fn read_structured_chat(
+            &self,
+            _cwd: &str,
+            _session_id: &str,
+            _cursor: Option<&str>,
+        ) -> StructuredChat {
+            StructuredChat {
+                messages: vec![codeterm_types::agent::chat_types::ChatMsg {
+                    id: "hist_0".into(),
+                    kind: "user".into(),
+                    content: "hello".into(),
+                    ..Default::default()
+                }],
+                cursor: Some("1".into()),
+                done: Some(false),
+            }
+        }
+    }
+
+    let provider = SessionlessChatProvider;
+    assert!(provider.uses_structured_chat());
+    assert!(provider.supports_chat_ui());
+    let chat = provider.read_structured_chat("/cwd", "", None);
+    assert_eq!(chat.messages.len(), 1);
+    assert_eq!(chat.messages[0].content, "hello");
+    assert_eq!(chat.cursor.as_deref(), Some("1"));
+}
+
+#[test]
+fn onboarding_auto_answer_defaults_to_delegated_only() {
+    let mock = MockProvider::new("no-onboarding-policy");
+    assert_eq!(
+        mock.onboarding_auto_answer(),
+        codeterm_plugin::provider::OnboardingAutoAnswer::DelegatedOnly
+    );
+    assert!(!mock.onboarding_auto_answer().answers_for_owner_launch());
+}
+
+#[test]
+fn input_fallback_opens_input_when_the_provider_signal_never_fires() {
+    let started = Instant::now();
+    let fallback_ms = 5000u64;
+    assert!(
+        !input_fallback_opens(started, started, fallback_ms),
+        "the fallback must not open input at the launch instant"
+    );
+    assert!(
+        !input_fallback_opens(
+            started,
+            started + std::time::Duration::from_millis(fallback_ms - 1),
+            fallback_ms
+        ),
+        "the fallback must not open input before its deadline"
+    );
+    assert!(
+        input_fallback_opens(
+            started,
+            started + std::time::Duration::from_millis(fallback_ms),
+            fallback_ms
+        ),
+        "the fallback must open input once its deadline elapses"
+    );
+    assert!(
+        input_fallback_opens(
+            started,
+            started + std::time::Duration::from_millis(fallback_ms + 250),
+            fallback_ms
+        ),
+        "the fallback stays open past its deadline"
+    );
+    assert!(
+        !input_fallback_opens(started, started, 0) == false,
+        "a zero fallback opens input immediately"
+    );
+}
+
+#[test]
+fn prompt_line_composer_is_ready_on_the_last_nonblank_row() {
+    let ready = codeterm_pty::pty::screen_state::ComposerInputState {
+        alternate_screen: false,
+        cursor_visible: true,
+        cursor_row: 5,
+        rows: 24,
+        cols: 80,
+        inverse_caret_row: None,
+        nonblank_inverse_cells: 0,
+        sole_nonblank_inverse_row: None,
+        last_nonblank_row: Some(5),
+    };
+    assert!(launch_composer_input_ready(
+        &ready,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0
+    ));
+    assert!(launch_composer_input_ready_for_frame(
+        &ready,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0,
+        false,
+    ));
+}
+
+#[test]
+fn prompt_line_composer_rejects_hidden_cursor_or_cursor_above_the_prompt_line() {
+    let hidden = codeterm_pty::pty::screen_state::ComposerInputState {
+        cursor_visible: false,
+        cursor_row: 5,
+        last_nonblank_row: Some(5),
+        ..codeterm_pty::pty::screen_state::ComposerInputState {
+            alternate_screen: false,
+            cursor_visible: true,
+            cursor_row: 5,
+            rows: 24,
+            cols: 80,
+            inverse_caret_row: None,
+            nonblank_inverse_cells: 0,
+            sole_nonblank_inverse_row: None,
+            last_nonblank_row: Some(5),
+        }
+    };
+    assert!(!launch_composer_input_ready(
+        &hidden,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0
+    ));
+    let above = codeterm_pty::pty::screen_state::ComposerInputState {
+        cursor_row: 3,
+        ..hidden
+    };
+    assert!(!launch_composer_input_ready(
+        &above,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0
+    ));
+    let unknown_bottom = codeterm_pty::pty::screen_state::ComposerInputState {
+        cursor_row: 5,
+        last_nonblank_row: None,
+        ..above
+    };
+    assert!(!launch_composer_input_ready(
+        &unknown_bottom,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0
+    ));
+}
+
+#[test]
+fn prompt_line_composer_is_never_composer_evidence_on_a_trust_frame() {
+    let input = codeterm_pty::pty::screen_state::ComposerInputState {
+        alternate_screen: false,
+        cursor_visible: true,
+        cursor_row: 5,
+        rows: 24,
+        cols: 80,
+        inverse_caret_row: None,
+        nonblank_inverse_cells: 0,
+        sole_nonblank_inverse_row: None,
+        last_nonblank_row: Some(5),
+    };
+    assert!(!launch_composer_input_ready_for_frame(
+        &input,
+        ComposerCursorPosition::PromptLine,
+        None,
+        0,
+        true,
+    ));
+}
+
 fn diagnostic_fixture(
     provider: Box<dyn AgentProvider>,
 ) -> (crate::service::test_fixture::ServiceFixture, LaunchAttempt) {
