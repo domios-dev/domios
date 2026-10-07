@@ -6,10 +6,7 @@ import type {
   ResumeParams,
 } from "@codeterm/plugin-sdk";
 import {
-  listAiderHistoryBlocks,
-  parseAiderHistory,
   parseAiderHistoryDelta,
-  readHistoryFile,
 } from "./history";
 
 const TITLE_RE = /aider/i;
@@ -113,32 +110,44 @@ function starterPrompt(params: LaunchParams): string | undefined {
   return ASSIGNED_TASK_START_PROMPT;
 }
 
-function historyBlocks(cwd: string): { id: string; startMs: number; content: string }[] {
-  const historyPath = `${cwd}/.aider.chat.history.md`;
-  const content = readHistoryFile(historyPath);
-  if (!content) return [];
-  return listAiderHistoryBlocks(content);
+/** Per-tab history folder: one file per launch, named by the binding nonce. */
+function historyDir(cwd: string): string {
+  return `${String(cwd || "")}/.aider/history`;
 }
 
-/**
- * Aider writes its `# aider chat started at` header in a clock that does not
- * match the host clock, so header timestamps are never used for freshness.
- * Freshness comes from the history file's own modification time.
- */
-function historyFileModifiedMs(cwd: string): number | null {
+function historyFilePath(cwd: string, sessionId: string): string {
+  return `${historyDir(cwd)}/${sessionId}.md`;
+}
+
+interface HistoryFileEntry {
+  id: string;
+  path: string;
+  modifiedMs: number | null;
+}
+
+function historyFileEntries(cwd: string): HistoryFileEntry[] {
   const fs = (globalThis as { host?: { fs?: { readDir?: (p: string) => unknown[] } } }).host?.fs;
-  if (!fs || typeof fs.readDir !== "function") return null;
+  if (!fs || typeof fs.readDir !== "function") return [];
+  let entries: unknown[];
   try {
-    const entries = fs.readDir(String(cwd || "")) as Array<{
-      name?: string;
-      modifiedMs?: number | null;
-    }>;
-    const entry = entries.find((e) => e && e.name === ".aider.chat.history.md");
-    const modified = entry && typeof entry.modifiedMs === "number" ? entry.modifiedMs : null;
-    return modified;
+    entries = fs.readDir(historyDir(cwd)) as unknown[];
   } catch (_) {
-    return null;
+    return [];
   }
+  const out: HistoryFileEntry[] = [];
+  for (const raw of entries) {
+    const entry = raw as { name?: string; path?: string; modifiedMs?: number | null };
+    if (!entry || typeof entry.name !== "string") continue;
+    if (!entry.name.endsWith(".md")) continue;
+    const id = entry.name.slice(0, -3);
+    if (!id) continue;
+    out.push({
+      id,
+      path: typeof entry.path === "string" && entry.path ? entry.path : historyFilePath(cwd, id),
+      modifiedMs: typeof entry.modifiedMs === "number" ? entry.modifiedMs : null,
+    });
+  }
+  return out;
 }
 
 function lastNonEmptyLine(text: string): string {
@@ -292,10 +301,18 @@ const plugin: PluginModule = {
 
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
+    const platform = host.platform();
+    const quote = (v: string) => host.shell.quoteFor(v, platform);
+    const isPowerShell = platform === "windows";
+    const nonceRef = isPowerShell
+      ? "$env:CODETERM_SESSION_BINDING_NONCE"
+      : "$CODETERM_SESSION_BINDING_NONCE";
+    const cwd = typeof p.cwd === "string" && p.cwd ? p.cwd : ".";
+    const historyDirPath = `${cwd}/.aider/history`;
     const parts: string[] = ["aider"];
     if (p.args && p.args.length > 0) {
       for (let i = 0; i < p.args.length; i++) {
-        parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+        parts.push(quote(String(p.args[i])));
       }
     }
     parts.push("--no-auto-commits", "--no-pretty", "--no-fancy-input", "--no-show-model-warnings", "--chat-language", "English");
@@ -305,13 +322,23 @@ const plugin: PluginModule = {
       (typeof p.configPath === "string" && p.configPath) ||
       null;
     if (configPath) {
-      parts.push("--config", host.shell.quoteFor(configPath, host.platform()));
+      parts.push("--config", quote(configPath));
     }
     const prompt = starterPrompt(p);
     if (p.task && prompt) {
-      parts.push("--message", host.shell.quoteFor(prompt, host.platform()));
+      parts.push("--message", quote(prompt));
     }
-    return withLaunchEnv(parts.join(" "), p);
+    const command = parts.join(" ");
+    const historyFlags = [
+      "--chat-history-file",
+      quote(`${historyDirPath}/${nonceRef}.md`),
+      "--input-history-file",
+      quote(`${historyDirPath}/${nonceRef}.input`),
+    ].join(" ");
+    const mkdir = isPowerShell
+      ? `New-Item -ItemType Directory -Force -Path ${quote(historyDirPath)} | Out-Null;`
+      : `mkdir -p ${quote(historyDirPath)};`;
+    return withLaunchEnv(`${mkdir} ${command} ${historyFlags}`, p);
   },
 
 
@@ -347,20 +374,25 @@ const plugin: PluginModule = {
   },
 
   detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
-    const blocks = historyBlocks(cwd);
-    if (blocks.length === 0) return null;
     const excluded = Array.isArray(exclude) ? exclude : exclude ? [exclude] : [];
     const limit = typeof maxAgeMs === "number" && maxAgeMs > 0 ? maxAgeMs : 0;
-    if (limit > 0) {
-      const modifiedMs = historyFileModifiedMs(cwd);
-      if (modifiedMs === null || Date.now() - modifiedMs > limit) return null;
+    const now = Date.now();
+    let newest: HistoryFileEntry | null = null;
+    for (const entry of historyFileEntries(cwd)) {
+      if (excluded.indexOf(entry.id) !== -1) continue;
+      if (limit > 0) {
+        if (entry.modifiedMs === null) continue;
+        if (now - entry.modifiedMs > limit) continue;
+      }
+      if (!newest) {
+        newest = entry;
+        continue;
+      }
+      const a = typeof entry.modifiedMs === "number" ? entry.modifiedMs : -1;
+      const b = typeof newest.modifiedMs === "number" ? newest.modifiedMs : -1;
+      if (a > b) newest = entry;
     }
-    for (let i = blocks.length - 1; i >= 0; i--) {
-      const block = blocks[i];
-      if (excluded.indexOf(block.id) !== -1) continue;
-      return block.id;
-    }
-    return null;
+    return newest ? newest.id : null;
   },
 
   enumerateSessions(): unknown[] {
@@ -373,7 +405,7 @@ const plugin: PluginModule = {
 
   sessionExists(cwd: string, sessionId: string): boolean {
     if (!sessionId) return false;
-    return historyBlocks(cwd).some((block) => block.id === sessionId);
+    return historyFileEntries(cwd).some((entry) => entry.id === sessionId);
   },
 
   sessionCreatedMs(_cwd: string, _sessionId: string): number | null {
@@ -392,9 +424,9 @@ const plugin: PluginModule = {
     return [];
   },
 
-  sessionJsonlPath(cwd: string, _sessionId: string): string | null {
-    if (!cwd) return null;
-    return `${cwd}/.aider.chat.history.md`;
+  sessionJsonlPath(cwd: string, sessionId: string): string | null {
+    if (!cwd || !sessionId) return null;
+    return historyFilePath(cwd, sessionId);
   },
 
   parseSessionDelta(chunk: string): unknown {
