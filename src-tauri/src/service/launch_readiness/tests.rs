@@ -1094,7 +1094,7 @@ fn launch_readiness_published_failure_stops_the_launch_thread() {
 
     let launch = include_str!("../orchestrator/launch.rs");
     let observed = launch
-        .find("readiness_receiver.recv()")
+        .find(".expect(\"plain launch readiness observer\")\n                .recv()")
         .expect("the launch thread waits for readiness evidence");
     let ready = launch
         .find("startup_readiness::emit_agent_ready")

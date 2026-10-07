@@ -209,6 +209,7 @@ fn held_user_store_does_not_suppress_existing_ready_bootstrap_consumer() {
             "opaque-bootstrap",
         )
         .unwrap();
+    mark_ready(&fixture, &tab);
     fixture
         .service
         .pending_delivery_payloads
@@ -230,7 +231,6 @@ fn held_user_store_does_not_suppress_existing_ready_bootstrap_consumer() {
         &tab,
         Arc::new(|_, _| panic!("held user owner must not submit")),
     );
-    mark_ready(&fixture, &tab);
     fixture.service.drain_user_owner(&tab).unwrap();
     assert_eq!(writes.load(Ordering::Acquire), 1);
     assert!(fixture
