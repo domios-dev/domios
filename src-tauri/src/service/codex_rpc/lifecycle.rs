@@ -89,6 +89,9 @@ pub fn launch_env(svc: &ServiceContext, tab: &str, env: &mut HashMap<String, Str
         .is_some_and(|provider| super::launch::requested(svc, provider))
     {
         env.insert("CODETERM_CODEX_RPC_TOKEN".into(), token_for_tab(tab));
+        if for_tab(tab).is_none() {
+            super::delivery::begin(tab, &svc.ensure_session_binding_nonce(tab));
+        }
     }
 }
 
@@ -100,6 +103,8 @@ pub fn clear_tab(tab: &str) {
 }
 
 pub fn stop_tab(tab: &str) {
+    TOKENS.lock().remove(tab);
+    STARTING.lock().remove(tab);
     super::recovery::completed(tab);
     let sidecar = for_tab(tab);
     if let Some(sidecar) = sidecar {
