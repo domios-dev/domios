@@ -44,6 +44,7 @@ impl PlanStore {
             {
                 return Err(PlanError::BadMode);
             }
+            let parent_tags = parent.tags.clone();
             let mut tasks = Vec::with_capacity(prepared.len());
             let keys = keys.into_iter().map(Some).chain(std::iter::repeat(None));
             for ((id, child), key) in prepared.into_iter().zip(keys) {
@@ -78,7 +79,10 @@ impl PlanStore {
                     updated_at: now_ms,
                     status_changed_at: now_ms,
                     handle: child.handle,
-                    tags: child.tags,
+                    tags: crate::service_plan::tag_model::inherit_parent_tags(
+                        &parent_tags,
+                        &child.tags,
+                    ),
                     section_ids: child.section_ids,
                     body: child.body,
                     role_guidance: child.role_guidance,

@@ -162,3 +162,48 @@ fn work_facet_batch_cannot_bypass_task_add_contract() {
         before
     );
 }
+
+#[test]
+fn work_facet_split_children_inherit_parent_work_tag() {
+    let (_dir, store, id) = setup(vec![facet("work")]);
+    let parent_id = store
+        .add_task(&id, new_task(&["work:backend", "topic"]), 2)
+        .unwrap();
+    let override_child = NewTask {
+        name: "QA part".into(),
+        tags: vec!["work:qa".into()],
+        ..Default::default()
+    };
+    let child_ids = store
+        .add_child_tasks_atomic(&id, &parent_id, vec![new_task(&[]), override_child], 3)
+        .unwrap();
+    store.reload_from_disk(&id).unwrap();
+    let plan = store.get(&id).unwrap();
+    let tags_of = |task_id: &str| {
+        plan.tasks
+            .iter()
+            .find(|task| task.id == task_id)
+            .unwrap()
+            .tags
+            .clone()
+    };
+    assert_eq!(tags_of(&child_ids[0]), ["work:backend", "topic"]);
+    assert_eq!(tags_of(&child_ids[1]), ["topic", "work:qa"]);
+}
+
+#[test]
+fn work_facet_split_of_untagged_legacy_parent_still_requires_work_tag() {
+    let (_dir, store, id) = setup(vec![]);
+    let parent_id = store.add_task(&id, new_task(&["topic"]), 2).unwrap();
+    store.set_tag_facets(&id, vec![facet("work")], 3).unwrap();
+    let error = store
+        .add_child_tasks_atomic(&id, &parent_id, vec![new_task(&[])], 4)
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        PlanError::WorkFacetViolation(WorkFacetViolation::Missing)
+    ));
+    store
+        .add_child_tasks_atomic(&id, &parent_id, vec![new_task(&["work:docs"])], 5)
+        .unwrap();
+}

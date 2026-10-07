@@ -12,8 +12,12 @@ that supplies an isolated lane.
 **A mutating dispatch with no recorded lane provisions one.** With no lane on
 the task, the resolved worktree is the caller's `--cwd`; when that is canonical
 the dispatcher branches an isolated lane from it, records the lane on the task,
-and spawns the Worker there. Record a lane yourself only when its placement must
-be specific:
+and spawns the Worker there. An explicit `--cwd` must be an existing directory
+(the CLI resolves a relative one against the caller's directory) and is never
+bypassed: a missing path is refused before any tab exists, and a directory that
+is not a usable checkout is refused instead of falling back to the workspace or
+canonical checkout. Record a lane yourself only when its placement must be
+specific:
 
 ```bash
 git worktree add -b lane/<plan>-<task>-<slug> ../<repo>-worktrees/<slug> <base>
@@ -60,7 +64,7 @@ so competitors never share a checkout or fall back to canonical. Partial
 provisioning/spawn failures remove lanes created by that call. Read-only
 competition is unchanged.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->
 
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not Domios's own repository layout.

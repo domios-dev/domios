@@ -7,7 +7,7 @@ use super::super::plan::{emit_plan_changed, plan_rpc_err};
 use super::super::JsonRpcError;
 use super::{
     dispatch_with_spawn_approval_exemption, invalid_dispatch, owned_str,
-    startup_wait_is_recoverable,
+    refuse_missing_explicit_cwd, startup_wait_is_recoverable,
 };
 
 pub(crate) fn dispatch_unplanned(
@@ -51,6 +51,7 @@ where
             "unplanned Worker dispatch always uses an isolated lane: placement, canonical_writer and authorized_gates are refused",
         ));
     }
+    refuse_missing_explicit_cwd(owned_str(p, "cwd").as_deref())?;
     let plan_id = super::super::plan_refs::resolve_plan(&svc.plan_store, params).map_err(|_| {
         invalid_dispatch(
             "unplanned Worker dispatch requires a bound Team Plan; set the Team goal first",
