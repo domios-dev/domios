@@ -202,3 +202,55 @@ fn claude_permission_hook_notification_answer_uses_structured_route_without_a_pt
     );
     assert!(record.resolved);
 }
+
+#[tokio::test]
+#[cfg_attr(not(windows), ignore = "requires the desktop ServiceContext fixture")]
+async fn claude_permission_hook_timeout_and_provider_clear_retire_notification_without_decision() {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+
+    for provider_cleared in [false, true] {
+        let (mux, tab_id) = MultiplexerState::new();
+        let fixture = ServiceFixture::new(mux);
+        let (pending, receiver) = request("unanswered");
+        let prompt = pending.prompt.clone();
+        let identity = PromptIdentity::new(PromptKind::Structured, &prompt);
+        assert!(BROKER.lock().register(&tab_id, pending));
+        let guard = PendingGuard {
+            svc: std::sync::Arc::new(fixture.service.clone()),
+            tab_id: tab_id.clone(),
+            id: "unanswered".into(),
+            identity,
+        };
+        fixture
+            .service
+            .push_structured_prompt(&tab_id, Some(prompt.clone()));
+        let notification_id = notify(&fixture.service, &tab_id, "opaque", &prompt, "unanswered");
+        if provider_cleared {
+            fixture.service.clear_pending_prompt(&tab_id);
+        }
+        assert_eq!(
+            decision(wait_for_answer(receiver, Duration::ZERO).await),
+            json!({})
+        );
+        drop(guard);
+        assert!(pending_for_tab(&tab_id).is_none());
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .pending_prompt
+            .is_none());
+        assert!(
+            fixture
+                .service
+                .notif
+                .lock()
+                .notification(&notification_id)
+                .unwrap()
+                .resolved
+        );
+    }
+}
