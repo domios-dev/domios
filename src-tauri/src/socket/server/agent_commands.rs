@@ -218,10 +218,13 @@ mod tests {
         let reg = reg_with("npc", true);
         let params = Some(serde_json::json!({ "args": ["a", "b"], "sessionId": "s1" }));
         let out = route(&reg, "plugin:npc.say", &params, None).ok();
-        assert_eq!(out, Some(serde_json::json!({
-            "result": "s1|say|a,b",
-            "catalogue_changed": false,
-        })));
+        assert_eq!(
+            out,
+            Some(serde_json::json!({
+                "result": "s1|say|a,b",
+                "catalogue_changed": false,
+            }))
+        );
     }
 
     #[test]
