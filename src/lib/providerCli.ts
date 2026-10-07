@@ -7,6 +7,12 @@ export interface ProviderCliStatus {
   searched: string[];
   installer: string | null;
   updater: string | null;
+  installer_prerequisites?: { binary: string; installed: boolean | null; hint: string }[];
+  updater_prerequisites?: { binary: string; installed: boolean | null; hint: string }[];
+}
+
+export function missingInstallerPrerequisites(status: ProviderCliStatus | null) {
+  return status?.installer_prerequisites?.filter(item => item.installed === false) ?? [];
 }
 
 export function providerCliPresentation(status: ProviderCliStatus | null) {

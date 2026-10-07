@@ -19,6 +19,10 @@ entries remain unchanged and combine with user grants when the plugin loads.
 status from the installed manifest. Missing CLIs produce a warning with the exact
 installer for this OS and the management verb. Plugin installation and CLI
 installation are separate operations; chat backends require no CLI.
+When connected to the daemon, plugin install/update waits for live provider
+registration acknowledgement before returning. JSON `provider_registration` is
+`acknowledged`, or `offline` when no daemon connection is available. An offline
+install takes effect when the daemon loads plugins.
 
 ```bash
 codeterm agent cli status <provider>
@@ -28,11 +32,21 @@ codeterm agent cli update <provider>
 
 The `agent cli` verbs are local-only; run them in a tab on the target peer.
 Status returns `required`, `installed` (true/false/null for unknown), `binary`,
-`resolved_path`, `availability`, `searched`, `installer`, and `updater`. Install
-and update refuse if that OS has no manifest command. They open a visible utility
+`resolved_path`, `availability`, `searched`, `installer`, and `updater`. Status
+also includes `installer_prerequisites` and `updater_prerequisites`:
+detected command runners with `binary`, `installed` (true/false/null), and a setup
+`hint`. Simple command runners and explicit `command -v`, `which`, or
+`Get-Command` checks are detected from the manifest command. This is diagnostic,
+not a full shell parser. Missing runners produce warnings and setup guidance;
+conditional commands may select an available alternative. The host does not
+install prerequisites or alter manifest commands. Install/update dispatch JSON
+adds `warnings`, and completion retains prerequisite diagnostics.
+Install and update refuse if that OS has no manifest command. They open a visible utility
 tab in the caller's workspace and Team and return `tab_id` with
-`launch_state: "command_dispatched"`. Shell completion or exit produces a report
-back to the caller, a retained result in the tab description, and a
+`launch_state: "command_dispatched"`. Shell completion or exit produces a routed
+report for an agent caller or a kept notification record for a shell caller.
+Completion prose is never sent as shell input. It also retains the result in the
+utility tab description and emits a
 `provider-cli-completed` event with a fresh status. A completion deadline reports
 uncertainty; dispatch alone never means installation succeeded. Settings > Agents
 and provider plugin views use the same status and Install action.
@@ -253,4 +267,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 27 -->
+<!-- revision: 30 -->
