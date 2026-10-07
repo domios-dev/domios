@@ -95,6 +95,7 @@ pub struct ClassifyParts<'a> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ClassifyInputBuilder {
     status_bar_rows: StatusBarRows,
+    prompt_line: bool,
 }
 
 impl ClassifyInputBuilder {
@@ -106,7 +107,18 @@ impl ClassifyInputBuilder {
     }
 
     pub const fn for_rows(status_bar_rows: StatusBarRows) -> Self {
-        Self { status_bar_rows }
+        Self {
+            status_bar_rows,
+            prompt_line: false,
+        }
+    }
+
+    pub fn with_composer_position(
+        mut self,
+        position: super::provider::ComposerCursorPosition,
+    ) -> Self {
+        self.prompt_line = position == super::provider::ComposerCursorPosition::PromptLine;
+        self
     }
 
     pub const fn status_bar_rows(&self) -> StatusBarRows {
@@ -138,6 +150,7 @@ impl ClassifyInputBuilder {
     /// ```
     pub fn build<'a>(&self, parts: ClassifyParts<'a>) -> ClassifyInput<'a> {
         ClassifyInput {
+            prompt_line: self.prompt_line,
             status_bar_rows: self.status_bar_rows,
             picker_question: parts.picker_question,
             screen_lines: parts.screen_lines,
