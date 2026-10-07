@@ -208,7 +208,8 @@ export function readAiderHistory(
 export { readHistoryFile };
 
 function readHistoryFile(filePath: string): string | null {
-  const fs = (host as { fs?: Record<string, unknown> }).fs;
+  const globalHost = (globalThis as { host?: { fs?: Record<string, unknown> } }).host;
+  const fs = globalHost?.fs;
   if (fs && typeof fs.readFile === "function") {
     try {
       const value = (fs.readFile as (p: string) => unknown)(filePath);
