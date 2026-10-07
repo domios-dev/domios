@@ -28,6 +28,7 @@ impl CommandPort for ServiceContext {
     }
 
     fn send_text(&self, tab_id: &str, text: &str) -> Result<(), String> {
+        self.require_managed_send_allowed(tab_id, None)?;
         // Fire-and-forget so interactive sends never wait for terminal evidence.
         self.send_text_detached(tab_id, text);
         Ok(())

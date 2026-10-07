@@ -30,6 +30,8 @@ import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
+import { ManagedTabBar } from "./ManagedTabBar";
+import { managedTabPresentation } from "../../lib/managedTab";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
@@ -866,7 +868,8 @@ export function TabSessionChat({
           />
         )}
       </div>
-      <ChatComposer
+      {tab?.managed && <ManagedTabBar managed={tab.managed} onStop={handleStopAgent} />}
+      {!managedTabPresentation(tab?.managed).locked && <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}
         currentPtyId={currentPtyId}
@@ -885,7 +888,7 @@ export function TabSessionChat({
         showComposerError={showComposerError}
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
         modelBubble={composerModelBubble}
-      />
+      />}
       </>
       )}
     </div>

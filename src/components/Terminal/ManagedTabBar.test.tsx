@@ -1,0 +1,25 @@
+import "./ChatComposer.composition.harness";
+import assert from "node:assert/strict";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { ManagedTabBar } from "./ManagedTabBar";
+
+const managed = { manager_tab_id: "manager", manager_name: "Scout", manager_closed: false };
+const host = document.createElement("div");
+document.body.append(host);
+const root = createRoot(host);
+let stopped = 0;
+await act(async () => root.render(<ManagedTabBar managed={managed} onStop={() => stopped++} />));
+assert.equal(host.querySelector('[role="status"]')?.getAttribute("aria-label"), "Managed by Scout");
+const stop = host.querySelector<HTMLButtonElement>('button[aria-label="Stop generation"]');
+assert.ok(stop);
+await act(async () => stop.click());
+assert.equal(stopped, 1);
+await act(async () => root.render(<ManagedTabBar managed={{ ...managed, manager_closed: true }} onStop={() => stopped++} />));
+assert.ok(host.querySelector('[role="status"]'));
+assert.equal(host.querySelector('button'), null);
+await act(async () => root.render(<ManagedTabBar managed={null} onStop={() => stopped++} />));
+assert.equal(host.querySelector('[role="status"]'), null);
+await act(async () => root.unmount());
+host.remove();
+console.log("ManagedTabBar: active Stop, closed manager, and user-owned wiring passed");

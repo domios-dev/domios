@@ -194,6 +194,7 @@ export interface Tab {
   role_profile?: string | null;
   team_id?: string | null;
   spawned_by_tab_id?: string | null;
+  managed?: { manager_tab_id: string; manager_name: string; manager_closed: boolean } | null;
   parent_tab_id?: string | null;
   can_spawn?: boolean;
   depth?: number;
