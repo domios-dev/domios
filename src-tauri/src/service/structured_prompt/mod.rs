@@ -112,7 +112,6 @@ fn clear_request(active: &mut HashMap<String, Active>, tab_id: &str, request_id:
 /// Drop all structured-prompt state for a tab (tab closed / agent exited).
 pub fn clear_tab(tab_id: &str) {
     crate::api::hook_routes::permission_decision::clear_tab(tab_id);
-    crate::service::codex_rpc::lifecycle::clear_tab(tab_id);
     crate::service::codex_rpc::launch::clear_tab(tab_id);
     let subscriber = SUBSCRIBED.lock().remove(tab_id);
     if let Some(subscriber) = subscriber {

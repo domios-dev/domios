@@ -3,7 +3,7 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-static REATTACHING: LazyLock<Mutex<HashMap<String, (String, Option<bool>)>>> =
+static REATTACHING: LazyLock<Mutex<HashMap<String, (String, Option<bool>, bool)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 static CHANGED: parking_lot::Condvar = parking_lot::Condvar::new();
@@ -17,7 +17,7 @@ pub fn recovering(tab: &str, nonce: &str) -> bool {
     REATTACHING
         .lock()
         .get(tab)
-        .is_some_and(|(current, _)| current == nonce)
+        .is_some_and(|(current, result, _)| current == nonce && *result != Some(true))
 }
 
 fn should_reattach(current: bool, live_server: bool, already_recovering: bool) -> bool {
@@ -37,19 +37,29 @@ pub fn try_start(svc: &ServiceContext, tab: &str, nonce: &str, reason: &str) -> 
     if !current {
         return false;
     }
-    super::delivery::disconnected(tab);
+    if super::delivery::attached_for_launch(tab, nonce) {
+        super::delivery::refresh(svc, tab);
+        attachment_observed(tab, nonce);
+        return true;
+    }
     {
         let mut attempts = REATTACHING.lock();
+        if let Some((current, result, running)) = attempts.get_mut(tab) {
+            if current == nonce && *running {
+                *result = None;
+                return true;
+            }
+        }
         if attempts
             .get(tab)
-            .is_some_and(|(_, result)| *result == Some(true))
+            .is_some_and(|(_, result, _)| *result == Some(true))
         {
             attempts.remove(tab);
         }
         if !should_reattach(current, live, attempts.contains_key(tab)) {
             return true;
         }
-        attempts.insert(tab.into(), (nonce.into(), None));
+        attempts.insert(tab.into(), (nonce.into(), None, true));
     }
     log::warn!("[codex-rpc-attach] tab={tab} nonce={nonce} action=reattach reason={reason}");
     svc.create_notification_ext(
@@ -69,10 +79,17 @@ pub fn try_start(svc: &ServiceContext, tab: &str, nonce: &str, reason: &str) -> 
     );
     let (svc, tab, nonce) = (svc.clone(), tab.to_owned(), nonce.to_owned());
     std::thread::spawn(move || {
-        let attached = reattach(&svc, &tab, &nonce);
-        if let Some((current, result)) = REATTACHING.lock().get_mut(&tab) {
+        let attached = recovered(
+            reattach(&svc, &tab, &nonce),
+            super::delivery::attached_for_launch(&tab, &nonce),
+        );
+        if attached {
+            super::delivery::refresh(&svc, &tab);
+        }
+        if let Some((current, result, running)) = REATTACHING.lock().get_mut(&tab) {
             if current == &nonce {
                 *result = Some(attached);
+                *running = false;
             }
         }
         CHANGED.notify_all();
@@ -85,13 +102,29 @@ pub fn try_start(svc: &ServiceContext, tab: &str, nonce: &str, reason: &str) -> 
     true
 }
 
+pub fn attachment_observed(tab: &str, nonce: &str) {
+    if let Some((current, result, _)) = REATTACHING.lock().get_mut(tab) {
+        if current == nonce {
+            *result = Some(true);
+        }
+    }
+    CHANGED.notify_all();
+}
+
+fn recovered(reattach_result: bool, live_attachment: bool) -> bool {
+    reattach_result || live_attachment
+}
+
 pub fn wait_recovery(tab: &str, nonce: &str) -> bool {
+    if super::delivery::attached_for_launch(tab, nonce) {
+        return true;
+    }
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     let mut attempts = REATTACHING.lock();
     loop {
         match attempts.get(tab) {
-            Some((current, Some(result))) if current == nonce => return *result,
-            Some((current, None)) if current == nonce => {}
+            Some((current, Some(result), _)) if current == nonce => return *result,
+            Some((current, None, _)) if current == nonce => {}
             _ => return false,
         }
         let now = std::time::Instant::now();
@@ -103,6 +136,9 @@ pub fn wait_recovery(tab: &str, nonce: &str) -> bool {
 }
 
 fn reattach(svc: &ServiceContext, tab: &str, nonce: &str) -> bool {
+    if super::delivery::attached_for_launch(tab, nonce) {
+        return true;
+    }
     let Some(sidecar) = super::lifecycle::for_tab(tab) else {
         return false;
     };
@@ -119,7 +155,7 @@ fn reattach(svc: &ServiceContext, tab: &str, nonce: &str) -> bool {
         &pty,
         std::time::Duration::from_secs(30),
     ) {
-        return false;
+        return super::delivery::attached_for_launch(tab, nonce);
     }
     let current = svc.mux.read().get_tab(tab).is_some_and(|tab| {
         tab.session_binding_nonce.as_deref() == Some(nonce) && tab.pty_id.as_deref() == Some(&pty)
@@ -131,7 +167,9 @@ fn reattach(svc: &ServiceContext, tab: &str, nonce: &str) -> bool {
     {
         return false;
     }
-    super::delivery::retry_attachment(tab, nonce);
+    if super::delivery::retry_attachment(tab, nonce) {
+        return true;
+    }
     if svc
         .send_launch_command_to_pty_after_ready(&pty, &super::launch::remote_command(&sidecar))
         .is_err()
@@ -156,5 +194,12 @@ mod tests {
         assert!(!should_reattach(false, true, false));
         assert!(!should_reattach(true, false, false));
         assert!(!should_reattach(true, true, true));
+    }
+    #[test]
+    fn codex_rpc_attach_live_connection_wins_over_failed_recovery() {
+        assert!(recovered(false, true));
+        assert!(recovered(true, true));
+        assert!(recovered(true, false));
+        assert!(!recovered(false, false));
     }
 }
