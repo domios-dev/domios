@@ -1,20 +1,55 @@
 use super::*;
 
 impl WindowsRun {
+    pub(in crate::sentinel::probe) fn release_process_admission(&mut self) {
+        if self.parent_exited && (!self.assigned || self.job_empty) {
+            if let Some(reservation) = self.reservation.as_mut() {
+                reservation.release_process_admission();
+            }
+        }
+    }
+
     pub(in crate::sentinel::probe) fn reconcile_retained(&mut self) -> bool {
-        let result = self.reconcile_retained_handles();
+        self.settle_retained_capture(false)
+    }
+
+    pub(in crate::sentinel::probe) fn wait_for_retained_capture(&mut self) -> bool {
+        self.settle_retained_capture(true)
+    }
+
+    pub(in crate::sentinel::probe) fn retained_processes_settled(&mut self) -> bool {
+        let parent_settled = self.child_id == 0
+            || self.parent_exited
+            || self.process.raw().is_some_and(|process| {
+                (unsafe { WaitForSingleObject(process, 0) }) == WAIT_OBJECT_0
+            });
+        if self.assigned && !self.job_empty {
+            if let Err(error) = self.observe_job_accounting() {
+                self.record_retained_cleanup_error(error);
+            }
+        }
+        parent_settled && (!self.assigned || self.job_empty)
+    }
+
+    fn settle_retained_capture(&mut self, wait: bool) -> bool {
+        let result = self.reconcile_retained_handles(wait);
         if let Err(error) = result {
             self.record_retained_cleanup_error(error);
         }
         self.failure_resources_settled()
     }
 
-    fn reconcile_retained_handles(&mut self) -> Result<(), String> {
-        self.observe_parent_exit_if_signaled()?;
+    fn reconcile_retained_handles(&mut self, wait: bool) -> Result<(), String> {
+        if let Err(error) = self.observe_parent_exit_if_signaled() {
+            self.record_retained_cleanup_error(error);
+        }
         if self.assigned && !self.job_empty {
             self.observe_job_accounting()?;
         }
         for stdout in [true, false] {
+            if self.stream(stdout).connect_pending && self.stream(stdout).pending_active {
+                return Err("probe pipe has overlapping connection and read ownership".into());
+            }
             for connect in [true, false] {
                 let stream = self.stream_mut(stdout);
                 let pending = if connect {
@@ -37,7 +72,10 @@ impl WindowsRun {
                 let mut bytes = 0;
                 let completed = unsafe {
                     windows_sys::Win32::System::IO::GetOverlappedResult(
-                        reader, overlapped, &mut bytes, 0,
+                        reader,
+                        overlapped,
+                        &mut bytes,
+                        i32::from(wait),
                     )
                 } != 0;
                 if !completed {
@@ -180,6 +218,7 @@ impl WindowsRun {
         self.exit_code = Some(exit_code);
         self.parent_exited = true;
         self.parent_exit_pending = false;
+        self.release_process_admission();
         self.process.close()?;
         let registered = std::mem::replace(&mut self.process_registered, false);
         self.settle_resource(ResourceKind::Child, registered);

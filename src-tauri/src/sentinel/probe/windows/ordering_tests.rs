@@ -2,6 +2,40 @@ use super::*;
 use windows_sys::Win32::System::Threading::{ResumeThread, PROCESS_INFORMATION, STARTUPINFOW};
 
 #[test]
+fn confirmed_windows_process_releases_admission_before_capture_cleanup() {
+    let owner = Arc::new(ProbeResourceOwner::new());
+    let deadlines = Deadlines::start(Duration::from_secs(10), Duration::from_secs(10)).unwrap();
+    let mut run = WindowsRun::new(deadlines, owner.reserve().unwrap(), &owner);
+    run.stdout.buffer_registered = run.register(ResourceKind::OverlappedIo);
+    run.stderr.buffer_registered = run.register(ResourceKind::OverlappedIo);
+    run.parent_exited = true;
+    run.assigned = true;
+    run.job_empty = true;
+    run.release_process_admission();
+    assert_eq!(
+        owner.snapshot().free,
+        super::super::owner::MAX_RESOURCE_SLOTS
+    );
+    assert!(run.stdout.buffer_registered);
+    assert!(run.stderr.buffer_registered);
+
+    let mut replacement = owner.reserve().unwrap();
+    replacement.register_resource().unwrap();
+    run.permanent_unconfirmed = true;
+    let failure = run
+        .finish_failure_with(ProbeFailure::new("probe_capture_failed"))
+        .unwrap_err();
+    assert_eq!(failure.primary, "probe_capture_failed");
+    assert_eq!(owner.snapshot().active, 1);
+    replacement.resource_settled().unwrap();
+    replacement.release().unwrap();
+    assert_eq!(
+        owner.snapshot().free,
+        super::super::owner::MAX_RESOURCE_SLOTS
+    );
+}
+
+#[test]
 fn settled_capture_buffers_do_not_poison_owner_capacity() {
     let owner = Arc::new(ProbeResourceOwner::new());
     let deadlines = Deadlines::start(Duration::from_secs(10), Duration::from_secs(10)).unwrap();
