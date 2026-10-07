@@ -500,7 +500,7 @@ impl Messenger {
             &text,
             should_prefix && messenger.reply_hint().is_some(),
         );
-        let result = dispatch_delivery(
+        let result: Result<(Delivery, Option<std::path::PathBuf>), String> = dispatch_delivery(
             DeliveryTransport::Pty,
             || unreachable!(),
             || {
