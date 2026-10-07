@@ -3,7 +3,7 @@ REST endpoints for agent restart, model switch, spawn, reports, keep-awake, and 
 
 #### Agent Restart (POST /api/tabs/{id}/agent/restart)
 
-Restart an agent whose process is observed live in a tab. The body is optional (defaults below). Default is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event, then tear down the old PTY, create a replacement, and relaunch. A recorded provider session resumes when it still exists on disk; otherwise the provider starts a fresh session. With liveness unobserved, a known PTY provider restarts fresh from a confirmed bare shell (stage `LaunchBindingUnconfirmed`, no owning launch, live PTY at a shell prompt, no verified recovery session in lineage or journal): no exit command, a new PTY, the unverified session id cleared. Other unobserved states are refused. A provider observed to have exited into its surviving shell is recovered in place: Domios skips exit and teardown, takes the tab's newest session from its binding lineage (or, without lineage, its lifecycle journal), requires the journal to prove that session was nonce-verified and exactly one provider to own its session record, then relaunches that provider with resume through the ordinary launch pipeline in the same PTY.
+Restart an observed live agent: send its provider exit command, wait up to `grace_secs` for shell-ready, replace the PTY and relaunch. Resume its recorded session if still on disk; otherwise launch fresh. Unobserved liveness permits fresh launch only from a confirmed bare shell: `LaunchBindingUnconfirmed`, no owning launch, live shell prompt, and no verified recovery session in lineage or journal. This replaces the PTY and clears the unverified session without an exit command; other unobserved states are refused. An observed exited provider recovers in its surviving shell without exit or teardown. Recovery selects the newest session from binding lineage (otherwise the lifecycle journal), requires journal proof of nonce verification and exactly one provider owning that session record, then resumes it through the ordinary launch pipeline in the same PTY.
 
 ```json
 {"force": false, "grace_secs": 10, "provider": null, "handoff_history": false}
@@ -26,7 +26,7 @@ Restart an agent whose process is observed live in a tab. The body is optional (
 }
 ```
 
-`session_action` is `resumed` or `fresh_launch`; the CLI exits non-zero unless the response confirms `agent_ready: true` and one of them. The three transition fields are independent observations. `restart_accepted` means validation and rate limiting accepted the request. `old_pty_torn_down` means Domios observed the prior PTY leave the tab and its process tree complete. `agent_ready` means an `AgentReady` transition was observed for `new_pty_id`, which must differ from `old_pty_id`; a pre-restart `AgentReady` attached to the old PTY never satisfies this contract. `recovered_in_place` marks an exited-provider recovery: nothing is torn down, `new_pty_id` equals `old_pty_id`, and the shell's prior stage is retired before launch, so only the relaunch can report `AgentReady`. `session_was_stale` is `true` when the recorded session JSONL no longer exists on disk; the restart proceeds without `--resume` in a fresh session.
+`session_action` is `resumed` or `fresh_launch`; CLI success also requires `agent_ready: true`. Transition fields are independent observations: `restart_accepted` means validation/rate limiting accepted the request; `old_pty_torn_down` means the prior PTY and process tree exited; `agent_ready` requires a new `AgentReady` for `new_pty_id`, distinct from the old PTY. An old readiness event never qualifies. With `recovered_in_place`, no teardown occurs and both PTY ids match; the prior shell stage is retired before launch so only the relaunch can report readiness. `session_was_stale: true` means the recorded JSONL is missing; launch proceeds fresh without resume.
 
 **Errors:**
 - `404` — tab id not found
@@ -194,4 +194,4 @@ Plan surface contracts — planner authority over task structure, partial `plan 
 
 A provider declaring model-provider configuration support accepts `preset` on PTY spawn: Domios resolves its owned model and agent launch arguments before tab creation. See `codeterm docs INTEGRATIONS` for endpoint keys and preset commands. Provider changes publish versioned catalogue events; selectors refresh without reloading. OpenCode advertises per-model variants as reasoning levels, passed at launch and live switch. Model-switch responses and the chip expose the live or restart/resume path.
 
-<!-- revision: 50 -->
+<!-- revision: 51 -->
