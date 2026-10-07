@@ -18,6 +18,7 @@ fn fixture() -> (tempfile::TempDir, Store, Sentinel) {
                 name: Some("initial".into()),
                 probe: Some("status".into()),
                 observe: None,
+                input: None,
                 question: "Is it done?".into(),
                 buckets: vec!["done".into()],
                 every: "10s".into(),
@@ -49,16 +50,17 @@ fn update(question: &str) -> Update {
         name: Some("updated".into()),
         question: question.into(),
         buckets: vec!["done".into()],
-        every: "30s".into(),
+        every: Some("30s".into()),
         routes: BTreeMap::from([("done".into(), "notify".into())]),
         matches: BTreeMap::from([("done".into(), "done".into())]),
         rearm_on_change: Default::default(),
         until: None,
+        input: None,
         handlers: None,
         on_other: Vec::new(),
         escalation_timeout_ms: None,
-        max_transitions: 64,
-        max_actions: 256,
+        max_transitions: Some(64),
+        max_actions: Some(256),
         cause: Some("transition_4".into()),
         note: Some("tightened completion rule".into()),
     }
@@ -167,7 +169,7 @@ fn sentinel_update_definition_requires_a_meaningful_name() {
 
     let error = definition.prepare(&job, "editor", true).err().unwrap();
 
-    assert!(error.contains("Sentinel update definition needs a name"));
+    assert!(error.contains("Blueprint update definition needs a name"));
 }
 
 #[test]

@@ -57,7 +57,7 @@ export interface JobsIndicator {
   running: number;
 }
 
-/** A running Cron run or a live Sentinel graph; an enabled Cron waiting for its schedule is not running. */
+/** A running Cron run or a live Blueprint graph; an enabled Cron waiting for its schedule is not running. */
 export function isJobRunning(job: MergedJob): boolean {
   return job.kind === "cron" ? job.state === "Running" : job.active;
 }
@@ -70,4 +70,54 @@ export function jobsIndicator(jobs: { crons: readonly CronJob[]; sentinels: read
 export function jobsAccessibleName({ count, running }: JobsIndicator): string {
   if (count === 0) return "Jobs";
   return running > 0 ? `Jobs, ${count}, ${running} running` : `Jobs, ${count}`;
+}
+
+export function canStopJob(job: MergedJob): boolean {
+  return job.kind === "cron"
+    ? cronState(job.cron) === "Running"
+    : ["active", "running", "finishing"].includes(job.state.toLowerCase()) && Boolean(job.sentinel.root?.stop.allowed);
+}
+
+export type TabJobState = "waiting on you" | "running" | "scheduled" | "stopped";
+
+export interface TabJob {
+  id: string;
+  title: string;
+  kind: MergedJob["kind"];
+  state: TabJobState;
+}
+
+const TAB_JOB_STATE_ORDER: readonly TabJobState[] = ["waiting on you", "running", "scheduled", "stopped"];
+
+/** Creator, report target, and the latest run's tab bind a Cron; creator, owner, and tab handler targets bind a Sentinel. */
+function boundTabIds(job: MergedJob): (string | null | undefined)[] {
+  if (job.kind === "cron") return [job.cron.creator_tab_id, job.cron.report_target_tab_id, job.cron.last_run?.tab_id];
+  const { scenario, root } = job.sentinel;
+  const targets = root?.outcomes.flatMap((outcome) => outcome.handlers.map((handler) => handler.target?.kind === "worker" ? handler.target.id : null)) ?? [];
+  return [scenario.root.owner_tab_id, root?.identity.owner_tab_id, root?.sentinel_definition?.creator_tab_id, ...targets];
+}
+
+export function tabJobState(job: MergedJob): TabJobState {
+  if (job.kind === "cron" && job.cron.last_run?.status === "AwaitingOwnerPrompt") return "waiting on you";
+  if (isJobRunning(job)) return "running";
+  return job.kind === "cron" && job.cron.enabled ? "scheduled" : "stopped";
+}
+
+export function tabJobKey(job: Pick<TabJob, "kind" | "id">): string {
+  return `${job.kind}:${job.id}`;
+}
+
+export function mergedJobId(job: MergedJob): string {
+  return job.kind === "cron" ? job.cron.id : job.sentinel.scenario.id;
+}
+
+export function jobsForTab(jobs: readonly MergedJob[], tabId: string): TabJob[] {
+  return jobs
+    .filter((job) => boundTabIds(job).includes(tabId))
+    .map((job): TabJob => ({ id: mergedJobId(job), title: job.title, kind: job.kind, state: tabJobState(job) }))
+    .sort((a, b) => TAB_JOB_STATE_ORDER.indexOf(a.state) - TAB_JOB_STATE_ORDER.indexOf(b.state) || a.title.localeCompare(b.title));
+}
+
+export function tabJobAccessibleName(job: TabJob): string {
+  return `Job ${job.title}, ${job.state}`;
 }

@@ -30,7 +30,7 @@ A Worker that dies while holding an in-progress task produces an immediate struc
 
 ## Team teardown
 
-Team close inventories every Team-owned task lane and reports removed, retained-with-reason and worktree-less branch entries. It removes only clean lanes whose branch tip is an ancestor of the recorded destination; unsafe lanes remain as cleanup debt. It removes the Team's members, finalizes open attempts and removes its crons. Attached Cartographer membership ends with the Team; [Sentinels](sentinels.md) follow the same Team lifetime.
+Team close inventories every Team-owned task lane and reports removed, retained-with-reason and worktree-less branch entries. It removes only clean lanes whose branch tip is an ancestor of the recorded destination; unsafe lanes remain as cleanup debt. It removes the Team's members, finalizes open attempts and removes its crons. Attached Cartographer membership ends with the Team; [Blueprints](sentinels.md) follow the same Team lifetime.
 
 Close refuses while a Team task is in progress or a Worker is working unless forced. A forced close names every killed Worker and task; a plan with unfinished tasks stays active and flagged rather than being archived. A confirmed human may close a Team, and coordinator agents may close their Team but cannot close their own workspace. A confirmed human may close a workspace containing coordinators. Workspace close uses this same Team teardown. Close refusals remain visible.
 

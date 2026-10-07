@@ -1,5 +1,7 @@
 use crate::error::StorageError;
 use crate::repositories::{to_sql_u64, Revision};
+use codeterm_types::sentinel_input::InputSpec;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
 /// Repository bounds protect the mailbox and reads; domain rules stay in the domain.
@@ -103,6 +105,51 @@ pub struct ObserveSource {
     pub reference: String,
 }
 
+/// Column tag of a stage source. The event lane adds its variant; `event` already exists in
+/// the schema, so that costs no migration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SourceKind {
+    Probe,
+    Observe,
+    Input,
+}
+
+impl SourceKind {
+    pub const ALL: [SourceKind; 3] = [SourceKind::Probe, SourceKind::Observe, SourceKind::Input];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SourceKind::Probe => "probe",
+            SourceKind::Observe => "observe",
+            SourceKind::Input => "input",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<SourceKind> {
+        SourceKind::ALL
+            .into_iter()
+            .find(|kind| kind.as_str() == value)
+    }
+}
+
+/// The one source one definition version evaluates; `event` arrives with the event lane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StageSource {
+    Probe(String),
+    Observe(ObserveSource),
+    Input(InputSpec),
+}
+
+impl StageSource {
+    pub fn kind(&self) -> SourceKind {
+        match self {
+            StageSource::Probe(_) => SourceKind::Probe,
+            StageSource::Observe(_) => SourceKind::Observe,
+            StageSource::Input(_) => SourceKind::Input,
+        }
+    }
+}
+
 /// Exact historical target identity; it never implies a live tab, cron or Team exists.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetIdentity {
@@ -132,8 +179,8 @@ pub struct BucketDefinition {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StageDefinition {
     pub name: Option<String>,
-    pub probe: String,
-    pub observe: Option<ObserveSource>,
+    pub source: StageSource,
+    pub pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
     pub question: String,
     pub interval_ms: u64,
     pub until: Option<String>,
@@ -204,6 +251,163 @@ pub struct StageRuntime {
     pub held: Option<String>,
     pub run: Option<RunRecord>,
     pub run_transitions: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BlueprintJournalEntry {
+    pub entry_id: i64,
+    pub run_id: String,
+    pub step_index: i64,
+    pub step_name: String,
+    pub state: String,
+    pub outcome: Option<String>,
+    pub started_at_ms: u64,
+    pub ended_at_ms: Option<u64>,
+    pub result_summary: Option<String>,
+    pub reason: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum BlueprintJournalWrite {
+    Claim {
+        run_id: String,
+        step_index: i64,
+        step_name: String,
+        generation: u64,
+        started_at_ms: u64,
+    },
+    Finish {
+        run_id: String,
+        step_index: i64,
+        state: String,
+        outcome: String,
+        ended_at_ms: u64,
+        result_summary: String,
+        reason: Option<String>,
+    },
+    Decision {
+        run_id: String,
+        step_index: i64,
+        step_name: String,
+        outcome: String,
+        at_ms: u64,
+        result_summary: Option<String>,
+        reason: Option<String>,
+    },
+    CloseRun {
+        run_id: String,
+        state: String,
+        outcome: String,
+        at_ms: u64,
+        reason: Option<String>,
+    },
+}
+
+impl BlueprintJournalWrite {
+    pub(super) fn validate(&self) -> Result<(), StorageError> {
+        let (run_id, step_index, step_name, outcome, summary, reason) = match self {
+            Self::Claim {
+                run_id,
+                step_index,
+                step_name,
+                generation,
+                ..
+            } => {
+                integer("journal generation", *generation)?;
+                (
+                    run_id.as_str(),
+                    *step_index,
+                    Some(step_name.as_str()),
+                    None,
+                    None,
+                    None,
+                )
+            }
+            Self::Finish {
+                run_id,
+                step_index,
+                state,
+                outcome,
+                result_summary,
+                reason,
+                ..
+            } => {
+                if !matches!(state.as_str(), "done" | "failed") {
+                    return Err(StorageError::invalid(
+                        "journal state",
+                        "must be done or failed",
+                    ));
+                }
+                (
+                    run_id.as_str(),
+                    *step_index,
+                    None,
+                    Some(outcome.as_str()),
+                    Some(result_summary.as_str()),
+                    reason.as_deref(),
+                )
+            }
+            Self::Decision {
+                run_id,
+                step_index,
+                step_name,
+                outcome,
+                result_summary,
+                reason,
+                ..
+            } => (
+                run_id.as_str(),
+                *step_index,
+                Some(step_name.as_str()),
+                Some(outcome.as_str()),
+                result_summary.as_deref(),
+                reason.as_deref(),
+            ),
+            Self::CloseRun {
+                run_id,
+                state,
+                outcome,
+                reason,
+                ..
+            } => {
+                if !matches!(state.as_str(), "done" | "failed" | "skipped") {
+                    return Err(StorageError::invalid("journal state", "invalid run state"));
+                }
+                (
+                    run_id.as_str(),
+                    -1,
+                    Some("$run"),
+                    Some(outcome.as_str()),
+                    None,
+                    reason.as_deref(),
+                )
+            }
+        };
+        identifier("journal run id", run_id)?;
+        if !(-1..64).contains(&step_index) {
+            return Err(StorageError::invalid("journal step index", "out of bounds"));
+        }
+        if let Some(step_name) = step_name {
+            identifier("journal step name", step_name)?;
+        }
+        if let Some(outcome) = outcome {
+            identifier("journal outcome", outcome)?;
+        }
+        for (field, value) in [
+            ("journal result summary", summary),
+            ("journal reason", reason),
+        ] {
+            if let Some(value) = value {
+                if value.chars().count() > 200 || value.chars().any(char::is_control) {
+                    return Err(StorageError::invalid(
+                        field,
+                        "must be at most 200 printable characters",
+                    ));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -530,15 +734,23 @@ impl HandlerDefinition {
 impl StageDefinition {
     pub(super) fn validate(&self) -> Result<(), StorageError> {
         optional_text("sentinel name", &self.name)?;
-        text("sentinel probe", &self.probe)?;
-        if let Some(observe) = &self.observe {
-            identifier("observe source", &observe.reference)?;
+        match &self.source {
+            StageSource::Probe(command) => text("sentinel probe", command)?,
+            StageSource::Observe(observe) => identifier("observe source", &observe.reference)?,
+            StageSource::Input(input) => codeterm_types::sentinel_input::validate(input)
+                .map_err(|error| StorageError::invalid("sentinel input", error.to_string()))?,
         }
-        if self.observe.is_some() != self.probe.is_empty() {
-            return Err(StorageError::invalid(
-                "sentinel source",
-                "requires exactly one of a probe or an observe source",
-            ));
+        if let Some(pipeline) = &self.pipeline {
+            let bytes = serde_json::to_vec(pipeline)
+                .map_err(|_| StorageError::invalid("pipeline", "cannot be encoded"))?;
+            if bytes.len() > 65_536
+                || !matches!(&self.source, StageSource::Probe(probe) if probe == "blueprint-pipeline")
+            {
+                return Err(StorageError::invalid(
+                    "pipeline",
+                    "must be bounded and use the pipeline scheduler source",
+                ));
+            }
         }
         text("sentinel question", &self.question)?;
         integer("sentinel interval", self.interval_ms)?;
@@ -621,11 +833,13 @@ impl StageDefinition {
             .sum();
         RECORD_OVERHEAD
             + optional_len(&self.name)
-            + self.probe.len()
-            + self
-                .observe
-                .as_ref()
-                .map_or(0, |observe| observe.reference.len())
+            + match &self.source {
+                StageSource::Probe(command) => command.len(),
+                StageSource::Observe(observe) => observe.reference.len(),
+                StageSource::Input(input) => {
+                    serde_json::to_vec(input).map_or(0, |bytes| bytes.len())
+                }
+            }
             + self.question.len()
             + optional_len(&self.until)
             + buckets
@@ -940,10 +1154,10 @@ fn validate_run_transition_count(
     definition: &StageDefinition,
     runtime: &StageRuntime,
 ) -> Result<(), StorageError> {
-    let cron_run = definition
-        .observe
-        .as_ref()
-        .is_some_and(|source| source.kind == ObserveKind::CronRun);
+    let cron_run = matches!(
+        &definition.source,
+        StageSource::Observe(observe) if observe.kind == ObserveKind::CronRun
+    );
     if runtime.run_transitions > definition.max_transitions
         || (runtime.run_transitions > 0 && (!cron_run || runtime.run.is_none()))
     {

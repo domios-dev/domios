@@ -11,10 +11,12 @@ use super::probe::cancellation::Cancellation;
 use super::source::{self, RunBinding, TabBinding};
 use super::storage::{Backend, LoadFailure, Staged};
 use crate::cron::clock::SharedClock;
+use codeterm_types::sentinel_input::InputSpec;
 
 pub(super) const MAX_SENTINELS: usize = 256;
 pub(super) const MAX_ACTIVE: usize = 64;
 pub(super) const MAX_LIFETIME_TRANSITIONS: usize = 65_536;
+pub(super) const PIPELINE_SOURCE: &str = "blueprint-pipeline";
 
 pub(super) type ScopeKey = (String, Option<String>);
 
@@ -26,6 +28,8 @@ pub struct Create {
     pub probe: Option<String>,
     #[serde(default)]
     pub observe: Option<TabBinding>,
+    #[serde(default)]
+    pub input: Option<InputSpec>,
     pub question: String,
     pub buckets: Vec<String>,
     #[serde(default = "default_every")]
@@ -78,6 +82,8 @@ pub struct Sentinel {
     pub agent_authored: bool,
     #[serde(default)]
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
     #[serde(default)]
     pub scenario_id: Option<String>,
     #[serde(default = "handlers::default_transitions")]
@@ -90,6 +96,8 @@ pub struct Sentinel {
     pub run_transitions: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub observe: Option<TabBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<InputSpec>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run: Option<RunBinding>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -116,6 +124,7 @@ pub struct Owner {
 pub struct Lease {
     pub job: Sentinel,
     pub(super) cancelled: Arc<Cancellation>,
+    pub(super) event: Option<codeterm_plugin::graph_events::EventEnvelope>,
 }
 
 #[cfg(test)]
@@ -163,213 +172,53 @@ pub(super) enum ScheduleChange {
     Stop { id: String, reason: &'static str },
 }
 
-pub fn duration_ms(value: &str) -> Result<u64, String> {
-    if value.len() > 32
-        || !value
-            .chars()
-            .all(|c| c.is_ascii_digit() || matches!(c, 's' | 'm' | 'h' | 'd'))
-    {
-        return Err("duration: use seconds, minutes, hours or days, e.g. 20s or 1h30m".into());
-    }
-    if value.chars().any(|c| c.is_ascii_alphabetic())
-        && value.ends_with(|c: char| c.is_ascii_digit())
-    {
-        return Err("duration: every component needs a unit".into());
-    }
-    let mut number = String::new();
-    let mut bound = 0u64;
-    for c in value.chars() {
-        if c.is_ascii_digit() {
-            number.push(c);
-            continue;
-        }
-        let n: u64 = number.parse().map_err(|_| "duration: invalid number")?;
-        number.clear();
-        let factor = match c {
-            's' => 1000,
-            'm' => 60_000,
-            'h' => 3_600_000,
-            'd' => 86_400_000,
-            _ => unreachable!(),
-        };
-        bound = bound
-            .checked_add(n.checked_mul(factor).ok_or("duration: overflow")?)
-            .ok_or("duration: overflow")?;
-    }
-    if !number.is_empty() {
-        bound = bound
-            .checked_add(
-                number
-                    .parse::<u64>()
-                    .map_err(|_| "duration: invalid number")?
-                    .checked_mul(60_000)
-                    .ok_or("duration: overflow")?,
-            )
-            .ok_or("duration: overflow")?;
-    }
-    if bound == 0 || bound > 366 * 86_400_000 {
-        return Err("duration: must be positive and at most 366 days".into());
-    }
-    crate::cron::store::parse_oneshot_schedule_at(&format!("in {value}"), 0)
-}
-
-/// Every stored-inventory invariant, shared by the legacy file and typed Storage loads.
-pub(super) fn validate(jobs: Vec<Sentinel>) -> Result<Vec<Sentinel>, String> {
-    if jobs.len() > MAX_SENTINELS
-        || jobs
-            .iter()
-            .filter(|job| !job.machine.stopped && !job.machine.paused)
-            .count()
-            > MAX_ACTIVE
-    {
-        return Err("sentinel store exceeds capacity".into());
-    }
-    let mut ids = std::collections::BTreeSet::new();
-    for job in &jobs {
-        machine::validate(&job.buckets, &job.matches, true, job.interval_ms)?;
-        if job
-            .rearm_on_change
-            .iter()
-            .any(|bucket| !job.buckets.contains(bucket))
-        {
-            return Err("rearm_on_change must name declared buckets".into());
-        }
-        handlers::validate(&job.buckets, &job.routes)?;
-        source::validate(job)?;
-        escalation::validate(job)?;
-        amend::validate(job)?;
-        if job.max_transitions == 0
-            || job.max_transitions > 256
-            || job.max_actions == 0
-            || job.max_actions > 1024
-            || job.transitions.len() > MAX_LIFETIME_TRANSITIONS
-            || job.run_transitions > job.max_transitions
-            || (!matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
-                && job.transitions.len() > usize::from(job.max_transitions))
-            || job
-                .transitions
-                .iter()
-                .flat_map(|t| &t.handlers)
-                .filter(|r| r.claim_id.is_some())
-                .count()
-                > usize::from(job.max_actions)
-        {
-            return Err("invalid sentinel budgets or retention".into());
-        }
-        let mut transitions = std::collections::BTreeSet::new();
-        for transition in &job.transitions {
-            let declared = job
-                .declared_handlers(&transition.bucket)
-                .ok_or("stored transition has an undeclared bucket")?;
-            if transition.id.is_empty()
-                || transition.id.len() > 128
-                || !transitions.insert(&transition.id)
-                || transition.handlers.len() > declared.len()
-            {
-                return Err("invalid stored transition identity or handler retention".into());
-            }
-            let mut results = std::collections::BTreeSet::new();
-            for result in &transition.handlers {
-                if let Some(command) = &result.command_result {
-                    command.validate()?;
-                    let handler = declared
-                        .iter()
-                        .find(|handler| handler.id == result.handler_id)
-                        .ok_or("command result has no declared handler")?;
-                    let expected = match command.status {
-                        super::command::Status::Success => handlers::Status::Completed,
-                        super::command::Status::Unconfirmed => handlers::Status::Unconfirmed,
-                        _ => handlers::Status::Failed,
-                    };
-                    if !matches!(handler.action, Route::Command(_))
-                        || result.status != expected
-                        || result.execution_id.is_none()
-                    {
-                        return Err("invalid stored command handler result identity".into());
-                    }
-                }
-                if !results.insert(&result.handler_id)
-                    || !declared
-                        .iter()
-                        .any(|handler| handler.id == result.handler_id)
-                    || (result.claim_id.is_none() != result.accepted_at.is_none())
-                    || (result.status == handlers::Status::Skipped
-                        && (result.claim_id.is_some() || result.execution_id.is_some()))
-                    || (result.status != handlers::Status::Skipped && result.claim_id.is_none())
-                {
-                    return Err("invalid stored handler claim identity".into());
-                }
-            }
-        }
-        for handler in job.routes.values().flatten() {
-            let expected_kind_id = match &handler.action {
-                Route::Sentinel(id) => Some(("sentinel", id)),
-                Route::Send(id) => Some(("worker", id)),
-                Route::Cron(id) => Some(("cron", id)),
-                Route::Notify
-                | Route::Stop
-                | Route::Command(_)
-                | Route::RespondPrompt(_)
-                | Route::Escalate(_) => None,
-            };
-            if let Some((kind, id)) = expected_kind_id {
-                Route::parse(&format!(
-                    "{}:{id}",
-                    if kind == "worker" { "send" } else { kind }
-                ))?;
-            }
-            if let Some(target) = &handler.target {
-                if expected_kind_id != Some((target.kind.as_str(), &target.id))
-                    || target.workspace_id != job.workspace_id
-                    || target.team_id != job.team_id
-                    || (target.kind == "sentinel"
-                        && target.owner_tab_id.as_deref() != Some(&job.creator_tab_id))
-                {
-                    return Err("invalid stored exact handler target scope".into());
-                }
-            }
-        }
-        if !ids.insert(&job.id)
-            || job.creator_tab_id.is_empty()
-            || job.workspace_id.is_empty()
-            || job.cwd.is_empty()
-        {
-            return Err("invalid sentinel identity or scope".into());
-        }
-        if (job.observe.is_none() && job.probe.trim().is_empty())
-            || job.probe.len() > 8192
-            || job.question.trim().is_empty()
-            || job.question.len() > 4096
-        {
-            return Err("invalid sentinel probe or question".into());
-        }
-        if job
-            .routes
-            .keys()
-            .any(|bucket| !job.buckets.contains(bucket))
-            || job
-                .until
-                .as_ref()
-                .is_some_and(|bucket| !job.buckets.contains(bucket))
-        {
-            return Err("invalid sentinel route bucket".into());
-        }
-    }
-    for job in &jobs {
-        if let Some(scenario) = &job.scenario_id {
-            if !jobs.iter().any(|root| {
-                root.id == *scenario
-                    && root.scenario_id.as_deref() == Some(root.id.as_str())
-                    && root.same_owner(job)
-            }) {
-                return Err("invalid stored scenario ownership association".into());
-            }
-        }
-    }
-    Ok(jobs)
-}
-
 impl Store {
+    pub(crate) fn cancel_tab_owned_runs(&mut self, tab_id: &str) -> usize {
+        let active = self
+            .jobs
+            .iter()
+            .filter(|job| job.creator_tab_id == tab_id && job.team_id.is_none())
+            .filter_map(|job| self.active.get(&job.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let count = active.len();
+        for cancellation in active {
+            cancellation.cancel();
+        }
+        count
+    }
+
+    pub(crate) fn stage_event_lease(
+        &mut self,
+        event: codeterm_plugin::graph_events::EventEnvelope,
+    ) -> Option<Lease> {
+        if self.admission_closed || self.ensure_available().is_err() {
+            return None;
+        }
+        let now = self.clock.now_ms();
+        let job = self.jobs.iter().find(|job| job.id == event.pipeline_id)?;
+        let matches_kind = job.pipeline.as_ref().is_some_and(|pipeline| {
+            matches!(&pipeline.trigger, codeterm_types::blueprint_pipeline::Trigger::Event { kind, .. } if kind == &event.kind)
+        });
+        if !matches_kind
+            || job.machine.stopped
+            || job.machine.paused
+            || job.machine.held.is_some()
+            || job.expires_at.is_some_and(|at| now >= at)
+            || self.active.contains_key(&job.id)
+        {
+            return None;
+        }
+        let job = job.clone();
+        let cancelled = Arc::new(Cancellation::new(false));
+        self.active.insert(job.id.clone(), cancelled.clone());
+        Some(Lease {
+            job,
+            cancelled,
+            event: Some(event),
+        })
+    }
+
     pub fn committed_revision(&self, workspace: &str, team: Option<&str>) -> Option<&str> {
         self.committed_revisions
             .get(&(workspace.into(), team.map(str::to_owned)))
@@ -401,137 +250,6 @@ impl Store {
         self.jobs.iter().find(|job| job.id == id)
     }
 
-    pub fn prepare(
-        &self,
-        params: Create,
-        owner: Owner,
-        connected: bool,
-    ) -> Result<Sentinel, String> {
-        if self.admission_closed {
-            return Err("sentinel_shutdown_admission_closed".into());
-        }
-        self.ensure_available()?;
-        let Owner {
-            creator_tab_id: creator,
-            team_id: team,
-            workspace_id: workspace,
-            cwd,
-        } = owner;
-        let name = params.name.as_deref().ok_or_else(|| {
-            "Sentinel graph name is required; use --name ci-green-watch or --name build-done-notify".to_string()
-        })?;
-        codeterm_types::automation_name::validate_sentinel_name(name)?;
-        let (probe, observe) = match (params.probe, params.observe) {
-            (Some(probe), None) if !probe.trim().is_empty() && probe.len() <= 8192 => (probe, None),
-            (Some(_), None) => {
-                return Err("--probe must be nonempty and bounded to 8192 bytes".into());
-            }
-            (None, Some(binding)) if source::bounded_id(binding.id()) => {
-                (String::new(), Some(binding))
-            }
-            (Some(_), Some(_)) => return Err("--probe conflicts with --observe".into()),
-            (None, Some(_)) => {
-                return Err("--observe: use tab:<id> or cron-run:<id>".into());
-            }
-            _ => return Err("provide exactly one of --probe or --observe".into()),
-        };
-        let interval_ms = duration_ms(&params.every)?;
-        machine::validate(&params.buckets, &params.matches, connected, interval_ms)?;
-        if params
-            .rearm_on_change
-            .iter()
-            .any(|bucket| !params.buckets.contains(bucket))
-        {
-            return Err("--rearm-on-change: name a declared bucket".into());
-        }
-        if params.question.trim().is_empty() || params.question.len() > 4096 {
-            return Err("--question must be nonempty and bounded to 4096 bytes".into());
-        }
-        if self.jobs.len() >= MAX_SENTINELS || (!params.paused && self.active_count() >= MAX_ACTIVE)
-        {
-            return Err("sentinel capacity reached (64 active, 256 total); stop active sentinels or close their Team".into());
-        }
-        if params
-            .until
-            .as_ref()
-            .is_some_and(|bucket| !params.buckets.contains(bucket))
-        {
-            return Err("--until: name a declared bucket".into());
-        }
-        let declared = params.handlers.is_some();
-        let (routes, on_other) =
-            handlers::definitions_with_other(&params.buckets, params.routes, params.handlers)?;
-        let composition = params.paused
-            || declared
-            || !on_other.is_empty()
-            || routes.values().any(|hs| {
-                hs.len() > 1 || hs.iter().any(|h| matches!(h.action, Route::Sentinel(_)))
-            });
-        if composition && params.timeout.is_none() {
-            return Err("composition sentinels require an explicit --timeout".into());
-        }
-        let max_transitions = params
-            .max_transitions
-            .unwrap_or(handlers::DEFAULT_TRANSITIONS);
-        let max_actions = params.max_actions.unwrap_or(handlers::DEFAULT_ACTIONS);
-        if max_transitions == 0 || max_transitions > 256 || max_actions == 0 || max_actions > 1024 {
-            return Err(
-                "sentinel budgets must be positive, at most 256 transitions and 1024 actions"
-                    .into(),
-            );
-        }
-        let now = self.clock.now_ms();
-        let expires_at = params
-            .timeout
-            .as_deref()
-            .map(duration_ms)
-            .transpose()?
-            .map(|duration| now.saturating_add(duration));
-        let id = format!(
-            "sentinel_{}",
-            &uuid::Uuid::new_v4().simple().to_string()[..12]
-        );
-        let job = Sentinel {
-            id: id.clone(),
-            team_id: team,
-            creator_tab_id: creator,
-            workspace_id: workspace,
-            cwd,
-            probe,
-            question: params.question,
-            buckets: params.buckets,
-            interval_ms,
-            routes,
-            matches: params.matches,
-            rearm_on_change: params.rearm_on_change,
-            until: params.until,
-            expires_at,
-            next_run: now,
-            machine: Machine {
-                paused: params.paused,
-                ..Machine::default()
-            },
-            last_reason: None,
-            revision: 0,
-            agent_authored: false,
-            name: params.name,
-            scenario_id: if params.paused { None } else { Some(id) },
-            max_transitions,
-            max_actions,
-            transitions: Vec::new(),
-            run_transitions: 0,
-            observe,
-            run: None,
-            on_other,
-            escalation_timeout_ms: params.escalation_timeout_ms,
-            definition_version: amend::initial_version(),
-            amendments: Vec::new(),
-        };
-        source::validate(&job)?;
-        escalation::validate(&job)?;
-        Ok(job)
-    }
-
     pub(crate) fn stage_insert(&mut self, job: Sentinel) -> Staged<Sentinel> {
         if let Err(error) = self.ensure_available() {
             return Staged::ready(Err(error));
@@ -544,10 +262,10 @@ impl Store {
         if self.jobs.len() >= MAX_SENTINELS
             || (!job.machine.paused && self.active_count() >= MAX_ACTIVE)
         {
-            return Staged::ready(Err("sentinel capacity reached".into()));
+            return Staged::ready(Err("blueprint capacity reached".into()));
         }
         if self.get(&job.id).is_some() {
-            return Staged::ready(Err("duplicate sentinel ID".into()));
+            return Staged::ready(Err("duplicate blueprint ID".into()));
         }
         let association_ids = match self.association_ids(&job) {
             Ok(ids) => ids,
@@ -636,7 +354,7 @@ impl Store {
 
     pub(crate) fn stage_stop(&mut self, id: &str, reason: &str) -> Staged<Sentinel> {
         let Some(current) = self.get(id).cloned() else {
-            return Staged::ready(Err(format!("sentinel not found: {id}")));
+            return Staged::ready(Err(format!("blueprint not found: {id}")));
         };
         let notice = (!current.machine.stopped).then(|| StopNotice::new(&current, reason));
         if let Some(cancelled) = self.active.remove(id) {
@@ -646,7 +364,7 @@ impl Store {
             return self.sqlite_stop(id, reason, notice);
         }
         let Some(stopped) = self.apply_stop(id, reason) else {
-            return Staged::ready(Err(format!("sentinel not found: {id}")));
+            return Staged::ready(Err(format!("blueprint not found: {id}")));
         };
         match self.save_legacy() {
             Ok(()) => {
@@ -718,7 +436,7 @@ impl Store {
             .map(|job| job.id.clone())
             .collect();
         if !owned.iter().any(|candidate| candidate == id) {
-            return Staged::ready(Err(format!("Sentinel scenario not found: {id}")));
+            return Staged::ready(Err(format!("Blueprint scenario not found: {id}")));
         }
         for job_id in &owned {
             if let Some(cancelled) = self.active.remove(job_id) {
@@ -802,11 +520,11 @@ impl Store {
             return Staged::ready(Err(error));
         }
         let Some(current) = self.get(id).cloned() else {
-            return Staged::ready(Err(format!("sentinel not found: {id}")));
+            return Staged::ready(Err(format!("blueprint not found: {id}")));
         };
         if current.machine.held.as_deref() != Some(transition_id) {
             return Staged::ready(Err(
-                "sentinel escalation is not open for that transition".into()
+                "blueprint escalation is not open for that transition".into()
             ));
         }
         if let Some(cancelled) = self.active.remove(id) {
@@ -824,6 +542,14 @@ impl Store {
             return false;
         };
         if job.machine.stopped || job.machine.paused || job.machine.held.is_some() {
+            return false;
+        }
+        if job.pipeline.as_ref().is_some_and(|pipeline| {
+            matches!(
+                &pipeline.trigger,
+                codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+            )
+        }) {
             return false;
         }
         self.wake_pending.insert(id.into())
@@ -907,18 +633,18 @@ impl Store {
     pub fn validate_target(&self, source: &Sentinel, id: &str) -> Result<(), String> {
         self.ensure_available()?;
         if source.id == id {
-            return Err("sentinel cannot activate itself".into());
+            return Err("blueprint cannot activate itself".into());
         }
-        let target = self.get(id).ok_or("sentinel target not found")?;
+        let target = self.get(id).ok_or("blueprint target not found")?;
         if !source.same_owner(target) {
-            return Err("sentinel target requires the same creator, Team and workspace".into());
+            return Err("blueprint target requires the same creator, Team and workspace".into());
         }
         if target.machine.stopped
             || target
                 .expires_at
                 .is_some_and(|at| self.clock.now_ms() >= at)
         {
-            return Err("sentinel target is stopped or expired".into());
+            return Err("blueprint target is stopped or expired".into());
         }
         Ok(())
     }
@@ -943,14 +669,26 @@ impl Store {
             Ok(false) => return Staged::ready(Ok(false)),
             Err(error) => return Staged::ready(Err(error)),
         }
+        let now = self.clock.now_ms();
+        let input_activation = self.get(id).is_some_and(|target| {
+            target.pipeline.as_ref().is_some_and(|pipeline| {
+                matches!(
+                    &pipeline.trigger,
+                    codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                )
+            })
+        });
         if !self.backend.is_json() {
-            return self.sqlite_activate(source, transition, id);
+            return self.sqlite_activate(source, transition, id, input_activation.then_some(now));
         }
         let previous = self.jobs.clone();
         let Some(target) = self.jobs.iter_mut().find(|job| job.id == id) else {
-            return Staged::ready(Err("sentinel target disappeared".into()));
+            return Staged::ready(Err("blueprint target disappeared".into()));
         };
         target.machine.paused = false;
+        if input_activation {
+            target.next_run = now;
+        }
         target.revision += 1;
         if let Err(error) = self.save_legacy() {
             self.jobs = previous;
@@ -967,16 +705,16 @@ impl Store {
         id: &str,
     ) -> Result<bool, String> {
         if !self.action_permitted(source, transition) {
-            return Err("sentinel activation source fenced".into());
+            return Err("blueprint activation source fenced".into());
         }
         let current = self
             .get(&source.id)
-            .ok_or("sentinel activation source disappeared")?;
+            .ok_or("blueprint activation source disappeared")?;
         let transition = current
             .transitions
             .iter()
             .find(|record| record.id == transition)
-            .ok_or("sentinel activation transition disappeared")?;
+            .ok_or("blueprint activation transition disappeared")?;
         let declared_claim = current
             .routes
             .get(&transition.bucket)
@@ -991,19 +729,19 @@ impl Store {
                 })
             });
         if !declared_claim {
-            return Err("sentinel activation requires its declared durable handler claim".into());
+            return Err("blueprint activation requires its declared durable handler claim".into());
         }
         self.validate_target(source, id)?;
         if !self
             .get(id)
-            .ok_or("sentinel target disappeared")?
+            .ok_or("blueprint target disappeared")?
             .machine
             .paused
         {
             return Ok(false);
         }
         if self.active_count() >= MAX_ACTIVE {
-            return Err("sentinel active capacity reached".into());
+            return Err("blueprint active capacity reached".into());
         }
         Ok(true)
     }
@@ -1077,21 +815,55 @@ impl Store {
                 let active = self.active.contains_key(&job.id);
                 let waiting_for_run = matches!(job.observe.as_ref(), Some(TabBinding::CronRun(_)))
                     && job.run.is_none();
-                let next = if job.machine.paused || active || waiting_for_run {
-                    None
-                } else if job.machine.held.is_some() {
-                    super::escalation::expiry_at(job)
-                } else if self.wake_pending.contains(&job.id) {
-                    Some(now)
-                } else {
-                    Some(job.next_run)
-                };
+                let event_trigger = job.pipeline.as_ref().is_some_and(|pipeline| {
+                    matches!(
+                        &pipeline.trigger,
+                        codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+                    )
+                });
+                let input_waiting = job.pipeline.as_ref().is_some_and(|pipeline| {
+                    matches!(
+                        &pipeline.trigger,
+                        codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                    ) && job.next_run == codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS
+                });
+                let next =
+                    if event_trigger || (input_waiting && !self.wake_pending.contains(&job.id)) {
+                        None
+                    } else if job.machine.paused || active || waiting_for_run {
+                        None
+                    } else if job.machine.held.is_some() {
+                        super::escalation::expiry_at(job)
+                    } else if self.wake_pending.contains(&job.id) {
+                        Some(now)
+                    } else {
+                        Some(job.next_run)
+                    };
                 next.into_iter().chain(job.expires_at)
             })
             .min()
             .map(|at| at.saturating_sub(now))
             .unwrap_or(60_000)
             .min(60_000)
+    }
+
+    pub fn event_wait_only(&self) -> bool {
+        let live = self
+            .jobs
+            .iter()
+            .filter(|job| !job.machine.stopped)
+            .collect::<Vec<_>>();
+        !live.is_empty()
+            && live.iter().all(|job| {
+                job.expires_at.is_none()
+                    && job.pipeline.as_ref().is_some_and(|pipeline| {
+                        matches!(
+                            &pipeline.trigger,
+                            codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+                                | codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                        )
+                    })
+            })
     }
 }
 
@@ -1148,3 +920,7 @@ fn apply_finish(current: &mut Sentinel, job: &Sentinel, transition: Option<Trans
 mod due;
 pub(super) use due::transition_budget_spent;
 use due::{plan_due, scheduled_stop_notices};
+
+mod validate;
+pub use validate::duration_ms;
+pub(in crate::sentinel) use validate::validate;

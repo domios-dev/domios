@@ -1,7 +1,7 @@
 pub fn validate_sentinel_name(name: &str) -> Result<(), String> {
     validate(
         name,
-        "Sentinel graph",
+        "Blueprint graph",
         "describe what is watched and what happens",
         "sentinel",
     )

@@ -249,7 +249,7 @@ pub fn validate(
         }
     }
     if ids.len() > MAX_HANDLERS {
-        return Err("at most 64 handlers per sentinel".into());
+        return Err("at most 64 handlers per blueprint".into());
     }
     Ok(())
 }
@@ -487,7 +487,7 @@ impl Store {
         if !self.batch_live(job, transition_id) {
             return Ok(Gate::Refuse);
         }
-        let current = self.get(&job.id).ok_or("sentinel disappeared")?;
+        let current = self.get(&job.id).ok_or("blueprint disappeared")?;
         let transition = current
             .transitions
             .iter()

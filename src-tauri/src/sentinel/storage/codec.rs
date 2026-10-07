@@ -15,8 +15,8 @@ use crate::storage::{
     DefinitionUpdate, EscalateTarget as StoredEscalateTarget, HandlerAction, HandlerDefinition,
     HandlerResultRecord, HandlerStatus, NewTransition, ObserveKind, ObserveSource, RunRecord,
     RuntimeOutcome, SafeKind as StoredSafeKind, SentinelCreate, SentinelId, SentinelIdentity,
-    SentinelImport, SentinelScope, StageDefinition, StageRuntime, StoredDefinition, StoredSentinel,
-    TargetIdentity, TransitionRecord,
+    SentinelImport, SentinelScope, StageDefinition, StageRuntime, StageSource, StoredDefinition,
+    StoredSentinel, TargetIdentity, TransitionRecord,
 };
 
 pub(super) fn id(id: &str) -> Result<SentinelId, String> {
@@ -305,7 +305,7 @@ fn domain_transition(record: TransitionRecord) -> Transition {
     }
 }
 
-/// Refuses any definition whose buckets, routes and matches would not round-trip exactly.
+/// Refuses any definition whose source, buckets, routes and matches would not round-trip.
 fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
     let declared: BTreeSet<&String> = job.buckets.iter().collect();
     let exact = declared.len() == job.buckets.len()
@@ -315,6 +315,12 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
     if !exact {
         return Err("sentinel definition is not losslessly representable".into());
     }
+    let source = match (&job.probe, &job.observe, &job.input) {
+        (probe, None, None) if !probe.is_empty() => StageSource::Probe(probe.clone()),
+        (probe, Some(binding), None) if probe.is_empty() => StageSource::Observe(observe(binding)),
+        (probe, None, Some(input)) if probe.is_empty() => StageSource::Input(input.clone()),
+        _ => return Err("sentinel definition is not losslessly representable".into()),
+    };
     let buckets = job
         .buckets
         .iter()
@@ -327,8 +333,8 @@ fn definition(job: &Sentinel) -> Result<StageDefinition, String> {
         .collect();
     Ok(StageDefinition {
         name: job.name.clone(),
-        probe: job.probe.clone(),
-        observe: job.observe.as_ref().map(observe),
+        source,
+        pipeline: job.pipeline.clone(),
         question: job.question.clone(),
         interval_ms: job.interval_ms,
         until: job.until.clone(),
@@ -356,6 +362,11 @@ pub(super) fn update_definition(
 
 pub(super) fn history_version(stored: StoredDefinition) -> DefinitionVersion {
     let definition = stored.definition;
+    let (probe, observe, input) = match definition.source {
+        StageSource::Probe(command) => (command, None, None),
+        StageSource::Observe(source) => (String::new(), Some(domain_observe(source)), None),
+        StageSource::Input(input) => (String::new(), None, Some(input)),
+    };
     let mut buckets = Vec::with_capacity(definition.buckets.len());
     let mut routes = BTreeMap::new();
     let mut matches = BTreeMap::new();
@@ -388,8 +399,10 @@ pub(super) fn history_version(stored: StoredDefinition) -> DefinitionVersion {
         .into(),
         definition: DefinitionSnapshot {
             name: definition.name,
-            probe: definition.probe,
-            observe: definition.observe.map(domain_observe),
+            pipeline: definition.pipeline,
+            probe,
+            observe,
+            input,
             question: definition.question,
             interval_ms: definition.interval_ms,
             buckets,
@@ -513,6 +526,11 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
     let record = stored.record.clone();
     let definition_version = record.definition.version;
     let definition = record.definition.definition;
+    let (probe, observe, input) = match definition.source {
+        StageSource::Probe(command) => (command, None, None),
+        StageSource::Observe(source) => (String::new(), Some(domain_observe(source)), None),
+        StageSource::Input(input) => (String::new(), None, Some(input)),
+    };
     let mut buckets = Vec::with_capacity(definition.buckets.len());
     let mut routes = BTreeMap::new();
     let mut matches = BTreeMap::new();
@@ -535,7 +553,7 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
         creator_tab_id: record.identity.scope.creator_tab_id,
         workspace_id: record.identity.scope.workspace_id,
         cwd: record.identity.cwd,
-        probe: definition.probe,
+        probe,
         question: definition.question,
         buckets,
         interval_ms: definition.interval_ms,
@@ -565,7 +583,8 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
             .into_iter()
             .map(domain_transition)
             .collect(),
-        observe: definition.observe.map(domain_observe),
+        observe,
+        input,
         run: runtime.run.map(|run| RunBinding {
             run_id: run.run_id,
             tab_id: run.tab_id,
@@ -577,6 +596,7 @@ pub(super) fn decode(stored: &StoredSentinel) -> Sentinel {
             .map(domain_handler)
             .collect(),
         escalation_timeout_ms: definition.escalation_timeout_ms,
+        pipeline: definition.pipeline,
         definition_version,
         amendments: record
             .amendments

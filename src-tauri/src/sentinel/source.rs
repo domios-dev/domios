@@ -66,12 +66,24 @@ pub(super) fn bounded_id(id: &str) -> bool {
     !id.trim().is_empty() && id.len() <= 256 && !id.chars().any(char::is_control)
 }
 
-/// A stage observes either its shell probe or a tab, only a cron-run source binds a run, and
-/// prompt answers require a tab source.
-pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
+/// A stage evaluates exactly one source: a shell probe, a tab observation or an input
+/// definition. Only a cron-run source binds a run, and prompt answers require a tab source.
+pub(crate) fn validate(job: &Sentinel) -> Result<(), String> {
+    let sources =
+        (!job.probe.is_empty() as u8) + (job.observe.is_some() as u8) + (job.input.is_some() as u8);
+    if sources != 1 {
+        return Err("invalid blueprint source: exactly one of probe, observe or input".into());
+    }
     if let Some(binding) = &job.observe {
-        if !job.probe.is_empty() || !bounded_id(binding.id()) {
-            return Err("invalid sentinel observation source".into());
+        if !bounded_id(binding.id()) {
+            return Err("invalid blueprint observation source".into());
+        }
+    }
+    if let Some(input) = &job.input {
+        codeterm_types::sentinel_input::validate(input)
+            .map_err(|error| format!("invalid blueprint input: {error}"))?;
+        if !job.rearm_on_change.is_empty() {
+            return Err("input stages cannot rearm_on_change".into());
         }
     }
     if let Some(run) = &job.run {
@@ -79,7 +91,7 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
             || !bounded_id(&run.run_id)
             || !bounded_id(&run.tab_id)
         {
-            return Err("invalid sentinel run binding".into());
+            return Err("invalid blueprint run binding".into());
         }
     }
     let answers = job

@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod automation_name;
+pub mod blueprint_pipeline;
 pub mod config;
 pub mod decision;
 pub mod domios;
@@ -8,6 +9,7 @@ pub mod message_markers;
 pub mod notification;
 pub mod plan;
 pub mod pty;
+pub mod sentinel_input;
 pub mod startup_records;
 pub mod team;
 pub mod update;

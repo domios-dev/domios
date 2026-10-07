@@ -1,6 +1,7 @@
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Weak};
 
+use codeterm_plugin::converter::ConversionCancellation;
 use parking_lot::Mutex;
 
 #[cfg(unix)]
@@ -25,6 +26,7 @@ struct State {
 #[derive(Clone, Default)]
 pub(in crate::sentinel) struct Cancellation {
     state: Arc<Mutex<State>>,
+    conversion: ConversionCancellation,
 }
 
 impl Cancellation {
@@ -35,16 +37,22 @@ impl Cancellation {
                 fixture_argv: Some(argv.into()),
                 ..State::default()
             })),
+            conversion: ConversionCancellation::default(),
         }
     }
 
     pub(in crate::sentinel) fn new(cancelled: bool) -> Self {
-        Self {
+        let cancellation = Self {
             state: Arc::new(Mutex::new(State {
                 cancelled,
                 ..State::default()
             })),
+            conversion: ConversionCancellation::default(),
+        };
+        if cancelled {
+            cancellation.conversion.cancel();
         }
+        cancellation
     }
 
     pub(in crate::sentinel) fn load(&self, _: Ordering) -> bool {
@@ -58,6 +66,7 @@ impl Cancellation {
     }
 
     pub(in crate::sentinel) fn cancel(&self) {
+        self.conversion.cancel();
         let mut state = self.state.lock();
         if state.cancelled {
             return;
@@ -66,6 +75,10 @@ impl Cancellation {
         if let Some(wake) = state.wake.as_ref().and_then(Weak::upgrade) {
             wake.wake();
         }
+    }
+
+    pub(in crate::sentinel) fn conversion_token(&self) -> ConversionCancellation {
+        self.conversion.clone()
     }
 
     pub(in crate::sentinel) fn register(

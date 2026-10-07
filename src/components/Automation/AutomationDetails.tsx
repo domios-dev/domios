@@ -5,7 +5,7 @@ import type { PresenceState } from "../Canvas/usePresence";
 import { AUTOMATION_BUTTON, AUTOMATION_LABEL, stateTone } from "./styles";
 import { automationState } from "./model";
 import { CommandResultFacts, isCommandResult, resultHandler, shownAsLastAccepted } from "./CommandResultDetails";
-import { automationKey, type AutomationEdge, type AutomationNode } from "./types";
+import { automationKindLabel, automationKey, type AutomationEdge, type AutomationNode } from "./types";
 
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return <section className="min-w-0"><h4 className={`${AUTOMATION_LABEL} mb-2`}>{title}</h4>{children}</section>;
@@ -76,7 +76,7 @@ export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFai
   const state = automationState(node);
   const last = node.last_result;
   const title = <div className="min-w-0">
-    <p className={AUTOMATION_LABEL}>{node.identity.kind}</p>
+    <p className={AUTOMATION_LABEL}>{automationKindLabel(node.identity.kind)}</p>
     <h3 className="truncate text-[length:var(--ct-font-size-lg)] font-semibold">{node.name}</h3>
   </div>;
   return <DetailsFrame label={`Details: ${node.name}`} title={title} onClose={onClose} panelRef={panelRef} presence={presence}>
@@ -107,7 +107,7 @@ export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFai
         {node.outcomes.length ? <ul className="space-y-2.5">{node.outcomes.map((outcome, index) => <li key={index}>
           <p className="font-medium">{outcome.bucket}</p>
           <ul className="mt-1 space-y-1 border-l border-[var(--ct-border)] pl-3">{outcome.handlers.map((handler) => <li key={handler.id} className="text-[var(--ct-muted-fg)]">
-            <span className="text-[var(--ct-fg)]">{handler.id} · {handler.type} · {handler.availability}</span> · {handler.target?.id ?? "No target"} · {handler.last_result?.status ?? "No result recorded"}{handler.last_result?.execution_id && <span className="font-mono text-xs"> · {handler.last_result.execution_id}</span>}
+            <span className="text-[var(--ct-fg)]">{handler.id} · {automationKindLabel(handler.type)} · {handler.availability}</span> · {handler.target?.id ?? "No target"} · {handler.last_result?.status ?? "No result recorded"}{handler.last_result?.execution_id && <span className="font-mono text-xs"> · {handler.last_result.execution_id}</span>}
             {isCommandResult(handler, handler.last_result) && <CommandResultFacts handlerId={handler.id} handler={handler} result={!handler.last_result || shownAsLastAccepted(node, outcome.bucket, handler) ? undefined : handler.last_result} />}
           </li>)}</ul>
         </li>)}</ul> : <p className="text-[var(--ct-muted-fg)]">None recorded</p>}
@@ -119,7 +119,7 @@ export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFai
           const target = nodes.find((candidate) => automationKey(candidate.identity) === automationKey(targetIdentity));
           return <li key={edge.id} className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--ct-border)] px-2.5 py-2">
             <span className={`rounded-full px-2 py-0.5 text-[0.6875rem] ${edge.evidence.kind === "observed" ? "bg-[color-mix(in_srgb,var(--ct-fg)_12%,transparent)] text-[var(--ct-fg)]" : "border border-dashed border-[var(--ct-border)] text-[var(--ct-muted-fg)]"}`}>{edge.evidence.kind}</span>
-            <span className="min-w-0 flex-1 break-words"> · {edge.bucket} · {edge.handler_type} · {edge.handler_id} · {edge.result?.status ?? "No result recorded"} · <span className="font-mono text-xs">{edge.evidence.kind === "configured" ? edge.evidence.route_id : edge.evidence.execution_id}</span> {outgoing ? "→" : "←"} </span>
+            <span className="min-w-0 flex-1 break-words"> · {edge.bucket} · {automationKindLabel(edge.handler_type)} · {edge.handler_id} · {edge.result?.status ?? "No result recorded"} · <span className="font-mono text-xs">{edge.evidence.kind === "configured" ? edge.evidence.route_id : edge.evidence.execution_id}</span> {outgoing ? "→" : "←"} </span>
             {target && <button type="button" className={AUTOMATION_BUTTON} onClick={() => onSelect(target)}>{target.name} · {automationState(target)}</button>}
           </li>;
         })}</ul> : <p className="text-[var(--ct-muted-fg)]">None recorded</p>}
@@ -140,10 +140,10 @@ export function AutomationDetails({ node, edges, nodes, stale, stopping, stopFai
       </Disclosure></div>
     </div></div>
     {node.identity.kind === "sentinel" && <div className="mt-5 flex flex-wrap items-center gap-3 border-t border-[var(--ct-border)] pt-4">
-      <button type="button" className={`${AUTOMATION_BUTTON} disabled:opacity-50`} disabled={!node.stop.allowed || stale || stopping} onClick={onStop}>{stopping ? "Stopping…" : "Stop Sentinel"}</button>
+      <button type="button" className={`${AUTOMATION_BUTTON} disabled:opacity-50`} disabled={!node.stop.allowed || stale || stopping} onClick={onStop}>{stopping ? "Stopping…" : "Stop Blueprint"}</button>
       {!node.stop.allowed && node.stop.reason && <p className="text-[var(--ct-muted-fg)]">{node.stop.reason}</p>}
       {stopping && <p role="status">Stop requested; waiting for authoritative state.</p>}
-      {stopFailed && <p role="alert">Sentinel stop failed. State has not been changed by this view.</p>}
+      {stopFailed && <p role="alert">Blueprint stop failed. State has not been changed by this view.</p>}
     </div>}
   </DetailsFrame>;
 }

@@ -3,26 +3,36 @@ use tauri::Manager;
 use super::machine::{EscalateTarget, Route, Verdict};
 use super::store::{Sentinel, StopNotice};
 use crate::service::message_gateway::DeliveryClass;
+use crate::service::messenger::Delivery;
 use crate::service::messenger::MessageEnvelope;
 use crate::service::notification::{NotificationOrigin, PushIntent};
 use crate::service::ServiceContext;
+use codeterm_types::blueprint_pipeline::{BlueprintOwner, BlueprintSpec};
 
-pub fn creator_live(svc: &ServiceContext, job: &Sentinel) -> bool {
+pub fn owner_live(svc: &ServiceContext, job: &Sentinel) -> bool {
     let mux = svc.mux.read();
-    mux.get_tab(&job.creator_tab_id)
-        .is_some_and(|tab| job.team_id.is_none() || tab.team_id == job.team_id)
-        && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref() == Some(&job.workspace_id)
-        && job
-            .team_id
-            .as_ref()
-            .is_none_or(|id| mux.get_team(id).is_some())
+    let creator_live = mux.get_tab(&job.creator_tab_id).is_some()
+        && mux.find_workspace_for_tab(&job.creator_tab_id).as_deref() == Some(&job.workspace_id);
+    let team_live = job.team_id.as_deref().is_some_and(|team_id| {
+        mux.get_team(team_id).is_some()
+            && mux.team_workspace(team_id).as_deref() == Some(job.workspace_id.as_str())
+    });
+    owner_is_live(job.team_id.as_deref(), creator_live, team_live)
+}
+
+pub(super) fn owner_is_live(team_id: Option<&str>, creator_live: bool, team_live: bool) -> bool {
+    if team_id.is_some() {
+        team_live
+    } else {
+        creator_live
+    }
 }
 
 pub(super) fn notify_stop(svc: &ServiceContext, notice: &StopNotice) {
     notify_lifecycle(
         svc,
         notice,
-        format!("Sentinel {} stopped", notice.sentinel_id),
+        format!("Blueprint {} stopped", notice.sentinel_id),
     );
 }
 
@@ -30,13 +40,67 @@ pub(super) fn notify_run_unbound(svc: &ServiceContext, notice: &StopNotice) {
     notify_lifecycle(
         svc,
         notice,
-        format!("Sentinel {} run observation ended", notice.sentinel_id),
+        format!("Blueprint {} run observation ended", notice.sentinel_id),
     );
+}
+
+pub(super) fn notify_trigger_unavailable(svc: &ServiceContext, job: &Sentinel, reason: &str) {
+    let recipient = {
+        let mux = svc.mux.read();
+        if let Some(team_id) = job.team_id.as_deref() {
+            mux.all_tabs()
+                .find(|tab| {
+                    tab.agent_type.is_some()
+                        && tab.anchors_team()
+                        && tab.team_id.as_deref() == Some(team_id)
+                        && mux.find_workspace_for_tab(&tab.id).as_deref()
+                            == Some(job.workspace_id.as_str())
+                })
+                .map(|tab| (tab.id.clone(), true))
+        } else {
+            mux.get_tab(&job.creator_tab_id)
+                .map(|tab| (tab.id.clone(), tab.agent_type.is_some()))
+        }
+    };
+    let Some((recipient, is_agent)) = recipient else {
+        return;
+    };
+    let reason = reason.chars().take(256).collect::<String>();
+    let title = format!("Blueprint {} trigger unavailable", job.id);
+    let message = format!(
+        "Blueprint '{}' cannot receive events: {reason}. Next step: inspect codeterm blueprint history {}",
+        job.name.as_deref().unwrap_or(&job.id),
+        job.id
+    );
+    if is_agent {
+        if let Err(error) = svc.gateway_deliver(
+            &recipient,
+            MessageEnvelope::codeterm_reminder(format!("blueprint:{}:unavailable", job.id)),
+            &message,
+            DeliveryClass::SystemNotice,
+        ) {
+            log::error!(
+                "[blueprint] unavailable notice delivery failed: {error}; blueprint={}",
+                job.id
+            );
+        }
+    } else {
+        svc.create_notification_ext(
+            title,
+            Some(message),
+            Some("warning"),
+            None,
+            None,
+            NotificationOrigin::local_tab(recipient),
+            PushIntent::default(),
+            None,
+        );
+    }
 }
 
 fn lifecycle_packet(notice: &StopNotice) -> String {
     format!(
-        "Sentinel graph '{}' ended. Reason: {}.\nNext step: codeterm sentinel history {}",
+        "Blueprint graph '{}' ended. Reason: {}.\nNext step: codeterm blueprint history {}",
         notice.name, notice.reason, notice.sentinel_id
     )
 }
@@ -58,7 +122,7 @@ fn notify_lifecycle(svc: &ServiceContext, notice: &StopNotice, title: String) {
             DeliveryClass::SystemNotice,
         ) {
             log::error!(
-                "[sentinel] lifecycle notice delivery failed: {error}; sentinel={}",
+                "[blueprint] lifecycle notice delivery failed: {error}; blueprint={}",
                 notice.sentinel_id
             );
         }
@@ -89,7 +153,7 @@ pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Ro
             let handle = svc
                 .app_handle
                 .try_state::<super::scheduler::Handle>()
-                .ok_or("sentinels not initialized")?;
+                .ok_or("blueprints not initialized")?;
             handle.store.lock().validate_target(job, target)?;
             Ok(route.clone())
         }
@@ -104,7 +168,7 @@ pub fn resolve(svc: &ServiceContext, job: &Sentinel, route: &Route) -> Result<Ro
         Route::Escalate(EscalateTarget::Creator) => Ok(route.clone()),
         Route::Escalate(EscalateTarget::Agent(target)) => {
             let Route::Send(target) = resolve_send(&svc.mux.read(), job, target)? else {
-                return Err("sentinel escalation target did not resolve to an agent".into());
+                return Err("blueprint escalation target did not resolve to an agent".into());
             };
             Ok(Route::Escalate(EscalateTarget::Agent(target)))
         }
@@ -127,7 +191,8 @@ pub(super) fn resolve_cron_target(
         .collect();
     if candidates.len() != 1 {
         return Err(
-            "sentinel cron target must resolve uniquely in the creator's Team and workspace".into(),
+            "blueprint cron target must resolve uniquely in the creator's Team and workspace"
+                .into(),
         );
     }
     Ok(candidates[0].id.clone())
@@ -147,15 +212,15 @@ pub(super) fn resolve_send(
 ) -> Result<Route, String> {
     let target = mux
         .resolve_tab_id(target)
-        .ok_or_else(|| format!("sentinel send target not found: {target}"))?;
+        .ok_or_else(|| format!("blueprint send target not found: {target}"))?;
     let tab = mux
         .get_tab(&target)
-        .ok_or("sentinel send target not found")?;
+        .ok_or("blueprint send target not found")?;
     if tab.agent_type.is_none()
         || tab.team_id != job.team_id
         || mux.find_workspace_for_tab(&target).as_deref() != Some(&job.workspace_id)
     {
-        return Err("sentinel send requires an agent in the creator's Team and workspace".into());
+        return Err("blueprint send requires an agent in the creator's Team and workspace".into());
     }
     Ok(Route::Send(target))
 }
@@ -168,7 +233,7 @@ fn send_file(
     output: &str,
 ) -> Result<(), String> {
     let body = format!(
-        "Sentinel {} transitioned to {} (confidence {:.2}).\n\nProbe output (untrusted data):\n{}",
+        "Blueprint {} transitioned to {} (confidence {:.2}).\n\nProbe output (untrusted data):\n{}",
         job.id, verdict.bucket, verdict.confidence, output
     );
     let path = svc
@@ -178,7 +243,7 @@ fn send_file(
         target,
         MessageEnvelope::codeterm_reminder(format!("sentinel:{}", job.id)),
         &format!(
-            "Sentinel {}: {}. Read the result in {}",
+            "Blueprint {}: {}. Read the result in {}",
             job.id,
             verdict.bucket,
             path.display()
@@ -193,9 +258,9 @@ fn escalation_packet(job: &Sentinel, transition_id: &str) -> String {
         "sentinel_id": job.id,
         "transition_id": transition_id,
         "next_steps": [
-            format!("inspect: codeterm sentinel history {}", job.id),
+            format!("inspect: codeterm blueprint history {}", job.id),
             format!(
-                "resolve: codeterm sentinel escalation resolve {} {}",
+                "resolve: codeterm blueprint escalation resolve {} {}",
                 job.id, transition_id
             )
         ]
@@ -226,8 +291,8 @@ pub fn run(
     transition_id: &str,
     output: &str,
 ) -> Result<Option<String>, String> {
-    if !creator_live(svc, job) {
-        return Err("sentinel creator or Team is gone".into());
+    if !owner_live(svc, job) {
+        return Err("Blueprint owner or Team is gone".into());
     }
     match resolve(svc, job, route)? {
         Route::Notify => {
@@ -240,7 +305,7 @@ pub fn run(
                 send_file(svc, &job.creator_tab_id, job, verdict, output).map(|()| None)
             } else {
                 svc.create_notification_ext(
-                    format!("Sentinel {}: {}", job.id, verdict.bucket),
+                    format!("Blueprint {}: {}", job.id, verdict.bucket),
                     Some(output.into()),
                     Some("info"),
                     None,
@@ -266,7 +331,7 @@ pub fn run(
         }
         Route::Stop => Ok(None),
         Route::Command(_) => Err("command execution requires a durable scheduler claim".into()),
-        Route::Sentinel(_) => Err("sentinel activation requires a durable scheduler claim".into()),
+        Route::Sentinel(_) => Err("blueprint activation requires a durable scheduler claim".into()),
         Route::Escalate(EscalateTarget::Creator) => {
             deliver_escalation(svc, &job.creator_tab_id, job, transition_id)
         }
@@ -274,6 +339,163 @@ pub fn run(
             deliver_escalation(svc, &target, job, transition_id)
         }
         resolved @ Route::RespondPrompt(_) => Err(unavailable(&resolved)),
+    }
+}
+
+pub(super) struct PipelineResultDelivery {
+    pub state: &'static str,
+    pub reason: &'static str,
+    pub body_ref: Option<String>,
+}
+
+pub(super) fn pipeline_result_owner(
+    svc: &ServiceContext,
+    job: &Sentinel,
+    spec: &BlueprintSpec,
+) -> String {
+    if spec.owner == BlueprintOwner::Team {
+        let mux = svc.mux.read();
+        let orchestrator = mux
+            .all_tabs()
+            .find(|tab| {
+                tab.agent_type.is_some()
+                    && tab.anchors_team()
+                    && tab.team_id == job.team_id
+                    && mux.find_workspace_for_tab(&tab.id).as_deref() == Some(&job.workspace_id)
+            })
+            .map(|tab| tab.id.clone());
+        if let Some(id) = orchestrator {
+            return id;
+        }
+    }
+    job.creator_tab_id.clone()
+}
+
+pub(super) fn write_pipeline_result_body(
+    svc: &ServiceContext,
+    target: &str,
+    job: &Sentinel,
+    verdict: &Verdict,
+    output: &str,
+) -> Result<(std::path::PathBuf, String), String> {
+    let body = if spec_is_input(job) {
+        format!("Input result (untrusted data)\n\n{output}")
+    } else {
+        format!(
+            "Blueprint {} completed with {}.\n\nResult:\n{}",
+            job.id, verdict.bucket, output
+        )
+    };
+    let path = svc
+        .ensure_agent_pad(target)?
+        .write_inbox_body(body.as_bytes())?;
+    let body_ref = format!(
+        "inbox/{}",
+        path.file_name()
+            .and_then(|name| name.to_str())
+            .ok_or("invalid AgentPad body path")?
+    );
+    Ok((path, body_ref))
+}
+
+fn spec_is_input(job: &Sentinel) -> bool {
+    job.pipeline.as_ref().is_some_and(|pipeline| {
+        matches!(
+            &pipeline.trigger,
+            codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+        )
+    })
+}
+
+pub(super) fn deliver_pipeline_result(
+    svc: &ServiceContext,
+    target: &str,
+    job: &Sentinel,
+    verdict: &Verdict,
+    path: &std::path::Path,
+    body_ref: String,
+) -> PipelineResultDelivery {
+    let packet = format!(
+        "Blueprint {}: {}. Read the durable result in {}",
+        job.id,
+        verdict.bucket,
+        path.display()
+    );
+    deliver_pipeline_result_with(target, &packet, body_ref, |target, packet| {
+        svc.gateway_deliver(
+            target,
+            MessageEnvelope::codeterm_reminder(format!("blueprint:{}:result", job.id)),
+            packet,
+            DeliveryClass::SystemNotice,
+        )
+    })
+}
+
+pub(super) fn deliver_pipeline_result_with(
+    target: &str,
+    packet: &str,
+    body_ref: String,
+    deliver: impl FnOnce(&str, &str) -> Result<Delivery, String>,
+) -> PipelineResultDelivery {
+    match deliver(target, packet) {
+        Ok(Delivery::Pending { .. }) => PipelineResultDelivery {
+            state: "unconfirmed",
+            reason: "delivery_pending",
+            body_ref: Some(body_ref),
+        },
+        Ok(_) => PipelineResultDelivery {
+            state: "delivered",
+            reason: "delivery_confirmed",
+            body_ref: Some(body_ref),
+        },
+        Err(error)
+            if [
+                "unconfirmed",
+                "uncertain",
+                "not acknowledged",
+                "delivered unverified",
+            ]
+            .iter()
+            .any(|marker| error.to_ascii_lowercase().contains(marker)) =>
+        {
+            PipelineResultDelivery {
+                state: "unconfirmed",
+                reason: "delivery_unconfirmed",
+                body_ref: Some(body_ref),
+            }
+        }
+        Err(_) => PipelineResultDelivery {
+            state: "failed",
+            reason: "delivery_failed",
+            body_ref: Some(body_ref),
+        },
+    }
+}
+
+pub(super) fn notify_pipeline_result(
+    svc: &ServiceContext,
+    job: &Sentinel,
+    verdict: &Verdict,
+    path: &std::path::Path,
+    body_ref: String,
+) -> PipelineResultDelivery {
+    svc.create_notification_ext(
+        format!("Blueprint {}: {}", job.id, verdict.bucket),
+        Some(format!(
+            "Read the durable result in {} ({body_ref})",
+            path.display()
+        )),
+        Some("info"),
+        None,
+        None,
+        NotificationOrigin::local_tab(job.creator_tab_id.clone()),
+        PushIntent::default(),
+        None,
+    );
+    PipelineResultDelivery {
+        state: "delivered",
+        reason: "notification_recorded",
+        body_ref: Some(body_ref),
     }
 }
 
@@ -305,7 +527,7 @@ mod tests {
 
         assert_eq!(
             lifecycle_packet(&notice),
-            "Sentinel graph 'Budget watch' ended. Reason: transition_budget_exhausted.\nNext step: codeterm sentinel history sentinel_budget"
+            "Blueprint graph 'Budget watch' ended. Reason: transition_budget_exhausted.\nNext step: codeterm blueprint history sentinel_budget"
         );
     }
 
@@ -344,9 +566,9 @@ mod tests {
         assert_eq!(
             packet["next_steps"],
             serde_json::json!([
-                format!("inspect: codeterm sentinel history {}", job.id),
+                format!("inspect: codeterm blueprint history {}", job.id),
                 format!(
-                    "resolve: codeterm sentinel escalation resolve {} transition_one",
+                    "resolve: codeterm blueprint escalation resolve {} transition_one",
                     job.id
                 )
             ])
