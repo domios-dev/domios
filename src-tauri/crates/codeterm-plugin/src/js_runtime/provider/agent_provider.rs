@@ -9,14 +9,12 @@ use crate::provider::{
     self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, LaunchArtifactSweepReport,
     LaunchArtifactSweepRequest, ModelGroup, ModelGroupUsage, ModelInfo, ProviderReadinessStrategy,
     ProviderTrust, ProviderUpdateAvailability, ReadinessStrategy, ReasoningEffortInfo,
-    ReplyRelayTurn, SessionIdInjection, SessionMessage, SessionMetadata, SettingField,
+    ReplyRelayEvidence, SessionIdInjection, SessionMessage, SessionMetadata, SettingField,
     SystemPromptDelivery, TaskDelivery, UsageSourceSpec, VerifySubmitStrategy,
 };
 use codeterm_types::pty::PendingPrompt;
 
-use super::super::{
-    call_json, manifest_settings_sections, IntegrationKind, PluginManifest, SerdeModelInfo,
-};
+use super::super::{call_json, manifest_settings_sections, IntegrationKind, SerdeModelInfo};
 use super::command_template::{launch_command_from_template, resume_command_from_template};
 use super::wire::{
     launch_params_to_json, SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES,
@@ -510,11 +508,20 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.session_id_injection.into()
     }
 
+    fn is_tool_less(&self) -> bool {
+        self.manifest.capabilities.tool_less
+    }
+
     fn supports_reply_relay(&self) -> bool {
         self.has_reply_relay
     }
 
-    fn read_reply_relay_turn(&self, cwd: &str, sid: &str, after: u64) -> Option<ReplyRelayTurn> {
+    fn read_reply_relay_turn(
+        &self,
+        cwd: &str,
+        sid: &str,
+        after: u64,
+    ) -> Option<ReplyRelayEvidence> {
         super::reply_relay::read(self, cwd, sid, after)
     }
 
@@ -1086,36 +1093,11 @@ impl AgentProvider for JsProvider {
     }
 
     fn install_bridge_rule(&self, payload: &str) -> Result<(), String> {
-        // manifest.rule.path when present — keeps the contract honest for plugins that declared the path but skipped the JS.
-        if let Some(r) = self.try_call_result("installBridgeRule", &[json!(payload)]) {
-            return r;
-        }
-        let Some(rule) = self.manifest.rule.as_ref() else {
-            return Ok(());
-        };
-        let path = PluginManifest::expand_home(&rule.path)
-            .ok_or_else(|| "rule.path: home dir not resolvable".to_string())?;
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| format!("create {}: {e}", parent.display()))?;
-        }
-        std::fs::write(&path, payload).map_err(|e| format!("write {}: {e}", path.display()))
+        self.install_bridge_rule_from_manifest(payload)
     }
 
     fn uninstall_bridge_rule(&self) -> Result<(), String> {
-        if let Some(r) = self.try_call_result("uninstallBridgeRule", &[]) {
-            return r;
-        }
-        let Some(rule) = self.manifest.rule.as_ref() else {
-            return Ok(());
-        };
-        let Some(path) = PluginManifest::expand_home(&rule.path) else {
-            return Ok(());
-        };
-        if !path.exists() {
-            return Ok(());
-        }
-        std::fs::remove_file(&path).map_err(|e| format!("remove {}: {e}", path.display()))
+        self.uninstall_bridge_rule_from_manifest()
     }
 
     fn check_integration(&self) -> serde_json::Value {

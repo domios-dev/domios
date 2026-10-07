@@ -947,6 +947,24 @@ impl ServiceContext {
             agent.role.as_deref(),
             agent.role_profile.as_deref(),
         );
+        let wrapped_task = if self
+            .agent_registry
+            .with_provider(&agent.provider, |provider| provider.is_tool_less())
+            .unwrap_or(false)
+        {
+            wrapped_task.map(|task| self.spawn_task_message(&tab_id, &task).unwrap_or(task))
+        } else {
+            wrapped_task
+        };
+        let relay_nonce = {
+            self.mux
+                .read()
+                .get_tab(&tab_id)
+                .and_then(|tab| tab.session_binding_nonce.clone())
+        };
+        if let Some(nonce) = relay_nonce {
+            self.arm_spawn_reply_relay(&tab_id, &nonce);
+        }
         // later (after the cron registry links tab→run).
         if let Some(ref worker_id) = agent.worker_id {
             let mem_cfg = crate::config::memory_config();

@@ -236,6 +236,13 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string())
                 .and_then(|s| mux.write().resolve_tab_id(&s));
+            svc.as_ref()
+                .require_managed_send_allowed(&resolved_target, source_tab.as_deref())
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?;
             let writes_pty = svc.as_ref().tab_chat_backing(&resolved_target).is_none();
             if writes_pty && svc.as_ref().has_public_send_launch_gate(&resolved_target) {
                 if let Err(detail) = svc.as_ref().await_public_send_readiness(

@@ -84,6 +84,7 @@ mod plan_pause;
 mod plan_reconcile;
 mod prompt_chain;
 pub(crate) use plan_reconcile::tab_has_live_agent;
+pub mod managed_tabs;
 pub mod plugin_host;
 pub mod plugin_skills;
 pub(crate) mod provider_identity;
@@ -129,6 +130,7 @@ pub(crate) mod spawn_title;
 pub(crate) mod startup_lease;
 pub(crate) mod startup_nudge;
 mod status_reconciliation;
+pub(crate) mod stop_execution;
 pub(crate) mod tab_stop;
 pub(crate) mod turn_resume;
 #[cfg(test)]
@@ -405,6 +407,7 @@ pub struct ServiceContext {
     pub(crate) pending_delivery_payloads:
         Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
     pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
+    pub(crate) reply_relays: Arc<reply_relay::ReplyRelayRegistry>,
     pub(crate) deferred_session_bindings:
         Arc<session_binding_deferral::DeferredSessionBindingRegistry>,
     pub(crate) worker_identity_allocator:

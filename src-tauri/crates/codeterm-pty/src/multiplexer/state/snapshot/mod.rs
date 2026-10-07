@@ -70,9 +70,17 @@ impl MultiplexerState {
             .generation
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             .wrapping_add(1);
+        let mut tabs = self.tabs.clone();
+        for tab in tabs.values_mut() {
+            if let Some(managed) = &mut tab.managed {
+                if !self.tabs.contains_key(&managed.manager_tab_id) {
+                    managed.manager_closed = true;
+                }
+            }
+        }
         MultiplexerSnapshot {
             workspaces: self.live_workspace_tabs(),
-            tabs: self.tabs.clone(),
+            tabs,
             teams: self.list_teams(),
             active_workspace_id: self.active_workspace_id.clone(),
             focused_tab_id: self.focused_tab_id.clone(),
@@ -155,6 +163,7 @@ impl MultiplexerState {
                     prior_session_bindings: p.prior_session_binding_nonces.clone(),
                     task_binding: p.task_binding.clone(),
                     roleless_tracked: p.roleless_tracked,
+                    managed: p.managed.clone(),
                     lifecycle_epoch: p.lifecycle_epoch,
                     lifecycle_operation_id: p.lifecycle_operation_id.clone(),
                 }),
@@ -597,6 +606,9 @@ fn install_leaf(
             lifecycle_operation_id: restored_identity
                 .and_then(|identity| identity.lifecycle_operation_id.clone()),
             task_binding: restored_identity.and_then(|identity| identity.task_binding.clone()),
+            managed: agent_identity
+                .as_ref()
+                .and_then(|identity| identity.managed.clone()),
             roleless_tracked: restored_identity
                 .map(|identity| identity.roleless_tracked)
                 .unwrap_or(false),

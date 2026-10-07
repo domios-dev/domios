@@ -162,3 +162,7 @@ Durable knowledge for every agent on the machine: facts, notes, preferences and 
 - **The repository toolchain.** Canonical builds, tests, release workflows and the build gateway serve the project, not the running product. Release and canonical verification point to it instead of to a core part.
 - **External engines.** Speech recognition, provider CLIs and model APIs sit behind contracts the core owns; the core never absorbs them.
 - **Views without authority.** Mission Control, the plan canvas, Analytics and the Mesh tab are presentations inside the UI client; the authority behind them stays in plans, host state and the mesh.
+
+Tool-less providers declare `toolLess` as a class capability. Agent-created tabs in this class are managed by their creator: users can observe and stop a generation through the provider stop contract, while agent tabs can send work. Closing the manager returns input ownership to the user. User-created tabs remain user-owned.
+
+Reply relay additionally requires `replyRelay` and authoritative completion evidence from the exact bound session. Routed work, including a spawn brief, receives one final answer or explicit failure notice. History and completion sidecar events drive observation; missing activation evidence yields an unavailable notice. Replies carry bounded hops and use the ordinary routed send path. Session identity, launch generation, original user boundary and payload must match before any answer is relayed.
