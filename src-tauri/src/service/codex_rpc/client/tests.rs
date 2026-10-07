@@ -110,7 +110,6 @@ async fn codex_rpc_control_history_paginates_turns_and_items_without_jsonl() {
     let snapshot =
         tokio::spawn(async move { super::super::transcript::history(&reader, "bound").await });
     for (method, cursor, turn, response) in [
-        ("thread/resume", None, None, json!({})),
         (
             "thread/turns/list",
             None,
@@ -156,9 +155,6 @@ async fn codex_rpc_control_history_paginates_turns_and_items_without_jsonl() {
         assert_eq!(request["params"]["threadId"], "bound");
         assert_eq!(request["params"]["cursor"].as_str(), cursor);
         assert_eq!(request["params"]["turnId"].as_str(), turn);
-        if method == "thread/resume" {
-            assert_eq!(request["params"]["excludeTurns"], true);
-        }
         if method == "thread/turns/list" {
             assert_eq!(request["params"]["itemsView"], "notLoaded");
         }
