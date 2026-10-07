@@ -38,7 +38,7 @@ Restart an observed live agent: send its provider exit command, wait up to `grac
 Failures after acceptance include `error` plus the same transition fields. Every boolean stays false unless that leg was observed; `new_pty_id` appears only if a replacement PTY was linked. Rejections (`400`, `404`, `429`) precede acceptance and keep compact error bodies. A failed restart is never returned in the ready `202` shape.
 
 CLI: `codeterm agent restart --tab TAB_ID [--force] [--grace-secs N] [--provider PROVIDER [--handoff-history]]`.
-Changing providers starts a fresh target session and drops source-provider launch settings. `--handoff-history` adds bounded, redacted context from the source tab's transcript to the target launch task.
+Provider changes discard source launch settings; history handoff requires explicit opt-in.
 With `--mesh PEER`, `--tab TAB_ID` is required and identifies a Tab on that peer; the local caller's `CODETERM_TAB_ID` is never used.
 
 #### Agent Model Switch (POST /api/tabs/{id}/agent/model)
@@ -194,4 +194,4 @@ Plan surface contracts — planner authority over task structure, partial `plan 
 
 A provider declaring model-provider configuration support accepts `preset` on PTY spawn: Domios resolves its owned model and agent launch arguments before tab creation. See `codeterm docs INTEGRATIONS` for endpoint keys and preset commands. Provider changes publish versioned catalogue events; selectors refresh without reloading. OpenCode advertises per-model variants as reasoning levels, passed at launch and live switch. Model-switch responses and the chip expose the live or restart/resume path.
 
-<!-- revision: 51 -->
+<!-- revision: 52 -->
