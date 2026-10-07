@@ -1,3 +1,4 @@
+import { ComposerCard } from "./ComposerCard";
 import { Clock3 } from "lucide-react";
 import type { ReactNode } from "react";
 import { VoicePreview } from "./voice/VoicePreview";
@@ -11,10 +12,16 @@ export function ComposerInputShell({
   voiceUi,
   onSchedule,
   children,
+  header,
+  footer,
+  actions,
 }: {
   voiceUi: ComposerVoiceHandle;
   onSchedule?: () => void;
   children: ReactNode;
+  header?: ReactNode;
+  footer?: ReactNode;
+  actions?: ReactNode;
 }) {
   const {
     voice,
@@ -32,14 +39,15 @@ export function ComposerInputShell({
   } = voiceUi;
 
   return (
-    <div
-      ref={shellRef}
-      data-testid="composer-input-shell"
-      className="ct-composer-input-shell relative flex min-h-10 flex-1 items-center rounded-[1.35rem] border px-3.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] focus-within:ring-2 focus-within:ring-[var(--ct-accent)]"
-      style={{
-        background: "var(--ct-bg-elev, var(--ct-surface, #161b22))",
-        borderColor: "var(--ct-border, #30363d)",
-      }}
+    <ComposerCard ref={shellRef}
+      header={!composerHidden ? header : undefined}
+      footer={<>
+        <div className={composerHidden ? "invisible flex flex-wrap items-center gap-1" : "flex flex-wrap items-center gap-1"} inert={composerHidden || undefined}>{footer}</div>
+        {!composerHidden && <div className="flex items-center gap-2">
+          {actions}
+          {mainIsSend && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}
+        </div>}
+      </>}
     >
       {composerHidden && (
         <div className="absolute inset-1 z-10 flex items-center px-1.5">
@@ -70,10 +78,7 @@ export function ComposerInputShell({
       >
         {children}
       </div>
-      {!composerHidden && mainIsSend && onSchedule && (
-        <ComposerScheduleButton onSchedule={onSchedule} />
-      )}
-    </div>
+    </ComposerCard>
   );
 }
 

@@ -1,10 +1,15 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Clock3, Image as ImageIcon, Paperclip, X } from "lucide-react";
+import { ComposerBubbleRow } from "./ComposerBubbles";
+import { ComposerDock } from "./ComposerDock";
+import { useComposerLayout } from "./useComposerLayout";
+import { evaluateWhen } from "../../lib/evaluateWhen";
 import { ComposerActions } from "./ComposerActions";
 import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
 import { supportsLiveModelSwitch } from "../../lib/modelSwitch";
 import { getTabModelApi } from "../Sidebar/tabModelApi";
+import { ComposerContextMeter } from "./ComposerContextMeter";
+import { useComposerRecall } from "./useComposerRecall";
 import { PtyModelChip } from "./PtyModelChip";
 import { isModelSelectable, modelAvailability } from "../../lib/modelAvailability";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
@@ -29,10 +34,9 @@ import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 import { TabTaskStrip } from "./TabTaskStrip";
 import { ComposerJobChips } from "./ComposerJobChips";
 import { useMuxSelector } from "../../store/multiplexer";
-import { COMPOSER_MIN_HEIGHT, applyComposerAutosize } from "./composerAutosize";
+import { COMPOSER_MIN_HEIGHT } from "./composerAutosize";
 import {
   beginComposition,
-  compositionDefersAutosize,
   createCompositionGate,
   endComposition,
   isImeKeyEvent,
@@ -72,101 +76,6 @@ function cliFallbackCommandPayload(text: string): string | null {
   const trimmed = text.trim();
   if (!CLI_FALLBACK_COMMANDS.has(trimmed)) return null;
   return `${trimmed}\r`;
-}
-
-function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void }) {
-  const name = path.split(/[\\/]/).pop() || path;
-  const Icon = /\.(avif|bmp|gif|heic|heif|ico|jpe?g|png|svg|tiff?|webp)$/i.test(name) ? ImageIcon : Paperclip;
-  return (
-    <div
-      data-testid="attachment-chip"
-      className="inline-flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-full px-2.5 text-xs font-mono"
-      style={{
-        background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, transparent)",
-        color: "var(--ct-fg, #c9d1d9)",
-        border: "1px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 35%, transparent)",
-      }}
-    >
-      <Icon size={12} aria-hidden="true" className="shrink-0 opacity-70" />
-      <span className="min-w-0 max-w-[200px] truncate" title={path}>{name}</span>
-      <button
-        type="button"
-        onClick={onRemove}
-        className="shrink-0 rounded-full opacity-60 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ct-accent)]"
-        style={{ background: "transparent", border: "none", padding: 0, cursor: "pointer", color: "inherit" }}
-        title="Remove"
-        aria-label={`Remove ${name}`}
-      >
-        <X size={12} aria-hidden="true" />
-      </button>
-    </div>
-  );
-}
-
-function ComposerBubbleRow({
-  attachments,
-  onRemove,
-  queuedCount,
-  failedCount,
-  onOpenDelayedQueue,
-  modelBubble,
-}: {
-  attachments: string[];
-  onRemove: (path: string) => void;
-  queuedCount: number;
-  failedCount: number;
-  onOpenDelayedQueue: () => void;
-  modelBubble?: ReactNode;
-}) {
-  if (attachments.length === 0 && queuedCount === 0 && failedCount === 0 && !modelBubble) return null;
-  const visible = attachments.slice(0, 4);
-  const overflow = attachments.length - visible.length;
-  return (
-    <div
-      data-testid="composer-bubble-row"
-      className="contents"
-    >
-      {visible.map((p) => (
-        <AttachmentChip key={p} path={p} onRemove={() => onRemove(p)} />
-      ))}
-      {overflow > 0 && (
-        <span
-          data-testid="attachment-overflow-bubble"
-          className="inline-flex h-7 items-center rounded-full border px-2 text-xs font-mono"
-          style={{
-            background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 10%, transparent)",
-            borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 28%, transparent)",
-            color: "var(--ct-muted-fg)",
-          }}
-        >
-          and {overflow} more
-        </span>
-      )}
-      {modelBubble}
-      {(queuedCount > 0 || failedCount > 0) && (
-        <button
-          type="button"
-          data-testid="delayed-send-bubble"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={onOpenDelayedQueue}
-          className="inline-flex h-7 items-center gap-1 rounded-full border px-2 text-xs font-mono hover:brightness-110"
-          style={{
-            background: failedCount > 0
-              ? "color-mix(in srgb, var(--ct-red, #f85149) 12%, transparent)"
-              : "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, transparent)",
-            borderColor: failedCount > 0
-              ? "color-mix(in srgb, var(--ct-red, #f85149) 34%, transparent)"
-              : "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)",
-            color: failedCount > 0 ? "var(--ct-red, #f85149)" : "var(--ct-muted-fg)",
-          }}
-          title="Queued messages"
-        >
-          <Clock3 size={12} />
-          <span>{queuedCount > 0 ? `${queuedCount} queued` : `${failedCount} failed`}</span>
-        </button>
-      )}
-    </div>
-  );
 }
 
 function SlashPicker({
@@ -280,6 +189,7 @@ function ChatComposerImpl({
   showComposerError,
   onOpenTerminalFallback,
   modelBubble,
+  promptDock,
   chatBackend = false,
   isActive = true,
 }: {
@@ -306,6 +216,7 @@ function ChatComposerImpl({
   showComposerError: (message: string) => void;
   onOpenTerminalFallback?: () => void;
   modelBubble?: ReactNode;
+  promptDock?: ReactNode;
 }) {
   recordComposerRender(tabId);
   const isActiveRef = useRef(isActive);
@@ -313,6 +224,7 @@ function ChatComposerImpl({
   const pluginTabMenu = usePluginTabMenu();
 
   const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`);
+  const recall = useComposerRecall(tabId);
   const workspaceId = useMuxSelector(useCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
@@ -336,6 +248,7 @@ function ChatComposerImpl({
     currentDraftRef.current = { input, attachments, revision: currentDraft.revision + 1 };
   }
   const shellRef = useRef<HTMLDivElement>(null);
+  const { layout: composerLayout, measure: measureComposer } = useComposerLayout(input, textareaRef, shellRef, compositionGate);
   const lastSendRef = useRef<{ text: string; at: number }>({ text: "", at: 0 });
   const [delayedMessages, setDelayedMessages] = useState<DelayedMessage[]>([]);
   const [delayedQueueOpen, setDelayedQueueOpen] = useState(false);
@@ -396,20 +309,9 @@ function ChatComposerImpl({
         focus();
       }
     });
-    window.setTimeout(() => {
-      if (document.activeElement !== textareaRef.current) {
-        focus();
-      }
-    }, 0);
   }, []);
 
-  useLayoutEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    if (compositionDefersAutosize(compositionGate)) return;
-    applyComposerAutosize(el, shellRef.current);
-    recordComposerPaint();
-  }, [input, compositionGate]);
+  useLayoutEffect(() => { recordComposerPaint(); }, [input]);
 
   useEffect(() => {
     if (modelSuggestionDismissedFor && modelSuggestionDismissedFor !== firstLine) {
@@ -648,6 +550,7 @@ function ChatComposerImpl({
           observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed));
         }
       }
+      recall.remember(text);
       if (currentDraftRef.current.revision === submittedDraft.revision
         && textareaRef.current?.value === submittedDraft.input) {
         setInput("");
@@ -719,18 +622,13 @@ function ChatComposerImpl({
     }
   }, [delayedQueueOpen, delayedMessages.length]);
 
+  function openDelayedQueue() {
+    setDelayedQueueOpen((value) => !value);
+    setScheduleOpen(false);
+  }
+
   return (
-    <div
-      ref={shellRef}
-      className="relative shrink-0 border-t px-3 py-2"
-      data-testid="chat-composer-shell"
-      style={{
-        borderColor:
-          "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent)",
-        paddingBottom: "var(--ct-composer-bottom-padding, calc(0.5rem + var(--ct-safe-bottom, 0px)))",
-      }}
-    >
-      <div className="relative mx-auto w-full min-w-0 max-w-4xl">
+    <ComposerDock mode={composerLayout.mode} ref={shellRef}>
       {(scheduleOpen || delayedQueueOpen) && (
         <div className="absolute bottom-full left-0 z-30">
           {scheduleOpen && (
@@ -772,7 +670,7 @@ function ChatComposerImpl({
           role="dialog"
           aria-label="Select model"
           aria-busy={modelCatalogLoading}
-          className="mb-2 rounded-md border p-2 shadow-lg"
+          className="absolute bottom-full left-0 z-40 mb-2 max-h-80 overflow-auto rounded-md border p-2 shadow-lg"
           style={{
             background: "color-mix(in srgb, var(--ct-bg, #0d1117) 94%, black 6%)",
             borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 35%, transparent)",
@@ -853,20 +751,11 @@ function ChatComposerImpl({
       )}
       <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="composer" />
       <div className="mb-2 flex flex-wrap items-center gap-1 empty:hidden">
+      <ComposerContextMeter tabId={tabId} />
       <TabTaskStrip tabId={tabId} presentation="inline" />
       <ComposerJobChips tabId={tabId} workspaceId={workspaceId} />
-      <ComposerBubbleRow
-        attachments={attachments}
-        onRemove={removeAttachment}
-        queuedCount={queuedCount}
-        failedCount={failedCount}
-        modelBubble={modelBubble ?? (!chatBackend ? <PtyModelChip tabId={tabId} provider={providerDescriptor} onError={flagComposerError} /> : undefined)}
-        onOpenDelayedQueue={() => {
-          setDelayedQueueOpen((v) => !v);
-          setScheduleOpen(false);
-        }}
-      />
       </div>
+      {promptDock}
       <div data-testid="composer-row" className="relative">
         <ComposerActions
           onAttach={addAttachments}
@@ -879,6 +768,21 @@ function ChatComposerImpl({
           onError={flagComposerError}
           sendDisabled={!input.trim() && attachments.length === 0}
           hasText={input.trim().length > 0 || attachments.length > 0}
+          cardHeader={attachments.length > 0 && <ComposerBubbleRow
+            attachments={attachments}
+            onRemove={removeAttachment}
+            queuedCount={0}
+            failedCount={0}
+            onOpenDelayedQueue={openDelayedQueue}
+          />}
+          cardFooter={<ComposerBubbleRow
+            attachments={[]}
+            onRemove={removeAttachment}
+            queuedCount={queuedCount}
+            failedCount={failedCount}
+            modelBubble={modelBubble ?? (!chatBackend ? <PtyModelChip tabId={tabId} provider={providerDescriptor} onError={flagComposerError} /> : undefined)}
+            onOpenDelayedQueue={openDelayedQueue}
+          />}
         >
           <SlashPicker
             suggestions={pickerOpen ? suggestions : []}
@@ -902,6 +806,7 @@ function ChatComposerImpl({
             value={input}
             onChange={(e) => {
               setComposerInvalid(false);
+              recall.reset();
               setInput(e.target.value);
             }}
             onBeforeInput={(e) => {
@@ -910,6 +815,18 @@ function ChatComposerImpl({
             onKeyDown={(e) => {
               recordComposerIgnoredKey(e.key);
               if (isImeKeyEvent(compositionGate, e.nativeEvent.isComposing, e.nativeEvent.keyCode)) return;
+              const shortcutContext = { composerFocus: isActive, composing: compositionGate.active,
+                pickerOpen: pickerOpen || modelPickerOpen || modelSuggestionOpen, atStart: e.currentTarget.selectionStart === 0 };
+              if ((e.code === "ArrowUp" || e.code === "ArrowDown") && evaluateWhen("composerFocus && !composing && !pickerOpen && atStart", shortcutContext)) {
+                const previous = recall.move(input, e.code === "ArrowUp" ? -1 : 1);
+                if (previous !== undefined) { e.preventDefault(); setInput(previous); }
+                return;
+              }
+              if (e.code === "KeyS" && (e.ctrlKey || e.metaKey) && e.shiftKey && evaluateWhen("composerFocus && !composing && !pickerOpen", shortcutContext)) {
+                e.preventDefault();
+                setInput(recall.stash(input));
+                return;
+              }
               if (touchMode && e.key === "Enter" && !e.shiftKey) {
                 setPickerOpen(false);
                 setModelPickerOpen(false);
@@ -1008,7 +925,7 @@ function ChatComposerImpl({
               // Commit the finished draft once and run the autosize the gate
               // deferred; both are no-ops when state already mirrors the DOM.
               setInput(e.currentTarget.value);
-              applyComposerAutosize(e.currentTarget, shellRef.current);
+              measureComposer();
               if (typeof window !== "undefined") window.__composerPerf?.compositionEvents.push("end");
             }}
             onPaste={(e) => void handlePasteEvent(e.nativeEvent)}
@@ -1033,8 +950,7 @@ function ChatComposerImpl({
           />
         </ComposerActions>
       </div>
-      </div>
-    </div>
+    </ComposerDock>
   );
 }
 
@@ -1055,6 +971,7 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.showComposerError === b.showComposerError
   && a.onOpenTerminalFallback === b.onOpenTerminalFallback
   && a.modelBubble === b.modelBubble
+  && a.promptDock === b.promptDock
   && a.chatBackend === b.chatBackend
   && a.isActive === b.isActive
 );
