@@ -42,7 +42,8 @@ fn local_and_orchestrator_roles_keep_local_assignment() {
 fn roleless_spawn_task_stays_plain() {
     let task = role_onboarding_task(Some("inspect"), None, None).unwrap();
     assert!(task.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
-    assert!(task.ends_with("inspect"));
+    assert_eq!(task.matches("inspect").count(), 1);
+    assert!(task.ends_with(crate::prompts::MEM_MANAGEMENT.trim()));
     let primer = role_onboarding_task(None, None, None).unwrap();
     assert!(primer.starts_with(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
     assert!(primer.contains(crate::prompts::RICH_RENDERING_GUIDANCE.trim()));
@@ -371,12 +372,11 @@ fn test_build_claude_no_task() {
     if cfg!(target_os = "windows") {
         assert!(cmd.starts_with("Remove-Item Env:CLAUDECODE"));
         assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
-        assert!(cmd.ends_with(" claude --dangerously-skip-permissions"));
+        assert!(cmd.contains(" claude --dangerously-skip-permissions --settings "));
     } else {
-        assert_eq!(
-            cmd,
-            "unset CLAUDECODE && claude --dangerously-skip-permissions"
-        );
+        assert!(cmd.starts_with(
+            "unset CLAUDECODE && claude --dangerously-skip-permissions --settings "
+        ));
     }
 }
 
@@ -626,7 +626,8 @@ fn test_build_claude_with_extra_args() {
     let cmd = build_agent_command("claude", &params, None, None, &reg);
     assert!(cmd.contains("--verbose"));
     assert!(cmd.contains("--no-cache"));
-    assert!(cmd.ends_with("--verbose --no-cache"));
+    assert!(cmd.contains("--verbose --no-cache"));
+    assert_eq!(cmd.matches("--settings ").count(), 1);
 }
 
 #[test]

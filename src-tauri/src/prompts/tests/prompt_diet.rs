@@ -304,7 +304,11 @@ fn memory_management_fragment_reaches_only_target_launches() {
             let rendered = role_onboarding_task(assignment, role, kind).expect("launch prompt");
             assert_eq!(
                 rendered.matches(fragment).count(),
-                expected,
+                if kind == Some("planner") && assignment.is_none() {
+                    0
+                } else {
+                    expected
+                },
                 "{role:?}/{kind:?}"
             );
             assert!(slot_residue(&rendered).is_empty());
