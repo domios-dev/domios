@@ -3,6 +3,8 @@
 
 // ── Shared context ──
 
+import type { ModelProviderConfig } from "./modelProviders";
+
 export interface TabContext {
   cwd?: string | null;
 }
@@ -73,6 +75,8 @@ export type ViewCall = (method: string, args: unknown) => unknown;
 // Method set mirrors plugins/provider-*/plugin.js + the AgentProvider trait.
 
 export interface LaunchParams {
+  /** Absolute host-owned shared instructions file; an unreadable supplied path must refuse launch. */
+  toolLessInstructionsPath?: string;
   skipPermissions?: boolean;
   args?: string[];
   agentName?: string;
@@ -880,7 +884,7 @@ export interface AgentCommandCtx {
 }
 
 export interface AgentCommandHandler {
-  onAgentCommand(ctx: AgentCommandCtx): { result: string } | { error: string };
+  onAgentCommand(ctx: AgentCommandCtx): { result: string; catalogueChanged?: boolean } | { error: string };
 }
 
 // ── The default-export shape: every capability method optional ──
@@ -894,7 +898,8 @@ export interface PluginModule
     Partial<ChatBackend>,
     Partial<ChatPreprocessor>,
     Partial<WebhookReceiver>,
-    Partial<AgentCommandHandler> {
+    Partial<AgentCommandHandler>,
+    Partial<ModelProviderConfig> {
   statusBubble?(ctx: TabContext): StatusBubble | null;
   renderGlance?(ctx: TabContext): GlanceView;
   viewCall?: ViewCall;

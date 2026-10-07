@@ -77,6 +77,13 @@ pub(super) fn assemble_confirmed(
     if let Some(error) = facts.error {
         let mut failure = ProbeFailure::new("probe_capture_or_completion_failed");
         failure.cleanup_error(error);
+        failure.processes_confirmed = facts.parent_complete && facts.boundary_complete;
+        if !facts.parent_complete {
+            failure.unconfirmed(ResourceKind::Child);
+        }
+        if !facts.boundary_complete {
+            failure.unconfirmed(ResourceKind::ProcessGroup);
+        }
         failure.unconfirmed(ResourceKind::Capture);
         return Err(failure);
     }
@@ -87,6 +94,13 @@ pub(super) fn assemble_confirmed(
     }
     if !facts.stdout_eof || !facts.stderr_eof || !stdout.eof || !stderr.eof {
         let mut failure = ProbeFailure::new("probe_capture_eof_unconfirmed");
+        failure.processes_confirmed = facts.parent_complete && facts.boundary_complete;
+        if !facts.parent_complete {
+            failure.unconfirmed(ResourceKind::Child);
+        }
+        if !facts.boundary_complete {
+            failure.unconfirmed(ResourceKind::ProcessGroup);
+        }
         failure.unconfirmed(ResourceKind::Capture);
         return Err(failure);
     }

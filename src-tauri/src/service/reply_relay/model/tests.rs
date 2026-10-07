@@ -439,3 +439,39 @@ fn consumed_turn_watermark_keeps_long_sessions_bounded_without_relay_replay() {
         .observe(source(), Some(&completed()), |_| true, 8)
         .is_empty());
 }
+
+#[test]
+fn unrelated_own_completed_turn_advances_cursor_without_relaying_or_confirming() {
+    let pending = pending();
+    let mut model = ReplyRelayModel::default();
+    assert!(model.record(pending.clone()));
+    let mut blank = completed();
+    blank.user_text = "opaque unrelated turn".into();
+    let evidence = ReplyRelayEvidence::Answered(blank);
+    let foreign = RelaySource {
+        session_id: "foreign",
+        ..source()
+    };
+    assert!(!model.advance_past_unrelated_turn(&pending, foreign, Some(&evidence)));
+    assert!(model.advance_past_unrelated_turn(&pending, source(), Some(&evidence)));
+    assert_eq!(model.read_offset(&pending), 101);
+    assert!(!model.advance_past_unrelated_turn(&pending, source(), Some(&evidence)));
+    assert_eq!(model.pending().len(), 1);
+    let mut answer = completed();
+    answer.user_record_start = 200;
+    answer.user_turn_id = "user-200".into();
+    let evidence = ReplyRelayEvidence::Answered(answer);
+    assert!(!model.advance_past_unrelated_turn(&pending, source(), Some(&evidence)));
+    assert!(matches!(
+        model.observe_delivery_evidence(
+            &pending.delivery_id,
+            source(),
+            Some(&evidence),
+            |_| true,
+            8
+        )[0]
+        .1,
+        ReplyRelayDecision::Send { .. }
+    ));
+    assert!(model.pending().is_empty());
+}

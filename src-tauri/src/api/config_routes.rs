@@ -243,9 +243,16 @@ pub async fn patch_config_api(
     let new_mesh_enabled = new_cfg.mesh.enabled;
     let renamed = !new_name.is_empty() && new_name != prev_name;
     let mesh_disabled = prev_mesh_enabled && !new_mesh_enabled;
+    let changed_catalogue_settings = crate::config::changed_provider_settings(&cfg, &new_cfg);
 
     crate::config::save_config_and_apply(&state.config, new_cfg.clone())
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+
+    crate::agent::model_binary_watch::refresh_after_settings_change(
+        &state.svc.agent_registry,
+        &state.svc.chatbackend_registry,
+        changed_catalogue_settings,
+    );
 
     // this, browser clients save the config but never see it applied.
     crate::api::events::emit_everywhere(

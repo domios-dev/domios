@@ -794,6 +794,7 @@ fn every_prompt_md_has_a_loader() {
         "dreaming_rem.md",
         "task_sequencing_contract.md",
         "cartographer_suffix.md",
+        "tool_less.md",
     ]
     .into_iter()
     .collect();

@@ -6,6 +6,7 @@ use super::*;
 mod cache_schema;
 mod freshness;
 mod model_resolution;
+mod opencode_listing;
 
 // The registry is a process-global static — tests run in parallel against it. Use a unique provider id per test (and clean up after) so no
 // test depends on the registry being empty or seeing another test's writes.

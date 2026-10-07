@@ -23,7 +23,6 @@ import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDiscl
 import { refusalText } from "../../lib/refusalText";
 import { useProviderModelUsage } from "../../hooks/useProviderModelUsage";
 import { formatModelUsage, hasModelUsage, usageForModel } from "../../lib/modelGroups";
-import { invoke } from "../../lib/bridge";
 
 export interface SidebarTeamActions {
   /// `managerTabId` is null when the Team holds no member that can spawn. The
@@ -168,13 +167,6 @@ function TeamMenu({
     (provider) => provider.transport === "pty" || provider.transport === "chat_backend",
   );
   const modelUsage = useProviderModelUsage(selectedProvider?.id ?? null);
-  // Opening this step explicitly re-probes, so credential changes surface
-  // without a rebuild; TTL limits unchanged providers to one probe per window.
-  useEffect(() => {
-    if (!selectedProviderId) return;
-    void invoke("refresh_provider_models", { providerId: selectedProviderId }).catch(() => {});
-  }, [selectedProviderId]);
-
   const positionMenu = useCallback((x: number, y: number) => {
     const width = menuRef.current?.offsetWidth || 174;
     const height = menuRef.current?.offsetHeight || 220;

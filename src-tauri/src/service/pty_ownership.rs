@@ -555,4 +555,35 @@ mod tests {
         assert_eq!(state.killed.iter().cloned().collect::<HashSet<_>>(), owned);
         assert_eq!(state.killed.len(), 2);
     }
+    #[test]
+    fn model_provider_relink_disposes_the_displaced_pty_exactly_once() {
+        use std::cell::RefCell;
+        let ownership = PtyOwnership::default();
+        let claim = ownership.acquire("same-tab");
+        let live = RefCell::new(HashSet::from(["old".to_string(), "fresh".to_string()]));
+        let linked = RefCell::new(None::<String>);
+        let killed = RefCell::new(Vec::new());
+        let settle = |candidate: &str| {
+            claim.settle(
+                candidate.into(),
+                true,
+                |id| live.borrow().contains(id),
+                |id| LinkOutcome::Linked(linked.replace(Some(id.into()))),
+                |id| {
+                    killed.borrow_mut().push(id.to_string());
+                    assert!(live.borrow_mut().remove(id), "disposal must run once");
+                },
+                |_| {},
+            )
+        };
+        assert!(settle("old").linked);
+        ownership.release_pty("old");
+        let selection = settle("fresh");
+        assert!(selection.linked && selection.retained_candidate);
+        assert!(settle("fresh").linked);
+        assert_eq!(*linked.borrow(), Some("fresh".into()));
+        assert_eq!(*killed.borrow(), vec!["old"]);
+        assert_eq!(*live.borrow(), HashSet::from(["fresh".to_string()]));
+        assert_eq!(ownership.launch_claim("same-tab"), Some("fresh".into()));
+    }
 }

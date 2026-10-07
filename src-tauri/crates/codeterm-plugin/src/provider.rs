@@ -190,6 +190,8 @@ pub struct ProviderDescriptor {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cli_status: Option<crate::provider_cli::ProviderCliStatus>,
     pub id: String,
+    #[serde(default)]
+    pub catalogue_version: u64,
     pub display_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon_hint: Option<String>,

@@ -16,6 +16,7 @@ use super::{
     wake,
 };
 mod events;
+mod probe_failure;
 
 use crate::cron::clock::SharedClock;
 use crate::service::{supporter, ServiceState};
@@ -529,13 +530,14 @@ fn record_failure(
     svc: &ServiceState,
     lease: &Lease,
     failure: &probe::process::ProbeFailure,
+    stored_reason: Option<String>,
 ) {
     let mut job = lease.job.clone();
     let removed_tab = failure.reason() == "sentinel_observation_tab_removed";
     job.last_reason = Some(if removed_tab {
         "observed_tab_removed".into()
     } else {
-        failure.reason()
+        stored_reason.unwrap_or_else(|| failure.reason())
     });
     let recorded = if removed_tab {
         storage::commit(&handle.store, |store| {
@@ -680,10 +682,28 @@ pub fn tick(handle: &Handle, svc: &ServiceState, lease: &Lease) {
     let output = resolve_probe_result(
         observed,
         |reason| {
-            if reason.is_unconfirmed() {
-                record_unconfirmed_failure(handle, svc, lease, &reason);
+            let decision = if lease.job.observe.is_none() {
+                probe_failure::decide(lease.job.last_reason.as_deref(), &reason)
+            } else if reason.is_unconfirmed() {
+                probe_failure::Decision::StopResources
             } else {
-                record_failure(handle, svc, lease, &reason);
+                probe_failure::Decision::Ordinary
+            };
+            match decision {
+                probe_failure::Decision::Skip(stored_reason) => {
+                    record_failure(handle, svc, lease, &reason, Some(stored_reason))
+                }
+                probe_failure::Decision::Stop => {
+                    let mut bounded = reason;
+                    bounded.primary = "probe_capture_failure_limit";
+                    record_unconfirmed_failure(handle, svc, lease, &bounded);
+                }
+                probe_failure::Decision::StopResources => {
+                    record_unconfirmed_failure(handle, svc, lease, &reason)
+                }
+                probe_failure::Decision::Ordinary => {
+                    record_failure(handle, svc, lease, &reason, None)
+                }
             }
         },
         std::convert::identity,
@@ -853,7 +873,7 @@ pub(super) fn advance(
     };
     let committed = if let Some(bucket) = transition_bucket {
         storage::commit(store, |current| {
-            current.stage_accept_transition(&job, bucket, &outcome.evidence.evaluation_id)
+            current.stage_accept_decision(&job, bucket, &outcome.evidence)
         })
     } else {
         storage::commit(store, |current| current.stage_finish(&job))
@@ -945,7 +965,7 @@ pub(super) fn advance(
             || !store.lock().action_permitted(&job, transition)
         {
             let failure = super::handlers::Effect {
-                status: Status::Failed,
+                status: Status::Unconfirmed,
                 execution_id: None,
                 command_result: None,
                 reason: Some("route_claim_fenced".into()),

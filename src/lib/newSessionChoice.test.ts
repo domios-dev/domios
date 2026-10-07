@@ -7,6 +7,7 @@ import {
   resolveEffort,
   reasoningEffortsForModel,
   readPersistedNewSessionChoice,
+  resolvePersistedChoice,
   writePersistedNewSessionChoice,
 } from "./newSessionChoice";
 import type { ModelInfo, ProviderDescriptor } from "./types";
@@ -52,6 +53,15 @@ const PROVIDERS = [
 ];
 
 setupDom();
+
+test("live catalogue reconciliation preserves the current selection and resolves new model variants", () => {
+  const providerWithVariants = provider("provider-a", [
+    { id: "model-a", display_name: "A" },
+    { id: "model-b", display_name: "B", reasoning_efforts: [{ id: "high", display_name: "High" }], default_reasoning_effort: "high" },
+  ]);
+  const choice = resolvePersistedChoice([providerWithVariants], { mode: "single", providerId: "provider-a", modelId: "model-b" });
+  assert(choice.mode === "single" && choice.modelId === "model-b" && choice.effortId === "high", "current model survives and its variants appear");
+});
 
 test("default pair derives provider and model only from catalog order", () => {
   const choice = defaultNewSessionChoice(PROVIDERS);

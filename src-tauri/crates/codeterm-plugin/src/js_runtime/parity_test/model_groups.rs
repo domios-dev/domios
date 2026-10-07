@@ -94,7 +94,14 @@ impl AgentProvider for ModelGroupNativeStub {
     }
 
     fn model_credential_files(&self) -> Vec<PathBuf> {
-        vec![PathBuf::from("/tmp/model-group-fixture-auth.json")]
+        crate::provider::ModelCatalogueCapability {
+            config_files: vec![
+                "/tmp/model-group-fixture-config.json".into(),
+                "/tmp/model-group-fixture-config.jsonc".into(),
+            ],
+            ..Default::default()
+        }
+        .fingerprint_files(vec![PathBuf::from("/tmp/model-group-fixture-auth.json")])
     }
 }
 
@@ -107,7 +114,11 @@ fn model_groups_usage_and_credentials_match_native_and_js() {
         "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},
                  "taskDelivery":"pty_input","verifySubmit":{"kind":"none"}},
         "modelGroups":[{"id":"alpha","label":"Alpha Co"},{"id":"beta","label":"Beta Co"}],
-        "credentials":[{"id":"fixtureAuth","file":"/tmp/model-group-fixture-auth.json"}]
+        "credentials":[{"id":"fixtureAuth","file":"/tmp/model-group-fixture-auth.json"}],
+        "modelCatalogue":{"authority":"free_form","configFiles":[
+            "/tmp/model-group-fixture-config.json",
+            "/tmp/model-group-fixture-config.jsonc"
+        ]}
     }"#;
     let plugin_js = "module.exports.default = { modelGroupUsage() { return [\
         {group:'alpha',messages:3,input_tokens:120,output_tokens:40,\
@@ -125,6 +136,16 @@ fn model_groups_usage_and_credentials_match_native_and_js() {
 
     assert_eq!(js.model_groups(), native.model_groups());
     assert_eq!(js.model_group_usage(), native.model_group_usage());
+    // Credentials first, catalogue config paths second - the cache fingerprint
+    // order both runtimes must compose identically.
+    assert_eq!(
+        js.model_credential_files(),
+        vec![
+            PathBuf::from("/tmp/model-group-fixture-auth.json"),
+            PathBuf::from("/tmp/model-group-fixture-config.json"),
+            PathBuf::from("/tmp/model-group-fixture-config.jsonc"),
+        ]
+    );
     assert_eq!(js.model_credential_files(), native.model_credential_files());
     assert_eq!(js.reports_group_usage(), native.reports_group_usage());
     assert_eq!(js.describe().model_groups, native.describe().model_groups);

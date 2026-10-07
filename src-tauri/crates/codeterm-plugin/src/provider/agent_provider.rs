@@ -9,6 +9,12 @@ pub trait AgentProvider: Send + Sync {
     /// Unique identifier for this provider (e.g. "claude").
     fn id(&self) -> &str;
 
+    fn model_provider_config(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::model_providers::ModelProviderConfig>> {
+        None
+    }
+
     /// Human-readable name (e.g. "Claude Code").
     fn display_name(&self) -> &str;
 
@@ -921,6 +927,7 @@ pub trait AgentProvider: Send + Sync {
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             cli_status: None,
             id: self.id().to_string(),
+            catalogue_version: crate::model_catalog::current_version(self.id()),
             display_name: self.display_name().to_string(),
             icon_hint: self.icon_hint().map(|s| s.to_string()),
             icon_svg: self.icon_svg().map(|s| s.to_string()),

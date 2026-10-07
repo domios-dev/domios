@@ -30,6 +30,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast;
 
 use crate::provider::{AgentProvider, ModelAvailability, ModelInfo, ReasoningEffortInfo};
 
@@ -91,6 +92,12 @@ struct CatalogFile {
 pub struct RegisteredDefaults {
     pub models: Vec<ModelInfo>,
     pub default: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelCatalogueChanged {
+    pub provider: String,
+    pub version: u64,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -250,6 +257,60 @@ fn effort_registry() -> &'static RwLock<HashMap<String, RegisteredEfforts>> {
     REG.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
+fn versions() -> &'static RwLock<HashMap<String, u64>> {
+    static VERSIONS: OnceLock<RwLock<HashMap<String, u64>>> = OnceLock::new();
+    VERSIONS.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+fn change_sender() -> &'static broadcast::Sender<ModelCatalogueChanged> {
+    static CHANGES: OnceLock<broadcast::Sender<ModelCatalogueChanged>> = OnceLock::new();
+    CHANGES.get_or_init(|| broadcast::channel(256).0)
+}
+
+pub fn subscribe_changes() -> broadcast::Receiver<ModelCatalogueChanged> {
+    change_sender().subscribe()
+}
+
+pub fn current_version(provider_id: &str) -> u64 {
+    versions()
+        .read()
+        .get(provider_id)
+        .copied()
+        .unwrap_or_default()
+}
+
+pub fn version_snapshot() -> Vec<ModelCatalogueChanged> {
+    let mut changes = versions()
+        .read()
+        .iter()
+        .map(|(provider, version)| ModelCatalogueChanged {
+            provider: provider.clone(),
+            version: *version,
+        })
+        .collect::<Vec<_>>();
+    changes.sort_by(|left, right| left.provider.cmp(&right.provider));
+    changes
+}
+
+fn advance_version(versions: &mut HashMap<String, u64>, provider_id: &str) -> u64 {
+    let version = versions.entry(provider_id.to_string()).or_default();
+    *version = version.saturating_add(1);
+    *version
+}
+
+pub fn invalidate(provider_id: &str) -> ModelCatalogueChanged {
+    let version = {
+        let mut versions = versions().write();
+        advance_version(&mut versions, provider_id)
+    };
+    let change = ModelCatalogueChanged {
+        provider: provider_id.to_string(),
+        version,
+    };
+    let _ = change_sender().send(change.clone());
+    change
+}
+
 /// Plugin entry point: register the built-in catalog for `provider_id`.
 /// Idempotent — calling twice replaces the prior registration (handy for
 /// hot-reloaded plugin updates and for tests). The data here is what CodeTerm
@@ -269,6 +330,10 @@ pub fn register(provider_id: &str, defaults: RegisteredDefaults) {
         return;
     }
     reg.insert(provider_id.to_string(), ProviderModels::seed(defaults));
+    drop(reg);
+    if !unchanged {
+        invalidate(provider_id);
+    }
 }
 
 /// Replace one provider's registered catalog without preserving a live overlay.
@@ -281,6 +346,7 @@ pub fn replace(provider_id: &str, defaults: RegisteredDefaults) {
     registry()
         .write()
         .insert(provider_id.to_string(), ProviderModels::seed(defaults));
+    invalidate(provider_id);
 }
 
 /// Replace one provider, resolve user override precedence once, then retain the
@@ -300,10 +366,13 @@ pub fn replace_resolved(provider_id: &str, defaults: RegisteredDefaults) -> Regi
 
 /// Remove only `provider_id` from every in-memory catalog registry.
 pub fn unregister(provider_id: &str) {
-    registry().write().remove(provider_id);
-    seed_registry().write().remove(provider_id);
-    effort_registry().write().remove(provider_id);
+    let removed_models = registry().write().remove(provider_id).is_some();
+    let removed_seed = seed_registry().write().remove(provider_id).is_some();
+    let removed_efforts = effort_registry().write().remove(provider_id).is_some();
     override_cache().write().remove(provider_id);
+    if removed_models || removed_seed || removed_efforts {
+        invalidate(provider_id);
+    }
 }
 
 /// Resolved snapshot used by descriptor hot paths.
@@ -323,6 +392,7 @@ pub fn register_reasoning_efforts(
         provider_id.to_string(),
         RegisteredEfforts { efforts, default },
     );
+    invalidate(provider_id);
 }
 
 /// Default freshness window for live discovery. A snapshot younger than this
@@ -396,6 +466,7 @@ fn put_live_at(
         .against_credentials(credentials);
     persist_cache(provider_id, &snapshot);
     registry().write().insert(provider_id.to_string(), snapshot);
+    invalidate(provider_id);
 }
 
 /// A probe that could not run is not a capability answer. An unknown verdict
@@ -465,6 +536,7 @@ pub fn prime_from_cache(provider_id: &str) {
             .against_binary(cached.binary)
             .against_credentials(cached.credentials),
     );
+    invalidate(provider_id);
 }
 
 /// True when the recorded CLI is no longer the file the snapshot described. A
@@ -519,19 +591,18 @@ pub async fn refresh_models(
 /// The event-driven refresh: a resolved provider binary was rewritten, so the
 /// answer captured against the old one is void. Forced, because the TTL knows
 /// nothing about a file write.
-pub async fn refresh_after_binary_change(
+pub async fn refresh_after_catalogue_input_change(
     provider: Arc<dyn AgentProvider>,
 ) -> Option<Vec<ModelInfo>> {
     log::info!(
-        "[model_catalog] {} provider binary changed - re-probing",
+        "[model_catalog] {} catalogue input changed - re-probing",
         provider.id()
     );
     refresh_models(provider, true).await
 }
 
-/// The user opened the picker, which is an explicit action rather than a poll.
-/// TTL-gated so an open costs at most one probe per window, except when the
-/// binary itself changed or the last probe could not run at all.
+/// Reader-gated refresh retained for callers that intentionally use TTL
+/// semantics; interactive picker surfaces subscribe to catalogue changes.
 pub async fn refresh_for_reader(provider: Arc<dyn AgentProvider>) -> Option<Vec<ModelInfo>> {
     let provider_id = provider.id().to_string();
     // Compare declared credentials with the live provider; the registry cannot
@@ -974,6 +1045,7 @@ pub(crate) fn cleanup(id: &str) {
     registry().write().remove(id);
     seed_registry().write().remove(id);
     override_cache().write().remove(id);
+    versions().write().remove(id);
     let _ = std::fs::remove_file(cache_path(id));
     let _ = std::fs::remove_file(override_path(id));
 }
@@ -992,3 +1064,5 @@ pub(crate) fn temp_binary(tag: &str, bytes: &[u8]) -> PathBuf {
 mod credential_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod version_tests;

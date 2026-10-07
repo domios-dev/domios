@@ -222,7 +222,7 @@ Provider-relevant subset (full contract in [PLUGINS.md](../PLUGINS.md)):
 | `network` | object | `host.fetch` host allowlist: an `allow` array of hosts. |
 | `subprocess` | object | `host.exec` binary allowlist: an `allow` array of binaries. |
 | `secrets` | bool | May use the per-plugin secret bucket. |
-| `agent_commands` (alias `agentCommands`) | bool | Spawned agents may route `codeterm plugin <id> <verb>` to this plugin's `onAgentCommand`. Declare the verbs as top-level `agentVerbs` (usage strings such as `send <chat-id> <text>`) and optional `agentKeywords`; Domios publishes them as the `plugin-<id>` mem skill and in `codeterm capabilities`. Without `agentVerbs`, the backticked spans after `Agent verbs:` in `configHelp` are used. |
+| `agent_commands` (alias `agentCommands`) | bool | Spawned agents may route `codeterm plugin <id> <verb>` to this plugin's `onAgentCommand`. Declare the verbs as top-level `agentVerbs` (usage strings such as `send <chat-id> <text>`) and optional `agentKeywords`; Domios publishes them as the `plugin-<id>` mem skill and in `codeterm capabilities`. Without `agentVerbs`, the backticked spans after `Agent verbs:` in `configHelp` are used. A successful result may include `catalogueChanged: true` when the verb changed this provider's model catalogue. |
 | `manage_workspaces` (alias `manageWorkspaces`) | bool | May create/manage workspaces via `host.workspace*`. |
 | `spawn_agents` (alias `spawnAgents`) | bool | May spawn/drive agents via `host.agent*`. |
 | `analytics` | bool | May read machine-wide KPI aggregates via `host.analytics`. |

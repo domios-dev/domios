@@ -6,6 +6,7 @@ impl ServiceContext {
         if self.current_reply_relay_binding(target).as_ref() != Some(&entry.binding) {
             return;
         }
+        self.observe_tool_less_startup_ack(target, &entry.binding);
         let max_hops = crate::config::load_config().agent.reply_relay_max_hops;
         let mut pending = entry.worker.lock().pending();
         for relay in entry.model.lock().pending() {
@@ -36,11 +37,26 @@ impl ServiceContext {
             if self.current_reply_relay_binding(target).as_ref() != Some(&entry.binding) {
                 return;
             }
+            let advanced = entry.model.lock().advance_past_unrelated_turn(
+                &pending,
+                entry.binding.source(),
+                evidence.as_ref(),
+            );
+            if advanced {
+                let _ = entry.signal.try_send(());
+                continue;
+            }
+            let (evidence, report_status) = super::super::report_marker::prepare_completed_reply(
+                &pending,
+                entry.binding.source(),
+                evidence.as_ref(),
+            );
             let report = {
-                entry.worker.lock().observe_completion(
+                entry.worker.lock().observe_prepared_completion(
                     &pending,
                     entry.binding.source(),
                     evidence.as_ref(),
+                    report_status,
                 )
             };
             if let Some(report) = report {

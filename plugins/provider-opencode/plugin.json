@@ -3,6 +3,10 @@
   "version": "1.12.4",
   "minCodeterm": "1.12.4",
   "hostApi": 2,
+  "capabilities": {
+    "agentProvider": true,
+    "modelProviderConfig": true
+  },
   "displayName": "OpenCode",
   "binaryName": "opencode",
   "cliBinary": "opencode",
@@ -119,7 +123,11 @@
   ],
   "defaultModel": "anthropic/claude-opus-4-8",
   "modelCatalogue": {
-    "authority": "free_form"
+    "authority": "free_form",
+    "configFiles": [
+      "~/.config/opencode/opencode.json",
+      "~/.config/opencode/opencode.jsonc"
+    ]
   },
   "installer": {
     "macos": "curl -fsSL https://opencode.ai/install | bash",
@@ -146,7 +154,12 @@
     "modelLaunchArgsFormat": [
       "-m",
       "{model}"
-    ]
+    ],
+    "reasoningEffortLaunchArgsFormat": [
+      "--variant",
+      "{effort}"
+    ],
+    "modelSwitch": "live"
   },
   "permissions": {
     "network": {

@@ -1,5 +1,5 @@
 use crate::agent::provider::{ReplyRelayEvidence, ReplyRelayTurn};
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
 pub const DEFAULT_REPLY_RELAY_MAX_HOPS: u8 = 8;
 pub const MAX_TRACKED_RELAY_DELIVERIES: usize = 256;
@@ -203,6 +203,7 @@ pub struct ReplyRelayModel {
     delivery_ids: HashSet<String>,
     delivery_order: VecDeque<String>,
     relayed_through: Option<u64>,
+    observed_through: HashMap<String, u64>,
     unavailable_reason: Option<String>,
 }
 
@@ -227,9 +228,40 @@ impl ReplyRelayModel {
 
     pub fn read_offset(&self, pending: &PendingReplyRelay) -> u64 {
         self.relayed_through
-            .map_or(pending.after_offset, |through| {
-                pending.after_offset.max(through.saturating_add(1))
+            .into_iter()
+            .chain(self.observed_through.get(&pending.delivery_id).copied())
+            .fold(pending.after_offset, |offset, through| {
+                offset.max(through.saturating_add(1))
             })
+    }
+
+    pub fn advance_past_unrelated_turn(
+        &mut self,
+        pending: &PendingReplyRelay,
+        source: RelaySource<'_>,
+        evidence: Option<&ReplyRelayEvidence>,
+    ) -> bool {
+        if !matches_source(pending, source) {
+            return false;
+        }
+        let Some(evidence) = evidence.filter(|evidence| evidence.is_valid()) else {
+            return false;
+        };
+        let (id, start, text) = match evidence {
+            ReplyRelayEvidence::Answered(turn) => {
+                (&turn.user_turn_id, turn.user_record_start, &turn.user_text)
+            }
+            ReplyRelayEvidence::Ended(turn) => {
+                (&turn.user_turn_id, turn.user_record_start, &turn.user_text)
+            }
+            _ => return false,
+        };
+        if start < self.read_offset(pending) || matches_user_turn(pending, id, start, text) {
+            return false;
+        }
+        self.observed_through
+            .insert(pending.delivery_id.clone(), start);
+        true
     }
 
     pub fn pending(&self) -> Vec<PendingReplyRelay> {
@@ -237,6 +269,7 @@ impl ReplyRelayModel {
     }
 
     pub fn cancel(&mut self, delivery_id: &str) {
+        self.observed_through.remove(delivery_id);
         self.pending
             .retain(|pending| pending.delivery_id != delivery_id);
     }
@@ -341,9 +374,15 @@ impl ReplyRelayModel {
                     self.unavailable_reason = Some(state.reason.clone());
                 }
             }
+            self.observed_through.remove(&pending.delivery_id);
             actions.push((pending, decision));
         }
         self.pending = remaining;
+        if let Some(id) = delivery_id {
+            if !self.pending.iter().any(|pending| pending.delivery_id == id) {
+                self.observed_through.remove(id);
+            }
+        }
         actions
     }
 }
