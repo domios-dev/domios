@@ -36,8 +36,11 @@ impl AgentProvider for RelayNative {
     fn display_name(&self) -> &str {
         "Relay fixture"
     }
-    fn build_launch_command(&self, _: &AgentLaunchParams) -> String {
-        String::new()
+    fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
+        params
+            .tool_less_instructions_path
+            .clone()
+            .unwrap_or_default()
     }
     fn readiness_strategy(&self) -> crate::provider::ReadinessStrategy {
         DiscoverModelsNativeStub.readiness_strategy()
@@ -204,4 +207,22 @@ fn reply_relay_invalid_discriminants_fail_closed() {
         );
         assert_eq!(js.read_reply_relay_turn("/work", "own", 0), None);
     }
+}
+
+#[test]
+fn tool_less_instructions_path_native_js_launch_parity() {
+    let js = fixture_class(false, true, "module.exports.default = { buildLaunchCommand(p) { return p.toolLessInstructionsPath || ''; } };");
+    let params = AgentLaunchParams {
+        tool_less_instructions_path: Some("/opaque/shared instructions.md".into()),
+        ..Default::default()
+    };
+    assert!(js.is_tool_less());
+    assert_eq!(
+        js.build_launch_command(&params),
+        RelayNative.build_launch_command(&params)
+    );
+    assert_eq!(
+        js.build_launch_command(&AgentLaunchParams::default()),
+        RelayNative.build_launch_command(&AgentLaunchParams::default())
+    );
 }

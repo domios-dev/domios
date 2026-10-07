@@ -1016,3 +1016,5 @@ pub(crate) fn resolve_refs(
         other => other.clone(),
     }
 }
+
+pub(crate) mod tool_less_instructions;
