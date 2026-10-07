@@ -451,9 +451,10 @@ pub(crate) fn marked_launch_command_for_tab(
     tab_id: &str,
     cwd: &str,
     params: &mut crate::agent::provider::AgentLaunchParams,
+    selection: super::codex_rpc::launch::Selection,
 ) -> Option<String> {
     let structured_requested = super::codex_rpc::launch::requested(svc, provider_id);
-    let extra_args = params.args.as_ref().is_some_and(|args| !args.is_empty());
+    let extra_args = selection.extra_args;
     if structured_requested && extra_args {
         super::codex_rpc::diagnostics::fallback(
             svc,
@@ -469,15 +470,7 @@ pub(crate) fn marked_launch_command_for_tab(
                 super::launch_delivery::command_task(provider, params.task.as_deref()).system_prompt
             })
             .flatten();
-        let spawn = super::codex_rpc::lifecycle::Spawn {
-            provider: provider_id.into(),
-            cwd: cwd.into(),
-            instructions,
-            resume: None,
-            model: None,
-            effort: None,
-            full_access: params.skip_permissions,
-        };
+        let spawn = selection.spawn(provider_id, cwd, instructions, params.skip_permissions);
         match tauri::async_runtime::block_on(super::codex_rpc::lifecycle::ensure_for_spawn(
             svc, tab_id, spawn,
         )) {

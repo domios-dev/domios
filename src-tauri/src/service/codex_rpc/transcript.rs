@@ -15,13 +15,6 @@ pub struct History {
 }
 
 pub async fn history(client: &Client, thread: &str) -> Result<History, String> {
-    client
-        .request(
-            "thread/resume",
-            json!({"threadId":thread,"excludeTurns":true}),
-        )
-        .await
-        .map_err(rpc_error)?;
     let turns = pages(
         client,
         "thread/turns/list",
@@ -122,7 +115,7 @@ pub fn snapshot(
         .read()
         .get_tab(tab)
         .and_then(|tab| tab.session_binding_nonce.clone());
-    let messages = tauri::async_runtime::block_on(history(&sidecar.client, &thread))?.messages;
+    let messages = sidecar.normalizer.lock().snapshot(&thread);
     let current = svc.mux.read().get_tab(tab).is_some_and(|tab| {
         tab.agent_session_id.as_deref() == Some(&thread) && tab.session_binding_nonce == nonce
     });
@@ -205,5 +198,26 @@ mod tests {
         assert_eq!(snapshot.id, "item-id");
         assert_eq!(snapshot.id, live.id);
         assert_eq!(snapshot.seq, live.seq);
+    }
+    #[test]
+    fn codex_rpc_control_cached_snapshot_reuses_history_and_live_item_ids_in_order() {
+        let mut normalizer = Normalizer::default();
+        for (thread, id) in [("own", "first"), ("foreign", "other"), ("own", "second")] {
+            normalize_entry(
+                &mut normalizer,
+                thread,
+                &json!({"item":{"type":"agentMessage","id":id,"text":id}}),
+            )
+            .unwrap();
+        }
+        let snapshot = normalizer.snapshot("own");
+        assert_eq!(
+            snapshot
+                .iter()
+                .map(|message| message.id.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "second"]
+        );
+        assert_eq!(normalizer.snapshot("own").len(), 2);
     }
 }
