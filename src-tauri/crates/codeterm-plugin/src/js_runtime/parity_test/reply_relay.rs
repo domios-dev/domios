@@ -1,8 +1,21 @@
 use super::*;
-use crate::provider::ReplyRelayTurn;
+use crate::provider::{ReplyRelayEvidence, ReplyRelayTurn};
 use std::sync::Arc;
 
 struct RelayNative;
+
+#[test]
+fn tool_less_class_native_js_parity_and_default() {
+    let enabled = fixture_class(false, true, "module.exports.default = {};");
+    assert_eq!(enabled.is_tool_less(), RelayNative.is_tool_less());
+    let disabled = fixture(true, "module.exports.default = {};");
+    assert_eq!(
+        disabled.is_tool_less(),
+        DiscoverModelsNativeStub.is_tool_less()
+    );
+    assert!(!disabled.is_tool_less());
+    assert!(!enabled.supports_reply_relay());
+}
 
 fn turn() -> ReplyRelayTurn {
     ReplyRelayTurn {
@@ -52,18 +65,31 @@ impl AgentProvider for RelayNative {
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
         None
     }
+    fn is_tool_less(&self) -> bool {
+        true
+    }
     fn supports_reply_relay(&self) -> bool {
         true
     }
-    fn read_reply_relay_turn(&self, cwd: &str, sid: &str, after: u64) -> Option<ReplyRelayTurn> {
-        (cwd == "/work" && sid == "own" && after <= 100).then(turn)
+    fn read_reply_relay_turn(
+        &self,
+        cwd: &str,
+        sid: &str,
+        after: u64,
+    ) -> Option<ReplyRelayEvidence> {
+        (cwd == "/work" && sid == "own" && after <= 100)
+            .then(|| ReplyRelayEvidence::Answered(turn()))
     }
 }
 
 fn fixture(enabled: bool, source: &str) -> JsProvider {
+    fixture_class(enabled, false, source)
+}
+
+fn fixture_class(enabled: bool, tool_less: bool, source: &str) -> JsProvider {
     let manifest_json = serde_json::json!({
         "id": "relay-js", "version": "0.1.0", "displayName": "Relay fixture",
-        "capabilities": { "agentProvider": true, "replyRelay": enabled },
+        "capabilities": { "agentProvider": true, "replyRelay": enabled, "toolLess": tool_less },
         "spawn": { "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
             "taskDelivery": "pty_input", "verifySubmit": { "kind": "none" } }
     })
@@ -129,6 +155,53 @@ fn reply_relay_null_and_malformed_evidence_remain_unknown() {
             format!("module.exports.default = {{ readReplyRelayTurn() {{ return {result}; }} }};");
         let js = fixture(true, &source);
         assert!(js.supports_reply_relay());
+        assert_eq!(js.read_reply_relay_turn("/work", "own", 0), None);
+    }
+}
+
+#[test]
+fn reply_relay_non_success_and_unavailable_wire_contract() {
+    for (result, expected) in [
+        (
+            r#"{userTurnId:"user-100",userRecordStart:100,userText:"opaque payload",complete:false,outcome:"error"}"#,
+            ReplyRelayEvidence::Ended(crate::provider::ReplyRelayEndedTurn {
+                user_turn_id: "user-100".into(),
+                user_record_start: 100,
+                user_text: "opaque payload".into(),
+                complete: false,
+                outcome: crate::provider::ReplyRelayOutcome::Error,
+            }),
+        ),
+        (
+            r#"{unavailable:true,reason:"adapter not active"}"#,
+            ReplyRelayEvidence::Unavailable(crate::provider::ReplyRelayUnavailable {
+                unavailable: true,
+                reason: "adapter not active".into(),
+            }),
+        ),
+    ] {
+        let js = fixture(
+            true,
+            &format!("module.exports.default = {{ readReplyRelayTurn() {{ return {result}; }} }};"),
+        );
+        assert_eq!(
+            js.read_reply_relay_turn("/work", "own", 100),
+            Some(expected)
+        );
+    }
+}
+
+#[test]
+fn reply_relay_invalid_discriminants_fail_closed() {
+    for result in [
+        r#"{unavailable:false,reason:"ignored"}"#,
+        r#"{unavailable:true,reason:""}"#,
+        r#"{userTurnId:"u",userRecordStart:1,userText:"x",complete:true,outcome:"error"}"#,
+    ] {
+        let js = fixture(
+            true,
+            &format!("module.exports.default = {{ readReplyRelayTurn() {{ return {result}; }} }};"),
+        );
         assert_eq!(js.read_reply_relay_turn("/work", "own", 0), None);
     }
 }

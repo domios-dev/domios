@@ -5,6 +5,7 @@ use serde_json::{json, Value};
 
 mod agent_provider;
 mod command_template;
+mod integration_rules;
 mod launch_artifacts;
 mod manifest_sessions;
 mod prompt_parse;

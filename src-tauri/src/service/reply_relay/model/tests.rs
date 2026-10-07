@@ -235,3 +235,118 @@ fn missing_launch_identity_cannot_authorize_relay_even_when_both_sides_are_empty
         ReplyRelayDecision::Wait
     );
 }
+
+fn ended(outcome: crate::agent::provider::ReplyRelayOutcome) -> ReplyRelayEvidence {
+    ReplyRelayEvidence::Ended(crate::agent::provider::ReplyRelayEndedTurn {
+        user_turn_id: "user-100".into(),
+        user_record_start: 100,
+        user_text: "opaque payload".into(),
+        complete: false,
+        outcome,
+    })
+}
+
+#[test]
+fn non_success_turns_notify_once_without_answer_text() {
+    use crate::agent::provider::ReplyRelayOutcome;
+    for outcome in [
+        ReplyRelayOutcome::Error,
+        ReplyRelayOutcome::Cancelled,
+        ReplyRelayOutcome::ReflectionLimit,
+    ] {
+        let evidence = ended(outcome.clone());
+        let mut model = ReplyRelayModel::default();
+        assert!(model.record(pending()));
+        let actions = model.observe_evidence(source(), Some(&evidence), |_| true, 8);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(
+            actions[0].1,
+            ReplyRelayDecision::Notice {
+                text: format!("turn ended: {}", outcome.as_str()),
+                user_turn_id: Some("user-100".into()),
+            }
+        );
+        assert!(model
+            .observe_evidence(source(), Some(&evidence), |_| true, 8)
+            .is_empty());
+    }
+}
+
+#[test]
+fn non_success_requires_exact_user_and_launch_evidence() {
+    use crate::agent::provider::ReplyRelayOutcome;
+    let mut evidence = ended(ReplyRelayOutcome::Error);
+    if let ReplyRelayEvidence::Ended(turn) = &mut evidence {
+        turn.user_text = "foreign".into();
+    }
+    assert_eq!(
+        decide_reply_relay_evidence(&pending(), source(), Some(&evidence), true, 8, false),
+        ReplyRelayDecision::Wait
+    );
+    let evidence = ended(ReplyRelayOutcome::Error);
+    let foreign = RelaySource {
+        binding_nonce: "other",
+        ..source()
+    };
+    assert_eq!(
+        decide_reply_relay_evidence(&pending(), foreign, Some(&evidence), true, 8, false),
+        ReplyRelayDecision::Wait
+    );
+}
+
+#[test]
+fn unavailable_notifies_pending_senders_and_disables_this_binding() {
+    let evidence = ReplyRelayEvidence::Unavailable(crate::agent::provider::ReplyRelayUnavailable {
+        unavailable: true,
+        reason: "adapter not active".into(),
+    });
+    let mut model = ReplyRelayModel::default();
+    assert!(model.record(pending()));
+    let mut second = pending();
+    second.delivery_id = "delivery-2".into();
+    second.sender_tab = "other".into();
+    assert!(model.record(second));
+    let actions = model.observe_evidence(source(), Some(&evidence), |_| true, 8);
+    assert_eq!(actions.len(), 2);
+    assert!(actions.iter().all(|(_, decision)| matches!(
+        decision,
+        ReplyRelayDecision::Notice {
+            user_turn_id: None,
+            ..
+        }
+    )));
+    assert_eq!(model.unavailable_reason(), Some("adapter not active"));
+    let mut later = pending();
+    later.delivery_id = "later".into();
+    assert!(!model.record(later));
+    assert!(model
+        .observe_evidence(source(), Some(&evidence), |_| true, 8)
+        .is_empty());
+    assert!(ReplyRelayModel::default().record(pending()));
+}
+
+#[test]
+fn malformed_activation_and_completion_do_not_consume_pending_relay() {
+    let mut turn = completed();
+    turn.complete = false;
+    for evidence in [
+        ReplyRelayEvidence::Answered(turn),
+        ReplyRelayEvidence::Unavailable(crate::agent::provider::ReplyRelayUnavailable {
+            unavailable: false,
+            reason: "invalid".into(),
+        }),
+    ] {
+        let mut model = ReplyRelayModel::default();
+        assert!(model.record(pending()));
+        assert!(model
+            .observe_evidence(source(), Some(&evidence), |_| true, 8)
+            .is_empty());
+        assert_eq!(model.unavailable_reason(), None);
+        assert_eq!(
+            model
+                .observe(source(), Some(&completed()), |_| true, 8)
+                .len(),
+            1
+        );
+    }
+}

@@ -244,11 +244,15 @@ pub trait AgentProvider: Send + Sync {
         SessionIdInjection::None
     }
 
+    fn is_tool_less(&self) -> bool {
+        false
+    }
+
     fn supports_reply_relay(&self) -> bool {
         false
     }
 
-    fn read_reply_relay_turn(&self, _: &str, _: &str, _: u64) -> Option<ReplyRelayTurn> {
+    fn read_reply_relay_turn(&self, _: &str, _: &str, _: u64) -> Option<ReplyRelayEvidence> {
         None
     }
 
