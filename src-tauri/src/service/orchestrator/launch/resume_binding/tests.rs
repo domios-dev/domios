@@ -1,6 +1,14 @@
 use super::*;
 
 #[test]
+fn authenticated_rebind_retires_only_the_binding_bootstrap() {
+    assert!(!fallback_still_required(true, true));
+    assert!(fallback_still_required(true, false));
+    assert!(fallback_still_required(false, true));
+    assert!(fallback_still_required(false, false));
+}
+
+#[test]
 fn resumed_lazy_session_gets_one_binding_turn() {
     let turn = binding_turn(true, true, false, None).unwrap();
     assert_eq!(turn.channel, PendingDeliveryChannel::FallbackBootstrap);
