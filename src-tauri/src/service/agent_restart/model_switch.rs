@@ -59,6 +59,7 @@ fn effective_model_switch_mode(
             ModelSwitchMode::Live,
             Some(crate::service::structured_prompt::LiveModelSwitchResult::Unsupported { reason }),
         ) => (ModelSwitchMode::RestartResume, Some(reason.clone())),
+        (ModelSwitchMode::NextTurn, _) => (ModelSwitchMode::NextTurn, None),
         (ModelSwitchMode::RestartResume, _) => (ModelSwitchMode::RestartResume, None),
         (ModelSwitchMode::Unsupported, _) => (ModelSwitchMode::Unsupported, None),
         (ModelSwitchMode::Live, None) => (
@@ -409,6 +410,22 @@ impl ServiceContext {
             Some(requested),
         )
         .map_err(ModelSwitchError::InvalidModel)?;
+        if declared_mode == ModelSwitchMode::NextTurn
+            && crate::service::codex_rpc::lifecycle::for_tab(&resolved_tab).is_some()
+        {
+            return crate::service::codex_rpc::model::switch_next_turn(
+                self,
+                &resolved_tab,
+                &provider,
+                requested,
+                requested_effort,
+            );
+        }
+        let declared_mode = if declared_mode == ModelSwitchMode::NextTurn {
+            ModelSwitchMode::RestartResume
+        } else {
+            declared_mode
+        };
         let snap = self.snapshot_tab_for_restart(&resolved_tab)?;
         let session_id = self.verified_resumable_session(&snap)?;
         let effort = requested_effort.map(str::to_owned).or_else(|| {
@@ -578,7 +595,7 @@ impl ServiceContext {
         })
     }
 
-    fn record_live_model_request(
+    pub(crate) fn record_live_model_request(
         &self,
         tab_id: &str,
         provider: &str,

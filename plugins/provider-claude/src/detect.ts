@@ -15,7 +15,7 @@ import type { DetectionSample } from "../../../src/lib/plugins/types";
 
 // Claude working spinner uses Braille chars U+2800..U+28FF in status lines.
 // Match the full range to keep pace with future glyph additions.
-export const titlePattern = /claude|^[⠀-⣿✱✳✻] /i;
+export const titlePattern = /claude|^[⠀-⣿◐-◓✱✳✻] /i;
 
 export const noisePatterns: RegExp[] = [
   /bypass permissions on/i,

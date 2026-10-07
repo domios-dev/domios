@@ -13,6 +13,57 @@ fn restart_guard_model_switch_refusal_names_running_items() {
 }
 
 #[test]
+fn codex_rpc_control_model_request_validates_runtime_mode_and_effort() {
+    let request: AgentModelBody = serde_json::from_value(serde_json::json!({
+        "model":"selected", "reasoning_effort":"high", "runtime_mode":"auto", "force":true
+    }))
+    .unwrap();
+    assert_eq!(request.model, "selected");
+    assert!(request.force);
+    assert_eq!(request.reasoning_effort.as_deref(), Some("high"));
+    assert_eq!(
+        request.runtime_mode,
+        Some(crate::service::codex_rpc::model::RuntimeMode::Auto)
+    );
+    assert!(serde_json::from_value::<AgentModelBody>(
+        serde_json::json!({"model":"selected","runtime_mode":"unknown"})
+    )
+    .is_err());
+}
+
+#[test]
+fn codex_rpc_control_next_turn_response_pending_then_observed_has_no_restart() {
+    let outcome = ModelSwitchOutcome {
+        tab_id: "bound-tab".into(),
+        provider: "declared-provider".into(),
+        session_id: "bound-thread".into(),
+        restart: None,
+        mechanism: crate::agent::provider::ModelSwitchMode::NextTurn,
+        fallback_reason: None,
+        previous_model: Some("previous".into()),
+        requested_model: "selected".into(),
+        launched_model: "selected".into(),
+        confirmation_detail: None,
+        confirmation: ModelSwitchConfirmation::Pending,
+    };
+    let pending = model_switch_success_body(&outcome);
+    assert_eq!(pending["mode_used"], "next_turn");
+    assert_eq!(pending["model_confirmation"], "pending");
+    assert!(pending.get("restart").is_none());
+    assert!(pending.get("observed_model").is_none());
+    let observed = model_switch_success_body(&ModelSwitchOutcome {
+        confirmation: ModelSwitchConfirmation::Observed {
+            model: "selected".into(),
+            evidence: ModelSwitchEvidence::LiveSessionRecord,
+        },
+        ..outcome
+    });
+    assert_eq!(observed["model_confirmation"], "observed");
+    assert_eq!(observed["observed_model"], "selected");
+    assert!(observed.get("restart").is_none());
+}
+
+#[test]
 fn pending_model_switch_success_reports_ready_same_session_relaunch() {
     let session_id = "session-8b2c";
     let launched_model = "model-9e";

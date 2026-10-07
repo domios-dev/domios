@@ -124,6 +124,8 @@ struct AgentSessionIdentityCatalog {
 #[serde(tag = "type")]
 pub enum SplitNodeSnapshot {
     Leaf {
+        #[serde(default)]
+        purpose: crate::multiplexer::types::ShellPurpose,
         tab_id: String,
         cwd: Option<String>,
         /// Tab title.

@@ -39,6 +39,7 @@ pub(crate) fn capture_tab_launch_parameters(
         })
         .flatten();
     let launch = RestorableLaunchParameters {
+        structured_runtime_mode: None,
         context_files: None,
         context_skills: None,
         worker_restart: None,

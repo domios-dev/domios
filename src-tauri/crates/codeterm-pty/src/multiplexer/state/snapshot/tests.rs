@@ -1,6 +1,7 @@
 use super::*;
 use crate::session::store::{SessionSnapshot, SplitNodeSnapshot, TabSnapshot, WorkspaceSnapshot};
 
+mod live_tabs;
 mod merge;
 mod permission_auto_confirm;
 #[path = "tests/restore_verbatim_cwd.rs"]
@@ -10,6 +11,7 @@ mod role_restore;
 
 fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
         tab_id: tab_id.into(),
         cwd: None,
         title: Some("LM Studio".into()),
@@ -392,6 +394,7 @@ fn chatbackend_backing_round_trips_through_snapshot() {
 fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
     // backing on round-trip.
     let leaf = SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
         tab_id: "p2".into(),
         cwd: None,
         title: Some("claude".into()),
@@ -481,6 +484,7 @@ fn automation_audience_round_trips_and_legacy_defaults_fail_closed() {
 #[test]
 fn tab_description_round_trips_through_snapshot() {
     let leaf = SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
         tab_id: "p-desc".into(),
         cwd: None,
         title: Some("Worker".into()),
@@ -544,6 +548,7 @@ fn tab_description_round_trips_through_snapshot() {
 #[test]
 fn spawned_by_and_report_target_restore_intact_not_none() {
     let leaf = SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
         tab_id: "worker-1".into(),
         cwd: None,
         title: Some("Worker".into()),
@@ -596,6 +601,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
 #[test]
 fn legacy_tab_title_seeds_default_provider_tab_title() {
     let leaf = SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
         tab_id: "legacy-worker".into(),
         cwd: None,
         title: Some("claude".into()),
@@ -918,6 +924,7 @@ fn snapshot_with_status_keeps_dead_over_stale_pending_prompt() {
 fn spawned_by_round_trips_through_snapshot() {
     // state → snapshot → state preserves the hierarchy linkage fields.
     let leaf = SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
         tab_id: "w".into(),
         cwd: None,
         title: Some("Worker".into()),
@@ -1031,6 +1038,7 @@ fn restorable_launch_parameters_round_trip_in_snapshot() {
         agent_name: Some("agent-label".into()),
         identity_instructions: Some("opaque-instruction-fragment".into()),
         permission_bypass_requested: true,
+        structured_runtime_mode: Some("auto".into()),
     };
     state.get_tab_mut(&tab_id).unwrap().restorable_launch = launch.clone();
 
@@ -1166,31 +1174,4 @@ fn ghost_repro_mixed_workspace_drops_only_ephemeral() {
         }
         _ => panic!("expected a leaf"),
     }
-}
-
-#[test]
-fn snapshots_exclude_orphaned_and_duplicate_live_tabs() {
-    let mut state = MultiplexerState::empty();
-    let workspace_id = state.create_workspace("Clean".to_string(), None).id;
-    let tab_id = state.create_tab(&workspace_id).unwrap();
-    let workspace = state
-        .workspaces
-        .iter_mut()
-        .find(|workspace| workspace.id == workspace_id)
-        .unwrap();
-    workspace.tabs.push(tab_id.clone());
-    workspace.tabs.push("closed-tab".to_string());
-    workspace.active_tab_id = Some("closed-tab".to_string());
-
-    let live = state.snapshot();
-    assert_eq!(live.workspaces[0].tabs.len(), 1);
-    assert_eq!(live.workspaces[0].tabs[0], tab_id);
-    assert_eq!(
-        live.workspaces[0].active_tab_id.as_deref(),
-        Some(tab_id.as_str())
-    );
-
-    let persisted = state.to_session_snapshot();
-    assert_eq!(persisted.workspaces[0].tabs.len(), 1);
-    assert_eq!(persisted.workspaces[0].tabs[0].id, tab_id);
 }

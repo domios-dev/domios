@@ -352,6 +352,7 @@ pub fn well_known_bin_dirs() -> Vec<std::path::PathBuf> {
         std::path::PathBuf::from("/snap/bin"),
     ];
     if let Some(home) = home_dir() {
+        dirs.push(home.join("AppData/Local/Programs/OpenAI/Codex/bin"));
         dirs.push(home.join(".npm-global/bin"));
         dirs.push(home.join(".local/bin"));
         dirs.push(home.join("bin"));
@@ -361,6 +362,9 @@ pub fn well_known_bin_dirs() -> Vec<std::path::PathBuf> {
         dirs.push(home.join("scoop/shims"));
         dirs.push(home.join("AppData/Roaming/npm"));
         dirs.push(home.join("AppData/Local/Programs"));
+    }
+    if let Some(local) = std::env::var_os("LOCALAPPDATA").filter(|path| !path.is_empty()) {
+        dirs.push(std::path::PathBuf::from(local).join("Programs/OpenAI/Codex/bin"));
     }
     dirs
 }

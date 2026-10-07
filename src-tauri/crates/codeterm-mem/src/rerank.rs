@@ -3,6 +3,7 @@
 //! trait. Default is Noop (return input order); enabling rerank requires
 //! `mem.rerank.enabled = true` in config + a working API key.
 
+use codeterm_util::headless_cli;
 use serde::{Deserialize, Serialize};
 
 use super::search::SearchHit;
@@ -467,11 +468,8 @@ impl LocalReranker {
 /// Spawn a local `claude` CLI in print mode and ask it to rerank. Uses the
 /// user's existing Claude Code authentication — no API key needed.
 ///
-/// Command shape:
-///   claude --bare --print --model <model> --output-format json "<prompt>"
-/// `--bare` skips hooks, LSP, plugin sync, CLAUDE.md auto-discovery — fast.
-/// `--output-format json` returns a structured envelope with the assistant
-/// reply, which we parse for the inline JSON id array.
+/// Runs the user's own `claude --print` with the shared headless flags and the prompt
+/// on stdin; `--output-format json` wraps the reply that carries the id array.
 pub struct ClaudeCliReranker {
     binary: std::path::PathBuf,
     model: String,
@@ -506,16 +504,15 @@ fn call_claude_cli(
 ) -> Result<Vec<String>, String> {
     let prompt = build_rerank_prompt(query, hits);
     let mut cmd = std::process::Command::new(binary);
-    cmd.arg("--bare")
-        .arg("--print")
+    cmd.args(headless_cli::claude_headless_args())
         .arg("--model")
         .arg(model)
         .arg("--output-format")
-        .arg("json")
-        .arg(&prompt)
-        .stdin(std::process::Stdio::null());
+        .arg("json");
+    headless_cli::apply_headless_env(&mut cmd);
     codeterm_util::process_util::no_window_std(&mut cmd);
-    let output = cmd.output().map_err(|e| format!("spawn claude: {}", e))?;
+    let output = headless_cli::output_with_stdin(&mut cmd, &prompt)
+        .map_err(|e| format!("spawn claude: {}", e))?;
     if !output.status.success() {
         return Err(format!(
             "claude exit {}: {}",
@@ -571,13 +568,13 @@ fn call_codex_cli(
 ) -> Result<Vec<String>, String> {
     let prompt = build_rerank_prompt(query, hits);
     let mut cmd = std::process::Command::new(binary);
-    cmd.arg("exec")
+    cmd.args(headless_cli::codex_exec_headless_args())
         .arg("--model")
-        .arg(model)
-        .arg(&prompt)
-        .stdin(std::process::Stdio::null());
+        .arg(model);
+    headless_cli::apply_headless_env(&mut cmd);
     codeterm_util::process_util::no_window_std(&mut cmd);
-    let output = cmd.output().map_err(|e| format!("spawn codex: {}", e))?;
+    let output = headless_cli::output_with_stdin(&mut cmd, &prompt)
+        .map_err(|e| format!("spawn codex: {}", e))?;
     if !output.status.success() {
         return Err(format!(
             "codex exit {}: {}",

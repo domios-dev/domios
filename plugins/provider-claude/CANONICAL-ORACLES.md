@@ -19,7 +19,7 @@ Run serially through the authorized gateway runner in a Team utility shell:
 ```
 
 All commands must exit zero with nonzero matching counts. The permission filter
-contains ten tests, context app filter two, native usage filter two and native
+contains twelve tests, context app filter two, native usage filter two and native
 statusline filter one. The parity filter includes three new context cases plus
 the permission-capability case. Record raw exits/counts; compilation is not a
 runtime pass. On Windows the desktop fixture cases must execute, not be ignored.

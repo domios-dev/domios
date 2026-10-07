@@ -16,6 +16,23 @@ struct Shell {
     models: Arc<RwLock<Vec<ModelInfo>>>,
 }
 
+#[test]
+fn codex_rpc_registry_preserves_structured_control() {
+    let agents = Arc::new(AgentRegistry::new());
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../plugins/provider-codex/plugin.json");
+    agents.register_provider(Box::new(
+        codeterm_plugin::js_runtime::load_one(&manifest).unwrap(),
+    ));
+    let registry = ProviderRegistry::new(agents, Arc::new(ChatBackendRegistry::new()));
+    let descriptors = registry.describe_all();
+    assert_eq!(
+        descriptors[0].structured_control.as_ref().unwrap().protocol,
+        "codex-app-server"
+    );
+    assert_eq!(descriptors[0].transport, ProviderTransport::Pty);
+}
+
 impl ChatBackendProvider for Shell {
     fn id(&self) -> &str {
         self.id

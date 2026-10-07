@@ -273,12 +273,21 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
         std::thread::spawn(move || {
             loop {
                 std::thread::sleep(poll_interval);
+                let structured_ptys: std::collections::HashSet<_> = mux
+                    .read()
+                    .all_tabs()
+                    .filter(|tab| tab.structured_control_active)
+                    .filter_map(|tab| tab.pty_id.clone())
+                    .collect();
                 // Hold tracker lock for collect, then unlock before mux updates.
                 let changed = {
                     let mut t = tracker.lock();
                     let pty_ids = t.all_ids();
                     let mut changes = Vec::new();
                     for pty_id in pty_ids {
+                        if structured_ptys.contains(&pty_id) {
+                            continue;
+                        }
                         let prev = t.get_status(&pty_id);
                         t.check_idle(&pty_id, idle_timeout);
                         let now = t.get_status(&pty_id);

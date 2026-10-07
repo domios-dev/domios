@@ -18,6 +18,7 @@ pub(crate) struct LiveTabCwd {
 pub(crate) struct LaneRemovalRequest {
     pub(crate) worktree_path: String,
     pub(crate) branch: Option<String>,
+    pub(crate) force: bool,
     /// Canonical checkout the lane was branched from. Derived from the lane's
     /// own git common dir when the caller does not name one.
     pub(crate) canonical_cwd: Option<String>,
@@ -40,6 +41,26 @@ pub(crate) enum CleanupStatusDoneError {
 
 const MAX_LANE_WALK_ENTRIES: usize = 100_000;
 const MAX_LANE_WALK_DEPTH: usize = 256;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LinkRemovalKind {
+    Directory,
+    File,
+}
+
+fn link_removal_kind(
+    is_symlink: bool,
+    metadata_is_directory: bool,
+    windows_directory_attribute: bool,
+) -> Option<LinkRemovalKind> {
+    if !is_symlink {
+        None
+    } else if metadata_is_directory || windows_directory_attribute {
+        Some(LinkRemovalKind::Directory)
+    } else {
+        Some(LinkRemovalKind::File)
+    }
+}
 
 pub(crate) fn remove_lane_links(path: &Path) -> Result<(), String> {
     let path = path.to_path_buf();
@@ -143,10 +164,21 @@ fn remove_lane_links_blocking(path: &Path) -> Result<(), String> {
 }
 
 fn remove_link(path: &Path, metadata: &std::fs::Metadata) -> Result<(), String> {
-    let result = if metadata.is_dir() {
-        std::fs::remove_dir(path)
-    } else {
-        std::fs::remove_file(path)
+    let kind = link_removal_kind(
+        metadata.file_type().is_symlink(),
+        metadata.is_dir(),
+        windows_directory_attribute(metadata),
+    )
+    .ok_or_else(|| {
+        format!(
+            "lane entry '{}' is not a symlink or reparse point",
+            path.display()
+        )
+    })?;
+    clear_readonly_link_attribute(path, metadata)?;
+    let result = match kind {
+        LinkRemovalKind::Directory => std::fs::remove_dir(path),
+        LinkRemovalKind::File => std::fs::remove_file(path),
     };
     result.map_err(|error| {
         format!(
@@ -154,6 +186,72 @@ fn remove_link(path: &Path, metadata: &std::fs::Metadata) -> Result<(), String> 
             path.display()
         )
     })
+}
+
+#[cfg(windows)]
+fn windows_directory_attribute(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    metadata.file_attributes() & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY
+        != 0
+}
+
+#[cfg(not(windows))]
+fn windows_directory_attribute(_: &std::fs::Metadata) -> bool {
+    false
+}
+
+#[cfg(windows)]
+fn clear_readonly_link_attribute(path: &Path, metadata: &std::fs::Metadata) -> Result<(), String> {
+    use std::os::windows::fs::MetadataExt;
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileBasicInfo, SetFileInformationByHandle, FILE_ATTRIBUTE_READONLY, FILE_BASIC_INFO,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES,
+    };
+
+    let attributes = metadata.file_attributes();
+    if attributes & FILE_ATTRIBUTE_READONLY == 0 {
+        return Ok(());
+    }
+    let handle = std::fs::OpenOptions::new()
+        .access_mode(FILE_WRITE_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+        .map_err(|error| {
+            format!(
+                "cannot open lane reparse point '{}' to clear read-only: {error}",
+                path.display()
+            )
+        })?;
+    let info = FILE_BASIC_INFO {
+        FileAttributes: attributes & !FILE_ATTRIBUTE_READONLY,
+        ..Default::default()
+    };
+    let succeeded = unsafe {
+        SetFileInformationByHandle(
+            handle.as_raw_handle() as _,
+            FileBasicInfo,
+            (&info as *const FILE_BASIC_INFO).cast(),
+            std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+        )
+    };
+    if succeeded == 0 {
+        return Err(format!(
+            "cannot clear read-only attribute on lane reparse point '{}': {}",
+            path.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn clear_readonly_link_attribute(_: &Path, _: &std::fs::Metadata) -> Result<(), String> {
+    Ok(())
 }
 
 pub(crate) fn remove_lane_residue(path: &Path) -> Result<(), String> {
@@ -346,7 +444,7 @@ pub(crate) fn remove_lane(
                 "lane path '{worktree}' still exists but is not registered as a Git worktree; nothing was removed"
             ));
         }
-        remove_lane_worktree(&canonical, worktree, false)?;
+        remove_lane_worktree(&canonical, worktree, request.force)?;
     } else if registered {
         remove_stale_worktree_registration(&canonical, worktree).map_err(|error| {
             format!("stale lane registration for '{worktree}' could not be removed: {error}")
@@ -653,6 +751,7 @@ fn project_for_recorded_lane(store: &PlanStore, worktree_path: &str) -> Option<S
 
 fn remove_lane_and_clear_task_references(
     store: &PlanStore,
+    repo_watch: &crate::repowatch::RepoWatchRegistryHandle,
     request: &LaneRemovalRequest,
     live_tabs: &[LiveTabCwd],
 ) -> Result<LaneRemovalOutcome, String> {
@@ -660,7 +759,32 @@ fn remove_lane_and_clear_task_references(
     if request.canonical_cwd.as_deref().is_none_or(str::is_empty) {
         request.canonical_cwd = project_for_recorded_lane(store, &request.worktree_path);
     }
+    let attempt_ids: Vec<String> = store
+        .list_full()
+        .into_iter()
+        .flat_map(|plan| plan.tasks)
+        .flat_map(|task| task.execution_attempts)
+        .filter(|attempt| {
+            attempt.worktree_path.as_deref().is_some_and(|path| {
+                comparable_path(path) == comparable_path(&request.worktree_path)
+            })
+        })
+        .map(|attempt| attempt.id)
+        .collect();
     let outcome = remove_lane(&request, live_tabs)?;
+    repo_watch.release_lane_watch(&outcome.worktree_path);
+    for attempt_id in attempt_ids {
+        super::lane_stats::delete_attempt_checkpoint_refs(
+            Path::new(&outcome.canonical_cwd),
+            &attempt_id,
+        )
+        .map_err(|error| {
+            format!(
+                "lane worktree '{}' was removed but attempt '{attempt_id}' checkpoint refs remain: {error}",
+                outcome.worktree_path
+            )
+        })?;
+    }
     clear_removed_task_lane_references(store, &outcome)?;
     Ok(outcome)
 }
@@ -742,7 +866,12 @@ impl ServiceContext {
         &self,
         request: &LaneRemovalRequest,
     ) -> Result<LaneRemovalOutcome, String> {
-        remove_lane_and_clear_task_references(&self.plan_store, request, &self.live_tab_cwds())
+        remove_lane_and_clear_task_references(
+            &self.plan_store,
+            &self.repo_watch,
+            request,
+            &self.live_tab_cwds(),
+        )
     }
 }
 

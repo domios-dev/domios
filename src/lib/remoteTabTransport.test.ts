@@ -83,9 +83,9 @@ describe("remote tab transport adapter", () => {
       expect(call?.ordinaryTabId.slice(`mesh:${peerId}/`.length)).toBe(call?.remoteTabId);
     }
 
-    const modelSwitch = remoteTransportCall("switch_agent_model", { tabId: composite, model: "opaque-model-5d" });
+    const modelSwitch = remoteTransportCall("switch_agent_model", { tabId: composite, model: "opaque-model-5d", reasoningEffort: "high", runtimeMode: "auto" });
     expect(modelSwitch?.suffix).toBe("/agent/model");
-    expect(modelSwitch?.body).toEqual({ model: "opaque-model-5d" });
+    expect(modelSwitch?.body).toEqual({ model: "opaque-model-5d", reasoning_effort: "high", runtime_mode: "auto" });
 
     // INBOUND: parse is the exact inverse, so a raw peer tab id remaps only to its composite owner.
     const identity = parseCompositeTabId(composite);

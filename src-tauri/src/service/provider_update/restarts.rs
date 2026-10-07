@@ -26,6 +26,18 @@ pub(super) fn readiness(service: &ServiceContext, tab_id: &str) -> TabReadiness 
         })
     });
     let snapshot = service.snapshot_with_reconciled_status();
+    if let Some(sidecar) = crate::service::codex_rpc::diagnostics::for_tab(tab_id) {
+        let idle = crate::service::codex_rpc::diagnostics::restart_when_idle(
+            sidecar.active_turn,
+            sidecar.selection_verified,
+            active_attempt,
+        );
+        return TabReadiness {
+            idle,
+            active_turn: sidecar.active_turn || !sidecar.selection_verified,
+            active_attempt,
+        };
+    }
     let status = snapshot.tabs.get(tab_id).map(|tab| {
         crate::multiplexer::state::effective_tab_status(
             tab,

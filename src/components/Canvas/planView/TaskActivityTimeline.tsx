@@ -3,6 +3,7 @@ import type { ApiConfig, Tab } from "../../../lib/types";
 import { milestoneColorMap } from "../milestoneColors";
 import { resolveTaskExecutionAttempts, attemptTabId, attemptTabTitle } from "../taskExecutorHistory";
 import type { Plan, Task } from "../types";
+import { laneTurnStatsLabel } from "../taskTurnStats";
 import { AttachmentGallery } from "./attachments";
 import {
   milestoneAbsoluteTitle,
@@ -54,6 +55,15 @@ function AttemptRow({
       data-executor-attempt={index + 1}
     >
       {bits.join(" · ")}
+      {attempt.lane_turn_stats?.map((stats) => (
+        <div
+          key={stats.turn}
+          data-testid="plan-task-activity-turn-stats"
+          data-turn={stats.turn}
+        >
+          {laneTurnStatsLabel(stats)}
+        </div>
+      ))}
     </div>
   );
 }
@@ -87,6 +97,12 @@ function TaskActivityTimelineBody({
           {attempts.map((attempt, index) => (
             <AttemptRow key={attempt.id ?? `${attempt.tab_id ?? "attempt"}-${index}`} attempt={attempt} index={index} tabs={tabs} />
           ))}
+        </div>
+      )}
+      {task.lane?.cleanup_status?.toLowerCase() === "offered" && (
+        <div data-testid="plan-task-lane-cleanup-offer">
+          <span>Merged lane cleanup is available.</span>
+          {task.lane.cleanup_hints?.[0] && <code>{task.lane.cleanup_hints[0]}</code>}
         </div>
       )}
       {task.milestones.length > 0 && (

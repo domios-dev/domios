@@ -296,6 +296,12 @@ pub(crate) fn respond_with_identity(
     value: &str,
     expected: Option<&PromptIdentity>,
 ) -> Option<Result<(), String>> {
+    let displayed_identity = svc
+        .mux
+        .read()
+        .get_tab(tab_id)
+        .and_then(|tab| tab.prompt_identity());
+    let expected = response_identity(value, expected, displayed_identity.as_ref())?;
     let binding = svc.mux.read().get_tab(tab_id).map(|tab| {
         (
             tab.agent_session_id.clone(),
@@ -348,6 +354,25 @@ pub(crate) fn respond_with_identity(
         }
     }
     Some(result)
+}
+
+fn response_identity<'a>(
+    value: &str,
+    expected: Option<&'a PromptIdentity>,
+    displayed: Option<&'a PromptIdentity>,
+) -> Option<Option<&'a PromptIdentity>> {
+    if let Some(expected) = expected {
+        return hook_identity(expected).then_some(Some(expected));
+    }
+    if value.starts_with("permission:") {
+        return Some(None);
+    }
+    if value.parse::<usize>().is_ok() {
+        return displayed
+            .filter(|identity| hook_identity(identity))
+            .map(Some);
+    }
+    None
 }
 
 impl Drop for PendingGuard {

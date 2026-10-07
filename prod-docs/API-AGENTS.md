@@ -3,16 +3,18 @@ REST endpoints for agent restart, model switch, spawn, reports, keep-awake, and 
 
 #### Agent Restart (POST /api/tabs/{id}/agent/restart)
 
-Restart an agent whose process is observed live in a tab. The body is optional (defaults below). Default is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event, then tear down the old PTY, create a replacement, and relaunch. A recorded provider session resumes when it still exists on disk; otherwise the provider starts a fresh session. With liveness unobserved, a known PTY provider restarts fresh from a confirmed bare shell (stage `LaunchBindingUnconfirmed`, no owning launch, live PTY at a shell prompt, no verified recovery session in lineage or journal): no exit command, a new PTY, the unverified session id cleared. Other unobserved states are refused. A provider observed to have exited into its surviving shell is recovered in place: Domios skips exit and teardown, takes the tab's newest session from its binding lineage (or, without lineage, its lifecycle journal), requires the journal to prove that session was nonce-verified and exactly one provider to own its session record, then relaunches that provider with resume through the ordinary launch pipeline in the same PTY.
+Restart a live agent through its provider exit command, bounded shell-ready wait and PTY replacement. Resume its recorded session if present; otherwise launch fresh. Unobserved liveness allows fresh launch only with `LaunchBindingUnconfirmed`, no owning launch, a live shell prompt and no verified lineage/journal recovery session; it replaces the PTY and clears the unverified binding without sending exit. Other unobserved states refuse. An observed exited provider recovers in its surviving shell without teardown: select the newest lineage session (journal fallback), require nonce-verification evidence and exactly one owning provider, then resume through normal launch.
 
 ```json
-{"force": false, "grace_secs": 10}
+{"force": false, "grace_secs": 10, "provider": null, "handoff_history": false}
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `force` | `bool` | `false` | Skip the graceful exit event wait and tear down the old PTY immediately. Use only when the agent is hung or unresponsive. |
 | `grace_secs` | `u64` | `10` | Failure deadline around the shell-ready event wait before the old PTY is torn down. Ignored when `force=true`. |
+| `provider` | `string?` | `null` | Relaunch a live PTY agent with this installed PTY provider. A different provider starts fresh and does not resume the source session. |
+| `handoff_history` | `bool` | `false` | With a different `provider`, include a bounded, redacted transcript in the target provider's launch task. The source tab's own transcript must be readable. |
 
 **Ready response** (`202 Accepted`):
 ```json
@@ -24,7 +26,7 @@ Restart an agent whose process is observed live in a tab. The body is optional (
 }
 ```
 
-`session_action` is `resumed` or `fresh_launch`; the CLI exits non-zero unless the response confirms `agent_ready: true` and one of them. The three transition fields are independent observations. `restart_accepted` means validation and rate limiting accepted the request. `old_pty_torn_down` means Domios observed the prior PTY leave the tab and its process tree complete. `agent_ready` means an `AgentReady` transition was observed for `new_pty_id`, which must differ from `old_pty_id`; a pre-restart `AgentReady` attached to the old PTY never satisfies this contract. `recovered_in_place` marks an exited-provider recovery: nothing is torn down, `new_pty_id` equals `old_pty_id`, and the shell's prior stage is retired before launch, so only the relaunch can report `AgentReady`. `session_was_stale` is `true` when the recorded session JSONL no longer exists on disk; the restart proceeds without `--resume` in a fresh session.
+`session_action` is `resumed` or `fresh_launch`; CLI success requires `agent_ready: true`. Transition fields are observations: `restart_accepted` records validation/rate-limit acceptance, `old_pty_torn_down` records prior PTY/tree exit, and `agent_ready` requires new `AgentReady` evidence for a distinct `new_pty_id`. Old readiness never qualifies. In-place recovery keeps matching PTY ids and retires the old shell stage first. `session_was_stale: true` means missing JSONL and fresh launch.
 
 **Errors:**
 - `404` — tab id not found
@@ -35,7 +37,8 @@ Restart an agent whose process is observed live in a tab. The body is optional (
 
 Failures after acceptance include `error` plus the same transition fields. Every boolean stays false unless that leg was observed; `new_pty_id` appears only if a replacement PTY was linked. Rejections (`400`, `404`, `429`) precede acceptance and keep compact error bodies. A failed restart is never returned in the ready `202` shape.
 
-CLI: `codeterm agent restart --tab TAB_ID [--force] [--grace-secs N]`.
+CLI: `codeterm agent restart --tab TAB_ID [--force] [--grace-secs N] [--provider PROVIDER [--handoff-history]]`.
+Provider changes discard source launch settings; history handoff requires explicit opt-in.
 With `--mesh PEER`, `--tab TAB_ID` is required and identifies a Tab on that peer; the local caller's `CODETERM_TAB_ID` is never used.
 
 #### Agent Model Switch (POST /api/tabs/{id}/agent/model)
@@ -46,13 +49,13 @@ Switch one agent tab to another model. Domios never types a provider model comma
 {"model": "sonnet", "reasoning_effort": "high"}
 ```
 
+A `next_turn` sidecar returns `mode_used: "next_turn"`, `model_confirmation: "pending"` and no restart, including while busy. The next turn carries model and effort; thread settings/model events confirm them. Optional `runtime_mode` accepts `approval-required`, `auto-accept-edits`, `auto`, or `full-access` and requires a live sidecar. Settings stay per-thread. Without a sidecar, switching uses idle RestartResume.
+
 The live session GET or, after a RestartResume fallback, the current binding's launch report or first post-relaunch assistant turn can confirm the model. A live request whose session record does not show the requested model returns pending with `confirmation_detail`; no screen output or POST status is treated as confirmation. After the bounded RestartResume confirmation deadline, a ready relaunch with no model observation still succeeds as pending; the label and `agent_session_model` follow the first turn when it arrives. A live request failure or a confirmed different RestartResume model remains an error.
 
 Confirmed success (`200 OK`) includes `mode_used`, `model_confirmation: "observed"`, `observed_model`, and `evidence` (`live_session_record`, `session_start_report`, or `first_post_relaunch_turn`). RestartResume fallback includes `fallback_reason`. Live success has no `restart` object.
 
-When the resumed provider omits its model and no assistant turn arrives before the confirmation deadline, the success response keeps the same relaunch evidence and reports pending confirmation:
-
-The pending body includes `ok`, `tab_id`, `provider`, `mode_used`, `requested_model`, `launched_model`, `session_id`, `relaunch_evidence` and the `restart` observations.
+Pending success includes `ok`, `tab_id`, `provider`, `mode_used`, `requested_model`, `launched_model`, `session_id`, `relaunch_evidence` and `restart`.
 
 `relaunch_evidence.session_id` is the resumed session id, `launched_model` is the model passed through the provider's `--model` launch argument, and `agent_ready` confirms the relaunch reached readiness. Pending success omits `observed_model` and `evidence`; the tab identity updates when the first post-relaunch turn provides a model.
 
@@ -70,11 +73,11 @@ CLI: `codeterm agent model --tab TAB_ID MODEL [--force] [--json]`; `--json` prin
 
 ### Plan task attempts and Teams
 
-Task execution attempts, respawn, dispatch preflight, Team-bound plans, Team staffing, and Team close: `codeterm docs API-TEAMS`.
+Attempts, respawn, dispatch preflight and Team lifecycle: `codeterm docs API-TEAMS`.
 
 ### Keep-Awake (GET/POST /api/keepawake*)
 
-Prevents machine sleep (optionally display dimming) while long-running agents work. Global machine state, not tab- or workspace-scoped; all three endpoints require the Bearer token.
+Global sleep/display inhibition; all endpoints require Bearer authentication.
 
 **Status shape (`KeepAwakeStatus`):**
 ```json
@@ -84,20 +87,20 @@ Prevents machine sleep (optionally display dimming) while long-running agents wo
 - `display` — whether the display is also kept on.
 - `expires_at` — unix milliseconds when the session auto-expires, or `null` for an indefinite session.
 
-**GET /api/keepawake** — returns the current `KeepAwakeStatus`. When no session is active, `active=false`, `display=false`, `expires_at=null`.
+**GET /api/keepawake** returns `KeepAwakeStatus`; inactive is `false`, `false`, `null`.
 
-**POST /api/keepawake/start** — body and all its fields are optional:
+**POST /api/keepawake/start** — optional body/fields:
 ```json
 {"duration_secs": 3600, "display": false}
 ```
 - `duration_secs` — session length in seconds. Omit or `null` for an indefinite session.
 - `display` — `true` to also prevent display sleep/dimming. Default `false`.
 
-Any existing session is stopped first, then the new one is started. Returns the fresh `KeepAwakeStatus`.
+Replaces any existing session; returns `KeepAwakeStatus`.
 
 **POST /api/keepawake/stop** — no body. Stops any active session. Returns `{"ok": true}`.
 
-**Tauri event `keepawake-changed`** — emitted on every transition: start, stop, natural expiry (`duration_secs` elapsed), and macOS `caffeinate` spawn failure. Payload is `KeepAwakeStatus`. Frontends subscribe with `listen("keepawake-changed", (ev) => ...)`.
+**Tauri event `keepawake-changed`** carries `KeepAwakeStatus` on start, stop, expiry and macOS `caffeinate` spawn failure.
 
 **Persistence:** state is written to `~/.codeterm/keepawake.json` (dev: `~/.codeterm-dev/keepawake.json`) and restored on startup: indefinite sessions resume as-is, timed ones with the remaining duration, expired ones are discarded.
 
@@ -108,7 +111,7 @@ Any existing session is stopped first, then the new one is started. Returns the 
 
 ### Agent Spawn (POST /api/agents/spawn)
 
-One request creates a **new tab** in the parent's workspace, assigns a role, launches an agent (claude/aider/any), and optionally sends a task. The response returns immediately; PTY readiness detection and agent launch run in a background thread. The hierarchy (Orchestrator -> Worker) is a logical chain, not nested layouts; each agent gets its own tab. Spawns never switch the user's active tab.
+Creates a new tab in the parent's workspace, assigns its role and launches the provider with an optional task. Each agent owns a tab; hierarchy is logical. Spawn never changes the active tab. Launch verdicts are bounded below.
 
 **Request body:**
 ```json
@@ -141,7 +144,7 @@ The worker runs `codeterm agent report "..."` (no `--mesh`/`--tab`); its daemon 
 Report routing precedence: **remote mesh target → `parent_tab_id` → `report_target_tab_id` → `spawned_by_tab_id`**; never self.
 
 ### Plan-authorized task-less evidence reports
-The live authenticated Plan owner grants a review or canonical-QA tab with `plan.review.authorize-reporter` / `codeterm plan review authorize-reporter`. The durable grant records the target's exact tab id, session id, and a one-way binding-nonce digest; it never exposes the bearer nonce through Plan history. The target reports with `plan_id` only: `task_id`, `status`, and task provenance remain absent. Success appends an immutable `plan_evidence_report` Plan stride, publishes the ordinary `agent-report` event to the live owner, and returns `plan_report` with the stride id and `task_transition:false`. Authorization is capability-based; role labels grant nothing. An absent caller session is resolved from the exact registered tab only with a matching stored and hook-reported nonce; an explicitly wrong session still refuses. Foreign, unbound, stale/rebound, task-bound, or ungranted callers change no Plan history or report store. A session change requires a fresh owner grant. Registered Planner and task-bound Worker paths are unchanged.
+The authenticated live Plan owner grants review/canonical-QA reporting via `plan.review.authorize-reporter` / `codeterm plan review authorize-reporter`. The grant stores exact tab/session ids and a one-way nonce digest; Plan history never exposes the bearer nonce. Reports carry only `plan_id`, no task/status/provenance. Success appends immutable `plan_evidence_report`, emits `agent-report` to the live owner and returns `plan_report` with stride id and `task_transition:false`. Capability grants, not role labels, authorize. Missing caller session resolves only from the exact registered tab with matching stored/hook nonce; explicitly wrong sessions refuse. Foreign, unbound, stale/rebound, task-bound or ungranted callers mutate neither history nor report store. Session changes require a fresh grant. Planner/task-bound Worker paths are unchanged.
 
 Each inbound mesh report registers the worker in the orchestrator-side registry (`GET /api/remote-workers`, `remote-workers-changed` event); the sidebar renders it as a read-only "remote tab" ghost node under its orchestrator (peer chip + status, no local PTY).
 
@@ -170,7 +173,7 @@ Run multiple operations sequentially in one HTTP request. Later commands referen
 {"results": [{"tab_id": "...", "tab_id": "...", ...}, {"ok": true}, ...]}
 ```
 
-A failing command returns `{"error": "message", "method": "..."}`; later commands still execute.
+Failures return `{"error":"message","method":"..."}`; later commands still execute.
 
 **Batch method parameters:**
 
@@ -189,14 +192,14 @@ Plan surface contracts — planner authority over task structure, partial `plan 
 
 A provider declaring model-provider configuration support accepts `preset` on PTY spawn: Domios resolves its owned model and agent launch arguments before tab creation. See `codeterm docs INTEGRATIONS` for endpoint keys and preset commands. Provider changes publish versioned catalogue events; selectors refresh without reloading. OpenCode advertises per-model variants as reasoning levels, passed at launch and live switch. Model-switch responses and the chip expose the live or restart/resume path.
 
-<!-- revision: 49 -->
+<!-- revision: 53 -->
 
 ### Background work and session forks
 
-With the provider's `background_work_guard` switch enabled, restart and restart-based model switches refuse running background tasks with `409 background_work_running` and `running_items`. Provider updates defer until an observed roster drain. Explicit owner `--force` overrides the guard and produces an owner-visible warning.
+With `background_work_guard` enabled, restarts and restart-based model switches return `409 background_work_running` with `running_items`. Provider updates defer until roster drain. Owner `--force` overrides with a visible warning.
 
-`codeterm agent fork --tab TAB_ID` / `POST /api/tabs/{id}/agent/fork` creates a new local tab only for providers declaring fork support. The response carries `tab_id`, `source_tab_id`, `source_session_id`, `session_id` and `binding_pending`. A pending response is not proof of binding: inspect the new tab until provider launch evidence binds a distinct session. The source remains unchanged. The tab menu exposes the same capability-gated action; mesh forwarding is unsupported.
+`codeterm agent fork --tab TAB_ID` / `POST /api/tabs/{id}/agent/fork` requires declared fork support and opens a new local tab, leaving the source intact. Response: `tab_id`, `source_tab_id`, `source_session_id`, `session_id`, `binding_pending`. Pending is not binding proof: inspect until launch evidence binds a distinct session. The tab menu uses the same capability; mesh is unsupported.
 
 ### Model-free capabilities
 
-Providers declaring `spawn.capabilityProbe: stream_json_initialize` can enable `capability_probe_enabled` (default false). `POST /api/tabs/{id}/agent/capabilities/refresh` explicitly refreshes the cache for that tab's project and binary identity. The response is `status: pending`, `status: ready` with typed `data`, or `status: unavailable` with a typed `reason`. Binary and login changes invalidate and rebuild cached projects. Render, switch and send paths never launch this probe. Cached commands include argument hints; subscription and modes appear in the composer badge. No user prompt or usage request is sent.
+`spawn.capabilityProbe: stream_json_initialize` supports `capability_probe_enabled` (default false). `POST /api/tabs/{id}/agent/capabilities/refresh` refreshes the project/binary cache: `status` is `pending`, `ready` with typed `data`, or `unavailable` with typed `reason`. Binary/login changes invalidate and rebuild. Render/switch/send never probe. Cached commands carry argument hints; the composer badge shows subscription/modes. No user turn or usage request is sent.

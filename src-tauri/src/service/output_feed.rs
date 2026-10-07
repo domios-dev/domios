@@ -52,7 +52,14 @@ impl ServiceContext {
         }
         crate::service::pty_io::submit_transaction::wake_submit_cycle_output(pty_id);
         let stage = std::time::Instant::now();
-        self.run_watcher.feed(self, pty_id, data);
+        let structured = self
+            .mux
+            .read()
+            .tab_id_for_pty(pty_id)
+            .is_some_and(|tab| super::codex_rpc::lifecycle::for_tab(&tab).is_some());
+        if !structured {
+            self.run_watcher.feed(self, pty_id, data);
+        }
         let watcher_us = stage.elapsed().as_micros();
         let stage = std::time::Instant::now();
         let statuses = self.process_pty_output(pty_id, data);
@@ -111,6 +118,10 @@ impl ServiceContext {
         self.mark_agent_turn_status(tab_id, TabStatus::Idle)
     }
 
+    pub(crate) fn mark_agent_waiting(&self, tab_id: &str) -> bool {
+        self.mark_agent_turn_status(tab_id, TabStatus::Waiting)
+    }
+
     pub(crate) fn mark_agent_turn_started(&self, tab_id: &str) -> bool {
         self.mark_agent_turn_status(tab_id, TabStatus::Working)
     }
@@ -129,11 +140,12 @@ impl ServiceContext {
             let previous = tracker.get_status(&pty_id);
             match status {
                 TabStatus::Working => tracker.set_working(&pty_id),
+                TabStatus::Waiting => tracker.set_waiting(&pty_id),
                 TabStatus::Error => tracker.set_error(&pty_id),
                 TabStatus::Idle => tracker.set_idle(&pty_id),
                 _ => return false,
             }
-            if status != TabStatus::Working {
+            if matches!(status, TabStatus::Idle | TabStatus::Error) {
                 tracker.notify_terminal_event(&pty_id);
             }
             (previous, tracker.get_status(&pty_id))
