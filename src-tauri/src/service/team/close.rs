@@ -613,12 +613,16 @@ fn non_empty(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
-fn git_output(cwd: &str, args: &[&str]) -> Result<Output, String> {
+fn git_command(cwd: &str, args: &[&str]) -> Command {
     let mut command = Command::new("git");
     process_util::no_window_std(&mut command);
+    command.current_dir(cwd).args(args);
     command
-        .current_dir(cwd)
-        .args(args)
+}
+
+fn git_output(cwd: &str, args: &[&str]) -> Result<Output, String> {
+    git_command(cwd, args)
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .output()
         .map_err(|error| format!("git could not run in '{cwd}': {error}"))
 }
@@ -632,7 +636,9 @@ fn git_output_error(operation: &str, cwd: &str, output: &Output) -> String {
 }
 
 fn run_git(cwd: &str, args: &[&str]) -> Result<(), String> {
-    let output = git_output(cwd, args)?;
+    let output = git_command(cwd, args)
+        .output()
+        .map_err(|error| format!("git could not run in '{cwd}': {error}"))?;
     if output.status.success() {
         return Ok(());
     }

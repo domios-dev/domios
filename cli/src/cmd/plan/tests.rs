@@ -726,7 +726,8 @@ mod review_ref_forwarding {
                 PlanReviewAction::Bounce {
                     plan_id: Some("pl_1".into()),
                     task_id: reference.into(),
-                    note: "n".into(),
+                    note: Some("n".into()),
+                    note_from_pad: None,
                     changed_executable_surfaces: false,
                     distinct_oracle: false,
                 },
@@ -738,7 +739,8 @@ mod review_ref_forwarding {
                 PlanReviewAction::Hold {
                     plan_id: Some("pl_1".into()),
                     task_id: reference.into(),
-                    note: "n".into(),
+                    note: Some("n".into()),
+                    note_from_pad: None,
                 },
             )
             .unwrap();
@@ -748,7 +750,8 @@ mod review_ref_forwarding {
                 PlanReviewAction::Accept {
                     plan_id: Some("pl_1".into()),
                     task_id: reference.into(),
-                    note: "n".into(),
+                    note: Some("n".into()),
+                    note_from_pad: None,
                     changed_executable_surfaces: false,
                     distinct_oracle: false,
                     residual_risk: None,

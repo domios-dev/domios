@@ -225,7 +225,8 @@ fn review_bounce_forwards_trusted_binding_and_keeps_from_as_attribution() {
                 action: PlanReviewAction::Bounce {
                     plan_id: Some("pl_review".into()),
                     task_id: "task_review".into(),
-                    note: "review the terminal generation".into(),
+                    note: Some("review the terminal generation".into()),
+                    note_from_pad: None,
                     changed_executable_surfaces: true,
                     distinct_oracle: false,
                 },

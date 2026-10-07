@@ -1,7 +1,7 @@
 // Run: npx tsx src/components/Sidebar/orchestrationGroupClose.test.ts
 
 import { countBySection } from "./orchestrationSections";
-import { buildHierarchySubtree } from "./HierarchyTree";
+import { groupWorkspaceTeamMembers, partitionTeamMembers, visibleWorkspaceTabs } from "./workspaceTeamModel";
 import { collectOrchestrationGroupMembers } from "./orchestrationGroupClose";
 import type { Tab } from "../../lib/types";
 
@@ -17,7 +17,7 @@ function assertEqual(actual: unknown, expected: unknown, message: string) {
 }
 
 function tab(id: string, overrides: Partial<Tab> = {}): Tab {
-  return { id, title: id, parent_tab_id: null, role: null, ...overrides } as Tab;
+  return { id, title: id, team_id: "team", parent_tab_id: null, role: null, ...overrides } as Tab;
 }
 
 test("collects the planner and workers under an orchestrator, but not siblings", () => {
@@ -63,15 +63,11 @@ test("section counts match visible worker rows for a valid tree", () => {
     worker1: tab("worker1", { parent_tab_id: "orch", role: "Worker" }),
     worker2: tab("worker2", { parent_tab_id: "orch", role: "Worker" }),
   };
-  const managerTabIds = new Set(
-    Object.values(tabs)
-      .filter((p) => p.parent_tab_id === "orch" && p.role === "Manager")
-      .map((p) => p.id),
-  );
-  const workerRows = buildHierarchySubtree("orch", tabs, {}, managerTabIds);
+  const members = groupWorkspaceTeamMembers(visibleWorkspaceTabs(Object.values(tabs), tabs)).get("team") ?? [];
+  const workerRows = partitionTeamMembers(members).workers;
   const counts = countBySection(collectOrchestrationGroupMembers("orch", tabs));
   assertEqual(counts, { managers: 1, workers: 2 }, "section counts");
-  assertEqual(workerRows.map((n) => n.tab.id).sort(), ["worker1", "worker2"], "visible worker rows");
+  assertEqual(workerRows.map((member) => member.tab.id).sort(), ["worker1", "worker2"], "visible worker rows");
   assertEqual(counts.workers, workerRows.length, "worker count matches rendered rows");
 });
 

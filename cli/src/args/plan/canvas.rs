@@ -137,8 +137,16 @@ pub enum PlanReviewAction {
     Accept {
         plan_id: Option<String>,
         task_id: String,
-        #[arg(long, allow_hyphen_values = true)]
-        note: String,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            required_unless_present = "note_from_pad",
+            conflicts_with = "note_from_pad"
+        )]
+        note: Option<String>,
+        /// Read the review note from a file in this tab's pad
+        #[arg(long, value_name = "PATH")]
+        note_from_pad: Option<String>,
         #[arg(long)]
         changed_executable_surfaces: bool,
         #[arg(long)]
@@ -152,8 +160,16 @@ pub enum PlanReviewAction {
     Bounce {
         plan_id: Option<String>,
         task_id: String,
-        #[arg(long, allow_hyphen_values = true)]
-        note: String,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            required_unless_present = "note_from_pad",
+            conflicts_with = "note_from_pad"
+        )]
+        note: Option<String>,
+        /// Read the review note from a file in this tab's pad
+        #[arg(long, value_name = "PATH")]
+        note_from_pad: Option<String>,
         #[arg(long)]
         changed_executable_surfaces: bool,
         #[arg(long)]
@@ -164,8 +180,16 @@ pub enum PlanReviewAction {
     Hold {
         plan_id: Option<String>,
         task_id: String,
-        #[arg(long, allow_hyphen_values = true)]
-        note: String,
+        #[arg(
+            long,
+            allow_hyphen_values = true,
+            required_unless_present = "note_from_pad",
+            conflicts_with = "note_from_pad"
+        )]
+        note: Option<String>,
+        /// Read the review note from a file in this tab's pad
+        #[arg(long, value_name = "PATH")]
+        note_from_pad: Option<String>,
     },
 }
 
