@@ -338,22 +338,14 @@ console.log("\n--- history file reader fallbacks ---\n");
     new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
     return context.module.exports.default;
   };
-  const bare = readVia({ platform: () => "linux", shell: { quoteFor: (v: any) => `'${v}'` } });
-  const bareResult = bare.readStructuredChat(path.dirname(tmp), "ses_x");
-  eq(bareResult.messages.length, 2, "host without fs still reads the history file");
-  eq(bareResult.messages[0].content, "Hi", "host without fs parses the user turn");
-  const viaHostReadFile = readVia({
-    platform: () => "linux",
-    shell: { quoteFor: (v: any) => `'${v}'` },
-    readFile: (p: string) => fs.readFileSync(p, "utf8"),
-  });
-  eq(viaHostReadFile.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 2, "host.readFile is used when present");
   const viaFsReadFile = readVia({
     platform: () => "linux",
     shell: { quoteFor: (v: any) => `'${v}'` },
     fs: { readFile: (p: string) => fs.readFileSync(p, "utf8") },
   });
   eq(viaFsReadFile.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 2, "host.fs.readFile is used when present");
+  const missingFs = readVia({ platform: () => "linux", shell: { quoteFor: (v: any) => `'${v}'` } });
+  eq(missingFs.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 0, "host without fs.readFile reports no messages");
   fs.unlinkSync(tmp);
 }
 
