@@ -10,6 +10,15 @@ fn parity_claude_context_usage() {
     for record in [
         json!({"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":10,"cache_creation_input_tokens":2,"cache_read_input_tokens":3,"output_tokens":999}},"cost":{"total_cost_usd":1.5},"cwd":"secret"}),
         json!({"type":"assistant","message":{"usage":{"input_tokens":20}}}),
+        json!({"type":"system","subtype":"compact_boundary","compactMetadata":{"postTokens":25}}),
+        json!({"type":"system","subtype":"compact_boundary","compactMetadata":{"postTokens":25.0}}),
+        json!({"type":"system","subtype":"compact_boundary","compactMetadata":{"postTokens":0}}),
+        json!({"type":"system","subtype":"compact_boundary","compactMetadata":{"postTokens":-1}}),
+        json!({"type":"system","subtype":"compact_boundary","compactMetadata":{"postTokens":0.5}}),
+        json!({"type":"system","subtype":"compact_boundary","compactMetadata":{"postTokens":"25"}}),
+        json!({"type":"system","subtype":"compact_boundary","compactMetadata":{"postTokens":10000001}}),
+        json!({"type":"system","subtype":"compact_boundary","compactMetadata":{"preTokens":170000}}),
+        json!({"type":"system","subtype":"other","compactMetadata":{"postTokens":25}}),
         json!({"type":"assistant","message":{"usage":{"input_tokens":-1}}}),
         json!({"context_window":{"current_usage":null}}),
         json!({"context_window":{"context_window_size":-1,"current_usage":{"input_tokens":10}}}),
@@ -40,6 +49,24 @@ fn parity_claude_jsonl_context_metadata_matches_native_normalization() {
         delta.messages[0].context_usage,
         native.parse_context_usage(&record)
     );
+}
+
+#[test]
+fn parity_claude_compact_boundary_context_reaches_delta_metadata() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let record = json!({"type":"system","subtype":"compact_boundary","uuid":"compact-own",
+        "compactMetadata":{"preTokens":170000,"postTokens":25000}});
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("own.jsonl");
+    std::fs::write(&path, format!("{record}\n")).unwrap();
+    let delta = js.parse_session_delta(&path, 0);
+    assert_eq!(delta.messages.len(), 1);
+    let context = delta.messages[0].context_usage.as_ref().unwrap();
+    assert_eq!(context.used_tokens, 25000);
+    assert_eq!(Some(context.clone()), native.parse_context_usage(&record));
 }
 
 #[test]
