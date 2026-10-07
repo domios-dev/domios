@@ -31,10 +31,17 @@ mod model_catalogue;
 mod model_providers;
 #[path = "parity_test/model_switch.rs"]
 mod model_switch;
+#[path = "parity_test/provider_compat.rs"]
+mod provider_compat;
+#[path = "parity_test/sqlite_fixture.rs"]
+mod sqlite_fixture;
 #[path = "parity_test/unbound_submit_recovery.rs"]
 mod unbound_submit_recovery;
 #[path = "parity_test/update_prompt.rs"]
 mod update_prompt;
+
+#[path = "parity_test/account_home.rs"]
+mod account_home;
 
 type PluginsDir = PathBuf;
 

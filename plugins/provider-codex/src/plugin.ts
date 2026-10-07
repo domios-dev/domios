@@ -130,10 +130,11 @@ function windowsProfileCommand(parts: string[], taskPath: string | null, instanc
   const quotedInstanceId = host.shell.quoteFor(instanceId, host.platform());
   const taskSetup = taskPath
     ? `$ctTaskInstructions = [System.IO.File]::ReadAllText(${host.shell.quoteFor(taskPath, host.platform())}, [System.Text.Encoding]::UTF8); `
+      + '$ctTaskInstructions = $ctTaskInstructions.Replace("`r`n", "`n").Replace("`r", "`n"); '
       + "$ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); "
     : "$ctTaskJson = $null; ";
   const profileValue = taskPath
-    ? "('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson)"
+    ? "('# codeterm-instance: ' + $ctInstanceId + \"`n\" + 'developer_instructions = ' + $ctTaskJson)"
     : "('# codeterm-instance: ' + $ctInstanceId)";
   const prefix = "$PSNativeCommandArgumentPassing = 'Standard'; "
     + "$ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; "
@@ -302,6 +303,7 @@ const plugin: PluginModule = {
   sweepLaunchArtifacts(request: {
     instanceId: string;
     liveTabIds: string[];
+    goneInstanceIds?: string[];
     confirm: boolean;
     includeLegacy: boolean;
   }) {
@@ -311,6 +313,7 @@ const plugin: PluginModule = {
       request.instanceId,
       request.confirm,
       request.includeLegacy,
+      request.goneInstanceIds,
     );
   },
 

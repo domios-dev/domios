@@ -29,6 +29,10 @@ use session_wire::WireUsageSource;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
+    fn cli_compatibility(&self) -> Option<crate::provider_compat::CompatibilityManifest> {
+        self.manifest.cli_compatibility.clone()
+    }
+
     fn id(&self) -> &str {
         &self.manifest.id
     }
@@ -517,6 +521,10 @@ impl AgentProvider for JsProvider {
 
     fn session_id_injection(&self) -> SessionIdInjection {
         self.manifest.spawn.session_id_injection.into()
+    }
+
+    fn context_attach(&self) -> Option<crate::provider::ContextAttach> {
+        self.manifest.capabilities.context_attach
     }
 
     fn is_tool_less(&self) -> bool {

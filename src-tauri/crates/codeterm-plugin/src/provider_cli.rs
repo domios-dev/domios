@@ -7,6 +7,12 @@ pub use prerequisites::{missing_prerequisite_hint, CommandPrerequisite};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct ProviderCliStatus {
+    #[serde(default)]
+    pub detected_version: Option<String>,
+    #[serde(default)]
+    pub version_probe: crate::provider_version::ProbeStatus,
+    #[serde(default)]
+    pub compatibility: crate::provider_compat::CompatibilityEvaluation,
     pub installed: Option<bool>,
     pub required: bool,
     pub binary: Option<String>,
@@ -26,8 +32,22 @@ pub fn observe_cli(
     installer: Option<String>,
     updater: Option<String>,
 ) -> ProviderCliStatus {
+    observe_cli_with_compatibility(binary, installer, updater, None)
+}
+
+pub fn observe_cli_with_compatibility(
+    binary: String,
+    installer: Option<String>,
+    updater: Option<String>,
+    compatibility: Option<&crate::provider_compat::CompatibilityManifest>,
+) -> ProviderCliStatus {
+    let observation = crate::provider_version::observe(&binary);
     let probe = probe_bin(&binary);
     let mut status = status_from_probe(binary, probe, installer, updater);
+    status.compatibility =
+        crate::provider_compat::evaluate(compatibility, observation.version.as_deref());
+    status.detected_version = observation.version;
+    status.version_probe = observation.status;
     status.installer_prerequisites = prerequisites::observe(status.installer.as_deref());
     status.updater_prerequisites = prerequisites::observe(status.updater.as_deref());
     status
@@ -46,6 +66,9 @@ pub fn status_from_probe(
         BinResolution::Unknown => (None, None),
     };
     ProviderCliStatus {
+        detected_version: None,
+        version_probe: crate::provider_version::ProbeStatus::Pending,
+        compatibility: crate::provider_compat::evaluate(None, None),
         installed,
         required: true,
         binary: Some(binary),
@@ -61,6 +84,9 @@ pub fn status_from_probe(
 
 pub fn no_cli() -> ProviderCliStatus {
     ProviderCliStatus {
+        detected_version: None,
+        version_probe: crate::provider_version::ProbeStatus::Missing,
+        compatibility: crate::provider_compat::evaluate(None, None),
         required: false,
         installed: None,
         binary: None,
@@ -84,7 +110,7 @@ pub fn manifest_cli_status(
     if !manifest.capabilities.agent_provider {
         return None;
     }
-    Some(observe_cli(
+    Some(observe_cli_with_compatibility(
         manifest
             .cli_binary
             .as_deref()
@@ -93,5 +119,6 @@ pub fn manifest_cli_status(
             .to_owned(),
         manifest.installer.get(platform).cloned(),
         manifest.updater.get(platform).cloned(),
+        manifest.cli_compatibility.as_ref(),
     ))
 }

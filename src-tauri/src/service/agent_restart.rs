@@ -996,6 +996,7 @@ fn build_relaunch_command_with_registry(
                 crate::service::tool_less_instructions::build(
                     p,
                     &AgentLaunchParams {
+                        context_files: None,
                         tool_less_instructions_path: None,
                         agent_name: None,
                         task: None,
@@ -1065,6 +1066,7 @@ fn build_relaunch_command_with_registry(
         }
     }
     let mut params = AgentLaunchParams {
+        context_files: None,
         tool_less_instructions_path: None,
         agent_name: None,
         task: launch_task.map(str::to_string),

@@ -34,6 +34,7 @@ mod owner_prompt_wait;
 mod public_send;
 #[path = "launch/reader_readiness.rs"]
 mod reader_readiness;
+mod resume_binding;
 mod startup_readiness;
 pub(crate) use command::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
@@ -439,14 +440,24 @@ pub(crate) fn launch_agent_in_background_with_env(
         return;
     }
     let registry = svc.agent_registry.clone();
-    let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
-    let session_starts_on_first_turn = startup_readiness::launch_waits_for_first_turn_binding(
+    let binding_turn = resume_binding::for_launch(
         &svc,
         &tab_id,
         &agent_cmd,
-        has_startup_task_turn,
         origin,
+        has_startup_task_turn || fallback_spec.is_some(),
     );
+    let binding_turn_planned = binding_turn.is_some();
+    let fallback_spec = fallback_spec.or(binding_turn);
+    let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
+    let session_starts_on_first_turn = binding_turn_planned
+        || startup_readiness::launch_waits_for_first_turn_binding(
+            &svc,
+            &tab_id,
+            &agent_cmd,
+            has_startup_task_turn,
+            origin,
+        );
     let launch_started = std::time::Instant::now();
     let (role, role_profile, model, reasoning_effort) = svc
         .mux
@@ -952,7 +963,6 @@ pub(crate) fn launch_agent_in_background_with_env(
                 &agent_cmd,
                 &readiness_attempt,
                 session_starts_on_first_turn,
-                startup_binding_deadline,
                 input_readiness_timeout,
                 provider_readiness,
                 composer_cursor_position,
@@ -1005,6 +1015,9 @@ pub(crate) fn launch_agent_in_background_with_env(
             {
                 let mut mux = svc.mux.write();
                 let tab = mux.get_tab_mut(&tab_id).expect("launch Tab exists");
+                if binding_turn_planned {
+                    resume_binding::prepare_binding_turn(tab, &spec);
+                }
                 tab.pending_delivery.get_or_insert_with(|| {
                     crate::service::launch_delivery::pending_record_for_spec(spec.clone())
                 });
@@ -1012,32 +1025,40 @@ pub(crate) fn launch_agent_in_background_with_env(
             let submit_strategy = registry
                 .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
                 .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
-            let launch_input_readiness = match svc.await_launch_input_readiness(
-                &readiness_attempt,
-                &agent_cmd,
-                std::time::Duration::ZERO,
-            ) {
-                Ok(readiness) => readiness,
-                Err(refusal) => {
-                    let failure = LaunchFailure::ProviderInputNotReady(refusal.reason());
-                    launch.fail(&svc, failure.clone());
-                    set_booting(false);
-                    if let Some(tx) = ready_tx {
-                        let _ = tx.send(Err(failure.reason()));
-                    }
-                    return;
+            let launch_frame_prefix = registry
+                .with_provider(&agent_cmd, |provider| {
+                    crate::service::launch_delivery::launch_input_frame_prefix(
+                        provider.composer_cursor_position(),
+                    )
+                })
+                .flatten();
+            if crate::service::launch_readiness::LaunchAttempt::current(&svc.mux, &tab_id, &pty_id)
+                .as_ref()
+                != Some(&readiness_attempt)
+            {
+                let failure = LaunchFailure::ProviderInputNotReady(
+                    crate::service::launch_input_gate::LaunchInputRefusal::AttemptSuperseded
+                        .reason(),
+                );
+                launch.fail(&svc, failure.clone());
+                set_booting(false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(failure.reason()));
                 }
-            };
+                return;
+            }
             let consumption = delivery_gate.consume_injection_with_readiness(
                 &svc.mux,
                 &tab_id,
                 &svc,
-                Some(launch_input_readiness),
+                launch_input_readiness,
                 || {
-                    crate::service::pty_io::submit_transaction::submit_text_with_key(
+                    crate::service::pty_io::submit_transaction::submit_text_with_key_claimed_and_frame(
                         &svc,
                         &pty_id,
                         &task_text,
+                        launch_frame_prefix,
+                        None,
                         true,
                         b"\r",
                         submit_strategy,
@@ -1049,6 +1070,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                         },
                         None,
                         false,
+                        crate::service::pty_io::submit_transaction::claim_submit_cycle(&pty_id),
                     )
                 },
             );
@@ -1109,14 +1131,16 @@ pub(crate) fn launch_agent_in_background_with_env(
             }
         });
         if let Some(finished) =
-            startup_readiness::finish_waiting_for_first_turn(&mut launch, &readiness, &svc)
+            startup_readiness::finish_waiting_for_first_turn(&mut launch, &readiness, &svc, origin)
         {
             if finished {
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Ok(()));
                 }
             } else if let Some(tx) = ready_tx {
-                let _ = tx.send(Err("launch readiness was superseded".into()));
+                let _ = tx.send(Err(
+                    "launch did not establish its authenticated session binding".into(),
+                ));
             }
             return;
         }

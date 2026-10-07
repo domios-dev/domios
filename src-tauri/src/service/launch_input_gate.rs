@@ -293,8 +293,21 @@ fn decide_launch_input(
     }
 }
 
-fn input_fallback_opens(started: Instant, now: Instant, fallback_ms: u64) -> bool {
-    now.saturating_duration_since(started).as_millis() as u64 >= fallback_ms
+fn decide_launch_input_at_deadline(
+    observation: LaunchInputObservation,
+    mode: LaunchInputMode,
+    expired: bool,
+    structural_composer: bool,
+    observed_tui_without_composer: bool,
+) -> Result<Option<LaunchInputEvidence>, LaunchInputRefusal> {
+    match decide_launch_input(observation, mode)? {
+        Some(evidence) => Ok(Some(evidence)),
+        None if expired => Err(launch_readiness_deadline_refusal(
+            structural_composer,
+            observed_tui_without_composer,
+        )),
+        None => Ok(None),
+    }
 }
 
 fn provider_composer_is_ready(
@@ -411,30 +424,22 @@ impl ServiceContext {
         let started = Instant::now();
         let deadline = started + timeout;
         let mut generation = signal.generation();
-        let (
-            provider_readiness,
-            composer_cursor_position,
-            provider_binary_name,
-            status_bar_rows,
-            input_fallback_ms,
-        ) = self
-            .agent_registry
-            .with_provider(agent_id, |provider| {
-                (
-                    provider.provider_readiness_strategy(),
-                    provider.composer_cursor_position(),
-                    provider.binary_name().to_string(),
-                    provider.status_bar_rows(),
-                    provider.input_fallback_ms(),
-                )
-            })
-            .unwrap_or((
-                crate::agent::provider::ProviderReadinessStrategy::default(),
-                crate::agent::provider::ComposerCursorPosition::default(),
-                String::new(),
-                0,
-                None,
-            ));
+        let (provider_readiness, composer_cursor_position, provider_binary_name, status_bar_rows) =
+            self.agent_registry
+                .with_provider(agent_id, |provider| {
+                    (
+                        provider.provider_readiness_strategy(),
+                        provider.composer_cursor_position(),
+                        provider.binary_name().to_string(),
+                        provider.status_bar_rows(),
+                    )
+                })
+                .unwrap_or((
+                    crate::agent::provider::ProviderReadinessStrategy::default(),
+                    crate::agent::provider::ComposerCursorPosition::default(),
+                    String::new(),
+                    0,
+                ));
         let declares_structural_composer = provider_readiness.requires_composer();
         let uses_prompt_glyph_fingerprint = declares_structural_composer
             && composer_cursor_position
@@ -442,6 +447,7 @@ impl ServiceContext {
         let mut observed_tui_without_composer = false;
         let mut onboarding_choice_submitted = false;
         let mut directory_trust_prompt_observed = false;
+        let mut final_observation = false;
 
         let result = (|| loop {
             diagnostic.begin_frame(attempt, timeout, generation);
@@ -695,31 +701,21 @@ impl ServiceContext {
                 directory_trust_state,
                 provider_evaluated,
             );
-            match decide_launch_input(observation, mode) {
+            match decide_launch_input_at_deadline(
+                observation,
+                mode,
+                final_observation,
+                declares_structural_composer,
+                observed_tui_without_composer,
+            ) {
                 Err(refusal) => return Err(refusal),
                 Ok(Some(readiness)) => return Ok(readiness),
                 Ok(None) => {}
             }
 
-            if let Some(fallback_ms) = input_fallback_ms {
-                if input_fallback_opens(started, Instant::now(), fallback_ms) {
-                    return Ok(LaunchInputEvidence::ProviderComposer);
-                }
-            }
-
-            let remaining = deadline
-                .checked_duration_since(Instant::now())
-                .ok_or_else(|| {
-                    launch_readiness_deadline_refusal(
-                        declares_structural_composer,
-                        observed_tui_without_composer,
-                    )
-                })?;
+            let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() || !signal.wait_after(generation, remaining) {
-                return Err(launch_readiness_deadline_refusal(
-                    declares_structural_composer,
-                    observed_tui_without_composer,
-                ));
+                final_observation = true;
             }
             generation = signal.generation();
         })();

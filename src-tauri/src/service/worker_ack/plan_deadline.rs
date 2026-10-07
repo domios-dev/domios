@@ -947,6 +947,7 @@ impl ServiceContext {
             if await_worker_ack(&receiver, WORKER_ACK_TIMEOUT) == WorkerAckWaitOutcome::Resolved {
                 return;
             }
+            service.reconcile_tool_less_worker_ack(&worker_tab_id);
             if !service.worker_ack_identity_is_current(&identity) {
                 return;
             }
@@ -981,6 +982,10 @@ impl ServiceContext {
             if await_worker_ack(&receiver, WORKER_ACK_FINAL_TIMEOUT)
                 == WorkerAckWaitOutcome::Resolved
             {
+                return;
+            }
+            service.reconcile_tool_less_worker_ack(&worker_tab_id);
+            if !service.worker_ack_identity_is_current(&identity) {
                 return;
             }
             if !service.worker_ack.expire(&identity) {

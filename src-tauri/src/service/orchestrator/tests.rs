@@ -279,6 +279,8 @@ fn launch_paths_route_through_seam() {
 
 fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
+        context_files: None,
+        context_skills: None,
         agent: Some(agent.to_string()),
         task: task.map(|t| t.to_string()),
         starter_prompt: Default::default(),

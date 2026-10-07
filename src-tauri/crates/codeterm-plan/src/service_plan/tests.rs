@@ -287,6 +287,7 @@ fn inline_body_plan_migrates_to_markdown_files_on_load() {
         attachments: vec![],
     });
     plan.tasks.push(crate::plan::Task {
+        files: Default::default(),
         id: "task_legacy".into(),
         name: "Task".into(),
         kind: "implement".into(),
