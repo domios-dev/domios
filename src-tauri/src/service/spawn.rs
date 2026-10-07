@@ -74,6 +74,8 @@ pub struct SpawnTabSpec {
     #[serde(default)]
     pub description: Option<String>,
     #[serde(default)]
+    pub purpose: crate::multiplexer::types::ShellPurpose,
+    #[serde(default)]
     pub visibility: TabVisibility,
     /// Audience axis for input-request notifications; declared here, never
     /// inferred from provider id, title, or prompt text.

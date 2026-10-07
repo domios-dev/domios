@@ -103,6 +103,7 @@ fn test_session_snapshot_never_derives_agent_type_from_title() {
                     description: None,
                     sort_order: 0,
                     split_tree: SplitNodeSnapshot::Leaf {
+                        purpose: Default::default(),
                         tab_id: "tab-1".to_string(),
                         cwd: None,
                         title: Some(title.to_string()),
@@ -176,6 +177,7 @@ fn test_session_snapshot_no_agent_type_for_plain_title() {
                 description: None,
                 sort_order: 0,
                 split_tree: SplitNodeSnapshot::Leaf {
+                    purpose: Default::default(),
                     tab_id: "tab-1".to_string(),
                     cwd: None,
                     title: Some("~/repo — zsh".to_string()),
@@ -257,6 +259,7 @@ fn test_session_snapshot_legacy_agent_type_treated_as_locked() {
                 description: None,
                 sort_order: 0,
                 split_tree: SplitNodeSnapshot::Leaf {
+                    purpose: Default::default(),
                     tab_id: "tab-1".to_string(),
                     cwd: None,
                     title: None,

@@ -7,6 +7,8 @@ fn tab_with(id: &str, backing: TabBacking) -> Tab {
         pty_id: None,
         backing,
         tab_type: TabType::Terminal,
+        purpose: Default::default(),
+        shell_command_state: Default::default(),
         pending_delivery: None,
         title: "Terminal".to_string(),
         description: None,
