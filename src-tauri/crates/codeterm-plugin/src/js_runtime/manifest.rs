@@ -80,6 +80,8 @@ pub struct PluginManifest {
     pub binary_name: Option<String>,
     #[serde(default)]
     pub cli_binary: Option<String>,
+    #[serde(default)]
+    pub cli_compatibility: Option<crate::provider_compat::CompatibilityManifest>,
 
     // (transcriber, secret backend) leave it defaulted.
     #[serde(default)]

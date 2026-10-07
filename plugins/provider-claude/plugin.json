@@ -190,5 +190,14 @@
       ]
     }
   },
-  "icon": "icon.svg"
+  "icon": "icon.svg",
+  "cliCompatibility": {
+    "supported": [
+      "=2.1.292"
+    ],
+    "breaking": [],
+    "modelMinimumCli": {
+      "fable": "2.1.258"
+    }
+  }
 }

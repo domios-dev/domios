@@ -29,6 +29,10 @@ use session_wire::WireUsageSource;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
+    fn cli_compatibility(&self) -> Option<crate::provider_compat::CompatibilityManifest> {
+        self.manifest.cli_compatibility.clone()
+    }
+
     fn id(&self) -> &str {
         &self.manifest.id
     }

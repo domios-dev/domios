@@ -213,5 +213,11 @@
       ]
     }
   },
-  "icon": "icon.svg"
+  "icon": "icon.svg",
+  "cliCompatibility": {
+    "supported": [
+      "=0.160.0"
+    ],
+    "breaking": []
+  }
 }

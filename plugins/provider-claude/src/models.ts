@@ -6,9 +6,6 @@ interface AnthropicModelsResponse { data?: AnthropicModel[] }
 interface AnthropicModel { id?: string; display_name?: string; displayName?: string }
 
 const FAMILIES = ["opus", "sonnet", "haiku", "fable"];
-const MINIMUM_CLI_BY_MODEL: Record<string, number[]> = {
-  fable: [2, 1, 258],
-};
 
 /** What the `claude --version` probe came back with. */
 export type CliProbe =
@@ -98,7 +95,8 @@ function probeInstalledCli(): CliProbe {
 
 function applyInstalledCapabilities(models: ModelInfo[], probe: CliProbe): ModelInfo[] {
   return models.map((model) => {
-    const minimum = MINIMUM_CLI_BY_MODEL[model.id];
+    const declaredMinimum = manifest()?.cliCompatibility?.modelMinimumCli?.[model.id];
+    const minimum = declaredMinimum?.split(".").map(Number);
     if (!minimum) return { ...model };
     const verdict = decideAvailability(probe, minimum, model.available);
     // An unknown verdict publishes no boolean at all: a boolean here is what
