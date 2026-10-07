@@ -102,7 +102,7 @@ pub fn remote_command(sidecar: &Sidecar) -> String {
 fn remote_command_parts(binary: &std::path::Path, port: u16, thread: &str) -> String {
     let quote = codeterm_util::shell::ShellSyntax::quote;
     let prefix = if cfg!(windows) { "& " } else { "" };
-    format!("{prefix}{} --remote ws://127.0.0.1:{} --remote-auth-token-env CODETERM_CODEX_RPC_TOKEN resume {}",
+    format!("{prefix}{} -c check_for_update_on_startup=false --remote ws://127.0.0.1:{} --remote-auth-token-env CODETERM_CODEX_RPC_TOKEN resume {}",
         quote(&binary.to_string_lossy()), port, quote(thread))
 }
 
@@ -124,6 +124,7 @@ mod tests {
             "--remote ws://127.0.0.1:19001 --remote-auth-token-env CODETERM_CODEX_RPC_TOKEN resume"
         ));
         assert!(!command.contains("--profile"));
+        assert!(command.contains("-c check_for_update_on_startup=false"));
     }
 }
 
