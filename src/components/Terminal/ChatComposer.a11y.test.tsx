@@ -143,23 +143,23 @@ test("composer shell declares a visible keyboard-focus style", async () => {
   await teardown(h);
 });
 
-test("a rejected /model query sets aria-invalid, and editing clears it", async () => {
-  const h = await renderComposer("tab-a11y-invalid");
+test("a rejected draft sets aria-invalid, and editing clears it", async () => {
+  const h = await renderComposer("mesh:");
   assert(
     h.el.getAttribute("aria-invalid") === "false",
     "an untouched composer must not announce itself as invalid",
   );
 
-  await type(h, "/model this-model-does-not-exist");
+  await type(h, "fixture message");
   await fire(h.el, enterKeydown());
   await flush();
 
   assert(
     h.el.getAttribute("aria-invalid") === "true",
-    "a rejected /model query must be announced via aria-invalid",
+    "a rejected draft must be announced via aria-invalid",
   );
 
-  await type(h, "/model this-model-does-not-exist ");
+  await type(h, "fixture message ");
   assert(
     h.el.getAttribute("aria-invalid") === "false",
     "editing the field again must clear the invalid announcement",

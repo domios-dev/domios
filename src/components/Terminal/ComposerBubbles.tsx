@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { Clock3, Image as ImageIcon, Paperclip, X } from "lucide-react";
 
 function AttachmentChip({ path, onRemove }: { path: string; onRemove: () => void }) {
@@ -36,16 +35,14 @@ export function ComposerBubbleRow({
   queuedCount,
   failedCount,
   onOpenDelayedQueue,
-  modelBubble,
 }: {
   attachments: string[];
   onRemove: (path: string) => void;
   queuedCount: number;
   failedCount: number;
   onOpenDelayedQueue: () => void;
-  modelBubble?: ReactNode;
 }) {
-  if (attachments.length === 0 && queuedCount === 0 && failedCount === 0 && !modelBubble) return null;
+  if (attachments.length === 0 && queuedCount === 0 && failedCount === 0) return null;
   const visible = attachments.slice(0, 4);
   const overflow = attachments.length - visible.length;
   return (
@@ -69,7 +66,6 @@ export function ComposerBubbleRow({
           and {overflow} more
         </span>
       )}
-      {modelBubble}
       {(queuedCount > 0 || failedCount > 0) && (
         <button
           type="button"
