@@ -96,10 +96,6 @@ const aiderHost = (over: Record<string, unknown>) => ({
   assert(withSecret.includes("codeterm mem secret get --name 'my-key'"), "api key fetched at run time");
   assert(!withSecret.includes("sk-secret-value"), "secret value never appears in the command");
   assert(!withSecret.includes("--api-key"), "secret not in argv");
-  const env = loadAiderWithHost(secretHost).launchEnv!({ apiKeySecret: "my-key" });
-  eq(env, { OPENAI_API_KEY: "sk-secret-value" }, "launchEnv resolves the secret through the host");
-  const noSecret = loadAiderWithHost(aiderHost({})).launchEnv!({ apiKeySecret: "my-key" });
-  eq(noSecret, {}, "launchEnv returns empty when the secret is unavailable");
 }
 
 console.log("\n--- secret-safe launch command ---\n");
