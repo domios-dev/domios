@@ -1832,6 +1832,8 @@ function entriesCarryMarker(entries) {
 var TITLE_RE = /claude/i;
 var BRAILLE_LO = 10241;
 var BRAILLE_HI = 10495;
+var QUARTER_CIRCLE_LO = 9680;
+var QUARTER_CIRCLE_HI = 9683;
 var OUTPUT_FINGERPRINTS = [
   "Claude Code",
   "Do you want to proceed?",
@@ -1904,7 +1906,7 @@ function sessionProjectPath(head) {
 function isBrailleSpinner(ch) {
   if (!ch) return false;
   const code = ch.charCodeAt(0);
-  return code >= BRAILLE_LO && code <= BRAILLE_HI || ch === "\u2733" || ch === "\u273B";
+  return code >= BRAILLE_LO && code <= BRAILLE_HI || code >= QUARTER_CIRCLE_LO && code <= QUARTER_CIRCLE_HI || ch === "\u2733" || ch === "\u273B";
 }
 function retainForeignPrecompactEntry(entry) {
   if (!entry || !Array.isArray(entry.hooks)) return true;
