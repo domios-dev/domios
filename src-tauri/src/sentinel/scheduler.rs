@@ -54,6 +54,10 @@ pub struct Handle {
 }
 
 impl Handle {
+    pub(crate) fn cancel_tab_owned_runs(&self, tab_id: &str) -> usize {
+        self.store.lock().cancel_tab_owned_runs(tab_id)
+    }
+
     pub fn notify(&self) {
         if let Some(app) = &self.app {
             emit_changes(&self.store, app);

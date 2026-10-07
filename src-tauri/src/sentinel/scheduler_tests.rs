@@ -37,6 +37,43 @@ fn create(store: &mut Store, paused: bool, handlers: serde_json::Value) -> Senti
     })).unwrap(), owner(), false).unwrap()
 }
 
+#[test]
+fn blueprint_owner_close_cancels_active_tab_owned_run_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let mut store = Store::new(dir.path().join("sentinels.json"), clock);
+    let tab_job = store
+        .create(
+            serde_json::from_value(json!({
+                "probe":"status", "question":"state", "buckets":["done"], "every":"10s", "timeout":"1h"
+            }))
+            .unwrap(),
+            Owner {
+                creator_tab_id: "creator".into(),
+                team_id: None,
+                workspace_id: "workspace".into(),
+                cwd: "/tmp".into(),
+            },
+            false,
+        )
+        .unwrap();
+    let team_job = create(&mut store, false, json!({}));
+    let leases = store.due().unwrap();
+    let tab_lease = leases
+        .iter()
+        .find(|lease| lease.job.id == tab_job.id)
+        .unwrap();
+    let team_lease = leases
+        .iter()
+        .find(|lease| lease.job.id == team_job.id)
+        .unwrap();
+    let conversion = tab_lease.cancelled.conversion_token();
+    assert_eq!(store.cancel_tab_owned_runs("creator"), 1);
+    assert!(tab_lease.is_cancelled());
+    assert!(conversion.is_cancelled());
+    assert!(!team_lease.is_cancelled());
+}
+
 fn execute(
     store: &Arc<Mutex<Store>>,
     lease: &super::store::Lease,

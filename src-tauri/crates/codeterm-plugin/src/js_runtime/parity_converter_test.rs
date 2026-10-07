@@ -73,6 +73,7 @@ fn fixture_request(
         output_dir: dir.to_path_buf(),
         language: None,
         deadline: Instant::now() + Duration::from_secs(30),
+        cancellation: Default::default(),
     }
 }
 
