@@ -88,7 +88,7 @@ pub fn parse_event(value: &Value) -> ParsedEvent {
         "message.part.updated" => parse_part_updated(props),
         "question.asked" | "question.v2.asked" => parse_question(props),
         "permission.asked" => parse_permission(props),
-        "question.replied" | "permission.replied" => props
+        "question.replied" | "question.rejected" | "permission.replied" => props
             .get("requestID")
             .and_then(|v| v.as_str())
             .map(|id| ParsedEvent::Replied {
@@ -642,6 +642,26 @@ mod tests {
             ParsedEvent::Replied {
                 request_id: "que_42".into()
             }
+        );
+    }
+
+    #[test]
+    fn rejected_question_maps_to_clear_by_request_id() {
+        assert_eq!(
+            parse_event(&json!({
+                "type": "question.rejected",
+                "properties": {"sessionID": "ses_9", "requestID": "que_42"}
+            })),
+            ParsedEvent::Replied {
+                request_id: "que_42".into()
+            }
+        );
+        assert_eq!(
+            parse_event(&json!({
+                "type": "question.rejected",
+                "properties": {"sessionID": "ses_9"}
+            })),
+            ParsedEvent::Ignored
         );
     }
 

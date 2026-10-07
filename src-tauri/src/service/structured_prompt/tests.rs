@@ -19,6 +19,39 @@ fn dummy_prompt(q: &str) -> PendingPrompt {
 }
 
 #[test]
+fn rejected_question_clears_only_the_matching_pending_request() {
+    let mut active = HashMap::new();
+    for (tab_id, request_id) in [("owner", "que_owner"), ("other", "que_other")] {
+        active.insert(
+            tab_id.to_string(),
+            Active {
+                prompt: dummy_prompt(tab_id),
+                route: ResponseRoute {
+                    session_id: format!("ses_{tab_id}"),
+                    request_id: request_id.into(),
+                    kind: PromptKind::Question,
+                    option_labels: vec!["A".into()],
+                },
+            },
+        );
+    }
+    let event = serde_json::json!({
+        "type": "question.rejected",
+        "properties": {"sessionID": "ses_owner", "requestID": "que_owner"}
+    });
+    let ParsedEvent::Replied { request_id } = parse_event(&event) else {
+        panic!("expected prompt cancellation");
+    };
+    assert!(!clear_request(&mut active, "other", &request_id));
+    assert!(!clear_request(&mut active, "owner", "que_stale"));
+    assert_eq!(active.len(), 2);
+    assert!(clear_request(&mut active, "owner", &request_id));
+    assert!(!active.contains_key("owner"));
+    assert_eq!(active["other"].route.request_id, "que_other");
+    assert!(!clear_request(&mut active, "owner", &request_id));
+}
+
+#[test]
 fn endpoint_and_active_round_trip_per_tab() {
     let tab = "test-tab-sp-roundtrip";
     register_endpoint(tab, "http://127.0.0.1:55555".into(), "/work".into());
