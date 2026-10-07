@@ -3,7 +3,7 @@
  * No host calls, no IO — all functions are pure.
  */
 
-export type DomiosProviderKind = "openai" | "anthropic" | "lmstudio";
+export type DomiosProviderKind = "openai" | "openai-compatible" | "anthropic" | "lmstudio";
 
 export interface DomiosProvider {
   id: string;
@@ -12,6 +12,7 @@ export interface DomiosProvider {
   keyEnv?: string;
   models?: string[];
   name?: string;
+  secretName?: string;
 }
 
 const OWNERSHIP_MARKER = "x-domios";
@@ -43,6 +44,10 @@ function buildProviderEntry(provider: DomiosProvider): OpenCodeProviderEntry {
     npm,
     [OWNERSHIP_MARKER]: true,
   };
+
+  if (provider.secretName !== undefined) {
+    Object.assign(entry, { "x-domios-secret": provider.secretName });
+  }
 
   if (provider.name !== undefined) {
     entry.name = provider.name;

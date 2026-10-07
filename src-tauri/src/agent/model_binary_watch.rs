@@ -26,7 +26,7 @@ impl ProviderBinaryWatchers {
     fn watch(
         &self,
         key: String,
-        targets: Vec<PathBuf>,
+        mut targets: Vec<PathBuf>,
         on_change: Arc<dyn Fn() + Send + Sync>,
     ) -> Option<PathBuf> {
         targets.sort();
@@ -65,7 +65,10 @@ impl ProviderBinaryWatchers {
 }
 
 fn touches_any(event: &Event, targets: &[PathBuf]) -> bool {
-    event.paths.iter().any(|path| targets.iter().any(|target| path == target))
+    event
+        .paths
+        .iter()
+        .any(|path| targets.iter().any(|target| path == target))
 }
 
 /// Re-probe without the TTL after a declared catalogue input changes.
@@ -94,9 +97,9 @@ fn watchers() -> &'static ProviderBinaryWatchers {
 /// Install the watch and the refresh it triggers. A provider whose CLI has not
 /// resolved yet is simply not watched; the next forced refresh resolves it.
 pub fn install(provider: Arc<dyn AgentProvider>) {
-    let mut targets = provider.model_catalogue_capability().fingerprint_files(
-        provider.model_credential_files(),
-    );
+    let mut targets = provider
+        .model_catalogue_capability()
+        .fingerprint_files(provider.model_credential_files());
     let binary = provider
         .cli_binary()
         .and_then(codeterm_plugin::js_runtime::resolved_bin_path);
@@ -109,7 +112,10 @@ pub fn install(provider: Arc<dyn AgentProvider>) {
         on_catalogue_input_changed(watched_provider.clone());
     });
     match watchers().watch(key, targets, on_change) {
-        Some(path) => log::info!("[model_catalog] watching catalogue input {}", path.display()),
+        Some(path) => log::info!(
+            "[model_catalog] watching catalogue input {}",
+            path.display()
+        ),
         None => log::debug!("[model_catalog] no declared catalogue inputs to watch"),
     }
 }
@@ -127,7 +133,10 @@ pub fn install_chatbackend(
         let _ = refresh_registry.refresh_provider(&refresh_id);
     });
     match watchers().watch(format!("chatbackend:{id}"), targets, on_change) {
-        Some(path) => log::info!("[model_catalog] watching catalogue input {}", path.display()),
+        Some(path) => log::info!(
+            "[model_catalog] watching catalogue input {}",
+            path.display()
+        ),
         None => log::debug!("[model_catalog] no declared chatBackend catalogue inputs to watch"),
     }
 }

@@ -460,12 +460,19 @@ pub fn start_general_agent(
             return;
         }
     };
-    let env_vars = general_agent_env_vars(
+    let mut env_vars = general_agent_env_vars(
         &tab_id,
         pad.env_value(),
         svc.rotate_session_binding_nonce(&tab_id),
         config,
     );
+    match svc.model_provider_launch_env(provider_name) {
+        Ok(keys) => env_vars.extend(keys),
+        Err(error) => {
+            fail_general_agent_start(svc, mux, &tab_id, &error.to_string());
+            return;
+        }
+    }
     crate::service::launch_diagnostics::log_launch_environment("general_agent", &tab_id, &env_vars);
 
     let pty_id = {

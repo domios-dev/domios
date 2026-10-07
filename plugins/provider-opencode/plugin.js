@@ -24,19 +24,82 @@ __export(plugin_exports, {
 });
 module.exports = __toCommonJS(plugin_exports);
 
-// plugins/provider-shared/updatePrompt.ts
-function updatePromptSafeChoice(prompt) {
-  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
-    return null;
+// plugins/provider-opencode/src/opencodeConfig.ts
+var OWNERSHIP_MARKER = "x-domios";
+function isDomiosOwned(entry) {
+  return typeof entry === "object" && entry !== null && entry[OWNERSHIP_MARKER] === true;
+}
+function buildProviderEntry(provider) {
+  const npm = provider.kind === "anthropic" ? "@ai-sdk/anthropic" : "@ai-sdk/openai-compatible";
+  const entry = {
+    npm,
+    [OWNERSHIP_MARKER]: true
+  };
+  if (provider.secretName !== void 0) {
+    Object.assign(entry, { "x-domios-secret": provider.secretName });
   }
-  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
-  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
-  const chosen = safe.length === 1 ? safe : bare;
-  if (chosen.length !== 1) return null;
-  const [label, value] = chosen[0];
-  if (!value || /\bupdate\b/i.test(label)) return null;
-  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
-  return value;
+  if (provider.name !== void 0) {
+    entry.name = provider.name;
+  }
+  entry.options = { baseURL: provider.baseUrl };
+  if (provider.keyEnv !== void 0) {
+    entry.options.apiKey = `{env:${provider.keyEnv}}`;
+  }
+  if (provider.models && provider.models.length > 0) {
+    const models = {};
+    for (const m of provider.models) {
+      models[m] = {};
+    }
+    entry.models = models;
+  }
+  return entry;
+}
+function deepEqual(a, b) {
+  if (a === b) return true;
+  if (typeof a !== typeof b) return false;
+  if (a === null || b === null) return false;
+  if (typeof a !== "object") return false;
+  const aObj = a;
+  const bObj = b;
+  const aKeys = Object.keys(aObj);
+  const bKeys = Object.keys(bObj);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const key of aKeys) {
+    if (!bKeys.includes(key)) return false;
+    if (!deepEqual(aObj[key], bObj[key])) return false;
+  }
+  return true;
+}
+function applyDomiosProviders(config, providers) {
+  const base = typeof config === "object" && config !== null ? { ...config } : {};
+  const existingProviderMap = typeof base.provider === "object" && base.provider !== null ? { ...base.provider } : {};
+  const wantedIds = new Set(providers.map((p) => p.id));
+  for (const [key, value] of Object.entries(existingProviderMap)) {
+    if (isDomiosOwned(value) && !wantedIds.has(key)) {
+      delete existingProviderMap[key];
+    }
+  }
+  const conflicts = [];
+  for (const provider of providers) {
+    const existing = existingProviderMap[provider.id];
+    if (existing !== void 0 && !isDomiosOwned(existing)) {
+      conflicts.push(provider.id);
+      continue;
+    }
+    existingProviderMap[provider.id] = buildProviderEntry(provider);
+  }
+  const result = { ...base };
+  if (Object.keys(existingProviderMap).length > 0) {
+    result.provider = existingProviderMap;
+  } else {
+    delete result.provider;
+  }
+  const changed = !deepEqual(config, result);
+  return { config: result, changed, conflicts };
+}
+function providerKeyEnvName(id) {
+  const snake = id.replace(/([a-z0-9])([A-Z])/g, "$1_$2").replace(/[^a-zA-Z0-9]+/g, "_").toUpperCase();
+  return `DOMIOS_PROVIDER_${snake}_KEY`;
 }
 
 // plugins/provider-opencode/src/helpers.ts
@@ -740,6 +803,61 @@ function scanSessionDirectory(db, sessionId) {
   }
 }
 
+// plugins/provider-opencode/src/modelProviders.ts
+function record(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+function readModelProviders(config) {
+  if (!record(config) || config.provider !== void 0 && !record(config.provider)) {
+    throw new Error("Invalid provider config");
+  }
+  return Object.entries(config.provider ?? {}).flatMap(([id, entry]) => {
+    if (!record(entry) || entry["x-domios"] !== true) return [];
+    if (!record(entry.options) || typeof entry.options.baseURL !== "string") {
+      throw new Error("Invalid owned provider");
+    }
+    const kind = entry.npm === "@ai-sdk/anthropic" ? "anthropic" : entry.npm === "@ai-sdk/openai-compatible" ? "openai-compatible" : null;
+    if (!kind) throw new Error("Unsupported owned provider");
+    const apiKey = entry.options.apiKey;
+    const env = typeof apiKey === "string" ? /^\{env:([A-Z][A-Z0-9_]*)\}$/.exec(apiKey)?.[1] : void 0;
+    if (apiKey !== void 0 && !env) throw new Error("Owned provider requires an env reference");
+    const secret = entry["x-domios-secret"];
+    if (secret !== void 0 && (typeof secret !== "string" || secret.length === 0)) {
+      throw new Error("Invalid owned secret reference");
+    }
+    return [{
+      id,
+      kind,
+      baseUrl: entry.options.baseURL,
+      models: record(entry.models) ? Object.keys(entry.models) : [],
+      ...typeof entry.name === "string" ? { name: entry.name } : {},
+      ...env ? { keyEnv: env } : {},
+      ...typeof secret === "string" ? { secretName: secret } : {}
+    }];
+  });
+}
+var modelProviderExports = {
+  modelProviderConfigPath: opencodeConfigPath,
+  readModelProviders,
+  applyModelProviders: applyDomiosProviders,
+  modelProviderKeyEnvName: providerKeyEnvName
+};
+
+// plugins/provider-shared/updatePrompt.ts
+function updatePromptSafeChoice(prompt) {
+  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
+    return null;
+  }
+  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
+  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
+  const chosen = safe.length === 1 ? safe : bare;
+  if (chosen.length !== 1) return null;
+  const [label, value] = chosen[0];
+  if (!value || /\bupdate\b/i.test(label)) return null;
+  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
+  return value;
+}
+
 // plugins/provider-opencode/src/sessionContent.ts
 var CONTENT_SQL_HEAD = "WITH budget AS (SELECT id, SUM(octet_length(data)) OVER (ORDER BY time_created DESC, id DESC) AS running FROM part WHERE session_id = ?1) SELECT p.time_created AS ts, p.data AS part, m.data AS msg FROM budget b JOIN part p ON p.id = b.id JOIN message m ON m.id = p.message_id WHERE b.running <= ?2";
 var CONTENT_SQL_TAIL = " ORDER BY p.time_created ASC, p.id ASC";
@@ -827,6 +945,7 @@ function withPadPermissionConfig(command, instructions, cleanup) {
   return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\"$ct_pad_dir/*\\":\\"allow\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; ${command}${finish}`;
 }
 var plugin = {
+  ...modelProviderExports,
   starterPromptText(prompt) {
     return prompt === "team_bootstrap" ? void 0 : starterPrompt({ starterPrompt: prompt });
   },

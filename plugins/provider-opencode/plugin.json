@@ -3,6 +3,10 @@
   "version": "1.12.4",
   "minCodeterm": "1.12.4",
   "hostApi": 2,
+  "capabilities": {
+    "agentProvider": true,
+    "modelProviderConfig": true
+  },
   "displayName": "OpenCode",
   "binaryName": "opencode",
   "cliBinary": "opencode",

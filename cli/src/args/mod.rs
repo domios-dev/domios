@@ -10,6 +10,7 @@ pub mod inbox;
 pub mod integration;
 pub mod mem;
 pub mod misc;
+pub mod model_provider;
 pub mod orchestrator;
 pub mod pad;
 pub mod persona;
