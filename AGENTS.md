@@ -85,7 +85,7 @@ relaunches Domios, and resumes the calling tab. Do not manually replace the
 bundle or conclude that macOS self-install is missing because
 `./build.sh install-local` is Windows-only.
 
-`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Workers may run one focused test module of what they touched in their own lane (through `build.sh test-one` / `scripts/test-capped.sh`); dev runs, broad suites and release gates run from the canonical integration checkout under Orchestrator authority.
+`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Workers never compile Rust in their lane: every lane has its own cold target directory, and parallel cold builds overload the machine (they have crashed BLACKSTAR). In a lane, run only checks that need no Rust build: `rustfmt` on touched files, `tsc`, and the TypeScript/JS and plugin tests of what you touched; then commit, push, and list the exact Rust `test-one` selectors in the report. The Orchestrator compiles and runs them in a warm checkout (canonical or a QA machine), one build per machine; dev runs, broad suites and release gates run there too.
 
 Parallel writers always use separate worktrees/lanes; the canonical checkout has one writer/integrator at a time. This keeps commits atomic and allows ordinary `git add -A` inside a lane instead of fragile cross-owner file lists.
 
@@ -153,7 +153,8 @@ default for logic.
   no live agents; inject clocks, fixtures and fakes at the module boundary.
 - When logic is tangled into a component or a service, extract it first and test the
   extracted module; do not test it through rendering or a full fixture.
-- Workers run only the tests of the modules they touched, in their lane; the broad
+- Workers run only the non-Rust tests of what they touched, in their lane; Rust
+  compiles and Rust tests run in warm checkouts under the Orchestrator; the broad
   suite and live DEV checks run once at the end on the release SHA.
 
 **Never assert prompt wording.** Test the mechanism — that a recipient receives
