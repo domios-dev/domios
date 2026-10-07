@@ -12,6 +12,19 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 
 #[test]
+fn blueprint_pipeline_probe_capacity_preserves_terminal_reason() {
+    let result = command_failure(
+        probe::process::ProbeFailure::new("probe_owner_capacity"),
+        "input",
+    );
+    assert_eq!(result.outcome, StepOutcome::Failed);
+    assert_eq!(result.state, "failed");
+    assert_eq!(result.reason.as_deref(), Some("probe_owner_capacity"));
+    assert_eq!(result.next_text, "input");
+    assert!(!result.uncertain);
+}
+
+#[test]
 fn blueprint_pipeline_effect_runs_after_one_successful_claim() {
     let events = RefCell::new(Vec::new());
     let result = effect_after_claim(

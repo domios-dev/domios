@@ -526,6 +526,30 @@ fn sentinel_probe_bounded_runtime_and_output() {
 }
 
 #[test]
+fn sentinel_probe_capacity_persists_stop_and_routes_one_owner_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let store = std::sync::Arc::new(parking_lot::Mutex::new(store(dir.path(), clock)));
+    let job = create(&mut store.lock(), "team");
+    let failure = super::probe::process::ProbeFailure::new("probe_owner_capacity");
+    let result =
+        super::scheduler::record_unconfirmed_failure_with(&store, &job, &failure, |_, _, _| Ok(()));
+    assert_eq!(result.persistence_error, None);
+    assert_eq!(result.journal_error, None);
+    let mut current = store.lock();
+    let stopped = current.get(&job.id).unwrap();
+    assert!(stopped.machine.stopped);
+    assert_eq!(stopped.last_reason.as_deref(), Some("probe_owner_capacity"));
+    let notices = current.take_stop_notices();
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0].creator_tab_id, job.creator_tab_id);
+    assert_eq!(notices[0].sentinel_id, job.id);
+    assert_eq!(notices[0].reason, "probe_owner_capacity");
+    assert!(current.due().unwrap().is_empty());
+    assert!(current.take_stop_notices().is_empty());
+}
+
+#[test]
 fn sentinel_probe_unconfirmed_cleanup_stops_watch_without_classification() {
     let dir = tempfile::tempdir().unwrap();
     let clock = crate::cron::clock::MockClock::starting_at(1000);
