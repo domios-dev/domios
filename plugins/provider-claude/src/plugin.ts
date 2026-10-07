@@ -351,7 +351,7 @@ const plugin: PluginModule = {
     const launchArgs = statuslineLaunchArgs(p.args || []);
     if (launchArgs.length > 0) {
       // Quote each caller-supplied arg — it reaches a shell (a mesh peer could inject `; cmd`).
-      for (const arg of launchArgs) parts.push(host.shell.quoteFor(String(arg), host.platform()));
+      for (const arg of launchArgs) parts.push(quoteArg(String(arg)));
     }
     // Keep large worker prompts out of shell parsing and argv on every platform.
     if (p.task) {

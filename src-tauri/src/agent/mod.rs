@@ -27,6 +27,7 @@ pub mod registry_search;
 pub mod reports;
 pub mod run_watcher;
 pub mod semantic_marker;
+pub mod shell_command_state;
 pub mod signal_extractor;
 pub mod state_reactor;
 pub mod state_verdict;

@@ -93,6 +93,7 @@ fn identity(epoch: Option<u64>, operation: Option<&str>) -> AgentIdentitySnapsho
 
 fn leaf(tab_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
         tab_id: tab_id.into(),
         cwd: Some("D:/Developer/codeterm".into()),
         title: Some("claude — orchestrator".into()),

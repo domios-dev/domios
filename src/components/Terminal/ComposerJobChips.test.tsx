@@ -6,6 +6,20 @@ import { Window } from "happy-dom";
 import type { CronJob } from "../../lib/types";
 import type { AutomationGraphAdapter } from "../Automation/types";
 
+async function waitForSelector<T extends Element>(selector: string): Promise<T> {
+  const current = document.querySelector<T>(selector);
+  if (current) return current;
+  return new Promise((resolve) => {
+    const observer = new window.MutationObserver(() => {
+      const element = document.querySelector<T>(selector);
+      if (!element) return;
+      observer.disconnect();
+      resolve(element);
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+  });
+}
+
 async function main() {
   const win = new Window({ url: "http://localhost/" });
   for (const key of ["window", "document", "navigator", "localStorage", "HTMLElement", "HTMLButtonElement", "SVGElement", "Element", "Node", "Event", "MouseEvent", "KeyboardEvent", "CustomEvent"]) {
@@ -25,8 +39,9 @@ async function main() {
     oneshot: false, max_history: 10, created_at: 1, next_run: null, jitter_max_ms: null,
     last_run: { run_id: "run-1", started_at: 1, finished_at: null, status: "Running", tab_id: "run-tab" },
   };
+  const jobs = [job, ...[2, 3, 4, 5].map((index) => ({ ...job, id: `cron-${index}`, name: `hidden-run-${index}` }))];
   __setInvokeForTest(async <T,>(command: string): Promise<T> => {
-    if (command === "cron_list") return [job] as T;
+    if (command === "cron_list") return jobs as T;
     throw new Error(`unexpected invoke: ${command}`);
   });
   __setListenForTest(async () => () => undefined);
@@ -52,16 +67,25 @@ async function main() {
   const root = createRoot(host);
   await act(async () => { root.render(<ComposerJobChips tabId="tab-a" workspaceId="workspace-a" adapter={adapter} />); });
 
-  const chip = host.querySelector<HTMLButtonElement>('button[aria-label="Job rust-rss-new-videos, running"]');
-  assert.ok(chip, "a bound running cron renders a chip with its accessible name");
+  const cronChip = await waitForSelector<HTMLDivElement>('[data-job-key="cron:cron-rss"][data-job-state="active"]');
+  const chip = cronChip.querySelector<HTMLButtonElement>("button[aria-label]");
+  assert.ok(chip, "a bound active cron renders an accessible button");
   await act(async () => { chip.click(); });
-  const blueprintChip = host.querySelector<HTMLButtonElement>('button[aria-label="Blueprint Echo pipeline, running"]');
+  const blueprintChip = host.querySelector<HTMLButtonElement>('button[data-blueprint-id="blueprint-echo"][data-job-state="active"]');
   assert.ok(blueprintChip, "an owner tab's running Blueprint renders a chip");
   await act(async () => { blueprintChip.click(); });
   assert.deepEqual(opened, [
     { workspaceId: "workspace-a", target: { teamId: null, cronId: "cron-rss" } },
     { workspaceId: "workspace-a", target: { teamId: null, blueprintId: "blueprint-echo" } },
   ], "clicking opens the exact Blueprint in Jobs");
+
+  const moreJobs = host.querySelector<HTMLButtonElement>('button[aria-label="2 more jobs"]');
+  assert.ok(moreJobs, "overflow button reports the hidden job count");
+  await act(async () => { moreJobs.click(); });
+  const hiddenJobChip = host.querySelector<HTMLDivElement>('[data-job-key="cron:cron-4"][data-job-state="active"]');
+  const hiddenJob = hiddenJobChip?.querySelector<HTMLButtonElement>("button[aria-label]");
+  assert.ok(hiddenJob, "overflow entries use the visible chip capsule and active state");
+  assert.ok(host.querySelector('button[aria-label="Actions for hidden-run-4"]'), "overflow entries retain their actions menu");
 
   await act(async () => { root.render(<ComposerJobChips tabId="tab-b" workspaceId="workspace-a" adapter={adapter} />); });
   assert.equal(host.querySelector('[aria-label^="Job "]'), null, "an unbound tab shows no job chip");

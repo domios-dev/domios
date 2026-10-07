@@ -40,6 +40,23 @@ if (-not $global:__CodeTermShellIntegrationLoaded) {
     $global:__CodeTermOriginalPrompt = { "PS $($executionContext.SessionState.Path.CurrentLocation)> " }
   }
 
+  try {
+    if (-not (Get-Command PSConsoleHostReadLine -ErrorAction SilentlyContinue)) {
+      Import-Module PSReadLine -ErrorAction Stop
+    }
+    $global:__CodeTermOriginalReadLine = $function:PSConsoleHostReadLine
+    if ($null -ne $global:__CodeTermOriginalReadLine) {
+      function global:PSConsoleHostReadLine {
+        $line = & $global:__CodeTermOriginalReadLine @args
+        if (-not [string]::IsNullOrWhiteSpace($line) -and -not [string]::IsNullOrEmpty($global:__CodeTermShellNonce)) {
+          [Console]::Write(([char]27 + ']633;E;;' + $global:__CodeTermShellNonce + [char]7))
+          [Console]::Write(([char]27 + ']633;C' + [char]7))
+        }
+        $line
+      }
+    }
+  } catch { }
+
   function global:prompt {
     # $? must be read first: any statement before it overwrites the finished command's status.
     $lastSucceeded = $?
@@ -507,7 +524,7 @@ mod tests {
         let gate = content
             .find("$historyId -gt $global:__CodeTermLastHistoryId")
             .unwrap();
-        let authenticated_command = content.find("']633;E;;'").unwrap();
+        let authenticated_command = prompt + content[prompt..].find("']633;E;;'").unwrap();
         assert!(prompt < history && history < gate && gate < authenticated_command);
         assert!(!content.contains("__CodeTermPromptSeen"));
     }
@@ -522,5 +539,39 @@ mod tests {
             assert!(cmd.is_default_prog());
             assert!(cmd.get_argv().is_empty());
         }
+    }
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn shell_integration_powershell_chains_readline_and_prompt() {
+        let harness = r#"
+$env:CODETERM_SHELL_NONCE = 'own-nonce'
+function global:prompt { 'custom-prompt' }
+function global:PSConsoleHostReadLine { param($token) 'line-' + $token }
+"#;
+        let assertions = r#"
+$line = PSConsoleHostReadLine 'argument'
+if ($line -ne 'line-argument') { throw 'ReadLine result or arguments changed' }
+if ((prompt) -ne 'custom-prompt') { throw 'Prompt result changed' }
+$global:__CodeTermOriginalReadLine = { '' }
+if ((PSConsoleHostReadLine) -ne '') { throw 'Empty input changed' }
+"#;
+        let output = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command"])
+            .arg(format!("{harness}\n{POWERSHELL_PS1}\n{assertions}"))
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        assert_eq!(
+            stdout
+                .matches("\x1b]633;E;;own-nonce\x07\x1b]633;C\x07")
+                .count(),
+            1
+        );
+        assert!(stdout.contains("\x1b]633;A\x07\x1b]633;B\x07"));
     }
 }

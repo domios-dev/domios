@@ -290,6 +290,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
             crate::TabAction::Current { .. } => ("GET".into(), "/api/tabs".into(), None),
             crate::TabAction::New {
+            purpose,
                 workspace,
                 cwd,
                 title,
@@ -300,7 +301,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 chat_backend,
                 config,
             } => {
-                let mut body = serde_json::json!({});
+                let mut body = serde_json::json!({ "purpose": purpose });
                 if let Some(w) = workspace {
                     body["workspace_id"] = serde_json::Value::String(w.clone());
                 }

@@ -573,6 +573,7 @@ fn tab_new_relays_cmd_field() {
     use crate::TabAction;
     let cmd = Commands::Tab {
         action: TabAction::New {
+            purpose: "shell".into(),
             workspace: Some("ws_1".into()),
             cwd: Some("C:/Developer/codeterm".into()),
             title: Some("runner".into()),
@@ -1171,3 +1172,26 @@ fn mesh_tab_list_json_leaves_the_relayed_rest_body_a_bare_array() {
 
 #[path = "tests/mesh_spawn_close.rs"]
 mod mesh_spawn_close;
+
+#[test]
+fn tab_new_purpose_mesh_json_field() {
+    let command = crate::Commands::Tab {
+        action: crate::TabAction::New {
+            purpose: "build".into(),
+            workspace: None,
+            cwd: None,
+            title: None,
+            team: None,
+            no_team: false,
+            cmd: None,
+            eager: false,
+            chat_backend: None,
+            config: None,
+        },
+    };
+    let (method, route, body) = cli_command_to_api(&command);
+    assert_eq!(method, "POST");
+    assert_eq!(route, "/api/tabs");
+    let value: serde_json::Value = serde_json::from_str(body.as_deref().unwrap()).unwrap();
+    assert_eq!(value["purpose"], "build");
+}

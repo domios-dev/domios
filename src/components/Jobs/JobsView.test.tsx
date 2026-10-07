@@ -346,10 +346,10 @@ async function main() {
     };
     const view = await mount(jobsView(transport));
     try {
-      await settle(() => view.host.querySelector('[aria-label="Open Blueprint Echo pipeline, running"]') !== null);
+      await settle(() => view.host.querySelector('[data-job-key="blueprint:blueprint-echo"][data-job-state="active"]') !== null);
       assert.ok(view.host.querySelector('[aria-label="Team Team A"]'), "the pipeline is grouped under its owning Team");
       assert.ok(view.host.querySelector('[aria-current="step"]'), "the current step is highlighted accessibly");
-      const open = view.host.querySelector<HTMLButtonElement>('[aria-label="Open Blueprint Echo pipeline, running"]');
+      const open = view.host.querySelector<HTMLButtonElement>('button[data-job-key="blueprint:blueprint-echo"][data-job-state="active"]');
       await act(async () => open!.click());
       assert.ok(view.host.querySelector('[aria-label="Blueprint view"]'), "opening a pipeline enters its Blueprint view");
       assert.ok(view.host.querySelector('[aria-label="Echo pipeline pipeline"]'), "the Blueprint view keeps the trigger-step-result chain");
