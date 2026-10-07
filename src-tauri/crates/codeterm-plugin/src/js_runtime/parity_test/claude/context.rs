@@ -78,6 +78,7 @@ fn parity_claude_per_launch_statusline_settings() {
     for args in [
         vec![],
         vec!["--codeterm-statusline".into()],
+        vec!["--settings={\"showThinkingSummaries\":false,\"hooks\":{\"opaque\":[]}}".into()],
         vec![
             "--codeterm-statusline".into(),
             "--settings".into(),
@@ -92,6 +93,9 @@ fn parity_claude_per_launch_statusline_settings() {
             native.build_launch_command(&params),
             js.build_launch_command(&params)
         );
+        let launch = native.build_launch_command(&params);
+        assert!(launch.contains("showThinkingSummaries"));
+        assert_eq!(launch.matches("--settings").count(), 1);
         let resume = crate::provider::AgentResumeParams {
             session_id: "opaque".into(),
             args,
@@ -102,4 +106,11 @@ fn parity_claude_per_launch_statusline_settings() {
             js.build_resume_command_with_context(&resume)
         );
     }
+    let plain_resume = native.build_resume_command("own", false).unwrap();
+    assert_eq!(
+        Some(plain_resume.clone()),
+        js.build_resume_command("own", false)
+    );
+    assert!(plain_resume.contains("showThinkingSummaries"));
+    assert_eq!(plain_resume.matches("--settings").count(), 1);
 }

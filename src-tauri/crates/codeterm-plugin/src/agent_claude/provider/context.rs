@@ -91,40 +91,62 @@ pub(super) fn settings(value: &Value) -> Option<String> {
     Some(json!({"statusLine":line_value}).to_string())
 }
 
-pub(super) fn launch_args(args: &[String]) -> Vec<String> {
+fn read_settings(path: &std::path::Path) -> Option<Value> {
+    use std::io::Read;
+    let file = std::fs::File::open(path).ok()?;
+    let mut text = String::new();
+    file.take(65_537).read_to_string(&mut text).ok()?;
+    if text.len() > 65_536 {
+        return None;
+    }
+    let value: Value = serde_json::from_str(&text).ok()?;
+    value.is_object().then_some(value)
+}
+
+pub(super) fn launch_args(args: &[String]) -> Option<Vec<String>> {
     let enabled = args.iter().any(|arg| arg == FLAG);
-    let mut rest: Vec<_> = args.iter().filter(|arg| *arg != FLAG).cloned().collect();
-    if !enabled
-        || rest
-            .iter()
-            .any(|arg| arg == "--settings" || arg.starts_with("--settings="))
-    {
-        return rest;
-    }
-    let Some(home) = dirs::home_dir() else {
-        return rest;
-    };
-    let path = home.join(".claude/settings.json");
-    let value = if path.exists() {
-        use std::io::Read;
-        let Ok(file) = std::fs::File::open(path) else {
-            return rest;
-        };
-        let mut text = String::new();
-        if file.take(65_537).read_to_string(&mut text).is_err() || text.len() > 65_536 {
-            return rest;
+    let mut rest = Vec::new();
+    let mut overlay = serde_json::Map::new();
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        if arg == FLAG {
+            continue;
         }
-        let Ok(value) = serde_json::from_str(&text) else {
-            return rest;
+        let raw = if arg == "--settings" {
+            Some(iter.next()?.as_str())
+        } else {
+            arg.strip_prefix("--settings=")
         };
-        value
-    } else {
-        json!({})
-    };
-    if let Some(settings) = settings(&value) {
-        rest.extend(["--settings".into(), settings]);
+        if let Some(raw) = raw {
+            let value = serde_json::from_str::<Value>(raw)
+                .ok()
+                .filter(Value::is_object)
+                .or_else(|| read_settings(std::path::Path::new(raw)))?;
+            overlay.extend(value.as_object()?.clone());
+        } else {
+            rest.push(arg.clone());
+        }
     }
-    rest
+    if enabled {
+        let user = dirs::home_dir().and_then(|home| {
+            let path = home.join(".claude/settings.json");
+            if path.exists() {
+                read_settings(&path)
+            } else {
+                Some(json!({}))
+            }
+        });
+        if let Some(mut user) = user {
+            user.as_object_mut()?.extend(overlay.clone());
+            if let Some(composed) = settings(&user) {
+                let composed: Value = serde_json::from_str(&composed).ok()?;
+                overlay.extend(composed.as_object()?.clone());
+            }
+        }
+    }
+    overlay.insert("showThinkingSummaries".into(), Value::Bool(true));
+    rest.extend(["--settings".into(), Value::Object(overlay).to_string()]);
+    Some(rest)
 }
 
 #[cfg(test)]

@@ -57,21 +57,29 @@ check(() => assert.equal(failedForward.stdout, payload));
 check(() => assert.equal(statuslineSettings({statusLine:false}), null));
 check(() => assert.equal(statuslineSettings({statusLine:{type:"command",command:"x".repeat(8193)}}), null));
 check(() => assert.equal(statuslineSettings({statusLine:{type:"command",command:"cat",padding:{opaque:true}}}), null));
-check(() => assert.deepEqual(statuslineLaunchArgs(["--model","opaque"]), ["--model","opaque"]));
-check(() => assert.deepEqual(statuslineLaunchArgs([STATUSLINE_FLAG,"--settings","opaque"]), ["--settings","opaque"]));
+check(() => assert.deepEqual(statuslineLaunchArgs(["--model","opaque"]), ["--model","opaque","--settings",'{"showThinkingSummaries":true}']));
 let reads = 0;
 (globalThis as any).host = {
   expandHome: () => "/fixture/settings.json",
   fs: {fileExists: () => true,readFileHead: () => { reads++; return original; }},
 };
-const args = statuslineLaunchArgs([STATUSLINE_FLAG,"--model","opaque"]);
+const args = statuslineLaunchArgs([STATUSLINE_FLAG,"--model","opaque"])!;
 check(() => assert.equal(reads, 1));
 check(() => assert.equal(args[2], "--settings"));
-check(() => assert.deepEqual(JSON.parse(args[3]), settings));
+check(() => assert.deepEqual(JSON.parse(args[3]), {...settings,showThinkingSummaries:true}));
 (globalThis as any).host.fs.readFileHead = () => "x".repeat(65_537);
-check(() => assert.deepEqual(statuslineLaunchArgs([STATUSLINE_FLAG]), []));
+check(() => assert.deepEqual(statuslineLaunchArgs([STATUSLINE_FLAG]), ["--settings",'{"showThinkingSummaries":true}']));
+check(() => assert.equal(statuslineLaunchArgs(["--settings","opaque"]), null));
 const source = fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8");
-const sandbox = {module:{exports:{} as any},exports:{},host:{}};
+let writes = 0;
+const readonlyHost = {
+  platform: () => "linux", expandHome: () => "/fixture/settings.json",
+  shell: {quoteFor: (value: string) => value},
+  fs: {fileExists: () => true, readFileHead: () => original,
+    writeFile: () => { writes++; throw new Error("unexpected settings write"); },
+    writeJson: () => { writes++; throw new Error("unexpected settings write"); }},
+};
+const sandbox = {module:{exports:{} as any},exports:{},host:readonlyHost};
 vm.runInNewContext(source, sandbox);
 const plugin = sandbox.module.exports.default;
 check(() => assert.deepEqual(JSON.parse(JSON.stringify(plugin.parseContextUsage(record))), parseContextUsage(record)));
@@ -81,4 +89,21 @@ const compactDelta = plugin.parseSessionDelta(JSON.stringify(compact));
 check(() => assert.equal(compactDelta.messages.length, 1));
 check(() => assert.deepEqual(JSON.parse(JSON.stringify(compactDelta.messages[0].context_usage)), compactContext));
 check(() => assert.equal(compactDelta.messages[0].timelineMarker.kind, "context_compaction"));
+for (const command of [
+  plugin.buildLaunchCommand({}),
+  plugin.buildResumeCommand("own", false),
+  plugin.buildResumeCommandWithContext({sessionId:"own",args:[]}),
+  plugin.buildLaunchCommand({args:["--settings",original]}),
+  plugin.buildResumeCommandWithContext({sessionId:"own",args:["--settings=/fixture/extra.json"]}),
+]) {
+  check(() => assert.equal(command.split("--settings").length, 2));
+  const overlay = JSON.parse(command.slice(command.indexOf("--settings ") + 11));
+  check(() => assert.equal(overlay.showThinkingSummaries, true));
+}
+const mergedCommand = plugin.buildLaunchCommand({args:["--settings",original]});
+const mergedSettings = JSON.parse(mergedCommand.slice(mergedCommand.indexOf("--settings ") + 11));
+check(() => assert.deepEqual(mergedSettings.hooks, user.hooks));
+check(() => assert.deepEqual(mergedSettings.statusLine, user.statusLine));
+check(() => assert.equal(writes, 0));
+check(() => assert.equal(JSON.stringify(user), original));
 console.log(`${checks} passed, 0 failed`);
