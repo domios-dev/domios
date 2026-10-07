@@ -162,7 +162,7 @@ Owner-only `codeterm plan review authorize-capacity <plan> <task>` with
 `--class review` or `--class canonical_gate` records review-work classification;
 dispatch never needs it and it grants no authority.
 
-Use `codeterm plan review accept|bounce|hold <plan> <task> --note "…"` for
+Use `codeterm plan review accept|bounce|hold <plan> <task> --note-from-pad review.md` for
 `in_review`; generic updates, gates and removal cannot exit it. `bounce`
 continues a live Worker or returns pending when gone; `hold` preserves the
 review, assignment and lane. Stage the note in the calling tab's pad. Every verdict accepts `--note-from-pad <relative path>` or a short scalar `--note`; inline authored payloads are refused.
