@@ -25,6 +25,7 @@ export type PluginInstallSource =
  * provider — the daemon's `snapshot.plugins`. */
 export interface InstalledPlugin {
   id: string;
+  update?: { available: boolean; reason: string; channel?: string | null; remote_version?: string | null };
   version?: string | null;
   display_name?: string | null;
   state?: string;

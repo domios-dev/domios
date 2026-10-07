@@ -167,7 +167,9 @@ fn print_human(value: &serde_json::Value) {
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown");
             let path = p.get("path").and_then(|v| v.as_str()).unwrap_or("");
-            println!("{id}\t{version}\t{path}");
+            let reason = p["update"]["reason"].as_str().unwrap_or("unknown");
+            let remote = p["update"]["remote_version"].as_str().unwrap_or("-");
+            println!("{id}\t{version}\t{path}\tupdate={reason}\tchannel_version={remote}");
         }
         return;
     }
