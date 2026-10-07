@@ -42,9 +42,6 @@ export function AgentProviderPicker({
   );
   const needsInstall = selected ? providerAvailability(selected) === "unavailable" : false;
 
-  // `tab-focused` is the wrong signal here — the backend only emits it for
-  // CLI/REST and on close — so visibility of this view drives the re-probe.
-  const rootRef = useRef<HTMLDivElement>(null);
   const silentRef = useRef(silentRefresh);
   silentRef.current = silentRefresh;
   useEffect(() => {
