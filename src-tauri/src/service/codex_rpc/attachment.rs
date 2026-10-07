@@ -70,6 +70,8 @@ pub fn start(
             tauri::async_runtime::spawn(async move {
                 let _permit = permit;
                 let connection = uuid::Uuid::new_v4().to_string();
+                let authorized = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let authenticated = authorized.clone();
                 let relay = async {
                     let expected = format!("Bearer {token}");
                     let config =
@@ -80,12 +82,13 @@ pub fn start(
                         stream,
                         move |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
                             if request.headers().get("Authorization").and_then(|v| v.to_str().ok()) == Some(expected.as_str()) {
+                                authenticated.store(true, std::sync::atomic::Ordering::Release);
                                 Ok(response)
                             } else {
                                 Err(tokio_tungstenite::tungstenite::http::Response::builder()
                                     .status(401).body(Some("Unauthorized".into())).unwrap())
                             }
-                        }, Some(config),
+                        }, Some(config.clone()),
                     )).await.map_err(|_| "remote handshake deadline")?.map_err(|_| "remote authentication/handshake failed")?;
                     let mut request = format!("ws://127.0.0.1:{upstream}")
                         .into_client_request()
@@ -98,7 +101,7 @@ pub fn start(
                     );
                     let (server, _) = tokio::time::timeout(
                         std::time::Duration::from_secs(15),
-                        tokio_tungstenite::connect_async(request),
+                        tokio_tungstenite::connect_async_with_config(request, Some(config), false),
                     )
                     .await
                     .map_err(|_| "remote upstream deadline")?
@@ -118,6 +121,7 @@ pub fn start(
                                 let attached = matches!(&message, Message::Text(text) if evidence.response(text.as_ref(), &thread));
                                 remote_write.send(message).await.map_err(|_| "remote response write failed")?;
                                 if attached {
+                                    log::info!("[codex-rpc-attach] tab={tab} nonce={nonce} thread={thread} evidence=initialize_and_resume");
                                     super::delivery::attached(&svc, &tab, &nonce, &connection);
                                 }
                             }
@@ -130,6 +134,9 @@ pub fn start(
                     result = relay => result,
                 };
                 super::delivery::detached(&tab, &nonce, &connection);
+                if authorized.load(std::sync::atomic::Ordering::Acquire) {
+                    super::delivery::attach_failed(&tab, &nonce);
+                }
                 if let Err(reason) = result {
                     log::warn!("[codex-rpc-attach] tab={tab} nonce={nonce} reason={reason}");
                 }
@@ -164,5 +171,28 @@ mod tests {
             &json!({"id":3,"result":{"thread":{"id":"own"}}}).to_string(),
             "own"
         ));
+    }
+
+    #[test]
+    fn codex_rpc_attach_rejects_failed_or_unmatched_protocol_replies() {
+        let mut evidence = Evidence::default();
+        assert!(!evidence.response(
+            &json!({"id":1,"result":{"thread":{"id":"own"}}}).to_string(),
+            "own"
+        ));
+        evidence.request(
+            &json!({"id":2,"method":"thread/resume","params":{"threadId":"own"}}).to_string(),
+            "own",
+        );
+        assert!(!evidence.response(
+            &json!({"id":2,"result":{"thread":{"id":"own"}}}).to_string(),
+            "own"
+        ));
+        evidence.request(&json!({"id":3,"method":"initialize"}).to_string(), "own");
+        assert!(!evidence.response(
+            &json!({"id":3,"error":{"code":-32603,"message":"failed"}}).to_string(),
+            "own"
+        ));
+        assert!(!evidence.initialized);
     }
 }

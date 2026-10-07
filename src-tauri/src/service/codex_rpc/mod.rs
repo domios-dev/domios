@@ -14,6 +14,7 @@ pub mod model;
 pub mod normalize;
 pub mod process;
 pub mod protocol;
+pub mod recovery;
 pub mod routing;
 pub mod schema;
 pub mod send;
