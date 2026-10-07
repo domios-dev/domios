@@ -27,6 +27,7 @@ export interface HistoryBlock {
 
 const SESSION_HEADER_RE = /^# aider chat started at (.+)$/;
 const THINKING_BLOCK_RE = /<thinking-content-[^>]*>[\s\S]*?<\/thinking-content-[^>]*>/g;
+const META_LINE_RE = /^> /;
 
 /**
  * Aider writes the session header in LOCAL wall-clock time with no zone
@@ -82,6 +83,11 @@ export function parseAiderHistory(
       let body = currentText.join("\n").trim();
       if (currentRole === "assistant") {
         body = body.replace(THINKING_BLOCK_RE, "").trim();
+        body = body
+          .split(/\r?\n/)
+          .filter((line) => !META_LINE_RE.test(line))
+          .join("\n")
+          .trim();
       }
       if (body) {
         messages.push({
@@ -240,6 +246,11 @@ export function parseAiderHistoryDelta(chunk: string): {
       let body = currentText.join("\n").trim();
       if (currentRole === "assistant") {
         body = body.replace(THINKING_BLOCK_RE, "").trim();
+        body = body
+          .split(/\r?\n/)
+          .filter((line) => !META_LINE_RE.test(line))
+          .join("\n")
+          .trim();
       }
       if (body) {
         messages.push({

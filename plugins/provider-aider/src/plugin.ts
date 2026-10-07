@@ -460,6 +460,11 @@ const plugin: PluginModule = {
     return [];
   },
 
+  sessionFilePath(cwd: string, sessionId: string): string | null {
+    if (!cwd || !sessionId) return null;
+    return historyFilePath(cwd, sessionId);
+  },
+
   sessionJsonlPath(cwd: string, sessionId: string): string | null {
     if (!cwd || !sessionId) return null;
     return historyFilePath(cwd, sessionId);
