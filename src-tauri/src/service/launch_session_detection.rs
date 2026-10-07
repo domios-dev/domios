@@ -452,6 +452,36 @@ pub(crate) fn marked_launch_command_for_tab(
     cwd: &str,
     params: &mut crate::agent::provider::AgentLaunchParams,
 ) -> Option<String> {
+    if super::codex_rpc::launch::requested(svc, provider_id) {
+        let instructions = svc
+            .agent_registry
+            .with_provider(provider_id, |provider| {
+                super::launch_delivery::command_task(provider, params.task.as_deref()).system_prompt
+            })
+            .flatten();
+        let spawn = super::codex_rpc::lifecycle::Spawn {
+            provider: provider_id.into(),
+            cwd: cwd.into(),
+            instructions,
+            resume: None,
+            model: None,
+            effort: None,
+            full_access: params.skip_permissions,
+        };
+        match tauri::async_runtime::block_on(super::codex_rpc::lifecycle::ensure_for_spawn(
+            svc, tab_id, spawn,
+        )) {
+            Ok(sidecar) => return Some(super::codex_rpc::launch::remote_command(&sidecar)),
+            Err(error) => {
+                log::error!("[codex-rpc] hidden launch tab={tab_id} fallback: {error}");
+                svc.notify_model_resolution_warning(
+                    tab_id,
+                    provider_id,
+                    &format!("Structured control unavailable; using the plain terminal: {error}"),
+                );
+            }
+        }
+    }
     if let Err(error) = svc.ensure_agent_pad(tab_id) {
         log::warn!("[sandbox-agent-pad] tab={tab_id} has no AgentPad before launch: {error}");
     }

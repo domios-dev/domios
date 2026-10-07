@@ -3,6 +3,7 @@ use super::*;
 fn client() -> (Client, mpsc::Receiver<Message>) {
     let (outgoing, messages) = mpsc::channel(64);
     let (events, _) = broadcast::channel(32);
+    let (observations, _) = broadcast::channel(32);
     let (death, _) = watch::channel(None);
     (
         Client(Arc::new(Inner {
@@ -15,6 +16,7 @@ fn client() -> (Client, mpsc::Receiver<Message>) {
             initialized: AtomicBool::new(false),
             outgoing,
             events,
+            observations,
             death,
         })),
         messages,

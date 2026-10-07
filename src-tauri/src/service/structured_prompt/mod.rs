@@ -24,11 +24,6 @@ use opencode_sse::{
 use crate::multiplexer::types::PendingPrompt;
 use crate::service::ServiceContext;
 
-struct Endpoint {
-    base_url: String,
-    cwd: String,
-}
-
 #[derive(Clone)]
 struct Active {
     prompt: PendingPrompt,
@@ -50,8 +45,6 @@ struct ChatBinding {
     binding_nonce: Option<String>,
 }
 
-static ENDPOINTS: LazyLock<Mutex<HashMap<String, Endpoint>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
 static ACTIVE: LazyLock<Mutex<HashMap<String, Active>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static QUEUED: LazyLock<Mutex<HashMap<String, Vec<Active>>>> =
@@ -80,16 +73,14 @@ pub fn allocate_server() -> Option<crate::agent::provider::StructuredPromptServe
 /// Record the structured-prompt server for a tab (called at spawn, once the
 /// host has allocated the fixed port). `base_url` is e.g. `http://127.0.0.1:PORT`.
 pub fn register_endpoint(tab_id: &str, base_url: String, cwd: String) {
-    ENDPOINTS
-        .lock()
-        .insert(tab_id.to_string(), Endpoint { base_url, cwd });
+    super::structured_endpoint::register(
+        tab_id,
+        super::structured_endpoint::Endpoint::Sse { base_url, cwd },
+    );
 }
 
 fn endpoint_for_tab(tab_id: &str) -> Option<(String, String)> {
-    ENDPOINTS
-        .lock()
-        .get(tab_id)
-        .map(|endpoint| (endpoint.base_url.clone(), endpoint.cwd.clone()))
+    super::structured_endpoint::sse(tab_id)
 }
 
 /// The live structured prompt for a tab, if one is pending. Cheap in-memory
@@ -116,11 +107,13 @@ fn clear_request(active: &mut HashMap<String, Active>, tab_id: &str, request_id:
 
 /// Drop all structured-prompt state for a tab (tab closed / agent exited).
 pub fn clear_tab(tab_id: &str) {
+    crate::service::codex_rpc::lifecycle::clear_tab(tab_id);
+    crate::service::codex_rpc::launch::clear_tab(tab_id);
     let subscriber = SUBSCRIBED.lock().remove(tab_id);
     if let Some(subscriber) = subscriber {
         *subscriber.live.lock() = false;
     }
-    ENDPOINTS.lock().remove(tab_id);
+    super::structured_endpoint::remove(tab_id);
     ACTIVE.lock().remove(tab_id);
     QUEUED.lock().remove(tab_id);
 }
@@ -129,8 +122,8 @@ pub fn clear_tab(tab_id: &str) {
 /// is running yet. Idempotent — safe to call on every session-bind. The caller
 /// has already gated on `supports_structured_prompts`.
 pub fn maybe_start_subscriber(svc: &ServiceContext, tab_id: &str) {
-    let (base_url, cwd) = match ENDPOINTS.lock().get(tab_id) {
-        Some(ep) => (ep.base_url.clone(), ep.cwd.clone()),
+    let (base_url, cwd) = match endpoint_for_tab(tab_id) {
+        Some(ep) => ep,
         None => return,
     };
     let mut subscribed = SUBSCRIBED.lock();
@@ -249,7 +242,7 @@ pub fn abort_session(
     tab_id: &str,
     session_id: &str,
 ) -> Option<Result<(), String>> {
-    let base_url = ENDPOINTS.lock().get(tab_id).map(|e| e.base_url.clone())?;
+    let (base_url, _) = endpoint_for_tab(tab_id)?;
     let url = format!("{base_url}/session/{session_id}/abort");
     let result = abort_session_request(&url);
     if result.is_ok() {

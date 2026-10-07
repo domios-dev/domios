@@ -89,6 +89,18 @@ fn build_agent_command_inner(
     launch_marker: Option<&str>,
 ) -> String {
     let mut args: Vec<String> = params.args.clone().unwrap_or_default();
+    if let Some((service, tab_id)) = notice_context {
+        if let Some(command) = crate::service::codex_rpc::launch::defer(
+            service,
+            tab_id,
+            agent_cmd,
+            params,
+            task,
+            injected_session_id,
+        ) {
+            return command;
+        }
+    }
     let resolved_model = params
         .model
         .as_deref()

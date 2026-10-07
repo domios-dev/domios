@@ -35,6 +35,7 @@ struct Inner {
     initialized: AtomicBool,
     outgoing: mpsc::Sender<Message>,
     events: broadcast::Sender<Frame>,
+    observations: broadcast::Sender<Frame>,
     death: watch::Sender<Option<String>>,
 }
 
@@ -65,6 +66,7 @@ impl Client {
         let (mut writer, mut reader) = socket.split();
         let (outgoing, mut messages) = mpsc::channel(64);
         let (events, _) = broadcast::channel(512);
+        let (observations, _) = broadcast::channel(512);
         let (death, _) = watch::channel(None);
         let client = Self(Arc::new(Inner {
             state: Mutex::new(State {
@@ -76,6 +78,7 @@ impl Client {
             initialized: AtomicBool::new(false),
             outgoing,
             events,
+            observations,
             death,
         }));
         let sender = client.clone();
@@ -116,6 +119,9 @@ impl Client {
     pub fn subscribe(&self) -> broadcast::Receiver<Frame> {
         self.0.events.subscribe()
     }
+    pub fn observe(&self) -> broadcast::Receiver<Frame> {
+        self.0.observations.subscribe()
+    }
     pub fn death(&self) -> watch::Receiver<Option<String>> {
         self.0.death.subscribe()
     }
@@ -136,6 +142,9 @@ impl Client {
     }
 
     fn ingest(&self, frame: Frame) -> Result<(), String> {
+        if !matches!(&frame, Frame::Response { .. }) {
+            let _ = self.0.observations.send(frame.clone());
+        }
         if let Frame::Response { id, result } = frame {
             let reply = self.0.state.lock().pending.remove(&id);
             if let Some(reply) = reply {
