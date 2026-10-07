@@ -8,6 +8,7 @@
   "cliBinary": "aider",
   "iconColor": "var(--ct-fg)",
   "entry": "plugin.js",
+  "settingsSchema": "settings.schema.json",
   "capabilities": {
     "agentProvider": true,
     "chatPreprocessor": {

@@ -1,0 +1,27 @@
+[
+  {
+    "kind": "section",
+    "title": "Aider",
+    "description": "Launch-time configuration for the Aider CLI.",
+    "fields": [
+      {
+        "kind": "text",
+        "key": "configPath",
+        "label": "Aider config file",
+        "description": "Path to an aider YAML config file; passed as --config."
+      },
+      {
+        "kind": "text",
+        "key": "apiBase",
+        "label": "API base URL",
+        "description": "Base URL for the OpenAI-compatible API; exported as OPENAI_API_BASE."
+      },
+      {
+        "kind": "text",
+        "key": "apiKeySecret",
+        "label": "API key secret name",
+        "description": "Name of a Domios secret holding the API key; its value is injected only into the launch environment as OPENAI_API_KEY."
+      }
+    ]
+  }
+]

@@ -4,7 +4,6 @@ import type {
   ParsedPrompt,
   PluginModule,
   ResumeParams,
-  SettingField,
 } from "@codeterm/plugin-sdk";
 import { parseAiderHistory, readAiderHistory } from "./history";
 
@@ -229,13 +228,6 @@ const plugin: PluginModule = {
 
   parsePrompt,
 
-  settingsSchema(): SettingField[] {
-    return [
-      { kind: "text", id: "configPath", label: "Aider config file", help: "Path to an aider YAML config file; passed as --config." },
-      { kind: "text", id: "apiBase", label: "API base URL", help: "Base URL for the OpenAI-compatible API; exported as OPENAI_API_BASE." },
-      { kind: "text", id: "apiKeySecret", label: "API key secret name", help: "Name of a Domios secret holding the API key; its value is injected only into the launch environment as OPENAI_API_KEY." },
-    ];
-  },
 
   buildPromptResponse(optionIndex: number, _screen?: string): string[] {
     const ENTER = "DQ==";

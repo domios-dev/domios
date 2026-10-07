@@ -327,7 +327,7 @@ console.log("\n--- history file reader fallbacks ---\n");
   const readVia = (host: any) => {
     const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
     const source = fs.readFileSync(pluginPath, "utf8");
-    const context = { host, console, module: { exports: {} as any }, exports: {}, require };
+    const context = { host, console, module: { exports: {} as any }, exports: {} };
     new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
     return context.module.exports.default;
   };
@@ -423,6 +423,15 @@ console.log("\n--- manifest paste and preprocessor capability ---\n");
   eq(manifest.capabilities?.chatPreprocessor?.match, "text", "manifest declares the chatPreprocessor capability");
   eq(manifest.capabilities?.agentProvider, true, "manifest declares the agentProvider capability");
   eq(manifest.spawn?.inputFallbackMs, 5000, "manifest declares the bounded input fallback");
+  eq(manifest.settingsSchema, "settings.schema.json", "manifest declares the settings schema file");
+  const schema = JSON.parse(
+    fs.readFileSync(
+      path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "settings.schema.json"),
+      "utf8",
+    ),
+  );
+  const keys = schema.flatMap((section: any) => (section.fields || []).map((f: any) => f.key));
+  eq(keys, ["configPath", "apiBase", "apiKeySecret"], "settings schema declares the three launch settings");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
