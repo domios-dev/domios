@@ -86,6 +86,10 @@ For backup, stop Domios cleanly and preserve the complete `storage/` directory, 
 
 Jitter is applied on top of recurring cron fire times. A job with `0 * * * *` and `jitter_max_ms=5000` fires between `:00.000` and `:05.000` each hour. Auto-mode exists so users on `*/5 * * * *` schedules don't all hammer LLM providers at the same minute boundary.
 
+### Missed slots
+
+A recurring job whose scheduled (jittered) fire time passed more than 10 minutes ago, for example because the machine slept or Domios started late, does not fire late: it moves to its next future slot and the scheduler logs the skip. A slot missed by 10 minutes or less still fires once. A oneshot job always fires, however late.
+
 ### Hidden spawn
 
 Cron runs spawn agents in **hidden tabs** — no separate visible tab. Observe progress via the cron tabl in the sidebar, the frontend log viewer, or `codeterm cron history ID-or-name`. Use `cron_read_log` (Tauri IPC) / the live tab fallback to tail a running run's output.
@@ -219,4 +223,4 @@ Dev builds use separate paths and ports to avoid conflicts with production:
 
 Both builds can run simultaneously.
 
-<!-- revision: 29 -->
+<!-- revision: 30 -->

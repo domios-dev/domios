@@ -48,6 +48,78 @@ function manifest() {
   }
 }
 
+// plugins/provider-claude/src/permissionHook.ts
+function permissionHookCapability() {
+  return {
+    protocol: "claude-permission-request",
+    options: [
+      { label: "Allow", value: "allow" },
+      { label: "Deny", value: "deny" }
+    ]
+  };
+}
+
+// plugins/provider-claude/src/context.ts
+var LIMIT = 1e7;
+function count(value) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= LIMIT ? value : null;
+}
+function parseContextUsage(record2) {
+  if (!record2 || typeof record2 !== "object") return null;
+  const statusline = record2.context_window;
+  const hasStatusline = Object.prototype.hasOwnProperty.call(record2, "context_window");
+  const usage = hasStatusline ? statusline?.current_usage : record2.type === "assistant" ? record2.message?.usage : null;
+  if (!usage || typeof usage !== "object") return null;
+  const input = count(usage.input_tokens);
+  const creation = usage.cache_creation_input_tokens === void 0 ? 0 : count(usage.cache_creation_input_tokens);
+  const read = usage.cache_read_input_tokens === void 0 ? 0 : count(usage.cache_read_input_tokens);
+  if (input === null || creation === null || read === null || input + creation + read > LIMIT) return null;
+  const window = count(statusline?.context_window_size !== void 0 ? statusline.context_window_size : usage.context_window_size !== void 0 ? usage.context_window_size : 0);
+  if (window === null) return null;
+  const rawCost = record2.cost?.total_cost_usd;
+  const cost = typeof rawCost === "number" && Number.isFinite(rawCost) && rawCost >= 0 && rawCost <= 1e6 ? rawCost : null;
+  return {
+    used_tokens: input + creation + read,
+    window_tokens: window,
+    cost_usd: cost,
+    source: hasStatusline ? "claude-statusline" : "claude-jsonl"
+  };
+}
+var STATUSLINE_FLAG = "--codeterm-statusline";
+var STATUSLINE_FORWARD = 'payload=$(cat); if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then printf \'%s\' "$payload" | curl -s --max-time 2 -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/context" -H \'Content-Type: application/json\' -H "Authorization: Bearer $CODETERM_API_TOKEN" -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE:-}" --data-binary @- || true; fi';
+function statuslineSettings(settings) {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return null;
+  const line = settings.statusLine;
+  if (line !== void 0 && (!line || line.type !== "command" || typeof line.command !== "string" || !line.command.trim())) return null;
+  if (line) {
+    let bytes = 0;
+    for (const character of line.command) {
+      const point = character.codePointAt(0);
+      bytes += point > 65535 ? 4 : point > 2047 ? 3 : point > 127 ? 2 : 1;
+    }
+    if (bytes > 8192) return null;
+    if (line.padding !== void 0 && (count(line.padding) === null || line.padding > 1e3)) return null;
+  }
+  const command = STATUSLINE_FORWARD + (line ? `; printf '%s' "$payload" | ( ${line.command}
+)` : "; true");
+  return JSON.stringify({ statusLine: { command, ...line?.padding !== void 0 ? { padding: line.padding } : {}, type: "command" } });
+}
+function statuslineLaunchArgs(args) {
+  const enabled = args.includes(STATUSLINE_FLAG);
+  const rest = args.filter((arg) => arg !== STATUSLINE_FLAG);
+  if (!enabled || rest.some((arg) => arg === "--settings" || arg.startsWith("--settings="))) return rest;
+  const path = host.expandHome("~/.claude/settings.json");
+  if (!path) return rest;
+  const text2 = host.fs.fileExists(path) ? host.fs.readFileHead(path, 65537) : "{}";
+  if (text2 === null || text2.length > 65536) return rest;
+  try {
+    const settings = statuslineSettings(JSON.parse(text2));
+    return settings ? [...rest, "--settings", settings] : rest;
+  } catch {
+    return rest;
+  }
+}
+
 // plugins/provider-shared/readHome.ts
 function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
   if (!inheritedHome) return fallback;
@@ -839,7 +911,7 @@ function record(value) {
 function text(value) {
   return typeof value === "string" ? value.trim() : "";
 }
-function count(value) {
+function count2(value) {
   if (value === null || !/^\d+$/.test(value)) return void 0;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : void 0;
@@ -920,9 +992,9 @@ function subAgentNotification(content) {
     state: NOTIFICATION_STATES[xmlTagBody(block, "status") ?? ""] ?? "unknown",
     ...result ? { result } : {},
     ...usage !== null ? {
-      tokens: count(xmlTagBody(usage, "subagent_tokens")),
-      toolUses: count(xmlTagBody(usage, "tool_uses")),
-      durationMs: count(xmlTagBody(usage, "duration_ms"))
+      tokens: count2(xmlTagBody(usage, "subagent_tokens")),
+      toolUses: count2(xmlTagBody(usage, "tool_uses")),
+      durationMs: count2(xmlTagBody(usage, "duration_ms"))
     } : {}
   };
 }
@@ -1497,8 +1569,8 @@ function buildWizardSubmitResponse(screen) {
   const parsed = parseClaudeWizardPrompt(screen);
   const steps = [];
   const active = parsed?.sections?.findIndex((section) => section.active) ?? -1;
-  const count2 = parsed?.sections?.length ?? 0;
-  const moves = active >= 0 && count2 > active ? count2 - active : 1;
+  const count3 = parsed?.sections?.length ?? 0;
+  const moves = active >= 0 && count3 > active ? count3 - active : 1;
   for (let i = 0; i < moves; i++) steps.push("G1tD");
   steps.push("DQ==");
   return steps;
@@ -1832,6 +1904,8 @@ function entriesCarryMarker(entries) {
 var TITLE_RE = /claude/i;
 var BRAILLE_LO = 10241;
 var BRAILLE_HI = 10495;
+var QUARTER_CIRCLE_LO = 9680;
+var QUARTER_CIRCLE_HI = 9683;
 var OUTPUT_FINGERPRINTS = [
   "Claude Code",
   "Do you want to proceed?",
@@ -1904,7 +1978,7 @@ function sessionProjectPath(head) {
 function isBrailleSpinner(ch) {
   if (!ch) return false;
   const code = ch.charCodeAt(0);
-  return code >= BRAILLE_LO && code <= BRAILLE_HI || ch === "\u2733" || ch === "\u273B";
+  return code >= BRAILLE_LO && code <= BRAILLE_HI || code >= QUARTER_CIRCLE_LO && code <= QUARTER_CIRCLE_HI || ch === "\u2733" || ch === "\u273B";
 }
 function retainForeignPrecompactEntry(entry) {
   if (!entry || !Array.isArray(entry.hooks)) return true;
@@ -1915,6 +1989,8 @@ function retainForeignPrecompactEntry(entry) {
   return remaining.length > 0;
 }
 var plugin = {
+  permissionHookCapability,
+  parseContextUsage,
   starterPromptText(prompt) {
     return prompt === "team_bootstrap" ? void 0 : starterPrompt(prompt);
   },
@@ -2048,8 +2124,9 @@ var plugin = {
       parts.push("--session-id");
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+    const launchArgs = statuslineLaunchArgs(p.args || []);
+    if (launchArgs.length > 0) {
+      for (const arg of launchArgs) parts.push(quoteArg(String(arg)));
     }
     if (p.task) {
       const visiblePath = writeTaskTempFile(p.task);
@@ -2077,8 +2154,9 @@ var plugin = {
   buildResumeCommandWithContext(params) {
     const p = params || {};
     const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(quoteArg(String(p.args[i])));
+    const resumeArgs = statuslineLaunchArgs(p.args || []);
+    if (resumeArgs.length > 0) {
+      for (const arg of resumeArgs) parts.push(quoteArg(String(arg)));
     }
     const systemPrompt = p.systemPrompt;
     if (systemPrompt && systemPrompt.trim()) {
@@ -2413,7 +2491,9 @@ var plugin = {
       if (t === "system" && sourceSubtype === "compact_boundary") {
         timelineMarker = { kind: "context_compaction" };
       }
+      const context = parseContextUsage(v);
       out.push({
+        ...context ? { context_usage: context } : {},
         role,
         blocks,
         ts,

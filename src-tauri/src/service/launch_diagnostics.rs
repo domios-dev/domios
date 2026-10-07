@@ -1,5 +1,14 @@
 const TAIL_BYTES: usize = 4096;
 
+pub(crate) fn log_rpc_sidecar(tab: &str) {
+    if let Some(diagnostics) = super::codex_rpc::diagnostics::for_tab(tab) {
+        log::info!(
+            "[launch] tab={tab} structured_control={}",
+            serde_json::to_string(&diagnostics).unwrap_or_default()
+        );
+    }
+}
+
 mod account_home_diagnostic;
 
 #[derive(Debug, PartialEq, Eq)]

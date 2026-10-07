@@ -10,10 +10,7 @@ Config file: `~/.codeterm/config.toml` on every platform (dev instances use `~/.
 [theme]
 name = "github-dark"
 # Available: github-dark, github-light, dracula, catppuccin-mocha, one-dark, nord, solarized-light, pip-boy
-# Override individual colors:
-# background = "#0d1117"
-# foreground = "#c9d1d9"
-# cursor = "#58a6ff"
+# Override colors: background / foreground / cursor = "#rrggbb"
 
 [font]
 family = "JetBrains Mono, Cascadia Code, Fira Code, Consolas, monospace"
@@ -28,6 +25,7 @@ copy_on_select = false
 
 [diagnostics]
 terminal_transport = false
+protocol_recording = false
 
 # [notifications] — levels, surfaces, sound, push channels.
 # Its own reference, it outgrew this file: codeterm docs NOTIFICATIONS
@@ -75,6 +73,9 @@ resume_sessions = true
 continue_after_restart = true  # false disables it (codeterm docs TAB-LIFECYCLE)
 full_access = true
 
+[agents.codex]
+structured_control_enabled = true # Default; false selects plain PTY
+
 [supporter]
 adapter = "typesafe-jev"
 deadline_ms = 3000
@@ -98,8 +99,8 @@ cors = false
 enabled = true
 agent_provider = "claude"       # Agent command to use
 auto_restart = true             # Auto-restart on crash
-max_restart_attempts = 2
-restart_delay_s = 60
+max_restart_attempts = 2       # Effective maximum is two per recovery episode
+restart_delay_s = 60           # Retained; event recovery does not wait
 
 [integrations]
 telegram_enabled = false
@@ -126,6 +127,10 @@ enabled = true                   # Local orchestration-economics ledger; false o
 `diagnostics.terminal_transport` is off by default. When enabled, the daemon writes bounded `[terminal-stream]` session summaries for attach cursors, frame and output-byte counts, offsets, truncation and boot changes. It also writes `[pty-write-route]` lines with the tab, PTY id, request byte count and whether that PTY is current for the tab. These diagnostics never include terminal output or input text, tokens, or credentials.
 
 Toggle it live with `codeterm config set diagnostics.terminal_transport true|false`. The next output-stream session and PTY write use the new setting; an open stream keeps the setting it started with. For mesh traces, enable it on both the local relaying daemon and the peer. No restart is required.
+
+## Protocol recording
+
+`diagnostics.protocol_recording` is off by default and only records in a named development instance. When enabled, resolved hook posts are written as redacted NDJSON under `logs/protocol/<tab>/`. A single background writer keeps at most ten 10 MiB files per tab, 512 MiB total, and 14 days of history. A full writer queue drops the record and increments the recorder's dropped counter; hook responses never wait for disk writes. Toggle it live with `codeterm config set diagnostics.protocol_recording true|false`.
 
 `kpi.enabled` owns the ledger behind Mission Control's Tokens and Turns cards. It records plan, task and tab ids, event kinds, byte counts, token counts and timestamps in `~/.codeterm/kpi_ledger.db` — never message text, and nothing leaves the machine. Opt out with `codeterm config set kpi.enabled false`; opt back in with `codeterm config set kpi.enabled true`. A config saved before KPI defaulted on still carries the old `enabled = false`; the first load after upgrading switches it on once and records `kpi.default_applied = true`, so an opt-out saved afterwards is kept. Either way the change takes effect on the next Domios start, and while it is off the Board shows an explicit not-recording state naming this key rather than a zero.
 
@@ -212,29 +217,18 @@ A `config.toml` that cannot be read or parsed is never treated as empty and neve
 
 ## General Agent
 
-The General Agent is an always-on Claude Code instance that lives in the "General" workspace. It handles Telegram messages, cron tasks, and acts as the default orchestrator.
-
-```toml
-[general_agent]
-enabled = true                  # Enable the General Agent
-agent_provider = "claude"       # Agent command (default: claude)
-auto_restart = true             # Auto-restart if agent crashes
-max_restart_attempts = 2        # Effective maximum is two per recovery episode
-restart_delay_s = 60            # Retained setting; event recovery does not wait
-```
-
-When enabled, Domios starts with a single "General" workspace instead of the default "Main" workspace. The General Agent tab is marked as protected (cannot be closed via UI).
-
-Settings UI: Settings > Agents > General Agent section (enable, auto-restart toggles).
-
-General Agent recovery, its thresholds and owner-notification rules, and provider update behaviour: `codeterm docs TAB-LIFECYCLE`, sections "General Agent recovery" and "Provider updates".
+The General Agent is an always-on Claude Code instance in the "General" workspace (`[general_agent]` in the reference above). It handles Telegram messages and cron tasks and acts as the default orchestrator. When enabled, Domios starts with a single protected "General" workspace instead of "Main"; its tab cannot be closed from the UI, and Settings > Agents > General Agent toggles it. Recovery thresholds, owner notifications and provider update behaviour: `codeterm docs TAB-LIFECYCLE`, sections "General Agent recovery" and "Provider updates".
 
 ## Worker lane provisioning
 
 Provisioning creates an isolated git worktree and launches the agent there; it installs no dependencies and links nothing from the canonical checkout (`node_modules` is never shared by symlink or junction, and no package-manager command precedes the agent command). An isolated check that needs dependencies installs them inside its own lane; full rebuilds stay in canonical.
 
+## Codex structured control
+
+Codex structured control is enabled by default in 1.12.4. The provider declares the `codex-app-server` capability with minimum version `0.160.0`; `[agents.codex] structured_control_enabled = false` explicitly selects the plain PTY lane. Each structured tab owns its app-server, port and authentication token. The server owns session binding, thread identity and busy/idle state; provider hooks are telemetry only for those tabs. PTY fallback tabs retain ordinary hook behavior. Unsupported versions, failed readiness, unknown extra terminal arguments and Windows `.cmd`/`.bat` wrappers automatically select the plain PTY fallback. Launch diagnostics record the reason. No token value appears in launch arguments or diagnostics.
+
 ## Related documents
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
 
-<!-- revision: 95 -->
+<!-- revision: 96 -->

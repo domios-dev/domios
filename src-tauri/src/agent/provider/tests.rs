@@ -28,6 +28,7 @@ fn usage_tracking_section_defaults_on() {
 fn provider_descriptor_round_trip() {
     let original = ProviderDescriptor {
         supports_session_fork: false,
+            structured_control: None,
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             cli_status: None,
             id: "test".into(),

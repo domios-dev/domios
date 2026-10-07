@@ -66,6 +66,12 @@ pub(crate) async fn stop_agent_turn(
     tab_id: String,
 ) -> Result<serde_json::Value, String> {
     log::info!("[tab-stop] attempt tab={}", tab_id);
+    if let Some(result) = crate::service::codex_rpc::control::interrupt(&tab_id).await {
+        let stopped = result?;
+        return Ok(
+            serde_json::json!({"ok":true,"stopped":stopped,"reason":if stopped {"stopped"} else {"interrupt_unconfirmed"},"route":"rpc"}),
+        );
+    }
     let deadline = Instant::now() + STOP_CONFIRMATION_TIMEOUT;
     let decision_svc = svc.clone();
     let decided_tab = tab_id.clone();

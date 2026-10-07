@@ -495,6 +495,26 @@
               "aliases": []
             },
             {
+              "name": "handoff-history",
+              "positional": false,
+              "required": false,
+              "value_name": "HANDOFF_HISTORY",
+              "possible_values": [],
+              "default": null,
+              "help": "Include bounded, redacted history in a provider-changing fresh launch",
+              "aliases": []
+            },
+            {
+              "name": "provider",
+              "positional": false,
+              "required": false,
+              "value_name": "PROVIDER",
+              "possible_values": [],
+              "default": null,
+              "help": "Relaunch with this installed PTY provider instead of the current provider",
+              "aliases": []
+            },
+            {
               "name": "tab",
               "positional": false,
               "required": false,

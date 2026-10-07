@@ -17,6 +17,7 @@ pub struct AgentModelBody {
     pub force: bool,
     pub model: String,
     pub reasoning_effort: Option<String>,
+    pub runtime_mode: Option<crate::service::codex_rpc::model::RuntimeMode>,
 }
 
 pub async fn agent_model_handler(
@@ -37,10 +38,11 @@ pub async fn agent_model_handler(
     };
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
-        svc.agent_switch_model_with_options(
+        svc.agent_switch_model_with_controls_and_force(
             &tab_id,
             &body.model,
             body.reasoning_effort.as_deref(),
+            body.runtime_mode,
             body.force,
         )
     })

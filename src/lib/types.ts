@@ -151,6 +151,8 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
+  purpose?: import("./shellCommandState").ShellPurpose;
+  shell_command_state?: import("./shellCommandState").ShellCommandState;
   context?: { used_tokens: number; window_tokens: number; cost_usd: number | null; source: string };
   provider_signals?: ProviderSignals;
   id: string;
@@ -179,6 +181,8 @@ export interface Tab {
   agent_session_name?: string | null;
   agent_session_model?: string | null;
   agent_requested_model?: string | null;
+  structured_control_active?: boolean;
+  structured_runtime_mode?: string | null;
   agent_provider_resolved_model?: string | null;
   agent_label?: string | null;
   reasoning_effort_identity?: {
@@ -195,6 +199,7 @@ export interface Tab {
   }>;
   role?: AgentRole | null;
   role_profile?: string | null;
+  roleless_tracked?: boolean;
   team_id?: string | null;
   spawned_by_tab_id?: string | null;
   managed?: { manager_tab_id: string; manager_name: string; manager_closed: boolean } | null;
@@ -1030,7 +1035,7 @@ export interface ModelCatalogueCapability {
   liveDiscoveryRequired: boolean;
 }
 
-export type ModelSwitchMode = "live" | "restart_resume" | "unsupported";
+export type ModelSwitchMode = "live" | "next_turn" | "restart_resume" | "unsupported";
 
 export interface ProviderDescriptor {
   supports_session_fork?: boolean;

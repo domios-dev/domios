@@ -675,6 +675,7 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/model`, {
       model: s(a, "model"),
       reasoning_effort: a.reasoningEffort,
+      runtime_mode: a.runtimeMode,
     }),
   complete_general_agent_first_run: (a) =>
     webJson("POST", "/api/agents/general/complete-first-run", {

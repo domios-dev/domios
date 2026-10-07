@@ -569,6 +569,7 @@ fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
                 worktree_path: path.to_string(),
                 branch: None,
                 canonical_cwd: Some(lane.project_path.clone()),
+                force: false,
             },
             &[],
         )?;

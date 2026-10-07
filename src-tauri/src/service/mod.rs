@@ -31,6 +31,7 @@ pub(crate) mod capability_probe;
 pub(crate) mod cartographer;
 pub(crate) mod chat_send_evidence;
 pub(crate) mod chat_send_transaction;
+pub(crate) mod codex_rpc;
 mod command_port_impl;
 pub mod cron;
 pub mod delivery_error;
@@ -43,6 +44,7 @@ pub(crate) mod instance_env;
 pub(crate) mod integration_silence;
 mod kpi_hooks;
 pub(crate) mod lane_removal;
+pub(crate) mod lane_stats;
 pub(crate) mod launch_artifacts;
 pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;
@@ -60,6 +62,7 @@ mod orchestrator;
 pub(crate) mod parked_user_delivery;
 pub(crate) mod process_tree;
 mod prompt_resolution;
+pub(crate) mod protocol_recorder;
 pub(crate) mod provider_cli;
 pub(crate) mod provider_cli_actions;
 pub(crate) mod provider_signals;
@@ -92,6 +95,7 @@ pub(crate) mod plan_batch_authority;
 mod plan_pause;
 mod plan_reconcile;
 mod prompt_chain;
+mod provider_handoff;
 pub(crate) use plan_reconcile::tab_has_live_agent;
 pub mod managed_tabs;
 pub mod plugin_host;
@@ -148,6 +152,7 @@ pub(crate) use status_reconciliation::SNAPSHOT_BUSY_ERROR;
 pub(crate) mod restored_launch;
 pub mod store;
 pub(crate) mod stream_preview;
+pub(crate) mod structured_endpoint;
 pub mod structured_prompt;
 pub(crate) mod supporter;
 pub(crate) mod supporter_notify;
@@ -292,6 +297,7 @@ pub struct ServiceContext {
     pub report_store: ReportStoreState,
     /// Orchestration-economics event writer. Disabled (and file-less) unless `kpi.enabled`.
     pub kpi: crate::agent::kpi::KpiRecorder,
+    pub(crate) protocol_recorder: Arc<protocol_recorder::ProtocolRecorder>,
     pub agent_registry: Arc<AgentRegistry>,
     pub mem: Arc<crate::mem::MemManager>,
     pub mem_supervisor: Arc<crate::mem::supervisor::Supervisor>,

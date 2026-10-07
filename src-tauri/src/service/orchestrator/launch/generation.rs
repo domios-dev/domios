@@ -18,15 +18,35 @@ impl LaunchGeneration {
                 .as_deref()
                 .is_some_and(|source| Some(source) == resume_session_id)
         });
-        let nonce = match resume_session_id.filter(|_| !fork) {
-            Some(session_id) => {
-                svc.rotate_session_binding_nonce_for_resume(&self.tab_id, session_id)
+        let sidecar = crate::service::codex_rpc::lifecycle::for_tab(&self.tab_id);
+        let nonce = if sidecar.is_some() {
+            svc.ensure_session_binding_nonce(&self.tab_id)
+        } else {
+            match resume_session_id.filter(|_| !fork) {
+                Some(session_id) => {
+                    svc.rotate_session_binding_nonce_for_resume(&self.tab_id, session_id)
+                }
+                None => svc.rotate_session_binding_nonce(&self.tab_id),
             }
-            None => svc.rotate_session_binding_nonce(&self.tab_id),
         };
         svc.arm_spawn_reply_relay(&self.tab_id, &nonce);
         self.binding_nonce = Some(nonce.clone());
-        LAUNCH_REGISTRY.lock().bind_provider_session(self, nonce);
+        LAUNCH_REGISTRY
+            .lock()
+            .bind_provider_session(self, nonce.clone());
+        if let Some(sidecar) = sidecar {
+            svc.set_agent_session_id(&self.tab_id, Some(sidecar.thread.lock().clone()));
+            if let Some(tab) = svc.mux.write().get_tab_mut(&self.tab_id) {
+                tab.reported_session_binding_nonce = Some(nonce.clone());
+            }
+            record_provider_session(
+                &self.tab_id,
+                &ProviderSessionBinding {
+                    pty_id: self.pty_id.clone(),
+                    binding_nonce: nonce,
+                },
+            );
+        }
         // A relaunched Worker keeps its persisted task binding, but its dispatch
         // handshake was settled by the launch that first started it.
         let startup_owed = !origin.relaunches_existing_agent()

@@ -106,4 +106,15 @@ check(() => assert.deepEqual(mergedSettings.hooks, user.hooks));
 check(() => assert.deepEqual(mergedSettings.statusLine, user.statusLine));
 check(() => assert.equal(writes, 0));
 check(() => assert.equal(JSON.stringify(user), original));
+for (const platform of ["linux", "windows"]) {
+  Object.assign(sandbox.host, {
+    platform: () => platform,
+    shell: {quoteFor: (value: string) => `'${value.replace(/'/g, "'\\''")}'`},
+  });
+  const settingsArg = '{"opaque":"value with spaces"}';
+  const command = plugin.buildLaunchCommand({args:["--settings", settingsArg]});
+  check(() => assert.ok(command.includes("claude --settings ")));
+  const composed = statuslineLaunchArgs(["--settings", settingsArg])![1];
+  check(() => assert.ok(command.includes(`'${composed}'`)));
+}
 console.log(`${checks} passed, 0 failed`);

@@ -1,3 +1,5 @@
+import { ShellPurposeIcon, ShellStatus } from "../shared/ShellStatus";
+import { isUtilityShell } from "../../lib/shellCommandState";
 import { useCallback, useEffect, useState } from "react";
 import { TabModeSwitch } from "./TabModeSwitch";
 import { UsageBubble } from "../Usage/UsageBubble";
@@ -30,6 +32,7 @@ export interface HeaderTabMenu {
 
 interface TabTopBarProps {
   tabId: string;
+  shellTab?: Tab;
   cwd: string | null;
   /** Show the Terminal | Chat switch (chat-capable PTY tabs only). */
   showSwitch: boolean;
@@ -83,6 +86,7 @@ function TabRenameField({ title, onDone }: { title: string; onDone: (title: stri
  */
 export function TabTopBar({
   tabId,
+  shellTab,
   cwd,
   showSwitch,
   usageProvider,
@@ -229,6 +233,10 @@ export function TabTopBar({
             {reconnectError}
           </span>
         )}
+        {shellTab && isUtilityShell(shellTab) && <>
+          <ShellPurposeIcon purpose={shellTab.purpose} />
+          <ShellStatus tab={shellTab} />
+        </>}
         {isWatcherTab && <WatcherStatusBadge lastStatus={watcherLastStatus} />}
         <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="header" />
         <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />

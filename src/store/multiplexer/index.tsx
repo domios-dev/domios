@@ -403,6 +403,15 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       },
     ).then((unlisten) => unlisteners.push(unlisten));
 
+    listen<{ tab_id: string; pty_id: string; state: import("../../lib/shellCommandState").ShellCommandState }>(
+      "shell-state-changed", (event) => {
+        if (!event.payload?.tab_id) return;
+        dispatch({ type: "UPDATE_SHELL_STATE", tabId: event.payload.tab_id,
+          ptyId: event.payload.pty_id, state: event.payload.state });
+        void refreshFromBackend();
+      },
+    ).then((unlisten) => unlisteners.push(unlisten));
+
     listen<TabBootStageEvent>("tab-boot-stage", (event) => {
       if (!event.payload) return;
       dispatch(tabBootStageEventAction(event.payload));

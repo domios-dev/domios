@@ -321,6 +321,9 @@ pub fn chat_start_core(
     tab_id: String,
     subscription_id: String,
 ) -> Result<ChatStartResult, String> {
+    if crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some() {
+        return crate::service::codex_rpc::transcript::start(svc, &tab_id, subscription_id);
+    }
     let started = std::time::Instant::now();
     let initial_authority = tab_chat_authority(svc, &tab_id);
     if let Some((plugin_id, _)) = svc.tab_chat_backing(&tab_id) {
@@ -746,6 +749,9 @@ pub fn chat_backfill_core(
     tab_id: String,
     before_offset: u64,
 ) -> Result<ChatBackfillResult, String> {
+    if crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some() {
+        return crate::service::codex_rpc::transcript::backfill(svc, &tab_id, before_offset);
+    }
     let (provider_id, cwd, session_id, session_binding_nonce) = {
         let m = svc.mux.write();
         let tab = m.get_tab(&tab_id).ok_or("Tab not found")?;

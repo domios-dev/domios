@@ -5,6 +5,7 @@
 
 import type { ModelProviderConfig } from "./modelProviders";
 import type {ProviderAuthStatus, ProviderSessionObservations} from "./providerSignals";
+import type { ChatMsg } from "./gen/ChatMsg";
 
 /** Manifest spawn.turnEvidenceNormalization; applies symmetrically to exact user-turn matching. */
 export interface TurnEvidenceNormalization {
@@ -84,6 +85,11 @@ export interface GlanceView {
 // ── view (sandboxed iframe UI bridge target) ──
 
 export type ViewCall = (method: string, args: unknown) => unknown;
+
+export interface StructuredControl {
+  protocol: "codex-app-server";
+  minVersion: string;
+}
 
 // ── agentProvider ──
 // Method set mirrors plugins/provider-*/plugin.js + the AgentProvider trait.
@@ -679,7 +685,11 @@ export interface ToolRichResult {
 }
 
 // Minimal shared chat shape mapped onto Rust ChatMsg. Only id/type/content are contractual; extra fields are allowed.
-export interface NormalizedChatMessage {
+export interface NormalizedChatMessage
+  extends Omit<
+    Partial<ChatMsg>,
+    "pluginIconSvg" | "inboundKind" | "toolKind" | "toolEdits" | "fileDiffs" | "toolRichResult"
+  > {
   id: string;
   type: string;
   content: string;

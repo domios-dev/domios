@@ -71,29 +71,19 @@ installer build into a public release by uploading it manually.
 
 ## Generated artifacts and the embedded-doc boundary
 
-Two classes of document exist. `prod-docs/<NAME>.md` files are embedded in the
-binary and read by production agents through the docs registry; everything else
-lives in `essences/` and never ships. `prod-docs/` holds only embedded
-documents, and every registered name maps to a same-named file — both directions
-are enforced by tests.
+`prod-docs/` is the only documentation embedded in the binary. Its membership is the `cli/src/cmd/docs.rs` registry, and every registered name maps to a same-named file; both directions are enforced by tests. `essences/` and `.agents/skills/` remain repository sources and are not embedded.
 
-A generated artifact is produced from a source of truth and is never
-hand-edited. Regenerate it from its source in the same lane and commit it with
-the source change before handoff, so no consumer ever sees a stale artifact.
+A generated artifact is produced from a source of truth and is never hand-edited. Regenerate it in the same lane and commit it with its source change before handoff, so no consumer ever sees a stale artifact.
 
-| Source of truth | Generated artifact | Regenerate (canonical) | Verify |
+| Source of truth | Generated artifact | Regenerate | Verify |
 |---|---|---|---|
-| CLI clap tree in `cli/src/args/` | `essences/cli-manifest.json`, the generated block in `essences/cli.md`, `packages/chat-ui/src/codeterm/commandPaths.ts` | `./build.sh cli`, or `cli-manifest --write` run by the CLI built from this checkout | `./build.sh test-one cli cmd::manifest` |
-| `essences/capabilities.md` and `essences/core.md` | `essences/map.jsonl` | `codeterm essence-map generate --root .` | `codeterm essence-map validate --root .`; `./build.sh test-one cli essence_map_contract_committed_artifacts_are_fresh` |
+| CLI clap definitions in `cli/src/args/` | `generated/cli/cli-manifest.json`, `generated/cli/cli.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` | Build the checkout's CLI, then run `cli-manifest --write` (`./build.sh cli` also installs the CLI into the active dev data directory). Never use the installed `codeterm` from `PATH`. | `cli_manifest_is_fresh`, `docs_cli_md_is_fresh`, and `chat_ui_command_paths_are_fresh` |
+| `essences/capabilities.md` and `essences/core.md` | `essences/map.jsonl` | `codeterm essence-map generate --root .` | `codeterm essence-map validate --root .` and `essence_map_contract_committed_artifacts_are_fresh` |
 | `src-tauri/prompts/**` and their loader consts | the `.agents/skills/prompts/inventory.md` inventory | edit the inventory row by hand | `bash scripts/check-prompts-doc.sh` |
 | Registered public routes in `src-tauri/src/api/routes.rs` | `prod-docs/API.md` | edit the API index by hand | `bash scripts/check-api-docs.sh` |
-| A `prod-docs/<NAME>.md` document | its embedded copy, through the docs registry in `cli/src/cmd/docs.rs` | register the document in `DOCS`, or exclude it with a reason | `./build.sh test-one cli registered_documents_have_one_title_and_fit_the_reading_boundary` |
+| `prod-docs/*.md` and `cli/src/cmd/docs.rs` | the embedded `codeterm docs` set | update the source and registry; there is no separate document generator | `registered_documents_have_one_title_and_fit_the_reading_boundary` and `codeterm docs <NAME>` from the built checkout |
 
-A Worker lane runs isolated checks only. When the generator needs the
-checkout's built CLI (`essence-map` also refuses a linked worktree), the lane
-reports the exact command under GATES REQUESTED and the Orchestrator regenerates
-and verifies it in canonical in the merged wave's QA batch. Never hand-edit a generated
-artifact, and never regenerate one with the installed `codeterm` on `PATH`.
+A lane Worker runs isolated checks only. When a generator needs the checkout's built CLI (`essence-map` also refuses a linked worktree), list the exact regeneration and verification commands under `GATES REQUESTED` for the Orchestrator's canonical wave batch.
 
 ## Local production build and self-install
 
@@ -288,7 +278,7 @@ foreground owner:
 
 ```powershell
 # Verify no previous dev listener/process remains, then open one visible tab.
-codeterm tab new --cmd "Set-Location '<checkout>'; .\build.ps1 dev"
+codeterm tab new --team <team-id> --purpose dev --cmd "Set-Location '<checkout>'; .\build.ps1 dev"
 ```
 
 Keep that Tab open and require all of the following before reporting ready:
@@ -363,18 +353,6 @@ the binary into the active development data directory, replacing the CLI every
 tab of that dev instance runs. Dev builds never overwrite `~/.codeterm/bin`:
 production CLI updates come from the bundled production app during startup,
 in-app update, or `install-local`.
-
-## Generated artifacts and the embedded-doc boundary
-
-`prod-docs/` is the only documentation embedded in the binary. Its membership is the `cli/src/cmd/docs.rs` registry; `essences/` and `.agents/skills/` remain repository sources and are not embedded.
-
-| Source | Artifact | Regenerate | Verify |
-|---|---|---|---|
-| CLI clap definitions | `generated/cli/cli-manifest.json`, `generated/cli/cli.md`, and `packages/chat-ui/src/codeterm/commandPaths.ts` | Build the checkout's CLI, then run `cli-manifest --write` (`./build.sh cli` also installs the CLI into the active dev data directory). Never use the installed `codeterm` from `PATH`. | `cli_manifest_is_fresh`, `docs_cli_md_is_fresh`, and `chat_ui_command_paths_are_fresh` |
-| `essences/capabilities.md` and `essences/core.md` | `essences/map.jsonl` | `codeterm essence-map generate --root .` | `codeterm essence-map validate --root .` and `essence_map_contract_committed_artifacts_are_fresh` |
-| `prod-docs/*.md` and `cli/src/cmd/docs.rs` | The embedded `codeterm docs` set | Update the source and registry; there is no separate document generator. | `registered_documents_have_one_title_and_fit_the_reading_boundary` and `codeterm docs <NAME>` from the built checkout |
-
-Regenerate each committed artifact in the same lane and commit as its source change, before handoff. A lane Worker runs isolated checks only; list the exact regeneration and full-rebuild verification commands under `GATES REQUESTED` for the Orchestrator's canonical wave batch.
 
 ### Crash symbols for dev builds
 
@@ -508,4 +486,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

@@ -1,4 +1,4 @@
-import { ChevronDown, Map } from "lucide-react";
+import { Map } from "lucide-react";
 import { useId, useState } from "react";
 import { TASK_STATUS_COLORS } from "../Canvas/settings";
 import type { PlanAttachment, TaskStatus } from "../Canvas/types";
@@ -90,7 +90,6 @@ export function ComposerPlanActivityStrip({
           </span>
         ))}
         <button type="button" className="ct-composer-activity-chip__expand" data-testid="composer-plan-expand" aria-expanded={expanded} aria-controls={detailsId} aria-label={expanded ? "Collapse full plan reminder" : "Expand full plan reminder"} onMouseDown={(e) => e.preventDefault()} onClick={() => setExpanded((value) => !value)}>
-          <ChevronDown size={14} aria-hidden />
         </button>
       </div>
       {expanded && <div id={detailsId} className="ct-composer-activity-details" data-testid="composer-plan-details" role="region" aria-label="Full plan reminder">

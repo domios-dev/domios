@@ -832,6 +832,10 @@ pub fn run() {
                 shell_caps: Arc::new(parking_lot::Mutex::new(Default::default())),
                 report_store: states.report_store.clone(),
                 kpi,
+                protocol_recorder: Arc::new(crate::service::protocol_recorder::ProtocolRecorder::new(
+                    crate::paths::data_dir().join("logs/protocol"),
+                    crate::paths::is_dev_instance(),
+                )),
                 plan_store,
                 plan_turn_counter,
                 pending_delivery_payloads,
@@ -959,6 +963,10 @@ pub fn run() {
                 let _ = chatbackend_registry.start_discovery();
             }
             app.manage(service_state.clone());
+            let lane_watch_service = service_state.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                lane_watch_service.restore_lane_watches();
+            });
             crate::delayed_send::start_scheduler(service_state.clone());
             crate::service::start_plan_reminder_scheduler(service_state.clone());
             drop(startup_step);

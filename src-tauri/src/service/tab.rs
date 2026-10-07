@@ -707,6 +707,11 @@ impl ServiceContext {
             }
         }
         let structured_prompt = crate::service::structured_prompt::pending_for_tab(tab_id);
+        if tab.pending_prompt_kind == Some(codeterm_types::pty::PromptKind::Structured)
+            && structured_prompt.is_none()
+        {
+            return Ok(RespondPromptOutcome::StalePrompt);
+        }
         if let Some(expected) = expected_identity {
             if expected.kind == codeterm_types::pty::PromptKind::Structured {
                 let current_identity = structured_prompt.as_ref().map(|prompt| {

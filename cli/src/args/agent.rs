@@ -204,6 +204,12 @@ pub enum AgentAction {
         /// Tab ID (defaults to $CODETERM_TAB_ID locally; required with --mesh)
         #[arg(long = "tab", value_name = "TAB")]
         tab: Option<String>,
+        /// Relaunch with this installed PTY provider instead of the current provider.
+        #[arg(long, value_name = "PROVIDER")]
+        provider: Option<String>,
+        /// Include bounded, redacted history in a provider-changing fresh launch.
+        #[arg(long, requires = "provider")]
+        handoff_history: bool,
         /// Skip the graceful exit and force-kill instead. Use only when the agent is hung.
         #[arg(long)]
         force: bool,
