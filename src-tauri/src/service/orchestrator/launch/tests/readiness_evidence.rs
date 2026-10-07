@@ -22,8 +22,9 @@ fn provider_ready_requires_authenticated_launch_evidence() {
 
     let source = include_str!("../../launch.rs");
     let binding_wait = source
-        .find(".expect(\"plain launch readiness observer\")\n                .recv()")
+        .find("let readiness = if structured")
         .expect("the provider binding settles before readiness is emitted");
+    let binding_wait = binding_wait + source[binding_wait..].find(".recv()").expect("plain observer receives a verdict");
     let provider_ready = source
         .find("provider_ready_stage(&readiness, session_authenticated)")
         .expect("ProviderReady follows the binding observation");
