@@ -65,7 +65,7 @@ function parseAiderHistoryDelta(chunk) {
     if (line.startsWith("#### ")) {
       flush();
       const userText = line.slice(5).trim();
-      if (!userText) {
+      if (!userText || userText === "<blank>") {
         currentRole = null;
         continue;
       }
