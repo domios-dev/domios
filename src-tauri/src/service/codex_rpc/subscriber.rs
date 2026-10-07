@@ -178,6 +178,7 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
                         }
                     }
                     super::control::settled(&svc, &tab);
+                    svc.wake_parked_user_send(&tab);
                     crate::service::provider_update::tab_became_idle(&svc, &tab);
                 }
             }
