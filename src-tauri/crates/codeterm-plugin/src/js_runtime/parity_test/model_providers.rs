@@ -5,6 +5,28 @@ use std::{path::PathBuf, sync::Arc};
 
 struct Native;
 impl ModelProviderConfig for Native {
+    fn read_presets(
+        &self,
+        config: &Value,
+    ) -> Result<Vec<crate::model_providers::ModelPreset>, String> {
+        serde_json::from_value(config["presets"].clone()).map_err(|_| "invalid".into())
+    }
+    fn apply_presets(
+        &self,
+        config: &Value,
+        presets: &[crate::model_providers::ModelPreset],
+    ) -> Result<ConfigUpdate, String> {
+        let mut next = config.clone();
+        next["presets"] = json!(presets);
+        Ok(ConfigUpdate {
+            changed: &next != config,
+            config: next,
+            conflicts: vec![],
+        })
+    }
+    fn preset_launch_args(&self, name: &str) -> Result<Vec<String>, String> {
+        Ok(vec!["--agent".into(), name.into()])
+    }
     fn path(&self) -> Result<PathBuf, String> {
         Ok("fixture/config.json".into())
     }
@@ -27,6 +49,41 @@ impl ModelProviderConfig for Native {
             conflicts: vec![],
         })
     }
+}
+
+#[test]
+fn parity_model_provider_presets_read_apply_and_launch() {
+    use crate::model_providers::{ModelPreset, PresetParams};
+    let vm = Arc::new(PluginVm::from_source("fixture", r#"module.exports.default = {
+        readModelPresets(config) { return config.presets; },
+        applyModelPresets(config, presets) { const next = Object.assign({}, config, {presets}); return {config:next, changed:JSON.stringify(next)!==JSON.stringify(config), conflicts:[]}; },
+        modelPresetLaunchArgs(name) { return ['--agent',name]; }
+    };"#.into()).unwrap());
+    let js = JsModelProviderConfig::new(vm);
+    let native = Native;
+    let presets = vec![ModelPreset {
+        name: "demo".into(),
+        model: "fixture/model".into(),
+        prompt: "opaque".into(),
+        params: PresetParams::default(),
+    }];
+    let config = json!({"presets":presets,"foreign":{"retained":true}});
+    assert_eq!(
+        native.read_presets(&config).unwrap(),
+        js.read_presets(&config).unwrap()
+    );
+    for desired in [&presets[..], &[][..]] {
+        assert_eq!(
+            native.apply_presets(&config, desired).unwrap(),
+            js.apply_presets(&config, desired).unwrap()
+        );
+    }
+    assert_eq!(
+        native.preset_launch_args("demo").unwrap(),
+        js.preset_launch_args("demo").unwrap()
+    );
+    assert!(native.read_presets(&json!({"presets":false})).is_err());
+    assert!(js.read_presets(&json!({"presets":false})).is_err());
 }
 
 #[test]

@@ -8,6 +8,9 @@ pub(super) fn dispatch(
     svc: &ServiceState,
 ) -> Result<Value, JsonRpcError> {
     let action = match method {
+        "model_provider.preset.add" => "preset_add",
+        "model_provider.preset.remove" => "preset_remove",
+        "model_provider.preset.list" => "preset_list",
         "model_provider.add" => "add",
         "model_provider.add_from_secret" => "add_from_secret",
         "model_provider.remove" => "remove",

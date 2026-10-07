@@ -42,4 +42,4 @@ export type {
 } from "./host";
 export * from "./capabilities";
 
-export type { ModelProviderConfig, ModelProviderDefinition } from './modelProviders';
+export type { ModelProviderConfig, ModelProviderDefinition, ModelPreset } from './modelProviders';
