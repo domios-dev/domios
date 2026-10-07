@@ -129,6 +129,26 @@ test("renders grouped execution attempts", async () => {
   assert(host.querySelectorAll('[data-testid="plan-task-activity-attempt"]').length === 2, "two attempts");
 });
 
+test("renders per-turn lane stats and a cleanup offer without removing the lane", async () => {
+  const task: Task = {
+    ...FIXTURE_TASK,
+    lane: { cleanup_status: "offered", cleanup_hints: ["codeterm plan lane-remove lane-path"] },
+    execution_attempts: [{
+      id: "lane-attempt",
+      lane_turn_stats: [{
+        turn: 2,
+        captured_at: 10,
+        numstat: "3\t1\tsrc/main.rs",
+        untracked_file_count: 2,
+      }],
+    }],
+    milestones: [],
+  };
+  const { host } = await render(<TaskActivityTimeline task={task} plan={FIXTURE_PLAN} />);
+  assert(host.querySelector('[data-testid="plan-task-activity-turn-stats"]')?.getAttribute("data-turn") === "2", "turn ordinal is visible");
+  assert(host.querySelector('[data-testid="plan-task-lane-cleanup-offer"] code')?.textContent === "codeterm plan lane-remove lane-path", "cleanup remains an explicit command");
+});
+
 let passed = 0;
 (async () => {
   for (const [name, fn] of tests) {
