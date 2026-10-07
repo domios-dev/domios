@@ -17,7 +17,12 @@ pub(crate) fn manifest_defaults() -> crate::model_catalog::RegisteredDefaults {
         let manifest: crate::js_runtime::PluginManifest =
             serde_json::from_str(BUNDLED_MANIFEST).expect("bundled Claude manifest parses");
         crate::model_catalog::RegisteredDefaults {
-            models: manifest.models.iter().map(ModelInfo::from).collect(),
+            models: manifest
+                .models
+                .iter()
+                .map(ModelInfo::from)
+                .map(super::model_capabilities::hydrate)
+                .collect(),
             default: manifest.default_model,
         }
     })

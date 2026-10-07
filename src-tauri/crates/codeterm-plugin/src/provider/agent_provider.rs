@@ -651,6 +651,14 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    fn reasoning_effort_launch_args_for_model(
+        &self,
+        _model: Option<&str>,
+        effort: &str,
+    ) -> Vec<String> {
+        self.reasoning_effort_launch_args(effort)
+    }
+
     /// Whether this provider supports the given reasoning-effort id. Default
     /// checks the declared `reasoning_efforts()` set — capability, not id.
     fn supports_reasoning_effort(&self, effort: &str) -> bool {

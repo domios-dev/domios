@@ -64,10 +64,14 @@ impl JsProvider {
     ) -> Self {
         // Register the plugin's models with the catalog so settings UI and `default_model()` resolve through the same plumbing as native providers.
         if !manifest.models.is_empty() {
+            let models = call_json::<Vec<super::SerdeModelInfo>>(&vm, "modelCatalogueSeed", &[])
+                .ok()
+                .map(|models| models.iter().map(ModelInfo::from).collect())
+                .unwrap_or_else(|| manifest.models.iter().map(ModelInfo::from).collect());
             crate::model_catalog::register(
                 &manifest.id,
                 crate::model_catalog::RegisteredDefaults {
-                    models: manifest.models.iter().map(ModelInfo::from).collect(),
+                    models,
                     default: manifest.default_model.clone(),
                 },
             );

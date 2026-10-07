@@ -34,7 +34,8 @@ import {
   sessionModelTranscriptBoundary,
   validateEntry,
 } from "./session";
-import { discoverAnthropicModels } from "./models";
+import { discoverAnthropicModels, manifestModels } from "./models";
+import {reasoningEffortLaunchArgsForModel} from "./modelCapabilities";
 import { claudeFileDiffs } from "./fileDiffs";
 import {
   isAgentActivityBlock,
@@ -175,6 +176,8 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
 
 const plugin: PluginModule = {
   authStatusProbe,
+  reasoningEffortLaunchArgsForModel,
+  modelCatalogueSeed: manifestModels,
   parseAuthStatus,
   parseSessionObservations,
   permissionHookCapability,

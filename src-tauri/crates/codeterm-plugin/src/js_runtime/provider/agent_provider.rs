@@ -35,6 +35,18 @@ impl AgentProvider for JsProvider {
         self.try_call("authStatusProbe", &[]).flatten()
     }
 
+    fn reasoning_effort_launch_args_for_model(
+        &self,
+        model: Option<&str>,
+        effort: &str,
+    ) -> Vec<String> {
+        self.try_call(
+            "reasoningEffortLaunchArgsForModel",
+            &[json!(model), json!(effort)],
+        )
+        .unwrap_or_else(|| self.reasoning_effort_launch_args(effort))
+    }
+
     fn parse_auth_status(&self, record: &Value) -> Option<provider::AuthStatus> {
         self.try_call("parseAuthStatus", &[record.clone()])
             .flatten()
