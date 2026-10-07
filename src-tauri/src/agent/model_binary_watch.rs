@@ -73,6 +73,7 @@ fn touches_any(event: &Event, targets: &[PathBuf]) -> bool {
 
 /// Re-probe without the TTL after a declared catalogue input changes.
 pub fn on_catalogue_input_changed(provider: Arc<dyn AgentProvider>) {
+    crate::service::capability_probe::invalidate_and_rebuild(provider.id());
     model_catalog::invalidate(provider.id());
     refresh_agent_provider(provider, true);
 }
@@ -147,6 +148,7 @@ pub fn refresh_after_settings_change(
     provider_ids: impl IntoIterator<Item = String>,
 ) {
     for provider_id in provider_ids {
+        crate::service::capability_probe::invalidate_and_rebuild(&provider_id);
         if chat_backends.get(&provider_id).is_some() {
             model_catalog::invalidate(&provider_id);
             let _ = chat_backends.refresh_provider(&provider_id);

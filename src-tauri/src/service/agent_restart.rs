@@ -83,6 +83,7 @@ pub(super) fn claim_restart_attempt(
 
 #[derive(Debug, Clone)]
 pub enum AgentRestartError {
+    BackgroundWork { items: Vec<String> },
     NotFound(String),
     BadRequest(String),
     RateLimited { retry_after_secs: u64 },
@@ -365,6 +366,7 @@ impl ServiceContext {
         model_switch: Option<&model_switch::ModelSwitchLaunch>,
         mode: RestartMode,
     ) -> Result<RestartOutcome, RestartAttemptError> {
+        self.require_background_work_safe(&snap.tab_id, force)?;
         let target_provider = snap.target_provider.as_deref().unwrap_or(&snap.provider);
         let provider_changed = target_provider != snap.provider;
         if !provider_changed {
@@ -420,7 +422,16 @@ impl ServiceContext {
             self.require_provider_update_idle(&snap.tab_id)?;
         }
         if mode != RestartMode::SkipExit {
+            self.require_background_work_safe(&snap.tab_id, force)?;
             self.request_graceful_exit(&snap, force, Duration::from_secs(grace_secs.max(1)));
+        }
+        self.require_background_work_safe(&snap.tab_id, force)?;
+        if force {
+            super::background_work::force_notice(
+                self,
+                &snap.tab_id,
+                &super::background_work::running(self, &snap.tab_id),
+            );
         }
         if let Err(reason) = self.tear_down_restart_pty(&snap) {
             crate::service::task_files::release_tab(self, &snap.tab_id);
@@ -548,6 +559,7 @@ impl ServiceContext {
         let Some(mut target) = self.general_agent_restart_snapshot(tab_id) else {
             return Ok(None);
         };
+        self.require_background_work_safe(&target.tab_id, force)?;
         if self.is_unverified_launch_shell(&target) {
             target.session_id = None;
         } else {
@@ -586,13 +598,14 @@ impl ServiceContext {
                 .clone()
         };
         std::thread::spawn(move || {
-            crate::service::general_agent::restart_general_agent(
+            crate::service::general_agent::restart_general_agent_with_force(
                 &svc,
                 &mux,
                 &pty,
                 &screen_state,
                 &config,
                 &app,
+                force,
             );
         });
         drop(restart_claim);
@@ -684,6 +697,15 @@ impl ServiceContext {
             self.reconcile_tab_restored_without_agent(&resolved);
         }
         require_observed_live_agent(liveness)
+    }
+
+    fn require_background_work_safe(
+        &self,
+        tab_id: &str,
+        force: bool,
+    ) -> Result<(), AgentRestartError> {
+        let items = super::background_work::running(self, tab_id);
+        super::background_work::restart_guard(items, force)
     }
 
     pub(super) fn claim_restart(

@@ -52,6 +52,10 @@ pub(super) struct TabReadiness {
 }
 
 impl TabReadiness {
+    pub fn with_background_work(mut self, running: bool) -> Self {
+        self.idle &= !running;
+        self
+    }
     pub fn can_restart(self) -> bool {
         self.idle && !self.active_turn && !self.active_attempt
     }

@@ -53,7 +53,7 @@ export function classifyClaudeTabState(snapshot: TabStateSnapshot): TabStateClas
     return {
       state: "waiting_on_auth",
       confidence: authConfidence,
-      action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } },
+      action: { surface: { kind: "auth_prompt", payload: { reason: "login_screen_fallback" } } },
     };
   }
 
