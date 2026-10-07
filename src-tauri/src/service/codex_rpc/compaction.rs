@@ -1,0 +1,87 @@
+use serde_json::{json, Value};
+use std::collections::HashSet;
+
+#[derive(Default)]
+pub struct CompactionState {
+    completed: HashSet<(String, String)>,
+    pub additional_context: serde_json::Map<String, Value>,
+}
+
+impl CompactionState {
+    pub fn injection(
+        &mut self,
+        thread: &str,
+        item: &Value,
+        instructions: Option<&str>,
+    ) -> Option<Value> {
+        if item.get("type").and_then(Value::as_str) != Some("contextCompaction") {
+            return None;
+        }
+        let id = item.get("id")?.as_str()?;
+        if !self.completed.insert((thread.into(), id.into())) {
+            return None;
+        }
+        let mut items = Vec::new();
+        if let Some(text) = instructions.filter(|text| !text.is_empty()) {
+            items.push(json!({"type":"message","role":"developer","content":[{"type":"input_text","text":text}]}));
+        }
+        for entry in self.additional_context.values() {
+            if let Some(text) = entry.get("value").and_then(Value::as_str) {
+                let role = if entry.get("kind").and_then(Value::as_str) == Some("application") {
+                    "developer"
+                } else {
+                    "user"
+                };
+                items.push(json!({"type":"message","role":role,"content":[{"type":"input_text","text":text}]}));
+            }
+        }
+        (!items.is_empty()).then(|| json!({"threadId":thread,"items":items}))
+    }
+}
+
+pub fn remember_context(tab: &str, context: &serde_json::Map<String, Value>) {
+    if let Some(sidecar) = super::lifecycle::for_tab(tab) {
+        sidecar
+            .compaction
+            .lock()
+            .additional_context
+            .extend(context.clone());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn codex_rpc_control_compaction_restores_contract_and_context_once_per_item() {
+        let mut state = CompactionState::default();
+        state.additional_context.insert(
+            "owned-key".into(),
+            json!({"kind":"application","value":"opaque-context"}),
+        );
+        let item = json!({"type":"contextCompaction","id":"compact-1"});
+        let value = state
+            .injection("bound", &item, Some("opaque-contract"))
+            .unwrap();
+        assert_eq!(
+            value,
+            json!({"threadId":"bound","items":[
+                {"type":"message","role":"developer","content":[{"type":"input_text","text":"opaque-contract"}]},
+                {"type":"message","role":"developer","content":[{"type":"input_text","text":"opaque-context"}]}
+            ]})
+        );
+        assert!(state
+            .injection("bound", &item, Some("opaque-contract"))
+            .is_none());
+        assert!(state
+            .injection(
+                "bound",
+                &json!({"type":"agentMessage","id":"a"}),
+                Some("opaque-contract")
+            )
+            .is_none());
+        assert!(state
+            .injection("new-thread", &item, Some("opaque-contract"))
+            .is_some());
+    }
+}

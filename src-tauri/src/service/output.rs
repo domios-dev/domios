@@ -21,6 +21,7 @@ mod launch_onboarding;
 #[path = "output/manual_update.rs"]
 mod manual_update;
 mod model_candidates;
+mod structured;
 pub(crate) use manual_update::observation_revision as manual_update_observation_revision;
 #[path = "output/prompt_steps.rs"]
 mod prompt_steps;
@@ -183,6 +184,13 @@ impl ServiceContext {
             super::structured_prompt::wake_for_tab(tab_id);
         }
         self.process_shell_markers(pty_id, tab_id.as_deref(), shell_nonce, data);
+        if tab_id
+            .as_deref()
+            .is_some_and(|tab| super::codex_rpc::lifecycle::for_tab(tab).is_some())
+        {
+            let status = self.agent_tracker.lock().get_status(pty_id);
+            return (status, status);
+        }
 
         // An unresolvable provider has UNKNOWN chrome, so refuse to hash
         // rather than measure the volatile band against a fictional zero.
@@ -510,6 +518,13 @@ impl ServiceContext {
     /// live path never re-parses the picker. Locks in CLAUDE.md order, each
     /// scoped and dropped before the next; nothing held across the emit.
     pub(crate) fn recompute_agent_state(&self, pty_id: &str) {
+        let tab = self.mux.read().tab_id_for_pty(pty_id);
+        if tab
+            .as_deref()
+            .is_some_and(|tab| super::codex_rpc::lifecycle::for_tab(tab).is_some())
+        {
+            return;
+        }
         use crate::agent::offline_state_classifier::{
             classify_state, extract_completion_summary, extract_question_message,
             extract_status_line, AgentLiveState, TabVerdict, TimelineState,
@@ -730,36 +745,6 @@ impl ServiceContext {
 
     pub(crate) fn apply_prompt_decision(&self, decision: &PromptDecision) {
         self.apply_prompt_decision_with_screen(decision, None, false, false);
-    }
-
-    /// Set (or clear) a tab's pending prompt from a PUSH structured handle
-    /// (opencode SSE). No-op when unchanged. Bypasses the auto-approve PTY
-    /// send-back in `apply_prompt_decision` — structured prompts are answered
-    /// over HTTP, never by typing into the PTY.
-    pub(crate) fn push_structured_prompt(
-        &self,
-        tab_id: &str,
-        prompt: Option<crate::multiplexer::types::PendingPrompt>,
-    ) {
-        {
-            let mut mux = self.mux.write();
-            let Some(tab) = mux.get_tab_mut(tab_id) else {
-                return;
-            };
-            if tab.pending_prompt == prompt {
-                return;
-            }
-            tab.pending_prompt = prompt.clone();
-            tab.pending_prompt_kind = prompt
-                .as_ref()
-                .map(|_| codeterm_types::pty::PromptKind::Structured);
-        }
-        crate::api::events::emit_everywhere(
-            &self.app_handle,
-            "prompt-state-changed",
-            serde_json::json!({ "tab_id": tab_id, "prompt": prompt }),
-        );
-        self.emit_state_changed();
     }
 
     pub(crate) fn apply_prompt_decision_with_screen(

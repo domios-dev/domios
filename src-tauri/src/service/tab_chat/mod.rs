@@ -673,6 +673,11 @@ pub fn tab_chat_snapshot(
     tab_id: &str,
     since: usize,
 ) -> Result<(Vec<ChatMsg>, usize), String> {
+    if crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_some() {
+        let (messages, _, _) = crate::service::codex_rpc::transcript::snapshot(svc, tab_id)?;
+        let total = messages.len();
+        return Ok((messages.into_iter().skip(since).collect(), total));
+    }
     let backing = {
         let m = svc.mux.write();
         m.get_tab(tab_id).ok_or("Tab not found")?.backing.clone()

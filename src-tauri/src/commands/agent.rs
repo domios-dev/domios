@@ -176,10 +176,16 @@ pub async fn switch_agent_model(
     tab_id: String,
     model: String,
     reasoning_effort: Option<String>,
+    runtime_mode: Option<crate::service::codex_rpc::model::RuntimeMode>,
 ) -> Result<serde_json::Value, String> {
     let svc = (*svc).clone();
     tokio::task::spawn_blocking(move || {
-        svc.agent_switch_model_with_reasoning(&tab_id, &model, reasoning_effort.as_deref())
+        svc.agent_switch_model_with_controls(
+            &tab_id,
+            &model,
+            reasoning_effort.as_deref(),
+            runtime_mode,
+        )
     })
     .await
     .map_err(|error| format!("model switch worker failed: {error}"))?

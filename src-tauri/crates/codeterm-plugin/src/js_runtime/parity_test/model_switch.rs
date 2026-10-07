@@ -20,16 +20,16 @@ fn opencode_live_model_switch_matches_the_native_capability_wire_value() {
 }
 
 #[test]
-fn codex_model_switch_remains_restart_resume() {
+fn parity_codex_next_turn_model_switch() {
     let Some(_) = require_plugins() else {
         return;
     };
-    let native = crate::provider::ModelSwitchMode::RestartResume;
+    let native = crate::provider::ModelSwitchMode::NextTurn;
     let js = load_js("codex").model_switch();
 
     assert_eq!(js, native);
     assert_eq!(
         serde_json::to_value(js).unwrap(),
-        serde_json::json!("restart_resume")
+        serde_json::json!("next_turn")
     );
 }
