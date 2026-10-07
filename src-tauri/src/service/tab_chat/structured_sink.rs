@@ -246,6 +246,8 @@ impl FlattenDeltaSink {
             self.session_binding_nonce.as_deref(),
             self.app.try_state::<crate::service::ServiceState>(),
         ) {
+            crate::service::provider_signals::apply(&svc, tab_id, session, nonce, &messages);
+            crate::service::background_work::apply(&svc, tab_id, session, nonce, &messages);
             if let Some(context) = messages
                 .iter()
                 .rev()

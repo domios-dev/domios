@@ -5,6 +5,7 @@
 //! sibling modules. This file owns `ClaudeProvider` and the `AgentProvider`
 //! trait impl, which delegates each method to the right child.
 
+mod background_work;
 mod context;
 mod detection;
 mod folder_trust;
@@ -13,12 +14,14 @@ pub mod integration;
 mod interactive;
 mod launch;
 pub(crate) mod launch_session;
+mod model_capabilities;
 mod onboarding;
 mod permission_hook;
 mod permission_prompt;
 mod read_home;
 mod schemas;
 mod sessions;
+mod signals;
 mod subagents;
 mod usage;
 
@@ -54,6 +57,45 @@ impl ClaudeProvider {
 }
 
 impl AgentProvider for ClaudeProvider {
+    fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<std::path::PathBuf> {
+        sessions::session_file_path(cwd, session_id)
+    }
+    fn capability_probe(&self) -> Option<crate::provider::CapabilityProbe> {
+        schemas::capability_probe()
+    }
+    fn fork_session_args(&self) -> Option<Vec<String>> {
+        schemas::fork_session_args()
+    }
+    fn tracks_background_work(&self) -> bool {
+        true
+    }
+    fn parse_background_work(
+        &self,
+        record: &serde_json::Value,
+    ) -> Vec<codeterm_types::agent::background_work::BackgroundWorkObservation> {
+        background_work::parse(record)
+    }
+    fn reasoning_effort_launch_args_for_model(
+        &self,
+        model: Option<&str>,
+        effort: &str,
+    ) -> Vec<String> {
+        model_capabilities::effort_args(model, effort)
+    }
+    fn auth_status_probe(&self) -> Option<crate::provider::AuthStatusProbe> {
+        Some(signals::probe())
+    }
+
+    fn parse_auth_status(&self, record: &serde_json::Value) -> Option<crate::provider::AuthStatus> {
+        signals::auth(record)
+    }
+
+    fn parse_session_observations(
+        &self,
+        record: &serde_json::Value,
+    ) -> Option<crate::provider::SessionObservations> {
+        signals::session(record)
+    }
     fn parse_context_usage(
         &self,
         record: &serde_json::Value,

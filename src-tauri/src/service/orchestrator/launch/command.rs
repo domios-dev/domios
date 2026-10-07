@@ -155,10 +155,10 @@ fn build_agent_command_inner(
         } else {
             match registry.with_provider(agent_cmd, |provider| {
                 let supported = provider.reasoning_efforts_for_model(resolved_model.as_deref());
-                supported
-                    .iter()
-                    .any(|level| level.id == effort)
-                    .then(|| provider.reasoning_effort_launch_args(effort))
+                supported.iter().any(|level| level.id == effort).then(|| {
+                    provider
+                        .reasoning_effort_launch_args_for_model(resolved_model.as_deref(), effort)
+                })
             }) {
                 Some(Some(args)) => args,
                 _ => {
@@ -234,6 +234,15 @@ fn build_agent_command_inner(
     }
 
     if let Some(session_id) = &params.resume_session_id {
+        if params.fork_session {
+            let Some(fork_args) = registry
+                .with_provider(agent_cmd, |provider| provider.fork_session_args())
+                .flatten()
+            else {
+                return String::new();
+            };
+            args.extend(fork_args);
+        }
         let resume = crate::agent::provider::AgentResumeParams {
             cwd: params.cwd.clone(),
             context_files: params.context_files.clone(),

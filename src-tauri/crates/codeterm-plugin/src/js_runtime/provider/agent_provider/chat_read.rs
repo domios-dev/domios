@@ -1,0 +1,71 @@
+use super::*;
+
+impl JsProvider {
+    pub(super) fn js_session_jsonl_path(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Option<std::path::PathBuf> {
+        // Hook-reported evidence wins over any reconstruction; absence falls through.
+        if let Some(stored) = crate::session_evidence::stored_transcript_path(session_id) {
+            return Some(stored);
+        }
+        if !self.has_js("sessionJsonlPath") {
+            return self
+                .native()
+                .and_then(|n| n.session_jsonl_path(cwd, session_id));
+        }
+        let resolved = match self.manifest.sessions.as_ref().map(|s| s.cwd_encoding) {
+            Some(super::super::CwdEncoding::DashEncoded) => codeterm_paths::canonical_cwd(cwd),
+            _ => cwd.to_string(),
+        };
+        self.try_call::<Option<String>>(
+            "sessionJsonlPath",
+            &[serde_json::json!(resolved), serde_json::json!(session_id)],
+        )
+        .flatten()
+        .filter(|path| !path.is_empty())
+        .map(std::path::PathBuf::from)
+    }
+
+    pub(super) fn js_read_structured_chat(
+        &self,
+        cwd: &str,
+        session_id: &str,
+        cursor: Option<&str>,
+    ) -> codeterm_types::agent::chat_types::StructuredChat {
+        if self.has_js("readStructuredChat") {
+            return self
+                .try_call(
+                    "readStructuredChat",
+                    &[json!(cwd), json!(session_id), json!(cursor)],
+                )
+                .unwrap_or_default();
+        }
+        match self.native() {
+            Some(n) => n.read_structured_chat(cwd, session_id, cursor),
+            None => codeterm_types::agent::chat_types::StructuredChat::default(),
+        }
+    }
+
+    pub(super) fn js_parse_interactive_events(
+        &self,
+        msg: &codeterm_types::agent::chat_types::RichMessage,
+    ) -> Vec<codeterm_types::agent::chat_types::InteractiveElement> {
+        if self.manifest.spawn.interactive_events && self.has_js("parseInteractiveEvents") {
+            let arg = match serde_json::to_value(msg) {
+                Ok(v) => v,
+                Err(_) => return Vec::new(),
+            };
+            return self
+                .try_call::<Vec<codeterm_types::agent::chat_types::InteractiveElement>>(
+                    "parseInteractiveEvents",
+                    &[arg],
+                )
+                .unwrap_or_default();
+        }
+        self.native()
+            .map(|n| n.parse_interactive_events(msg))
+            .unwrap_or_default()
+    }
+}
