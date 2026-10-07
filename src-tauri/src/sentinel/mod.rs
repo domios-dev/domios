@@ -5,6 +5,7 @@ pub(crate) mod command;
 pub(crate) mod escalation;
 pub(crate) mod graph;
 pub(crate) mod handlers;
+mod input;
 pub(crate) mod machine;
 mod pipeline;
 mod pipeline_journal;
