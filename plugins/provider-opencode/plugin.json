@@ -5,7 +5,10 @@
   "hostApi": 2,
   "capabilities": {
     "agentProvider": true,
-    "modelProviderConfig": true
+    "modelProviderConfig": true,
+    "decisionModel": {
+      "tokenMode": "none"
+    }
   },
   "displayName": "OpenCode",
   "binaryName": "opencode",
@@ -162,6 +165,11 @@
     "modelSwitch": "live"
   },
   "permissions": {
+    "subprocess": {
+      "allow": [
+        "opencode"
+      ]
+    },
     "network": {
       "allow": [
         "api.deepseek.com"

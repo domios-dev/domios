@@ -577,11 +577,15 @@ export interface DecisionModelCapability {
   selectModel?(id: string): boolean;
   metadata?(): { display_name?: string; help_url?: string; server_address?: string; settings_url?: string };
   pricing?(): DecisionPricing | null;
-  decide(request: DecisionRequest): DecisionAnswer;
+  decide(request: DecisionRequest, remainingMs?: number): DecisionAnswer | DecisionFailure;
   /** Named questions over shared state; omitted methods use sequential decide calls. */
-  decideQuestions?(request: DecisionQuestionsRequest): DecisionResponse;
+  decideQuestions?(request: DecisionQuestionsRequest, remainingMs?: number): DecisionResponse | DecisionFailure;
   models(): DecisionModelInfo[];
   primitives(): DecisionPrimitives;
+}
+
+export interface DecisionFailure {
+  error: "unavailable" | "timeout" | "invalid_response" | "transport";
 }
 
 /** Manifest token policy for `capabilities.decisionModel`. Bare true is optional. */
