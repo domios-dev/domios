@@ -3,6 +3,13 @@ use codeterm_plugin::provider::{LaunchArtifactSweepReport, LaunchArtifactSweepRe
 
 use super::ServiceContext;
 
+fn authorize_profile_cleanup(confirm: bool, machine_owner: bool) -> Result<(), String> {
+    if confirm && !machine_owner {
+        return Err("Only the machine-owner instance may delete provider launch artifacts".into());
+    }
+    Ok(())
+}
+
 fn live_tab_ids(service: &ServiceContext) -> Vec<String> {
     let mut tab_ids: Vec<_> = service.mux.read().snapshot().tabs.into_keys().collect();
     tab_ids.sort();
@@ -67,6 +74,14 @@ pub(crate) fn sweep_after_restore(service: &ServiceContext) {
     if !task_files.is_empty() {
         log::info!("[startup] removed orphaned task files: {:?}", task_files);
     }
+    if authorize_profile_cleanup(
+        true,
+        codeterm_plugin::global_writes::machine_global_write_allowed(),
+    )
+    .is_err()
+    {
+        return;
+    }
     let request = LaunchArtifactSweepRequest {
         instance_id: crate::paths::codeterm_instance_id().to_string(),
         live_tab_ids: startup_live_tab_ids(service),
@@ -94,6 +109,14 @@ pub(crate) fn sweep_after_restore(service: &ServiceContext) {
 }
 
 pub(crate) fn release_closed_tabs(registry: &AgentRegistry, agent_providers: &[(String, String)]) {
+    if authorize_profile_cleanup(
+        true,
+        codeterm_plugin::global_writes::machine_global_write_allowed(),
+    )
+    .is_err()
+    {
+        return;
+    }
     let instance_id = crate::paths::codeterm_instance_id();
     for (tab_id, provider_id) in agent_providers {
         if let Some(Err(error)) = registry.with_provider(provider_id, |provider| {
@@ -109,6 +132,10 @@ pub(crate) fn release_tab(
     tab_id: &str,
     provider_id: &str,
 ) -> Result<bool, String> {
+    authorize_profile_cleanup(
+        true,
+        codeterm_plugin::global_writes::machine_global_write_allowed(),
+    )?;
     registry
         .with_provider(provider_id, |provider| {
             provider.release_tab_launch_artifacts(tab_id, crate::paths::codeterm_instance_id())
@@ -122,6 +149,10 @@ pub(crate) fn sweep_for_owner(
     confirm: bool,
     include_legacy: bool,
 ) -> Result<LaunchArtifactSweepReport, String> {
+    authorize_profile_cleanup(
+        confirm,
+        codeterm_plugin::global_writes::machine_global_write_allowed(),
+    )?;
     let request = LaunchArtifactSweepRequest {
         instance_id: crate::paths::codeterm_instance_id().to_string(),
         live_tab_ids: live_tab_ids(service),
@@ -141,9 +172,21 @@ pub(crate) fn sweep_for_owner(
 
 #[cfg(test)]
 mod tests {
-    use super::is_live_for_startup_sweep;
+    use super::{authorize_profile_cleanup, is_live_for_startup_sweep};
     use crate::multiplexer::state::MultiplexerState;
     use crate::service::boot_stage::BootStage;
+
+    #[test]
+    fn profile_cleanup_requires_machine_owner_for_deletion() {
+        assert!(authorize_profile_cleanup(true, false).is_err());
+        assert!(authorize_profile_cleanup(true, true).is_ok());
+    }
+
+    #[test]
+    fn profile_cleanup_allows_non_owner_dry_run() {
+        assert!(authorize_profile_cleanup(false, false).is_ok());
+        assert!(authorize_profile_cleanup(false, true).is_ok());
+    }
 
     #[test]
     fn startup_sweep_keeps_spawn_failed_tab_with_live_provider_process_evidence() {
