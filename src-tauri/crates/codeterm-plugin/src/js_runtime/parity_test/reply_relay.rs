@@ -37,6 +37,9 @@ impl AgentProvider for RelayNative {
         "Relay fixture"
     }
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
+        if let Some(files) = params.context_files.as_ref() {
+            return serde_json::to_string(files).unwrap();
+        }
         params
             .tool_less_instructions_path
             .clone()
@@ -68,6 +71,12 @@ impl AgentProvider for RelayNative {
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
         None
     }
+    fn context_attach(&self) -> Option<crate::provider::ContextAttach> {
+        Some(crate::provider::ContextAttach {
+            editable: true,
+            read_only: true,
+        })
+    }
     fn is_tool_less(&self) -> bool {
         true
     }
@@ -98,7 +107,7 @@ fn fixture(enabled: bool, source: &str) -> JsProvider {
 fn fixture_class(enabled: bool, tool_less: bool, source: &str) -> JsProvider {
     let manifest_json = serde_json::json!({
         "id": "relay-js", "version": "0.1.0", "displayName": "Relay fixture",
-        "capabilities": { "agentProvider": true, "replyRelay": enabled, "toolLess": tool_less },
+        "capabilities": { "agentProvider": true, "replyRelay": enabled, "toolLess": tool_less, "contextAttach": if tool_less { serde_json::json!({"editable":true,"readOnly":true}) } else { serde_json::Value::Null } },
         "spawn": { "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
             "taskDelivery": "pty_input", "verifySubmit": { "kind": "none" },
             "turnEvidenceNormalization": { "dropLineBreaks": true } }
@@ -258,4 +267,26 @@ fn reply_relay_line_break_normalization_native_js_parity_preserves_raw_evidence(
         panic!("completed raw evidence")
     };
     assert_eq!(raw.user_text, stored);
+}
+
+#[test]
+fn context_attach_capability_and_launch_files_native_js_parity() {
+    let js = fixture_class(false, true, "module.exports.default = {buildLaunchCommand(p) { return JSON.stringify(p.contextFiles); }};");
+    assert_eq!(js.context_attach(), RelayNative.context_attach());
+    assert!(fixture(false, "module.exports.default = {};")
+        .context_attach()
+        .is_none());
+    let params = AgentLaunchParams {
+        context_files: Some(codeterm_types::plan::TaskFiles {
+            edit: vec!["/opaque/new file.rs".into()],
+            read: vec!["/opaque/skill.md".into()],
+        }),
+        task: Some("opaque multiline\nbrief".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        js.build_launch_command(&params),
+        RelayNative.build_launch_command(&params)
+    );
+    assert_eq!(params.task.as_deref(), Some("opaque multiline\nbrief"));
 }

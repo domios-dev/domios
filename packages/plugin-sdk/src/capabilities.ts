@@ -82,7 +82,11 @@ export type ViewCall = (method: string, args: unknown) => unknown;
 // ── agentProvider ──
 // Method set mirrors plugins/provider-*/plugin.js + the AgentProvider trait.
 
+export interface ContextAttach { editable: boolean; readOnly: boolean; }
+export interface ContextFiles { edit: string[]; read: string[]; }
+
 export interface LaunchParams {
+  contextFiles?: ContextFiles;
   /** Absolute host-owned shared instructions file; an unreadable supplied path must refuse launch. */
   toolLessInstructionsPath?: string;
   skipPermissions?: boolean;

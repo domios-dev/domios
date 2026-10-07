@@ -189,6 +189,8 @@ pub fn agent_spec(provider: &str) -> SpawnTabSpec {
 
 pub fn spawn_params(provider: &str) -> SpawnAgentParams {
     SpawnAgentParams {
+        context_files: None,
+        context_skills: None,
         agent: Some(provider.into()),
         agent_name: None,
         args: None,
@@ -786,6 +788,8 @@ fn agent_spec_roundtrips_json() {
 #[test]
 fn from_agent_params_carries_model_into_spec() {
     let params = SpawnAgentParams {
+        context_files: None,
+        context_skills: None,
         agent: Some("codex".into()),
         agent_name: None,
         args: None,
@@ -867,6 +871,8 @@ fn to_agent_params_carries_model_as_dedicated_field() {
 #[test]
 fn planned_effort_survives_host_owned_params_spec_pipeline() {
     let params = SpawnAgentParams {
+        context_files: None,
+        context_skills: None,
         agent: Some("claude".into()),
         planned_reasoning_effort: Some("high".into()),
         reasoning_effort: Some("medium".into()),
@@ -940,6 +946,8 @@ fn can_spawn_some_false_explicitly_overrides() {
 fn from_agent_params_preserves_can_spawn_option() {
     // --can-spawn=b explicitly". The spec must NOT collapse None → Some(false) (the pre-fix-#42 behavior that clobbered Orchestrator default to false on every spawn).
     let mut p = SpawnAgentParams {
+        context_files: None,
+        context_skills: None,
         agent: Some("claude".into()),
         agent_name: None,
         args: None,
@@ -1010,6 +1018,8 @@ fn from_agent_params_preserves_can_spawn_option() {
 #[test]
 fn from_agent_params_carries_activate_into_spec() {
     let mut p = SpawnAgentParams {
+        context_files: None,
+        context_skills: None,
         agent: Some("claude".into()),
         agent_name: None,
         args: None,

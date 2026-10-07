@@ -140,7 +140,7 @@ fn second_active_plan_hard_refused() {
         msg.to_lowercase().contains("another team"),
         "error must instruct to use another Team: {msg}"
     );
-    // Hard refuse leaves the store unchanged â€” no teamless fallback plan.
+    // Hard refuse leaves the store unchanged — no teamless fallback plan.
     assert_eq!(s.list_index().len(), before);
 }
 
@@ -255,7 +255,7 @@ fn archiving_frees_the_team_for_a_new_plan() {
         Err(PlanError::TeamAlreadyHasActivePlan { .. })
     ));
     s.archive(&first.id, 3).unwrap();
-    // The 1:1 rule counts only ACTIVE plans â€” an archived one no longer blocks.
+    // The 1:1 rule counts only ACTIVE plans — an archived one no longer blocks.
     let second = create(&s, &dir, "Second", "team_alpha", 4).unwrap();
     assert_eq!(second.team_id.as_deref(), Some("team_alpha"));
     assert_ne!(first.id, second.id);

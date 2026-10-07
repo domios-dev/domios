@@ -103,6 +103,7 @@ pub(crate) fn start(service: Arc<ServiceContext>, launch: HiddenLaunch) {
                     .and_then(|tab| tab.cwd.clone())
                     .unwrap_or_default();
                 let mut launch_params = AgentLaunchParams {
+                    context_files: None,
                     tool_less_instructions_path: None,
                     agent_name: None,
                     task: task.clone(),
