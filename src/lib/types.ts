@@ -1028,6 +1028,7 @@ export interface ModelCatalogueCapability {
 export type ModelSwitchMode = "restart_resume" | "unsupported";
 
 export interface ProviderDescriptor {
+  cli_status?: import("./providerCli").ProviderCliStatus;
   schema_version: number;
   id: string;
   display_name: string;

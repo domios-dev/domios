@@ -92,6 +92,33 @@ pub(crate) fn status_lines(id: &str, status: &serde_json::Value) -> Vec<String> 
 mod tests {
     use super::*;
     #[test]
+    fn installed_manifest_drives_offline_plugin_reporting() {
+        let root = tempfile::tempdir().unwrap();
+        let directory = root.path().join("plugins").join("fixture");
+        std::fs::create_dir_all(&directory).unwrap();
+        let platform = codeterm_plugin::provider::current_platform_tag();
+        let manifest = serde_json::json!({
+            "id": "fixture", "version": "1.0.0", "displayName": "Fixture",
+            "capabilities": {"agentProvider": true},
+            "binaryName": "codeterm-intentionally-missing-provider-report-cli",
+            "installer": { (platform): "opaque installer" },
+            "updater": { (platform): "opaque updater" }
+        });
+        std::fs::write(directory.join("plugin.json"), manifest.to_string()).unwrap();
+        let mut result = serde_json::json!({"ok": true, "id": "fixture"});
+        attach(&mut result, root.path(), None);
+        assert_eq!(result["cli_status"]["fixture"]["installed"], false);
+        assert_eq!(
+            result["cli_status"]["fixture"]["installer"],
+            "opaque installer"
+        );
+        assert_eq!(result["cli_status"]["fixture"]["updater"], "opaque updater");
+        let mut update = serde_json::json!({"ok": true, "updated": ["fixture"]});
+        attach(&mut update, root.path(), None);
+        assert_eq!(update["cli_status"], result["cli_status"]);
+    }
+
+    #[test]
     fn missing_cli_preserves_installer_and_names_management_verb() {
         let lines = status_lines(
             "fixture",
