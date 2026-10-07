@@ -310,7 +310,7 @@ pub(super) fn build_snapshot(
     // Cold completion stays inside the blocking snapshot worker.
     let diff = super::diff_cache::cached_diff(fetch_channel_diff);
 
-    let plugins_arr = plugins
+    let mut plugins_arr = plugins
         .get("plugins")
         .cloned()
         .unwrap_or_else(|| serde_json::json!([]));
@@ -322,6 +322,8 @@ pub(super) fn build_snapshot(
         .get("diff")
         .cloned()
         .unwrap_or_else(|| serde_json::json!([]));
+
+    reconcile_update_availability(&mut plugins_arr, &diff_arr);
 
     let installed_ids: std::collections::HashSet<String> = plugins_arr
         .as_array()
@@ -350,6 +352,48 @@ pub(super) fn build_snapshot(
         "audit": audit,
         "lastOutput": last_output,
     }))
+}
+
+fn reconcile_update_availability(plugins: &mut Value, diff: &Value) {
+    use codeterm_plugins::{update_availability, UpdateOffer, UpdateSource};
+    let Some(plugins) = plugins.as_array_mut() else {
+        return;
+    };
+    for plugin in plugins {
+        let id = plugin["id"].as_str().unwrap_or_default();
+        let source = &plugin["source"];
+        let channel = source["channel"].as_str();
+        let update_source = match (plugin["state"].as_str(), source["kind"].as_str()) {
+            (_, Some("dir")) => UpdateSource::Local,
+            (Some("bundled"), _) => UpdateSource::Unknown,
+            (_, Some("channel" | "system_channel")) => channel
+                .map(UpdateSource::Channel)
+                .unwrap_or(UpdateSource::Unknown),
+            _ => UpdateSource::Unknown,
+        };
+        let row = diff
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|row| row["id"].as_str() == Some(id) && row["channel"].as_str() == channel);
+        let offer = row.and_then(|row| {
+            Some(UpdateOffer {
+                channel: row["channel"].as_str()?,
+                version: row["remote_version"].as_str(),
+                payload_version: row["payload_version"].as_str(),
+                compatible: row["compatible"].as_bool() == Some(true),
+            })
+        });
+        let decision = update_availability(plugin["version"].as_str(), update_source, offer);
+        let update = serde_json::json!({
+            "available": decision.available,
+            "reason": decision.reason,
+            "channel": channel,
+            "remote_version": row.and_then(|row| row["remote_version"].as_str()),
+            "basis": "channel_diff",
+        });
+        plugin["update"] = update;
+    }
 }
 
 /// Build marketplace rows from the channel diff: each keeps its diff fields, gains
@@ -431,6 +475,33 @@ fn manifest_icon_svg(dir: &std::path::Path, manifest: &Value) -> Option<String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn update_reconciliation_uses_current_install_and_owning_channel() {
+        let mut plugins = serde_json::json!([
+            {"id":"demo", "version":"1.0.0", "source":{"kind":"channel", "channel":"store"}},
+            {"id":"local", "version":"1.0.0", "source":{"kind":"dir"}},
+            {"id":"workspace", "version":"1.0.0", "dev":true},
+            {"id":"unknown", "version":"1.0.0"}
+        ]);
+        let diff = serde_json::json!([
+            {"id":"demo", "channel":"store", "local_version":"0.1.0", "remote_version":"1.0.0", "payload_version":"1.0.0", "compatible":true, "drift":"update_available"},
+            {"id":"demo", "channel":"other", "remote_version":"9.0.0", "payload_version":"9.0.0", "compatible":true},
+            {"id":"local", "channel":"store", "remote_version":"9.0.0", "payload_version":"9.0.0", "compatible":true}
+        ]);
+        reconcile_update_availability(&mut plugins, &diff);
+        assert_eq!(plugins[0]["update"]["reason"], "same_version");
+        assert_eq!(plugins[1]["update"]["reason"], "local_install");
+        assert_eq!(plugins[2]["update"]["reason"], "unknown_source");
+        assert_eq!(plugins[3]["update"]["reason"], "unknown_source");
+        for plugin in plugins.as_array().unwrap() {
+            assert_eq!(plugin["update"]["available"], false);
+        }
+        plugins[0]["version"] = serde_json::json!("0.1.0");
+        reconcile_update_availability(&mut plugins, &diff);
+        assert_eq!(plugins[0]["update"]["available"], true);
+        assert_eq!(plugins[0]["update"]["remote_version"], "1.0.0");
+    }
 
     #[test]
     fn plugin_icon_svg_manifest_the_strict_loader_rejects_still_enriches() {

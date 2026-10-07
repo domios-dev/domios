@@ -1059,4 +1059,5 @@ exit /b 0
     }
 
     mod compat;
+    mod update_availability;
 }

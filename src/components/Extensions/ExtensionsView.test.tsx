@@ -105,19 +105,20 @@ const SNAPSHOT_WITH_NEW: PluginSnapshot = {
 
 const UPDATE_SNAPSHOT: PluginSnapshot = {
   plugins: [
-    { id: "git", display_name: "Git", version: "0.1.4", removable: true, capabilities: { view: true } },
+    { id: "git", display_name: "Git", version: "0.1.4", removable: true, capabilities: { view: true }, source: { kind: "channel", channel: "codeterm-plugins", path: "git" }, update: { available: true, reason: "newer_version", remote_version: "0.1.5" } },
   ],
   channels: SNAPSHOT.channels,
   diff: [],
   marketplace: [
-    { channel: "codeterm-plugins", id: "git", installed: true, local_version: "0.1.4", remote_version: "0.1.4", drift: "hash_drift" },
+    { channel: "codeterm-plugins", id: "git", installed: true, local_version: "0.1.4", remote_version: "0.1.5", drift: "update_available" },
   ],
 };
 
 const UPDATED_SNAPSHOT: PluginSnapshot = {
   ...UPDATE_SNAPSHOT,
+  plugins: UPDATE_SNAPSHOT.plugins.map((plugin) => ({ ...plugin, version: "0.1.5", update: { available: false, reason: "same_version", remote_version: "0.1.5" } })),
   marketplace: [
-    { channel: "codeterm-plugins", id: "git", installed: true, local_version: "0.1.4", remote_version: "0.1.4", drift: "up_to_date" },
+    { channel: "codeterm-plugins", id: "git", installed: true, local_version: "0.1.5", remote_version: "0.1.5", drift: "up_to_date" },
   ],
 };
 
@@ -287,7 +288,7 @@ test("successful update immediately clears stale update state", async () => {
   await act(async () => {
     host.querySelector<HTMLElement>('[data-testid="extensions-plugin-row"]')?.click();
   });
-  assert(host.querySelector('[data-testid="extensions-plugin-update"]'), "stale hash drift should offer repair");
+  assert(host.querySelector('[data-testid="extensions-plugin-update"]'), "newer channel version should offer Update");
   await act(async () => {
     button(host, '[data-testid="extensions-plugin-update"]').click();
   });
