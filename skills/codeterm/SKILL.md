@@ -41,13 +41,13 @@ shell** — a `chatBackend` plugin that chats with a local LLM and runs its own
 tool loop. This only works **if such a plugin is installed**, so check first:
 
 ```bash
-codeterm agent providers          # entries tagged kind=shell are open shells
+codeterm agent providers          # transport=chat_backend entries are open shells
 codeterm agent spawn <shell-id> [--system "custom system prompt"] [--preset ID]
 ```
 
 `--system` overrides the shell's system prompt for that session; `--preset` picks
-a configured preset; omit both to use the plugin's default. If no entry is tagged
-`shell`, no shell plugin is installed — don't assume one (e.g. never hardcode a
+a configured preset; omit both to use the plugin's default. If no entry has transport
+`chat_backend`, no shell plugin is installed — don't assume one (e.g. never hardcode a
 specific shell id).
 
 ## References
@@ -66,4 +66,4 @@ Full references live in `codeterm docs <NAME>`; the `references/` files only poi
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 74 -->
+<!-- revision: 75 -->

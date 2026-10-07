@@ -703,6 +703,7 @@ const HTTP_MAP: Record<string, Mapper> = {
     );
     return resp.path ?? "";
   },
+  provider_cli_status: (a) => webJson("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/cli`),
   install_provider_in_tab: (a) =>
     webJson(
       "POST",

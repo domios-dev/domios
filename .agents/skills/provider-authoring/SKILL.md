@@ -79,6 +79,20 @@ remaining available. Preflight, enumeration, and `host.exec` use this shared
 observation; Windows PTY launch preserves the same process → machine → user
 PATH precedence without mutating the caller's environment.
 
+### CLI status and management
+
+The host's shared CLI status service uses `cliBinary`, falling back to
+`binaryName` and then the manifest id. Spawn preflight checks the actual launch
+binary. Status includes the resolver verdict and path plus `installer` and
+`updater` for the current OS, without changing command content. Chat backends
+explicitly require no CLI. Missing and unknown observations stay distinct.
+
+Plugin install/update prints that status immediately. Agents can inspect it with
+`codeterm agent cli status <provider>` and run the declared commands with
+`codeterm agent cli install <provider>` or `codeterm agent cli update <provider>`.
+Commands run in visible Team utility tabs, with completion reports and status
+refreshes; unsupported OS commands are refused before a tab is created.
+
 ## Minimal vs full: pick your tier
 
 The contract supports a thin provider; nothing forces codex-grade depth.

@@ -207,6 +207,42 @@ pub(super) fn dispatch(
             })
         }
 
+        "agents.cli_run" => {
+            let provider = get_string_param(params, "provider")?;
+            let raw = get_string_param(params, "operation")?;
+            let operation = serde_json::from_value::<
+                crate::service::provider_cli_actions::CliOperation,
+            >(Value::String(raw))
+            .map_err(|error| JsonRpcError {
+                code: -32602,
+                message: error.to_string(),
+                data: None,
+            })?;
+            let caller = opt_string_param(params, "caller_tab_id");
+            crate::service::provider_cli_actions::launch(svc, &provider, operation, caller)
+                .and_then(|result| serde_json::to_value(result).map_err(|e| e.to_string()))
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })
+        }
+
+        "agents.cli_status" => {
+            let provider = get_string_param(params, "provider")?;
+            crate::service::provider_cli::provider_cli_status(
+                &svc.provider_registry,
+                &provider,
+                crate::agent::provider::current_platform_tag(),
+            )
+            .and_then(|status| serde_json::to_value(status).map_err(|e| e.to_string()))
+            .map_err(|message| JsonRpcError {
+                code: -32602,
+                message,
+                data: None,
+            })
+        }
+
         "agents.list_providers" => {
             crate::dispatch::dispatch(&crate::dispatch::Command::ListAgentProviders, svc.as_ref())
                 .map(|r| r.into_json())

@@ -2,64 +2,24 @@ use tauri::State;
 
 use crate::service::ServiceState;
 
-#[derive(serde::Serialize)]
-pub struct InstallTabResult {
-    pub tab_id: String,
-    pub launch_state: &'static str,
-}
+pub use crate::service::provider_cli_actions::CliLaunch as InstallTabResult;
 
-fn dispatch_install_command(
-    svc: &ServiceState,
-    tab_id: &str,
-    install_cmd: &str,
-) -> Result<(), String> {
-    svc.ensure_tab_pty_for_send(tab_id)
-        .map_err(|error| format!("installer PTY launch failed: {error}"))?;
-    let pty_id = svc
-        .resolve_pty_id(tab_id)
-        .map_err(|error| format!("installer PTY acknowledgement failed: {error}"))?;
-    svc.send_shell_spawn(&pty_id, install_cmd)
-        .map_err(|error| format!("installer command dispatch failed: {error}"))
-}
-
+#[cfg(any(test, debug_assertions))]
 fn install_provider_in_tab_with_dispatch(
     svc: &ServiceState,
     provider_id: String,
     dispatch: impl FnOnce(&ServiceState, &str, &str) -> Result<(), String>,
 ) -> Result<InstallTabResult, String> {
-    let platform = crate::agent::provider::current_platform_tag();
-    let install_cmd = svc
-        .agent_registry
-        .with_provider(&provider_id, |p| p.install_command(platform))
-        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
-        .ok_or_else(|| {
-            format!(
-                "Provider '{}' has no install command for {}",
-                provider_id, platform
-            )
-        })?;
-
-    let ws_id = {
-        let mux = svc.mux.write();
-        mux.snapshot()
-            .active_workspace_id
-            .clone()
-            .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-            .ok_or("No workspace found")?
-    };
-
-    let tab_id = svc.create_named_tab(&ws_id, &format!("Install-{provider_id}"))?;
-    if let Err(error) = dispatch(svc, &tab_id, &install_cmd) {
-        let _ = svc.close_tab_with_reason(
-            &tab_id,
-            crate::multiplexer::types::TabCloseReason::SpawnRollback,
-        );
-        return Err(error);
-    }
-    Ok(InstallTabResult {
-        tab_id,
-        launch_state: "command_dispatched",
-    })
+    crate::service::provider_cli_actions::launch_with_dispatch(
+        svc,
+        &provider_id,
+        crate::service::provider_cli_actions::CliOperation::Install,
+        None,
+        |svc, tab_id, command| {
+            let service = std::sync::Arc::new(svc.clone());
+            dispatch(&service, tab_id, command)
+        },
+    )
 }
 
 /// Spawn a fresh tab and return only after its PTY accepts the provider's
@@ -68,7 +28,12 @@ pub fn install_provider_in_tab_core(
     svc: &ServiceState,
     provider_id: String,
 ) -> Result<InstallTabResult, String> {
-    install_provider_in_tab_with_dispatch(svc, provider_id, dispatch_install_command)
+    crate::service::provider_cli_actions::launch(
+        svc,
+        &provider_id,
+        crate::service::provider_cli_actions::CliOperation::Install,
+        None,
+    )
 }
 
 #[cfg(debug_assertions)]
@@ -96,11 +61,19 @@ pub(crate) fn install_provider_in_tab_with_fixture_failure(
 pub async fn install_provider_in_tab(
     svc: State<'_, ServiceState>,
     provider_id: String,
+    caller_tab_id: Option<String>,
 ) -> Result<InstallTabResult, String> {
     let svc = (*svc).clone();
-    tokio::task::spawn_blocking(move || install_provider_in_tab_core(&svc, provider_id))
-        .await
-        .map_err(|error| format!("installer launch worker failed: {error}"))?
+    tokio::task::spawn_blocking(move || {
+        crate::service::provider_cli_actions::launch(
+            &svc,
+            &provider_id,
+            crate::service::provider_cli_actions::CliOperation::Install,
+            caller_tab_id,
+        )
+    })
+    .await
+    .map_err(|error| format!("installer launch worker failed: {error}"))?
 }
 
 #[tauri::command]
@@ -221,6 +194,23 @@ pub async fn check_cli_installed(binary: String) -> Result<bool, String> {
         .map_err(|error| format!("cli probe worker failed: {error}"))
 }
 
+#[tauri::command]
+pub async fn provider_cli_status(
+    svc: State<'_, ServiceState>,
+    provider_id: String,
+) -> Result<codeterm_plugin::provider_cli::ProviderCliStatus, String> {
+    let svc = (*svc).clone();
+    tokio::task::spawn_blocking(move || {
+        crate::service::provider_cli::provider_cli_status(
+            &svc.provider_registry,
+            &provider_id,
+            crate::agent::provider::current_platform_tag(),
+        )
+    })
+    .await
+    .map_err(|error| format!("CLI status worker failed: {error}"))?
+}
+
 #[cfg(test)]
 mod install_provider_tests {
     use super::*;
@@ -334,6 +324,7 @@ mod install_provider_tests {
         let (_fixture, service) = fixture_with_provider("install-failure", "echo never-dispatched");
         let failure = "opaque installer dispatch failure b921";
         let provisional_pty = RefCell::new(None);
+        let before = service.mux.read().snapshot().tabs.len();
         let result = install_provider_in_tab_with_dispatch(
             &service,
             "install-failure".into(),
@@ -345,11 +336,7 @@ mod install_provider_tests {
         );
         assert_eq!(result.err().as_deref(), Some(failure));
         let mux = service.mux.read();
-        assert!(mux
-            .snapshot()
-            .tabs
-            .values()
-            .all(|tab| tab.title != "Install-install-failure"));
+        assert_eq!(mux.snapshot().tabs.len(), before);
         drop(mux);
         let pty_id = provisional_pty
             .into_inner()
