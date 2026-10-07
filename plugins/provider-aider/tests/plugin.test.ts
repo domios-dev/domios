@@ -332,8 +332,6 @@ console.log("\n--- history file reader fallbacks ---\n");
       console,
       module: { exports: {} as any },
       exports: {},
-      require,
-      process,
     };
     new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
     return context.module.exports.default;
