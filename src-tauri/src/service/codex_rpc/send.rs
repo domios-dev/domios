@@ -68,27 +68,60 @@ pub fn try_send(
         .map(|provider| super::launch::requested(svc, provider));
     let state = super::lifecycle::delivery_state(tab);
     let sidecar = super::lifecycle::for_tab(tab);
-    let available = sidecar.as_ref().is_some_and(|sidecar| {
-        sidecar.client.death().borrow().is_none() && !*sidecar.process.death.borrow()
-    });
+    let endpoint_present = sidecar.is_some();
+    let client_alive = sidecar
+        .as_ref()
+        .is_some_and(|sidecar| sidecar.client.death().borrow().is_none());
+    let process_alive = sidecar
+        .as_ref()
+        .is_some_and(|sidecar| !*sidecar.process.death.borrow());
+    let available = client_alive && process_alive;
     let thread = sidecar
         .as_ref()
         .map(|sidecar| sidecar.thread.lock().clone());
-    let binding = sidecar.as_ref().and_then(|sidecar| {
+    let server_verified = sidecar
+        .as_ref()
+        .is_some_and(|sidecar| sidecar.verified.load(Ordering::Acquire));
+    let (authenticated, thread_matches, nonce_present, nonce_matches, bootstrap_pending, binding) = {
         let mux = svc.mux.read();
-        mux.get_tab(tab).and_then(|tab| {
-            (provider.is_some()
-                && sidecar.verified.load(Ordering::Acquire)
-                && tab.launch_session_authenticated()
-                && tab.agent_session_id.as_deref() == thread.as_deref())
-            .then(|| tab.session_binding_nonce.clone())
-            .flatten()
-        })
-    });
-    let gate = SendGate::classify(capability, state, available, binding.is_some());
+        let target = mux.get_tab(tab);
+        let authenticated = target.is_some_and(|tab| tab.launch_session_authenticated());
+        let thread_matches =
+            target.is_some_and(|tab| tab.agent_session_id.as_deref() == thread.as_deref());
+        let nonce_present = target.is_some_and(|tab| tab.session_binding_nonce.is_some());
+        let nonce_matches = target.is_some_and(|tab| {
+            sidecar.as_ref().is_some_and(|sidecar| {
+                tab.session_binding_nonce.as_deref() == Some(sidecar.launch_nonce.as_str())
+            })
+        });
+        let bootstrap_pending = target
+            .and_then(|tab| tab.pending_delivery.as_ref())
+            .is_some_and(|pending| !pending.state().is_accepted());
+        let binding = target.and_then(|tab| {
+            (sidecar.is_some()
+                && provider.is_some()
+                && server_verified
+                && authenticated
+                && thread_matches)
+                .then(|| tab.session_binding_nonce.clone())
+                .flatten()
+        });
+        (
+            authenticated,
+            thread_matches,
+            nonce_present,
+            nonce_matches,
+            bootstrap_pending,
+            binding,
+        )
+    };
+    let attachment_ready = super::lifecycle::startup_attachment_ready(tab);
+    let binding_verified = binding.is_some();
+    let gate = SendGate::classify(capability, state, available, binding_verified);
     let (sidecar, thread, nonce) = match (gate, sidecar, thread, binding) {
         (SendGate::Pty, _, _, _) => return None,
         (SendGate::Hold(reason), _, _, _) => {
+            log::info!("[codex-rpc-send] tab={tab} state=held reason={reason:?} delivery_state={state:?} origin={origin:?} capability={capability:?} endpoint_present={endpoint_present} client_alive={client_alive} process_alive={process_alive} server_verified={server_verified} launch_authenticated={authenticated} thread_matches={thread_matches} nonce_present={nonce_present} nonce_matches={nonce_matches} binding_verified={binding_verified} attachment_ready={attachment_ready} bootstrap_pending={bootstrap_pending}");
             return Some(Err(DeliveryError::TabBusyRefused {
                 tab: tab.into(),
                 detail: reason.into(),
