@@ -616,7 +616,7 @@ fn worker_brief_is_one_payload_and_one_turn() {
             .state(),
         PendingDeliveryState::AcceptedWeak
     );
-    let launch_source = include_str!("../launch.rs");
+    let launch_source = include_str!("bootstrap.rs");
     assert!(launch_source.contains("submit_text_with_key"));
     assert!(!launch_source.contains("send_text_detached"));
 }
