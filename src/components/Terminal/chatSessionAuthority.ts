@@ -13,6 +13,23 @@ export type ChatAttachmentState =
   | "attached"
   | "failed";
 
+export function attachmentStateForSnapshot(
+  snapshot: Pick<ChatStartResult, "pending">,
+): ChatAttachmentState {
+  return snapshot.pending === true ? "awaiting_store" : "attached";
+}
+
+export function attachmentActivity(
+  state: ChatAttachmentState,
+  loading: boolean,
+  hadBoundSession: boolean,
+): { loading: boolean; recovering: boolean } {
+  return {
+    loading: state !== "attached" && loading,
+    recovering: hadBoundSession && (state === "awaiting_store" || state === "awaiting_session"),
+  };
+}
+
 /** Why the host cannot show a transcript for a session it is bound to. Both are
  *  reported states, not waits: an observed delta is what clears either. */
 export type ChatUnavailableReason = "no_transcript_source" | "authority_mismatch";
