@@ -1,6 +1,30 @@
 use super::*;
 use windows_sys::Win32::System::Threading::{ResumeThread, PROCESS_INFORMATION, STARTUPINFOW};
 
+#[test]
+fn settled_capture_buffers_do_not_poison_owner_capacity() {
+    let owner = Arc::new(ProbeResourceOwner::new());
+    let deadlines = Deadlines::start(Duration::from_secs(10), Duration::from_secs(10)).unwrap();
+    let mut run = WindowsRun::new(deadlines, owner.reserve().unwrap(), &owner);
+    run.stdout.buffer_registered = run.register(ResourceKind::OverlappedIo);
+    run.stderr.buffer_registered = run.register(ResourceKind::OverlappedIo);
+    run.stdout.connect_buffer_registered = run.register(ResourceKind::OverlappedIo);
+    run.stderr.connect_buffer_registered = run.register(ResourceKind::OverlappedIo);
+    run.permanent_unconfirmed = true;
+    run.unknown_completion = true;
+
+    let failure = run
+        .finish_failure_with(ProbeFailure::new("probe_capture_failed"))
+        .unwrap_err();
+    assert_eq!(failure.primary, "probe_capture_failed");
+    assert!(failure.is_unconfirmed());
+    assert_eq!(
+        owner.snapshot().free,
+        super::super::owner::MAX_RESOURCE_SLOTS
+    );
+    assert_eq!(owner.snapshot().unconfirmed, 0);
+}
+
 pub(crate) fn verify_empty_completion_port_timeout() {
     let owner = Arc::new(ProbeResourceOwner::new());
     let deadlines = Deadlines::start(Duration::from_secs(10), Duration::from_secs(10)).unwrap();

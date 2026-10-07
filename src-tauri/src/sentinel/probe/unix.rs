@@ -903,6 +903,15 @@ impl UnixPending {
 }
 
 impl RetainedResources for UnixPending {
+    fn try_settle(&mut self) -> bool {
+        self.run.child.is_none()
+            && (self.run.child_id == 0 || (self.run.status.is_some() && self.run.group_absent))
+            && !self.run.has_open_streams()
+            && !self.run.stdout.close_unknown
+            && !self.run.stderr.close_unknown
+            && self.run.events.is_none()
+    }
+
     fn request_cancel(&mut self) -> Vec<String> {
         let mut failure = ProbeFailure::new("probe_cleanup");
         self.run.request_cancel(&mut failure);
@@ -911,10 +920,7 @@ impl RetainedResources for UnixPending {
 
     fn wait_for_settlement(&mut self) -> Settlement {
         self.wait_events();
-        let remains_unconfirmed = self.run.permanent_unconfirmed
-            || self.run.group_unconfirmed
-            || self.run.stdout.close_unknown
-            || self.run.stderr.close_unknown;
+        let remains_unconfirmed = !self.try_settle();
         let failure = self.run.failure.take();
         Settlement {
             primary: failure.as_ref().map(|failure| failure.primary.to_string()),

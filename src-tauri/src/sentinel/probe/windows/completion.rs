@@ -1,5 +1,75 @@
 use super::*;
 
+impl WindowsRun {
+    pub(in crate::sentinel::probe) fn reconcile_retained(&mut self) -> bool {
+        let result = self.reconcile_retained_handles();
+        if let Err(error) = result {
+            self.record_retained_cleanup_error(error);
+        }
+        self.failure_resources_settled()
+    }
+
+    fn reconcile_retained_handles(&mut self) -> Result<(), String> {
+        self.observe_parent_exit_if_signaled()?;
+        if self.assigned && !self.job_empty {
+            self.observe_job_accounting()?;
+        }
+        for stdout in [true, false] {
+            for connect in [true, false] {
+                let stream = self.stream_mut(stdout);
+                let pending = if connect {
+                    stream.connect_pending
+                } else {
+                    stream.pending_active
+                };
+                if !pending {
+                    continue;
+                }
+                let reader = stream
+                    .reader
+                    .raw()
+                    .ok_or("probe pending I/O handle missing")?;
+                let overlapped = if connect {
+                    &*stream.connect_overlapped
+                } else {
+                    &stream.pending.overlapped
+                };
+                let mut bytes = 0;
+                let completed = unsafe {
+                    windows_sys::Win32::System::IO::GetOverlappedResult(
+                        reader, overlapped, &mut bytes, 0,
+                    )
+                } != 0;
+                if !completed {
+                    match unsafe { GetLastError() } {
+                        windows_sys::Win32::Foundation::ERROR_IO_INCOMPLETE => continue,
+                        ERROR_OPERATION_ABORTED | ERROR_BROKEN_PIPE => {}
+                        error => {
+                            return Err(native_error("GetOverlappedResult", Some(stdout), error))
+                        }
+                    }
+                }
+                let registered = if connect {
+                    stream.connect_pending = false;
+                    std::mem::replace(&mut stream.connect_registered, false)
+                } else {
+                    stream.pending_active = false;
+                    std::mem::replace(&mut stream.io_registered, false)
+                };
+                self.settle_resource(ResourceKind::OverlappedIo, registered);
+            }
+            if !self.stream(stdout).connect_pending && !self.stream(stdout).pending_active {
+                self.close_reader(stdout)?;
+            }
+        }
+        self.settle_idle_buffers();
+        if !self.assigned && !self.process.is_open() {
+            self.close_unassigned_resources()?;
+        }
+        self.close_completed_runtime_handles()
+    }
+}
+
 pub(super) fn native_error(operation: &str, stdout: Option<bool>, error: u32) -> String {
     let stream = match stdout {
         Some(true) => "stdout",
