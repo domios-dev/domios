@@ -837,6 +837,7 @@ fn git_output<'a>(
     command
         .current_dir(project_cwd)
         .args(&args)
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .output()
         .map_err(|error| format!("failed to inspect worker lane: {error}"))
 }
