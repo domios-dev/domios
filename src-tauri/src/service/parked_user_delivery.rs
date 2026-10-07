@@ -215,7 +215,17 @@ impl super::ServiceContext {
                     self.user_authority_matches_launch(tab, authority)
                         && tab.boot_stage == Some(codeterm_types::pty::BootStage::AgentReady)
                 });
-        is_current_agent_ready
+        is_current_agent_ready && self.latch_user_input_authority(authority)
+    }
+
+    pub(crate) fn latch_user_input_authority(&self, authority: &UserSendAuthority) -> bool {
+        self.user_authority_matches_launch_current(authority)
+            && !self
+                .pending_delivery_payloads
+                .user_sends
+                .tab(&authority.tab_id)
+                .failed
+                .load(Ordering::Acquire)
             && self.rearm_user_input_for_authority(authority)
             && self
                 .pending_delivery_payloads
@@ -408,6 +418,9 @@ impl super::ServiceContext {
                 provider.session_starts_on_first_user_turn()
             })
             .unwrap_or(false);
+        if session_starts_on_first_user_turn {
+            return Err("provider_composer_pending");
+        }
         if requires_observed_session_id_for_readiness(
             authority.observed_session_id.as_deref(),
             session_starts_on_first_user_turn,
@@ -732,6 +745,13 @@ impl super::ServiceContext {
             };
             if !store.eligible(&head) {
                 return Ok(self.pending_user_send(&head, "owner_head_not_eligible"));
+            }
+            if head.held_before_readiness
+                && self
+                    .chat_send_ledger
+                    .has_written_user_send_before(&head.authority, head.ledger_sequence)
+            {
+                return Ok(self.pending_user_send(&head, "earlier_parked_send_written"));
             }
             let text = store.prepared(&head)?;
             let separator_before = if head.held_before_readiness {

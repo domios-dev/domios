@@ -39,6 +39,7 @@ mod public_send;
 mod reader_readiness;
 mod resume_binding;
 mod startup_readiness;
+mod user_input;
 pub(crate) use command::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
     build_agent_command_with_launch_marker_for_service,
@@ -938,33 +939,35 @@ pub(crate) fn launch_agent_in_background_with_env(
             provider_readiness,
             provider_readiness.requires_composer(),
         );
-        let launch_input_readiness = if fallback_spec.is_some() || session_starts_on_first_turn {
-            let readiness = owner_prompt_wait::await_input_readiness(
-                &svc,
-                &tab_id,
-                &pty_id,
-                &agent_cmd,
-                &readiness_attempt,
-                session_starts_on_first_turn,
-                input_readiness_timeout,
-                provider_readiness,
-                composer_cursor_position,
-            );
-            match readiness {
-                Ok(readiness) => Some(readiness),
-                Err(refusal) => {
-                    let failure = LaunchFailure::ProviderInputNotReady(refusal.reason());
-                    launch.fail(&svc, failure.clone());
-                    set_booting(false);
-                    if let Some(tx) = ready_tx {
-                        let _ = tx.send(Err(failure.reason()));
+        let user_composer_required = user_input::requires_composer(&svc, &agent_cmd, &tab_id);
+        let launch_input_readiness =
+            if fallback_spec.is_some() || session_starts_on_first_turn || user_composer_required {
+                let readiness = owner_prompt_wait::await_input_readiness(
+                    &svc,
+                    &tab_id,
+                    &pty_id,
+                    &agent_cmd,
+                    &readiness_attempt,
+                    session_starts_on_first_turn || user_composer_required,
+                    input_readiness_timeout,
+                    provider_readiness,
+                    composer_cursor_position,
+                );
+                match readiness {
+                    Ok(readiness) => Some(readiness),
+                    Err(refusal) => {
+                        let failure = LaunchFailure::ProviderInputNotReady(refusal.reason());
+                        launch.fail(&svc, failure.clone());
+                        set_booting(false);
+                        if let Some(tx) = ready_tx {
+                            let _ = tx.send(Err(failure.reason()));
+                        }
+                        return;
                     }
-                    return;
                 }
-            }
-        } else {
-            None
-        };
+            } else {
+                None
+            };
         if let Some(readiness) = launch_input_readiness {
             log::info!(
                 "[launch-input-readiness] tab={} pty={} evidence={:?}",
@@ -972,6 +975,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                 pty_id,
                 readiness,
             );
+            user_input::observe(&svc, &agent_cmd, &readiness_attempt, readiness);
         }
         if session_starts_on_first_turn && launch_input_readiness.is_none() {
             let failure = LaunchFailure::ProviderInputNotReady(
