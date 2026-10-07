@@ -1041,6 +1041,7 @@ pub fn run() {
             startup::install_bundled_cli(app);
             drop(startup::restore_complete(&service_state));
             startup::start_servers(app, &states, &service_state);
+            service_state.schedule_restored_agent_delivery_reconciliation();
             commands::ensure_integrations_for_all(
                 &service_state.agent_registry,
                 &states.config,
