@@ -10,10 +10,18 @@ const directories = [
   "packages/plugin-sdk/src/gen",
 ];
 
+async function generatedFiles(directory, relative = "") {
+  const files = [];
+  for (const entry of await readdir(path.join(root, directory, relative), { withFileTypes: true })) {
+    const child = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) files.push(...(await generatedFiles(directory, child)));
+    else if (entry.isFile() && entry.name.endsWith(".ts")) files.push(child);
+  }
+  return files;
+}
+
 for (const directory of directories) {
-  const generated = (await readdir(path.join(root, directory))).filter((name) =>
-    name.endsWith(".ts"),
-  );
+  const generated = await generatedFiles(directory);
   if (generated.length === 0) {
     throw new Error(`No generated TypeScript files found under ${directory}`);
   }
