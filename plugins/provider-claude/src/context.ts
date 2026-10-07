@@ -71,7 +71,7 @@ function sortedJson(value: unknown): string {
   });
 }
 
-export function statuslineLaunchArgs(args: string[]): string[] | null {
+export function composeSettingsArgs(args: string[]): string[] | null {
   const model = modelSettings(args);
   args = model.args;
   const enabled = args.includes(STATUSLINE_FLAG);
@@ -100,4 +100,12 @@ export function statuslineLaunchArgs(args: string[]): string[] | null {
     overlay.env = {...existing as Record<string,unknown>, ...model.env};
   }
   return [...rest, "--settings", sortedJson(overlay)];
+}
+
+export function statuslineLaunchArgs(args: string[]): string[] | null {
+  const composed = composeSettingsArgs(args);
+  if (!composed) return null;
+  const path = host.fs.writeTempFile(composed[composed.length - 1], ".ct-settings.json");
+  if (!path) return null;
+  return [...composed.slice(0, -1), path];
 }

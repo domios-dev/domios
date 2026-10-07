@@ -233,8 +233,12 @@ fn resume_command_matches_native_provider() {
     }
     let (n, j) = pair();
     assert_eq!(
-        n.build_resume_command("abc-def-123-456", true),
-        j.build_resume_command("abc-def-123-456", true)
+        super::context::settings_command(|| n
+            .build_resume_command("abc-def-123-456", true)
+            .unwrap()),
+        super::context::settings_command(|| j
+            .build_resume_command("abc-def-123-456", true)
+            .unwrap())
     );
 }
 
@@ -707,10 +711,9 @@ fn launch_command_no_task_matches_native_shape() {
         skip_permissions: true,
         ..Default::default()
     };
-    let nat = n.build_launch_command(&params);
-    let js = j.build_launch_command(&params);
-    // Same env preamble + same trailing claude invocation. The JS form uses cross-platform host primitives so it should match native byte-for-byte for the no-task case.
-    assert_eq!(nat, js, "native vs js launch mismatch");
+    let nat = super::context::settings_command(|| n.build_launch_command(&params));
+    let js = super::context::settings_command(|| j.build_launch_command(&params));
+    assert_eq!(nat, js, "native vs js launch and settings mismatch");
 }
 
 #[test]

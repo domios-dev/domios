@@ -90,11 +90,12 @@ fn parity_claude_per_launch_statusline_settings() {
             ..Default::default()
         };
         assert_eq!(
-            native.build_launch_command(&params),
-            js.build_launch_command(&params)
+            settings_command(|| native.build_launch_command(&params)),
+            settings_command(|| js.build_launch_command(&params))
         );
         let launch = native.build_launch_command(&params);
-        assert!(launch.contains("showThinkingSummaries"));
+        assert!(launch.contains(".ct-settings.json"));
+        assert!(!launch.contains("showThinkingSummaries"));
         assert_eq!(launch.matches("--settings").count(), 1);
         let resume = crate::provider::AgentResumeParams {
             session_id: "opaque".into(),
@@ -102,15 +103,32 @@ fn parity_claude_per_launch_statusline_settings() {
             ..Default::default()
         };
         assert_eq!(
-            native.build_resume_command_with_context(&resume),
-            js.build_resume_command_with_context(&resume)
+            settings_command(|| native.build_resume_command_with_context(&resume).unwrap()),
+            settings_command(|| js.build_resume_command_with_context(&resume).unwrap())
         );
     }
-    let plain_resume = native.build_resume_command("own", false).unwrap();
     assert_eq!(
-        Some(plain_resume.clone()),
-        js.build_resume_command("own", false)
+        settings_command(|| native.build_resume_command("own", false).unwrap()),
+        settings_command(|| js.build_resume_command("own", false).unwrap()),
     );
-    assert!(plain_resume.contains("showThinkingSummaries"));
-    assert_eq!(plain_resume.matches("--settings").count(), 1);
+}
+
+pub(super) fn settings_command(build: impl FnOnce() -> String) -> (String, serde_json::Value) {
+    let temp = tempfile::tempdir().unwrap();
+    let (command, paths) =
+        codeterm_util::task_files::capture_in(temp.path(), "settings-parity", build);
+    let path = paths
+        .iter()
+        .find(|path| path.to_string_lossy().ends_with(".ct-settings.json"))
+        .expect("launch must write settings to its captured artifact store");
+    let settings: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(settings["showThinkingSummaries"], true);
+    assert_eq!(command.matches("--settings").count(), 1);
+    assert!(!command.contains("showThinkingSummaries"));
+    assert!(command.contains(path.to_str().unwrap()));
+    (
+        command.replace(path.to_str().unwrap(), "SETTINGS_PATH"),
+        settings,
+    )
 }

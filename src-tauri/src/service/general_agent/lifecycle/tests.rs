@@ -451,7 +451,7 @@ fn general_agent_launch_uses_capability_backed_permission_bypass() {
     let permission_bypass =
         crate::service::permission_policy::authorize_permission_bypass(&registry, "claude", true)
             .is_some();
-    let command = super::build_general_agent_resume_command(
+    let command = super::super::launch_files::build_resume(
         &registry,
         "claude",
         "session-1",

@@ -173,6 +173,7 @@ console.log("\n--- auth guard: login screen → waiting_on_auth, NEVER auto-acte
   const r = classify(plugin, fixture("auth-login.txt"));
   eq(r?.state, "waiting_on_auth", "auth/login classified as waiting_on_auth");
   assertSingleInputSurface(r, "auth_prompt", "auth/login");
+  eq(r?.action?.surface?.payload?.reason, "login_detected", "auth/login uses the shared classifier reason");
 }
 
 console.log("\n--- stale auth prose at ready or streaming tail is neither Question nor Auth ---\n");
