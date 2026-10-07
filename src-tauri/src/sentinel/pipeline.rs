@@ -476,8 +476,7 @@ fn execute_step(
                         reason: (!success).then(|| "command_failed".into()),
                         next_text: output
                             .stdout_text()
-                            .trim_end_matches(['
-', ''])
+                            .trim_end_matches(&['\n', '\r'][..])
                             .to_string(),
                         decision: None,
                         uncertain: false,
