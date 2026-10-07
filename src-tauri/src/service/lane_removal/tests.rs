@@ -1,8 +1,23 @@
 use std::path::Path;
 use std::process::Command;
+use std::sync::Arc;
 
 use super::*;
 use crate::service::worker_lane::provision_lane_for_test;
+
+struct NullRepoEvents;
+
+impl crate::repowatch::RepoEventSink for NullRepoEvents {
+    fn repository_changed(&self, _: &str) {}
+
+    fn repository_unavailable(&self, _: &str, _: crate::repowatch::RepoWatchUnavailable) {}
+}
+
+fn repo_watch() -> crate::repowatch::RepoWatchRegistryHandle {
+    Arc::new(crate::repowatch::RepoWatchRegistry::new(Arc::new(
+        NullRepoEvents,
+    )))
+}
 
 fn git(dir: &Path, args: &[&str]) {
     let mut command = Command::new("git");
@@ -339,6 +354,7 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
 
     let outcome = remove_lane_and_clear_task_references(
         &store,
+        &repo_watch(),
         &LaneRemovalRequest {
             worktree_path: lane_path.clone(),
             branch: Some(branch.clone()),
@@ -363,6 +379,65 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
         task.execution_attempts[0].worktree_path.as_deref(),
         Some(lane_path.as_str())
     );
+}
+
+#[test]
+fn lane_checkpoint_refs_are_deleted_when_lane_is_removed() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "checkpoint-cleanup").unwrap();
+    let lane_path = lane.cwd.clone();
+    let branch = lane.branch.clone();
+    let (store, plan_id, task_id) = task_store(root.path(), &project);
+    record_lane(&store, &plan_id, &task_id, &lane);
+    store
+        .with_plan(&plan_id, 4, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .expect("fixture task")
+                .execution_attempts
+                .push(crate::plan::TaskExecutionAttempt {
+                    id: "attempt-cleanup".into(),
+                    executor_tab_id: "worker-tab".into(),
+                    worktree_path: Some(lane_path.clone()),
+                    ..Default::default()
+                });
+            Ok(())
+        })
+        .unwrap();
+    git(
+        &project,
+        &[
+            "update-ref",
+            "refs/domios/checkpoints/attempt-cleanup/1",
+            "HEAD",
+        ],
+    );
+
+    remove_lane_and_clear_task_references(
+        &store,
+        &repo_watch(),
+        &LaneRemovalRequest {
+            worktree_path: lane_path,
+            branch: Some(branch),
+            canonical_cwd: Some(project.display().to_string()),
+        },
+        &[],
+    )
+    .unwrap();
+
+    let refs = Command::new("git")
+        .current_dir(&project)
+        .args([
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/domios/checkpoints",
+        ])
+        .output()
+        .unwrap();
+    assert!(refs.status.success());
+    assert!(refs.stdout.is_empty());
 }
 
 #[test]
