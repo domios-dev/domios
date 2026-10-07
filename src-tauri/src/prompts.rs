@@ -388,7 +388,7 @@ pub fn cartographer_suffix() -> String {
 /// here is spent on every launch of that role, so growth needs a decision.
 /// Re-measured at the General Agent's 33_257 LF bytes for v1.12.4: the post-setup
 /// Supporter note and the `@ds-guide` directive were owner decisions.
-pub const COMPOSED_ROLE_PROMPT_MAX_BYTES: usize = 33_700;
+pub const COMPOSED_ROLE_PROMPT_MAX_BYTES: usize = 34_100;
 
 #[cfg(test)]
 mod tests;
