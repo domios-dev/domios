@@ -262,6 +262,7 @@ fn spawn_backend_pty(
     svc: &ServiceContext,
     tab_id: &str,
     launch_env: &std::collections::HashMap<String, String>,
+    provider_id: &str,
 ) -> Result<BackendPty, LaunchFailure> {
     let cwd = svc
         .mux
@@ -270,6 +271,10 @@ fn spawn_backend_pty(
         .and_then(|tab| tab.cwd.clone());
     let mut env_vars = svc.tab_env(tab_id);
     env_vars.extend(launch_env.clone());
+    env_vars.extend(
+        svc.model_provider_launch_env(provider_id)
+            .map_err(|error| LaunchFailure::PtySpawn(error.to_string()))?,
+    );
     let (pty_id, _) = svc
         .pty
         .lock()
@@ -502,7 +507,10 @@ pub(crate) fn launch_agent_in_background_with_env(
             crate::service::boot_wait::notify_boot_changed();
         };
         let pty_claim = svc.pty_ownership.acquire(&tab_id);
-        let (backend_pty, reused_live_pty) = match existing_live_pty(&svc, &tab_id) {
+        let existing_pty = existing_live_pty(&svc, &tab_id);
+        let fresh_pty = svc.model_provider_requires_fresh_pty(&agent_cmd);
+        let reusable_pty = existing_pty.clone().filter(|_| !fresh_pty);
+        let (backend_pty, reused_live_pty) = match reusable_pty {
             Some(pty_id) => match start_backend_reader(&svc, &pty_id) {
                 Ok(reader) => (BackendPty { id: pty_id, reader }, true),
                 Err(failure) => {
@@ -515,7 +523,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                     return;
                 }
             },
-            None => match spawn_backend_pty(&svc, &tab_id, &launch_env) {
+            None => match spawn_backend_pty(&svc, &tab_id, &launch_env, &agent_cmd) {
                 Ok(backend_pty) => (backend_pty, false),
                 Err(failure) => {
                     let error = failure.reason();
@@ -538,7 +546,13 @@ pub(crate) fn launch_agent_in_background_with_env(
             id: candidate_pty_id,
             reader: reader_readiness,
         } = backend_pty;
-        let selection = svc.link_pty_with_claim(&pty_claim, &tab_id, candidate_pty_id, true);
+        let selection = svc.link_provider_launch_pty(
+            &pty_claim,
+            &tab_id,
+            candidate_pty_id,
+            existing_pty.as_deref(),
+            fresh_pty,
+        );
         drop(pty_claim);
         if !selection.linked {
             let error = LaunchFailure::TabClosed.reason();

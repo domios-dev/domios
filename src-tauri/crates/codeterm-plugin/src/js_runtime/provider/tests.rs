@@ -114,6 +114,25 @@ fn model_switch_mode_comes_from_the_manifest() {
 }
 
 #[test]
+fn live_model_switch_mode_comes_from_the_manifest() {
+    let json = r#"{
+            "id": "m",
+            "version": "0.1.0",
+            "displayName": "M",
+            "spawn": {
+                "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+                "taskDelivery": "pty_input",
+                "verifySubmit": { "kind": "none" }
+            },
+            "commands": {
+                "modelSwitch": "live"
+            }
+        }"#;
+    let p = load(json, "module.exports.default = {};");
+    assert_eq!(p.model_switch(), crate::provider::ModelSwitchMode::Live);
+}
+
+#[test]
 fn detect_from_title_dispatches_to_js() {
     let js = r#"
             module.exports.default = {

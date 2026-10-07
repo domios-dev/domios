@@ -192,6 +192,7 @@ pub fn run() {
             commands::session_binding_state,
             commands::shell_command_snapshot,
             commands::list_agent_providers,
+            commands::model_provider_manage,
             commands::get_remote_workers,
             commands::wait_shell_ready,
             commands::read_session_jsonl,
@@ -495,12 +496,15 @@ pub fn run() {
             plugin_manager.set_registrar(agent_registry.clone());
             plugin_manager.set_event_sink(states.event_broadcaster.clone());
 
+            startup::model_catalogue::forward_changes(&app_handle);
+
             // Bridge ContributionsChanged → frontend event + mem bridge rule refresh.
             {
                 use tauri::Emitter;
                 let mut sub = states.event_broadcaster.subscribe();
                 let bridge_handle = app_handle.clone();
                 let bridge_registry = agent_registry.clone();
+                let bridge_chatbackend_registry = chatbackend_registry.clone();
                 tauri::async_runtime::spawn(async move {
                     while let Ok(ev) = sub.recv().await {
                         if let crate::api::events::SystemEvent::ContributionsChanged { kind } =
@@ -515,6 +519,15 @@ pub fn run() {
                                     &bridge_registry,
                                 );
                                 crate::commands::mirror_skills_to_providers();
+                                for provider in bridge_registry.all_provider_arcs() {
+                                    crate::agent::model_binary_watch::install(provider);
+                                }
+                                for provider in bridge_chatbackend_registry.active() {
+                                    crate::agent::model_binary_watch::install_chatbackend(
+                                        provider,
+                                        bridge_chatbackend_registry.clone(),
+                                    );
+                                }
                             }
                         }
                     }
@@ -683,32 +696,7 @@ pub fn run() {
 
             agent::model_catalog::refresh_example_files();
 
-            // background refresh per provider off the async runtime (never gates startup; emits `models-updated`).
-            {
-                let providers = agent_registry.all_provider_arcs();
-                for p in &providers {
-                    agent::model_catalog::prime_from_cache(p.id());
-                }
-                let app_for_models = app_handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    for provider in providers {
-                        let id = provider.id().to_string();
-                        if agent::model_catalog::refresh_models(provider.clone(), false)
-                            .await
-                            .is_some()
-                        {
-                            crate::api::events::emit_everywhere(
-                                &app_for_models,
-                                "models-updated",
-                                serde_json::json!({ "provider": id }),
-                            );
-                        }
-                        // Watched only after the first probe, because the path
-                        // to watch is the one the resolver actually resolved.
-                        agent::model_binary_watch::install(provider, app_for_models.clone());
-                    }
-                });
-            }
+            startup::model_catalogue::refresh_providers(&agent_registry);
 
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
             let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();
@@ -952,6 +940,12 @@ pub fn run() {
                 }
                 plugin::js_runtime::set_watcher_service(Arc::downgrade(&host));
                 crate::service::plugin_skills::spawn_sync(service_state.mem.clone(), service_state.agent_command_registry.clone());
+                for provider in chatbackend_registry.active() {
+                    crate::agent::model_binary_watch::install_chatbackend(
+                        provider,
+                        chatbackend_registry.clone(),
+                    );
+                }
                 let _ = chatbackend_registry.start_discovery();
             }
             app.manage(service_state.clone());

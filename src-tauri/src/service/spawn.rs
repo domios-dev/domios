@@ -763,6 +763,9 @@ impl ServiceContext {
                 &agent.provider,
             )?;
         let permission_bypass = permission_bypass_authorization.is_some();
+        let provider_key_env = self
+            .model_provider_launch_env(&agent.provider)
+            .map_err(|e| e.to_string())?;
         let clearance =
             provider_launch_preflight(&self.agent_registry, &agent.provider, permission_bypass)
                 .map_err(|e| e.to_string())?;
@@ -923,6 +926,7 @@ impl ServiceContext {
         for (k, v) in &agent.extra_env {
             env_vars.insert(k.clone(), v.clone());
         }
+        env_vars.extend(provider_key_env);
         crate::service::launch_diagnostics::log_launch_environment(
             "provider_spawn",
             &tab_id,

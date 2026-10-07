@@ -17,7 +17,18 @@ const fixture = vi.hoisted(() => {
       addNotification: () => undefined,
       createWorkspace: () => undefined,
     },
-    providers: { providers: [] as never[], loading: false },
+    providers: {
+      providers: [
+        {
+          id: "opencode",
+          display_name: "OpenCode",
+          available_models: [],
+          default_model: undefined,
+          reasoning_efforts: [],
+        },
+      ] as never[],
+      loading: false,
+    },
   };
 });
 const workspace: Workspace = fixture.workspace;
@@ -77,6 +88,11 @@ function dialog(): HTMLElement {
   return element!;
 }
 
+function buttonNamed(name: string): HTMLButtonElement | null {
+  return Array.from(dialog().querySelectorAll<HTMLButtonElement>("button[aria-label]"))
+    .find((button) => button.getAttribute("aria-label") === name) ?? null;
+}
+
 describe("NewSessionPicker modal", () => {
   it("renders a labelled modal dialog portaled outside the opening surface", async () => {
     await renderPicker();
@@ -112,5 +128,22 @@ describe("NewSessionPicker modal", () => {
     await renderPicker({ fullAccess: false });
     expect(dialog().querySelector('input[type="checkbox"]')).toBeNull();
     expect(document.body.querySelectorAll('[role="dialog"]')).toHaveLength(1);
+  });
+
+  it("renders model changes from the shared provider catalogue", async () => {
+    await renderPicker();
+    expect(buttonNamed("Model: No models published")).not.toBeNull();
+
+    fixture.providers.providers = [{
+      id: "opencode",
+      display_name: "OpenCode",
+      catalogue_version: 1,
+      available_models: [{ id: "live-model", display_name: "Live model" }],
+      default_model: "live-model",
+      reasoning_efforts: [],
+    }] as never[];
+    await renderPicker();
+
+    expect(buttonNamed("Model: Live model")).not.toBeNull();
   });
 });

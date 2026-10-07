@@ -152,3 +152,5 @@ fn restart_without_a_recorded_spawn_still_resumes_the_session() {
     assert!(resumed.command.contains("session-restart"));
     assert_eq!(resumed.task, None);
 }
+
+mod model_provider;

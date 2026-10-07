@@ -13,6 +13,44 @@ const PRIOR_MODEL: &str = "prior-model-a1";
 const NEXT_MODEL: &str = "next-model-b2";
 const EFFORT: &str = "effort-c3";
 
+#[test]
+fn live_mode_uses_the_route_probe_and_falls_back_with_a_reason() {
+    let available = crate::service::structured_prompt::LiveModelSwitchResult::Applied {
+        observed_model: None,
+        confirmation_detail: None,
+    };
+    assert_eq!(
+        effective_model_switch_mode(ModelSwitchMode::Live, Some(&available)),
+        (ModelSwitchMode::Live, None)
+    );
+
+    let unavailable = crate::service::structured_prompt::LiveModelSwitchResult::Unsupported {
+        reason: "bound server has no model route".into(),
+    };
+    assert_eq!(
+        effective_model_switch_mode(ModelSwitchMode::Live, Some(&unavailable)),
+        (
+            ModelSwitchMode::RestartResume,
+            Some("bound server has no model route".into())
+        )
+    );
+    assert_eq!(
+        effective_model_switch_mode(ModelSwitchMode::RestartResume, None),
+        (ModelSwitchMode::RestartResume, None)
+    );
+    assert_eq!(
+        effective_model_switch_mode(ModelSwitchMode::RestartResume, Some(&available)),
+        (ModelSwitchMode::RestartResume, None)
+    );
+    assert_eq!(
+        effective_model_switch_mode(ModelSwitchMode::Live, None),
+        (
+            ModelSwitchMode::RestartResume,
+            Some("the live switch route was not probed".into())
+        )
+    );
+}
+
 fn seeded_tab(provider: &str) -> (MultiplexerState, String) {
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();

@@ -603,11 +603,7 @@ impl HotReloadRegistry {
             Ok(mut provider) => {
                 let id = provider.manifest().id.clone();
                 let version = provider.manifest().version.clone();
-                let was_spawnable_chatbackend = self
-                    .caps
-                    .chatbackend
-                    .get(&id)
-                    .is_some_and(|backend| backend.spawnable());
+                let had_chatbackend = self.caps.chatbackend.contains(&id);
                 self.register_vm(&id, provider.vm());
                 let activated_at_startup = self.activated_startup.lock().contains(&id);
                 if provider.manifest().requires_reload && !activated_at_startup {
@@ -653,9 +649,7 @@ impl HotReloadRegistry {
                     self.registrar.provider_reloaded(&id);
                     self.emit_agent_provider_changed();
                 } else {
-                    if was_spawnable_chatbackend
-                        || provider.manifest().capabilities.chat_backend_spawnable()
-                    {
+                    if had_chatbackend || provider.manifest().capabilities.chat_backend.enabled() {
                         self.emit_agent_provider_changed();
                     }
                     log::info!(

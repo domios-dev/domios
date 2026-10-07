@@ -41,3 +41,5 @@ export type {
   ReceiverTargetRefusal,
 } from "./host";
 export * from "./capabilities";
+
+export type { ModelProviderConfig, ModelProviderDefinition } from './modelProviders';

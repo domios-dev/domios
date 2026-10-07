@@ -8,6 +8,12 @@ use std::sync::Arc;
 use crate::agent_verbs::AgentVerbCatalog;
 use crate::capability::CapabilityRegistry;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentCommandResult {
+    pub result: String,
+    pub catalogue_changed: bool,
+}
+
 /// A plugin handling agent-issued commands via `onAgentCommand`. Synchronous (the `call_json` bridge is), called on the request thread.
 pub trait AgentCommandProvider: Send + Sync {
     fn id(&self) -> &str;
@@ -21,13 +27,13 @@ pub trait AgentCommandProvider: Send + Sync {
         None
     }
 
-    /// Route one agent command to the plugin: `Ok` → `{ result }`, `Err` → `{ error }` (both non-fatal at the RPC layer).
+    /// Route one agent command to the plugin and report whether its catalogue changed.
     fn on_agent_command(
         &self,
         session_id: &str,
         verb: &str,
         args: &[String],
-    ) -> Result<String, String>;
+    ) -> Result<AgentCommandResult, String>;
 }
 
 pub type AgentCommandRegistry = CapabilityRegistry<dyn AgentCommandProvider>;
@@ -53,8 +59,11 @@ mod tests {
             session_id: &str,
             verb: &str,
             args: &[String],
-        ) -> Result<String, String> {
-            Ok(format!("{session_id}:{verb}:{}", args.join(",")))
+        ) -> Result<AgentCommandResult, String> {
+            Ok(AgentCommandResult {
+                result: format!("{session_id}:{verb}:{}", args.join(",")),
+                catalogue_changed: false,
+            })
         }
     }
 
@@ -73,7 +82,10 @@ mod tests {
         assert!(p.granted());
         assert_eq!(
             p.on_agent_command("s1", "say", &["hi".into()]).unwrap(),
-            "s1:say:hi"
+            AgentCommandResult {
+                result: "s1:say:hi".into(),
+                catalogue_changed: false,
+            }
         );
         assert!(reg.get("missing").is_none());
     }
