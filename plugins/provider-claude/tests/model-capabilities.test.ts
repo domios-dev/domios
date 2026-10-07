@@ -1,0 +1,15 @@
+import assert from "node:assert/strict";
+import {modelCapabilities, modelWithCapabilities, modelSettings, reasoningEffortLaunchArgsForModel} from "../src/modelCapabilities";
+import {statuslineLaunchArgs} from "../src/context";
+assert.equal(modelCapabilities("opus[1m]")?.contextWindowTokens,1_000_000);
+assert.equal(modelCapabilities("sonnet")?.contextWindowTokens,200_000);
+assert.equal(modelCapabilities("unknown"),null);
+assert.deepEqual(modelWithCapabilities({id:"haiku",displayName:"fixture"}).reasoningEfforts,[]);
+assert.deepEqual(reasoningEffortLaunchArgsForModel("claude-opus-4-7","xhigh"),["--effort","max"]);
+assert.deepEqual(reasoningEffortLaunchArgsForModel("haiku","high"),[]);
+assert.deepEqual(modelSettings(["--model","opus[1m]"]).env,{});
+const args=statuslineLaunchArgs(["--model","opus[1m]","--codeterm-model-capabilities","--settings",'{"env":{"FIXTURE":"keep"}}'])!;
+const settings=JSON.parse(args[args.length-1]);
+assert.deepEqual(settings.env,{CLAUDE_CODE_AUTO_COMPACT_WINDOW:"1000000",FIXTURE:"keep"});
+assert.equal(args.includes("--codeterm-model-capabilities"),false);
+console.log("9 passed, 0 failed");

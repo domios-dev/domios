@@ -1,12 +1,25 @@
 use super::*;
 
 #[test]
+fn restart_guard_model_switch_refusal_names_running_items() {
+    let items = vec!["shell-fixture".into(), "agent-fixture".into()];
+    let error = ModelSwitchError::BackgroundWork {
+        items: items.clone(),
+    };
+    assert_eq!(model_switch_error_status(&error), StatusCode::CONFLICT);
+    let body = model_switch_error_body(&error);
+    assert_eq!(body["reason"], "background_work_running");
+    assert_eq!(body["running_items"], serde_json::json!(items));
+}
+
+#[test]
 fn codex_rpc_control_model_request_validates_runtime_mode_and_effort() {
     let request: AgentModelBody = serde_json::from_value(serde_json::json!({
-        "model":"selected", "reasoning_effort":"high", "runtime_mode":"auto"
+        "model":"selected", "reasoning_effort":"high", "runtime_mode":"auto", "force":true
     }))
     .unwrap();
     assert_eq!(request.model, "selected");
+    assert!(request.force);
     assert_eq!(request.reasoning_effort.as_deref(), Some("high"));
     assert_eq!(
         request.runtime_mode,

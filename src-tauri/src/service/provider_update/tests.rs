@@ -35,6 +35,40 @@ fn idle() -> TabReadiness {
         active_attempt: false,
     }
 }
+
+#[test]
+fn restart_guard_update_defers_until_roster_drain_event() {
+    use codeterm_types::agent::background_work::{
+        BackgroundRoster, BackgroundWorkObservation, BackgroundWorkState,
+    };
+    let mut roster = BackgroundRoster::default();
+    let mut state = succeeded(&["tab"]);
+    roster.observe(
+        &BackgroundWorkObservation {
+            id: "agent".into(),
+            state: BackgroundWorkState::Running,
+        },
+        "",
+    );
+    assert!(!state.claim_restart(
+        "fixture:2",
+        "tab",
+        idle().with_background_work(!roster.is_empty())
+    ));
+    roster.observe(
+        &BackgroundWorkObservation {
+            id: "agent".into(),
+            state: BackgroundWorkState::Completed,
+        },
+        "",
+    );
+    assert!(state.claim_restart(
+        "fixture:2",
+        "tab",
+        idle().with_background_work(!roster.is_empty())
+    ));
+    assert!(!state.claim_restart("fixture:2", "tab", idle()));
+}
 fn succeeded(tabs: &[&str]) -> Coordinator {
     let mut state = Coordinator::default();
     assert_eq!(state.begin("fixture", "1", "2"), Admission::Started);

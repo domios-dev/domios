@@ -12,6 +12,7 @@
  * pinned model list, so this file survives the next Anthropic release.
  */
 
+import type { ModelInfo } from "@codeterm/plugin-sdk";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
@@ -112,8 +113,9 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
       }),
     }),
   }));
+  const models = p.discoverModels() as ModelInfo[];
   eq(
-    p.discoverModels(),
+    models.map(({ reasoningEfforts, defaultReasoningEffort, ...model }) => model),
     [
       { id: "opus", displayName: "Claude Opus 5", description: "Best for everyday, complex tasks.", available: true },
       { id: "sonnet", displayName: "Claude Sonnet 5", description: "Efficient for routine tasks.", available: true },
@@ -126,6 +128,16 @@ console.log("\n--- discoverModels: genuine discovery only ---\n");
       { id: "opusplan", displayName: "Claude Opus Plan 5", description: "Claude Code's Opus planning alias.", available: true },
     ],
     "genuine /v1/models discovery maps concrete ids onto the same stable aliases with live availability",
+  );
+  eq(
+    models.find((model) => model.id === "opus")?.reasoningEfforts?.map((effort) => effort.id),
+    ["low", "medium", "high", "xhigh", "max"],
+    "live discovery retains declared per-model effort choices",
+  );
+  eq(
+    models.find((model) => model.id === "opus")?.defaultReasoningEffort,
+    "medium",
+    "live discovery retains the declared model effort default",
   );
 }
 
@@ -232,6 +244,23 @@ for (const [label, execImpl] of [
   const fable = models.find((model) => model.id === "fable");
   eq(fable?.availability, "unavailable", "a CLI below the gate answered no");
   eq(fable?.available, false, "a genuine negative still publishes the boolean");
+}
+
+for (const [label, exec] of [
+  ["satisfied CLI gate", () => JSON.stringify({ code: 0, stdout: "2.1.261 (Claude Code)" })],
+  ["unreachable CLI probe", () => JSON.stringify({ code: 1, stdout: "" })],
+] as Array<[string, () => string]>) {
+  const p = loadClaudeWithHost(baseHost({
+    exec,
+    envGet: (name: string) => name === "ANTHROPIC_API_KEY" ? "test-key" : null,
+    fetch: () => JSON.stringify({
+      status: 200,
+      body: JSON.stringify({ data: [{ id: "claude-opus-5", display_name: "Claude Opus 5" }] }),
+    }),
+  }));
+  const fable = (p.discoverModels() as ModelInfo[]).find((model) => model.id === "fable");
+  eq(fable?.available, false, `live family absence remains unavailable with ${label}`);
+  eq(fable?.availability, "unavailable", `live negative retains its typed verdict with ${label}`);
 }
 
 console.log("\n--- discoverModels: manifest flag and version gate are independent ---\n");

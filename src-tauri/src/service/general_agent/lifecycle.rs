@@ -800,13 +800,25 @@ pub fn restart_general_agent(
     config: &crate::config::ConfigState,
     app: &tauri::AppHandle,
 ) {
+    restart_general_agent_with_force(svc, mux, pty, screen_state, config, app, false);
+}
+
+pub(crate) fn restart_general_agent_with_force(
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    config: &crate::config::ConfigState,
+    app: &tauri::AppHandle,
+    force: bool,
+) {
     log::info!("[general-agent] Manual restart requested");
     if let Err(error) = super::recovery_episode::store().reset_by_owner() {
         log::error!("[general-agent] Cannot reset recovery episode: {error}");
         return;
     }
 
-    restart_general_agent_inner(svc, mux, pty, screen_state, config, app);
+    restart_general_agent_inner(svc, mux, pty, screen_state, config, app, force);
 }
 
 pub(crate) fn restart_general_agent_fresh_after_exit(
@@ -818,7 +830,7 @@ pub(crate) fn restart_general_agent_fresh_after_exit(
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
     state::require_fresh_session()?;
-    restart_general_agent_inner(svc, mux, pty, screen_state, config, app);
+    restart_general_agent_inner(svc, mux, pty, screen_state, config, app, false);
     Ok(())
 }
 
@@ -829,7 +841,11 @@ fn restart_general_agent_inner(
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
     app: &tauri::AppHandle,
+    force: bool,
 ) {
+    if !super::restart_guard::permit(svc, mux, force) {
+        return;
+    }
     let mut stale_pty_id = None;
     let mut general_tab_id = None;
     {
