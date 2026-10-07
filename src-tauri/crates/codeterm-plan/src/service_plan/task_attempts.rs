@@ -422,6 +422,7 @@ pub fn new_assignment_attempt(
     now_ms: u64,
 ) -> TaskExecutionAttempt {
     new_assignment_attempt_with_id(task, tab_id, peer, role, None, now_ms)
+    lane_turn_stats: Vec::new(),
 }
 
 pub fn new_assignment_attempt_with_id(
@@ -453,6 +454,7 @@ pub fn new_assignment_attempt_with_id(
         assigned_at: Some(now_ms),
         ..Default::default()
     }
+    lane_turn_stats: Vec::new(),
 }
 
 pub fn record_noncompetitive_replacement_attempt(

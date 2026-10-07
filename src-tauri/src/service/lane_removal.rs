@@ -483,6 +483,7 @@ fn project_for_recorded_lane(store: &PlanStore, worktree_path: &str) -> Option<S
 
 fn remove_lane_and_clear_task_references(
     store: &PlanStore,
+    repo_watch: &crate::repowatch::RepoWatchRegistryHandle,
     request: &LaneRemovalRequest,
     live_tabs: &[LiveTabCwd],
 ) -> Result<LaneRemovalOutcome, String> {
@@ -490,7 +491,33 @@ fn remove_lane_and_clear_task_references(
     if request.canonical_cwd.as_deref().is_none_or(str::is_empty) {
         request.canonical_cwd = project_for_recorded_lane(store, &request.worktree_path);
     }
+    let attempt_ids: Vec<String> = store
+        .list_full()
+        .into_iter()
+        .flat_map(|plan| plan.tasks)
+        .flat_map(|task| task.execution_attempts)
+        .filter(|attempt| {
+            attempt
+                .worktree_path
+                .as_deref()
+                .is_some_and(|path| comparable_path(path) == comparable_path(&request.worktree_path))
+        })
+        .map(|attempt| attempt.id)
+        .collect();
     let outcome = remove_lane(&request, live_tabs)?;
+    repo_watch.release_lane_watch(&outcome.worktree_path);
+    for attempt_id in attempt_ids {
+        super::lane_stats::delete_attempt_checkpoint_refs(
+            Path::new(&outcome.canonical_cwd),
+            &attempt_id,
+        )
+        .map_err(|error| {
+            format!(
+                "lane worktree '{}' was removed but attempt '{attempt_id}' checkpoint refs remain: {error}",
+                outcome.worktree_path
+            )
+        })?;
+    }
     clear_removed_task_lane_references(store, &outcome)?;
     Ok(outcome)
 }
@@ -572,7 +599,12 @@ impl ServiceContext {
         &self,
         request: &LaneRemovalRequest,
     ) -> Result<LaneRemovalOutcome, String> {
-        remove_lane_and_clear_task_references(&self.plan_store, request, &self.live_tab_cwds())
+        remove_lane_and_clear_task_references(
+            &self.plan_store,
+            &self.repo_watch,
+            request,
+            &self.live_tab_cwds(),
+        )
     }
 }
 

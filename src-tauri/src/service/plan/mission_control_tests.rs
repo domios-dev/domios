@@ -41,6 +41,7 @@ fn attempt(id: &str, tab_id: &str, title: &str) -> TaskExecutionAttempt {
         executor_title: Some(title.into()),
         ..Default::default()
     }
+    lane_turn_stats: Vec::new(),
 }
 
 /// A plan carrying every stored field the projection reads: a held review with
