@@ -60,7 +60,12 @@ pub(super) fn declared_files(credentials: &[CredentialConfig]) -> Vec<std::path:
                 .into_iter()
                 .flatten()
         })
-        .collect()
+        .fold(Vec::new(), |mut paths, path| {
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+            paths
+        })
 }
 
 /// `host.credentialPublic(id)` — the non-secret fields only, as a JSON object.

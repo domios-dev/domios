@@ -244,6 +244,7 @@ fn account_home_diagnostic_credential_reads_selected_home_without_writes() {
         selected_bytes
     );
     env.set("FIXTURE_CREDENTIAL_HOME", "");
+    assert_eq!(declared_files(&credentials), vec![default_file]);
     assert_eq!(
         public_json(&credentials, "codexAuth"),
         Some(r#"{"accountId":"acct-42"}"#.into())
