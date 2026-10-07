@@ -152,6 +152,8 @@ Restart a live agent, or resume an exited provider's verified session in its she
 
 - `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
 - `--grace-secs` — Wait this long for graceful exit before force-killing (seconds)
+- `--handoff-history` — Include bounded, redacted history in a provider-changing fresh launch
+- `--provider` — Relaunch with this installed PTY provider instead of the current provider
 - `--tab` — Tab ID (defaults to $CODETERM_TAB_ID locally; required with --mesh)
 
 #### `codeterm agent set-orchestrator`
