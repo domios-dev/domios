@@ -22,6 +22,8 @@ fn detect_from_title_parity() {
         ("claude", true),
         ("✳ Claude Code", true),
         ("⠐ General coding session", true),
+        ("◑ General coding session", true),
+        ("◔ Not a spinner", false),
         ("Aider", false),
         ("PS C:\\>", false),
     ];
