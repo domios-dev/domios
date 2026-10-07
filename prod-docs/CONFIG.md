@@ -28,6 +28,7 @@ copy_on_select = false
 
 [diagnostics]
 terminal_transport = false
+protocol_recording = false
 
 # [notifications] — levels, surfaces, sound, push channels.
 # Its own reference, it outgrew this file: codeterm docs NOTIFICATIONS
@@ -129,6 +130,10 @@ enabled = true                   # Local orchestration-economics ledger; false o
 `diagnostics.terminal_transport` is off by default. When enabled, the daemon writes bounded `[terminal-stream]` session summaries for attach cursors, frame and output-byte counts, offsets, truncation and boot changes. It also writes `[pty-write-route]` lines with the tab, PTY id, request byte count and whether that PTY is current for the tab. These diagnostics never include terminal output or input text, tokens, or credentials.
 
 Toggle it live with `codeterm config set diagnostics.terminal_transport true|false`. The next output-stream session and PTY write use the new setting; an open stream keeps the setting it started with. For mesh traces, enable it on both the local relaying daemon and the peer. No restart is required.
+
+## Protocol recording
+
+`diagnostics.protocol_recording` is off by default and only records in a named development instance. When enabled, resolved hook posts are written as redacted NDJSON under `logs/protocol/<tab>/`. A single background writer keeps at most ten 10 MiB files per tab, 512 MiB total, and 14 days of history. A full writer queue drops the record and increments the recorder's dropped counter; hook responses never wait for disk writes. Toggle it live with `codeterm config set diagnostics.protocol_recording true|false`.
 
 `kpi.enabled` owns the ledger behind Mission Control's Tokens and Turns cards. It records plan, task and tab ids, event kinds, byte counts, token counts and timestamps in `~/.codeterm/kpi_ledger.db` — never message text, and nothing leaves the machine. Opt out with `codeterm config set kpi.enabled false`; opt back in with `codeterm config set kpi.enabled true`. A config saved before KPI defaulted on still carries the old `enabled = false`; the first load after upgrading switches it on once and records `kpi.default_applied = true`, so an opt-out saved afterwards is kept. Either way the change takes effect on the next Domios start, and while it is off the Board shows an explicit not-recording state naming this key rather than a zero.
 

@@ -1,3 +1,5 @@
+import type { ChatMsg } from "./gen/ChatMsg";
+
 export type ChatMessageKind =
   | "user"
   | "assistant"
@@ -137,7 +139,7 @@ export interface ChatSessionIntent {
 /** Discriminated union, open for future interactive session-event kinds. */
 export type InteractiveElement = InteractiveQuestion;
 
-export interface NormalizedChatMessage {
+export interface NormalizedChatMessage extends Omit<Partial<ChatMsg>, "pluginIconSvg"> {
   id: string;
   /** The id the source emitted before the transcript re-keyed the row; never a render key. */
   sourceMessageId?: string;

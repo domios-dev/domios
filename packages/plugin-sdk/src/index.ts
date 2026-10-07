@@ -42,5 +42,6 @@ export type {
 } from "./host";
 export * from "./capabilities";
 export type { ProviderCompatibilityManifest, ProviderCompatibilityReason } from "./providerCompatibility";
+export type { ChatMsg } from "./gen/ChatMsg";
 
 export type { ModelProviderConfig, ModelProviderDefinition, ModelPreset } from './modelProviders';
