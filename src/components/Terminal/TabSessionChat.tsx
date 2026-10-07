@@ -309,7 +309,7 @@ export function TabSessionChat({
     void invoke("write_pty_string", { ptyId: currentPtyId, data: command + "\r", raw: false }).catch(
       (e) => showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [currentPtyId, showComposerError]);
+  }, [currentPtyId, showComposerError, tab?.id, tab?.managed]);
 
   const handleJumpToShellCommand = useCallback(() => {
     onOpenTerminalFallback?.();
@@ -329,10 +329,10 @@ export function TabSessionChat({
       return;
     }
     lastStopAtRef.current = now;
-    void invoke("interrupt_agent", { ptyId: currentPtyId }).catch((e) =>
+    void invoke("interrupt_agent", { ptyId: currentPtyId, ...(tab?.managed && !tab.managed.manager_closed ? { tabId: tab.id } : {}) }).catch((e) =>
       showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [currentPtyId, showComposerError]);
+  }, [currentPtyId, showComposerError, tab?.id, tab?.managed]);
 
   const handleStopReminder = useCallback(async (id: string) => {
     try {
