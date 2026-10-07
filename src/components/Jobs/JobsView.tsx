@@ -20,7 +20,7 @@ import { jobsLayout, type JobsEmptyScope, type JobsWorkspace } from "./jobsLayou
 import { useCronJobs } from "./useCronJobs";
 import { useWorkspaceGraphs } from "./useWorkspaceGraphs";
 import { deleteJobConfirmation, deleteMergedJob, hostJobsActionAdapter, stopMergedJob, type JobActionContext, type JobsActionAdapter } from "./jobActions";
-import { canStopJob, clearableJobs, mergeJobs, NO_JOBS_FILTER, type JobsFilter, type MergedJob } from "./jobsModel";
+import { canStopJob, clearableJobs, jobStateLabel, mergeJobs, NO_JOBS_FILTER, type JobsFilter, type MergedJob } from "./jobsModel";
 
 export type { JobsActionAdapter } from "./jobActions";
 
@@ -241,8 +241,8 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
         ];
         const onTriggerRef = (element: HTMLButtonElement | null) => { if (element) menuTriggers.current.set(key, element); else menuTriggers.current.delete(key); };
         return job.kind === "cron"
-          ? <JobRow key={key} jobKey={key} icon={<Clock3 size={15} aria-hidden="true" />} name={job.title} meta={cronMeta(job.cron)} type="Cron" state={job.state} actionItems={actionItems} onOpen={() => setSelection({ kind: "cron", id: job.cron.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />
-          : <JobRow key={key} jobKey={key} icon={job.sentinel.type === "Blueprint graph" ? <Network size={15} aria-hidden="true" /> : <Radar size={15} aria-hidden="true" />} name={job.title} meta={sentinelMeta(job.sentinel)} detail={unnamedGraphId(job.sentinel, job.title)} type={job.sentinel.type} state={job.state} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
+          ? <JobRow key={key} jobKey={key} icon={<Clock3 size={15} aria-hidden="true" />} name={job.title} meta={cronMeta(job.cron)} type="Cron" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "cron", id: job.cron.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />
+          : <JobRow key={key} jobKey={key} icon={job.sentinel.type === "Blueprint graph" ? <Network size={15} aria-hidden="true" /> : <Radar size={15} aria-hidden="true" />} name={job.title} meta={sentinelMeta(job.sentinel)} detail={unnamedGraphId(job.sentinel, job.title)} type={job.sentinel.type} state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
       })}
     </ul>}
     {pipelines.length > 0 && <section aria-label="Blueprints by owner" className="mt-6 space-y-4">
@@ -255,7 +255,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
         return <section key={group.key} aria-label={`${group.kind === "team" ? "Team" : "Tab"} ${ownerName}`} className="space-y-2">
           <h3 className="flex items-center gap-2 text-sm font-semibold"><span>{ownerName}</span><span className="rounded-full border border-[var(--ct-border)] px-2 py-0.5 text-[0.625rem] font-normal text-[var(--ct-muted-fg)]">{group.kind === "team" ? "Team" : group.kind === "tab" ? "Tab" : "Owner unavailable"}</span></h3>
           {pipelines.filter(({ pipeline }) => group.blueprints.some((entry) => entry.id === pipeline.id)).map(({ workspaceId, pipeline }) => <article key={`${workspaceId}:${pipeline.id}`} className="space-y-2 rounded-lg border border-[var(--ct-border)] p-3">
-            <button type="button" data-job-key={`blueprint:${pipeline.id}`} className="text-left font-medium hover:text-[var(--ct-accent)] focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]" aria-label={`Open Blueprint ${pipeline.name}, ${pipeline.state}`} onClick={() => setSelection({ kind: "blueprint", id: pipeline.id })}>{pipeline.name} · {pipeline.state}</button>
+            <button type="button" data-job-key={`blueprint:${pipeline.id}`} data-job-state={jobStateLabel(pipeline.state)} className="text-left font-medium hover:text-[var(--ct-accent)] focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]" aria-label={`Open Blueprint ${pipeline.name}, ${jobStateLabel(pipeline.state)}`} onClick={() => setSelection({ kind: "blueprint", id: pipeline.id })}>{pipeline.name} · {jobStateLabel(pipeline.state)}</button>
             <BlueprintPipelineCanvas pipeline={pipeline} />
           </article>)}
         </section>;
