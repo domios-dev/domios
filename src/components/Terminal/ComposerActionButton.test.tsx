@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
-import { ComposerInputShell } from "./ComposerInputShell";
+import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 
 type TestFn = () => void | Promise<void>;
@@ -86,9 +86,7 @@ async function renderScheduleButton(onSchedule: () => void): Promise<{ button: H
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      <ComposerInputShell voiceUi={voiceHandle()} onSchedule={onSchedule}>
-        <span>Message</span>
-      </ComposerInputShell>,
+      <ComposerScheduleButton onSchedule={onSchedule} />,
     );
   });
   return { button: host.querySelector('[data-testid="composer-schedule-button"]') as HTMLButtonElement, root };

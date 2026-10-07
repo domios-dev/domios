@@ -5,6 +5,7 @@ pub mod events;
 pub mod routes;
 
 pub mod agent_done_routes;
+pub mod agent_fork_routes;
 pub mod agent_model_catalog_routes;
 pub mod agent_model_routes;
 pub(crate) mod agent_restart_routes;
@@ -62,3 +63,5 @@ pub mod web_plugin_routes;
 pub mod web_routes;
 pub mod webhook_routes;
 pub mod workspace_routes;
+
+mod capability_probe_routes;

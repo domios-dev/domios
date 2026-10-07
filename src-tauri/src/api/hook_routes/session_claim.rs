@@ -274,6 +274,16 @@ fn commit_reported_session(
         }
     }
 
+    if let Some(source_session) = tab.fork_source_session_id.as_deref() {
+        if source_session == session_id || !nonce_verified {
+            return Err((
+                StatusCode::CONFLICT,
+                "fork binding requires a distinct session and this launch's nonce".into(),
+                None,
+            ));
+        }
+    }
+
     if matches!(
         source,
         SessionBindingSource::Hook | SessionBindingSource::LaunchDetection
@@ -369,6 +379,7 @@ fn commit_reported_session(
         .as_ref()
         .is_some_and(|pending| pending.session_id == session_id);
     if changed {
+        tab.provider_signals = Default::default();
         tab.context = None;
         if let Some(previous_session_id) = previous.as_deref() {
             tab.archive_context_epoch(provider_id, previous_session_id);

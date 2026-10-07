@@ -142,6 +142,7 @@ impl MultiplexerState {
                 _ => (None, None),
             };
             SplitNodeSnapshot::Leaf {
+                purpose: tab.map(|p| p.purpose).unwrap_or_default(),
                 tab_id: tab_id.to_string(),
                 cwd: tab.and_then(|p| normalized_snapshot_cwd(p.cwd.as_deref())),
                 title: tab.map(|p| p.title.clone()),
@@ -447,6 +448,7 @@ fn install_leaf(
 ) -> Option<String> {
     use crate::session::store::*;
     let SplitNodeSnapshot::Leaf {
+        purpose,
         tab_id,
         cwd,
         title,
@@ -567,6 +569,8 @@ fn install_leaf(
             pty_id: None,
             backing: restored_backing,
             tab_type: TabType::Terminal,
+            purpose: *purpose,
+            shell_command_state: Default::default(),
             pending_delivery: pending_delivery.clone(),
             title: restored_title,
             description: description.clone(),
@@ -580,6 +584,8 @@ fn install_leaf(
             agent_session_id: restored_session_id,
             agent_session_name: None,
             context: None,
+            provider_signals: Default::default(),
+            fork_source_session_id: None,
             agent_session_model: agent_session_model.clone(),
             agent_session_model_identity: None,
             pending_model_switch_observation: None,

@@ -126,6 +126,12 @@ pub(crate) async fn agent_restart_handler(
         )
             .into_response(),
         Err(crate::service::agent_restart::RestartAttemptError::Request(
+            crate::service::agent_restart::AgentRestartError::BackgroundWork { items },
+        )) => (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({"reason":"background_work_running","running_items":items,"error":"restart refused while background work is running"})),
+        ).into_response(),
+        Err(crate::service::agent_restart::RestartAttemptError::Request(
             crate::service::agent_restart::AgentRestartError::BadRequest(message),
         )) => (
             StatusCode::BAD_REQUEST,

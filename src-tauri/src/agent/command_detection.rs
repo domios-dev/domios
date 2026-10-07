@@ -271,12 +271,17 @@ pub struct ShellIntegration {
     parser: SemanticMarkerParser,
     detection: CommandDetection,
     marker_observed: bool,
+    display_state: super::shell_command_state::ShellCommandStateModel,
 }
 
 impl ShellIntegration {
     pub fn feed(&mut self, data: &[u8]) -> Vec<CommandLifecycle> {
         let events = self.parser.feed(data);
         self.marker_observed |= !events.is_empty();
+        for event in &events {
+            self.display_state
+                .apply(event, self.detection.nonce.as_deref());
+        }
         events
             .into_iter()
             .filter_map(|ev| self.detection.apply(ev))
@@ -321,6 +326,13 @@ impl ShellCapabilityTracker {
         let si = self.tabs.entry(pty_id.to_string()).or_default();
         si.detection.ensure_nonce(nonce);
         si.feed(data)
+    }
+
+    pub fn command_state(&self, pty_id: &str) -> crate::multiplexer::types::ShellCommandState {
+        self.tabs
+            .get(pty_id)
+            .map(|si| si.display_state.state())
+            .unwrap_or_default()
     }
 
     pub fn snapshot(&self, pty_id: &str) -> Option<ShellCapabilitySnapshot> {

@@ -22,6 +22,7 @@ pub mod send;
 mod subscriber;
 mod thread_start;
 pub mod transcript;
+mod transport_config;
 #[cfg(windows)]
 mod windows_job;
 

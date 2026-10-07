@@ -102,6 +102,7 @@ export function TabContent({
       <div className="flex h-full w-full flex-col">
         <TabTopBar
           tabId={tab.id}
+          shellTab={tab}
           cwd={cwd}
           workspaceId={workspaceId}
           showSwitch={showSwitch}

@@ -660,7 +660,11 @@ impl ServiceContext {
         } else {
             None
         };
-        if let Some(ref sid) = params.resume_session_id {
+        if params.fork_session {
+            if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+                tab.fork_source_session_id = params.resume_session_id.clone();
+            }
+        } else if let Some(ref sid) = params.resume_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));

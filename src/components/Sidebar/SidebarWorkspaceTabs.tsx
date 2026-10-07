@@ -19,10 +19,8 @@ import { SortableContext, verticalListSortingStrategy, TAB_PREFIX } from "./sort
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { persistTabRename, SidebarSingleTabRow } from "./SidebarPlanPeerPair";
 import { CursorTooltip } from "../shared/CursorTooltip";
-import { sortTeamManagers } from "./orchestrationSections";
 import { TabItem } from "./TabItem";
 import { remoteTeamIdentity } from "./remoteOwnership";
-import { isSidebarTabVisible } from "./workspaceTabs";
 import { useWorkspaceCrons } from "../../hooks/useWorkspaceCrons";
 import { cronSelectionStore } from "../Cron/cronSelectionStore";
 import { DropdownMenu } from "../shared/DropdownMenu";
@@ -31,12 +29,16 @@ import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { DeclaredAttentionLevel } from "./declaredAttention";
 
-type TeamTab = Tab & { team_id?: string | null };
-type TeamPlan = Plan & { team_id?: string | null };
+import {
+  effectiveTeamId,
+  visibleWorkspaceTabs,
+  groupWorkspaceTeamMembers,
+  partitionTeamMembers,
+  type TeamTabMember,
+} from "./workspaceTeamModel";
+export type { TeamTabMember } from "./workspaceTeamModel";
 
-function effectiveTeamId(tab: Tab): string | null {
-  return remoteTeamIdentity(tab)?.id ?? (tab as TeamTab).team_id ?? null;
-}
+type TeamPlan = Plan & { team_id?: string | null };
 
 function indexedPlan(entry: PlanIndexEntry): Plan {
   return {
@@ -79,11 +81,6 @@ function newestActivePlansByTeam(
     }
   }
   return grouped;
-}
-
-export interface TeamTabMember {
-  tab: Tab;
-  index: number;
 }
 
 function isEligibleTeamStaffingManager(member: TeamTabMember): boolean {
@@ -204,20 +201,10 @@ export function SidebarWorkspaceTabs({
 }: SidebarWorkspaceTabsProps) {
   const { jobs: workspaceCrons, refresh: refreshCrons } = useWorkspaceCrons(ws.id);
   const sortedTabs = useMemo(
-    () => allSortedTabs.filter(isSidebarTabVisible),
-    [allSortedTabs],
+    () => visibleWorkspaceTabs(allSortedTabs, tabs),
+    [allSortedTabs, tabs],
   );
-  const membersByTeam = useMemo(() => {
-    const grouped = new Map<string, TeamTabMember[]>();
-    sortedTabs.forEach((tab, index) => {
-      const teamId = effectiveTeamId(tab);
-      if (!teamId) return;
-      const members = grouped.get(teamId) ?? [];
-      members.push({ tab, index });
-      grouped.set(teamId, members);
-    });
-    return grouped;
-  }, [sortedTabs, tabs]);
+  const membersByTeam = useMemo(() => groupWorkspaceTeamMembers(sortedTabs), [sortedTabs]);
 
   const remoteTeams = useMemo(() => {
     const map = new Map<string, Team>();
@@ -368,11 +355,10 @@ export function SidebarWorkspaceTabs({
   };
 
   for (const [index, tab] of sortedTabs.entries()) {
-    const teamTab = tab as TeamTab;
-    const teamId = effectiveTeamId(teamTab);
+    const teamId = effectiveTeamId(tab);
     if (!teamId) {
-      if (!looseChildIds.has(teamTab.id)) {
-        rows.push(renderLooseTabTree(teamTab, index, "tab", ws.id, pinnedLooseItems));
+      if (!looseChildIds.has(tab.id)) {
+        rows.push(renderLooseTabTree(tab, index, "tab", ws.id, pinnedLooseItems));
       }
       continue;
     }
@@ -380,15 +366,7 @@ export function SidebarWorkspaceTabs({
     renderedTeamIds.add(teamId);
 
     const members = membersByTeam.get(teamId) ?? [];
-    const managers = sortTeamManagers(
-      members.filter((member) => member.tab.role === "Manager"),
-    );
-    const terminals = members.filter((member) => member.tab.role == null);
-    const workers = members.filter((member) =>
-      !anchorsTeam(member.tab)
-      && member.tab.role !== "Manager"
-      && member.tab.role != null,
-    );
+    const { managers, terminals, workers } = partitionTeamMembers(members);
     const managerItems = managers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const workerItems = workers.map((member) => `${TAB_PREFIX}${member.tab.id}`);
     const terminalItems = terminals.map((member) => `${TAB_PREFIX}${member.tab.id}`);

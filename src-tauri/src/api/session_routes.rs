@@ -483,6 +483,7 @@ pub async fn resume_session_api(
         remote_task_binding: None,
         context_files: None,
         context_skills: None,
+        fork_session: false,
         agent_name: None,
         args: None,
         cwd: Some(cwd.clone()),

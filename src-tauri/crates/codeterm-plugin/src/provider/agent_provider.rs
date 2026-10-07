@@ -6,6 +6,35 @@ use std::time::Duration;
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
 pub trait AgentProvider: Send + Sync {
+    fn capability_probe(&self) -> Option<CapabilityProbe> {
+        None
+    }
+    fn auth_status_probe(&self) -> Option<AuthStatusProbe> {
+        None
+    }
+    fn tracks_background_work(&self) -> bool {
+        false
+    }
+    fn fork_session_args(&self) -> Option<Vec<String>> {
+        None
+    }
+    fn parse_background_work(
+        &self,
+        _record: &serde_json::Value,
+    ) -> Vec<codeterm_types::agent::background_work::BackgroundWorkObservation> {
+        Vec::new()
+    }
+
+    fn parse_auth_status(&self, _record: &serde_json::Value) -> Option<AuthStatus> {
+        None
+    }
+
+    fn parse_session_observations(
+        &self,
+        _record: &serde_json::Value,
+    ) -> Option<SessionObservations> {
+        None
+    }
     fn structured_control(&self) -> Option<StructuredControl> {
         None
     }
@@ -640,6 +669,14 @@ pub trait AgentProvider: Send + Sync {
         Vec::new()
     }
 
+    fn reasoning_effort_launch_args_for_model(
+        &self,
+        _model: Option<&str>,
+        effort: &str,
+    ) -> Vec<String> {
+        self.reasoning_effort_launch_args(effort)
+    }
+
     /// Whether this provider supports the given reasoning-effort id. Default
     /// checks the declared `reasoning_efforts()` set — capability, not id.
     fn supports_reasoning_effort(&self, effort: &str) -> bool {
@@ -962,6 +999,7 @@ pub trait AgentProvider: Send + Sync {
             settings.push(usage_store_tracking_section());
         }
         ProviderDescriptor {
+            supports_session_fork: self.fork_session_args().is_some(),
             structured_control: self.structured_control(),
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             cli_status: None,

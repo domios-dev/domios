@@ -150,13 +150,27 @@ impl crate::service::ServiceContext {
         crate::service::agent_restart::ModelSwitchOutcome,
         crate::service::agent_restart::ModelSwitchError,
     > {
+        self.agent_switch_model_with_controls_and_force(tab, model, effort, mode, false)
+    }
+
+    pub(crate) fn agent_switch_model_with_controls_and_force(
+        &self,
+        tab: &str,
+        model: &str,
+        effort: Option<&str>,
+        mode: Option<RuntimeMode>,
+        force: bool,
+    ) -> Result<
+        crate::service::agent_restart::ModelSwitchOutcome,
+        crate::service::agent_restart::ModelSwitchError,
+    > {
         use crate::service::agent_restart::ModelSwitchError;
         if mode.is_some() && for_tab(tab).is_none() {
             return Err(ModelSwitchError::NotSwitchable(
                 "Runtime mode requires a structured control endpoint".into(),
             ));
         }
-        let outcome = self.agent_switch_model_with_reasoning(tab, model, effort)?;
+        let outcome = self.agent_switch_model_with_options(tab, model, effort, force)?;
         if let Some(mode) = mode {
             request_mode(tab, mode).map_err(ModelSwitchError::LiveSwitchFailed)?;
             if let Some(tab) = self.mux.write().get_tab_mut(tab) {

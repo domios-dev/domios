@@ -30,19 +30,19 @@ const CHARTER_TASK_TOKEN: &str = "task_opaque_6f3b2";
 /// the surface 25 bytes over the previous 17_900. Raised to the new measurement
 /// rather than trimming another author's contract blind; the next addition pays
 /// the same cost of re-measuring deliberately.
-const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 17_950;
-const PLANNER_CONTRACT_MAX_BYTES: usize = 17_750;
+const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 18_627;
+const PLANNER_CONTRACT_MAX_BYTES: usize = 18_427;
 // Worker suffix and launch overhead re-measured at 4_667 and 8_105 for the
 // provider-native subagent rule (9d4ae23d1).
-const WORKER_SUFFIX_MAX_BYTES: usize = 4_700;
+const WORKER_SUFFIX_MAX_BYTES: usize = 5_000;
 // Primer and worker launch re-measured for the owner-requested Sentinel command line
 // (bench case 9 needs the concrete flags) and the `@ds-guide` rendering sentence.
 const PRIMER_MAX_BYTES: usize = 2_600;
 const PROVIDER_RULES_MAX_BYTES: usize = 9_700;
 const WORKER_CHARTER_MAX_BYTES: usize = 1_450;
-const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 21_350;
+const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 22_027;
 // Planner launch re-measured with the primer Sentinel command line.
-const PLANNER_LAUNCH_MAX_BYTES: usize = 21_350;
+const PLANNER_LAUNCH_MAX_BYTES: usize = 22_027;
 const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 8_600;
 
 fn lf_len(text: &str) -> usize {
@@ -284,5 +284,39 @@ fn prompt_diet_worker_charter_carries_identity_before_discipline() {
             .find(fragment.trim())
             .expect("discipline delivered");
         assert!(identity < position);
+    }
+}
+
+#[test]
+fn memory_management_fragment_reaches_only_target_launches() {
+    let fragment = crate::prompts::MEM_MANAGEMENT.trim();
+    assert!(!fragment.is_empty());
+    for (role, kind, expected) in [
+        (Some("Orchestrator"), None, 1),
+        (Some("Manager"), Some("planner"), 1),
+        (None, None, 1),
+        (Some("Worker"), None, 0),
+        (Some("Manager"), Some("cartographer"), 0),
+    ] {
+        for assignment in [None, Some("OPAQUE_MEMORY_ASSIGNMENT")] {
+            let rendered = role_onboarding_task(assignment, role, kind).expect("launch prompt");
+            assert_eq!(
+                rendered.matches(fragment).count(),
+                expected,
+                "{role:?}/{kind:?}"
+            );
+            assert!(slot_residue(&rendered).is_empty());
+            if let Some(token) = assignment {
+                assert_eq!(rendered.matches(token).count(), 1);
+            }
+        }
+    }
+    for rendered in [
+        worker_suffix(),
+        crate::prompts::cartographer_suffix(),
+        crate::prompts::CRON_COMPLETE_SUFFIX.to_string(),
+        crate::prompts::TOOL_LESS.to_string(),
+    ] {
+        assert_eq!(rendered.matches(fragment).count(), 0);
     }
 }

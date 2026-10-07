@@ -11,6 +11,8 @@ import type {
 import { manifest } from "./shared";
 import { permissionHookCapability } from "./permissionHook";
 import { parseContextUsage, statuslineLaunchArgs } from "./context";
+import { authStatusProbe, parseAuthStatus, parseSessionObservations } from "./signals";
+import {parseBackgroundWork} from "./backgroundWork";
 import { detectClaudeLaunchSession } from "./launchSession";
 import {
   fetchClaudeUsage,
@@ -33,7 +35,8 @@ import {
   sessionModelTranscriptBoundary,
   validateEntry,
 } from "./session";
-import { discoverAnthropicModels } from "./models";
+import { discoverAnthropicModels, manifestModels } from "./models";
+import {reasoningEffortLaunchArgsForModel} from "./modelCapabilities";
 import { claudeFileDiffs } from "./fileDiffs";
 import {
   isAgentActivityBlock,
@@ -180,6 +183,13 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
 }
 
 const plugin: PluginModule = {
+  authStatusProbe,
+  tracksBackgroundWork: () => true,
+  parseBackgroundWork,
+  reasoningEffortLaunchArgsForModel,
+  modelCatalogueSeed: manifestModels,
+  parseAuthStatus,
+  parseSessionObservations,
   permissionHookCapability,
   parseContextUsage,
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
@@ -349,9 +359,13 @@ const plugin: PluginModule = {
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
     const launchArgs = statuslineLaunchArgs(p.args || []);
+    if (!launchArgs) {
+      host.log("error", "[claude-launch] cannot compose launch settings");
+      return "";
+    }
     if (launchArgs.length > 0) {
       // Quote each caller-supplied arg — it reaches a shell (a mesh peer could inject `; cmd`).
-      for (const arg of launchArgs) parts.push(host.shell.quoteFor(String(arg), host.platform()));
+      for (const arg of launchArgs) parts.push(quoteArg(String(arg)));
     }
     // Keep large worker prompts out of shell parsing and argv on every platform.
     if (p.task) {
@@ -367,27 +381,20 @@ const plugin: PluginModule = {
     return parts.join(" ");
   },
 
-  buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    const win = host.platform() === "windows";
-    const unset = win
-      ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "
-        + "$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = "
-        + "[System.Text.Encoding]::UTF8; "
-        + "$PSNativeCommandArgumentPassing = 'Standard';"
-      : "unset CLAUDECODE &&";
-    const parts = [unset, "claude"];
-    if (skipPermissions) parts.push("--dangerously-skip-permissions");
-    parts.push("--resume");
-    parts.push(host.shell.quoteFor(sessionId, host.platform()));
-    return parts.join(" ");
+  buildResumeCommand(sessionId: string, skipPermissions?: boolean): string | null {
+    const args = statuslineLaunchArgs([]);
+    return args ? [resumeBase(sessionId, skipPermissions), ...args.map(quoteArg)].join(" ") : null;
   },
 
   // `--resume` restores the transcript but not the launch-time system prompt,
   // so it is re-applied through the same declared flag buildLaunchCommand uses.
-  buildResumeCommandWithContext(params: ResumeParams): string {
+  buildResumeCommandWithContext(params: ResumeParams): string | null {
     const p = params || ({} as ResumeParams);
-    const parts = [this.buildResumeCommand!(p.sessionId, p.skipPermissions)];
     const resumeArgs = statuslineLaunchArgs(p.args || []);
+    if (!resumeArgs) return null;
+
+
+    const parts = [resumeBase(p.sessionId, p.skipPermissions)];
     if (resumeArgs.length > 0) {
       for (const arg of resumeArgs) parts.push(quoteArg(String(arg)));
     }
@@ -570,7 +577,16 @@ const plugin: PluginModule = {
         }
         continue;
       }
+      const emitObservations = () => {
+        const observations = parseSessionObservations(v), background = parseBackgroundWork(v);
+        if (!observations && !background.length) return false;
+        out.push({role:"system",blocks:[],ts:null,uuid:null,
+          provider_observations:observations, background_work:background,
+          provider_session_id:typeof v.sessionId === "string" ? v.sessionId : null});
+        return true;
+      };
       if (!validateEntry(v)) {
+        if (emitObservations()) continue;
         if (!hadInvalid) {
           if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
           hadInvalid = true;
@@ -717,6 +733,7 @@ const plugin: PluginModule = {
         // Input sent while the agent was busy is queued as a queued_command attachment; surface it as the user message it is.
         const att = v.attachment;
         if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
+          emitObservations();
           continue;
         }
         const agentNotice = subAgentNotificationBlock(att.prompt, v);
@@ -736,15 +753,18 @@ const plugin: PluginModule = {
           blocks.push({ kind: "text", data: { text: att.prompt } });
         }
       } else {
-        continue;
+        emitObservations(); continue;
       }
-      if (!blocks.length) continue;
+      if (!blocks.length) {emitObservations(); continue;}
       if (t === "system" && sourceSubtype === "compact_boundary") {
         timelineMarker = { kind: "context_compaction" };
       }
       const context = parseContextUsage(v);
       out.push({
         ...(context ? { context_usage: context } : {}),
+        provider_observations: parseSessionObservations(v),
+        provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null,
+        background_work: parseBackgroundWork(v),
         role: role,
         blocks: blocks,
         ts: ts,
@@ -1137,5 +1157,22 @@ function randomShortHex(len: number): string {
   for (let i = 0; i < len; i++) out += hex.charAt((Math.random() * 16) | 0);
   return out;
 }
+
+function resumeBase(sessionId: string, skipPermissions?: boolean): string {
+    const win = host.platform() === "windows";
+    const unset = win
+      ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; "
+        + "$OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = "
+        + "[System.Text.Encoding]::UTF8; "
+        + "$PSNativeCommandArgumentPassing = 'Standard';"
+      : "unset CLAUDECODE &&";
+    const parts = [unset, "claude"];
+    if (skipPermissions) parts.push("--dangerously-skip-permissions");
+    parts.push("--resume");
+    parts.push(host.shell.quoteFor(sessionId, host.platform()));
+
+    return parts.join(" ");
+}
+
 
 export default plugin;

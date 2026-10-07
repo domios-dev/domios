@@ -13,11 +13,16 @@ impl LaunchGeneration {
         origin: crate::service::launch_diagnostics::AgentLaunchOrigin,
         resume_session_id: Option<&str>,
     ) -> Result<(), String> {
+        let fork = svc.mux.read().get_tab(&self.tab_id).is_some_and(|tab| {
+            tab.fork_source_session_id
+                .as_deref()
+                .is_some_and(|source| Some(source) == resume_session_id)
+        });
         let sidecar = crate::service::codex_rpc::lifecycle::for_tab(&self.tab_id);
         let nonce = if sidecar.is_some() {
             svc.ensure_session_binding_nonce(&self.tab_id)
         } else {
-            match resume_session_id {
+            match resume_session_id.filter(|_| !fork) {
                 Some(session_id) => {
                     svc.rotate_session_binding_nonce_for_resume(&self.tab_id, session_id)
                 }

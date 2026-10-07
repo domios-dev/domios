@@ -33,6 +33,29 @@ Every claim below is transcribed from the Rust source of truth:
 
 ## The two-surface contract
 
+`authStatusProbe()` declares bounded subprocess arguments; `parseAuthStatus(record)`
+decodes its supported JSON. `parseSessionObservations(record)` carries typed API
+errors and permission mode from the claimed transcript. Native and JS paths owe
+parity fixtures. The host runs probes on a worker thread and consumes observations
+only when the provider's `structured_signals` setting is enabled (default false).
+No new sandbox host function is exposed by these capabilities.
+
+`modelCatalogueSeed()` decorates the manifest seed once at provider registration;
+it must be pure and must not probe a binary or network. Per-model effort launch
+mapping uses `reasoningEffortLaunchArgsForModel(model, effort)` with native parity.
+Claude's `model-capabilities.json` owns effort maps and compact windows separately
+from CLI version compatibility. `--codeterm-model-capabilities` explicitly opts
+launch/resume into its per-launch compact-window environment overlay; absent that
+flag, the provider's automatic compaction policy remains authoritative.
+
+`spawn.forkSessionArgs` declares session forking. Core opens a separate tab,
+resumes the source with those arguments, and accepts only a distinct session
+proved by the new launch's nonce. No session id is prebound for a fork.
+`tracksBackgroundWork()` plus `parseBackgroundWork(record)` declare structured
+background task observations. The bounded per-tab roster is session-scoped;
+`background_work_guard` defaults false. When enabled, restart refuses live work,
+provider updates wait for a roster change event, and explicit force is reported.
+
 A JS provider never sees the ~70-method Rust `AgentProvider` trait. It sees two
 surfaces:
 
@@ -419,3 +442,5 @@ Moved out of the embedded `codeterm docs` pages because they describe Domios's o
 - [references/secret-backends.md](references/secret-backends.md) — native secret backends and the retired credential erase
 
 Session manifests may declare `sessions.rootEnvironment: {variable, subdir}` for read-only inherited account homes. Empty/unset falls back to `rootDir`; the selected directory still requires sandbox read and environment permission. This does not grant write access or install integrations in that home. Credentials may declare `fileEnvironment` with the same shape; both default and selected credential paths remain denied to plugin reads.
+
+For a model-free control handshake, declare `spawn.capabilityProbe: "stream_json_initialize"`. The host owns process containment, isolation, decoding and bounded project/binary cache; no new sandbox host function is exposed. This capability uses `capability_probe_enabled`, default false, and explicit `POST /api/tabs/{id}/agent/capabilities/refresh`. Native and JS providers must agree on the declaration. Supported initialize data feeds cached slash suggestions, model aliases and subscription/mode display. Never send a user turn or usage request from a capability probe.

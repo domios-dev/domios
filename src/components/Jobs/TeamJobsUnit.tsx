@@ -5,6 +5,7 @@ import { sentinelJobs, sentinelTitle } from "../Automation/scenarios";
 import type { AutomationGraphAdapter, AutomationScope } from "../Automation/types";
 import { useAutomationGraph } from "../Automation/useAutomationGraph";
 import { TeamUnit, type TeamUnitProps } from "../Sidebar/TeamUnit";
+import { jobStateLabel } from "./jobsModel";
 import { requestOpenJob } from "./openJobEvent";
 
 interface SentinelSource {
@@ -19,10 +20,10 @@ function TeamUnitWithSentinels({ scope, generation, onOpenSentinel, adapter, ...
   const rows = jobs.map((job) => {
     const Icon = job.type === "Blueprint graph" ? Network : Radar;
     return <div key={`scenario:${job.scenario.id}`} className="sidebar-team-cron-row">
-      <button type="button" className="sidebar-team-cron-main" data-testid="sidebar-sentinel-job" aria-label={`${sentinelTitle(job.scenario, job.root)}, ${job.type}, ${job.state}`} title={job.root?.purpose ?? job.type} onClick={() => onOpenSentinel(job.scenario.id)}>
+      <button type="button" className="sidebar-team-cron-main" data-testid="sidebar-sentinel-job" aria-label={`${sentinelTitle(job.scenario, job.root)}, ${job.type}, ${jobStateLabel(job.state)}`} title={job.root?.purpose ?? job.type} onClick={() => onOpenSentinel(job.scenario.id)}>
         <Icon size={11} aria-hidden="true" />
         <span className="sidebar-team-cron-name">{sentinelTitle(job.scenario, job.root)}</span>
-        <span className="sidebar-team-cron-state">{job.type === "Blueprint graph" ? "graph · " : ""}{job.state}</span>
+        <span className="sidebar-team-cron-state">{job.type === "Blueprint graph" ? "graph · " : ""}{jobStateLabel(job.state)}</span>
       </button>
       <span className="w-7 shrink-0" aria-hidden="true" />
     </div>;
@@ -30,10 +31,10 @@ function TeamUnitWithSentinels({ scope, generation, onOpenSentinel, adapter, ...
   for (const blueprint of state.graph?.blueprints ?? []) {
     if (blueprint.owner?.kind !== "team" || blueprint.owner.team_id !== scope.team_id) continue;
     rows.push(<div key={`blueprint:${blueprint.id}`} className="sidebar-team-cron-row">
-      <button type="button" className="sidebar-team-cron-main" data-testid="sidebar-blueprint-job" aria-label={`Blueprint ${blueprint.name}, ${blueprint.state}`} title={blueprint.name} onClick={() => requestOpenJob({ workspaceId: scope.workspace_id, target: { teamId: scope.team_id, blueprintId: blueprint.id } })}>
+      <button type="button" className="sidebar-team-cron-main" data-testid="sidebar-blueprint-job" aria-label={`Blueprint ${blueprint.name}, ${jobStateLabel(blueprint.state)}`} title={blueprint.name} onClick={() => requestOpenJob({ workspaceId: scope.workspace_id, target: { teamId: scope.team_id, blueprintId: blueprint.id } })}>
         <Workflow size={11} aria-hidden="true" />
         <span className="sidebar-team-cron-name">{blueprint.name}</span>
-        <span className="sidebar-team-cron-state">{blueprint.state}</span>
+        <span className="sidebar-team-cron-state">{jobStateLabel(blueprint.state)}</span>
       </button>
       <span className="w-7 shrink-0" aria-hidden="true" />
     </div>);
