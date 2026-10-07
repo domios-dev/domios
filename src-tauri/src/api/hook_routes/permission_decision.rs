@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -11,7 +11,6 @@ use tokio::sync::oneshot;
 
 use crate::agent::provider::{HookIngestionRoute, PermissionHookCapability};
 use crate::api::routes::{check_auth, AppState};
-use crate::notification::dedupe::TabCondition;
 use crate::service::{ServiceContext, ServiceState};
 
 const ENABLED_KEY: &str = "permission_hook_decisions";
@@ -55,28 +54,27 @@ struct Request {
 
 #[derive(Default)]
 struct Broker {
-    requests: HashMap<String, Request>,
+    requests: HashMap<String, VecDeque<Request>>,
 }
 
 impl Broker {
     fn register(&mut self, tab_id: &str, request: Request) -> bool {
-        if self.requests.contains_key(tab_id) {
+        let requests = self.requests.entry(tab_id.into()).or_default();
+        if requests.iter().any(|pending| pending.id == request.id) {
             return false;
         }
-        self.requests.insert(tab_id.into(), request);
+        requests.push_back(request);
         true
     }
 
     fn remove(&mut self, tab_id: &str, id: &str) -> Option<Request> {
-        if self
-            .requests
-            .get(tab_id)
-            .is_some_and(|request| request.id == id)
-        {
-            self.requests.remove(tab_id)
-        } else {
-            None
+        let requests = self.requests.get_mut(tab_id)?;
+        let index = requests.iter().position(|request| request.id == id)?;
+        let removed = requests.remove(index);
+        if requests.is_empty() {
+            self.requests.remove(tab_id);
         }
+        removed
     }
 
     fn answer(
@@ -86,7 +84,21 @@ impl Broker {
         nonce: Option<&str>,
         value: &str,
     ) -> Option<Result<(), String>> {
-        let request = self.requests.get_mut(tab_id)?;
+        let requests = self.requests.get_mut(tab_id)?;
+        let index = requests.iter().position(|request| {
+            request
+                .prompt
+                .options
+                .iter()
+                .any(|option| option.value == value)
+        });
+        let request = match index {
+            Some(index) => requests.get_mut(index)?,
+            None if value.starts_with("permission:") => {
+                return Some(Err("permission request expired".into()))
+            }
+            None => requests.front_mut()?,
+        };
         if session_id != Some(request.session_id.as_str()) || nonce != Some(request.nonce.as_str())
         {
             request.sender.take();
@@ -179,6 +191,7 @@ pub(crate) fn pending_for_tab(tab_id: &str) -> Option<PendingPrompt> {
         .lock()
         .requests
         .get(tab_id)
+        .and_then(|requests| requests.front())
         .map(|request| request.prompt.clone())
 }
 
@@ -220,13 +233,17 @@ fn notify(
             identity: identity.clone(),
         })
         .collect();
-    svc.create_condition_notification_with_key(
-        tab_id,
-        TabCondition::PendingPrompt,
+    svc.create_prompt_notification_ext(
         format!("{title} needs permission"),
         Some(prompt.question.clone()),
+        Some("warning"),
         Some(actions),
-        format!("permission-hook:{tab_id}:{id}"),
+        Some(true),
+        crate::service::notification::NotificationOrigin::local_tab(tab_id.into()),
+        crate::service::notification::PushIntent {
+            level: Some(crate::notification::push::NotifyLevel::ActionNeeded),
+            event_key: Some(format!("permission-hook:{tab_id}:{id}")),
+        },
     )
 }
 
@@ -237,20 +254,112 @@ struct PendingGuard {
     identity: PromptIdentity,
 }
 
+fn hook_identity(identity: &PromptIdentity) -> bool {
+    identity.kind == PromptKind::Structured
+        && identity
+            .options
+            .iter()
+            .any(|option| option.value.starts_with("permission:"))
+}
+
+fn sync_display(svc: &ServiceContext, tab_id: &str) {
+    let prompt = {
+        let mut mux = svc.mux.write();
+        let Some(tab) = mux.get_tab_mut(tab_id) else {
+            return;
+        };
+        if tab
+            .prompt_identity()
+            .is_some_and(|identity| !hook_identity(&identity))
+        {
+            return;
+        }
+        let prompt = pending_for_tab(tab_id);
+        if tab.pending_prompt == prompt {
+            return;
+        }
+        tab.pending_prompt = prompt.clone();
+        tab.pending_prompt_kind = prompt.as_ref().map(|_| PromptKind::Structured);
+        prompt
+    };
+    crate::api::events::emit_everywhere(
+        &svc.app_handle,
+        "prompt-state-changed",
+        json!({"tab_id":tab_id,"prompt":prompt}),
+    );
+    svc.emit_state_changed();
+}
+
+pub(crate) fn respond_with_identity(
+    svc: &ServiceContext,
+    tab_id: &str,
+    value: &str,
+    expected: Option<&PromptIdentity>,
+) -> Option<Result<(), String>> {
+    let binding = svc.mux.read().get_tab(tab_id).map(|tab| {
+        (
+            tab.agent_session_id.clone(),
+            tab.session_binding_nonce.clone(),
+        )
+    });
+    let (session, nonce) = binding.unwrap_or_default();
+    let (result, identity, index) = {
+        let mut broker = BROKER.lock();
+        let requests = broker.requests.get(tab_id)?;
+        let request = if let Some(expected) = expected {
+            if !hook_identity(expected) {
+                return None;
+            }
+            requests.iter().find(|request| {
+                PromptIdentity::new(PromptKind::Structured, &request.prompt) == *expected
+            })
+        } else {
+            requests
+                .iter()
+                .find(|request| {
+                    request
+                        .prompt
+                        .options
+                        .iter()
+                        .any(|option| option.value == value)
+                })
+                .or_else(|| value.parse::<usize>().ok().and_then(|_| requests.front()))
+        };
+        let Some(request) = request else {
+            return Some(Err("permission request expired".into()));
+        };
+        let identity = PromptIdentity::new(PromptKind::Structured, &request.prompt);
+        let index = request
+            .prompt
+            .options
+            .iter()
+            .position(|option| option.value == value)
+            .or_else(|| value.parse::<usize>().ok()?.checked_sub(1));
+        let Some(option) = index.and_then(|index| request.prompt.options.get(index)) else {
+            return Some(Err("invalid permission option".into()));
+        };
+        let routed_value = option.value.clone();
+        let result = broker.answer(tab_id, session.as_deref(), nonce.as_deref(), &routed_value)?;
+        (result, identity, index)
+    };
+    if result.is_ok() {
+        if let Some(index) = index {
+            svc.answer_prompt_notifications(tab_id, &identity, index, "tab_respond");
+        }
+    }
+    Some(result)
+}
+
 impl Drop for PendingGuard {
     fn drop(&mut self) {
         BROKER.lock().remove(&self.tab_id, &self.id);
-        let current = self
+        sync_display(&self.svc, &self.tab_id);
+        let resolved = self
             .svc
-            .mux
-            .read()
-            .get_tab(&self.tab_id)
-            .and_then(|tab| tab.prompt_identity());
-        if current.as_ref() == Some(&self.identity) {
-            self.svc.push_structured_prompt(&self.tab_id, None);
-        }
-        self.svc
+            .notif
+            .lock()
             .resolve_prompt_notifications(&self.tab_id, &self.identity);
+        self.svc.announce_resolved(&resolved);
     }
 }
 
@@ -293,8 +402,6 @@ pub(crate) async fn handle(
         || session != tab.agent_session_id.as_deref()
         || !nonce.is_some_and(|nonce| !nonce.trim().is_empty())
         || nonce != tab.session_binding_nonce.as_deref()
-        || tab.pending_prompt.is_some()
-        || crate::service::structured_prompt::pending_for_tab(tab_id).is_some()
     {
         return no_decision();
     }
@@ -323,9 +430,7 @@ pub(crate) async fn handle(
         id: id.clone(),
         identity: identity.clone(),
     };
-    state
-        .svc
-        .push_structured_prompt(tab_id, Some(prompt.clone()));
+    sync_display(&state.svc, tab_id);
     notify(&state.svc, tab_id, &tab.title, &prompt, &id);
     let answer = wait_for_answer(receiver, DEADLINE).await;
     let binding_matches = state.svc.mux.read().get_tab(tab_id).is_some_and(|current| {
