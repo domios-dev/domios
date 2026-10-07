@@ -77,6 +77,8 @@ pub struct LaneTurnChangeStats {
     pub turn: u32,
     pub captured_at: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transcript_turn_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub numstat: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub staged_numstat: Option<String>,

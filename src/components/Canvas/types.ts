@@ -65,6 +65,7 @@ export interface TaskLaneMetadata {
 export interface LaneTurnChangeStats {
   turn: number;
   captured_at: number;
+  transcript_turn_key?: string | null;
   numstat?: string | null;
   staged_numstat?: string | null;
   untracked_file_count?: number | null;

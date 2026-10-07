@@ -278,11 +278,7 @@ impl ServiceContext {
             };
             if current_provider != target_provider {
                 let mut snap = self.snapshot_tab_for_restart(tab_id)?;
-                self.prepare_provider_change(
-                    &mut snap,
-                    target_provider,
-                    handoff_history,
-                )?;
+                self.prepare_provider_change(&mut snap, target_provider, handoff_history)?;
                 return self.restart_live_agent(
                     snap,
                     force,
@@ -315,9 +311,7 @@ impl ServiceContext {
             .agent_registry
             .with_provider(target_provider, |provider| provider.describe().transport)
             .ok_or_else(|| {
-                AgentRestartError::BadRequest(format!(
-                    "unknown agent provider: {target_provider}"
-                ))
+                AgentRestartError::BadRequest(format!("unknown agent provider: {target_provider}"))
             })?;
         if transport != ProviderTransport::Pty {
             return Err(AgentRestartError::BadRequest(
@@ -328,10 +322,7 @@ impl ServiceContext {
             .agent_registry
             .with_provider(&snap.provider, |provider| provider.describe().transport)
             .ok_or_else(|| {
-                AgentRestartError::BadRequest(format!(
-                    "unknown agent provider: {}",
-                    snap.provider
-                ))
+                AgentRestartError::BadRequest(format!("unknown agent provider: {}", snap.provider))
             })?;
         if source_transport != ProviderTransport::Pty {
             return Err(AgentRestartError::BadRequest(
@@ -393,9 +384,8 @@ impl ServiceContext {
             crate::session::lifecycle::LifecycleTransition::RestartRequested,
         );
 
-        let session_was_stale = !provider_changed
-            && snap.session_id.is_some()
-            && !self.session_file_present(&snap);
+        let session_was_stale =
+            !provider_changed && snap.session_id.is_some() && !self.session_file_present(&snap);
         let mut outcome = RestartOutcome::accepted(&snap, session_was_stale, force);
         let session_present = !provider_changed && !session_was_stale && snap.session_id.is_some();
         let relaunch = match model_switch {
@@ -441,6 +431,26 @@ impl ServiceContext {
             });
         }
         outcome.old_pty_torn_down = true;
+        if provider_changed {
+            let reset = {
+                let mut mux = self.mux.write();
+                mux.get_tab_mut(&snap.tab_id).map(|tab| {
+                    crate::service::provider_handoff::reset_tab_identity_for_provider_change(
+                        tab,
+                        snap.auto_approve,
+                    );
+                })
+            };
+            if reset.is_none() {
+                crate::service::task_files::release_tab(self, &snap.tab_id);
+                return Err(RestartAttemptError::Failed {
+                    outcome,
+                    reason: format!("Tab {} disappeared during provider change", snap.tab_id),
+                    timed_out: false,
+                });
+            }
+            self.schedule_session_persist_debounced();
+        }
         if let Some(launch) = model_switch {
             launch.commit(self, &snap.tab_id);
         }

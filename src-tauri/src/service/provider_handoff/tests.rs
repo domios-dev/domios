@@ -16,6 +16,52 @@ fn provider_handoff_composes_with_the_existing_launch_task() {
     assert!(composed.ends_with("selected history"));
 }
 
+#[test]
+fn provider_handoff_resets_source_launch_identity_and_permission_state() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.restorable_launch = crate::multiplexer::types::RestorableLaunchParameters {
+        captured: true,
+        model: Some("source-model".into()),
+        args: Some(vec!["--source-flag".into()]),
+        identity_instructions: Some("source instructions".into()),
+        permission_bypass_requested: true,
+        ..Default::default()
+    };
+    tab.agent_planned_model = Some("source-planned-model".into());
+    tab.agent_requested_model = Some("source-requested-model".into());
+    tab.agent_provider_resolved_model = Some("source-resolved-model".into());
+    tab.agent_session_model = Some("source-live-model".into());
+    tab.model_fallback = Some(crate::multiplexer::types::ModelFallbackNotice {
+        planned_model: None,
+        requested_model: "source-requested-model".into(),
+        provider_resolved_model: "source-resolved-model".into(),
+        actual_model: None,
+        reason: "source fallback".into(),
+    });
+    tab.model_identity_mismatch = Some(crate::multiplexer::types::ModelIdentityMismatch {
+        planned_model: None,
+        requested_model: "source-requested-model".into(),
+        provider_resolved_model: None,
+        actual_model: "source-actual-model".into(),
+        reason: "source mismatch".into(),
+    });
+    tab.reasoning_effort_identity.requested = Some("source-effort".into());
+    tab.auto_approve = true;
+
+    super::reset_tab_identity_for_provider_change(tab, false);
+
+    assert!(tab.restorable_launch.is_empty());
+    assert_eq!(tab.agent_planned_model, None);
+    assert_eq!(tab.agent_requested_model, None);
+    assert_eq!(tab.agent_provider_resolved_model, None);
+    assert_eq!(tab.agent_session_model, None);
+    assert_eq!(tab.model_fallback, None);
+    assert_eq!(tab.model_identity_mismatch, None);
+    assert!(tab.reasoning_effort_identity.is_empty());
+    assert!(!tab.auto_approve);
+}
+
 fn message(kind: &str, content: &str) -> ChatMsg {
     ChatMsg {
         kind: kind.to_string(),
@@ -55,15 +101,21 @@ fn select_history_stays_within_its_estimated_token_budget() {
 
 #[test]
 fn select_history_summarizes_tool_output_to_bounded_lines() {
-    let mut tool = message("tool_result", &(0..20).map(|line| format!("line {line}\n")).collect::<String>());
+    let mut tool = message(
+        "assistant",
+        &(0..20)
+            .map(|line| format!("line {line}\n"))
+            .collect::<String>(),
+    );
     tool.tool_result = Some(tool.content.clone());
 
     let selected = select_history(&[tool], 1000);
 
     assert!(selected.contains("line 0"));
     assert!(selected.contains("line 7"));
-    assert!(selected.contains("12 lines omitted"));
+    assert!(selected.contains("additional output omitted"));
     assert!(!selected.contains("line 8"));
+    assert_eq!(selected.lines().count(), 10);
 }
 
 #[test]

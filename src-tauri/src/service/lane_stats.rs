@@ -65,13 +65,14 @@ impl ServiceContext {
     }
 
     pub(crate) fn record_lane_turn_boundary(&self, tab_id: &str) {
+        let service = self.clone();
         let store = self.plan_store.clone();
         let repo_watch = self.repo_watch.clone();
         let app = self.app_handle.clone();
         let tab_id = tab_id.to_string();
         tauri::async_runtime::spawn(async move {
             let capture = tokio::task::spawn_blocking(move || {
-                record_lane_turn(&store, &repo_watch, &app, &tab_id)
+                record_lane_turn(&service, &store, &repo_watch, &app, &tab_id)
             });
             match tokio::time::timeout(TURN_CAPTURE_DEADLINE, capture).await {
                 Ok(Ok(())) => {}
@@ -91,6 +92,7 @@ impl ServiceContext {
 }
 
 fn record_lane_turn(
+    service: &ServiceContext,
     store: &PlanStore,
     repo_watch: &crate::repowatch::RepoWatchRegistryHandle,
     app: &tauri::AppHandle,
@@ -100,14 +102,15 @@ fn record_lane_turn(
         return;
     };
     let captured_at = unix_time_millis();
-    let Some(turn) = reserve_turn(store, &target, captured_at) else {
+    let transcript_turn_key = settled_transcript_turn_key(service, tab_id);
+    let Some(turn) = reserve_turn(store, &target, captured_at, transcript_turn_key.as_deref())
+    else {
         return;
     };
     let target = LaneAttemptTarget { turn, ..target };
-    if let Err(error) = repo_watch.retain_lane_watch(
-        &target.worktree_path,
-        Path::new(&target.canonical_path),
-    ) {
+    if let Err(error) =
+        repo_watch.retain_lane_watch(&target.worktree_path, Path::new(&target.canonical_path))
+    {
         log::warn!("[lane-turn-stats] repository watch unavailable: {error}");
     }
 
@@ -115,6 +118,7 @@ fn record_lane_turn(
     let mut stats = LaneTurnChangeStats {
         turn: target.turn,
         captured_at,
+        transcript_turn_key,
         ..Default::default()
     };
     match capture_change_stats(Path::new(&target.worktree_path), deadline) {
@@ -202,11 +206,15 @@ fn reserve_turn(
     store: &PlanStore,
     target: &LaneAttemptTarget,
     captured_at: u64,
+    transcript_turn_key: Option<&str>,
 ) -> Option<u32> {
     store
         .with_plan(&target.plan_id, captured_at, |plan| {
             let attempt = find_attempt_mut(plan, &target.task_id, &target.attempt_id)
                 .ok_or(crate::plan::PlanError::TaskNotFound)?;
+            if is_duplicate_transcript_turn(&attempt.lane_turn_stats, transcript_turn_key) {
+                return Ok(None);
+            }
             let turn = attempt
                 .lane_turn_stats
                 .iter()
@@ -217,11 +225,52 @@ fn reserve_turn(
             attempt.lane_turn_stats.push(LaneTurnChangeStats {
                 turn,
                 captured_at,
+                transcript_turn_key: transcript_turn_key.map(str::to_string),
                 ..Default::default()
             });
-            Ok(turn)
+            Ok(Some(turn))
         })
         .ok()
+        .flatten()
+}
+
+fn settled_transcript_turn_key(service: &ServiceContext, tab_id: &str) -> Option<String> {
+    let (provider, session_id) = {
+        let mux = service.mux.read();
+        let tab = mux.get_tab(tab_id)?;
+        (tab.agent_type.clone()?, tab.agent_session_id.clone()?)
+    };
+    let (messages, _) = crate::service::tab_chat::tab_chat_snapshot(service, tab_id, 0).ok()?;
+    transcript_turn_key(&provider, &session_id, &messages)
+}
+
+fn transcript_turn_key(
+    provider: &str,
+    session_id: &str,
+    messages: &[crate::agent::chat_types::ChatMsg],
+) -> Option<String> {
+    use sha2::Digest;
+
+    let message = messages
+        .iter()
+        .rev()
+        .find(|message| message.kind.eq_ignore_ascii_case("assistant"))?;
+    if message.id.trim().is_empty() && message.seq == 0 {
+        return None;
+    }
+    let identity = format!("{provider}\0{session_id}\0{}\0{}", message.id, message.seq);
+    Some(format!("{:x}", sha2::Sha256::digest(identity.as_bytes())))
+}
+
+fn is_duplicate_transcript_turn(
+    stats: &[LaneTurnChangeStats],
+    transcript_turn_key: Option<&str>,
+) -> bool {
+    transcript_turn_key.is_some_and(|key| {
+        stats
+            .iter()
+            .any(|stats| stats.transcript_turn_key.as_deref() == Some(key))
+    })
 }
 
 fn mutate_attempt(
@@ -264,7 +313,11 @@ fn capture_change_stats(
         None,
         deadline,
     )?;
-    let count = untracked.as_bytes().iter().filter(|byte| **byte == 0).count();
+    let count = untracked
+        .as_bytes()
+        .iter()
+        .filter(|byte| **byte == 0)
+        .count();
     Ok((unstaged, staged, count.min(u32::MAX as usize) as u32))
 }
 
@@ -275,9 +328,7 @@ fn create_checkpoint(
     deadline: Instant,
 ) -> Result<CheckpointResult, CaptureFailure> {
     if !safe_ref_component(attempt_id) {
-        return Ok(CheckpointResult::Refused(
-            LaneCheckpointRefusal::GitFailure,
-        ));
+        return Ok(CheckpointResult::Refused(LaneCheckpointRefusal::GitFailure));
     }
     if repository_uses_lfs(cwd, deadline)? {
         return Ok(CheckpointResult::Refused(
@@ -318,7 +369,9 @@ fn create_checkpoint(
     )?;
     let commit = commit.trim();
     if commit.is_empty() {
-        return Err(CaptureFailure::Git("git commit-tree returned no object id".into()));
+        return Err(CaptureFailure::Git(
+            "git commit-tree returned no object id".into(),
+        ));
     }
     run_git(cwd, &["update-ref", &reference, commit], None, deadline)?;
     retain_checkpoints(cwd, attempt_id, deadline)?;
@@ -350,10 +403,15 @@ fn repository_uses_lfs(cwd: &Path, deadline: Instant) -> Result<bool, CaptureFai
             return Ok(true);
         }
     }
-    let global_attributes = run_git(cwd, &["config", "--path", "core.attributesFile"], None, deadline)
-        .ok()
-        .map(|path| PathBuf::from(path.trim()))
-        .filter(|path| path.is_file());
+    let global_attributes = run_git(
+        cwd,
+        &["config", "--path", "core.attributesFile"],
+        None,
+        deadline,
+    )
+    .ok()
+    .map(|path| PathBuf::from(path.trim()))
+    .filter(|path| path.is_file());
     if global_attributes
         .and_then(|path| std::fs::read_to_string(path).ok())
         .is_some_and(|contents| contents.lines().any(attribute_uses_lfs))
@@ -377,7 +435,11 @@ fn has_non_cone_sparse_checkout(cwd: &Path, deadline: Instant) -> Result<bool, C
     if !sparse.status.success() || !sparse.stdout.trim().eq_ignore_ascii_case("true") {
         return Ok(false);
     }
-    let cone = run_git_status(cwd, &["config", "--bool", "core.sparseCheckoutCone"], deadline)?;
+    let cone = run_git_status(
+        cwd,
+        &["config", "--bool", "core.sparseCheckoutCone"],
+        deadline,
+    )?;
     Ok(!cone.status.success() || !cone.stdout.trim().eq_ignore_ascii_case("true"))
 }
 
@@ -387,17 +449,21 @@ fn retain_checkpoints(
     deadline: Instant,
 ) -> Result<(), CaptureFailure> {
     let prefix = format!("refs/domios/checkpoints/{attempt_id}");
-    let refs = run_git(cwd, &["for-each-ref", "--format=%(refname)", &prefix], None, deadline)?;
-    let mut refs: Vec<String> = refs.lines().map(str::to_string).collect();
-    refs.sort_by_key(|reference| {
-        reference
-            .rsplit('/')
-            .next()
-            .and_then(|turn| turn.parse::<u32>().ok())
-            .unwrap_or_default()
-    });
+    let refs = run_git(
+        cwd,
+        &["for-each-ref", "--format=%(refname)", &prefix],
+        None,
+        deadline,
+    )?;
+    let mut refs: Vec<(u32, String)> = refs
+        .lines()
+        .filter_map(|reference| {
+            checkpoint_turn(&prefix, reference).map(|turn| (turn, reference.into()))
+        })
+        .collect();
+    refs.sort_by_key(|(turn, _)| *turn);
     let remove_count = refs.len().saturating_sub(CHECKPOINTS_PER_ATTEMPT);
-    for reference in refs.into_iter().take(remove_count) {
+    for (_, reference) in refs.into_iter().take(remove_count) {
         run_git(cwd, &["update-ref", "-d", &reference], None, deadline)?;
     }
     Ok(())
@@ -409,18 +475,29 @@ pub(crate) fn delete_attempt_checkpoint_refs(cwd: &Path, attempt_id: &str) -> Re
     }
     let deadline = Instant::now() + TURN_CAPTURE_DEADLINE;
     let prefix = format!("refs/domios/checkpoints/{attempt_id}");
-    let refs = run_git(cwd, &["for-each-ref", "--format=%(refname)", &prefix], None, deadline)
-        .map_err(capture_failure_text)?;
-    for reference in refs.lines().filter(|reference| {
-        reference.starts_with(&prefix)
-            && reference
-                .strip_prefix(&prefix)
-                .is_some_and(|suffix| suffix.starts_with('/') && suffix[1..].parse::<u32>().is_ok())
-    }) {
+    let refs = run_git(
+        cwd,
+        &["for-each-ref", "--format=%(refname)", &prefix],
+        None,
+        deadline,
+    )
+    .map_err(capture_failure_text)?;
+    for reference in refs
+        .lines()
+        .filter(|reference| checkpoint_turn(&prefix, reference).is_some())
+    {
         run_git(cwd, &["update-ref", "-d", reference], None, deadline)
             .map_err(capture_failure_text)?;
     }
     Ok(())
+}
+
+fn checkpoint_turn(prefix: &str, reference: &str) -> Option<u32> {
+    reference
+        .strip_prefix(prefix)?
+        .strip_prefix('/')?
+        .parse()
+        .ok()
 }
 
 fn safe_ref_component(value: &str) -> bool {
@@ -445,11 +522,7 @@ fn run_git(
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
-fn run_git_status(
-    cwd: &Path,
-    args: &[&str],
-    deadline: Instant,
-) -> Result<Output, CaptureFailure> {
+fn run_git_status(cwd: &Path, args: &[&str], deadline: Instant) -> Result<Output, CaptureFailure> {
     run_git_status_with_index(cwd, args, None, deadline)
 }
 
@@ -461,7 +534,11 @@ fn run_git_status_with_index(
 ) -> Result<Output, CaptureFailure> {
     let mut command = Command::new("git");
     crate::process_util::no_window_std(&mut command);
-    command.current_dir(cwd).args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .current_dir(cwd)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     if let Some((key, value)) = index {
         command.env(key, value);
     }
@@ -526,7 +603,11 @@ fn run_git_status_with_index(
     }
     let _ = stdout_reader.join();
     let _ = stderr_reader.join();
-    Ok(Output { status, stdout, stderr })
+    Ok(Output {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 fn read_bounded(mut reader: impl std::io::Read) -> std::io::Result<(Vec<u8>, bool)> {
@@ -560,11 +641,7 @@ fn unix_time_millis() -> u64 {
         .as_millis() as u64
 }
 
-fn offer_merged_lanes(
-    store: &PlanStore,
-    app: &tauri::AppHandle,
-    repository_identity: &str,
-) {
+fn offer_merged_lanes(store: &PlanStore, app: &tauri::AppHandle, repository_identity: &str) {
     let deadline = Instant::now() + TURN_CAPTURE_DEADLINE;
     let mut checked = 0usize;
     for plan in store.list_full() {
