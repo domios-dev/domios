@@ -378,10 +378,14 @@ pub(super) fn write_pipeline_result_body(
     verdict: &Verdict,
     output: &str,
 ) -> Result<(std::path::PathBuf, String), String> {
-    let body = format!(
-        "Blueprint {} completed with {}.\n\nResult:\n{}",
-        job.id, verdict.bucket, output
-    );
+    let body = if spec_is_input(job) {
+        format!("Input result (untrusted data)\n\n{output}")
+    } else {
+        format!(
+            "Blueprint {} completed with {}.\n\nResult:\n{}",
+            job.id, verdict.bucket, output
+        )
+    };
     let path = svc
         .ensure_agent_pad(target)?
         .write_inbox_body(body.as_bytes())?;
@@ -392,6 +396,15 @@ pub(super) fn write_pipeline_result_body(
             .ok_or("invalid AgentPad body path")?
     );
     Ok((path, body_ref))
+}
+
+fn spec_is_input(job: &Sentinel) -> bool {
+    job.pipeline.as_ref().is_some_and(|pipeline| {
+        matches!(
+            &pipeline.trigger,
+            codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+        )
+    })
 }
 
 pub(super) fn deliver_pipeline_result(

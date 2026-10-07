@@ -529,6 +529,14 @@ impl Store {
         if job.machine.stopped || job.machine.paused || job.machine.held.is_some() {
             return false;
         }
+        if job.pipeline.as_ref().is_some_and(|pipeline| {
+            matches!(
+                &pipeline.trigger,
+                codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+            )
+        }) {
+            return false;
+        }
         self.wake_pending.insert(id.into())
     }
 
@@ -646,14 +654,26 @@ impl Store {
             Ok(false) => return Staged::ready(Ok(false)),
             Err(error) => return Staged::ready(Err(error)),
         }
+        let now = self.clock.now_ms();
+        let input_activation = self.get(id).is_some_and(|target| {
+            target.pipeline.as_ref().is_some_and(|pipeline| {
+                matches!(
+                    &pipeline.trigger,
+                    codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                )
+            })
+        });
         if !self.backend.is_json() {
-            return self.sqlite_activate(source, transition, id);
+            return self.sqlite_activate(source, transition, id, input_activation.then_some(now));
         }
         let previous = self.jobs.clone();
         let Some(target) = self.jobs.iter_mut().find(|job| job.id == id) else {
             return Staged::ready(Err("blueprint target disappeared".into()));
         };
         target.machine.paused = false;
+        if input_activation {
+            target.next_run = now;
+        }
         target.revision += 1;
         if let Err(error) = self.save_legacy() {
             self.jobs = previous;
@@ -786,17 +806,24 @@ impl Store {
                         codeterm_types::blueprint_pipeline::Trigger::Event { .. }
                     )
                 });
-                let next = if event_trigger {
-                    None
-                } else if job.machine.paused || active || waiting_for_run {
-                    None
-                } else if job.machine.held.is_some() {
-                    super::escalation::expiry_at(job)
-                } else if self.wake_pending.contains(&job.id) {
-                    Some(now)
-                } else {
-                    Some(job.next_run)
-                };
+                let input_waiting = job.pipeline.as_ref().is_some_and(|pipeline| {
+                    matches!(
+                        &pipeline.trigger,
+                        codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+                    ) && job.next_run == codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS
+                });
+                let next =
+                    if event_trigger || (input_waiting && !self.wake_pending.contains(&job.id)) {
+                        None
+                    } else if job.machine.paused || active || waiting_for_run {
+                        None
+                    } else if job.machine.held.is_some() {
+                        super::escalation::expiry_at(job)
+                    } else if self.wake_pending.contains(&job.id) {
+                        Some(now)
+                    } else {
+                        Some(job.next_run)
+                    };
                 next.into_iter().chain(job.expires_at)
             })
             .min()
@@ -818,6 +845,7 @@ impl Store {
                         matches!(
                             &pipeline.trigger,
                             codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+                                | codeterm_types::blueprint_pipeline::Trigger::Input { .. }
                         )
                     })
             })

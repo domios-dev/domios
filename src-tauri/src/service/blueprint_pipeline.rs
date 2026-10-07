@@ -225,6 +225,14 @@ impl super::ServiceContext {
             .try_state::<Handle>()
             .ok_or("blueprints not initialized")?;
         let authored_at = handle.store.lock().clock.now_ms();
+        if next.pipeline.as_ref().is_some_and(|pipeline| {
+            matches!(
+                &pipeline.trigger,
+                codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+            )
+        }) {
+            next.next_run = authored_at;
+        }
         let staged = handle.store.lock().stage_update_definition(
             expect_version,
             &caller.tab,
@@ -279,7 +287,7 @@ impl super::ServiceContext {
         let mut nodes = vec![
             json!({"kind":"trigger", "type":"schedule", "title":"Schedule", "params_schema":{"every":{"type":"duration","minimum":"10s"}}}),
             json!({"kind":"trigger", "type":"event", "title":"Event", "params_schema":{"kind":"event source kind","params":"event source schema"}}),
-            json!({"kind":"trigger", "type":"input", "title":"Input", "params_schema":{"kind":"text|file|audio|video|image","source":"text|file|url","convert_to":"optional media kind"}}),
+            json!({"kind":"trigger", "type":"input", "title":"Input", "params_schema":{"kind":"text|file|audio|video|image","source":"text|file|url"}}),
             json!({"kind":"step", "type":"command", "title":"Command", "params_schema":{"command":{"type":"string","max_length":16384}}}),
             json!({"kind":"step", "type":"ask", "title":"Ask", "params_schema":{"question":"string","buckets":"declared string array"}}),
             json!({"kind":"step", "type":"filter", "title":"Filter", "params_schema":{"pattern":"regex","bucket":"optional bucket"}}),
@@ -361,23 +369,6 @@ impl super::ServiceContext {
         let mut errors = codeterm_types::blueprint_pipeline::validate(spec, &converters)
             .err()
             .unwrap_or_default();
-        if let Trigger::Input {
-            kind,
-            convert_to: Some(to),
-            ..
-        } = &spec.trigger
-        {
-            if self.converter_registry.plan(*kind, *to).is_err()
-                && !errors
-                    .iter()
-                    .any(|error| error.field == "trigger.convert_to")
-            {
-                errors.push(ValidationError {
-                    field: "trigger.convert_to".into(),
-                    reason: "no converter chain is available".into(),
-                });
-            }
-        }
         for (index, step) in spec.steps.iter().enumerate() {
             if let StepKind::Convert { from, to } = &step.kind {
                 let field = format!("steps[{index}].convert");
