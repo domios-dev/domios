@@ -1,0 +1,111 @@
+{
+  "id": "aider",
+  "version": "1.12.4",
+  "minCodeterm": "1.12.4",
+  "hostApi": 2,
+  "displayName": "Aider",
+  "binaryName": "aider",
+  "cliBinary": "aider",
+  "iconColor": "var(--ct-fg)",
+  "entry": "plugin.js",
+  "settingsSchema": "settings.schema.json",
+  "capabilities": {
+    "agentProvider": true,
+    "chatPreprocessor": {
+      "match": "text"
+    }
+  },
+  "spawn": {
+    "readinessStrategy": {
+      "kind": "poll_shell_prompt",
+      "timeoutSecs": 60
+    },
+    "providerReadiness": {
+      "kind": "structural_composer",
+      "timeoutSecs": 60
+    },
+    "composerCursorPosition": "prompt_line",
+    "taskDelivery": "inline_flag",
+    "systemPromptDelivery": {
+      "kind": "session_config"
+    },
+    "verifySubmit": {
+      "kind": "tui_input_drained"
+    },
+    "sessionIdInjection": "none",
+    "inputFallbackMs": 5000,
+    "onboardingAutoAnswer": "always",
+    "statusBarRows": 2,
+    "agentStateStatusReconciliation": true,
+    "supportsLazySkills": false,
+    "hasHooks": false,
+    "sessionStartsOnFirstUserTurn": true,
+    "publicSendWaitsForStartupTurnCompletion": true,
+    "supportsStructuredPrompts": false
+  },
+  "modelGroups": [
+    {
+      "id": "openai",
+      "label": "OpenAI"
+    },
+    {
+      "id": "anthropic",
+      "label": "Anthropic"
+    },
+    {
+      "id": "deepseek",
+      "label": "DeepSeek"
+    },
+    {
+      "id": "xai",
+      "label": "xAI"
+    }
+  ],
+  "models": [
+    {
+      "id": "openai/gpt-5.4-mini",
+      "displayName": "GPT-5.4 Mini",
+      "description": "OpenAI GPT model via Aider.",
+      "group": "OpenAI"
+    },
+    {
+      "id": "anthropic/claude-sonnet-4-6",
+      "displayName": "Claude Sonnet 4.6",
+      "description": "Anthropic Claude model via Aider.",
+      "group": "Anthropic"
+    }
+  ],
+  "defaultModel": "openai/gpt-5.4-mini",
+  "modelCatalogue": {
+    "authority": "free_form"
+  },
+  "installer": {
+    "macos": "pipx install aider-chat",
+    "linux": "pipx install aider-chat",
+    "windows": "pipx install aider-chat"
+  },
+  "updater": {
+    "macos": "pipx upgrade aider-chat",
+    "linux": "pipx upgrade aider-chat",
+    "windows": "pipx upgrade aider-chat"
+  },
+  "commands": {
+    "compact": "/clear",
+    "freshContext": "/clear",
+    "exit": "/exit",
+    "stopKeys": [
+      "\u0003"
+    ],
+    "stopKeyWaitForOutput": true,
+    "autoApproveFlags": [],
+    "modelLaunchArgsFormat": [
+      "--model",
+      "{model}"
+    ]
+  },
+  "permissions": {
+    "network": {
+      "allow": []
+    }
+  }
+}
