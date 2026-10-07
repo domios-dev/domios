@@ -325,10 +325,10 @@ const plugin: PluginModule = {
         : value.replace(/(["\\$`])/g, "\\$1");
     const dirQuoted = escapeDir(historyDirPath);
     const chatHistoryPath = isPowerShell
-      ? `"$($dirQuoted)/$($env:CODETERM_SESSION_BINDING_NONCE).md"`
+      ? `"${dirQuoted}/$($env:CODETERM_SESSION_BINDING_NONCE).md"`
       : `"${dirQuoted}/\${CODETERM_SESSION_BINDING_NONCE}.md"`;
     const inputHistoryPath = isPowerShell
-      ? `"$($dirQuoted)/$($env:CODETERM_SESSION_BINDING_NONCE).input"`
+      ? `"${dirQuoted}/$($env:CODETERM_SESSION_BINDING_NONCE).input"`
       : `"${dirQuoted}/\${CODETERM_SESSION_BINDING_NONCE}.input"`;
     const parts: string[] = ["aider"];
     if (p.args && p.args.length > 0) {
