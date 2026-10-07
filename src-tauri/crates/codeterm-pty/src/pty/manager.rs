@@ -511,6 +511,13 @@ fn apply_pty_env(cmd: &mut CommandBuilder, env_vars: &HashMap<String, String>) {
     for key in STRIPPED_PTY_ENV {
         cmd.env_remove(key);
     }
+
+    for (key, value) in super::child_env::child_env_changes(cmd.iter_full_env_as_str()) {
+        match value {
+            Some(value) => cmd.env(key, value),
+            None => cmd.env_remove(key),
+        }
+    }
 }
 
 pub fn build_session(

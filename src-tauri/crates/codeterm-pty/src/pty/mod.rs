@@ -1,6 +1,7 @@
 pub mod ansi;
 pub mod capture;
 pub mod cast;
+pub mod child_env;
 mod child_exit;
 pub mod login_shell;
 pub mod manager;

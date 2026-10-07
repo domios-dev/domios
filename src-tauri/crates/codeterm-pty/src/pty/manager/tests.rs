@@ -752,3 +752,19 @@ fn pty_env_adds_the_cli_dir_when_the_inherited_path_lacks_it() {
         Some(cli_dir)
     );
 }
+
+#[cfg(windows)]
+#[test]
+fn pty_env_defaults_python_to_utf8_but_keeps_an_explicit_choice() {
+    let mut cmd = CommandBuilder::new("agent");
+    cmd.env_remove("PYTHONUTF8");
+    apply_pty_env(&mut cmd, &HashMap::new());
+    assert_eq!(cmd.get_env("PYTHONUTF8"), Some(std::ffi::OsStr::new("1")));
+
+    let mut cmd = CommandBuilder::new("agent");
+    apply_pty_env(
+        &mut cmd,
+        &HashMap::from([("PYTHONUTF8".to_string(), "0".to_string())]),
+    );
+    assert_eq!(cmd.get_env("PYTHONUTF8"), Some(std::ffi::OsStr::new("0")));
+}
