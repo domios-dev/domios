@@ -38,6 +38,7 @@ pub fn defer(
         super::diagnostics::fallback(svc, tab, provider, "unsupported extra terminal arguments");
         return None;
     }
+    super::delivery::begin(tab, &svc.ensure_session_binding_nonce(tab));
     PLANS.lock().insert(
         tab.into(),
         Plan {

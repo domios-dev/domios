@@ -295,8 +295,7 @@ async fn discover(
             refresh_request_state(svc, tab, candidate, sidecar);
             sidecar.client.release_thread(candidate);
             sidecar.verified.store(true, Ordering::Release);
-            svc.wake_parked_user_send(tab);
-            svc.wake_agent_deliveries_on_state_change(tab);
+            super::delivery::refresh(svc, tab);
         }
         Err(error) => sidecar
             .client
