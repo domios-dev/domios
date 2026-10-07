@@ -205,6 +205,79 @@ export function readAiderHistory(
   }
 }
 
+/**
+ * Parse appended markdown history into user/assistant rows for the file-tail
+ * chat route. `chunk` is the raw appended text (possibly a partial tail).
+ * Blank `#### ` turns are skipped; thinking-content blocks are stripped from
+ * assistant text. `recordIndex` is the chunk line each row was parsed from.
+ */
+export function parseAiderHistoryDelta(chunk: string): {
+  messages: Array<{
+    id: string;
+    type: string;
+    content: string;
+    ts: number | null;
+    recordIndex: number;
+  }>;
+} {
+  const text = String(chunk || "");
+  const lines = text.split(/\r?\n/);
+  const messages: Array<{
+    id: string;
+    type: string;
+    content: string;
+    ts: number | null;
+    recordIndex: number;
+  }> = [];
+  let currentRole: "user" | "assistant" | null = null;
+  let currentText: string[] = [];
+  let currentStart = 0;
+
+  function flush() {
+    if (currentRole && currentText.length > 0) {
+      let body = currentText.join("\n").trim();
+      if (currentRole === "assistant") {
+        body = body.replace(THINKING_BLOCK_RE, "").trim();
+      }
+      if (body) {
+        messages.push({
+          id: `delta_${messages.length}`,
+          type: currentRole,
+          content: body,
+          ts: null,
+          recordIndex: currentStart,
+        });
+      }
+    }
+    currentText = [];
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.startsWith("#### ")) {
+      flush();
+      const userText = line.slice(5).trim();
+      if (!userText) {
+        currentRole = null;
+        continue;
+      }
+      currentRole = "user";
+      currentStart = i;
+      currentText.push(userText);
+      continue;
+    }
+    if (currentRole === null) continue;
+    if (currentRole === "user" && line.trim()) {
+      flush();
+      currentRole = "assistant";
+      currentStart = i;
+    }
+    currentText.push(line);
+  }
+  flush();
+  return { messages };
+}
+
 export { readHistoryFile };
 
 function readHistoryFile(filePath: string): string | null {
