@@ -2,6 +2,7 @@
 //! inside the repository size gate; the module contract is unchanged.
 
 mod notify_rules;
+mod plan_task_flags;
 mod prompt_diet;
 mod task_sequencing;
 
@@ -13,7 +14,7 @@ const CLI_MANIFEST: &str = include_str!("../../../generated/cli/cli-manifest.jso
 
 /// Every prompt fragment that teaches CLI grammar, with the file it is
 /// loaded from so a failure names something a human can open.
-fn cli_teaching_fragments() -> [(&'static str, &'static str); 11] {
+fn cli_teaching_fragments() -> [(&'static str, &'static str); 12] {
     [
         ("general_agent.md", GENERAL_AGENT_TEMPLATE),
         ("mem_management.md", MEM_MANAGEMENT),
@@ -25,6 +26,7 @@ fn cli_teaching_fragments() -> [(&'static str, &'static str); 11] {
         ("worker_suffix.md", WORKER_SUFFIX),
         ("team_creation_contract.md", TEAM_CREATION_CONTRACT),
         ("task_sequencing_contract.md", TASK_SEQUENCING_CONTRACT),
+        ("plan_task_flags.md", PLAN_TASK_FLAGS),
         ("agent_codeterm_primer.md", AGENT_CODETERM_PRIMER),
     ]
 }
@@ -576,6 +578,7 @@ fn prompt_placeholders_are_fully_substituted() {
             "{planning_compaction_contract}",
             "{team_creation_contract}",
             "{task_sequencing_contract}",
+            "{plan_task_flags}",
             "{test_author_guidance}",
             "{task_contract_line}",
             "{task_routing_line}",
@@ -782,6 +785,7 @@ fn every_prompt_md_has_a_loader() {
         "mem_rerank.md",
         "dreaming_rem.md",
         "task_sequencing_contract.md",
+        "plan_task_flags.md",
         "cartographer_suffix.md",
         "tool_less.md",
     ]
