@@ -135,6 +135,11 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
         )
         .route("/api/tabs/{id}/hook/stop", post(hook_routes::hook_stop))
         .route(
+            "/api/tabs/{id}/hook/context",
+            post(hook_routes::context_feed::ingest)
+                .layer(axum::extract::DefaultBodyLimit::max(65_536)),
+        )
+        .route(
             "/api/tabs/{id}/hook/session_start",
             post(hook_routes::hook_session_start),
         )

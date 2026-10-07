@@ -5,6 +5,7 @@
 //! sibling modules. This file owns `ClaudeProvider` and the `AgentProvider`
 //! trait impl, which delegates each method to the right child.
 
+mod context;
 mod detection;
 mod folder_trust;
 pub mod hook_ownership;
@@ -52,6 +53,12 @@ impl ClaudeProvider {
 }
 
 impl AgentProvider for ClaudeProvider {
+    fn parse_context_usage(
+        &self,
+        record: &serde_json::Value,
+    ) -> Option<codeterm_types::agent::context::TurnContext> {
+        context::parse(record)
+    }
     fn id(&self) -> &str {
         "claude"
     }

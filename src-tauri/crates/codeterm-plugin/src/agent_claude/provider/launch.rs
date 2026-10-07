@@ -40,9 +40,8 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         parts.push(ShellSyntax::quote(sid));
     }
 
-    if let Some(ref extra) = params.args {
-        parts.extend(extra.iter().map(|arg| ShellSyntax::quote_arg(arg)));
-    }
+    let extra = super::context::launch_args(params.args.as_deref().unwrap_or_default());
+    parts.extend(extra.iter().map(|arg| ShellSyntax::quote_arg(arg)));
 
     // Keep large worker prompts out of shell parsing and argv on every platform.
     if let Some(ref task) = params.task {
@@ -88,7 +87,8 @@ pub(super) fn build_resume_command_with_context(
     params: &crate::provider::AgentResumeParams,
 ) -> Option<String> {
     let base = build_resume_command(&params.session_id, params.skip_permissions)?;
-    let mut command = crate::provider::append_launch_args(base, &params.args);
+    let mut command =
+        crate::provider::append_launch_args(base, &super::context::launch_args(&params.args));
     if let Some(prompt) = params
         .system_prompt
         .as_deref()

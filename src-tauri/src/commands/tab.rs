@@ -540,6 +540,13 @@ pub fn chat_start_core(
         &snap,
     );
     let read_ms = read_started.elapsed().as_millis();
+    crate::api::hook_routes::context_feed::apply_snapshot(
+        svc,
+        &tab_id,
+        &session_id,
+        session_binding_nonce.as_deref(),
+        snap.context_usage.as_ref(),
+    );
     // Resume at the parsed end, not the file size: a held-back partial record
     // must be consumed once by the tailer rather than skipped.
     let (total, tailer_start_offset, bytes_read) = (snap.total, snap.end_offset, snap.bytes_read);

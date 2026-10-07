@@ -7,6 +7,7 @@ pub(crate) use crate::agent_claude::provider::ClaudeProvider;
 
 mod catalog;
 mod commands;
+mod context;
 mod core;
 mod folder_trust;
 mod launch_permissions;

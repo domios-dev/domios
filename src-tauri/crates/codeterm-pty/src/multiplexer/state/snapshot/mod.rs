@@ -579,6 +579,7 @@ fn install_leaf(
             agent_type_locked: restored_locked,
             agent_session_id: restored_session_id,
             agent_session_name: None,
+            context: None,
             agent_session_model: agent_session_model.clone(),
             agent_session_model_identity: None,
             pending_model_switch_observation: None,

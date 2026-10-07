@@ -17,6 +17,7 @@ fn tab_with(id: &str, backing: TabBacking) -> Tab {
         agent_type_locked: false,
         agent_session_id: None,
         agent_session_name: None,
+        context: None,
         agent_session_model: None,
         agent_session_model_identity: None,
         pending_model_switch_observation: None,

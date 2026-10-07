@@ -10,6 +10,7 @@ import type {
 } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
 import { permissionHookCapability } from "./permissionHook";
+import { parseContextUsage, statuslineLaunchArgs } from "./context";
 import { detectClaudeLaunchSession } from "./launchSession";
 import {
   fetchClaudeUsage,
@@ -173,6 +174,7 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
 
 const plugin: PluginModule = {
   permissionHookCapability,
+  parseContextUsage,
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt(prompt);
   },
@@ -339,9 +341,10 @@ const plugin: PluginModule = {
       parts.push("--session-id");
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
-    if (p.args && p.args.length > 0) {
+    const launchArgs = statuslineLaunchArgs(p.args || []);
+    if (launchArgs.length > 0) {
       // Quote each caller-supplied arg — it reaches a shell (a mesh peer could inject `; cmd`).
-      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+      for (const arg of launchArgs) parts.push(host.shell.quoteFor(String(arg), host.platform()));
     }
     // Keep large worker prompts out of shell parsing and argv on every platform.
     if (p.task) {
@@ -377,8 +380,9 @@ const plugin: PluginModule = {
   buildResumeCommandWithContext(params: ResumeParams): string {
     const p = params || ({} as ResumeParams);
     const parts = [this.buildResumeCommand!(p.sessionId, p.skipPermissions)];
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(quoteArg(String(p.args[i])));
+    const resumeArgs = statuslineLaunchArgs(p.args || []);
+    if (resumeArgs.length > 0) {
+      for (const arg of resumeArgs) parts.push(quoteArg(String(arg)));
     }
     const systemPrompt = p.systemPrompt;
     if (systemPrompt && systemPrompt.trim()) {
@@ -731,7 +735,9 @@ const plugin: PluginModule = {
       if (t === "system" && sourceSubtype === "compact_boundary") {
         timelineMarker = { kind: "context_compaction" };
       }
+      const context = parseContextUsage(v);
       out.push({
+        ...(context ? { context_usage: context } : {}),
         role: role,
         blocks: blocks,
         ts: ts,

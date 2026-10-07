@@ -369,6 +369,7 @@ fn commit_reported_session(
         .as_ref()
         .is_some_and(|pending| pending.session_id == session_id);
     if changed {
+        tab.context = None;
         if let Some(previous_session_id) = previous.as_deref() {
             tab.archive_context_epoch(provider_id, previous_session_id);
         }

@@ -150,6 +150,7 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
+  context?: { used_tokens: number; window_tokens: number; cost_usd: number | null; source: string };
   id: string;
   workspace_id?: string | null;
   /** Per-group sibling ordinal within the owning workspace or hierarchy. */

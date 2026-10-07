@@ -11,6 +11,7 @@ case "${1:-all}" in
     tests=(
       plugins/git/tests/plugin.test.ts
       plugins/provider-claude/tests/availability.test.ts
+      plugins/provider-claude/tests/context.test.ts
       plugins/provider-claude/tests/detect.test.ts
       plugins/provider-claude/tests/models.test.ts
       plugins/provider-claude/tests/status.test.ts
@@ -62,6 +63,7 @@ case "${1:-all}" in
     ;;
   provider-claude)
     tests=(
+      plugins/provider-claude/tests/context.test.ts
       plugins/provider-claude/tests/availability.test.ts
       plugins/provider-claude/tests/detect.test.ts
       plugins/provider-claude/tests/models.test.ts
