@@ -142,7 +142,8 @@ mod tests {
         } else {
             assert!(cmd.starts_with("unset CLAUDECODE && claude --dangerously-skip-permissions"));
         }
-        assert!(cmd.contains("showThinkingSummaries"));
+        assert!(cmd.contains(".ct-settings.json"));
+        assert!(!cmd.contains("showThinkingSummaries"));
         assert_eq!(cmd.matches("--settings").count(), 1);
     }
 

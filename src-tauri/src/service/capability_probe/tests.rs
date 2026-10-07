@@ -198,8 +198,8 @@ fn claude_init_probe_fake_binary_deadline_kills_owned_children() {
     run_fixture("blocked", Duration::from_secs(3), false);
 }
 fn run_fixture(mode: &str, deadline: Duration, success: bool) {
-    let node =
-        codeterm_plugin::js_runtime::resolved_bin_path("node").expect("canonical Node toolchain");
+    let node = codeterm_plugin::js_runtime::resolved_bin_path("node")
+        .unwrap_or_else(|| PathBuf::from("node"));
     let project = tempfile::tempdir().unwrap();
     let fixture =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/service/capability_probe/fixture.mjs");
