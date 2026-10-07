@@ -393,7 +393,7 @@ fn resume_with_context_keeps_the_conservative_default() {
         assert_eq!(
             resume_command,
             format!(
-                "codex -c check_for_update_on_startup=false resume '{CODEX_UUID}' --no-daemon '-m' 'gpt-6-sol' '-c' 'model_reasoning_effort=\"high\"'"
+                "codex -c check_for_update_on_startup=false -c project_doc_max_bytes=65536 resume '{CODEX_UUID}' --no-daemon '-m' 'gpt-6-sol' '-c' 'model_reasoning_effort=\"high\"'"
             )
         );
     }

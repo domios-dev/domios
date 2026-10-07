@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
 import { ComposerInputShell } from "./ComposerInputShell";
+import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import { storeBrowserFiles } from "./composerFiles";
 import { useComposerVoice } from "./voice/useComposerVoice";
 
@@ -61,7 +62,10 @@ export function ComposerActions({
         }}
       />
       <div className="relative flex w-full items-end gap-1.5">
-        <ComposerInputShell voiceUi={voiceUi} onSchedule={onSchedule} header={cardHeader} footer={cardFooter}
+        {onSchedule && !voiceUi.isPreview && (
+          <ComposerScheduleButton onSchedule={onSchedule} disabled={!voiceUi.mainIsSend} />
+        )}
+        <ComposerInputShell voiceUi={voiceUi} header={cardHeader} footer={cardFooter}
           actions={!voiceUi.isPreview && <ComposerAttachButton uploading={uploading} onClick={() => fileRef.current?.click()} />}>
           {children}
         </ComposerInputShell>
