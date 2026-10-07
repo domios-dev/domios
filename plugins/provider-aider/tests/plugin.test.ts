@@ -336,10 +336,14 @@ console.log("\n--- history file reader fallbacks ---\n");
     new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
     return context.module.exports.default;
   };
+  const historyPath = `${path.dirname(tmp)}/.aider.chat.history.md`;
   const viaFsReadFile = readVia({
     platform: () => "linux",
     shell: { quoteFor: (v: any) => `'${v}'` },
-    fs: { readFile: (p: string) => fs.readFileSync(p, "utf8") },
+    fs: {
+      readFile: (p: string) =>
+        p === historyPath ? fs.readFileSync(tmp, "utf8") : null,
+    },
   });
   eq(viaFsReadFile.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 2, "host.fs.readFile is used when present");
   const missingFs = readVia({ platform: () => "linux", shell: { quoteFor: (v: any) => `'${v}'` } });
