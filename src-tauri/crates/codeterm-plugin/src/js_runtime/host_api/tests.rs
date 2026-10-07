@@ -550,6 +550,7 @@ fn file_lock_cleanup_preserves_another_live_plugin_call() {
         .write(true)
         .open(&second_path)
         .unwrap();
+    let inherited_second = second.try_clone().unwrap();
     first.try_lock().unwrap();
     second.try_lock().unwrap();
     held_file_locks().lock().insert(
@@ -585,6 +586,7 @@ fn file_lock_cleanup_preserves_another_live_plugin_call() {
     release_call_file_locks("second-call");
     probe.try_lock().unwrap();
     probe.unlock().unwrap();
+    drop(inherited_second);
 }
 
 #[test]
