@@ -4,7 +4,7 @@
 use crate::prompts::{
     orchestrator_first_message, orchestrator_suffix, planner_suffix, worker_suffix,
     AGENT_CODETERM_PRIMER, AGENT_PAD_RULE, BRIDGE_MEM, CODETERM_RULE, PLANNING_COMPACTION_CONTRACT,
-    PLUGIN_DISCOVERY_RULE, QA_PIPELINE_DISCIPLINE, RICH_RENDERING_GUIDANCE,
+    PLAN_TASK_FLAGS, PLUGIN_DISCOVERY_RULE, QA_PIPELINE_DISCIPLINE, RICH_RENDERING_GUIDANCE,
     TASK_SEQUENCING_CONTRACT, TEAM_CREATION_CONTRACT, TESTING_DISCIPLINE, TEST_AUTHOR_GUIDANCE,
     WORKER_CODETERM_CONTEXT, WORKER_SUFFIX,
 };
@@ -30,8 +30,9 @@ const CHARTER_TASK_TOKEN: &str = "task_opaque_6f3b2";
 /// the surface 25 bytes over the previous 17_900. Raised to the new measurement
 /// rather than trimming another author's contract blind; the next addition pays
 /// the same cost of re-measuring deliberately.
-const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 18_627;
-const PLANNER_CONTRACT_MAX_BYTES: usize = 18_427;
+// Re-measured with the plan/task flag fragment both surfaces carry.
+const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 21_293;
+const PLANNER_CONTRACT_MAX_BYTES: usize = 20_916;
 // Worker suffix and launch overhead re-measured at 4_667 and 8_105 for the
 // provider-native subagent rule (9d4ae23d1).
 const WORKER_SUFFIX_MAX_BYTES: usize = 5_000;
@@ -40,9 +41,8 @@ const WORKER_SUFFIX_MAX_BYTES: usize = 5_000;
 const PRIMER_MAX_BYTES: usize = 2_600;
 const PROVIDER_RULES_MAX_BYTES: usize = 9_700;
 const WORKER_CHARTER_MAX_BYTES: usize = 1_450;
-const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 22_027;
-// Planner launch re-measured with the primer Sentinel command line.
-const PLANNER_LAUNCH_MAX_BYTES: usize = 22_027;
+const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 24_693;
+const PLANNER_LAUNCH_MAX_BYTES: usize = 24_650;
 const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 8_600;
 
 fn lf_len(text: &str) -> usize {
@@ -213,11 +213,13 @@ fn prompt_diet_role_launches_receive_each_fragment_once() {
         TASK_SEQUENCING_CONTRACT,
         PLANNING_COMPACTION_CONTRACT,
         TEAM_CREATION_CONTRACT,
+        PLAN_TASK_FLAGS,
     ];
     let planner_fragments = [
         PLANNING_COMPACTION_CONTRACT,
         TEAM_CREATION_CONTRACT,
         TEST_AUTHOR_GUIDANCE,
+        PLAN_TASK_FLAGS,
     ];
     let worker_fragments = [
         WORKER_CODETERM_CONTEXT,

@@ -107,6 +107,9 @@ pub const PLANNING_COMPACTION_CONTRACT: &str = include_str!("../prompts/planning
 /// agent, shell, or schedule. One source so neither can drift into a loose one.
 pub const TEAM_CREATION_CONTRACT: &str = include_str!("../prompts/team_creation_contract.md");
 
+/// Plan and task flag corrections, delivered once to each surface that writes plan state.
+pub const PLAN_TASK_FLAGS: &str = include_str!("../prompts/plan_task_flags.md");
+
 /// How the Orchestrator sequences work: actionability, group retrospectives, and rare plan pause.
 pub const TASK_SEQUENCING_CONTRACT: &str = include_str!("../prompts/task_sequencing_contract.md");
 
@@ -312,7 +315,8 @@ pub fn orchestrator_suffix() -> String {
             "{cartographer_contract_notice}",
             ORCH_CARTOGRAPHER_CONTRACT_NOTICE,
         )
-        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim());
+        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim())
+        .replace("{plan_task_flags}", PLAN_TASK_FLAGS.trim());
     format!(
         "{}\n\n{}\n\n## Canonical Orchestrator manual\n\n{}",
         role_prompt.trim(),
@@ -373,7 +377,8 @@ pub fn planner_suffix() -> String {
             "{planning_compaction_contract}",
             PLANNING_COMPACTION_CONTRACT.trim(),
         )
-        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim());
+        .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim())
+        .replace("{plan_task_flags}", PLAN_TASK_FLAGS.trim());
     format!(
         "{}\n\n{}\n\n## Canonical Planner manual\n\n{}",
         role_prompt.trim(),

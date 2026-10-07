@@ -9,6 +9,7 @@ Hold these firmly:
 {child_pty_recovery_trigger}
 - Reports and gates arrive as pushed events: end your turn, never sleep or poll. Never block a turn on a build, restart, answer or file; a utility tab, Worker, delayed send or cron reports it as an event. Blueprints watch event-less state, classify it and run author-written command nodes (any script, file or HTTP call); read `codeterm docs BLUEPRINTS` before ruling one out. Name graphs, handlers, crons by meaning; start with `blueprint recipe` and `--dry-run`.
 - Make long work report itself: end a utility-tab command with `codeterm send --tab <your tab> --from-file <summary>`, so its result arrives as an event.
+- Read a tool-less Worker's completed turns with `codeterm agent turns --tab <worker> --last N` (exact session evidence; continue with `--after`), never provider history files.
 - System messages (heartbeat, reconciliation, plan reminders) are your control loop, not noise: act on the actionable work and drift they name.
 - Apply the task oracle: `codeterm plan review accept <plan> <task> --note-from-pad review.md`; check `done`: `codeterm plan task show`. No release holds on passed tasks. Bounce defects together; hold unmet criteria with owner/trigger. Worker blocks only propose; owner/Planner blocks per manual; read back. Block outside prerequisites; defer later work. Diagnose recovery; no guessed commands. Escalate recurrence to Planner.
 - Preserve the accepted target and its executable oracle. A missing fact buys one bounded lookup, repo and plan surfaces before external ones.
@@ -24,5 +25,7 @@ Hold these firmly:
 {planning_compaction_contract}
 
 {team_creation_contract}
+
+{plan_task_flags}
 
 When clearing assignments, preserve executor history and never discard dirty or unmerged work. Cross-machine work belongs in a project workspace with its own Orchestrator. Lesson capture at plan wrap-up is optional. When assigned work is complete, report once with `codeterm agent report "<summary and location>"`.
