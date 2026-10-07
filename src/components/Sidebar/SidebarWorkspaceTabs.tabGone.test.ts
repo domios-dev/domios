@@ -1,8 +1,6 @@
-// Run: npx tsx src/components/Sidebar/hierarchyTabGone.test.ts
-
 import type { Tab, TabStatus } from "../../lib/types";
 import { ORCHESTRATOR_KIND } from "../../lib/roleKind";
-import { buildHierarchySubtree, buildHierarchyTree } from "./HierarchyTree";
+import { groupWorkspaceTeamMembers, visibleWorkspaceTabs } from "./workspaceTeamModel";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -16,17 +14,21 @@ function tab(id: string, role: Tab["role"], roleProfile: string | null, parent?:
     title: id,
     cwd: null,
     role,
+    team_id: "team",
     role_profile: roleProfile,
     parent_tab_id: parent ?? null,
   } as Tab;
 }
 
-function collectIds(nodes: ReturnType<typeof buildHierarchySubtree>): string[] {
-  return nodes.flatMap((n) => [n.tab.id, ...collectIds(n.children)]);
+function collectIds(tabs: Record<string, Tab>): string[] {
+  return visibleWorkspaceTabs(Object.values(tabs), tabs).map((tab) => tab.id);
 }
 
-// A closed worker Tab drops out of the snapshot; the tree must not resurrect it
-// from a plan task that still carries its assigned_tab_id.
+function workerIds(tabs: Record<string, Tab>): string[] {
+  const visible = visibleWorkspaceTabs(Object.values(tabs), tabs);
+  return (groupWorkspaceTeamMembers(visible).get("team") ?? []).map((member) => member.tab.id);
+}
+
 const orchestrator = tab("orch", "Manager", ORCHESTRATOR_KIND);
 const liveWorker = tab("worker-live", "Worker", null, "orch");
 const goneWorker = tab("worker-gone", "Worker", null, "orch");
@@ -36,28 +38,27 @@ const statuses: Record<string, TabStatus> = {
   "worker-gone": "Working",
 };
 
-// Before close: both workers render under the orchestrator.
 {
   const tabs = { orch: orchestrator, "worker-live": liveWorker, "worker-gone": goneWorker };
-  const sub = buildHierarchySubtree("orch", tabs, statuses);
-  const ids = collectIds(sub);
+  const ids = workerIds(tabs);
   assert(ids.includes("worker-live"), "live worker present pre-close");
   assert(ids.includes("worker-gone"), "gone worker present pre-close");
 }
 
-// After close: the tab list excludes worker-gone. The tree must exclude it too,
-// with no fallback that revives it from a lingering task.assigned_tab_id.
 {
   const tabs = { orch: orchestrator, "worker-live": liveWorker };
-  const sub = buildHierarchySubtree("orch", tabs, statuses);
-  const ids = collectIds(sub);
+  const ids = workerIds(tabs);
   assert(ids.includes("worker-live"), "live worker still rendered");
   assert(!ids.includes("worker-gone"), "closed worker must NOT render as a live child");
 
-  const tree = buildHierarchyTree(tabs, statuses);
-  const treeIds = collectIds(tree);
-  assert(treeIds.includes("orch"), "orchestrator root present");
-  assert(!treeIds.includes("worker-gone"), "buildHierarchyTree must not render gone worker");
+  assert(statuses["worker-gone"] === "Working", "stale status retained");
+  const workspaceIds = collectIds(tabs);
+  assert(workspaceIds.includes("orch"), "orchestrator root present");
+  assert(!workspaceIds.includes("worker-gone"), "workspace rows must not render gone worker");
 }
 
-console.log("✓ hierarchy: closed worker Tab is not rendered as a live child");
+console.log("✓ workspace sidebar: closed worker Tab is not rendered as a live child");
+
+const staleOrder = [orchestrator, liveWorker, goneWorker];
+const current = { orch: orchestrator, "worker-live": liveWorker };
+assert(!visibleWorkspaceTabs(staleOrder, current).some((tab) => tab.id === "worker-gone"), "stale workspace ordering cannot resurrect a tab");
