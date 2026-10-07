@@ -112,6 +112,18 @@ pub fn detached(tab: &str, nonce: &str, connection: &str) {
     }
 }
 
+pub fn retry_attachment(tab: &str, nonce: &str) {
+    if let Some(launch) = LAUNCHES
+        .lock()
+        .get_mut(tab)
+        .filter(|launch| launch.nonce == nonce)
+    {
+        launch.disconnect();
+        launch.attach_failed = false;
+        CHANGED.notify_all();
+    }
+}
+
 pub fn attach_failed(tab: &str, nonce: &str) {
     if let Some(launch) = LAUNCHES
         .lock()

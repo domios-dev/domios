@@ -59,6 +59,22 @@ impl ServiceContext {
                         "[launch-readiness] ignored Finished marker before cron provider launch tab={tab_id} pty={pty_id}"
                     );
                 }
+                if let Some(sidecar) = crate::service::codex_rpc::lifecycle::for_tab(tab_id)
+                    .filter(|_| proof.is_some())
+                {
+                    crate::service::codex_rpc::recovery::try_start(
+                        self,
+                        tab_id,
+                        &sidecar.launch_nonce,
+                        "remote TUI exited to shell",
+                    );
+                    crate::api::events::emit_everywhere(
+                        &self.app_handle,
+                        "shell-command-changed",
+                        serde_json::json!({ "tab_id": tab_id, "event": event }),
+                    );
+                    continue;
+                }
                 if let Some(proof) = proof {
                     let ga_snapshot = { self.mux.read().get_tab(tab_id).cloned() };
                     let ga_tree_key = self.provider_tree_key_for_tab(tab_id, pty_id);

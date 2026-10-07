@@ -512,8 +512,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         let pty_claim = svc.pty_ownership.acquire(&tab_id);
         let existing_pty = existing_live_pty(&svc, &tab_id);
         let fresh_pty = svc.model_provider_requires_fresh_pty(&agent_cmd)
-            || crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some()
-            || crate::service::codex_rpc::recovery::requires_fresh_pty(&tab_id);
+            || crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some();
         let reusable_pty = existing_pty.clone().filter(|_| !fresh_pty);
         let (backend_pty, reused_live_pty) = match reusable_pty {
             Some(pty_id) => match start_backend_reader(&svc, &pty_id) {
@@ -570,7 +569,6 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
         let mut pty_id = selection.pty_id;
-        crate::service::codex_rpc::recovery::after_relink(&svc, &tab_id, &pty_id);
         launch.replace(pty_id.clone());
         if !launch.emit(&svc, BootStage::PtySpawned) {
             return;

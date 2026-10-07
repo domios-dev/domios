@@ -162,6 +162,15 @@ impl LaunchGeneration {
         ) {
             return true;
         }
+        crate::service::codex_rpc::recovery::try_start(
+            svc,
+            &self.tab_id,
+            nonce,
+            "remote TUI attachment failed",
+        );
+        if crate::service::codex_rpc::recovery::wait_recovery(&self.tab_id, nonce) {
+            return true;
+        }
         self.fail(
             svc,
             LaunchFailure::ProviderInputNotReady("remote TUI attachment failed".into()),
