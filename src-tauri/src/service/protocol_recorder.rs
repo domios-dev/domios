@@ -557,9 +557,7 @@ mod tests {
             .collect()
     }
 
-    // WHAT: hook payload secrets are redacted before a line reaches disk.
-    // WHY: raw hook traffic can contain environment credentials or bearer values.
-    // ORACLE: the writer barrier completes, JSON remains parseable, and secret bytes are absent.
+    // raw hook traffic can contain environment credentials or bearer values.
     #[test]
     fn writes_redacted_hook_posts_as_ndjson() {
         let temp = tempfile::tempdir().unwrap();
@@ -581,9 +579,7 @@ mod tests {
         assert_eq!(value["body"]["message"], "Authorization: Bearer <redacted>");
     }
 
-    // WHAT: a full writer queue drops immediately and exposes an exact counter.
-    // WHY: hook responses must never wait behind disk writes.
-    // ORACLE: a writer gate holds the first record, the second fills capacity, and the third is counted.
+    // hook responses must never wait behind disk writes.
     #[test]
     fn full_channel_drops_without_waiting_and_increments_counter() {
         let temp = tempfile::tempdir().unwrap();
@@ -606,9 +602,7 @@ mod tests {
         assert_eq!(collect_files(temp.path()).len(), 1);
     }
 
-    // WHAT: recording off creates no files.
-    // WHY: protocol diagnostics are opt in and disabled by default.
-    // ORACLE: the disabled recorder refuses the hook post and leaves its root absent.
+    // protocol diagnostics are opt in and disabled by default.
     #[test]
     fn disabled_recorder_creates_no_files() {
         let disabled_dir = tempfile::tempdir().unwrap();
@@ -617,9 +611,7 @@ mod tests {
         assert!(!disabled_dir.path().join("logs/protocol").exists());
     }
 
-    // WHAT: per-tab rotation keeps only the configured file count and size.
-    // WHY: a long-running development session must not grow its protocol log without bound.
-    // ORACLE: repeated large posts leave at most two files, each within the injected size limit.
+    // a long-running development session must not grow its protocol log without bound.
     #[test]
     fn rotation_caps_per_tab_file_count_and_size() {
         let temp = tempfile::tempdir().unwrap();
@@ -646,9 +638,7 @@ mod tests {
         assert!(total <= 640);
     }
 
-    // WHAT: retention removes old files based on the injected wall clock.
-    // WHY: the recorder must enforce its history window without waiting for a restart.
-    // ORACLE: advancing beyond fourteen days removes the prior file before the next post is written.
+    // the recorder must enforce its history window without waiting for a restart.
     #[test]
     fn retention_expires_files_without_restart() {
         let temp = tempfile::tempdir().unwrap();
@@ -669,9 +659,7 @@ mod tests {
         assert!(fs::metadata(&files[0]).unwrap().len() <= 320);
     }
 
-    // WHAT: total retention is shared across tab folders and removes the oldest record file.
-    // WHY: independent per-tab rotation must not let aggregate storage exceed its global cap.
-    // ORACLE: two bounded-tab records exceed the injected total limit, leaving only the newer tab file.
+    // independent per-tab rotation must not let aggregate storage exceed its global cap.
     #[test]
     fn global_total_limit_prunes_oldest_tab_file() {
         let temp = tempfile::tempdir().unwrap();
