@@ -114,9 +114,12 @@ fn shell_command_state_prompt_does_not_guess_completion() {
 #[test]
 fn shell_command_state_isolated_from_agent_status_and_foreign_pty() {
     use crate::multiplexer::state::MultiplexerState;
-    let (mut mux, tab_id) = MultiplexerState::new();
+    let mut mux = MultiplexerState::empty();
+    let workspace = mux.create_workspace("Shell".into(), None);
+    let tab_id = mux.create_tab(&workspace.id).unwrap();
     mux.link_pty(&tab_id, "own".into());
     let tab = mux.get_tab_mut(&tab_id).unwrap();
+    assert!(tab.is_utility_shell());
     let state = ShellCommandState {
         activity: ShellActivity::Running,
         last_exit_code: None,

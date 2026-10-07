@@ -5,16 +5,16 @@ use crate::storage::{Storage, StorageConfig};
 
 #[test]
 fn tab_purpose_desk_restore_and_transport_snapshot() {
-    let root = tempfile::tempdir().unwrap();
-    let storage = Storage::open(root.path(), StorageConfig::default()).unwrap();
-    let desk = StorageDeskAdapter::from_storage(storage.clone());
-    let (mut mux, tab_id) = MultiplexerState::new();
     for purpose in [
         ShellPurpose::Build,
         ShellPurpose::Dev,
         ShellPurpose::Qa,
         ShellPurpose::Shell,
     ] {
+        let root = tempfile::tempdir().unwrap();
+        let storage = Storage::open(root.path(), StorageConfig::default()).unwrap();
+        let desk = StorageDeskAdapter::from_storage(storage.clone());
+        let (mut mux, tab_id) = MultiplexerState::new();
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.purpose = purpose;
         tab.shell_command_state = ShellCommandState {
@@ -38,11 +38,11 @@ fn tab_purpose_desk_restore_and_transport_snapshot() {
             summary[0]["purpose"],
             serde_json::to_value(purpose).unwrap()
         );
+        storage
+            .shutdown()
+            .wait(std::time::Duration::from_secs(30))
+            .unwrap();
     }
-    storage
-        .shutdown()
-        .wait(std::time::Duration::from_secs(30))
-        .unwrap();
 }
 
 #[test]
