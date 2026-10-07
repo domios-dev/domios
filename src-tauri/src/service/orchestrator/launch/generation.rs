@@ -135,6 +135,12 @@ impl LaunchGeneration {
             svc.void_launch_session_proof(&self.tab_id);
         }
         let reason = failure.reason();
+        crate::service::launch_diagnostics::log_failure_screen(
+            svc,
+            &self.tab_id,
+            &self.pty_id,
+            &reason,
+        );
         log::warn!(
             "[launch] Tab {} launch failed on PTY {} at {:?}: {reason}",
             self.tab_id,
