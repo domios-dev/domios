@@ -145,19 +145,33 @@ export function readAiderHistory(
   cursor?: string | null,
 ): HistoryParseResult | null {
   try {
-    const fs = (host as any).fs || {};
-    const read =
-      typeof fs.readFile === "function"
-        ? fs.readFile
-        : typeof fs.readTextFile === "function"
-          ? fs.readTextFile
-          : typeof (host as any).readFile === "function"
-            ? (host as any).readFile
-            : null;
-    if (!read) return null;
-    const content = read.call(fs.readFile ? fs : host, filePath);
+    const content = readHistoryFile(filePath);
     if (content === null || content === undefined) return null;
     return parseAiderHistory(String(content), sinceMs, cursor);
+  } catch (_) {
+    return null;
+  }
+}
+
+function readHistoryFile(filePath: string): string | null {
+  const h = host as any;
+  const fs = h.fs || {};
+  const candidates: Array<[any, any]> = [
+    [h, h.readTextFile],
+    [h, h.readFile],
+    [fs, fs.readFile],
+    [fs, fs.readTextFile],
+  ];
+  for (const [self, fn] of candidates) {
+    if (typeof fn === "function") {
+      const value = fn.call(self, filePath);
+      if (value !== null && value !== undefined) return String(value);
+    }
+  }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const nodeFs = require("fs");
+    return nodeFs.readFileSync(filePath, "utf8");
   } catch (_) {
     return null;
   }
