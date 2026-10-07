@@ -6,9 +6,17 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-/// The plugin's authoring config file inside its bundle dir.
-pub fn config_yaml_path(bundle_dir: &Path) -> PathBuf {
-    bundle_dir.join("config.yaml")
+/// The plugin's authoring config file: the same path `plugin config` writes.
+pub fn config_yaml_path(bundle_dir: &Path, plugin_id: &str) -> PathBuf {
+    config_yaml_path_in(
+        &codeterm_paths::data_dir().join("plugins"),
+        bundle_dir,
+        plugin_id,
+    )
+}
+
+fn config_yaml_path_in(user_plugins_root: &Path, bundle_dir: &Path, plugin_id: &str) -> PathBuf {
+    codeterm_util::plugin_config::config_yaml_path(user_plugins_root, plugin_id, bundle_dir)
 }
 
 /// Parse a YAML document into a JSON value. An empty document is `null`.
@@ -24,7 +32,7 @@ pub fn yaml_to_json(yaml: &str) -> Result<Value, String> {
 /// Resolve the settings JSON delivered to the plugin VM: `config.yaml` wins, else
 /// the legacy `config.plugins.<id>` bag (migration safety), else `"null"`.
 pub fn resolve_settings_json(bundle_dir: &Path, plugin_id: &str) -> String {
-    let yaml_text = std::fs::read_to_string(config_yaml_path(bundle_dir)).ok();
+    let yaml_text = std::fs::read_to_string(config_yaml_path(bundle_dir, plugin_id)).ok();
     // Legacy config.plugins bag is not available in this crate; YAML wins.
     resolve_settings_inner(yaml_text.as_deref(), plugin_id, || None)
 }
@@ -67,12 +75,13 @@ mod tests {
     #[test]
     fn config_yaml_wins_over_legacy_bag() {
         let dir = tempfile::tempdir().unwrap();
+        let id = "transcribe-fixture-q9";
         std::fs::write(
-            config_yaml_path(dir.path()),
+            config_yaml_path(dir.path(), id),
             "# the engine to use\nengine: whisper\n",
         )
         .unwrap();
-        let json = resolve_settings_json(dir.path(), "transcribe");
+        let json = resolve_settings_json(dir.path(), id);
         let parsed: Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["engine"], "whisper");
     }
@@ -83,6 +92,25 @@ mod tests {
         // No config.yaml and (in test) no matching config.plugins entry → "null".
         let json = resolve_settings_json(dir.path(), "no-such-plugin-xyz");
         assert_eq!(json, "null");
+    }
+
+    #[test]
+    fn workspace_bundle_reads_the_config_written_to_its_installed_copy() {
+        let root = tempfile::tempdir().unwrap();
+        let user = root.path().join("plugins");
+        let installed = user.join("codex");
+        let workspace_bundle = root.path().join("repo/plugins/provider-codex");
+        std::fs::create_dir_all(&installed).unwrap();
+        std::fs::create_dir_all(&workspace_bundle).unwrap();
+        std::fs::write(installed.join("plugin.json"), "{}").unwrap();
+        std::fs::write(installed.join("config.yaml"), "engine: user\n").unwrap();
+        std::fs::write(workspace_bundle.join("config.yaml"), "engine: stale\n").unwrap();
+
+        let path = config_yaml_path_in(&user, &workspace_bundle, "codex");
+
+        assert_eq!(path, installed.join("config.yaml"));
+        let text = std::fs::read_to_string(path).unwrap();
+        assert_eq!(yaml_to_json(&text).unwrap()["engine"], "user");
     }
 
     #[test]
