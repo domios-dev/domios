@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use serde::Deserialize;
 
-use super::vm::{call_json, PluginVm};
+use super::vm::{call_json_interruptible, PluginVm};
 use crate::converter::{
     output_within, Conversion, ConvertError, ConvertOutput, ConvertRequest, Converter,
 };
@@ -45,6 +45,9 @@ impl Converter for JsConverter {
         if Instant::now() >= req.deadline {
             return Err(ConvertError::DeadlineExceeded);
         }
+        if req.cancellation.is_cancelled() {
+            return Err(ConvertError::Cancelled);
+        }
         let args = [serde_json::json!({
             "inputPath": req.input_path.to_string_lossy().to_string(),
             "from": req.from.as_str(),
@@ -53,7 +56,13 @@ impl Converter for JsConverter {
             "language": req.language,
             "deadlineMs": req.deadline.saturating_duration_since(Instant::now()).as_millis(),
         })];
-        match call_json::<ConvertOut>(&self.vm, "convert", &args) {
+        match call_json_interruptible::<ConvertOut>(
+            &self.vm,
+            "convert",
+            &args,
+            req.cancellation.clone(),
+            req.deadline,
+        ) {
             Ok(out) => {
                 if let Some(e) = out.error {
                     return Err(ConvertError::RequestFailed(e));
@@ -71,6 +80,8 @@ impl Converter for JsConverter {
                 }
                 Err(ConvertError::NoOutput)
             }
+            Err(_) if req.cancellation.is_cancelled() => Err(ConvertError::Cancelled),
+            Err(_) if Instant::now() >= req.deadline => Err(ConvertError::DeadlineExceeded),
             Err(e) => Err(ConvertError::RequestFailed(format!(
                 "plugin convert failed: {e:?}"
             ))),
