@@ -457,6 +457,21 @@ console.log("\n--- per-nonce session files ---\n");
   eq(unknownMtime.detectSessionId("/ws", [], 0), "nonce-a", "unknown mtime keeps the file when no maxAgeMs is set");
   const empty = readVia(hostWith([]));
   eq(empty.detectSessionId("/ws", [], 0), null, "empty history dir yields no session");
+  eq(
+    p.detectLaunchSession!({ cwd: "/ws", launchMarker: "nonce-b", launchedAtMs: now }),
+    { sessionId: "nonce-b", source: "launch_marker" },
+    "detectLaunchSession binds the launch marker to its own history file",
+  );
+  eq(
+    p.detectLaunchSession!({ cwd: "/ws", launchMarker: "nonce-z", launchedAtMs: now }),
+    null,
+    "detectLaunchSession rejects a marker with no history file",
+  );
+  eq(
+    p.detectLaunchSession!({ cwd: "/ws", launchMarker: null, launchedAtMs: now }),
+    null,
+    "detectLaunchSession rejects a launch without a marker",
+  );
 }
 
 console.log("\n--- thinking blocks stripped from assistant text ---\n");
@@ -630,8 +645,12 @@ console.log("\n--- launch command carries per-nonce history files ---\n");
     secretGet: (name: string) => (name === "my-key" ? "sk-secret-value" : null),
   });
   const p = loadAiderWithHost(secretHost);
-  const posix = p.buildLaunchCommand({ cwd: "/ws" });
+  const posix = p.buildLaunchCommand({ cwd: "/ws", sessionId: "nonce-x" });
   assert(posix.includes("mkdir -p '/ws/.aider/history'"), "posix launch creates the history folder");
+  assert(
+    posix.includes("export CODETERM_SESSION_BINDING_NONCE='nonce-x';"),
+    "posix launch exports the binding nonce for the history flags",
+  );
   assert(
     posix.includes("--chat-history-file '/ws/.aider/history/$CODETERM_SESSION_BINDING_NONCE.md'"),
     "posix launch names the chat history file by the binding nonce",
@@ -648,10 +667,14 @@ console.log("\n--- launch command carries per-nonce history files ---\n");
     },
     secretGet: (name: string) => (name === "my-key" ? "sk-secret-value" : null),
   });
-  const win = loadAiderWithHost(winHost).buildLaunchCommand({ cwd: "C:/ws" });
+  const win = loadAiderWithHost(winHost).buildLaunchCommand({ cwd: "C:/ws", sessionId: "nonce-x" });
   assert(
     win.includes('New-Item -ItemType Directory -Force -Path "C:/ws/.aider/history"'),
     "powershell launch creates the history folder",
+  );
+  assert(
+    win.includes('$env:CODETERM_SESSION_BINDING_NONCE="nonce-x";'),
+    "powershell launch exports the binding nonce for the history flags",
   );
   assert(
     win.includes('--chat-history-file "C:/ws/.aider/history/$env:CODETERM_SESSION_BINDING_NONCE.md"'),
