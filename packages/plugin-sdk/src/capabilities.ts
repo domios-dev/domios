@@ -13,6 +13,11 @@ export interface TurnEvidenceNormalization {
   dropLineBreaks?: boolean;
 }
 
+/** Manifest spawn contract; absent means the provider does not restore chat on resume. */
+export interface ResumeHistoryCapability {
+  restoresConversationHistoryOnResume?: boolean;
+}
+
 export interface TabContext {
   cwd?: string | null;
 }
@@ -169,6 +174,9 @@ export interface LaunchSessionDetection {
 
 /** Full launch context for a resumed session, not just its id. */
 export interface ResumeParams {
+  cwd?: string | null;
+  contextFiles?: ContextFiles | null;
+  toolLessInstructionsPath?: string | null;
   sessionId: string;
   skipPermissions?: boolean;
   agentName?: string | null;

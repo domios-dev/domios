@@ -1019,6 +1019,9 @@ fn requested_and_actual_model_identity_round_trips_through_snapshot() {
 fn restorable_launch_parameters_round_trip_in_snapshot() {
     let (mut state, tab_id) = MultiplexerState::new();
     let launch = crate::multiplexer::types::RestorableLaunchParameters {
+        context_files: None,
+        context_skills: None,
+        worker_restart: None,
         captured: true,
         requested_model: Some("gpt-6-luna".into()),
         model: Some("gpt-6-luna".into()),

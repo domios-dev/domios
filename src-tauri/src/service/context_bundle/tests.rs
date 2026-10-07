@@ -87,3 +87,50 @@ fn context_bundle_forwards_files_and_materialized_skills_without_changing_brief(
     assert_eq!(files.read, ["/opaque/context.md", "/opaque/skills.md"]);
     assert!(attach_skills(&params, Some("opaque"), |_| None).is_none());
 }
+
+#[test]
+fn resume_context_revalidates_files_and_rematerializes_shared_instructions() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("read.md"), "opaque context").unwrap();
+    let params = crate::agent::provider::AgentResumeParams {
+        session_id: "existing-own-session".into(),
+        cwd: Some(dir.path().to_string_lossy().into_owned()),
+        context_files: Some(TaskFiles {
+            edit: vec!["new.rs".into()],
+            read: vec!["read.md".into()],
+        }),
+        ..Default::default()
+    };
+    let capability = Some(ContextAttach {
+        editable: true,
+        read_only: true,
+    });
+    let mut bodies = Vec::new();
+    let prepared = prepare_resume_context(
+        &params,
+        Some("opaque skill"),
+        true,
+        crate::agent::provider::SystemPromptDelivery::External,
+        capability,
+        |body, suffix| {
+            bodies.push(body.to_string());
+            Some(format!("/opaque/{}", suffix.unwrap()))
+        },
+    )
+    .unwrap();
+    assert_eq!(prepared.session_id, params.session_id);
+    assert_eq!(prepared.cwd, params.cwd);
+    assert_eq!(bodies, ["opaque skill", crate::prompts::TOOL_LESS]);
+    assert!(prepared.tool_less_instructions_path.is_some());
+    assert_eq!(prepared.context_files.unwrap().read.len(), 2);
+    std::fs::remove_file(dir.path().join("read.md")).unwrap();
+    assert!(prepare_resume_context(
+        &params,
+        None,
+        true,
+        crate::agent::provider::SystemPromptDelivery::External,
+        capability,
+        |_, _| panic!("invalid context must refuse before materialization"),
+    )
+    .is_none());
+}

@@ -313,6 +313,9 @@ pub struct LaunchArtifactSweepReport {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentResumeParams {
+    pub cwd: Option<String>,
+    pub context_files: Option<codeterm_types::plan::TaskFiles>,
+    pub tool_less_instructions_path: Option<String>,
     pub session_id: String,
     pub skip_permissions: bool,
     pub agent_name: Option<String>,

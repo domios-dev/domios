@@ -65,6 +65,16 @@ impl ServiceContext {
                 entry.binding.source(),
                 evidence.as_ref(),
             );
+            if evidence.as_ref().is_some_and(|evidence| {
+                super::super::restart::completed_pending_turn(&pending, evidence)
+            }) {
+                if let Err(error) = self.settle_restored_worker_turn(target, &pending.delivery_id) {
+                    log::error!(
+                        "[tool-less-restart] target={target} completion claim refused: {error}"
+                    );
+                    continue;
+                }
+            }
             let report = {
                 entry.worker.lock().observe_prepared_completion(
                     &pending,
@@ -107,6 +117,14 @@ impl ServiceContext {
         pending: &PendingReplyRelay,
         action: ReplyRelayDecision,
     ) {
+        if !matches!(&action, ReplyRelayDecision::Wait) {
+            if let Err(error) = self.settle_restored_worker_turn(target, &pending.delivery_id) {
+                log::error!(
+                    "[tool-less-restart] target={target} completion persistence failed: {error}"
+                );
+                return;
+            }
+        }
         match action {
             ReplyRelayDecision::Wait => return,
             ReplyRelayDecision::DropClosedSender => {
