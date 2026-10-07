@@ -504,7 +504,8 @@ fn team_close_does_not_rewrite_done_task_lane_for_a_closed_attempt() {
 #[test]
 fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     let dir = tempfile::tempdir().unwrap();
-    let root = dir.path().canonicalize().unwrap();
+    let root =
+        std::path::PathBuf::from(codeterm_paths::canonical_cwd(&dir.path().to_string_lossy()));
     let repo = root.join("repo");
     fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init"]);

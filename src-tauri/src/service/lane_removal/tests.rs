@@ -552,8 +552,11 @@ fn lane_remove_prunes_a_registration_for_an_already_missing_worktree() {
 #[test]
 fn lane_remove_reports_a_missing_branch_as_already_removed() {
     let root = tempfile::tempdir().unwrap();
-    let project = fixture_project(&root.path().canonicalize().unwrap());
-    let worktree = root.path().canonicalize().unwrap().join("detached");
+    let root_path = PathBuf::from(codeterm_paths::canonical_cwd(
+        &root.path().to_string_lossy(),
+    ));
+    let project = fixture_project(&root_path);
+    let worktree = root_path.join("detached");
     git(
         &project,
         &[
