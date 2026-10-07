@@ -24,7 +24,7 @@ pub(in crate::socket::server) fn build_brief_with_personality(
     )
 }
 
-pub(super) fn build_brief_with_manifest(
+pub(crate) fn build_brief_with_manifest(
     task: &Task,
     sections: &[TaskSection],
     plan_id: &str,
