@@ -82,13 +82,13 @@ function fetchLiveModels(key: string): AnthropicModel[] | null {
 function probeInstalledCli(): CliProbe {
   let raw: string;
   try {
-    raw = host.exec(JSON.stringify({ bin: "claude", args: ["--version"], timeoutMs: 3000 }));
+    raw = host.providerVersionJson();
   } catch (_) {
     return { kind: "unreachable" };
   }
-  const result = safeJson(raw) as { code?: number; stdout?: string } | null;
-  if (!result || result.code !== 0) return { kind: "unreachable" };
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(String(result.stdout || ""));
+  const result = safeJson(raw) as { status?: string; version?: string } | null;
+  if (!result || result.status !== "detected") return { kind: "unreachable" };
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(result.version || ""));
   if (!match) return { kind: "unreachable" };
   return { kind: "version", version: [Number(match[1]), Number(match[2]), Number(match[3])] };
 }
