@@ -37,3 +37,5 @@ anchors:
   - core:supporter-agent
   - core:host-state
 ```
+
+The exact Team graph view explains each node with bounded, redacted definition detail in its creation scope. The workspace overview does not expose definitions. Execution output, environment and credentials remain private. Accepted decisions distinguish pattern matches from actual adapter use; configured fallback is separate, and incomplete decision history never implies that an adapter was unused. Missing origin evidence stays unknown.

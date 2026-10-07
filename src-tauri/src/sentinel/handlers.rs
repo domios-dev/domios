@@ -298,6 +298,8 @@ pub struct ResultRecord {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Transition {
+    #[serde(default)]
+    pub decision: Option<super::provenance::Decision>,
     pub id: String,
     pub bucket: String,
     pub accepted_at: u64,
@@ -384,11 +386,46 @@ mod tests {
 }
 
 impl Store {
+    pub(super) fn stage_accept_decision(
+        &mut self,
+        job: &Sentinel,
+        bucket: &str,
+        evidence: &super::provenance::Evidence,
+    ) -> Staged<bool> {
+        if !evidence.matches(job)
+            || !evidence
+                .decision
+                .as_ref()
+                .is_some_and(super::provenance::Decision::valid)
+        {
+            return Staged::ready(Err(
+                "accepted transition requires exact decision evidence".into()
+            ));
+        }
+        self.stage_accept_with_decision(
+            job,
+            bucket,
+            &evidence.evaluation_id,
+            evidence.decision.clone(),
+        )
+    }
+
+    #[cfg(test)]
     pub(super) fn stage_accept_transition(
         &mut self,
         job: &Sentinel,
         bucket: &str,
         id: &str,
+    ) -> Staged<bool> {
+        self.stage_accept_with_decision(job, bucket, id, None)
+    }
+
+    fn stage_accept_with_decision(
+        &mut self,
+        job: &Sentinel,
+        bucket: &str,
+        id: &str,
+        decision: Option<super::provenance::Decision>,
     ) -> Staged<bool> {
         if let Err(error) = self.ensure_available() {
             return Staged::ready(Err(error));
@@ -425,6 +462,7 @@ impl Store {
                 .map(|_| false);
         }
         let transition = Transition {
+            decision,
             id: id.into(),
             bucket: bucket.into(),
             accepted_at: now,

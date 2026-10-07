@@ -48,6 +48,7 @@ pub(in crate::sentinel) enum ResourceState {
 pub(in crate::sentinel) struct ProbeFailure {
     pub primary: &'static str,
     pub resources: ResourceState,
+    pub processes_confirmed: bool,
     pub cleanup_errors: Vec<String>,
     pub unconfirmed: Vec<ResourceKind>,
     pub late_by: Option<Duration>,
@@ -61,6 +62,7 @@ impl ProbeFailure {
         Self {
             primary,
             resources: ResourceState::Confirmed,
+            processes_confirmed: false,
             cleanup_errors: Vec::new(),
             unconfirmed: Vec::new(),
             late_by: None,

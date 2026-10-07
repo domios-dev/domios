@@ -22,6 +22,7 @@ use crate::storage::{
 };
 
 mod coherence;
+mod decision_detail;
 mod graph_fields;
 mod pipeline_journal;
 mod races;
@@ -380,6 +381,7 @@ fn storage_sentinel_definition_versions_are_independent_of_runtime_state() {
         generation,
         codec::outcome(&job),
         crate::storage::NewTransition {
+            decision_json: None,
             id: "eval-after-update".into(),
             bucket: "done".into(),
             accepted_at: 1000,
