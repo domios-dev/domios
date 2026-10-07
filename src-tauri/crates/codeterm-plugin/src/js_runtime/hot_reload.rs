@@ -224,6 +224,7 @@ pub struct HotReloadRegistry {
     failed: Mutex<HashMap<PathBuf, LoadFingerprint>>,
     service: Mutex<Option<std::sync::Weak<dyn PluginHostCtx>>>,
     reconciliation: Mutex<()>,
+    settings_changed: Mutex<Vec<String>>,
     #[cfg(test)]
     load_count: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
@@ -284,6 +285,7 @@ impl HotReloadRegistry {
             failed: Mutex::new(HashMap::new()),
             service: Mutex::new(None),
             reconciliation: Mutex::new(()),
+            settings_changed: Mutex::new(Vec::new()),
             #[cfg(test)]
             load_count: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
@@ -336,7 +338,7 @@ impl HotReloadRegistry {
                         manifest_path: manifest_path.clone(),
                         manifest_mtime: mtime_or_epoch(manifest_path),
                         entry_mtime: mtime_or_epoch(&entry_path),
-                        config_mtime: config_mtime_for(manifest_path),
+                        config_mtime: config_mtime_for(manifest_path, &manifest.id),
                     },
                 );
                 activated.insert(manifest.id);
@@ -435,12 +437,33 @@ impl HotReloadRegistry {
     }
 
     pub fn tick(&self) {
-        let _reconciliation = self.reconciliation.lock();
-        self.tick_inner();
+        {
+            let _reconciliation = self.reconciliation.lock();
+            self.tick_inner();
+        }
+        self.flush_settings_changed();
     }
 
     pub fn refresh_installed(&self, ids: &[String]) -> Result<(), String> {
-        let _reconciliation = self.reconciliation.lock();
+        let result = {
+            let _reconciliation = self.reconciliation.lock();
+            self.refresh_installed_reconciled(ids)
+        };
+        self.flush_settings_changed();
+        result
+    }
+
+    /// Settings are already live in the VM; refresh what the host derived from them,
+    /// outside the reconciliation lock because the host side takes its own locks.
+    fn flush_settings_changed(&self) {
+        let ids = std::mem::take(&mut *self.settings_changed.lock());
+        for id in ids {
+            self.registrar.provider_settings_changed(&id);
+            self.caps.chatbackend.refresh_after_input_change(&id);
+        }
+    }
+
+    fn refresh_installed_reconciled(&self, ids: &[String]) -> Result<(), String> {
         for id in ids {
             self.state.lock().remove(id);
         }
@@ -548,7 +571,7 @@ impl HotReloadRegistry {
                         let fingerprint = LoadFingerprint {
                             manifest_mtime: mtime_or_epoch(&manifest_path),
                             entry_mtime: SystemTime::UNIX_EPOCH,
-                            config_mtime: config_mtime_for(&manifest_path),
+                            config_mtime: SystemTime::UNIX_EPOCH,
                         };
                         if !self.already_failed(&manifest_path, &fingerprint) {
                             log::warn!("[plugin-watcher] {} parse: {e}", manifest_path.display());
@@ -574,7 +597,7 @@ impl HotReloadRegistry {
                 let fingerprint = LoadFingerprint {
                     manifest_mtime,
                     entry_mtime: SystemTime::UNIX_EPOCH,
-                    config_mtime: config_mtime_for(manifest_path),
+                    config_mtime: SystemTime::UNIX_EPOCH,
                 };
                 if !self.already_failed(manifest_path, &fingerprint) {
                     log::warn!("[plugin-watcher] {} parse: {e}", manifest_path.display());
@@ -588,7 +611,7 @@ impl HotReloadRegistry {
             return None;
         }
         let entry_mtime = mtime_or_epoch(&entry_path);
-        let config_mtime = config_mtime_for(manifest_path);
+        let config_mtime = config_mtime_for(manifest_path, &manifest.id);
 
         let fingerprint = LoadFingerprint {
             manifest_mtime,
@@ -620,6 +643,7 @@ impl HotReloadRegistry {
                     if let Some(tracked) = self.state.lock().get_mut(&manifest.id) {
                         tracked.config_mtime = config_mtime;
                     }
+                    self.settings_changed.lock().push(manifest.id.clone());
                     log::info!(
                         "[plugin-watcher] {} config-only change — re-stamped settings into live VM (no rebuild, sessions preserved)",
                         manifest.id
@@ -761,6 +785,8 @@ impl HotReloadRegistry {
 
 #[cfg(test)]
 mod install_refresh_tests;
+#[cfg(test)]
+mod settings_change_tests;
 
 fn runtime_api_port() -> Option<u16> {
     std::env::var("CODETERM_API_PORT")
@@ -774,10 +800,10 @@ fn mtime_or_epoch(p: &std::path::Path) -> SystemTime {
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 
-fn config_mtime_for(manifest_path: &std::path::Path) -> SystemTime {
+fn config_mtime_for(manifest_path: &std::path::Path, plugin_id: &str) -> SystemTime {
     manifest_path
         .parent()
-        .map(|dir| mtime_or_epoch(&super::plugin_config::config_yaml_path(dir)))
+        .map(|dir| mtime_or_epoch(&super::plugin_config::config_yaml_path(dir, plugin_id)))
         .unwrap_or(SystemTime::UNIX_EPOCH)
 }
 

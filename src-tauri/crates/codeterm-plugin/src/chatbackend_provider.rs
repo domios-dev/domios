@@ -333,6 +333,16 @@ impl ChatBackendRegistry {
         self.refresh_background(id.to_string(), provider).is_some()
     }
 
+    /// Re-resolve a registered backend's catalog after a settings or file input it reads
+    /// changed. Returns false when `id` is not a registered backend.
+    pub fn refresh_after_input_change(&self, id: &str) -> bool {
+        if !self.contains(id) {
+            return false;
+        }
+        model_catalog::invalidate(id);
+        self.refresh_provider(id)
+    }
+
     #[doc(hidden)]
     pub fn register_and_wait(&self, id: impl Into<String>, provider: Arc<dyn ChatBackendProvider>) {
         let id = id.into();

@@ -341,6 +341,7 @@ pub(super) fn install_from_dir(
         let body = serde_json::to_string_pretty(record).map_err(|e| e.to_string())?;
         fs::write(tmp.join(".codeterm-install.json"), body).map_err(|e| e.to_string())?;
     }
+    carry_user_config(&dest, &tmp)?;
     if dest.exists() {
         fs::remove_dir_all(&dest).map_err(|e| format!("replace {}: {e}", dest.display()))?;
     }

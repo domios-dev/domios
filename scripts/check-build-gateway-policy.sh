@@ -141,6 +141,23 @@ if grep -q 'enter_build_gateway' <<< "$check_tests_flow"; then
   exit 1
 fi
 
+mkdir -p "$TEST_ROOT/no-cargo"
+printf '#!/usr/bin/env bash\necho "cargo invoked" >&2\nexit 97\n' > "$TEST_ROOT/no-cargo/cargo"
+chmod +x "$TEST_ROOT/no-cargo/cargo"
+check_tests_wait_status=0
+PATH="$TEST_ROOT/no-cargo:$PATH" ./build.sh check-tests --wait-build \
+  > "$TEST_ROOT/check-tests-wait.log" 2>&1 || check_tests_wait_status=$?
+[ "$check_tests_wait_status" -eq 2 ] || {
+  echo "check-tests --wait-build must refuse with exit 2, got $check_tests_wait_status" >&2
+  cat "$TEST_ROOT/check-tests-wait.log" >&2
+  exit 1
+}
+expect_log "check-tests does not use the build gateway" "$TEST_ROOT/check-tests-wait.log"
+if grep -q "cargo invoked" "$TEST_ROOT/check-tests-wait.log"; then
+  echo "check-tests started cargo before refusing --wait-build" >&2
+  exit 1
+fi
+
 test_one_flow="$(sed -n '/^  test-one)/,/^  verify)/p' build.sh)"
 expect_log 'types) scripts/test-capped.sh --manifest-path src-tauri/crates/codeterm-types/Cargo.toml -p codeterm-types --all-targets "$test_filter"' <<< "$test_one_flow"
 expect_log 'scripts/test-capped.sh --manifest-path src-tauri/Cargo.toml -p codeterm --lib "$test_filter"' <<< "$test_one_flow"

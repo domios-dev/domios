@@ -68,7 +68,7 @@ pub(super) fn test_caps() -> CapabilityRegistries {
 
 // Poll tick() until `condition` holds instead of assuming one tick is enough;
 // bounded so a genuine regression still fails instead of hanging.
-fn tick_until<F: Fn() -> bool>(watcher: &HotReloadRegistry, condition: F) -> bool {
+pub(super) fn tick_until<F: Fn() -> bool>(watcher: &HotReloadRegistry, condition: F) -> bool {
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
     loop {
         watcher.tick();
@@ -82,7 +82,7 @@ fn tick_until<F: Fn() -> bool>(watcher: &HotReloadRegistry, condition: F) -> boo
     }
 }
 
-fn write(path: &std::path::Path, contents: &str) {
+pub(super) fn write(path: &std::path::Path, contents: &str) {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).unwrap();
     }
@@ -91,7 +91,7 @@ fn write(path: &std::path::Path, contents: &str) {
 
 // Windows refuses to stamp file times through a read-only handle, so open for
 // write rather than File::open.
-fn set_mtime(path: &std::path::Path, mtime: std::time::SystemTime) {
+pub(super) fn set_mtime(path: &std::path::Path, mtime: std::time::SystemTime) {
     std::fs::OpenOptions::new()
         .write(true)
         .open(path)
@@ -133,7 +133,7 @@ fn webhook_manifest_for(id: &str) -> String {
     )
 }
 
-fn spawnable_chatbackend_manifest(id: &str) -> String {
+pub(super) fn spawnable_chatbackend_manifest(id: &str) -> String {
     use crate::js_runtime::host_api::HOST_API_VERSION;
     format!(
         r#"{{"id":"{id}","version":"0","displayName":"{id}","hostApi":{HOST_API_VERSION},
