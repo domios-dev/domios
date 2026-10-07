@@ -66,4 +66,4 @@ Full references live in `codeterm docs <NAME>`; the `references/` files only poi
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 75 -->
+<!-- revision: 76 -->

@@ -43,6 +43,7 @@ pub(crate) fn operation_command(
 pub struct CliLaunch {
     pub tab_id: String,
     pub launch_state: &'static str,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -115,6 +116,11 @@ pub(crate) fn launch_with_dispatch(
     let status =
         super::provider_cli::provider_cli_status(&svc.provider_registry, provider, platform)?;
     let command = operation_command(&status, operation, platform)?;
+    let prerequisites = match operation {
+        CliOperation::Install => &status.installer_prerequisites,
+        CliOperation::Update => &status.updater_prerequisites,
+    };
+    let prerequisite_hint = codeterm_plugin::provider_cli::missing_prerequisite_hint(prerequisites);
     let handle = svc.spawn_tab(SpawnTabSpec {
         creator_tab_id: caller.clone(),
         title: Some(
@@ -124,7 +130,14 @@ pub(crate) fn launch_with_dispatch(
             }
             .into(),
         ),
-        description: Some(format!("{} CLI for {provider}", operation.label())),
+        description: Some(format!(
+            "{} CLI for {provider}{}",
+            operation.label(),
+            prerequisite_hint
+                .as_ref()
+                .map(|hint| format!("; {hint}"))
+                .unwrap_or_default()
+        )),
         ..Default::default()
     })?;
     let tab_id = handle.tab_id;
@@ -174,6 +187,7 @@ pub(crate) fn launch_with_dispatch(
     Ok(CliLaunch {
         tab_id,
         launch_state: "command_dispatched",
+        warnings: prerequisite_hint.into_iter().collect(),
     })
 }
 
@@ -196,10 +210,21 @@ fn completion_summary(
         Some(false) => "CLI still missing",
         None => "CLI availability unknown",
     };
-    format!(
+    let mut summary = format!(
         "{provider} CLI {}: {outcome}; {presence}",
         operation.label()
-    )
+    );
+    if let Some(status) = status {
+        let prerequisites = match operation {
+            CliOperation::Install => &status.installer_prerequisites,
+            CliOperation::Update => &status.updater_prerequisites,
+        };
+        if let Some(hint) = codeterm_plugin::provider_cli::missing_prerequisite_hint(prerequisites)
+        {
+            summary.push_str(&format!("; {hint}"));
+        }
+    }
+    summary
 }
 
 #[cfg(test)]
@@ -216,6 +241,28 @@ mod tests {
             CompletionRoute::AgentReport
         );
         assert_eq!(completion_route(None, true), CompletionRoute::AgentReport);
+    }
+    #[test]
+    fn failed_install_completion_keeps_missing_prerequisite_guidance() {
+        let mut status = codeterm_plugin::provider_cli::no_cli();
+        status.required = true;
+        status.installed = Some(false);
+        status.installer_prerequisites = vec![codeterm_plugin::provider_cli::CommandPrerequisite {
+            binary: "fixture-runner".into(),
+            installed: Some(false),
+            hint: "opaque setup guidance".into(),
+        }];
+        let summary = completion_summary(
+            "fixture",
+            CliOperation::Install,
+            Some(ExecCompletion::CommandFinished {
+                exit_code: Some(127),
+            }),
+            Some(&status),
+        );
+        assert!(summary.contains("fixture-runner"));
+        assert!(summary.contains("opaque setup guidance"));
+        assert!(summary.contains("exit code 127"));
     }
     #[test]
     fn no_cli_or_unsupported_os_refuses_before_launch() {

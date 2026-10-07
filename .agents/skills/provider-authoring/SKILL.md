@@ -92,6 +92,10 @@ Plugin install/update prints that status immediately. Agents can inspect it with
 `codeterm agent cli install <provider>` or `codeterm agent cli update <provider>`.
 Commands run in visible Team utility tabs, with completion reports and status
 refreshes; unsupported OS commands are refused before a tab is created.
+Status and dispatch warnings name missing command runners with setup guidance,
+derived from the manifest command's leading executable or explicit shell
+availability checks. This diagnostic does not parse arbitrary shell programs or
+install prerequisites; conditional installers can use an available alternative.
 
 ## Minimal vs full: pick your tier
 
