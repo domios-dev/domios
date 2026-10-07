@@ -105,6 +105,18 @@ fn route_for_tab(tab_id: &str) -> Option<ResponseRoute> {
     ACTIVE.lock().get(tab_id).map(|a| a.route.clone())
 }
 
+fn clear_request(active: &mut HashMap<String, Active>, tab_id: &str, request_id: &str) -> bool {
+    if active
+        .get(tab_id)
+        .is_some_and(|entry| entry.route.request_id == request_id)
+    {
+        active.remove(tab_id);
+        true
+    } else {
+        false
+    }
+}
+
 /// Drop all structured-prompt state for a tab (tab closed / agent exited).
 pub fn clear_tab(tab_id: &str) {
     ENDPOINTS.lock().remove(tab_id);
@@ -300,16 +312,7 @@ fn connect_and_stream(
                 svc.push_structured_prompt(tab_id, Some(prompt));
             }
             ParsedEvent::Replied { request_id } => {
-                let cleared = {
-                    let mut active = ACTIVE.lock();
-                    match active.get(tab_id) {
-                        Some(a) if a.route.request_id == request_id => {
-                            active.remove(tab_id);
-                            true
-                        }
-                        _ => false,
-                    }
-                };
+                let cleared = clear_request(&mut ACTIVE.lock(), tab_id, &request_id);
                 if cleared {
                     svc.push_structured_prompt(tab_id, None);
                 }
