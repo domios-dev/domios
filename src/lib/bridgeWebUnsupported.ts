@@ -30,8 +30,6 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "Desktop startup readiness generation has no browser equivalent",
   get_rest_api_status:
     "REST listener recovery is owned by the desktop supervisor",
-  refresh_provider_models:
-    "Explicit catalogue refresh runs provider code on the daemon host; the web mirror receives versioned catalogue changes from the daemon",
   provider_model_usage:
     "Per-group model usage is read from a provider-owned store on the daemon host; the web mirror renders the picker without it",
   restart_rest_api:
