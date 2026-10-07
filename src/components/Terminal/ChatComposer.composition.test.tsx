@@ -529,3 +529,20 @@ test("admission preserves a draft edited away and back to the same text", async 
     await teardown(h);
   }
 });
+
+
+test("typed model commands use the ordinary send path without a composer picker", async () => {
+  const h = await renderComposer("tab-model-command");
+  try {
+    setDomValue(h.el, "/model fixture-model");
+    await fire(h.el, inputEvent({ isComposing: false }));
+    assert(!h.host.querySelector('[aria-label="Model and traits"]'), "model chip stays hidden");
+    assert(!h.host.querySelector('[aria-label="Select model"]'), "model dialog stays hidden");
+    await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13 }));
+    await flush();
+    assert(h.sendCalls.length === 1, "command is submitted once");
+    assert(h.sendCalls[0].text === "/model fixture-model", "command reaches the existing send path unchanged");
+  } finally {
+    await teardown(h);
+  }
+});
