@@ -7,6 +7,15 @@ import { parseContextUsage, composeSettingsArgs, statuslineSettings, STATUSLINE_
 
 let checks = 0;
 function check(run: () => void) { run(); checks++; }
+function settingsPath(command: string): string {
+  const flag = "--settings ";
+  const offset = command.indexOf(flag);
+  assert.ok(offset >= 0);
+  const token = command.slice(offset + flag.length);
+  return token.startsWith("'") && token.endsWith("'")
+    ? token.slice(1, -1).replaceAll("'\\''", "'")
+    : token;
+}
 const record = { session_id: "secret", cwd: "private", cost: {total_cost_usd: 1.25},
   context_window: {context_window_size: 200000, current_usage: {
     input_tokens: 100, cache_creation_input_tokens: 20, cache_read_input_tokens: 30, output_tokens: 999,
@@ -103,14 +112,14 @@ for (const command of [
   plugin.buildResumeCommandWithContext({sessionId:"own",args:["--settings=/fixture/extra.json"]}),
 ]) {
   check(() => assert.equal(command.split("--settings").length, 2));
-  const path = command.slice(command.indexOf("--settings ") + 11);
+  const path = settingsPath(command);
   check(() => assert.ok(path.endsWith(".ct-settings.json")));
   check(() => assert.equal(command.includes("showThinkingSummaries"), false));
   const overlay = JSON.parse(launchFiles.get(path)!);
   check(() => assert.equal(overlay.showThinkingSummaries, true));
 }
 const mergedCommand = plugin.buildLaunchCommand({args:["--settings",original]});
-const mergedSettings = JSON.parse(launchFiles.get(mergedCommand.slice(mergedCommand.indexOf("--settings ") + 11))!);
+const mergedSettings = JSON.parse(launchFiles.get(settingsPath(mergedCommand))!);
 check(() => assert.deepEqual(mergedSettings.hooks, user.hooks));
 check(() => assert.deepEqual(mergedSettings.statusLine, user.statusLine));
 check(() => assert.equal(writes, 0));
@@ -123,8 +132,7 @@ for (const platform of ["linux", "windows"]) {
   const settingsArg = '{"opaque":"value with spaces"}';
   const command = plugin.buildLaunchCommand({args:["--settings", settingsArg]});
   check(() => assert.ok(command.includes("claude --settings ")));
-  const paths = [...launchFiles.keys()];
-  const path = paths[paths.length - 1];
+  const path = settingsPath(command);
   check(() => assert.ok(command.includes(`'${path}'`)));
   check(() => assert.equal(command.includes("value with spaces"), false));
   check(() => assert.equal(JSON.parse(launchFiles.get(path)!).opaque, "value with spaces"));
