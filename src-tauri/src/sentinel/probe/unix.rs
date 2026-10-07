@@ -528,6 +528,9 @@ impl UnixRun {
         let error = io::Error::last_os_error();
         if result == -1 && error.raw_os_error() == Some(libc::ESRCH) {
             self.group_absent = true;
+            if let Some(reservation) = self.reservation.as_mut() {
+                reservation.release_process_admission();
+            }
             let registered = std::mem::replace(&mut self.group_registered, false);
             self.settle_resource(ResourceKind::ProcessGroup, registered);
         } else {
@@ -903,6 +906,30 @@ impl UnixPending {
 }
 
 impl RetainedResources for UnixPending {
+    fn processes_settled(&mut self) -> bool {
+        if let Some(child) = self.run.child.as_mut() {
+            if let Ok(Some(status)) = child.try_wait() {
+                self.run.parent_finished(status);
+            }
+        }
+        if self.run.child_id == 0 {
+            return self.run.child.is_none();
+        }
+        if self.run.child_id <= 1
+            || self.run.child_id > i32::MAX as u32
+            || self.run.status.is_none()
+            || self.run.ownership != LeaderOwnership::Retired(self.run.child_id)
+        {
+            return false;
+        }
+        if !self.run.group_absent {
+            let result = unsafe { libc::kill(-(self.run.child_id as i32), 0) };
+            self.run.group_absent =
+                result == -1 && io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        }
+        self.run.group_absent
+    }
+
     fn try_settle(&mut self) -> bool {
         self.run.child.is_none()
             && (self.run.child_id == 0 || (self.run.status.is_some() && self.run.group_absent))

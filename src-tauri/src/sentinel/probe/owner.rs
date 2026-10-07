@@ -1,6 +1,9 @@
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
+mod capture_guard;
+use capture_guard::CaptureGuard;
+
 #[cfg(windows)]
 use super::process::{ProbeFailure, ResourceKind};
 #[cfg(windows)]
@@ -46,6 +49,17 @@ struct State {
     closed: bool,
     diagnostics: Vec<String>,
     settled_total: u64,
+    captures: Vec<Arc<CaptureGuard>>,
+    reservations: usize,
+    cancellations: Vec<Arc<super::cancellation::Cancellation>>,
+}
+
+impl State {
+    fn cleanup_complete(&self) -> bool {
+        self.reservations == 0
+            && self.captures.is_empty()
+            && self.slots.iter().all(|slot| slot.phase == Phase::Free)
+    }
 }
 
 struct Core {
@@ -58,6 +72,12 @@ pub(super) trait RetainedResources: Send {
     fn wait_for_settlement(&mut self) -> Settlement;
     fn try_settle(&mut self) -> bool {
         false
+    }
+    fn processes_settled(&mut self) -> bool {
+        false
+    }
+    fn wait_for_capture_settlement(&mut self) -> Settlement {
+        self.wait_for_settlement()
     }
 }
 
@@ -74,6 +94,22 @@ pub(super) struct WindowsPending {
 
 #[cfg(windows)]
 impl RetainedResources for WindowsPending {
+    fn processes_settled(&mut self) -> bool {
+        self.run.retained_processes_settled()
+    }
+
+    fn wait_for_capture_settlement(&mut self) -> Settlement {
+        let settled = self.run.wait_for_retained_capture();
+        let failure = self.run.failure.take();
+        Settlement {
+            primary: failure.as_ref().map(|failure| failure.primary.to_string()),
+            errors: failure
+                .map(|failure| failure.cleanup_errors)
+                .unwrap_or_default(),
+            remains_unconfirmed: !settled,
+        }
+    }
+
     fn try_settle(&mut self) -> bool {
         self.run.reconcile_retained()
     }
@@ -85,11 +121,13 @@ impl RetainedResources for WindowsPending {
     }
 
     fn wait_for_settlement(&mut self) -> Settlement {
-        while settlement_event_required(
-            self.run.failure_resources_settled(),
-            self.run.permanent_unconfirmed,
-            self.run.unknown_completion,
-        ) {
+        while !self.processes_settled()
+            && settlement_event_required(
+                self.run.failure_resources_settled(),
+                self.run.permanent_unconfirmed,
+                self.run.unknown_completion,
+            )
+        {
             if let Err(error) = self.run.wait_event(None) {
                 self.run.permanent_unconfirmed = true;
                 self.run.unknown_completion = true;
@@ -337,9 +375,9 @@ pub(in crate::sentinel) struct ProbeResourceOwner {
 
 pub(super) struct Reservation {
     core: Arc<Core>,
-    index: usize,
+    admission: Option<usize>,
     resource_count: usize,
-    finished: bool,
+    cancellation: Option<Arc<super::cancellation::Cancellation>>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -358,6 +396,7 @@ pub(in crate::sentinel) struct Snapshot {
     pub unconfirmed: usize,
     pub settled_total: u64,
     pub diagnostics: Vec<String>,
+    pub captures: usize,
 }
 
 impl ProbeResourceOwner {
@@ -368,6 +407,9 @@ impl ProbeResourceOwner {
                 closed: false,
                 diagnostics: Vec::new(),
                 settled_total: 0,
+                captures: Vec::new(),
+                reservations: 0,
+                cancellations: Vec::new(),
             }),
             changed: Condvar::new(),
         });
@@ -386,6 +428,22 @@ impl ProbeResourceOwner {
                 }
             }
         }
+        if unavailable.is_none() {
+            for index in 0..capture_guard::WORKERS {
+                let worker_core = core.clone();
+                match thread::Builder::new()
+                    .name(format!("sentinel-probe-capture-{index}"))
+                    .spawn(move || capture_guard::owner_loop(worker_core))
+                {
+                    Ok(worker) => drop(worker),
+                    Err(error) => {
+                        unavailable = Some(error.to_string());
+                        close_core(&core);
+                        break;
+                    }
+                }
+            }
+        }
         Self { core, unavailable }
     }
 
@@ -394,6 +452,7 @@ impl ProbeResourceOwner {
             return Err(AdmissionError::Unavailable(error.clone()));
         }
         self.reclaim_terminal();
+        capture_guard::reclaim(&self.core);
         let mut state = self
             .core
             .state
@@ -413,18 +472,20 @@ impl ProbeResourceOwner {
             phase: Phase::Reserved,
             ..Slot::default()
         };
+        state.reservations = state.reservations.saturating_add(1);
         self.core.changed.notify_all();
         Ok(Reservation {
             core: self.core.clone(),
-            index,
+            admission: Some(index),
             resource_count: 0,
-            finished: false,
+            cancellation: None,
         })
     }
 
     pub(in crate::sentinel) fn close_admission(&self) {
         close_core(&self.core);
         self.reclaim_terminal();
+        capture_guard::reclaim(&self.core);
     }
 
     fn reclaim_terminal(&self) {
@@ -456,6 +517,8 @@ impl ProbeResourceOwner {
                     .unwrap_or_else(|error| error.into_inner());
                 state.slots[index] = Slot::default();
                 state.settled_total = state.settled_total.saturating_add(1);
+            } else if resources.processes_settled() {
+                capture_guard::retain(&self.core, Some(index), resources);
             } else {
                 let mut state = self
                     .core
@@ -511,7 +574,27 @@ impl ProbeResourceOwner {
                 .count(),
             settled_total: state.settled_total,
             diagnostics: state.diagnostics.clone(),
+            captures: state.captures.len(),
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn wait_for_capture_count_with_timeout(
+        &self,
+        expected: usize,
+        timeout: std::time::Duration,
+    ) -> bool {
+        let state = self
+            .core
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let (state, _) = self
+            .core
+            .changed
+            .wait_timeout_while(state, timeout, |state| state.captures.len() != expected)
+            .unwrap_or_else(|error| error.into_inner());
+        state.captures.len() == expected
     }
 
     #[cfg(test)]
@@ -608,10 +691,28 @@ impl ProbeResourceOwner {
 }
 
 impl Reservation {
+    pub(super) fn release_process_admission(&mut self) {
+        let Some(index) = self.admission.take() else {
+            return;
+        };
+        let mut state = self
+            .core
+            .state
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        state.slots[index] = Slot::default();
+        self.core.changed.notify_all();
+    }
+
     pub(super) fn register_cancellation(
         &mut self,
         cancellation: super::cancellation::Cancellation,
     ) -> Result<(), super::process::ProbeFailure> {
+        let Some(index) = self.admission else {
+            return Err(super::process::ProbeFailure::new(
+                "probe_admission_released",
+            ));
+        };
         let mut state = self
             .core
             .state
@@ -621,17 +722,29 @@ impl Reservation {
             cancellation.cancel();
             return Err(super::process::ProbeFailure::new("probe_owner_closing"));
         }
-        state.slots[self.index].cancellation = Some(cancellation);
+        if self.cancellation.is_some() {
+            return Err(super::process::ProbeFailure::new(
+                "probe_cancel_registration_busy",
+            ));
+        }
+        state.slots[index].cancellation = Some(cancellation.clone());
+        let cancellation = Arc::new(cancellation);
+        state.cancellations.push(cancellation.clone());
+        self.cancellation = Some(cancellation);
         Ok(())
     }
 
     pub(super) fn register_resource(&mut self) -> Result<(), String> {
+        let Some(index) = self.admission else {
+            self.resource_count = self.resource_count.saturating_add(1);
+            return Ok(());
+        };
         let mut state = self
             .core
             .state
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        let slot = &mut state.slots[self.index];
+        let slot = &mut state.slots[index];
         if !matches!(slot.phase, Phase::Reserved | Phase::Active) {
             return Err("probe resource registered outside an owned slot".into());
         }
@@ -643,12 +756,19 @@ impl Reservation {
     }
 
     pub(super) fn resource_settled(&mut self) -> Result<(), String> {
+        let Some(index) = self.admission else {
+            if self.resource_count == 0 {
+                return Err("probe resource settlement was not registered".into());
+            }
+            self.resource_count -= 1;
+            return Ok(());
+        };
         let mut state = self
             .core
             .state
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        let slot = &mut state.slots[self.index];
+        let slot = &mut state.slots[index];
         if self.resource_count == 0 || slot.resources == 0 {
             return Err("probe resource settlement was not registered".into());
         }
@@ -662,17 +782,20 @@ impl Reservation {
         if self.resource_count != 0 {
             return Err("probe slot released with unsettled resources".into());
         }
+        let Some(index) = self.admission else {
+            return Ok(());
+        };
         let mut state = self
             .core
             .state
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        let slot = &mut state.slots[self.index];
+        let slot = &mut state.slots[index];
         if slot.resources != 0 || !matches!(slot.phase, Phase::Reserved | Phase::Active) {
             return Err("probe slot ownership changed before release".into());
         }
         *slot = Slot::default();
-        self.finished = true;
+        self.admission = None;
         self.core.changed.notify_all();
         Ok(())
     }
@@ -685,41 +808,57 @@ impl Reservation {
                 .state
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
-            state.slots[self.index] = Slot::default();
+            if let Some(index) = self.admission.take() {
+                state.slots[index] = Slot::default();
+            }
             state.settled_total = state.settled_total.saturating_add(1);
-            self.finished = true;
             self.core.changed.notify_all();
             return;
         }
+        if self.admission.is_none() || resources.processes_settled() {
+            let index = self.admission.take();
+            capture_guard::retain(&self.core, index, resources);
+            return;
+        }
+        let Some(index) = self.admission.take() else {
+            return;
+        };
         let mut state = self
             .core
             .state
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        let slot = &mut state.slots[self.index];
+        let slot = &mut state.slots[index];
         slot.phase = Phase::Unconfirmed;
         slot.retained = Some(resources);
-        self.finished = true;
         self.core.changed.notify_all();
     }
 }
 
 impl Drop for Reservation {
     fn drop(&mut self) {
-        if self.finished {
-            return;
-        }
         let mut state = self
             .core
             .state
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        let slot = &mut state.slots[self.index];
-        if matches!(slot.phase, Phase::Reserved | Phase::Active) && slot.resources == 0 {
-            *slot = Slot::default();
-        } else {
-            slot.phase = Phase::Unconfirmed;
-            push_diagnostic_locked(&mut state, "probe reservation dropped with owned resources");
+        state.reservations = state.reservations.saturating_sub(1);
+        if let Some(cancellation) = self.cancellation.take() {
+            state
+                .cancellations
+                .retain(|current| !Arc::ptr_eq(current, &cancellation));
+        }
+        if let Some(index) = self.admission.take() {
+            let slot = &mut state.slots[index];
+            if matches!(slot.phase, Phase::Reserved | Phase::Active) && slot.resources == 0 {
+                *slot = Slot::default();
+            } else {
+                slot.phase = Phase::Unconfirmed;
+                push_diagnostic_locked(
+                    &mut state,
+                    "probe reservation dropped with owned resources",
+                );
+            }
         }
         self.core.changed.notify_all();
     }
@@ -748,7 +887,7 @@ fn owner_loop(core: Arc<Core>, index: usize) {
                 if let Some(resources) = resources {
                     break resources;
                 }
-                if state.closed && state.slots[index].phase == Phase::Free {
+                if state.closed && state.cleanup_complete() {
                     return;
                 }
                 if state.slots[index].terminal_unconfirmed {
@@ -772,6 +911,10 @@ fn owner_loop(core: Arc<Core>, index: usize) {
         let remains_unconfirmed = settlement.remains_unconfirmed;
         settlement_diagnostics(&core, settlement);
         if remains_unconfirmed {
+            if resources.processes_settled() {
+                capture_guard::retain(&core, Some(index), resources);
+                continue;
+            }
             let mut state = core.state.lock().unwrap_or_else(|error| error.into_inner());
             state.slots[index].retained = Some(resources);
             state.slots[index].in_owner = false;
@@ -791,7 +934,7 @@ fn owner_loop(core: Arc<Core>, index: usize) {
             core.changed.notify_all();
         }
         let state = core.state.lock().unwrap_or_else(|error| error.into_inner());
-        if state.closed && state.slots[index].phase == Phase::Free {
+        if state.closed && state.cleanup_complete() {
             return;
         }
     }
@@ -800,6 +943,9 @@ fn owner_loop(core: Arc<Core>, index: usize) {
 fn close_core(core: &Core) {
     let mut state = core.state.lock().unwrap_or_else(|error| error.into_inner());
     state.closed = true;
+    for cancellation in &state.cancellations {
+        cancellation.cancel();
+    }
     for slot in &state.slots {
         if let Some(cancellation) = &slot.cancellation {
             cancellation.cancel();

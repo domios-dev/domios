@@ -657,6 +657,7 @@ impl WindowsRun {
         }
         if accounting.ActiveProcesses == 0 {
             self.job_empty = true;
+            self.release_process_admission();
         }
         Ok(())
     }

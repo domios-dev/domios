@@ -116,7 +116,6 @@ fn sentinel_probe_native_closed_stream_live_child_is_unconfirmed() {
         Duration::from_secs(1),
         &owner,
     );
-    fixture.release_and_wait();
     let (failure, receipt) = result.expect_err("a live process group cannot be reported complete");
     assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(1));
     assert!(started.elapsed() < Duration::from_secs(3));
@@ -127,6 +126,7 @@ fn sentinel_probe_native_closed_stream_live_child_is_unconfirmed() {
         .contains(&super::process::ResourceKind::ProcessGroup));
     assert!(owner.wait_for_unconfirmed_with_timeout(Duration::from_secs(3)));
     assert_eq!(owner.snapshot().unconfirmed, 1);
+    fixture.release_and_wait();
 }
 
 #[cfg(unix)]
