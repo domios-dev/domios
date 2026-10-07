@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, CornerDownLeft, Pencil } from "lucide-react";
 import type { PendingPrompt, PromptOption, PromptSection } from "../../lib/types";
+import { encodePromptSelection } from "../../lib/promptSelection";
 
 const WIZARD_SUBMIT_VALUE = "9000";
-const WIZARD_MULTI_MASK_BASE = 10000;
 
 const FREE_TEXT_LABEL =
   /^(?:\(?\s*)?(?:other|custom|none of (?:the above|these)|type (?:your own|something(?: else)?)|write your own|enter (?:your own|custom|text)|free[\s-]?text|something else)/i;
@@ -60,12 +60,7 @@ function PromptCard({
   };
 
   const confirmMulti = () => {
-    let mask = 0;
-    for (const opt of pendingPrompt.options) {
-      const idx = Number.parseInt(opt.value, 10) - 1;
-      if (idx >= 0 && selected.has(opt.value)) mask += 1 << idx;
-    }
-    onRespond(String(WIZARD_MULTI_MASK_BASE + mask));
+    onRespond(encodePromptSelection(pendingPrompt.options, selected));
   };
 
   const activeStep = Math.max(0, sections.findIndex((s) => s.active));
