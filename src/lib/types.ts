@@ -588,6 +588,16 @@ export interface PushChannelConfig {
 }
 
 export interface KeybindingsConfig {
+  new_tab?: string;
+  close_tab?: string;
+  new_workspace?: string;
+  copy?: string;
+  paste?: string;
+  search?: string;
+  zoom_in?: string;
+  zoom_out?: string;
+  zoom_reset?: string;
+  open_settings?: string;
   reopen_tab?: string;
   /** Cycle to the next sidebar item (plan entry or tab) in the active workspace. */
   next_tab?: string;
