@@ -56,6 +56,7 @@ pub(crate) mod parked_user_delivery;
 pub(crate) mod process_tree;
 mod prompt_resolution;
 pub(crate) mod provider_cli;
+pub(crate) mod provider_cli_actions;
 pub(crate) mod provider_update;
 pub(crate) mod public_send_readiness;
 pub(crate) mod sentinel;

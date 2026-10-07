@@ -209,6 +209,11 @@ pub enum AgentAction {
     /// List available agent providers (claude, codex, ...) with their
     /// display names, default models, and capability flags.
     Providers,
+    /// Inspect or manage a provider's CLI using its manifest commands.
+    Cli {
+        #[command(subcommand)]
+        action: ProviderCliAction,
+    },
     /// List available models for a specific provider.
     Models {
         /// Provider id (e.g. "claude"). Required.
@@ -894,4 +899,14 @@ mod tests {
         assert!(help.contains("workers"), "{help}");
         assert!(!help.to_ascii_lowercase().contains("lead"), "{help}");
     }
+}
+
+#[derive(clap::Subcommand, Debug)]
+pub enum ProviderCliAction {
+    /// Show installed state, resolved binary, and commands for this OS.
+    Status { provider: String },
+    /// Run the manifest installer in a visible utility tab and report its result.
+    Install { provider: String },
+    /// Run the manifest updater in a visible utility tab and report its result.
+    Update { provider: String },
 }

@@ -4,7 +4,7 @@
 //! handles the one path the crate can't — the `plugin <id> <verb>` passthrough,
 //! which routes over the daemon socket.
 
-mod cli_status;
+pub(crate) mod cli_status;
 mod receiver_target;
 mod validate;
 

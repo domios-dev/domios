@@ -84,7 +84,7 @@ impl std::fmt::Display for ProviderPreflightError {
                 ..
             } => write!(
                 f,
-                "Provider not installed: {} (`{}`) launches `{}`, which is not on this machine. Searched: [{}]. Install command: {}",
+                "Provider not installed: {} (`{}`) launches `{}`, which is not on this machine. Searched: [{}]. Install command: {}. fix: codeterm agent cli install {}",
                 display_name,
                 provider_id,
                 binary,
@@ -95,7 +95,8 @@ impl std::fmt::Display for ProviderPreflightError {
                     .join("; "),
                 install_hint
                     .as_deref()
-                    .unwrap_or("No install command is available for this platform.")
+                    .unwrap_or("No install command is available for this platform."),
+                provider_id
             ),
         }
     }
