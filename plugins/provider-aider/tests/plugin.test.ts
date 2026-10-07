@@ -364,9 +364,18 @@ console.log("\n--- history file reader fallbacks ---\n");
         p === historyPath ? fs.readFileSync(tmp, "utf8") : null,
     },
   });
-  eq(viaFsReadFile.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 2, "host.fs.readFile is used when present");
+  eq(viaFsReadFile.sessionJsonlPath(path.dirname(tmp), "ses_x"), historyPath, "sessionJsonlPath names the history file");
+  const delta = viaFsReadFile.parseSessionDelta(fs.readFileSync(tmp, "utf8")) as {
+    messages: Array<{ type: string; content: string }>;
+  };
+  eq(delta.messages.length, 2, "parseSessionDelta turns the file tail into rows");
+  eq(delta.messages[0].type, "user", "delta user row");
+  eq(delta.messages[0].content, "Hi", "delta user text");
+  eq(delta.messages[1].type, "assistant", "delta assistant row");
+  eq(delta.messages[1].content, "Hello there", "delta assistant text");
   const missingFs = readVia({ platform: () => "linux", shell: { quoteFor: (v: any) => `'${v}'` } });
-  eq(missingFs.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 0, "host without fs.readFile reports no messages");
+  eq(missingFs.sessionJsonlPath(path.dirname(tmp), "ses_x"), historyPath, "sessionJsonlPath needs no fs");
+  eq((missingFs.parseSessionDelta("") as { messages: unknown[] }).messages.length, 0, "empty delta yields no rows");
   fs.unlinkSync(tmp);
 }
 
