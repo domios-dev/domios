@@ -10,6 +10,8 @@ pub(crate) fn log_rpc_sidecar(tab: &str) {
 }
 
 mod account_home_diagnostic;
+mod failure_screen;
+pub(crate) use failure_screen::log_failure_screen;
 
 #[derive(Debug, PartialEq, Eq)]
 struct LaunchEnvironmentSummary {
