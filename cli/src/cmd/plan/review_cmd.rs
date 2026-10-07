@@ -242,10 +242,10 @@ mod tests {
             ] {
                 let mut argv = vec!["codeterm", "plan", "review", verdict, "pl_1", "task_1"];
                 argv.extend(args);
-                assert!(crate::args::Cli::try_parse_from(argv).is_err());
+                assert!(crate::args::cli::Cli::try_parse_from(argv).is_err());
             }
             for source in ["--note", "--note-from-pad"] {
-                assert!(crate::args::Cli::try_parse_from([
+                assert!(crate::args::cli::Cli::try_parse_from([
                     "codeterm", "plan", "review", verdict, "pl_1", "task_1", source, "note.md",
                 ])
                 .is_ok());
@@ -280,7 +280,7 @@ mod tests {
             }
         }
         for verdict in ["bounce", "hold", "accept"] {
-            let cli = crate::args::Cli::try_parse_from([
+            let cli = crate::args::cli::Cli::try_parse_from([
                 "codeterm",
                 "plan",
                 "review",
@@ -291,7 +291,7 @@ mod tests {
                 "first\nsecond",
             ])
             .unwrap();
-            let crate::args::Commands::Plan {
+            let crate::args::cli::Commands::Plan {
                 action: crate::args::plan::PlanAction::Review { action },
             } = cli.command
             else {

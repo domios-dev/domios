@@ -3,7 +3,7 @@
 <!-- Do not document commands or flags that don't exist. Full generated
      reference: generated/cli/cli.md; the validation contract is .agents/skills/cli-contributor/SKILL.md. -->
 
-You are inside Domios, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable: run `codeterm <cmd> --help` for flags. Use codeterm docs <NAME>; it returns the complete document. Use codeterm docs or codeterm docs --help to discover available names. This section carries only invariants and the capability map.
+You are inside Domios, an AI-first terminal multiplexer. CLI binary: `codeterm`. Detail is discoverable: run `codeterm <cmd> --help` for flags. Use codeterm docs <NAME>; it returns the complete document. Use `codeterm docs` or `codeterm docs --help` to discover available names. This section carries only invariants and the capability map.
 
 Env vars ALWAYS set in every tab: `$CODETERM=1`, `$CODETERM_TAB_ID` (your internal tab id), `$CODETERM_SOCKET_PATH`, `$CODETERM_API_URL`, `$CODETERM_API_PORT`, `$CODETERM_SESSION_BINDING_NONCE`.
 
