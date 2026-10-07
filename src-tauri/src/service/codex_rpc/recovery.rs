@@ -40,6 +40,12 @@ pub fn try_start(svc: &ServiceContext, tab: &str, nonce: &str, reason: &str) -> 
     super::delivery::disconnected(tab);
     {
         let mut attempts = REATTACHING.lock();
+        if attempts
+            .get(tab)
+            .is_some_and(|(_, result)| *result == Some(true))
+        {
+            attempts.remove(tab);
+        }
         if !should_reattach(current, live, attempts.contains_key(tab)) {
             return true;
         }

@@ -23,3 +23,5 @@ mod subscriber;
 pub mod transcript;
 #[cfg(windows)]
 mod windows_job;
+
+pub mod status;

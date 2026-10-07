@@ -15,7 +15,9 @@ fn client() -> (Client, mpsc::Receiver<Message>) {
             }),
             next_id: AtomicI64::new(1),
             initialized: AtomicBool::new(false),
-            outgoing,
+            outgoing: Mutex::new(outgoing),
+            epoch: AtomicU64::new(0),
+            resync: watch::channel(0).0,
             events,
             observations,
             death,
@@ -218,4 +220,42 @@ async fn codex_rpc_control_turn_requests_cache_context_by_exact_thread_and_reply
         serde_json::from_str::<Value>(&text).unwrap(),
         json!({"id":"server-id","result":{"decision":"decline"}})
     );
+}
+
+#[test]
+fn codex_rpc_control_buffer_overflow_requests_resync_without_closing_transport() {
+    let (client, _outgoing) = client();
+    let mut resync = client.resync();
+    let event = Frame::Notification {
+        method: "item/started".into(),
+        params: json!({"threadId":"own"}),
+    };
+    client.ingest(event.clone()).unwrap();
+    client.ingest(event.clone()).unwrap();
+    client.ingest(event).unwrap();
+    assert!(resync.has_changed().unwrap());
+    assert_eq!(*resync.borrow_and_update(), 1);
+    assert!(client.0.state.lock().closed.is_none());
+    let mut events = client.subscribe();
+    client
+        .ingest(Frame::ServerRequest {
+            id: RequestId::Number(7),
+            method: "approval".into(),
+            params: json!({"threadId":"own"}),
+        })
+        .unwrap();
+    assert!(matches!(
+        events.try_recv().unwrap(),
+        Frame::ServerRequest { .. }
+    ));
+}
+
+#[test]
+fn codex_rpc_control_retired_socket_cannot_close_new_connection() {
+    let (client, _outgoing) = client();
+    client.0.epoch.store(2, Ordering::Release);
+    client.close_epoch(1, "retired");
+    assert!(client.0.state.lock().closed.is_none());
+    client.close_epoch(2, "current");
+    assert!(client.0.state.lock().closed.is_some());
 }
