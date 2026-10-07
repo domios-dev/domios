@@ -348,6 +348,8 @@ pub struct Capabilities {
     pub agent_provider: bool,
     #[serde(default)]
     pub reply_relay: bool,
+    #[serde(default)]
+    pub tool_less: bool,
     /// Bool (the plugin is the store) or `{ autoUnlock }` object (the store
     /// also declares it can restore its own session headlessly).
     #[serde(default)]

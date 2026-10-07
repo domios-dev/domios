@@ -123,6 +123,17 @@ export interface LaunchSessionEvidence {
 }
 
 /** Provider-authoritative top-level completion, including automatic continuations. */
+export type ReplyRelayEvidence = ReplyRelayTurn | {
+  userTurnId: string;
+  userRecordStart: number;
+  userText: string;
+  complete: false;
+  outcome: "error" | "cancelled" | "reflection_limit";
+} | {
+  unavailable: true;
+  reason: string;
+};
+
 export interface ReplyRelayTurn {
   userTurnId: string;
   /** UTF-8 byte start of the original user record; IDs remain stable in the own-session history. */
@@ -270,7 +281,7 @@ export interface AgentProvider {
   /** Session named by this launch's own provider record; null when none names it. */
   detectLaunchSession?(evidence: LaunchSessionEvidence): LaunchSessionDetection | null;
   /** Requires manifest capabilities.replyRelay. Read after a captured UTF-8 append boundary; null without authoritative completion. */
-  readReplyRelayTurn?(cwd: string, sessionId: string, afterOffset: number): ReplyRelayTurn | null;
+  readReplyRelayTurn?(cwd: string, sessionId: string, afterOffset: number): ReplyRelayEvidence | null;
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
   detectSessionModel?(cwd: string, sessionId: string): string | null;
   sessionModelTranscriptBoundary?(cwd: string, sessionId: string): SessionModelTranscriptBoundary | null;
