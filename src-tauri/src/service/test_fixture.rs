@@ -312,6 +312,7 @@ impl ServiceFixture {
             heartbeat_gate: Arc::new(Default::default()),
             pending_delivery_payloads,
             chat_send_ledger: Arc::new(Default::default()),
+            reply_relays: Arc::new(Default::default()),
             deferred_session_bindings: Arc::new(Default::default()),
             worker_identity_allocator: Arc::new(Mutex::new(Default::default())),
             worker_ack: Arc::new(crate::service::worker_ack::WorkerAckRegistry::default()),

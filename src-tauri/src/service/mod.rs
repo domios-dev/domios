@@ -407,6 +407,7 @@ pub struct ServiceContext {
     pub(crate) pending_delivery_payloads:
         Arc<pending_delivery_payloads::PendingDeliveryPayloadStore>,
     pub(crate) chat_send_ledger: Arc<chat_send_transaction::ChatSendLedger>,
+    pub(crate) reply_relays: Arc<reply_relay::ReplyRelayRegistry>,
     pub(crate) deferred_session_bindings:
         Arc<session_binding_deferral::DeferredSessionBindingRegistry>,
     pub(crate) worker_identity_allocator:

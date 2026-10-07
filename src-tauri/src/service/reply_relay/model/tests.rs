@@ -350,3 +350,91 @@ fn malformed_activation_and_completion_do_not_consume_pending_relay() {
         );
     }
 }
+
+#[test]
+fn routed_messages_and_spawn_briefs_reply_to_the_agent_sender() {
+    let route = ReplyRelayRoute {
+        sender: "spawner",
+        target: "worker",
+        tool_less: true,
+        supported: true,
+        sender_is_agent: true,
+        has_reply_hint: true,
+        remote: false,
+        notice: false,
+        spawn_brief: false,
+    };
+    assert_eq!(reply_relay_target(route), Some("spawner"));
+    assert_eq!(
+        reply_relay_target(ReplyRelayRoute {
+            spawn_brief: true,
+            has_reply_hint: false,
+            ..route
+        }),
+        Some("spawner")
+    );
+    for excluded in [
+        ReplyRelayRoute {
+            tool_less: false,
+            ..route
+        },
+        ReplyRelayRoute {
+            supported: false,
+            ..route
+        },
+        ReplyRelayRoute {
+            sender_is_agent: false,
+            ..route
+        },
+        ReplyRelayRoute {
+            remote: true,
+            ..route
+        },
+        ReplyRelayRoute {
+            notice: true,
+            ..route
+        },
+        ReplyRelayRoute {
+            has_reply_hint: false,
+            ..route
+        },
+        ReplyRelayRoute {
+            sender: "worker",
+            ..route
+        },
+    ] {
+        assert_eq!(reply_relay_target(excluded), None);
+    }
+}
+
+#[test]
+fn cancelled_before_write_delivery_cannot_relay() {
+    let mut model = ReplyRelayModel::default();
+    assert!(model.record(pending()));
+    model.cancel("delivery-1");
+    assert!(model
+        .observe(source(), Some(&completed()), |_| true, 8)
+        .is_empty());
+}
+
+#[test]
+fn consumed_turn_watermark_keeps_long_sessions_bounded_without_relay_replay() {
+    let mut model = ReplyRelayModel::default();
+    for index in 0..(MAX_TRACKED_RELAY_DELIVERIES * 2) {
+        let mut pending = pending();
+        pending.delivery_id = format!("delivery-{index}");
+        pending.after_offset = index as u64;
+        let mut turn = completed();
+        turn.user_record_start = index as u64;
+        turn.user_turn_id = format!("turn-{index}");
+        assert!(model.record(pending));
+        assert_eq!(model.observe(source(), Some(&turn), |_| true, 8).len(), 1);
+    }
+    assert_eq!(model.delivery_ids.len(), MAX_TRACKED_RELAY_DELIVERIES);
+    let mut later = pending();
+    later.delivery_id = "new-delivery".into();
+    assert!(model.record(later));
+    assert!(model
+        .observe(source(), Some(&completed()), |_| true, 8)
+        .is_empty());
+}

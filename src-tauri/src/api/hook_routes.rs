@@ -984,6 +984,11 @@ pub(crate) async fn finish_session_binding(
             },
         );
     }
+    let relay_service = svc.clone();
+    let relay_tab = tab_id.to_string();
+    drop(tokio::task::spawn_blocking(move || {
+        relay_service.activate_bound_reply_relays(&relay_tab)
+    }));
     crate::service::general_agent::binding_wait::notify_binding_state_changed();
     let launch_identity =
         acknowledge_and_reconcile_session_binding(svc, tab_id, &claim, report_nonce);

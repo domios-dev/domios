@@ -26,6 +26,8 @@ pub struct MessageEnvelope {
     pub from_label: String,
     pub from_tab: String,
     pub from_agent: Option<bool>,
+    pub relay_hops: u8,
+    pub relay_notice: bool,
     pub from_model: Option<String>,
     pub from_mesh: Option<String>,
     pub from_plugin: Option<String>,
@@ -492,7 +494,13 @@ impl Messenger {
             .as_ref()
             .map(codeterm_types::domios::DomiosFrame::to_message)
             .unwrap_or(prepared_body);
-        dispatch_delivery(
+        let relay_id = svc.prepare_reply_relay(
+            &resolved_target,
+            &envelope,
+            &text,
+            should_prefix && messenger.reply_hint().is_some(),
+        );
+        let result = dispatch_delivery(
             DeliveryTransport::Pty,
             || unreachable!(),
             || {
@@ -539,7 +547,18 @@ impl Messenger {
                     })?;
                 Ok((delivery, pad_file))
             },
-        )
+        );
+        if let (Some(id), Err(error)) = (relay_id, &result) {
+            if !crate::service::delivery_error::DeliveryError::from_opaque(
+                &resolved_target,
+                error.clone(),
+            )
+            .bytes_written()
+            {
+                svc.reply_relays.cancel(&resolved_target, &id);
+            }
+        }
+        result
     }
 
     pub fn deliver_planner_session(
@@ -770,6 +789,9 @@ impl Messenger {
         };
         attrs.push(("label", label));
         attrs.push(("tab", tab.to_string()));
+        if self.envelope.relay_hops > 0 {
+            attrs.push(("relay_hops", self.envelope.relay_hops.to_string()));
+        }
         if let Some(model) = self
             .envelope
             .from_model
