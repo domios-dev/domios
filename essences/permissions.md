@@ -24,7 +24,7 @@ Hidden memory workers trust their daemon-owned folder. Crons trust the folder ch
 
 Plugins declare capabilities and permissions. The host registers only capabilities it supports, and declared permissions bound access to local files, subprocesses, network hosts and secrets. A plugin update cannot supply host behavior absent from the installed app. Plugin confinement and official-channel provenance remain under the [plugin-host contract](core.md#core:plugin-host).
 
-Plugin setup guidance is data. A helper asks the owner what to change and uses the existing permission-gated configuration path only after confirmation. Global provider integrations may be inspected without mutation; installing or repairing them requires explicit user consent. Domios changes only entries it owns and provides a reversible restore path.
+Plugin setup guidance is data. A helper asks the owner what to change and uses the existing permission-gated configuration path only after confirmation. Global provider integrations may be inspected without mutation; installing or repairing them requires explicit user consent. Domios changes only entries it owns and provides a reversible restore path. Only the machine-owner instance reclaims unused launch profiles, preserving provider trust first. Live profiles and unknown foreign instances are kept; a registered foreign instance is reclaimable only while its exclusive lifetime lock is held. One-time legacy cleanup matches only generated filenames, keeps live tabs and reports counts to the owner.
 
 ## Supporter classification
 
