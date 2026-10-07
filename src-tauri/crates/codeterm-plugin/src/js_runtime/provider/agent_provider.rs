@@ -9,8 +9,8 @@ use crate::provider::{
     self, AgentLaunchParams, AgentProvider, BusySubmitStrategy, LaunchArtifactSweepReport,
     LaunchArtifactSweepRequest, ModelGroup, ModelGroupUsage, ModelInfo, ProviderReadinessStrategy,
     ProviderTrust, ProviderUpdateAvailability, ReadinessStrategy, ReasoningEffortInfo,
-    SessionIdInjection, SessionMessage, SessionMetadata, SettingField, SystemPromptDelivery,
-    TaskDelivery, UsageSourceSpec, VerifySubmitStrategy,
+    ReplyRelayTurn, SessionIdInjection, SessionMessage, SessionMetadata, SettingField,
+    SystemPromptDelivery, TaskDelivery, UsageSourceSpec, VerifySubmitStrategy,
 };
 use codeterm_types::pty::PendingPrompt;
 
@@ -508,6 +508,14 @@ impl AgentProvider for JsProvider {
 
     fn session_id_injection(&self) -> SessionIdInjection {
         self.manifest.spawn.session_id_injection.into()
+    }
+
+    fn supports_reply_relay(&self) -> bool {
+        self.has_reply_relay
+    }
+
+    fn read_reply_relay_turn(&self, cwd: &str, sid: &str, after: u64) -> Option<ReplyRelayTurn> {
+        super::reply_relay::read(self, cwd, sid, after)
     }
 
     fn supports_launch_session_detection(&self) -> bool {
