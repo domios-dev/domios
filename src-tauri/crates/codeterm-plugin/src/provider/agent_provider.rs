@@ -25,6 +25,10 @@ pub trait AgentProvider: Send + Sync {
         self.id()
     }
 
+    fn cli_compatibility(&self) -> Option<crate::provider_compat::CompatibilityManifest> {
+        None
+    }
+
     /// Maximum text body size accepted as an inline paste. `None` means undeclared.
     fn paste_limit_bytes(&self) -> Option<usize> {
         None

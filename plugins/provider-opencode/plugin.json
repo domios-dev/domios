@@ -168,5 +168,19 @@
       ]
     }
   },
-  "icon": "icon.svg"
+  "icon": "icon.svg",
+  "cliCompatibility": {
+    "supported": [],
+    "breaking": [
+      {
+        "range": ">=2.0.0",
+        "reasons": [
+          "sqlite_schema_conversion",
+          "event_route_changed",
+          "server_password_required"
+        ]
+      }
+    ],
+    "directSqlite": true
+  }
 }
