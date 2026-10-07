@@ -225,7 +225,8 @@ fn claude_wrapped_multiline_turn_with_tabs_stops_the_key_schedule() {
             unwrap_pasted_content_wrapper: true,
             collapse_horizontal_whitespace: true,
             drop_supplementary_characters: false,
-        },
+            drop_line_breaks: false,
+},
     );
     let payload = "name\tvalue\n\talpha\tbeta\nlast";
     let result = run(&io, payload, true, tui(), opts())
