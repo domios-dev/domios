@@ -30,6 +30,8 @@ pub fn after_relink(svc: &ServiceContext, tab: &str, pty: &str) {
         if let Some(tab) = svc.mux.write().get_tab_mut(tab) {
             tab.structured_control_active = false;
         }
+        svc.push_structured_prompt(tab, None);
+        svc.emit_state_changed();
     }
 }
 
