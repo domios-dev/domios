@@ -510,6 +510,10 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.session_id_injection.into()
     }
 
+    fn supports_launch_session_detection(&self) -> bool {
+        self.has_launch_session_detection
+    }
+
     fn detect_launch_session(
         &self,
         evidence: &provider::LaunchSessionEvidence,
