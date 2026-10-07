@@ -93,6 +93,12 @@ pub fn apply_tags(tags: &mut Vec<String>, add: &[String], primary: Option<&str>)
     }
 }
 
+pub fn inherit_parent_tags(parent: &[String], child: &[String]) -> Vec<String> {
+    let mut tags = parent.to_vec();
+    apply_tags(&mut tags, child, None);
+    tags
+}
+
 fn facet_key(tag: &str) -> Option<&str> {
     let (key, value) = tag.split_once(':')?;
     if key.is_empty() || value.is_empty() {
@@ -290,6 +296,16 @@ mod tests {
         let mut tags = vec!["area:nav".into(), "pan-zoom".into()];
         apply_tags(&mut tags, &[], Some("area:layout"));
         assert_eq!(tags, vec!["area:layout", "pan-zoom"]);
+    }
+
+    #[test]
+    fn inherit_parent_tags_keeps_parent_and_lets_child_replace_facets() {
+        let parent: Vec<String> = vec!["work:backend".into(), "area:plan".into(), "topic".into()];
+        assert_eq!(inherit_parent_tags(&parent, &[]), parent);
+        assert_eq!(
+            inherit_parent_tags(&parent, &["work:qa".into(), "extra".into()]),
+            vec!["area:plan", "topic", "work:qa", "extra"]
+        );
     }
 
     #[test]
