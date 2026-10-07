@@ -888,6 +888,44 @@
           "subcommands": []
         },
         {
+          "name": "turns",
+          "about": "Read completed turns from a tool-less agent's exact bound session",
+          "aliases": [],
+          "args": [
+            {
+              "name": "after",
+              "positional": false,
+              "required": false,
+              "value_name": "AFTER",
+              "possible_values": [],
+              "default": "0",
+              "help": "UTF-8 user-record lower bound; use next_offset to continue a bounded window",
+              "aliases": []
+            },
+            {
+              "name": "last",
+              "positional": false,
+              "required": false,
+              "value_name": "LAST",
+              "possible_values": [],
+              "default": "10",
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tab",
+              "positional": false,
+              "required": true,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "unlink",
           "about": "Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable",
           "aliases": [],
@@ -3162,7 +3200,7 @@
         },
         {
           "name": "sweep-profiles",
-          "about": "Preview or remove dead provider launch artifacts owned by this instance",
+          "about": "Preview dead provider launch artifacts; only the machine owner may remove them",
           "aliases": [],
           "args": [
             {
@@ -3182,7 +3220,7 @@
               "value_name": "INCLUDE_LEGACY",
               "possible_values": [],
               "default": null,
-              "help": "Include every unmarked legacy profile, regardless of tab liveness",
+              "help": "Include exact-pattern unmarked legacy profiles whose tabs are not live here",
               "aliases": []
             },
             {
@@ -11879,6 +11917,54 @@
                   "positional": false,
                   "required": false,
                   "value_name": "WORKSPACE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "files",
+              "about": "Replace structured task context files (relative paths resolve against the Worker cwd)",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "edit-file",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "read-file",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": true,
+                  "value_name": "TASK_ID",
                   "possible_values": [],
                   "default": null,
                   "help": null,
