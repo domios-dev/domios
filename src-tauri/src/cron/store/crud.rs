@@ -5,8 +5,8 @@ use std::collections::HashSet;
 
 use super::{
     cap_jitter_max_ms_at, compute_backoff, compute_next_run_jittered_at, default_max_history,
-    parse_oneshot_schedule_at, validate_tz, CronCreateParams, CronJob, CronRunInfo, CronRunStatus,
-    CronStore, CronUpdateParams, MAX_CONSECUTIVE_FAILURES,
+    is_stale_fire, parse_oneshot_schedule_at, validate_tz, CronCreateParams, CronJob, CronRunInfo,
+    CronRunStatus, CronStore, CronUpdateParams, MAX_CONSECUTIVE_FAILURES,
 };
 
 /// Complete post-state values of one authorized cron change.
@@ -564,6 +564,29 @@ impl CronStore {
             .ok_or_else(|| format!("Cron job not found: {}", id))?;
         job.protected = protected;
         Ok(Prepared::new(CronChange::Patch(job.clone()), job))
+    }
+
+    /// Moves a recurring job whose slot went stale to its next future slot without firing.
+    pub(crate) fn prepare_skip_stale_fire(&self, job_id: &str) -> Result<Prepared<bool>, String> {
+        let now_ms = self.now_ms();
+        let Some(job) = self.get(job_id) else {
+            return Ok(Prepared::unchanged(false));
+        };
+        let stale = job.enabled
+            && job
+                .next_run
+                .is_some_and(|next| is_stale_fire(next, now_ms, job.oneshot));
+        if !stale {
+            return Ok(Prepared::unchanged(false));
+        }
+        let mut job = job.clone();
+        job.next_run = compute_next_run_jittered_at(
+            &job.schedule,
+            job.jitter_max_ms,
+            job.tz.as_deref(),
+            now_ms,
+        )?;
+        Ok(Prepared::new(CronChange::Patch(job), true))
     }
 
     /// Schedule advancement is fire-time-only; completion never re-derives next_run.

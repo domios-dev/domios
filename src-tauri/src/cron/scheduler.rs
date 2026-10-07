@@ -7,7 +7,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use super::store::{commit, finish_run, CronJob, CronRunInfo, CronRunStatus, CronStore};
+use super::store::{
+    commit, finish_run, is_stale_fire, CronJob, CronRunInfo, CronRunStatus, CronStore,
+    STALE_FIRE_MS,
+};
 use crate::service::ServiceState;
 use parking_lot::Mutex;
 
@@ -110,12 +113,17 @@ fn tick_with(cron_state: &CronState, mut fire: impl FnMut(&FireSpec) -> FireStar
     let now_ms = cron_state.lock().now_ms();
     let mut next_fire: Option<u64> = None;
     let mut to_fire: Vec<FireSpec> = Vec::new();
+    let mut stale: Vec<String> = Vec::new();
 
     {
         let store = cron_state.lock();
         for job in store.list_enabled() {
             if let Some(nr) = job.next_run {
                 if nr <= now_ms {
+                    if is_stale_fire(nr, now_ms, job.oneshot) {
+                        stale.push(job.id.clone());
+                        continue;
+                    }
                     if store.is_job_running(&job.id) {
                         log::info!("[cron] skip {}: previous run still active", job.id);
                         let recheck = now_ms + 30_000;
@@ -136,7 +144,18 @@ fn tick_with(cron_state: &CronState, mut fire: impl FnMut(&FireSpec) -> FireStar
         }
     }
 
-    let had_due_jobs = !to_fire.is_empty();
+    for job_id in &stale {
+        match commit(cron_state, |store| store.prepare_skip_stale_fire(job_id)) {
+            Ok(committed) if committed.value => log::info!(
+                "[cron] skip {job_id}: slot missed by more than {} min, moved to the next slot",
+                STALE_FIRE_MS / 60_000
+            ),
+            Ok(_) => {}
+            Err(error) => log::error!("[cron] could not skip stale slot for {job_id}: {error}"),
+        }
+    }
+
+    let had_due_jobs = !to_fire.is_empty() || !stale.is_empty();
     let mut recorded_any = false;
     let mut refused = HashSet::new();
     for spec in to_fire {
@@ -467,6 +486,51 @@ mod tests {
             .clock
             .set_ms(job.next_run.expect("enabled job schedule"));
         job.id
+    }
+
+    #[test]
+    fn recurring_slot_missed_past_stale_window_moves_to_next_slot_without_firing() {
+        let fixture = storage_fixture();
+        let job_id = create_due_job(&fixture);
+        let slot = fixture
+            .cron
+            .lock()
+            .get(&job_id)
+            .and_then(|job| job.next_run);
+        let late = slot.expect("due slot") + super::STALE_FIRE_MS + 60_000;
+        fixture.clock.set_ms(late);
+        let fired = AtomicUsize::new(0);
+        super::tick_with(&fixture.cron, |_| {
+            fired.fetch_add(1, Ordering::SeqCst);
+            super::FireStart::Recorded
+        });
+        assert_eq!(fired.load(Ordering::SeqCst), 0);
+        let next = fixture
+            .cron
+            .lock()
+            .get(&job_id)
+            .and_then(|job| job.next_run);
+        assert!(next.is_some_and(|next| next > late));
+        fixture.storage.shutdown().wait(TEST_DEADLINE).unwrap();
+    }
+
+    #[test]
+    fn recurring_slot_late_inside_stale_window_still_fires() {
+        let fixture = storage_fixture();
+        let job_id = create_due_job(&fixture);
+        let slot = fixture
+            .cron
+            .lock()
+            .get(&job_id)
+            .and_then(|job| job.next_run);
+        fixture.clock.set_ms(slot.expect("due slot") + 60_000);
+        let fired = AtomicUsize::new(0);
+        super::tick_with(&fixture.cron, |spec| {
+            fired.fetch_add(1, Ordering::SeqCst);
+            super::record_fire_start(&fixture.cron, &spec.job_id, "late-run")
+        });
+        assert_eq!(fired.load(Ordering::SeqCst), 1);
+        fixture.storage.shutdown().wait(TEST_DEADLINE).unwrap();
     }
 
     #[test]

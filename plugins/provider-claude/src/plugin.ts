@@ -76,6 +76,8 @@ const TITLE_RE = /claude/i;
 // v2.1+ TUIs prefix the title with a braille spinner glyph or ✳/✻.
 const BRAILLE_LO = 0x2801;
 const BRAILLE_HI = 0x28ff;
+const QUARTER_CIRCLE_LO = 0x25d0;
+const QUARTER_CIRCLE_HI = 0x25d3;
 
 const OUTPUT_FINGERPRINTS = [
   "Claude Code",
@@ -159,7 +161,12 @@ function sessionProjectPath(head: string): string | null {
 function isBrailleSpinner(ch: string): boolean {
   if (!ch) return false;
   const code = ch.charCodeAt(0);
-  return (code >= BRAILLE_LO && code <= BRAILLE_HI) || ch === "✳" || ch === "✻";
+  return (
+    (code >= BRAILLE_LO && code <= BRAILLE_HI) ||
+    (code >= QUARTER_CIRCLE_LO && code <= QUARTER_CIRCLE_HI) ||
+    ch === "✳" ||
+    ch === "✻"
+  );
 }
 
 

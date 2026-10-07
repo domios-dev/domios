@@ -136,7 +136,7 @@ function runAppServerSession(requests: RpcRequest[], then: (session: SessionOutc
   }
   const opts = {
     bin: "codex",
-    args: ["app-server"],
+    args: ["app-server", "-c", "features.plugins=false"],
     conversation: [
       { stdin: initialize + "\n", awaitResponseIds: [1] },
       { stdin: requestLines.join("\n") + "\n", awaitResponseIds: responseIds },

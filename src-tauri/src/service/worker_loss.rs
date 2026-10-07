@@ -212,6 +212,7 @@ pub(crate) fn probe_lane_state(worktree_path: Option<&str>) -> LaneState {
     let output = command
         .current_dir(path)
         .args(["status", "--porcelain", "--untracked-files=all"])
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .output();
     match output {
         Err(error) => LaneState::Unknown {
