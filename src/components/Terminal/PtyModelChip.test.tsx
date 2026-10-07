@@ -33,6 +33,10 @@ test("reasoning control switches the bound tab once and reports the chosen path"
     await act(async () => effort.click());
     assert.deepEqual(calls, [["fixture", "vendor/model", "high"]]);
     assert.equal(host.querySelector('[role="status"]')?.textContent, "Live");
+    await act(async () => host.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
+    assert.equal(host.querySelector('[role="dialog"]'), null);
+    assert.equal(document.activeElement, host.querySelector('button[aria-label="Model and traits"]'));
+
   } finally {
     await act(async () => root.unmount()); host.remove(); __setTabModelApiForTest(null);
   }

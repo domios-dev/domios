@@ -830,6 +830,7 @@ export function TabSessionChat({
         />
       )}
       </div>
+      <div data-composer-height-surface className="shrink-0">
       {isWatcherTab && watcherSpec ? (
         <WatcherReadOnlyBar
           watcher={watcherSpec}
@@ -837,13 +838,13 @@ export function TabSessionChat({
         />
       ) : (
       <>
-      <div className="w-full px-3">
+      <div className="ct-composer-status w-full">
         <AgentStateIndicator
           state={steadyStatusRowState}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}
           reasoningEffort={tab?.reasoning_effort_identity}
-          className="mx-auto w-full max-w-4xl"
+          className="ct-composer-lane mx-auto w-full"
           onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
           onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
           onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
@@ -884,6 +885,7 @@ export function TabSessionChat({
       />}
       </>
       )}
+      </div>
     </div>
   );
 }

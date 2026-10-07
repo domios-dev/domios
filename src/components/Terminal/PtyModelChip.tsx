@@ -1,4 +1,5 @@
 import { useCallback, useState } from "react";
+import { useComposerPopover } from "./useComposerPopover";
 import type { ProviderDescriptor } from "../../lib/types";
 import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
 import { supportsLiveModelSwitch, modelSwitchLabel } from "../../lib/modelSwitch";
@@ -11,7 +12,7 @@ export function PtyModelChip({ tabId, provider, onError }: {
   onError: (message: string) => void;
 }) {
   const tab = useMuxSelector(useCallback((state) => state.tabs[tabId], [tabId]));
-  const [open, setOpen] = useState(false);
+  const { open, triggerRef, popoverRef, close, toggle } = useComposerPopover();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ModelSwitchResult | null>(null);
   if (!tab?.pty_id || tab.protected || !provider || !supportsLiveModelSwitch(provider)) return null;
@@ -30,12 +31,12 @@ export function PtyModelChip({ tabId, provider, onError }: {
   }
 
   return <div className="relative inline-flex text-xs">
-    <button type="button" aria-label="Model and traits" aria-expanded={open} aria-haspopup="dialog"
-      className="rounded-full border px-3 py-1" onClick={() => setOpen(!open)}>
+    <button ref={triggerRef} type="button" aria-label="Model and traits" aria-expanded={open} aria-haspopup="dialog"
+      className="rounded-full border px-3 py-1" onClick={toggle}>
       {models.find((entry) => entry.id === model)?.display_name ?? model ?? "Model unknown"}{effort ? ` · ${effort}` : ""}
     </button>
-    {open && <div role="dialog" aria-label="Model and traits" className="absolute bottom-full z-40 mb-2 min-w-64 rounded-lg border bg-[var(--ct-surface)] p-3 shadow-lg"
-      onKeyDown={(event) => { if (event.code === "Escape") { event.preventDefault(); setOpen(false); } }}>
+    {open && <div ref={popoverRef} role="dialog" aria-label="Model and traits" className="absolute bottom-full z-40 mb-2 min-w-64 rounded-lg border bg-[var(--ct-surface)] p-3 shadow-lg"
+      onKeyDown={(event) => { if (event.code === "Escape") { event.preventDefault(); close(); } }}>
       <fieldset role="radiogroup" aria-label="Model" disabled={busy}><legend>Model</legend>
         {models.map((entry) => <label key={entry.id} className="flex gap-2 py-1">
           <input type="radio" name={`model-${tabId}`} checked={model === entry.id} disabled={entry.availability === "unavailable"}
@@ -53,7 +54,7 @@ export function PtyModelChip({ tabId, provider, onError }: {
       <button type="button" disabled title={provider.supports_permission_bypass ? "Permissions are a launch flag for this tab" : "This tab does not declare runtime mode control"}>
         {provider.supports_permission_bypass ? `Permissions bypass: ${tab.auto_approve === undefined ? "unknown" : tab.auto_approve ? "on" : "off"} (launch flag)` : "Runtime mode unavailable"}
       </button>
-      <button type="button" onClick={() => setOpen(false)}>Close</button>
+      <button type="button" onClick={close}>Close</button>
     </div>}
     {result && <span role="status">{modelSwitchLabel(result.mode_used)}{result.model_confirmation === "pending" ? " · awaiting confirmation" : ""}</span>}
   </div>;
