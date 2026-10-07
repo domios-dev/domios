@@ -1,23 +1,17 @@
 import { ComposerCard } from "./ComposerCard";
-import { Clock3 } from "lucide-react";
 import type { ReactNode } from "react";
 import { VoicePreview } from "./voice/VoicePreview";
 import { VoiceRecordingBar } from "./voice/VoiceRecordingBar";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 
-const btnBase =
-  "ct-liquid-interactive flex items-center justify-center shrink-0";
-
 export function ComposerInputShell({
   voiceUi,
-  onSchedule,
   children,
   header,
   footer,
   actions,
 }: {
   voiceUi: ComposerVoiceHandle;
-  onSchedule?: () => void;
   children: ReactNode;
   header?: ReactNode;
   footer?: ReactNode;
@@ -32,7 +26,6 @@ export function ComposerInputShell({
     isLocked,
     isPreview,
     composerHidden,
-    mainIsSend,
     cancelVoice,
     discardPreviewClip,
     sendPreview,
@@ -42,10 +35,7 @@ export function ComposerInputShell({
     <ComposerCard ref={shellRef}
       header={!composerHidden ? header : undefined}
       footer={!composerHidden && footer ? <div className="flex flex-wrap items-center gap-1">{footer}</div> : undefined}
-      actions={!composerHidden && <div className="flex shrink-0 items-center gap-1">
-        {actions}
-        {mainIsSend && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}
-      </div>}
+      actions={!composerHidden && actions && <div className="ct-composer-inner-actions flex shrink-0 items-center gap-1">{actions}</div>}
     >
       {composerHidden && (
         <div className="absolute inset-1 z-10 flex items-center px-1.5">
@@ -77,27 +67,5 @@ export function ComposerInputShell({
         {children}
       </div>
     </ComposerCard>
-  );
-}
-
-function ComposerScheduleButton({ onSchedule }: { onSchedule: () => void }) {
-  return (
-    <button
-      type="button"
-      data-testid="composer-schedule-button"
-      title="Schedule send"
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={(e) => {
-        e.preventDefault();
-        onSchedule();
-      }}
-      className={`${btnBase} ct-composer-round-button ml-1 h-5 w-5 shrink-0 self-center rounded-full text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:brightness-125`}
-      style={{
-        background: "var(--ct-surface, #161b22)",
-        border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",
-      }}
-    >
-      <Clock3 size={13} strokeWidth={2.2} />
-    </button>
   );
 }
