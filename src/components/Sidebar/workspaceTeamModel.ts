@@ -14,7 +14,7 @@ export function effectiveTeamId(tab: Tab): string | null {
 }
 
 export function visibleWorkspaceTabs(sortedTabs: readonly Tab[], tabs: Record<string, Tab>): Tab[] {
-  return sortedTabs.map((tab) => tabs[tab.id]).filter((tab): tab is Tab => Boolean(tab) && isSidebarTabVisible(tab));
+  return sortedTabs.map((tab) => tabs[tab.id]).filter((tab): tab is Tab => tab != null && isSidebarTabVisible(tab));
 }
 
 export function groupWorkspaceTeamMembers(sortedTabs: readonly Tab[]): Map<string, TeamTabMember[]> {
