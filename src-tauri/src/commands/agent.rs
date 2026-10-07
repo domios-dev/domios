@@ -28,16 +28,18 @@ fn install_provider_in_tab_with_dispatch(
     dispatch: impl FnOnce(&ServiceState, &str, &str) -> Result<(), String>,
 ) -> Result<InstallTabResult, String> {
     let platform = crate::agent::provider::current_platform_tag();
-    let install_cmd = svc
-        .agent_registry
-        .with_provider(&provider_id, |p| p.install_command(platform))
-        .ok_or_else(|| format!("Unknown provider: {}", provider_id))?
-        .ok_or_else(|| {
-            format!(
-                "Provider '{}' has no install command for {}",
-                provider_id, platform
-            )
-        })?;
+    let install_cmd = crate::service::provider_cli::provider_cli_status(
+        &svc.agent_registry,
+        &provider_id,
+        platform,
+    )?
+    .installer
+    .ok_or_else(|| {
+        format!(
+            "Provider '{}' has no install command for {}",
+            provider_id, platform
+        )
+    })?;
 
     let ws_id = {
         let mux = svc.mux.write();

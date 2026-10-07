@@ -1,6 +1,4 @@
-use crate::agent::provider::{
-    observe_launch_binary, LaunchBinaryObservation, ProviderAvailability,
-};
+use crate::agent::provider::{LaunchBinaryObservation, ProviderAvailability};
 use crate::agent::registry::AgentRegistry;
 use crate::multiplexer::state::MultiplexerState;
 
@@ -21,7 +19,7 @@ pub(crate) fn cli_binary_on_path(binary: &str) -> bool {
         return false;
     }
     codeterm_plugin::js_runtime::forget_resolved_bin(binary);
-    observe_launch_binary(Some(binary)).availability == ProviderAvailability::Available
+    super::provider_cli::observe_cli(binary.to_owned(), None, None).installed == Some(true)
 }
 
 /// Why a launch was refused before anything was created.
@@ -128,14 +126,14 @@ pub(crate) fn provider_launch_preflight_for_platform(
     registry: &AgentRegistry,
     provider_id: &str,
     _permission_bypassed: bool,
-    _platform: &str,
+    platform: &str,
 ) -> Result<LaunchClearance, ProviderPreflightError> {
     let Some((display_name, launch_binary, install_command)) =
         registry.with_provider(provider_id, |p| {
             (
                 p.display_name().to_string(),
                 p.binary_name().to_string(),
-                p.install_command(crate::agent::provider::current_platform_tag()),
+                p.install_command(platform),
             )
         })
     else {
@@ -151,13 +149,18 @@ pub(crate) fn provider_launch_preflight_for_platform(
             binary,
         });
     }
-    let observed = observe_launch_binary(Some(&binary));
+    let status = super::provider_cli::observe_cli(binary.clone(), install_command, None);
+    let observed = LaunchBinaryObservation {
+        availability: status.availability,
+        binary: Some(status.binary),
+        searched: status.searched,
+    };
     clearance_for(
         provider_id,
         &display_name,
         &binary,
         observed,
-        install_command.filter(|s| !s.trim().is_empty()),
+        status.installer,
     )
 }
 
