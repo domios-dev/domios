@@ -162,8 +162,12 @@ fn parity_claude_model_capabilities_effort_and_compact_window() {
                 params.args.push("--codeterm-model-capabilities".into());
             }
             assert_eq!(
-                native.build_resume_command_with_context(&params),
-                js.build_resume_command_with_context(&params)
+                super::context::settings_command(|| native
+                    .build_resume_command_with_context(&params)
+                    .unwrap()),
+                super::context::settings_command(|| js
+                    .build_resume_command_with_context(&params)
+                    .unwrap())
             );
         }
     }

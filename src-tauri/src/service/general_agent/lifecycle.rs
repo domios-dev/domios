@@ -566,12 +566,7 @@ pub fn start_general_agent(
     let mut startup_message = None;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
-        match build_general_agent_resume_command(
-            &svc.agent_registry,
-            provider_name,
-            sid,
-            permission_bypass,
-        ) {
+        match super::launch_files::resume(svc, &tab_id, provider_name, sid, permission_bypass) {
             Some(cmd) => cmd,
             None => {
                 let reason = format!(
@@ -681,6 +676,8 @@ pub fn start_general_agent(
         );
         command
     };
+
+    crate::service::task_files::retire_settings_for_launch(svc, &tab_id, &cmd);
 
     if use_resume {
         crate::service::launch_diagnostics::log_launch(
@@ -1021,19 +1018,6 @@ fn terminate_pty_before_relaunch(
     screen_state.lock().remove(pty_id);
     crate::service::stream_preview::remove(pty_id);
     Ok(())
-}
-
-fn build_general_agent_resume_command(
-    registry: &crate::agent::registry::AgentRegistry,
-    provider: &str,
-    session_id: &str,
-    permission_bypass: bool,
-) -> Option<String> {
-    registry
-        .with_provider(provider, |p| {
-            p.build_resume_command(session_id, permission_bypass)
-        })
-        .flatten()
 }
 
 fn general_agent_permission_bypass(

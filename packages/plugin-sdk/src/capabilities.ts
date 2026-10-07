@@ -285,7 +285,7 @@ export interface AgentProvider {
   /** Persist provider-owned folder trust after this tab's trust dialog closes. */
   folderTrustAnswered?(tabId: string, instanceId: string): boolean;
   sweepLaunchArtifacts?(request: LaunchArtifactSweepRequest): LaunchArtifactSweepReport | null;
-  buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string;
+  buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string | null;
   /** Implement only when a resumed session drops the launch-time system prompt. */
   buildResumeCommandWithContext?(params: ResumeParams): string | null;
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
