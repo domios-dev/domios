@@ -221,6 +221,7 @@ pub struct ChatMsg {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_detail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(type = "unknown")]
     pub tool_edits: Option<serde_json::Value>,
     /// Human description supplied by the tool call source; never inferred.
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -251,9 +252,11 @@ pub struct ChatMsg {
     pub tool_background_task_id: Option<String>,
     /// Per-file diffs with the exact hunks the provider's own edit record supplied.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(type = "unknown")]
     pub file_diffs: Option<serde_json::Value>,
     /// Provider-neutral web or image result metadata (query, result count, local path), passed through verbatim.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(type = "unknown")]
     pub tool_rich_result: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_name: Option<String>,
@@ -262,6 +265,7 @@ pub struct ChatMsg {
     pub tool_args: Option<String>,
     /// Raw tool input (provider-shaped) so the chat can render diffs/args.
     #[serde(skip_serializing_if = "Option::is_none", default)]
+    #[ts(type = "unknown")]
     pub tool_input: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub tool_id: Option<String>,
