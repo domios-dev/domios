@@ -24,7 +24,7 @@ pub(super) fn get_command(id: &str) -> Result<Value, String> {
     let manifest = read_plugin_manifest_value(&dir)?;
     let (schema, secret_keys) = load_schema(&dir, &manifest);
 
-    let yaml_path = dir.join("config.yaml");
+    let yaml_path = config_yaml_path(&id, &dir);
     let raw_yaml = fs::read_to_string(&yaml_path).unwrap_or_default();
     let redacted = redact_yaml(&raw_yaml, &secret_keys);
     let bucket = plugin_secret_bucket(id.as_str());
@@ -142,7 +142,7 @@ pub(super) fn config_command(
         }
     }
 
-    let yaml_path = dir.join("config.yaml");
+    let yaml_path = config_yaml_path(&parsed_id, &dir);
     let mut text = match fs::read_to_string(&yaml_path) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => String::new(),
@@ -185,6 +185,10 @@ pub(super) fn config_command(
         "reload": if granted.is_empty() { "live" } else { "reload" },
         "config_path": yaml_path.display().to_string(),
     }))
+}
+
+fn config_yaml_path(id: &PluginId, dir: &Path) -> PathBuf {
+    codeterm_util::plugin_config::config_yaml_path(&plugins_root(), id.as_str(), dir)
 }
 
 fn plugin_secret_bucket(plugin_id: &str) -> SecretFile {
