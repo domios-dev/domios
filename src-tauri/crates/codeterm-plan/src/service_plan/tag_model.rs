@@ -311,6 +311,7 @@ mod tests {
     fn normalize_caps_legacy_stored_handles() {
         let mut plan = Plan::new("P".into(), "/repo".into(), OrchestratorRef::default());
         plan.tasks.push(crate::plan::Task {
+            files: Default::default(),
             id: "task_1".into(),
             handle: Some("legacy-uncapped-handle-".repeat(10)),
             ..task_fixture()
@@ -384,6 +385,7 @@ mod tests {
 
     fn task_fixture() -> crate::plan::Task {
         crate::plan::Task {
+            files: Default::default(),
             id: "task_1".into(),
             name: "Pan Zoom".into(),
             kind: "implement".into(),

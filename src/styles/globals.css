@@ -6,6 +6,7 @@
 @source "../../packages/chat-ui/src";
 @import "@xterm/xterm/css/xterm.css";
 @import "./agent-state.css";
+@import "../components/Terminal/composerDock.css";
 @import "../components/Canvas/missionControl/missionControl.css";
 
 /* The app shell's one responsive boundary, px so the terminal font size cannot move it.
@@ -3075,6 +3076,10 @@ button,
   padding: 3px 8px;
   color: var(--ct-muted-fg);
   font-size: 11.5px;
+}
+
+.sidebar-team-workers-summary .activity-dots {
+  align-self: center;
 }
 
 .sidebar-team-summary-kebab {

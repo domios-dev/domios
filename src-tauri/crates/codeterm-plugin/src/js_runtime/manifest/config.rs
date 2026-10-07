@@ -69,6 +69,8 @@ pub struct SpawnConfig {
     #[serde(default, alias = "resumeBindsOnFirstUserTurn")]
     pub session_starts_on_first_user_turn: bool,
     #[serde(default)]
+    pub restores_conversation_history_on_resume: bool,
+    #[serde(default)]
     pub public_send_waits_for_startup_turn_completion: bool,
     /// Declared hook event roster (event name → core ingestion route).
     /// Absent ⇒ default roster: native fallback's declaration, else SessionStart-only when hooked.
@@ -342,6 +344,8 @@ pub fn resolve_hook_event_roster(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SessionsConfig {
+    #[serde(default)]
+    pub root_environment: Option<super::ReadRootEnvironment>,
     /// Filesystem root the provider writes session files into. May
     /// start with `~/` (expanded to home dir). E.g.
     /// `~/.claude/projects`.
@@ -384,6 +388,8 @@ fn default_session_ext() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct CredentialConfig {
+    #[serde(default)]
+    pub file_environment: Option<super::ReadRootEnvironment>,
     /// Name the plugin uses to reference this credential.
     pub id: String,
     /// JSON file holding it. May start with `~/`.

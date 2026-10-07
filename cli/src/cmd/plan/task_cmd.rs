@@ -409,6 +409,17 @@ pub(super) fn run_task(
     action: PlanTaskAction,
 ) -> Result<Option<Value>, String> {
     match action {
+        PlanTaskAction::Files {
+            plan_id,
+            task_id,
+            edit,
+            read,
+        } => {
+            let files = codeterm_types::plan::TaskFiles { edit, read }.validated()?;
+            let mut params = json!({"plan_id": plan_id, "task_id": task_id, "files": files});
+            inject_trusted_session(&mut params);
+            call(client, "plan.task.update", params).map(Some)
+        }
         PlanTaskAction::List {
             plan_id,
             status,

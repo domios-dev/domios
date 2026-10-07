@@ -28,11 +28,15 @@ test("reasoning control switches the bound tab once and reports the chosen path"
     await act(async () => root.render(<MuxStateStoreContext.Provider value={store}>
       <PtyModelChip tabId="fixture" provider={provider} onError={(error) => { throw new Error(error); }} />
     </MuxStateStoreContext.Provider>));
-    const effort = host.querySelector<HTMLSelectElement>('select[aria-label="Reasoning level"]')!;
-    assert.ok(effort);
-    await act(async () => { effort.value = "high"; effort.dispatchEvent(new Event("change", { bubbles: true })); });
+    await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Model and traits"]')!.click());
+    const effort = Array.from(host.querySelectorAll<HTMLLabelElement>("label")).find((label) => label.textContent === "High")!.querySelector<HTMLInputElement>("input")!;
+    await act(async () => effort.click());
     assert.deepEqual(calls, [["fixture", "vendor/model", "high"]]);
     assert.equal(host.querySelector('[role="status"]')?.textContent, "Live");
+    await act(async () => host.querySelector('[role="dialog"]')!.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
+    assert.equal(host.querySelector('[role="dialog"]'), null);
+    assert.equal(document.activeElement, host.querySelector('button[aria-label="Model and traits"]'));
+
   } finally {
     await act(async () => root.unmount()); host.remove(); __setTabModelApiForTest(null);
   }

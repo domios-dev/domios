@@ -361,6 +361,19 @@ console.log("\n--- malformed structured cursor fails closed ---\n");
 console.log("\n--- discoverModels ---\n");
 
 {
+  const p = loadOpencodeWithHost(ocHost({ shell: { quoteFor: (value: unknown) => `'${String(value)}'`, quote: (value: unknown) => `'${String(value)}'` } }));
+  const preset = { name: "demo", model: "endpoint/model", prompt: "opaque preset prompt", params: { temperature: 0.2, top_p: 0.8, steps: 12 } };
+  const written = p.applyModelPresets({}, [preset]);
+  eq(p.readModelPresets(written.config), [preset], "built plugin preserves preset prompt and params");
+  eq(p.modelPresetLaunchArgs("demo"), ["--agent", "demo"], "preset capability selects its OpenCode agent");
+  const args = [...p.modelPresetLaunchArgs("demo"), "-m", preset.model];
+  for (const command of [p.buildLaunchCommand({ args }), p.buildResumeCommandWithContext({ sessionId: "ses_saved", args })]) {
+    assert(/'?--agent'? 'demo'/.test(command) && /'?-m'? 'endpoint\/model'/.test(command), "fresh and resumed launches retain preset and model", command);
+    assert(!command.includes(preset.prompt), "preset prompt stays in the owned agent config");
+  }
+}
+
+{
   const p = loadOpencodeWithHost(ocHost({
     platform: () => "windows",
     shell: {

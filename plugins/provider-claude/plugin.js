@@ -120,15 +120,21 @@ function statuslineLaunchArgs(args) {
   }
 }
 
+// plugins/provider-shared/readHome.ts
+function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
+  if (!inheritedHome) return fallback;
+  if (!subpath) return inheritedHome;
+  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
+}
+
 // plugins/provider-claude/src/launchSession.ts
 var PROCESS_REGISTRY_DIR_ENV = "CODETERM_CLAUDE_PROCESS_REGISTRY_DIR";
 function registryDir() {
   const override = host.envGet(PROCESS_REGISTRY_DIR_ENV);
   if (override) return override;
-  const home = host.homeDir();
-  if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".claude" + sep + "sessions";
+  const home = host.homeDir();
+  return effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), home ? home + sep + ".claude" + sep + "sessions" : null, "sessions", sep);
 }
 function registrySessionId(raw, pid, startToken) {
   let record2;
@@ -175,9 +181,10 @@ function usageNormalize(raw) {
 }
 var CLAUDE_USAGE_KIND = "codeterm_usage_v1";
 function fetchClaudeUsage(host2) {
-  const credentialsPath = host2.expandHome("~/.claude/.credentials.json");
+  const inheritedHome = host2.envGet("CLAUDE_CONFIG_DIR");
+  const credentialsPath = effectiveReadPath(inheritedHome, host2.expandHome("~/.claude/.credentials.json"), ".credentials.json", host2.platform() === "windows" ? "\\" : "/");
   const fileCredentials = credentialsPath ? safeJson(host2.fs.readFile(credentialsPath)) : null;
-  const credentials = readMacOsCredentials(host2) ?? fileCredentials;
+  const credentials = (inheritedHome ? null : readMacOsCredentials(host2)) ?? fileCredentials;
   const oauth = objectAt(credentials, "claudeAiOauth");
   const accessToken = stringAt(oauth, "accessToken");
   if (!accessToken) throw new Error("usage credentials unavailable");
@@ -420,10 +427,10 @@ function claudeSessionFilePath(cwd, sessionId) {
   const m = manifest();
   const root = m && m.sessions && m.sessions.rootDir || "~/.claude/projects";
   const ext = m && m.sessions && m.sessions.fileExtension || "jsonl";
-  const expanded = host.expandHome(root);
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const expanded = effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), host.expandHome(root), "projects", sep);
   if (!expanded) return null;
   const encoded = encodeCwdDashed(cwd);
-  const sep = host.platform() === "windows" ? "\\" : "/";
   return expanded + sep + encoded + sep + sessionId + "." + ext;
 }
 function sessionModelTranscriptBoundary(cwd, sessionId) {
@@ -608,9 +615,6 @@ function capitalize(s) {
 
 // plugins/provider-claude/src/models.ts
 var FAMILIES = ["opus", "sonnet", "haiku", "fable"];
-var MINIMUM_CLI_BY_MODEL = {
-  fable: [2, 1, 258]
-};
 function decideAvailability(probe, minimum, declared) {
   if (declared === false) return "unavailable";
   if (probe.kind !== "version") return "unknown";
@@ -664,19 +668,20 @@ function fetchLiveModels(key) {
 function probeInstalledCli() {
   let raw;
   try {
-    raw = host.exec(JSON.stringify({ bin: "claude", args: ["--version"], timeoutMs: 3e3 }));
+    raw = host.providerVersionJson();
   } catch (_) {
     return { kind: "unreachable" };
   }
   const result = safeJson2(raw);
-  if (!result || result.code !== 0) return { kind: "unreachable" };
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(String(result.stdout || ""));
+  if (!result || result.status !== "detected") return { kind: "unreachable" };
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(result.version || ""));
   if (!match) return { kind: "unreachable" };
   return { kind: "version", version: [Number(match[1]), Number(match[2]), Number(match[3])] };
 }
 function applyInstalledCapabilities(models, probe) {
   return models.map((model) => {
-    const minimum = MINIMUM_CLI_BY_MODEL[model.id];
+    const declaredMinimum = manifest()?.cliCompatibility?.modelMinimumCli?.[model.id];
+    const minimum = declaredMinimum?.split(".").map(Number);
     if (!minimum) return { ...model };
     const verdict = decideAvailability(probe, minimum, model.available);
     if (verdict === "unknown") {

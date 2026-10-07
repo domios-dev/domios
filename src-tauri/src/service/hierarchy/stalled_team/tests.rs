@@ -17,6 +17,7 @@ fn plan(tasks: Vec<Task>) -> Plan {
 
 fn task(id: &str, status: TaskStatus, worker: Option<&str>) -> Task {
     Task {
+        files: Default::default(),
         id: id.into(),
         name: id.into(),
         kind: "implementation".into(),

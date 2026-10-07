@@ -64,6 +64,9 @@ fn seeded_tab(provider: &str) -> (MultiplexerState, String) {
     tab.agent_requested_model = Some(PRIOR_MODEL.into());
     tab.agent_provider_resolved_model = Some(PRIOR_MODEL.into());
     tab.restorable_launch = crate::multiplexer::types::RestorableLaunchParameters {
+        context_files: None,
+        context_skills: None,
+        worker_restart: None,
         captured: true,
         requested_model: Some(PRIOR_MODEL.into()),
         model: Some(PRIOR_MODEL.into()),
@@ -79,11 +82,13 @@ fn snapshot(tab_id: &str, provider: &str) -> TabRestartSnapshot {
         tab_id: tab_id.into(),
         pty_id: "pty-7f3a".into(),
         provider: provider.into(),
+        target_provider: None,
         session_id: Some(SESSION.into()),
         cwd: Some(std::env::temp_dir().display().to_string()),
         auto_approve: false,
         role: None,
         role_profile: None,
+        handoff_history: None,
     }
 }
 

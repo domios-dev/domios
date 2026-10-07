@@ -272,12 +272,26 @@ fn guard_snapshot(session_id: Option<&str>) -> TabRestartSnapshot {
         tab_id: "tab-guard".into(),
         pty_id: "pty-guard".into(),
         provider: "claude".into(),
+        target_provider: None,
         session_id: session_id.map(str::to_string),
         cwd: Some("/tmp/project".into()),
         auto_approve: false,
         role: None,
         role_profile: None,
+        handoff_history: None,
     }
+}
+
+#[test]
+fn provider_handoff_outcome_does_not_claim_a_source_session_resume() {
+    let mut snap = guard_snapshot(Some("source-session"));
+    snap.target_provider = Some("target-provider".into());
+
+    let outcome = RestartOutcome::accepted(&snap, false, false);
+
+    assert_eq!(outcome.provider, "target-provider");
+    assert_eq!(outcome.session_id, None);
+    assert_eq!(outcome.session_action(), "fresh_launch");
 }
 
 #[test]
@@ -696,11 +710,13 @@ fn settle_snapshot_and_outcome(tab_id: &str) -> (TabRestartSnapshot, RestartOutc
         tab_id: tab_id.into(),
         pty_id: "pty-new".into(),
         provider: "claude".into(),
+        target_provider: None,
         session_id: Some("sess-a".into()),
         cwd: None,
         auto_approve: false,
         role: None,
         role_profile: None,
+        handoff_history: None,
     };
     let outcome = RestartOutcome {
         tab_id: tab_id.into(),

@@ -398,3 +398,50 @@ fn tool_less_host_startup_requires_exact_fresh_session_evidence_and_never_cli_ha
             .is_some()
     );
 }
+
+#[test]
+fn completed_brief_ack_fallback_requires_exact_own_answered_turn() {
+    let mut pending = pending();
+    pending.user_text = "opaque\r\ntask".into();
+    let evidence = completed();
+    assert!(!completed_brief_ack_eligible(
+        &pending,
+        source(),
+        Some(&evidence)
+    ));
+    pending.turn_normalization.drop_line_breaks = true;
+    assert!(!completed_brief_ack_eligible(
+        &pending,
+        source(),
+        Some(&evidence)
+    ));
+    pending.user_text = "opaque\r\n task".into();
+    assert!(completed_brief_ack_eligible(
+        &pending,
+        source(),
+        Some(&evidence)
+    ));
+    assert!(!completed_brief_ack_eligible(
+        &pending,
+        RelaySource {
+            session_id: "foreign",
+            ..source()
+        },
+        Some(&evidence)
+    ));
+    let mut incomplete = evidence.clone();
+    if let ReplyRelayEvidence::Answered(turn) = &mut incomplete {
+        turn.complete = false;
+    }
+    assert!(!completed_brief_ack_eligible(
+        &pending,
+        source(),
+        Some(&incomplete)
+    ));
+    pending.task = None;
+    assert!(!completed_brief_ack_eligible(
+        &pending,
+        source(),
+        Some(&evidence)
+    ));
+}

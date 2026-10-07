@@ -8,6 +8,8 @@ use std::io::Read;
 
 #[path = "agent_cli.rs"]
 mod agent_cli;
+#[path = "agent_compatibility.rs"]
+mod agent_compatibility;
 #[path = "agent_model_switch.rs"]
 mod agent_model_switch;
 #[path = "agent_models.rs"]
@@ -298,6 +300,11 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
     };
     match action {
+        AgentAction::Turns { tab, last, after } => {
+            let mut params = serde_json::json!({"tab_id":tab,"last":last,"after_offset":after});
+            CallerContext::from_env().apply_trusted_session(&mut params);
+            handle_result(json, client.call("agent.turns", Some(params)));
+        }
         AgentAction::Cli { action } => agent_cli::run(client, json, action),
         AgentAction::Providers => match local_http
             .get(format!("{}/api/agents/providers", base))
@@ -350,6 +357,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         models_count,
                         provider_availability_marker(p)
                     );
+                    if let Some(line) = agent_compatibility::status_line(p) {
+                        println!("  {line}");
+                    }
                     if let Some(status) = p.get("cli_status") {
                         if status.get("installed").and_then(|v| v.as_bool()) != Some(true) {
                             for line in crate::cmd::plugin::cli_status::status_lines(id, status) {
@@ -880,11 +890,18 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
         AgentAction::Restart {
             tab,
+            provider,
+            handoff_history,
             force,
             grace_secs,
         } => {
             let tab_id = resolve_tab(client, tab);
-            let body = serde_json::json!({"force": force, "grace_secs": grace_secs});
+            let body = serde_json::json!({
+                "force": force,
+                "grace_secs": grace_secs,
+                "provider": provider,
+                "handoff_history": handoff_history,
+            });
             match local_http
                 .post(format!("{}/api/tabs/{}/agent/restart", base, tab_id))
                 .json(&body)

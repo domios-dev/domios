@@ -24,6 +24,24 @@ use tauri::AppHandle;
 
 mod split;
 
+fn task_files_field(
+    params: Option<&Value>,
+) -> Result<Option<crate::plan::TaskFiles>, JsonRpcError> {
+    params
+        .and_then(|p| p.get("files"))
+        .map(|value| {
+            serde_json::from_value::<crate::plan::TaskFiles>(value.clone())
+                .map_err(|e| e.to_string())
+                .and_then(crate::plan::TaskFiles::validated)
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })
+        })
+        .transpose()
+}
+
 fn authenticated_caller(params: Option<&Value>) -> crate::service::AuthenticatedPlanCaller {
     crate::service::AuthenticatedPlanCaller {
         tab_id: params
@@ -341,6 +359,7 @@ pub(super) fn dispatch(
                     &project,
                     owner,
                     NewTask {
+                        files: task_files_field(p)?.unwrap_or_default(),
                         name: get_string_param(params, "name")?,
                         kind: body
                             .get("type")
@@ -462,6 +481,7 @@ pub(super) fn dispatch(
                 .add_task_with_external_refs(
                     &id,
                     NewTask {
+                        files: task_files_field(p)?.unwrap_or_default(),
                         name,
                         kind,
                         section_ids,
@@ -585,6 +605,7 @@ pub(super) fn dispatch(
         "plan.task.split" => split::dispatch_split(params, app, svc, now),
         "plan.task.update" => {
             validate_task_update_params(p)?;
+            let files = task_files_field(p)?;
             validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let (id, tid) = plan_refs::resolve_task(store, params)?;
             let author = svc
@@ -603,6 +624,11 @@ pub(super) fn dispatch(
                 message,
                 data: None,
             })?;
+            if let Some(files) = files {
+                store
+                    .update_task_files(&id, &tid, files, now)
+                    .map_err(plan_rpc_err)?;
+            }
             let sections = p.and_then(|x| x.get("sections")).map(|_| {
                 store
                     .resolve_task_section_ids(&id, &csv_string_field(p, "sections"))

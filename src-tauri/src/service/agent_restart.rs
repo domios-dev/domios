@@ -14,7 +14,7 @@ use codeterm_types::pty::AgentLiveness;
 use parking_lot::Mutex;
 
 use super::ServiceContext;
-use crate::agent::provider::{AgentLaunchParams, StructuredPromptServer};
+use crate::agent::provider::{AgentLaunchParams, ProviderTransport, StructuredPromptServer};
 
 /// Minimum seconds between consecutive restarts for a single tab.
 pub const RESTART_RATE_LIMIT_SECS: u64 = 30;
@@ -111,10 +111,14 @@ pub struct RestartOutcome {
 
 impl RestartOutcome {
     fn accepted(snap: &TabRestartSnapshot, session_was_stale: bool, force: bool) -> Self {
+        let provider = snap.target_provider.as_deref().unwrap_or(&snap.provider);
+        let provider_changed = provider != snap.provider;
         Self {
             tab_id: snap.tab_id.clone(),
-            provider: snap.provider.clone(),
-            session_id: snap.session_id.clone(),
+            provider: provider.to_string(),
+            session_id: (!provider_changed)
+                .then(|| snap.session_id.clone())
+                .flatten(),
             session_was_stale,
             force,
             auto_approve: snap.auto_approve,
@@ -143,11 +147,13 @@ struct TabRestartSnapshot {
     tab_id: String,
     pty_id: String,
     provider: String,
+    target_provider: Option<String>,
     session_id: Option<String>,
     cwd: Option<String>,
     auto_approve: bool,
     role: Option<String>,
     role_profile: Option<String>,
+    handoff_history: Option<String>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -240,6 +246,48 @@ impl ServiceContext {
         force: bool,
         grace_secs: u64,
     ) -> Result<RestartOutcome, RestartAttemptError> {
+        self.agent_restart_observed_with_options(tab_id, force, grace_secs, None, false)
+    }
+
+    pub(crate) fn agent_restart_observed_with_options(
+        &self,
+        tab_id: &str,
+        force: bool,
+        grace_secs: u64,
+        target_provider: Option<String>,
+        handoff_history: bool,
+    ) -> Result<RestartOutcome, RestartAttemptError> {
+        if handoff_history && target_provider.is_none() {
+            return Err(AgentRestartError::BadRequest(
+                "history handoff requires a target provider".into(),
+            )
+            .into());
+        }
+        if let Some(target_provider) = target_provider.as_deref() {
+            let current_provider = {
+                let mux = self.mux.read();
+                mux.resolve_tab_id(tab_id)
+                    .and_then(|resolved| mux.get_tab(&resolved))
+                    .and_then(|tab| tab.agent_type.clone())
+            };
+            let Some(current_provider) = current_provider else {
+                return Err(AgentRestartError::BadRequest(
+                    "provider restart requires a live PTY agent Tab".into(),
+                )
+                .into());
+            };
+            if current_provider != target_provider {
+                let mut snap = self.snapshot_tab_for_restart(tab_id)?;
+                self.prepare_provider_change(&mut snap, target_provider, handoff_history)?;
+                return self.restart_live_agent(
+                    snap,
+                    force,
+                    grace_secs,
+                    None,
+                    RestartMode::Standard,
+                );
+            }
+        }
         if let Some(outcome) = self.restart_general_agent_if_target(tab_id, force, false)? {
             return outcome;
         }
@@ -253,6 +301,60 @@ impl ServiceContext {
         self.restart_live_agent(snap, force, grace_secs, None, RestartMode::Standard)
     }
 
+    fn prepare_provider_change(
+        &self,
+        snap: &mut TabRestartSnapshot,
+        target_provider: &str,
+        handoff_history: bool,
+    ) -> Result<(), AgentRestartError> {
+        let transport = self
+            .agent_registry
+            .with_provider(target_provider, |provider| provider.describe().transport)
+            .ok_or_else(|| {
+                AgentRestartError::BadRequest(format!("unknown agent provider: {target_provider}"))
+            })?;
+        if transport != ProviderTransport::Pty {
+            return Err(AgentRestartError::BadRequest(
+                "provider restart requires a PTY transport".into(),
+            ));
+        }
+        let source_transport = self
+            .agent_registry
+            .with_provider(&snap.provider, |provider| provider.describe().transport)
+            .ok_or_else(|| {
+                AgentRestartError::BadRequest(format!("unknown agent provider: {}", snap.provider))
+            })?;
+        if source_transport != ProviderTransport::Pty {
+            return Err(AgentRestartError::BadRequest(
+                "provider restart requires a PTY source".into(),
+            ));
+        }
+        snap.auto_approve = crate::service::permission_policy::configured_permission_bypass(
+            &self.agent_registry,
+            target_provider,
+        )
+        .map_err(AgentRestartError::BadRequest)?
+        .is_some();
+        snap.target_provider = Some(target_provider.to_string());
+        if crate::service::provider_handoff::should_handoff_history(
+            &snap.provider,
+            target_provider,
+            handoff_history,
+        ) {
+            let (messages, _) = crate::service::tab_chat::tab_chat_snapshot(self, &snap.tab_id, 0)
+                .map_err(|error| {
+                    AgentRestartError::BadRequest(format!(
+                        "cannot read the source Tab history for provider handoff: {error}"
+                    ))
+                })?;
+            let selected = crate::service::provider_handoff::select_history(&messages, 16_000);
+            if !selected.is_empty() {
+                snap.handoff_history = Some(selected);
+            }
+        }
+        Ok(())
+    }
+
     /// Exit, tear down and relaunch a live agent. A model switch supplies its
     /// own resume command and commits its launch record once the old PTY is gone.
     fn restart_live_agent(
@@ -263,8 +365,12 @@ impl ServiceContext {
         model_switch: Option<&model_switch::ModelSwitchLaunch>,
         mode: RestartMode,
     ) -> Result<RestartOutcome, RestartAttemptError> {
-        if let Some(reason) = evidenced_transcript_block(&snap) {
-            return Err(AgentRestartError::BadRequest(reason).into());
+        let target_provider = snap.target_provider.as_deref().unwrap_or(&snap.provider);
+        let provider_changed = target_provider != snap.provider;
+        if !provider_changed {
+            if let Some(reason) = evidenced_transcript_block(&snap) {
+                return Err(AgentRestartError::BadRequest(reason).into());
+            }
         }
 
         let restart_claim =
@@ -278,9 +384,10 @@ impl ServiceContext {
             crate::session::lifecycle::LifecycleTransition::RestartRequested,
         );
 
-        let session_was_stale = snap.session_id.is_some() && !self.session_file_present(&snap);
+        let session_was_stale =
+            !provider_changed && snap.session_id.is_some() && !self.session_file_present(&snap);
         let mut outcome = RestartOutcome::accepted(&snap, session_was_stale, force);
-        let session_present = !session_was_stale && snap.session_id.is_some();
+        let session_present = !provider_changed && !session_was_stale && snap.session_id.is_some();
         let relaunch = match model_switch {
             Some(launch) if session_present => {
                 launch.command(self, &snap).map(|(command, task)| {
@@ -300,7 +407,7 @@ impl ServiceContext {
                 "the Tab's session is no longer resumable, so its model cannot be switched in place"
                     .to_string()
             } else {
-                format!("provider {} returned no launch command", snap.provider)
+                format!("provider {target_provider} returned no launch command")
             };
             return Err(RestartAttemptError::Failed {
                 outcome,
@@ -324,13 +431,33 @@ impl ServiceContext {
             });
         }
         outcome.old_pty_torn_down = true;
+        if provider_changed {
+            let reset = {
+                let mut mux = self.mux.write();
+                mux.get_tab_mut(&snap.tab_id).map(|tab| {
+                    crate::service::provider_handoff::reset_tab_identity_for_provider_change(
+                        tab,
+                        snap.auto_approve,
+                    );
+                })
+            };
+            if reset.is_none() {
+                crate::service::task_files::release_tab(self, &snap.tab_id);
+                return Err(RestartAttemptError::Failed {
+                    outcome,
+                    reason: format!("Tab {} disappeared during provider change", snap.tab_id),
+                    timed_out: false,
+                });
+            }
+            self.schedule_session_persist_debounced();
+        }
         if let Some(launch) = model_switch {
             launch.commit(self, &snap.tab_id);
         }
 
         self.set_and_lock_tab_agent_type_from(
             &snap.tab_id,
-            snap.provider.clone(),
+            target_provider.to_string(),
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
@@ -338,7 +465,7 @@ impl ServiceContext {
             self.clone(),
             snap.tab_id.clone(),
             launch_cmd,
-            snap.provider.clone(),
+            target_provider.to_string(),
             if session_present {
                 crate::service::launch_diagnostics::AgentLaunchOrigin::Resume
             } else {
@@ -526,11 +653,13 @@ impl ServiceContext {
             tab_id: general,
             pty_id: tab.pty_id.clone().unwrap_or_default(),
             provider,
+            target_provider: None,
             session_id: tab.agent_session_id.clone(),
             cwd: tab.cwd.clone(),
             auto_approve: false,
             role: tab.role.map(|role| format!("{role:?}")),
             role_profile: tab.role_profile.clone(),
+            handoff_history: None,
         })
     }
 
@@ -773,10 +902,10 @@ fn evidenced_transcript_block(snap: &TabRestartSnapshot) -> Option<String> {
 fn build_relaunch_command(
     svc: &ServiceContext,
     snap: &TabRestartSnapshot,
+    provider: &str,
     session_present: bool,
     launch_task: Option<&str>,
 ) -> Option<String> {
-    let provider = &snap.provider;
     let auto_approve = match crate::service::permission_policy::configured_permission_bypass(
         &svc.agent_registry,
         provider,
@@ -867,6 +996,7 @@ fn build_relaunch_command_with_registry(
                 crate::service::tool_less_instructions::build(
                     p,
                     &AgentLaunchParams {
+                        context_files: None,
                         tool_less_instructions_path: None,
                         agent_name: None,
                         task: None,
@@ -920,6 +1050,9 @@ fn build_relaunch_command_with_registry(
                 &mut args,
             );
             let resume = crate::agent::provider::AgentResumeParams {
+                cwd: cwd.map(str::to_string),
+                context_files: None,
+                tool_less_instructions_path: None,
                 session_id: sid.to_string(),
                 skip_permissions: auto_approve,
                 agent_name: None,
@@ -928,7 +1061,9 @@ fn build_relaunch_command_with_registry(
                 args,
             };
             if let Some(cmd) = registry
-                .with_provider(provider, |p| p.build_resume_command_with_context(&resume))
+                .with_provider(provider, |p| {
+                    crate::service::context_bundle::build_resume(p, &resume, None)
+                })
                 .flatten()
             {
                 return Some(cmd);
@@ -936,6 +1071,7 @@ fn build_relaunch_command_with_registry(
         }
     }
     let mut params = AgentLaunchParams {
+        context_files: None,
         tool_less_instructions_path: None,
         agent_name: None,
         task: launch_task.map(str::to_string),

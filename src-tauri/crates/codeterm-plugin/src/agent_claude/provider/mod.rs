@@ -16,6 +16,7 @@ pub(crate) mod launch_session;
 mod onboarding;
 mod permission_hook;
 mod permission_prompt;
+mod read_home;
 mod schemas;
 mod sessions;
 mod subagents;
@@ -59,6 +60,20 @@ impl AgentProvider for ClaudeProvider {
     ) -> Option<codeterm_types::agent::context::TurnContext> {
         context::parse(record)
     }
+    fn cli_compatibility(&self) -> Option<crate::provider_compat::CompatibilityManifest> {
+        #[derive(serde::Deserialize)]
+        #[serde(rename_all = "camelCase")]
+        struct Manifest {
+            cli_compatibility: crate::provider_compat::CompatibilityManifest,
+        }
+        serde_json::from_str::<Manifest>(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugins/provider-claude/plugin.json"
+        )))
+        .ok()
+        .map(|manifest| manifest.cli_compatibility)
+    }
+
     fn id(&self) -> &str {
         "claude"
     }
@@ -178,6 +193,7 @@ impl AgentProvider for ClaudeProvider {
             unwrap_pasted_content_wrapper: true,
             collapse_horizontal_whitespace: true,
             drop_supplementary_characters: false,
+            drop_line_breaks: false,
         }
     }
 

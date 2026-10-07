@@ -12,9 +12,9 @@ A Team may attach one optional Cartographer Manager for stable product contracts
 
 ## Dispatch, reports and review
 
-Dispatch assigns the task and delivers its brief to the Worker. Local reassignment requires verified live binding and a fresh acknowledgement. Dispatch and respawn explicitly reopen blocked tasks while recording the previous reason; respawn preserves prior review evidence. A reopened task reuses its retained lane.
+Dispatch assigns the task and delivers its brief to the Worker. Local reassignment requires verified live binding and a fresh acknowledgement. Dispatch and respawn explicitly reopen blocked tasks while recording the previous reason; respawn preserves prior review evidence. A reopened task reuses its retained lane. For tool-less Workers, the host attaches declared editable/read-only task files and the attempt's exact skill snapshots through provider capabilities, and delivers the complete brief as one user turn. Unsupported or unreadable context refuses dispatch. The Orchestrator can inspect bounded completed turns from the Worker's authenticated session without reading provider-specific files.
 
-Every Worker turn ends in a report. The report is pushed to the Orchestrator, including across the mesh for a remote Worker. A refused report is a diagnostic, not a recorded task report. A report is input and is never replied to; acceptance, bounce or hold is the Orchestrator's answer. A submitted result is not an accepted result.
+Every Worker turn ends in a report. The report is pushed to the Orchestrator, including across the mesh for a remote Worker. A refused report is a diagnostic, not a recorded task report. A report is input and is never replied to; acceptance, bounce or hold is the Orchestrator's answer. A submitted result is not an accepted result. Tool-less Workers acknowledge receipt through exact own-session user-turn evidence. Their completed report-marked replies become reports; unmarked completed replies remain routed answers. Completion is provider-authoritative and never inferred from the terminal screen.
 
 A bounce carries its reason and failing evidence. It returns work to a live Worker when continuation is available; otherwise it reopens the task as pending, preserving the note, attempt history and lane for redispatch. Ambiguous attempts refuse rather than assigning ownership by guess.
 
@@ -54,3 +54,10 @@ anchors:
   - capability:isolated-lanes
   - capability:integration
 ```
+
+Task-bound tool-less Workers retain their original brief and pending completed-turn
+windows across daemon restart. A provider declares whether resume restores its
+conversation. Restoring providers receive no repeated brief; non-restoring ones
+receive one new-launch admission only after authenticated binding and only when
+exact current-session evidence has not already proved delivery. Attempt identity,
+file context, skills, and shared class instructions continue through resume.

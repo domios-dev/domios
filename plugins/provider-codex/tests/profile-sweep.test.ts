@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   codexProfileInstanceId,
+  classifyCodexProfile,
   codexProfileTabId,
   carryCodexProjectTrustForTab,
   codexDirectoryTrustState,
@@ -67,7 +68,7 @@ console.log("\n--- automatic sweep only removes this instance's dead profiles --
     "codeterm-dead-tab-retry-42-1700000000000.config.toml": "# codeterm-instance: instance-dev\ndeveloper_instructions = \"retry\"",
     "codeterm-live-tab.config.toml": "# codeterm-instance: instance-dev\ndeveloper_instructions = \"live\"",
     "codeterm-foreign-tab.config.toml": "# codeterm-instance: instance-prod\ndeveloper_instructions = \"foreign\"",
-    "codeterm-legacy-tab.config.toml": "developer_instructions = \"legacy\"",
+    "codeterm-deadbeef.config.toml": "developer_instructions = \"legacy\"",
     "foreign.config.toml": "# codeterm-instance: instance-dev",
   });
   const report = sweepCodexProfiles(host, ["live-tab"], "instance-dev");
@@ -80,7 +81,7 @@ console.log("\n--- automatic sweep only removes this instance's dead profiles --
   eq(removed, report.dead, "never removes another instance or unmarked profile");
   assert.ok(files["codeterm-live-tab.config.toml"], "keeps this instance's live tab profile");
   assert.ok(files["codeterm-foreign-tab.config.toml"], "keeps another instance's unknown tab profile");
-  assert.ok(files["codeterm-legacy-tab.config.toml"], "keeps the unmarked legacy profile automatically");
+  assert.ok(files["codeterm-deadbeef.config.toml"], "keeps the unmarked legacy profile automatically");
 }
 
 console.log("\n--- unreadable directories fail closed ---\n");
@@ -164,20 +165,86 @@ console.log("\n--- owner command dry run and legacy opt-in ---\n");
 {
   const { host, files, removed } = makeHost({
     "codeterm-dead-tab.config.toml": "# codeterm-instance: instance-dev",
-    "codeterm-legacy-tab.config.toml": "developer_instructions = \"legacy\"",
+    "codeterm-deadbeef.config.toml": "developer_instructions = \"legacy\"",
+    "codeterm-1234abcd.config.toml": "developer_instructions = \"live\"",
     "codeterm-foreign-tab.config.toml": "# codeterm-instance: instance-prod",
   });
-  const liveTabIds = ["legacy-tab"];
+  const liveTabIds = ["1234abcd"];
   const preview = manageCodexProfiles(host, liveTabIds, "instance-dev", false, false);
   eq(preview.dead, ["codeterm-dead-tab.config.toml"], "lists owned dead profiles by default");
-  eq(preview.legacy, ["codeterm-legacy-tab.config.toml"], "lists unmarked profiles for owner review");
+  eq(preview.legacy, ["codeterm-deadbeef.config.toml"], "lists only exact-pattern dead legacy profiles");
   eq(preview.removed, [], "dry run does not delete files");
   eq(removed, [], "dry run leaves profiles intact");
   const confirmed = manageCodexProfiles(host, liveTabIds, "instance-dev", true, false);
   eq(confirmed.removed, ["codeterm-dead-tab.config.toml"], "confirm removes owned dead profiles only");
-  assert.ok(files["codeterm-legacy-tab.config.toml"], "legacy files require --include-legacy");
+  assert.ok(files["codeterm-deadbeef.config.toml"], "legacy files require --include-legacy");
   const legacyConfirmed = manageCodexProfiles(host, liveTabIds, "instance-dev", true, true);
-  eq(legacyConfirmed.removed, ["codeterm-legacy-tab.config.toml"], "includeLegacy plus confirm deletes unmarked profiles regardless of tab liveness");
+  eq(legacyConfirmed.removed, ["codeterm-deadbeef.config.toml"], "includeLegacy plus confirm deletes only dead exact-pattern legacy profiles");
+  assert.ok(files["codeterm-1234abcd.config.toml"], "live legacy profiles survive explicit legacy cleanup");
+}
+
+console.log("\n--- pure cleanup policy ---\n");
+{
+  const own = "# codeterm-instance: owner\n";
+  const foreign = "# codeterm-instance: foreign\n";
+  const cases: [string, string, string[], string[], "dead" | "legacy" | null][] = [
+    ["codeterm-deadbeef.config.toml", own, ["deadbeef"], [], null],
+    ["codeterm-deadbeef.config.toml", own, [], [], "dead"],
+    ["codeterm-deadbeef-retry-42-639263077363670423.config.toml", own, [], [], "dead"],
+    ["codeterm-deadbeef-retry-42-639263077363670423.config.toml", own, ["deadbeef"], [], null],
+    ["codeterm-deadbeef.config.toml", foreign, [], [], null],
+    ["codeterm-deadbeef.config.toml", foreign, ["deadbeef"], ["foreign"], "dead"],
+    ["codeterm-deadbeef.config.toml", "", ["deadbeef"], [], null],
+    ["codeterm-deadbeef.config.toml", "", [], [], "legacy"],
+    ["codeterm-deadbeef-preserved-42-123.config.toml", "", [], [], "legacy"],
+    ["codeterm-deadbeef-retry-42-123.config.toml", "", ["deadbeef"], [], null],
+    ["codeterm-user.config.toml", "", [], [], null],
+    ["codeterm-deadbeef-custom.config.toml", "", [], [], null],
+    ["codeterm-deadbeef-retry-x-123.config.toml", "", [], [], null],
+    ["codeterm-ABCDEF12.config.toml", "", [], [], null],
+    ["config.toml", own, [], [], null],
+    ["user.config.toml", "", [], [], null],
+    ["codeterm-deadbeef.config.toml", "# codeterm-instance: broken marker", [], [], null],
+    ["codeterm-deadbeef.config.toml", "x\n# codeterm-instance: foreign", [], [], null],
+  ];
+  for (const [name, contents, live, gone, expected] of cases) {
+    eq(classifyCodexProfile(name, contents, new Set(live), "owner", new Set(gone)), expected, name);
+  }
+}
+
+console.log("\n--- foreign and legacy cleanup retains trust and respects the pass cap ---\n");
+{
+  const files: Record<string, string> = {
+    "codeterm-foreign.config.toml": "# codeterm-instance: foreign\n[projects.'C:\\Foreign']\ntrust_level = 'trusted'\n",
+    "codeterm-deadbeef.config.toml": "[projects.'C:\\Legacy']\ntrust_level = 'trusted'\n",
+    "codeterm-user.config.toml": "developer_instructions = 'user'",
+  };
+  for (let index = 0; index < 201; index++) {
+    files[`codeterm-${index.toString(16).padStart(8, "0")}.config.toml`] = "developer_instructions = 'old'";
+  }
+  const { host } = makeHost(files);
+  const first = manageCodexProfiles(host, [], "owner", true, true, ["foreign"]);
+  assert.equal(first.removed.length, 200);
+  assert.equal(files["codeterm-foreign.config.toml"], undefined);
+  assert.equal(files["codeterm-deadbeef.config.toml"], undefined);
+  assert.ok(files["config.toml"].includes("C:\\Foreign"));
+  assert.ok(files["config.toml"].includes("C:\\Legacy"));
+  const second = manageCodexProfiles(host, [], "owner", true, true, ["foreign"]);
+  assert.equal(second.removed.length, 3);
+  assert.ok(files["codeterm-user.config.toml"]);
+}
+
+console.log("\n--- refused removals do not starve later reclaimable files ---\n");
+{
+  const files: Record<string, string> = {};
+  for (let index = 0; index < 201; index++) {
+    files[`codeterm-${index.toString(16).padStart(8, "0")}.config.toml`] = "# codeterm-instance: owner";
+  }
+  const { host } = makeHost(files);
+  const remove = host.fs.removeFile;
+  host.fs.removeFile = (path) => path.endsWith("codeterm-000000c8.config.toml") && remove(path);
+  eq(manageCodexProfiles(host, [], "owner", true, false).removed,
+    ["codeterm-000000c8.config.toml"], "the cap counts removals rather than refused candidates");
 }
 
 console.log("\n--- close releases only the profile marked by this instance ---\n");
@@ -189,6 +256,22 @@ console.log("\n--- close releases only the profile marked by this instance ---\n
   eq(releaseCodexProfile(host, "tab", "instance-dev"), true, "removes the tab's own profile");
   eq(releaseCodexProfile(host, "foreign", "instance-dev"), false, "keeps a profile marked by another instance");
   eq(removed, ["codeterm-tab.config.toml"], "only the same-instance file was removed");
+}
+
+console.log("\n--- changed ownership between eligibility and trust carry fails closed ---\n");
+for (const release of [false, true]) {
+  const name = "codeterm-deadbeef.config.toml";
+  const { host, files, removed } = makeHost({ [name]: "# codeterm-instance: owner" });
+  const read = host.fs.readFile;
+  let reads = 0;
+  host.fs.readFile = (path) => {
+    if (path.endsWith(name) && ++reads === 3) files[name] = "# codeterm-instance: foreign";
+    return read(path);
+  };
+  if (release) assert.equal(releaseCodexProfile(host, "deadbeef", "owner"), false);
+  else eq(manageCodexProfiles(host, [], "owner", true, false).removed, [], "changed owner is retained");
+  eq(removed, [], "ownership change prevents deletion");
+  assert.equal(files[name], "# codeterm-instance: foreign");
 }
 
 console.log("\n--- profile release carries project trust before removal ---\n");

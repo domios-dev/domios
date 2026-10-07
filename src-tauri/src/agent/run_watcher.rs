@@ -717,14 +717,32 @@ fn resume_hidden_run(
         tab.auto_approve = full_access;
     }
     crate::service::task_files::release_tab(svc, tab_id);
+    let (cwd, launch) = {
+        let mux = svc.mux.read();
+        let Some(tab) = mux.get_tab(tab_id) else {
+            return;
+        };
+        (tab.cwd.clone(), tab.restorable_launch.clone())
+    };
+    let resume = crate::agent::provider::AgentResumeParams {
+        cwd,
+        context_files: launch.context_files,
+        session_id: sid,
+        skip_permissions: full_access,
+        system_prompt: system_prompt.map(str::to_string),
+        instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
+        ..Default::default()
+    };
     let cmd = crate::service::task_files::capture(svc, tab_id, || {
-        hidden_recovery_resume_command(
-            &svc.agent_registry,
-            &provider,
-            &sid,
-            full_access,
-            system_prompt,
-        )
+        svc.agent_registry
+            .with_provider(&provider, |provider| {
+                crate::service::context_bundle::build_resume(
+                    provider,
+                    &resume,
+                    launch.context_skills.as_deref(),
+                )
+            })
+            .flatten()
     });
     let Some(cmd) = cmd else {
         log::warn!("[run-watcher] provider {} has no resume command", provider);
@@ -735,6 +753,7 @@ fn resume_hidden_run(
     }
 }
 
+#[cfg(test)]
 fn hidden_recovery_resume_command(
     registry: &crate::agent::registry::AgentRegistry,
     provider: &str,
@@ -744,14 +763,21 @@ fn hidden_recovery_resume_command(
 ) -> Option<String> {
     registry
         .with_provider(provider, |p| {
-            p.build_resume_command_with_context(&crate::agent::provider::AgentResumeParams {
-                session_id: session_id.to_string(),
-                skip_permissions: full_access,
-                agent_name: None,
-                system_prompt: system_prompt.map(str::to_string),
-                instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
-                args: Vec::new(),
-            })
+            crate::service::context_bundle::build_resume(
+                p,
+                &crate::agent::provider::AgentResumeParams {
+                    cwd: None,
+                    context_files: None,
+                    tool_less_instructions_path: None,
+                    session_id: session_id.to_string(),
+                    skip_permissions: full_access,
+                    agent_name: None,
+                    system_prompt: system_prompt.map(str::to_string),
+                    instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
+                    args: Vec::new(),
+                },
+                None,
+            )
         })
         .flatten()
 }

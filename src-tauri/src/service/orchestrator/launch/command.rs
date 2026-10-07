@@ -212,8 +212,18 @@ fn build_agent_command_inner(
         );
     }
 
+    if let Some((service, tab_id)) = notice_context {
+        if let Some(tab) = service.mux.write().get_tab_mut(tab_id) {
+            tab.restorable_launch.context_files = params.context_files.clone();
+            tab.restorable_launch.context_skills = params.context_skills.clone();
+        }
+    }
+
     if let Some(session_id) = &params.resume_session_id {
         let resume = crate::agent::provider::AgentResumeParams {
+            cwd: params.cwd.clone(),
+            context_files: params.context_files.clone(),
+            tool_less_instructions_path: None,
             session_id: session_id.clone(),
             skip_permissions,
             agent_name: params.agent_name.clone(),
@@ -227,24 +237,31 @@ fn build_agent_command_inner(
             crate::service::task_files::capture(service, tab_id, || {
                 registry
                     .with_provider(agent_cmd, |provider| {
-                        provider.build_resume_command_with_context(&resume)
+                        crate::service::context_bundle::build_resume(
+                            provider,
+                            &resume,
+                            params.context_skills.as_deref(),
+                        )
                     })
                     .flatten()
             })
         } else {
             registry
                 .with_provider(agent_cmd, |provider| {
-                    provider.build_resume_command_with_context(&resume)
+                    crate::service::context_bundle::build_resume(
+                        provider,
+                        &resume,
+                        params.context_skills.as_deref(),
+                    )
                 })
                 .flatten()
         };
-        if let Some(command) = command {
-            return command;
-        }
+        return command.unwrap_or_default();
     }
 
     let launch_task = command_task.and_then(|task| task.text);
     let launch_params = AgentLaunchParams {
+        context_files: params.context_files.clone(),
         tool_less_instructions_path: None,
         agent_name: params.agent_name.clone(),
         task: launch_task,
@@ -263,12 +280,20 @@ fn build_agent_command_inner(
     let command = if let Some((service, tab_id)) = notice_context {
         crate::service::task_files::capture(service, tab_id, || {
             registry.with_provider(agent_cmd, |provider| {
-                crate::service::tool_less_instructions::build(provider, &launch_params)
+                crate::service::context_bundle::build(
+                    provider,
+                    &launch_params,
+                    params.context_skills.as_deref(),
+                )
             })
         })
     } else {
         registry.with_provider(agent_cmd, |provider| {
-            crate::service::tool_less_instructions::build(provider, &launch_params)
+            crate::service::context_bundle::build(
+                provider,
+                &launch_params,
+                params.context_skills.as_deref(),
+            )
         })
     };
     match command {

@@ -128,8 +128,23 @@ impl JsProvider {
 
     fn manifest_session_store(&self) -> Option<(PathBuf, String)> {
         let cfg = self.manifest.sessions.as_ref()?;
-        let root = PluginManifest::expand_home(&cfg.root_dir)?;
+        let root = self.manifest_read_session_root()?;
         Some((root, format!(".{}", cfg.file_extension)))
+    }
+
+    fn manifest_read_session_root(&self) -> Option<PathBuf> {
+        let cfg = self.manifest.sessions.as_ref()?;
+        let overridden = match &cfg.root_environment {
+            Some(environment) => {
+                if !self.vm.can_read_environment(&environment.variable) {
+                    return None;
+                }
+                environment.resolve(std::env::var_os(&environment.variable))
+            }
+            None => None,
+        };
+        let root = overridden.or_else(|| PluginManifest::expand_home(&cfg.root_dir))?;
+        self.vm.can_read_path(&root).then_some(root)
     }
 
     fn manifest_session_metadata(&self, stem: &str, file_path: &Path) -> SessionMetadata {
@@ -200,7 +215,7 @@ fn collect_session_files(root: &Path, directory_depth: usize, files: &mut Vec<Pa
 impl JsProvider {
     pub(super) fn sessions_dir(&self, cwd: &str) -> Option<PathBuf> {
         let cfg = self.manifest.sessions.as_ref()?;
-        let root = PluginManifest::expand_home(&cfg.root_dir)?;
+        let root = self.manifest_read_session_root()?;
         let leaf = match cfg.cwd_encoding {
             super::super::CwdEncoding::DashEncoded => {
                 encode_cwd_dashed(&codeterm_paths::canonical_cwd(cwd))

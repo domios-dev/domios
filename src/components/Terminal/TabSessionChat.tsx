@@ -1,3 +1,4 @@
+import { RemovedChatPlugin } from "./RemovedChatPlugin";
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
@@ -24,6 +25,7 @@ import {
   tabAsksEqual,
 } from "../../store/multiplexer/selectors";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
+import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
@@ -32,6 +34,7 @@ import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { ManagedTabBar } from "./ManagedTabBar";
 import { managedTabPresentation } from "../../lib/managedTab";
+import { ComposerApprovalDock } from "./ComposerApprovalDock";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
@@ -184,6 +187,7 @@ export function TabSessionChat({
   const watcherSpec = tab?.watcher ?? null;
   const isWatcherTab = watcherSpec != null;
   const pendingPrompt: PendingPrompt | null = tab?.pending_prompt ?? null;
+  const structuredPrompts = getAgentDescriptor(tabProvider)?.supports_structured_prompts === true;
   const autoConfirmations = autoConfirmationsForSession(tab?.permission_auto_confirmations, agentSessionId);
   const isActive = isVisible;
   const resolvePeerName = useMeshPeerNameResolver(isActive);
@@ -279,26 +283,33 @@ export function TabSessionChat({
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
-  // clears tab.pending_prompt shortly after on the next state poll.
   const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
-
   useEffect(() => {
     if (!sessionBindingSurface.showRecoveryAction) setBindingRecoveryOpen(false);
   }, [sessionBindingSurface.showRecoveryAction]);
-  const activePrompt = pendingPrompt && pendingPrompt.question !== answeredPromptQuestion ? pendingPrompt : null;
-  const inlinePrompt = effectiveChatBackend ? activePrompt : null;
+  const activePrompt = pendingPrompt && (structuredPrompts || pendingPrompt.question !== answeredPromptQuestion) ? pendingPrompt : null;
+  const inlinePrompt = activePrompt;
 
   useEffect(() => {
     if (!pendingPrompt) setAnsweredPromptQuestion(null);
   }, [pendingPrompt]);
 
+  const promptResponseInFlight = useRef(false);
   const handleRespondPrompt = useCallback(
-    (value: string) => {
-      if (pendingPrompt) setAnsweredPromptQuestion(pendingPrompt.question);
-      void invoke("mux_respond_prompt", { tabId, value })
-        .catch((e) => showComposerError(e instanceof Error ? e.message : String(e)));
+    async (value: string) => {
+      if (promptResponseInFlight.current) return;
+      promptResponseInFlight.current = true;
+      if (pendingPrompt && !structuredPrompts) setAnsweredPromptQuestion(pendingPrompt.question);
+      try {
+        await invoke("mux_respond_prompt", { tabId, value });
+      } catch (error) {
+        showComposerError(error instanceof Error ? error.message : String(error));
+        throw error;
+      } finally {
+        promptResponseInFlight.current = false;
+      }
     },
-    [pendingPrompt, tabId, showComposerError],
+    [pendingPrompt, structuredPrompts, tabId, showComposerError],
   );
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useCallback((command: string) => {
@@ -642,16 +653,6 @@ export function TabSessionChat({
     backendState?.subtype,
   ]);
 
-  const composerModelBubble = useMemo(() => {
-    if (!effectiveChatBackend || !chatBacking) return undefined;
-    return (
-      <>
-        <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
-        <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
-      </>
-    );
-  }, [chatBacking, effectiveChatBackend]);
-
   const watcherModelBubble = useMemo(() => {
     if (!effectiveChatBackend || !chatBacking) return undefined;
     return (
@@ -715,6 +716,7 @@ export function TabSessionChat({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
+      <RemovedChatPlugin error={effectiveChatBackend ? error : null} />
       <ChatSessionIntentLine intent={sessionIntent} />
       <div className="relative flex-1 min-h-0">
       {showEmptyState && (
@@ -825,7 +827,6 @@ export function TabSessionChat({
           onEscape={focusComposer}
         />
         <AutoConfirmedPromptRows records={autoConfirmations} />
-        <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
         </div>
       </div>
       {showScrollDown && (
@@ -840,6 +841,7 @@ export function TabSessionChat({
         />
       )}
       </div>
+      <div data-composer-height-surface className="shrink-0">
       {isWatcherTab && watcherSpec ? (
         <WatcherReadOnlyBar
           watcher={watcherSpec}
@@ -847,13 +849,13 @@ export function TabSessionChat({
         />
       ) : (
       <>
-      <div className="w-full px-3">
+      <div className="ct-composer-status w-full">
         <AgentStateIndicator
           state={steadyStatusRowState}
           providerName={provider?.displayName ?? tabProvider}
           model={workingModelBadge}
           reasoningEffort={tab?.reasoning_effort_identity}
-          className="mx-auto w-full max-w-4xl"
+          className="ct-composer-lane mx-auto w-full"
           onStop={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
           onCancel={effectiveChatBackend || !currentPtyId ? undefined : handleStopAgent}
           onOpenTerminal={effectiveChatBackend ? undefined : onOpenTerminalFallback}
@@ -887,10 +889,13 @@ export function TabSessionChat({
         observeChatSendStatus={observeChatSendStatus}
         showComposerError={showComposerError}
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
-        modelBubble={composerModelBubble}
+        promptDock={inlinePrompt && (tab?.agent_state?.subtype === "permission" && !inlinePrompt.multi_select && !inlinePrompt.sections?.length
+          ? <ComposerApprovalDock key={JSON.stringify(inlinePrompt)} prompt={inlinePrompt} tabId={tabId} active={isActive} onRespond={handleRespondPrompt} />
+          : <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={(value) => { void handleRespondPrompt(value).catch(() => {}); }} />)}
       />}
       </>
       )}
+      </div>
     </div>
   );
 }

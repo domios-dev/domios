@@ -14,6 +14,7 @@ pub struct TurnEvidenceNormalization {
     pub unwrap_pasted_content_wrapper: bool,
     pub collapse_horizontal_whitespace: bool,
     pub drop_supplementary_characters: bool,
+    pub drop_line_breaks: bool,
 }
 
 impl TurnEvidenceNormalization {
@@ -33,6 +34,9 @@ impl TurnEvidenceNormalization {
         let mut normalized = String::with_capacity(text.len());
         let mut horizontal_whitespace = false;
         for character in text.chars() {
+            if self.drop_line_breaks && matches!(character, '\r' | '\n') {
+                continue;
+            }
             if self.drop_supplementary_characters && character as u32 > 0xFFFF {
                 continue;
             }
@@ -60,6 +64,7 @@ mod tests {
             unwrap_pasted_content_wrapper: true,
             collapse_horizontal_whitespace: true,
             drop_supplementary_characters: false,
+            drop_line_breaks: false,
         };
         let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
         let body = "routed body";
@@ -264,6 +269,7 @@ impl OnboardingAutoAnswer {
 
 #[derive(Debug, Clone, Default)]
 pub struct AgentLaunchParams {
+    pub context_files: Option<codeterm_types::plan::TaskFiles>,
     pub tool_less_instructions_path: Option<String>,
     pub agent_name: Option<String>,
     pub task: Option<String>,
@@ -288,6 +294,8 @@ pub struct LaunchArtifactSweepRequest {
     pub instance_id: String,
     pub live_tab_ids: Vec<String>,
     #[serde(default)]
+    pub gone_instance_ids: Vec<String>,
+    #[serde(default)]
     pub confirm: bool,
     #[serde(default)]
     pub include_legacy: bool,
@@ -305,6 +313,9 @@ pub struct LaunchArtifactSweepReport {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentResumeParams {
+    pub cwd: Option<String>,
+    pub context_files: Option<codeterm_types::plan::TaskFiles>,
+    pub tool_less_instructions_path: Option<String>,
     pub session_id: String,
     pub skip_permissions: bool,
     pub agent_name: Option<String>,

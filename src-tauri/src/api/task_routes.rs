@@ -241,6 +241,8 @@ pub async fn drop_task(
 
 #[derive(Debug, Deserialize)]
 pub struct AddTaskBody {
+    #[serde(default)]
+    files: crate::plan::TaskFiles,
     name: String,
     #[serde(rename = "type")]
     kind: Option<String>,
@@ -287,6 +289,7 @@ pub async fn add(State(state): State<AppState>, Json(body): Json<AddTaskBody>) -
             &body.project,
             body.owner.unwrap_or_default(),
             NewTask {
+                files: body.files,
                 name: body.name,
                 kind: body.kind.unwrap_or_else(|| "task".into()),
                 model: body.model,
