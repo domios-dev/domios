@@ -146,6 +146,9 @@ fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
         .assign_task(&plan.id, &task_id, &worker, None, 3)
         .unwrap();
     let mut pending = pending();
+    pending.user_text = "<domios from=\"tab\" tab=\"dispatcher\">opaque guidance\r\nopaque executor\nopaque task [hint]</domios>".into();
+    pending.turn_normalization.drop_line_breaks = true;
+    let stored_user_text = pending.user_text.replace(['\r', '\n'], "");
     pending.sender_tab = dispatcher.clone();
     pending.task = fixture.service.reply_relay_task_binding(&worker);
     let binding = RelayBinding {
@@ -190,7 +193,7 @@ fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
         .append(true)
         .open(&history)
         .unwrap();
-    writeln!(file, "{}", serde_json::json!({"text": "opaque task"})).unwrap();
+    writeln!(file, "{}", serde_json::json!({"text": stored_user_text})).unwrap();
     drop(file);
     fixture
         .service
@@ -206,7 +209,11 @@ fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
         ack.try_recv(),
         Ok(crate::service::worker_ack::WorkerAckSignal::Acknowledged)
     ));
-    *completion.lock() = Some(completed());
+    let mut answered = completed();
+    if let ReplyRelayEvidence::Answered(turn) = &mut answered {
+        turn.user_text = stored_user_text;
+    }
+    *completion.lock() = Some(answered);
     let own_evidence = fixture
         .service
         .agent_registry

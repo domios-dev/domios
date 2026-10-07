@@ -475,3 +475,22 @@ fn unrelated_own_completed_turn_advances_cursor_without_relaying_or_confirming()
     ));
     assert!(model.pending().is_empty());
 }
+
+#[test]
+fn declared_line_break_normalization_relays_the_exact_stored_turn_once() {
+    let mut pending = pending();
+    pending.user_text =
+        "<domios from=\"tab\" tab=\"sender\">opaque\r\npayload\n [hint]</domios>".into();
+    let mut turn = completed();
+    turn.user_text = pending.user_text.replace(['\r', '\n'], "");
+    let mut model = ReplyRelayModel::default();
+    assert!(model.record(pending.clone()));
+    assert!(model.observe(source(), Some(&turn), |_| true, 8).is_empty());
+    pending.turn_normalization.drop_line_breaks = true;
+    let mut model = ReplyRelayModel::default();
+    assert!(model.record(pending));
+    let actions = model.observe(source(), Some(&turn), |_| true, 8);
+    assert_eq!(actions.len(), 1);
+    assert!(matches!(actions[0].1, ReplyRelayDecision::Send { .. }));
+    assert!(model.observe(source(), Some(&turn), |_| true, 8).is_empty());
+}
