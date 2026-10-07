@@ -1096,7 +1096,10 @@ fn launch_readiness_published_failure_stops_the_launch_thread() {
     let observed = launch
         .find("let readiness = if structured")
         .expect("the launch thread waits for readiness evidence");
-    let observed = observed + launch[observed..].find(".recv()").expect("plain observer receives a verdict");
+    let observed = observed
+        + launch[observed..]
+            .find(".recv()")
+            .expect("plain observer receives a verdict");
     let ready = launch
         .find("startup_readiness::emit_agent_ready")
         .expect("the launch thread delegates ready to the binding gate");

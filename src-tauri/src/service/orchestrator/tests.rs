@@ -374,9 +374,8 @@ fn test_build_claude_no_task() {
         assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
         assert!(cmd.contains(" claude --dangerously-skip-permissions --settings "));
     } else {
-        assert!(cmd.starts_with(
-            "unset CLAUDECODE && claude --dangerously-skip-permissions --settings "
-        ));
+        assert!(cmd
+            .starts_with("unset CLAUDECODE && claude --dangerously-skip-permissions --settings "));
     }
 }
 
