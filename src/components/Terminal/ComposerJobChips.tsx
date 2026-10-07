@@ -5,7 +5,7 @@ import { sentinelJobs } from "../Automation/scenarios";
 import type { AutomationGraphAdapter } from "../Automation/types";
 import { JobConfirmationDialog } from "../Jobs/JobConfirmationDialog";
 import { deleteJobConfirmation, deleteMergedJob, hostJobsActionAdapter, jobWorkspace, stopMergedJob, type JobActionContext, type JobsActionAdapter } from "../Jobs/jobActions";
-import { canStopJob, jobsForTab, mergeJobs, NO_JOBS_FILTER, tabJobAccessibleName, tabJobKey, mergedJobId, type MergedJob, type TabJob } from "../Jobs/jobsModel";
+import { canStopJob, jobStateLabel, jobsForTab, mergeJobs, NO_JOBS_FILTER, tabJobAccessibleName, tabJobKey, mergedJobId, type MergedJob, type TabJob } from "../Jobs/jobsModel";
 import { requestOpenJob } from "../Jobs/openJobEvent";
 import { pipelineModel } from "../Automation/pipelineModel";
 import { useCronJobs } from "../Jobs/useCronJobs";
@@ -22,7 +22,7 @@ function JobIcon({ job }: { job: MergedJob }) {
 }
 
 function stateTone(chip: TabJob): string {
-  if (chip.state === "running") return "text-[var(--ct-accent)]";
+  if (chip.state === "active") return "text-[var(--ct-accent)]";
   return chip.state === "waiting on you" ? "text-[var(--ct-fg)]" : "text-[var(--ct-muted-fg)]";
 }
 
@@ -129,11 +129,11 @@ export function ComposerJobChips({ tabId, workspaceId, adapter = hostAutomationA
       ...(canStopJob(job) ? [{ label: "Stop", icon: <Square size={12} aria-hidden="true" />, disabled: stopping === key, onClick: () => void stop(key, job) }] : []),
       { label: "Delete", icon: <Trash2 size={12} aria-hidden="true" />, danger: true, onClick: () => { returnFocus.current = triggers.current.get(key) ?? null; setError(null); setConfirming(job); } },
     ];
-    return <div key={key} data-job-key={key} className={`ct-composer-activity-chip h-7 min-w-0 max-w-[16rem]${inOverflow ? " w-full" : ""}`}>
-      <button type="button" aria-label={tabJobAccessibleName(chip)} title={`${chip.title}, ${chip.state}`} className="ct-composer-activity-chip__open" onMouseDown={(event) => event.preventDefault()} onClick={() => openJob(job)}>
+    return <div key={key} data-job-key={key} data-job-state={jobStateLabel(chip.state)} className={`ct-composer-activity-chip h-7 min-w-0 max-w-[16rem]${inOverflow ? " w-full" : ""}`}>
+      <button type="button" aria-label={tabJobAccessibleName(chip)} title={`${chip.title}, ${jobStateLabel(chip.state)}`} className="ct-composer-activity-chip__open" onMouseDown={(event) => event.preventDefault()} onClick={() => openJob(job)}>
         <JobIcon job={job} />
         <span className="ct-composer-activity-chip__primary">{chip.title}</span>
-        <span className={`shrink-0 ${stateTone(chip)}`}>{chip.state}</span>
+        <span className={`shrink-0 ${stateTone(chip)}`}>{jobStateLabel(chip.state)}</span>
       </button>
       <DropdownMenu
         menuLabel={actionsLabel}
@@ -155,15 +155,16 @@ export function ComposerJobChips({ tabId, workspaceId, adapter = hostAutomationA
       key={`blueprint:${blueprint.id}`}
       type="button"
       data-blueprint-id={blueprint.id}
-      aria-label={`Blueprint ${blueprint.name}, ${blueprint.state}`}
-      title={`${blueprint.name}, ${blueprint.state}`}
+      data-job-state={jobStateLabel(blueprint.state)}
+      aria-label={`Blueprint ${blueprint.name}, ${jobStateLabel(blueprint.state)}`}
+      title={`${blueprint.name}, ${jobStateLabel(blueprint.state)}`}
       className="ct-composer-activity-chip h-7 min-w-0 max-w-[16rem]"
       onMouseDown={(event) => event.preventDefault()}
       onClick={() => requestOpenJob({ workspaceId, target: { teamId: blueprint.owner?.team_id ?? null, blueprintId: pipeline.id } })}
     >
       <Workflow size={12} aria-hidden="true" className="shrink-0 text-[var(--ct-muted-fg)]" />
       <span className="ct-composer-activity-chip__primary">{blueprint.name}</span>
-      <span className={`shrink-0 ${blueprint.state === "running" ? "text-[var(--ct-accent)]" : "text-[var(--ct-muted-fg)]"}`}>{blueprint.state}</span>
+      <span className={`shrink-0 ${jobStateLabel(blueprint.state) === "active" ? "text-[var(--ct-accent)]" : "text-[var(--ct-muted-fg)]"}`}>{jobStateLabel(blueprint.state)}</span>
     </button>)}
     {error && !confirming && <span role="alert" className="text-xs text-[var(--ct-fg)]">{error}</span>}
     {confirming && copy && <JobConfirmationDialog
