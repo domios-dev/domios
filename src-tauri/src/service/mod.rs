@@ -96,6 +96,7 @@ mod reasoning_effort;
 pub(crate) mod receiver_target;
 pub mod remote_tabs;
 pub mod remote_workers;
+pub mod reply_relay;
 pub(crate) mod restore_exited_member;
 mod restored_binding;
 mod role_identity;
