@@ -120,6 +120,25 @@ console.log("\n--- secret-safe launch command ---\n");
   assert(!win.includes("sk-secret-value"), "powershell command carries no secret value");
 }
 
+console.log("\n--- settings-driven launch command ---\n");
+{
+  const settingsHost = aiderHost({
+    settingsJson: () =>
+      JSON.stringify({
+        apiKeySecret: "my-key",
+        apiBase: "https://api.example.com/v1",
+        configPath: "/home/u/.aider.conf.yml",
+      }),
+    secretGet: (name: string) => (name === "my-key" ? "sk-secret-value" : null),
+  });
+  const p = loadAiderWithHost(settingsHost);
+  const launch = p.buildLaunchCommand({});
+  assert(launch.includes("OPENAI_API_BASE='https://api.example.com/v1'"), "api base comes from host settings");
+  assert(launch.includes('export OPENAI_API_KEY="$(codeterm mem secret get --name \'my-key\')"'), "api key name comes from host settings");
+  assert(launch.includes("--config '/home/u/.aider.conf.yml'"), "config path comes from host settings");
+  assert(!launch.includes("sk-secret-value"), "secret value never appears in the settings-driven command");
+}
+
 const idleScreen = [
   "Aider v0.82",
   "Model: openai/gpt-5.4-mini",

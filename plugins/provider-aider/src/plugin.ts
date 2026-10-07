@@ -52,14 +52,29 @@ function deliverText(text: string): string {
   return isMultiline(text) ? wrapMultiline(text) : String(text || "");
 }
 
+function pluginSettings(): Record<string, unknown> {
+  const raw = typeof host.settingsJson === "function" ? host.settingsJson() : null;
+  if (!raw) return {};
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
 function withLaunchEnv(command: string, p: LaunchParams): string {
   const platform = host.platform();
   const quote = (v: string) => host.shell.quoteFor(v, platform);
   // On Windows Domios launches agents in PowerShell; the host reports the
   // platform as "windows".
   const isPowerShell = platform === "windows";
+  const settings = pluginSettings();
   const exports: string[] = [];
-  const apiBase = typeof p.apiBase === "string" && p.apiBase ? p.apiBase : null;
+  const apiBase =
+    (typeof settings.apiBase === "string" && settings.apiBase) ||
+    (typeof p.apiBase === "string" && p.apiBase) ||
+    null;
   if (apiBase) {
     exports.push(
       isPowerShell
@@ -67,7 +82,10 @@ function withLaunchEnv(command: string, p: LaunchParams): string {
         : `export OPENAI_API_BASE=${quote(apiBase)};`,
     );
   }
-  const apiKeySecret = typeof p.apiKeySecret === "string" && p.apiKeySecret ? p.apiKeySecret : null;
+  const apiKeySecret =
+    (typeof settings.apiKeySecret === "string" && settings.apiKeySecret) ||
+    (typeof p.apiKeySecret === "string" && p.apiKeySecret) ||
+    null;
   if (apiKeySecret) {
     // The key is fetched at run time inside the shell so its value never
     // appears in the command text, argv, logs or scrollback.
@@ -248,7 +266,11 @@ const plugin: PluginModule = {
       }
     }
     parts.push("--no-auto-commits", "--no-pretty", "--no-fancy-input", "--no-show-model-warnings", "--chat-language", "English");
-    const configPath = typeof p.configPath === "string" && p.configPath ? p.configPath : null;
+    const settings = pluginSettings();
+    const configPath =
+      (typeof settings.configPath === "string" && settings.configPath) ||
+      (typeof p.configPath === "string" && p.configPath) ||
+      null;
     if (configPath) {
       parts.push("--config", host.shell.quoteFor(configPath, host.platform()));
     }
