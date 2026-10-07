@@ -159,7 +159,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--parent-tab` — Parent tab ID. Required for Workers; for a Planner, resolved from --plan (its Orchestrator) when omitted
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
-- `--preset` — Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents
+- `--preset` — Select a provider-owned preset supported by the target provider
 - `--provider-reserve-pct`
 - `--reason` — Why this Worker needs an unplanned task
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
@@ -215,11 +215,15 @@ Classify a bounded probe or same-Team agent observation
 - `--max-transitions` — Finite accepted transition budget (maximum 256)
 - `--name` — Short meaningful name describing what is watched and what happens
 - `--observe` — Observe a same-Team agent tab or cron run
+- `--owner` — Assign the pipeline to its creator tab or Team
 - `--paused` — Create a dormant downstream stage; its lifetime starts now
 - `--probe`
 - `--question`
 - `--rearm-on-change` — Route again when this bucket's output changes without changing buckets
+- `--recipe` — Create from a named pipeline recipe
 - `--route` — Inline routes: bucket=notify|blueprint:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
+- `--set` — Replace recipe placeholders with key=value pairs
+- `--spec` — JSON or YAML pipeline specification, or `-` to read standard input
 - `--timeout` — End the blueprint after this duration
 - `--until` — Stop after this bucket's first confident transition
 
@@ -243,6 +247,17 @@ Show immutable definition versions
 #### `codeterm blueprint list`
 
 List blueprints scoped to the calling tab and its Team
+
+#### `codeterm blueprint log`
+
+List bounded run journal entries, newest first
+
+- `<id>`
+- `--limit`
+
+#### `codeterm blueprint nodes`
+
+List trigger, step, converter and event-source capabilities
 
 #### `codeterm blueprint recipe`
 
@@ -1404,6 +1419,61 @@ List tabs on a remote mesh peer
 Explicitly lift a peer identity revocation so it can pair again
 
 - `<instance_id>` — Instance ID of the revoked peer
+
+#### `codeterm model-provider`
+
+Configure model endpoints through the installed provider capability
+
+#### `codeterm model-provider add`
+
+Add an endpoint; pipe the key on stdin. Omit --model to discover models
+
+- `--base-url`
+- `--kind`
+- `--model`
+- `--name`
+- `--secret`
+
+#### `codeterm model-provider list`
+
+List Domios-owned endpoints without key values
+
+#### `codeterm model-provider preset`
+
+Manage Domios-owned provider presets
+
+#### `codeterm model-provider preset add`
+
+Create or replace an owned model, prompt and parameter preset
+
+- `--model`
+- `--name`
+- `--prompt`
+- `--steps`
+- `--temperature`
+- `--top-p`
+
+#### `codeterm model-provider preset list`
+
+List Domios-owned presets
+
+#### `codeterm model-provider preset remove`
+
+Remove only a Domios-owned preset
+
+- `--name`
+
+#### `codeterm model-provider remove`
+
+Remove a Domios-owned endpoint and its owned secret
+
+- `--name`
+
+#### `codeterm model-provider test`
+
+Check an endpoint within a bounded deadline and return its models
+
+- `--name`
 
 #### `codeterm notify`
 
