@@ -557,6 +557,10 @@ pub struct Tab {
     /// reports use `agent_session_model`, which must come from runtime evidence.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_requested_model: Option<String>,
+    #[serde(default)]
+    pub structured_control_active: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_runtime_mode: Option<String>,
     /// Model accepted by provider catalog resolution and passed to launch args.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_provider_resolved_model: Option<String>,

@@ -130,6 +130,7 @@ impl ModelCatalogueCapability {
 #[serde(rename_all = "snake_case")]
 pub enum ModelSwitchMode {
     Live,
+    NextTurn,
     RestartResume,
     #[default]
     Unsupported,
@@ -261,6 +262,7 @@ impl HookIngestionRoute {
 #[serde(rename_all = "snake_case")]
 pub enum ProviderStateVerdict {
     Working,
+    Waiting,
     Idle,
 }
 

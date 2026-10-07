@@ -64,6 +64,9 @@ console.log("\n--- declared hook event roster (manifest data) ---\n");
     [
       { event: "SessionStart", route: "session_start" },
       { event: "Stop", route: "stop" },
+      { event: "turn/started", route: "session_state", verdict: "working" },
+      { event: "turn/completed", route: "session_state", verdict: "idle" },
+      { event: "serverRequest/pending", route: "session_state", verdict: "waiting" },
     ],
     "manifest declares SessionStart + Stop as roster data",
   );
