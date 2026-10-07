@@ -13,6 +13,7 @@ pub(super) fn parameters(spawn: &Spawn, mode: RuntimeMode) -> Value {
         "cwd": spawn.cwd,
         "developerInstructions": super::compaction::developer_instructions(spawn.instructions.as_deref()),
         "model": spawn.model,
+        "threadSource": "user",
         "config": {},
         "approvalPolicy": overrides["approvalPolicy"],
         "approvalsReviewer": overrides["approvalsReviewer"],
@@ -33,7 +34,19 @@ fn fresh_history(response: &Value) -> Result<(String, History), String> {
         .as_str()
         .filter(|id| !id.is_empty())
         .ok_or("Missing new thread identity")?;
-    if !super::routing::verified_user_thread(thread, response) {
+    let metadata = &response["thread"];
+    let child = metadata
+        .get("parentThreadId")
+        .is_some_and(|parent| !parent.is_null())
+        || metadata
+            .get("source")
+            .and_then(Value::as_object)
+            .is_some_and(|source| source.contains_key("subAgent"));
+    let analytics_child = metadata
+        .get("threadSource")
+        .and_then(Value::as_str)
+        .is_some_and(|source| source.to_ascii_lowercase().starts_with("subagent"));
+    if child || analytics_child {
         return Err("Sidecar thread identity unverified".into());
     }
     Ok((
@@ -111,11 +124,28 @@ mod tests {
         assert!(history.messages.is_empty());
         assert!(history.active_turn.is_none());
         assert!(history.completed_turns.is_empty());
-        assert!(fresh_history(&json!({"thread":{"id":"own"}})).is_err());
+        assert!(fresh_history(&json!({"thread":{"id":"own"}})).is_ok());
+        assert!(fresh_history(&json!({"thread":{"id":"own", "threadSource":"appServer"}})).is_ok());
         assert!(fresh_history(
             &json!({"thread":{"id":"own","threadSource":"user","parentThreadId":"foreign"}})
         )
         .is_err());
+    }
+
+    #[test]
+    fn codex_rpc_instant_start_accepts_optional_analytics_source_only_on_own_reply() {
+        assert!(fresh_history(
+            &json!({"thread":{"id":"own", "threadSource":null, "source":"appServer"}})
+        )
+        .is_ok());
+        for reply in [
+            json!({"thread":{"id":"own", "threadSource":"subagent"}}),
+            json!({"thread":{"id":"own", "source":{"subAgent":{"thread_spawn":{}}}}}),
+            json!({"thread":{"id":"", "threadSource":"user"}}),
+            json!({"thread":{"threadSource":"user"}}),
+        ] {
+            assert!(fresh_history(&reply).is_err());
+        }
     }
 
     #[test]
@@ -131,6 +161,7 @@ mod tests {
         };
         let params = parameters(&spawn, RuntimeMode::Auto);
         assert_eq!(params["model"], "selected-model");
+        assert_eq!(params["threadSource"], "user");
         assert_eq!(params["config"]["model_reasoning_effort"], "chosen-effort");
         assert_eq!(params["approvalsReviewer"], "auto_review");
         assert_eq!(params["approvalPolicy"], "on-request");
