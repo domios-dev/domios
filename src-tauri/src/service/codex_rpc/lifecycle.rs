@@ -98,10 +98,6 @@ pub fn launch_env(svc: &ServiceContext, tab: &str, env: &mut HashMap<String, Str
 pub fn for_tab(tab: &str) -> Option<Arc<Sidecar>> {
     crate::service::structured_endpoint::rpc(tab)
 }
-pub fn clear_tab(tab: &str) {
-    super::delivery::disconnected(tab);
-}
-
 pub fn stop_tab(tab: &str) {
     TOKENS.lock().remove(tab);
     STARTING.lock().remove(tab);
