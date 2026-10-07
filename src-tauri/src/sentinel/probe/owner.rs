@@ -56,6 +56,9 @@ struct Core {
 pub(super) trait RetainedResources: Send {
     fn request_cancel(&mut self) -> Vec<String>;
     fn wait_for_settlement(&mut self) -> Settlement;
+    fn try_settle(&mut self) -> bool {
+        false
+    }
 }
 
 pub(super) struct Settlement {
@@ -71,6 +74,10 @@ pub(super) struct WindowsPending {
 
 #[cfg(windows)]
 impl RetainedResources for WindowsPending {
+    fn try_settle(&mut self) -> bool {
+        self.run.reconcile_retained()
+    }
+
     fn request_cancel(&mut self) -> Vec<String> {
         let mut failure = ProbeFailure::new("probe_cleanup");
         self.run.request_cancel(&mut failure);
@@ -99,6 +106,7 @@ impl RetainedResources for WindowsPending {
                 break;
             }
         }
+        let settled = self.try_settle();
         let failure = self
             .run
             .failure
@@ -107,9 +115,7 @@ impl RetainedResources for WindowsPending {
         Settlement {
             primary: Some(failure.primary.to_string()),
             errors: failure.cleanup_errors,
-            remains_unconfirmed: !self.run.failure_resources_settled()
-                || self.run.permanent_unconfirmed
-                || self.run.unknown_completion,
+            remains_unconfirmed: !settled,
         }
     }
 }
@@ -387,6 +393,7 @@ impl ProbeResourceOwner {
         if let Some(error) = &self.unavailable {
             return Err(AdmissionError::Unavailable(error.clone()));
         }
+        self.reclaim_terminal();
         let mut state = self
             .core
             .state
@@ -417,6 +424,49 @@ impl ProbeResourceOwner {
 
     pub(in crate::sentinel) fn close_admission(&self) {
         close_core(&self.core);
+        self.reclaim_terminal();
+    }
+
+    fn reclaim_terminal(&self) {
+        for index in 0..MAX_RESOURCE_SLOTS {
+            let resources = {
+                let mut state = self
+                    .core
+                    .state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                let slot = &mut state.slots[index];
+                if slot.terminal_unconfirmed && !slot.in_owner {
+                    slot.in_owner = true;
+                    slot.retained.take()
+                } else {
+                    None
+                }
+            };
+            let Some(mut resources) = resources else {
+                continue;
+            };
+            let settled = resources.try_settle();
+            if settled {
+                drop(resources);
+                let mut state = self
+                    .core
+                    .state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                state.slots[index] = Slot::default();
+                state.settled_total = state.settled_total.saturating_add(1);
+            } else {
+                let mut state = self
+                    .core
+                    .state
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                state.slots[index].retained = Some(resources);
+                state.slots[index].in_owner = false;
+            }
+            self.core.changed.notify_all();
+        }
     }
 
     pub(in crate::sentinel) fn is_closing(&self) -> bool {
@@ -627,7 +677,20 @@ impl Reservation {
         Ok(())
     }
 
-    pub(super) fn retain(mut self, resources: Box<dyn RetainedResources>) {
+    pub(super) fn retain(mut self, mut resources: Box<dyn RetainedResources>) {
+        if resources.try_settle() {
+            drop(resources);
+            let mut state = self
+                .core
+                .state
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            state.slots[self.index] = Slot::default();
+            state.settled_total = state.settled_total.saturating_add(1);
+            self.finished = true;
+            self.core.changed.notify_all();
+            return;
+        }
         let mut state = self
             .core
             .state
@@ -652,7 +715,7 @@ impl Drop for Reservation {
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         let slot = &mut state.slots[self.index];
-        if slot.phase == Phase::Reserved && slot.resources == 0 {
+        if matches!(slot.phase, Phase::Reserved | Phase::Active) && slot.resources == 0 {
             *slot = Slot::default();
         } else {
             slot.phase = Phase::Unconfirmed;

@@ -216,6 +216,14 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
         if !write_journal(handle, &lease.job, finish) {
             return;
         }
+        if result.reason.as_deref() == Some("probe_owner_capacity") {
+            close_run(handle, lease, &run_id, "failed", "probe_owner_capacity");
+            let _ = storage::commit(&handle.store, |store| {
+                store.stage_stop(&lease.job.id, "probe_owner_capacity")
+            });
+            handle.notify();
+            return;
+        }
         if let Some((outcome, reason)) = result.decision {
             let decision = BlueprintJournalWrite::Decision {
                 run_id: run_id.clone(),
@@ -482,26 +490,7 @@ fn execute_step(
                         uncertain: false,
                     }
                 }
-                Err(failure) if failure.is_unconfirmed() => StepResult {
-                    outcome: StepOutcome::Failed,
-                    stored_outcome: "failed".into(),
-                    state: "failed",
-                    summary: "command completion was unconfirmed".into(),
-                    reason: Some(failure.reason().into()),
-                    next_text: previous.into(),
-                    decision: None,
-                    uncertain: true,
-                },
-                Err(_) => StepResult {
-                    outcome: StepOutcome::Failed,
-                    stored_outcome: "failed".into(),
-                    state: "failed",
-                    summary: "command probe failed".into(),
-                    reason: Some("probe_error".into()),
-                    next_text: previous.into(),
-                    decision: Some(("probe_error".into(), Some("probe_error".into()))),
-                    uncertain: false,
-                },
+                Err(failure) => command_failure(failure, previous),
             }
         }
         StepKind::Ask { question, buckets } => {
@@ -598,6 +587,25 @@ fn execute_step(
                 },
             }
         }
+    }
+}
+
+fn command_failure(failure: probe::process::ProbeFailure, previous: &str) -> StepResult {
+    let uncertain = failure.is_unconfirmed();
+    StepResult {
+        outcome: StepOutcome::Failed,
+        stored_outcome: "failed".into(),
+        state: "failed",
+        summary: if uncertain {
+            "command completion was unconfirmed"
+        } else {
+            "command probe failed"
+        }
+        .into(),
+        reason: Some(failure.reason()),
+        next_text: previous.into(),
+        decision: (!uncertain).then(|| ("probe_error".into(), Some(failure.reason()))),
+        uncertain,
     }
 }
 

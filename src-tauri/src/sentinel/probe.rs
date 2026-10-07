@@ -16,6 +16,8 @@ pub(super) mod process;
 #[cfg(test)]
 mod native_tests;
 #[cfg(test)]
+mod owner_tests;
+#[cfg(test)]
 mod tests;
 
 #[cfg(windows)]
