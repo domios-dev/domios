@@ -71,6 +71,12 @@ impl AgentProvider for RelayNative {
     fn is_tool_less(&self) -> bool {
         true
     }
+    fn turn_evidence_normalization(&self) -> crate::provider::TurnEvidenceNormalization {
+        crate::provider::TurnEvidenceNormalization {
+            drop_line_breaks: true,
+            ..Default::default()
+        }
+    }
     fn supports_reply_relay(&self) -> bool {
         true
     }
@@ -94,7 +100,8 @@ fn fixture_class(enabled: bool, tool_less: bool, source: &str) -> JsProvider {
         "id": "relay-js", "version": "0.1.0", "displayName": "Relay fixture",
         "capabilities": { "agentProvider": true, "replyRelay": enabled, "toolLess": tool_less },
         "spawn": { "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
-            "taskDelivery": "pty_input", "verifySubmit": { "kind": "none" } }
+            "taskDelivery": "pty_input", "verifySubmit": { "kind": "none" },
+            "turnEvidenceNormalization": { "dropLineBreaks": true } }
     })
     .to_string();
     let manifest = serde_json::from_str(&manifest_json).unwrap();
@@ -225,4 +232,30 @@ fn tool_less_instructions_path_native_js_launch_parity() {
         js.build_launch_command(&AgentLaunchParams::default()),
         RelayNative.build_launch_command(&AgentLaunchParams::default())
     );
+}
+
+#[test]
+fn reply_relay_line_break_normalization_native_js_parity_preserves_raw_evidence() {
+    let js = fixture(true, "module.exports.default = {};");
+    let native = RelayNative.turn_evidence_normalization();
+    assert_eq!(js.turn_evidence_normalization(), native);
+    let sent = "<domios from=\"tab\" tab=\"sender\">opaque\r\nassignment\n [hint]</domios>";
+    let stored = sent.replace(['\r', '\n'], "");
+    assert_eq!(native.normalize(sent), native.normalize(&stored));
+    assert_ne!(
+        crate::provider::TurnEvidenceNormalization::default().normalize(sent),
+        crate::provider::TurnEvidenceNormalization::default().normalize(&stored)
+    );
+    let mut evidence = turn();
+    evidence.user_text = stored.clone();
+    let source = format!(
+        "module.exports.default = {{ readReplyRelayTurn() {{ return {}; }} }};",
+        serde_json::to_string(&evidence).unwrap()
+    );
+    let js = fixture(true, &source);
+    let Some(ReplyRelayEvidence::Answered(raw)) = js.read_reply_relay_turn("/work", "own", 100)
+    else {
+        panic!("completed raw evidence")
+    };
+    assert_eq!(raw.user_text, stored);
 }

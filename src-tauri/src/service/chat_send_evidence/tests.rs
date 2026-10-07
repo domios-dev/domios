@@ -251,6 +251,7 @@ fn exact_turn_matches_typed_route_with_wrapped_body_only() {
         unwrap_pasted_content_wrapper: true,
         collapse_horizontal_whitespace: true,
         drop_supplementary_characters: false,
+        drop_line_breaks: false,
     };
     let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
     let body = "opaque routed body";
@@ -293,6 +294,7 @@ fn exact_turn_evidence_matches_a_12k_user_paste() {
         unwrap_pasted_content_wrapper: true,
         collapse_horizontal_whitespace: true,
         drop_supplementary_characters: false,
+        drop_line_breaks: false,
     };
     let open = "<domios from=\"tab\" label=\"sender\" tab=\"abc12345\">";
     let suffix = format!(

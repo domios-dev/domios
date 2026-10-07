@@ -60,6 +60,35 @@ impl ServiceContext {
         {
             return;
         }
+        self.persist_tool_less_worker_ack(target, binding, pending, state);
+    }
+
+    pub(super) fn observe_tool_less_worker_answer_ack(
+        &self,
+        target: &str,
+        binding: &RelayBinding,
+        pending: &PendingReplyRelay,
+        state: &Mutex<WorkerTurnState>,
+        evidence: Option<&crate::agent::provider::ReplyRelayEvidence>,
+    ) {
+        if super::worker::completed_brief_ack_eligible(pending, binding.source(), evidence) {
+            self.persist_tool_less_worker_ack(target, binding, pending, state);
+        }
+    }
+
+    fn persist_tool_less_worker_ack(
+        &self,
+        target: &str,
+        binding: &RelayBinding,
+        pending: &PendingReplyRelay,
+        state: &Mutex<WorkerTurnState>,
+    ) {
+        if !state.lock().needs_ack(pending, binding.source(), true)
+            || self.current_reply_relay_binding(target).as_ref() != Some(binding)
+            || self.reply_relay_task_binding(target).as_ref() != pending.task.as_ref()
+        {
+            return;
+        }
         let Some(task) = pending.task.as_ref() else {
             return;
         };

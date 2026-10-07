@@ -166,6 +166,7 @@ impl AgentProvider for ClaudeProvider {
             unwrap_pasted_content_wrapper: true,
             collapse_horizontal_whitespace: true,
             drop_supplementary_characters: false,
+            drop_line_breaks: false,
         }
     }
 

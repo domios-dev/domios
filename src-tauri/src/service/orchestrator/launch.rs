@@ -1012,6 +1012,13 @@ pub(crate) fn launch_agent_in_background_with_env(
             let submit_strategy = registry
                 .with_provider(&agent_cmd, |provider| provider.verify_submit_strategy())
                 .unwrap_or(crate::agent::provider::VerifySubmitStrategy::None);
+            let launch_frame_prefix = registry
+                .with_provider(&agent_cmd, |provider| {
+                    crate::service::launch_delivery::launch_input_frame_prefix(
+                        provider.composer_cursor_position(),
+                    )
+                })
+                .flatten();
             let launch_input_readiness = match svc.await_launch_input_readiness(
                 &readiness_attempt,
                 &agent_cmd,
@@ -1034,10 +1041,12 @@ pub(crate) fn launch_agent_in_background_with_env(
                 &svc,
                 Some(launch_input_readiness),
                 || {
-                    crate::service::pty_io::submit_transaction::submit_text_with_key(
+                    crate::service::pty_io::submit_transaction::submit_text_with_key_claimed_and_frame(
                         &svc,
                         &pty_id,
                         &task_text,
+                        launch_frame_prefix,
+                        None,
                         true,
                         b"\r",
                         submit_strategy,
@@ -1049,6 +1058,7 @@ pub(crate) fn launch_agent_in_background_with_env(
                         },
                         None,
                         false,
+                        crate::service::pty_io::submit_transaction::claim_submit_cycle(&pty_id),
                     )
                 },
             );

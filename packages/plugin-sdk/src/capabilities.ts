@@ -5,6 +5,14 @@
 
 import type { ModelProviderConfig } from "./modelProviders";
 
+/** Manifest spawn.turnEvidenceNormalization; applies symmetrically to exact user-turn matching. */
+export interface TurnEvidenceNormalization {
+  unwrapPastedContentWrapper?: boolean;
+  collapseHorizontalWhitespace?: boolean;
+  dropSupplementaryCharacters?: boolean;
+  dropLineBreaks?: boolean;
+}
+
 export interface TabContext {
   cwd?: string | null;
 }
