@@ -70,9 +70,17 @@ impl MultiplexerState {
             .generation
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
             .wrapping_add(1);
+        let mut tabs = self.tabs.clone();
+        for tab in tabs.values_mut() {
+            if let Some(managed) = &mut tab.managed {
+                if !self.tabs.contains_key(&managed.manager_tab_id) {
+                    managed.manager_closed = true;
+                }
+            }
+        }
         MultiplexerSnapshot {
             workspaces: self.live_workspace_tabs(),
-            tabs: self.tabs.clone(),
+            tabs,
             teams: self.list_teams(),
             active_workspace_id: self.active_workspace_id.clone(),
             focused_tab_id: self.focused_tab_id.clone(),

@@ -30,6 +30,9 @@ import { TerminalKeyBar } from "./TerminalKeyBar";
 import { CompletionPopup } from "./CompletionPopup";
 import { SearchBar } from "./SearchBar";
 import { TabSessionChat } from "./TabSessionChat";
+import { useManagedTerminal } from "./useManagedTerminal";
+import { ManagedTabBar } from "./ManagedTabBar";
+import { managedTabPresentation } from "../../lib/managedTab";
 import { isTabUiModeEvent, type TabUiMode } from "../../lib/chatUiMode";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import type { ApiConfig, TabStatus, ThemeConfig, FontConfig, TerminalConfigSettings } from "../../lib/types";
@@ -80,6 +83,7 @@ export const TerminalTab = memo(function TerminalTab({
   const muxState = useMuxState();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
+  const managedView = managedTabPresentation(tab?.managed);
   useEffect(() => {
     const onInputWriteFailure = (event: Event) => {
       const detail = (event as CustomEvent<{ ptyId?: string }>).detail;
@@ -139,6 +143,7 @@ export const TerminalTab = memo(function TerminalTab({
     priority: isVisible || isFocused,
     renderEnabled: renderTerminal,
   });
+  const stopManagedGeneration = useManagedTerminal(termRef, connectedPtyRef, termReady, managedView.locked);
   const resizeClientId = useMemo(() => getResizeClientId(), []);
   const {
     commitResize,
@@ -203,7 +208,7 @@ export const TerminalTab = memo(function TerminalTab({
   useTouchScroll({ containerRef, termRef, termReady });
 
   const touchUi = useTouchOptimizedUi();
-  const showTerminalKeyBar = touchUi && uiMode === "terminal" && termReady;
+  const showTerminalKeyBar = touchUi && uiMode === "terminal" && termReady && !managedView.locked;
   const [canScrollToBottom, setCanScrollToBottom] = useState(false);
   useEffect(() => {
     const term = termRef.current;
@@ -441,6 +446,11 @@ export const TerminalTab = memo(function TerminalTab({
         background: terminalBackground,
         transition: bellFlash ? "border-color 0.1s ease-in" : "border-color 0.15s ease-out",
       }}
+      onKeyDownCapture={(event) => {
+        if (managedView.locked && event.code === "Escape") {
+          event.preventDefault(); event.stopPropagation(); stopManagedGeneration();
+        }
+      }}
       onMouseDown={handleClick}
       onContextMenu={handleContextMenu}
       onDragEnter={(e) => {
@@ -460,11 +470,16 @@ export const TerminalTab = memo(function TerminalTab({
         e.stopPropagation();
         setIsTextDragOver(false);
         const term = termRef.current;
-        if (!term || uiMode !== "terminal") return;
+        if (!term || uiMode !== "terminal" || managedView.locked) return;
         const text = e.dataTransfer.getData("text/plain");
         if (text) term.paste(text);
       }}
     >
+      {terminalVisible && tab?.managed && (
+        <div className="absolute bottom-0 inset-x-0 z-20">
+          <ManagedTabBar managed={tab.managed} onStop={stopManagedGeneration} />
+        </div>
+      )}
       {/* Search bar */}
       {searchOpen && (
         <SearchBar

@@ -817,6 +817,7 @@ pub async fn chat_send_text(
 ) -> Result<crate::service::agent_pad::ChatSendResult, String> {
     // Agent without knowing its tab id — parity with the REST send route.
     let tab_id = svc.mux.read().resolve_tab_id(&tab_id).unwrap_or(tab_id);
+    svc.require_managed_send_allowed(&tab_id, None)?;
     let run_stages =
         crate::chatpipeline::is_user_turn_send(false, false, svc.tab_has_agent(&tab_id));
     let reservation = if svc.tab_chat_backing(&tab_id).is_none() {

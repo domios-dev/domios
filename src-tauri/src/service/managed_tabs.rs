@@ -36,5 +36,85 @@ pub fn managed_send_refusal(
     })
 }
 
+impl super::ServiceContext {
+    pub(crate) fn initialize_managed_tab(
+        &self,
+        tab_id: &str,
+        provider: &str,
+        creator: Option<&str>,
+    ) {
+        let tool_less = self
+            .agent_registry
+            .with_provider(provider, |provider| provider.is_tool_less())
+            .unwrap_or(false);
+        let mut mux = self.mux.write();
+        let managed = creator.and_then(|id| mux.get_tab(id)).and_then(|manager| {
+            managed_tab_at_spawn(
+                tool_less,
+                Some((
+                    &manager.id,
+                    &manager.title,
+                    manager.agent_type.is_some() || manager.agent_booting,
+                )),
+            )
+        });
+        if let Some(tab) = mux.get_tab_mut(tab_id) {
+            if tab.managed.is_none() {
+                tab.managed = managed;
+            }
+        }
+    }
+
+    pub(crate) fn require_managed_send_allowed(
+        &self,
+        target: &str,
+        source: Option<&str>,
+    ) -> Result<(), String> {
+        let mux = self.mux.read();
+        let managed = mux.get_tab(target).and_then(|tab| tab.managed.as_ref());
+        let origin = if source
+            .and_then(|id| mux.resolve_tab_id(id))
+            .and_then(|id| mux.get_tab(&id))
+            .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting)
+        {
+            ManagedSendOrigin::Agent
+        } else {
+            ManagedSendOrigin::User
+        };
+        let state = managed.cloned().map(|mut state| {
+            let manager_open = mux.get_tab(&state.manager_tab_id).is_some();
+            reconcile_manager(&mut state, manager_open);
+            state
+        });
+        managed_send_refusal(state.as_ref(), origin).map_or(Ok(()), Err)
+    }
+
+    pub(crate) fn require_managed_terminal_input_allowed(
+        &self,
+        pty_id: &str,
+        bytes: &[u8],
+    ) -> Result<(), String> {
+        if bytes == b"\x1b" {
+            return Ok(());
+        }
+        let tab_id = self.mux.read().tab_id_for_pty(pty_id);
+        if let Some(tab_id) = tab_id {
+            self.require_managed_send_allowed(&tab_id, None)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn release_managed_tabs(&self, manager_id: &str) {
+        let mut mux = self.mux.write();
+        for tab in mux.tabs.values_mut() {
+            if let Some(managed) = &mut tab.managed {
+                if managed.manager_tab_id == manager_id {
+                    reconcile_manager(managed, false);
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;
