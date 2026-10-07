@@ -61,6 +61,23 @@ fn link_dir(link: &Path, target: &Path) {
 }
 
 #[test]
+fn lane_removal_links_dispatches_directory_and_file_links_by_metadata() {
+    assert_eq!(
+        link_removal_kind(true, true, false),
+        Some(LinkRemovalKind::Directory)
+    );
+    assert_eq!(
+        link_removal_kind(true, false, true),
+        Some(LinkRemovalKind::Directory)
+    );
+    assert_eq!(
+        link_removal_kind(true, false, false),
+        Some(LinkRemovalKind::File)
+    );
+    assert_eq!(link_removal_kind(false, true, true), None);
+}
+
+#[test]
 fn lane_removal_links_preserves_canonical_marker_and_removes_lane() {
     let root = tempfile::tempdir().unwrap();
     let project = fixture_project(root.path());
