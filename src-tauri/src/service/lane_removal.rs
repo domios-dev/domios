@@ -41,6 +41,26 @@ pub(crate) enum CleanupStatusDoneError {
 const MAX_LANE_WALK_ENTRIES: usize = 100_000;
 const MAX_LANE_WALK_DEPTH: usize = 256;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LinkRemovalKind {
+    Directory,
+    File,
+}
+
+fn link_removal_kind(
+    is_symlink: bool,
+    metadata_is_directory: bool,
+    windows_directory_attribute: bool,
+) -> Option<LinkRemovalKind> {
+    if !is_symlink {
+        None
+    } else if metadata_is_directory || windows_directory_attribute {
+        Some(LinkRemovalKind::Directory)
+    } else {
+        Some(LinkRemovalKind::File)
+    }
+}
+
 pub(crate) fn remove_lane_links(path: &Path) -> Result<(), String> {
     let path = path.to_path_buf();
     std::thread::Builder::new()
@@ -143,10 +163,21 @@ fn remove_lane_links_blocking(path: &Path) -> Result<(), String> {
 }
 
 fn remove_link(path: &Path, metadata: &std::fs::Metadata) -> Result<(), String> {
-    let result = if metadata.is_dir() {
-        std::fs::remove_dir(path)
-    } else {
-        std::fs::remove_file(path)
+    let kind = link_removal_kind(
+        metadata.file_type().is_symlink(),
+        metadata.is_dir(),
+        windows_directory_attribute(metadata),
+    )
+    .ok_or_else(|| {
+        format!(
+            "lane entry '{}' is not a symlink or reparse point",
+            path.display()
+        )
+    })?;
+    clear_readonly_link_attribute(path, metadata)?;
+    let result = match kind {
+        LinkRemovalKind::Directory => std::fs::remove_dir(path),
+        LinkRemovalKind::File => std::fs::remove_file(path),
     };
     result.map_err(|error| {
         format!(
@@ -154,6 +185,72 @@ fn remove_link(path: &Path, metadata: &std::fs::Metadata) -> Result<(), String> 
             path.display()
         )
     })
+}
+
+#[cfg(windows)]
+fn windows_directory_attribute(metadata: &std::fs::Metadata) -> bool {
+    use std::os::windows::fs::MetadataExt;
+
+    metadata.file_attributes() & windows_sys::Win32::Storage::FileSystem::FILE_ATTRIBUTE_DIRECTORY
+        != 0
+}
+
+#[cfg(not(windows))]
+fn windows_directory_attribute(_: &std::fs::Metadata) -> bool {
+    false
+}
+
+#[cfg(windows)]
+fn clear_readonly_link_attribute(path: &Path, metadata: &std::fs::Metadata) -> Result<(), String> {
+    use std::os::windows::fs::MetadataExt;
+    use std::os::windows::fs::OpenOptionsExt;
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        FileBasicInfo, SetFileInformationByHandle, FILE_ATTRIBUTE_READONLY, FILE_BASIC_INFO,
+        FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE,
+        FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES,
+    };
+
+    let attributes = metadata.file_attributes();
+    if attributes & FILE_ATTRIBUTE_READONLY == 0 {
+        return Ok(());
+    }
+    let handle = std::fs::OpenOptions::new()
+        .access_mode(FILE_WRITE_ATTRIBUTES)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
+        .open(path)
+        .map_err(|error| {
+            format!(
+                "cannot open lane reparse point '{}' to clear read-only: {error}",
+                path.display()
+            )
+        })?;
+    let info = FILE_BASIC_INFO {
+        FileAttributes: attributes & !FILE_ATTRIBUTE_READONLY,
+        ..Default::default()
+    };
+    let succeeded = unsafe {
+        SetFileInformationByHandle(
+            handle.as_raw_handle() as _,
+            FileBasicInfo,
+            (&info as *const FILE_BASIC_INFO).cast(),
+            std::mem::size_of::<FILE_BASIC_INFO>() as u32,
+        )
+    };
+    if succeeded == 0 {
+        return Err(format!(
+            "cannot clear read-only attribute on lane reparse point '{}': {}",
+            path.display(),
+            std::io::Error::last_os_error()
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn clear_readonly_link_attribute(_: &Path, _: &std::fs::Metadata) -> Result<(), String> {
+    Ok(())
 }
 
 pub(crate) fn remove_lane_residue(path: &Path) -> Result<(), String> {
