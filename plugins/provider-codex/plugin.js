@@ -3640,6 +3640,7 @@ var OUTPUT_FINGERPRINTS = [
 var TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
 var ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 var IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+var CODEX_LAUNCH_CONFIG = ["-c", "check_for_update_on_startup=false", "-c", "project_doc_max_bytes=65536"];
 function starterPrompt(params) {
   if (params.starterPromptText) return params.starterPromptText;
   if (params.starterPrompt === "no_starter") return void 0;
@@ -3771,7 +3772,7 @@ var plugin = {
   },
   buildLaunchCommand(params) {
     const p = params || {};
-    const parts = ["codex", "-c", "check_for_update_on_startup=false"];
+    const parts = ["codex", ...CODEX_LAUNCH_CONFIG];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -3807,7 +3808,7 @@ var plugin = {
     return parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
-    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
+    const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -3819,7 +3820,7 @@ var plugin = {
   buildResumeCommandWithContext(params) {
     const p = params || {};
     const platform = host.platform();
-    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
+    const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
