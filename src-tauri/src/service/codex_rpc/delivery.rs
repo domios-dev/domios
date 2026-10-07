@@ -14,11 +14,67 @@ struct Launch {
     nonce: String,
     connection: Option<String>,
     bootstrap_consumed: bool,
+    attach_failed: bool,
     state: DeliveryState,
+}
+
+impl Launch {
+    fn new(nonce: &str) -> Self {
+        Self {
+            nonce: nonce.into(),
+            connection: None,
+            bootstrap_consumed: false,
+            attach_failed: false,
+            state: DeliveryState::Pending,
+        }
+    }
+
+    fn advance(&mut self, verified: bool) -> bool {
+        let next = if self.connection.is_some()
+            && self.bootstrap_consumed
+            && verified
+            && !self.attach_failed
+        {
+            DeliveryState::Ready
+        } else {
+            DeliveryState::Pending
+        };
+        let changed = self.state != next && next == DeliveryState::Ready;
+        self.state = next;
+        changed
+    }
+
+    fn disconnect(&mut self) {
+        self.connection = None;
+        self.state = DeliveryState::Pending;
+        self.attach_failed = true;
+    }
 }
 
 static LAUNCHES: LazyLock<Mutex<HashMap<String, Launch>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
+static CHANGED: parking_lot::Condvar = parking_lot::Condvar::new();
+
+pub fn wait_attached(tab: &str, nonce: &str, timeout: std::time::Duration) -> bool {
+    let deadline = std::time::Instant::now() + timeout;
+    let mut launches = LAUNCHES.lock();
+    loop {
+        let Some(launch) = launches.get(tab).filter(|launch| launch.nonce == nonce) else {
+            return false;
+        };
+        if launch.attach_failed {
+            return false;
+        }
+        if launch.connection.is_some() {
+            return true;
+        }
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        CHANGED.wait_for(&mut launches, deadline - now);
+    }
+}
 
 pub fn state(tab: &str) -> DeliveryState {
     LAUNCHES
@@ -28,20 +84,14 @@ pub fn state(tab: &str) -> DeliveryState {
 }
 
 pub fn begin(tab: &str, nonce: &str) {
-    LAUNCHES.lock().insert(
-        tab.into(),
-        Launch {
-            nonce: nonce.into(),
-            connection: None,
-            bootstrap_consumed: false,
-            state: DeliveryState::Pending,
-        },
-    );
+    LAUNCHES.lock().insert(tab.into(), Launch::new(nonce));
+    CHANGED.notify_all();
 }
 
 pub fn attached(svc: &ServiceContext, tab: &str, nonce: &str, connection: &str) {
     update(svc, tab, nonce, |launch| {
-        launch.connection = Some(connection.into())
+        launch.connection = Some(connection.into());
+        launch.attach_failed = false;
     });
 }
 
@@ -51,8 +101,19 @@ pub fn detached(tab: &str, nonce: &str, connection: &str) {
         .get_mut(tab)
         .filter(|launch| launch.nonce == nonce && launch.connection.as_deref() == Some(connection))
     {
-        launch.connection = None;
-        launch.state = DeliveryState::Pending;
+        launch.disconnect();
+        CHANGED.notify_all();
+    }
+}
+
+pub fn attach_failed(tab: &str, nonce: &str) {
+    if let Some(launch) = LAUNCHES
+        .lock()
+        .get_mut(tab)
+        .filter(|launch| launch.nonce == nonce && launch.connection.is_none())
+    {
+        launch.attach_failed = true;
+        CHANGED.notify_all();
     }
 }
 
@@ -75,7 +136,8 @@ pub fn plain_launch(tab: &str, nonce: &str) {
 pub fn disconnected(tab: &str) {
     if let Some(launch) = LAUNCHES.lock().get_mut(tab) {
         if launch.state != DeliveryState::Plain {
-            launch.state = DeliveryState::Pending;
+            launch.disconnect();
+            CHANGED.notify_all();
         }
     }
 }
@@ -98,12 +160,9 @@ pub fn plain_ready(svc: &ServiceContext, tab: &str, nonce: &str) {
         changed
     };
     if changed {
+        super::recovery::completed(tab);
         wake(svc, tab);
     }
-}
-
-fn ready(attached: bool, bootstrap_consumed: bool, verified: bool) -> bool {
-    attached && bootstrap_consumed && verified
 }
 
 fn update(svc: &ServiceContext, tab: &str, nonce: &str, change: impl FnOnce(&mut Launch)) {
@@ -115,17 +174,8 @@ fn update(svc: &ServiceContext, tab: &str, nonce: &str, change: impl FnOnce(&mut
             return;
         };
         change(launch);
-        let next = if ready(
-            launch.connection.is_some(),
-            launch.bootstrap_consumed,
-            verified,
-        ) {
-            DeliveryState::Ready
-        } else {
-            DeliveryState::Pending
-        };
-        let changed = launch.state != next && next == DeliveryState::Ready;
-        launch.state = next;
+        let changed = launch.advance(verified);
+        CHANGED.notify_all();
         changed
     };
     if changed {
@@ -143,16 +193,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn codex_rpc_attach_delivery_requires_attachment_bootstrap_and_binding() {
-        for attached in [false, true] {
-            for consumed in [false, true] {
-                for verified in [false, true] {
-                    assert_eq!(
-                        ready(attached, consumed, verified),
-                        attached && consumed && verified
-                    );
-                }
-            }
-        }
+    fn codex_rpc_attach_delivery_waits_for_both_latches_and_wakes_once() {
+        let mut launch = Launch::new("own");
+        assert!(!launch.advance(true));
+        launch.connection = Some("remote".into());
+        assert!(!launch.advance(true));
+        assert_eq!(launch.state, DeliveryState::Pending);
+        launch.bootstrap_consumed = true;
+        assert!(!launch.advance(false));
+        assert!(launch.advance(true));
+        assert_eq!(launch.state, DeliveryState::Ready);
+        assert!(!launch.advance(true));
+    }
+
+    #[test]
+    fn codex_rpc_attach_failure_keeps_pending_after_endpoint_clear() {
+        let mut launch = Launch::new("own");
+        launch.bootstrap_consumed = true;
+        launch.disconnect();
+        assert!(!launch.advance(true));
+        assert_eq!(launch.state, DeliveryState::Pending);
     }
 }
