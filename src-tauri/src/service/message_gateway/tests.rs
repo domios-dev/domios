@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use super::*;
 
@@ -10,6 +10,7 @@ struct FakeSeam {
     keys: RefCell<Vec<(String, String, Vec<KeyStroke>)>>,
     error: Option<String>,
     pad_file: Option<std::path::PathBuf>,
+    refuse_system_notice: Cell<bool>,
 }
 
 impl FakeSeam {
@@ -72,6 +73,10 @@ impl DeliverySeam for FakeSeam {
             .borrow_mut()
             .push((tab.to_string(), text.to_string(), strokes.to_vec()));
         self.guard()
+    }
+
+    fn accepts_system_notice(&self, _target: &str) -> bool {
+        !self.refuse_system_notice.get()
     }
 }
 
@@ -431,4 +436,96 @@ fn idempotency_store_evicts_beyond_capacity() {
     assert!(store.get("a").is_none(), "oldest entry evicted");
     assert!(store.get("b").is_some());
     assert!(store.get("c").is_some());
+}
+
+#[test]
+fn system_notice_target_refusal_requires_a_live_agent_surface() {
+    for has_identity in [false, true] {
+        for booting in [false, true] {
+            for chat_backend in [false, true] {
+                let refused =
+                    system_notice_target_refusal(has_identity, booting, chat_backend).is_some();
+                assert_eq!(
+                    refused,
+                    !(has_identity || booting || chat_backend),
+                    "identity={has_identity} booting={booting} chat_backend={chat_backend}"
+                );
+            }
+        }
+    }
+}
+
+fn notice_msg(target: &str, class: DeliveryClass, key: Option<&str>) -> OutboundMessage {
+    OutboundMessage {
+        target: target.to_string(),
+        body: MessageBody::Text {
+            body: "notice".to_string(),
+        },
+        envelope: Some(MessageEnvelope::codeterm_reminder("worker-lost")),
+        class,
+        origin: MessageOrigin::System,
+        idempotency_key: key.map(str::to_string),
+    }
+}
+
+#[test]
+fn system_notice_to_agentless_target_is_refused_without_writing() {
+    let gateway = MessageGateway::new();
+    let fake = FakeSeam::default();
+    fake.refuse_system_notice.set(true);
+
+    let error = gateway
+        .submit(
+            &fake,
+            notice_msg("shell", DeliveryClass::SystemNotice, None),
+        )
+        .unwrap_err();
+
+    assert_eq!(
+        error,
+        DeliveryError::AgentUnavailable {
+            target: "shell".into()
+        }
+    );
+    assert!(
+        !crate::service::delivery_error::DeliveryError::from_opaque("shell", error.to_string())
+            .bytes_written(),
+        "flattened refusal stays a zero-write classification"
+    );
+    assert!(fake.enveloped.borrow().is_empty());
+    assert!(fake.texts.borrow().is_empty());
+}
+
+#[test]
+fn agent_traffic_to_agentless_target_still_delivers() {
+    let gateway = MessageGateway::new();
+    let fake = FakeSeam::default();
+    fake.refuse_system_notice.set(true);
+
+    gateway
+        .submit(
+            &fake,
+            notice_msg("shell", DeliveryClass::AgentTraffic, None),
+        )
+        .unwrap();
+
+    assert_eq!(fake.enveloped.borrow().len(), 1);
+}
+
+#[test]
+fn refused_system_notice_is_not_cached_for_its_idempotency_key() {
+    let gateway = MessageGateway::new();
+    let fake = FakeSeam::default();
+    fake.refuse_system_notice.set(true);
+    let msg = notice_msg("orch", DeliveryClass::SystemNotice, Some("worker-lost:k"));
+
+    let refused = gateway.submit(&fake, msg.clone()).unwrap_err();
+    assert!(refused.is_agent_unavailable());
+    fake.refuse_system_notice.set(false);
+    let delivered = gateway.submit(&fake, msg.clone()).unwrap();
+    let replayed = gateway.submit(&fake, msg).unwrap();
+
+    assert!(!delivered.dedup_hit, "the resubmit really delivered");
+    assert!(replayed.dedup_hit, "the delivery itself is cached");
+    assert_eq!(fake.enveloped.borrow().len(), 1);
 }
