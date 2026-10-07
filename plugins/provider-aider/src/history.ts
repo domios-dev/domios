@@ -210,12 +210,15 @@ export function readAiderHistory(
  * chat route. `chunk` is the raw appended text (possibly a partial tail).
  * Blank `#### ` turns are skipped; thinking-content blocks are stripped from
  * assistant text. `recordIndex` is the chunk line each row was parsed from.
+ *
+ * Rows are RichMessage-shaped (`{role, blocks, ts}`) so the core's
+ * `rows_from_plugin` can deserialize them; one malformed row would drop the
+ * whole window, so this never throws and emits only what the chunk contains.
  */
 export function parseAiderHistoryDelta(chunk: string): {
   messages: Array<{
-    id: string;
-    type: string;
-    content: string;
+    role: "user" | "assistant";
+    blocks: Array<{ kind: "text"; data: { text: string } }>;
     ts: number | null;
     recordIndex: number;
   }>;
@@ -223,9 +226,8 @@ export function parseAiderHistoryDelta(chunk: string): {
   const text = String(chunk || "");
   const lines = text.split(/\r?\n/);
   const messages: Array<{
-    id: string;
-    type: string;
-    content: string;
+    role: "user" | "assistant";
+    blocks: Array<{ kind: "text"; data: { text: string } }>;
     ts: number | null;
     recordIndex: number;
   }> = [];
@@ -241,9 +243,8 @@ export function parseAiderHistoryDelta(chunk: string): {
       }
       if (body) {
         messages.push({
-          id: `delta_${messages.length}`,
-          type: currentRole,
-          content: body,
+          role: currentRole,
+          blocks: [{ kind: "text", data: { text: body } }],
           ts: null,
           recordIndex: currentStart,
         });
