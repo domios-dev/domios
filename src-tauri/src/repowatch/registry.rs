@@ -312,7 +312,11 @@ fn dispatch(
     }
 }
 
-pub(super) fn head_ref_changed(identity: &RepoIdentity, half: WatchHalf, paths: &[PathBuf]) -> bool {
+pub(super) fn head_ref_changed(
+    identity: &RepoIdentity,
+    half: WatchHalf,
+    paths: &[PathBuf],
+) -> bool {
     match half {
         WatchHalf::SharedRefs => true,
         WatchHalf::Worktree => paths.iter().any(|path| {

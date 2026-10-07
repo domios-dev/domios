@@ -120,11 +120,17 @@ pub(crate) async fn agent_restart_handler(
             .into_response(),
         Err(crate::service::agent_restart::RestartAttemptError::Request(
             crate::service::agent_restart::AgentRestartError::NotFound(message),
-        )) => (StatusCode::NOT_FOUND, Json(serde_json::json!({"error": message})))
+        )) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": message})),
+        )
             .into_response(),
         Err(crate::service::agent_restart::RestartAttemptError::Request(
             crate::service::agent_restart::AgentRestartError::BadRequest(message),
-        )) => (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": message})))
+        )) => (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": message})),
+        )
             .into_response(),
         Err(crate::service::agent_restart::RestartAttemptError::Request(
             crate::service::agent_restart::AgentRestartError::RateLimited { retry_after_secs },

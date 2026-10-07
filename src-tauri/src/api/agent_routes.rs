@@ -6,15 +6,12 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::api::{
-    routes::{check_auth, resolve_tab, AppState},
-};
+use crate::api::routes::{check_auth, resolve_tab, AppState};
 use crate::multiplexer::types::AgentRole;
 use codeterm_types::agent::role_kind::builtins::PLANNER;
 
 pub(crate) use crate::api::agent_restart_routes::{
-    agent_restart_failure_response, agent_restart_handler, agent_restart_response,
-    AgentRestartBody,
+    agent_restart_failure_response, agent_restart_handler, agent_restart_response, AgentRestartBody,
 };
 
 mod model_error;
