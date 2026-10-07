@@ -302,6 +302,7 @@ const plugin: PluginModule = {
   sweepLaunchArtifacts(request: {
     instanceId: string;
     liveTabIds: string[];
+    goneInstanceIds?: string[];
     confirm: boolean;
     includeLegacy: boolean;
   }) {
@@ -311,6 +312,7 @@ const plugin: PluginModule = {
       request.instanceId,
       request.confirm,
       request.includeLegacy,
+      request.goneInstanceIds,
     );
   },
 

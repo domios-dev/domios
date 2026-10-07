@@ -293,6 +293,8 @@ pub struct LaunchArtifactSweepRequest {
     pub instance_id: String,
     pub live_tab_ids: Vec<String>,
     #[serde(default)]
+    pub gone_instance_ids: Vec<String>,
+    #[serde(default)]
     pub confirm: bool,
     #[serde(default)]
     pub include_legacy: bool,
