@@ -9,7 +9,7 @@ No lane build, extra DEV instance or PROD 7685 operation belongs to this leg.
 Run serially through the authorized gateway runner in a Team utility shell:
 
 ```powershell
-.\build.ps1 check-tests --wait-build
+.\build.ps1 check-tests
 .\build.ps1 test-one app claude_permission_hook_ --wait-build
 .\build.ps1 test-one app claude_context_feed_ --wait-build
 .\build.ps1 test-one plugin claude_context_usage_ --wait-build

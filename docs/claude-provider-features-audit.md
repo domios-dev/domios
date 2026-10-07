@@ -16,7 +16,7 @@ The new tab resumes the source with the declared fork arguments and never pre-bi
 
 ## Canonical gates requested
 
-Regenerate the Claude bundle with `node scripts/build-plugin.mjs provider-claude`, then CLI contracts with `.\build.ps1 cli --wait-build`, committing generated artifacts in canonical. Run `.\build.ps1 check-tests --wait-build`; `bash scripts/plugin-tests.sh provider-claude`; `.\build.ps1 test-one plugin parity_claude_ --wait-build`; `.\build.ps1 test-one types restart_guard_ --wait-build`; `.\build.ps1 test-one app restart_guard_ --wait-build`; `.\build.ps1 test-one app model_switch --wait-build`; `.\build.ps1 test-one app agent_fork_ --wait-build`; and the focused `tabMenuModel.test.ts` TypeScript selector.
+Regenerate the Claude bundle with `node scripts/build-plugin.mjs provider-claude`, then CLI contracts with `.\build.ps1 cli --wait-build`, committing generated artifacts in canonical. Run `.\build.ps1 check-tests`; `bash scripts/plugin-tests.sh provider-claude`; `.\build.ps1 test-one plugin parity_claude_ --wait-build`; `.\build.ps1 test-one types restart_guard_ --wait-build`; `.\build.ps1 test-one app restart_guard_ --wait-build`; `.\build.ps1 test-one app model_switch --wait-build`; `.\build.ps1 test-one app agent_fork_ --wait-build`; and the focused `tabMenuModel.test.ts` TypeScript selector.
 
 Expected: nonzero selected cases and zero failures; active shells/agents named in typed refusals; completion drains the roster and permits one deferred restart; force emits a warning; fork source stays bound while the new tab binds a different evidenced id. Verify those observable states live only in owner DEV via `evals/_lib/lib.sh` and `dc`. Audit the regenerated `generated/cli` diff and ensure regeneration is clean afterward.
 
