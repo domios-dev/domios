@@ -209,11 +209,12 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
                 }
             }
         }
-        if weak
+        if let Some(sidecar) = weak
             .upgrade()
-            .is_some_and(|sidecar| owns_endpoint(&tab, &sidecar))
+            .filter(|sidecar| owns_endpoint(&tab, sidecar))
         {
-            super::delivery::disconnected(&tab);
+            sidecar.verified.store(false, Ordering::Release);
+            super::delivery::refresh(&svc, &tab);
             log::error!(
                 "[codex-rpc] tab={tab} control unavailable; server retained and sends held"
             );
