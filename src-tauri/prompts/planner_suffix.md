@@ -38,3 +38,5 @@ GATES REQUESTED: none
 FOLLOWUP: next orchestration action
 EOF
 codeterm agent report --status in_review --from-pad report.md
+
+Stage review evidence in the pad and route it to the Orchestrator; review verdicts use `--note-from-pad <relative path>`.
