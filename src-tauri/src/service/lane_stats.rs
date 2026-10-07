@@ -308,8 +308,13 @@ fn capture_change_stats(
     cwd: &Path,
     deadline: Instant,
 ) -> Result<(String, String, u32), CaptureFailure> {
-    let unstaged = run_git(cwd, &["diff", "--numstat"], None, deadline)?;
-    let staged = run_git(cwd, &["diff", "--cached", "--numstat"], None, deadline)?;
+    let unstaged = run_git(cwd, &["diff-files", "--numstat"], None, deadline)?;
+    let staged = run_git(
+        cwd,
+        &["diff-index", "--cached", "-M", "--numstat", "HEAD"],
+        None,
+        deadline,
+    )?;
     let untracked = run_git(
         cwd,
         &["ls-files", "--others", "--exclude-standard", "-z"],
@@ -544,9 +549,11 @@ fn run_git_status_with_index(
 ) -> Result<Output, CaptureFailure> {
     let mut command = Command::new("git");
     crate::process_util::no_window_std(&mut command);
+    // Optional locks off: these reads run beside the agent's own git and must not take index.lock.
     command
         .current_dir(cwd)
         .args(args)
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if let Some((key, value)) = index {
