@@ -279,7 +279,10 @@ mod tests {
         let reg = reg_with("npc", true);
         let allowed = vec!["say".to_string()];
         let out = route(&reg, "plugin:npc.say", &None, Some(&allowed)).ok();
-        assert_eq!(out, Some(serde_json::json!({ "result": "|say|", "catalogue_changed": false })));
+        assert_eq!(
+            out,
+            Some(serde_json::json!({ "result": "|say|", "catalogue_changed": false }))
+        );
     }
 
     #[test]
@@ -287,6 +290,9 @@ mod tests {
         let reg = reg_with("npc", true);
         let allowed: Vec<String> = vec![];
         let out = route(&reg, "plugin:npc.anything", &None, Some(&allowed)).ok();
-        assert_eq!(out, Some(serde_json::json!({ "result": "|anything|", "catalogue_changed": false })));
+        assert_eq!(
+            out,
+            Some(serde_json::json!({ "result": "|anything|", "catalogue_changed": false }))
+        );
     }
 }
