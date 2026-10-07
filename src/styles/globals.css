@@ -3090,36 +3090,6 @@ button,
   font-weight: 700;
 }
 
-/* Sidebar hierarchy — living subagent tree (HierarchyTree.tsx) */
-.sidebar-hierarchy-level {
-  position: relative;
-}
-
-.sidebar-hierarchy-row-wrap {
-  position: relative;
-}
-
-.sidebar-hierarchy-row {
-  position: relative;
-  border: 0;
-  background: transparent;
-  cursor: pointer;
-}
-
-.sidebar-hierarchy-row--dead {
-  opacity: 0.55;
-}
-
-.sidebar-hierarchy-dead-title {
-  color: color-mix(in srgb, var(--ct-red, #f85149) 42%, var(--ct-muted-fg, #8b949e));
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-hierarchy-row {
-    transition: none;
-  }
-}
-
 @property --launch-progress {
   syntax: "<percentage>";
   inherits: false;

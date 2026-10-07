@@ -246,6 +246,24 @@ pub(crate) const DOCS: &[EmbeddedDoc] = &[
     ),
 ];
 
+// Historical names are append-only; targets always name a registered whole document.
+pub(crate) const DOC_ALIASES: &[(&str, &str)] = &[
+    ("SENTINELS", "BLUEPRINTS"),
+    ("SENTINEL-RECIPES", "BLUEPRINT-RECIPES"),
+];
+
+pub(crate) fn canonical_name(name: &str) -> Option<&'static str> {
+    DOCS.iter()
+        .find(|document| document.name.eq_ignore_ascii_case(name))
+        .map(|document| document.name)
+        .or_else(|| {
+            DOC_ALIASES
+                .iter()
+                .find(|(alias, _)| alias.eq_ignore_ascii_case(name))
+                .map(|(_, target)| *target)
+        })
+}
+
 pub fn handle(json: bool, name: Option<String>) {
     match name {
         None if json => crate::cmd::print::print_json(&serde_json::json!({
@@ -308,8 +326,8 @@ impl std::fmt::Display for UnknownDocument {
 }
 
 pub(crate) fn render_doc(name: &str) -> Result<&'static str, UnknownDocument> {
-    DOCS.iter()
-        .find(|document| document.name.eq_ignore_ascii_case(name))
+    canonical_name(name)
+        .and_then(|name| DOCS.iter().find(|document| document.name == name))
         .map(|document| document.body)
         .ok_or_else(|| UnknownDocument {
             requested: name.to_string(),
@@ -343,6 +361,32 @@ mod tests {
     #[test]
     fn document_names_are_case_insensitive() {
         assert_eq!(render_doc("orchestration"), render_doc("ORCHESTRATION"));
+    }
+
+    #[test]
+    fn historical_aliases_resolve_case_insensitively_without_shadowing() {
+        let mut names = DOCS
+            .iter()
+            .map(|doc| doc.name.to_ascii_lowercase())
+            .collect::<HashSet<_>>();
+        for (alias, target) in super::DOC_ALIASES {
+            assert!(
+                names.insert(alias.to_ascii_lowercase()),
+                "duplicate alias {alias}"
+            );
+            assert!(
+                DOCS.iter().any(|doc| doc.name == *target),
+                "missing alias target {target}"
+            );
+            assert_eq!(render_doc(alias), render_doc(target));
+            assert_eq!(render_doc(&alias.to_ascii_lowercase()), render_doc(target));
+        }
+        for (old, current) in [
+            ("SENTINELS", "BLUEPRINTS"),
+            ("SENTINEL-RECIPES", "BLUEPRINT-RECIPES"),
+        ] {
+            assert_eq!(super::canonical_name(old), Some(current));
+        }
     }
 
     #[test]
