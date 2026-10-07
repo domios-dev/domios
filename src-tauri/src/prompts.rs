@@ -137,6 +137,8 @@ pub const CODETERM_RULE: &str = include_str!("../prompts/codeterm_rule.md");
 /// Mem bridge rule payload installed per provider via `install_bridge_rule`.
 pub const BRIDGE_MEM: &str = include_str!("../prompts/bridge_mem.md");
 
+pub const MEM_MANAGEMENT: &str = include_str!("../prompts/mem_management.md");
+
 /// General Agent CLAUDE.md template (uses format!() placeholders).
 pub const GENERAL_AGENT_TEMPLATE: &str = include_str!("../prompts/general_agent.md");
 
@@ -312,8 +314,9 @@ pub fn orchestrator_suffix() -> String {
         )
         .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim());
     format!(
-        "{}\n\n## Canonical Orchestrator manual\n\n{}",
+        "{}\n\n{}\n\n## Canonical Orchestrator manual\n\n{}",
         role_prompt.trim(),
+        MEM_MANAGEMENT.trim(),
         ORCHESTRATION_DOC.trim()
     )
 }
@@ -372,8 +375,9 @@ pub fn planner_suffix() -> String {
         )
         .replace("{team_creation_contract}", TEAM_CREATION_CONTRACT.trim());
     format!(
-        "{}\n\n## Canonical Planner manual\n\n{}",
+        "{}\n\n{}\n\n## Canonical Planner manual\n\n{}",
         role_prompt.trim(),
+        MEM_MANAGEMENT.trim(),
         PLANNER_DOC.trim()
     )
 }
