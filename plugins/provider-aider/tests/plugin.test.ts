@@ -4,6 +4,7 @@
  */
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
@@ -317,6 +318,36 @@ console.log("\n--- history session blocks ---\n");
   const localBefore = new Date(2026, 9, 6, 13, 0, 0, 0).getTime();
   const localExcluded = parseAiderHistory(localHeader, localBefore);
   eq(localExcluded.messages.length, 0, "local-time header block is excluded when launch is later");
+}
+
+console.log("\n--- history file reader fallbacks ---\n");
+{
+  const tmp = path.join(os.tmpdir(), `aider-history-${Date.now()}.md`);
+  fs.writeFileSync(tmp, "#### Hi\n\nHello there\n", "utf8");
+  const readVia = (host: any) => {
+    const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
+    const source = fs.readFileSync(pluginPath, "utf8");
+    const context = { host, console, module: { exports: {} as any }, exports: {}, require };
+    new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+    return context.module.exports.default;
+  };
+  const bare = readVia({ platform: () => "linux", shell: { quoteFor: (v: any) => `'${v}'` } });
+  const bareResult = bare.readStructuredChat(path.dirname(tmp), "ses_x");
+  eq(bareResult.messages.length, 2, "host without fs still reads the history file");
+  eq(bareResult.messages[0].content, "Hi", "host without fs parses the user turn");
+  const viaHostReadFile = readVia({
+    platform: () => "linux",
+    shell: { quoteFor: (v: any) => `'${v}'` },
+    readFile: (p: string) => fs.readFileSync(p, "utf8"),
+  });
+  eq(viaHostReadFile.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 2, "host.readFile is used when present");
+  const viaFsReadFile = readVia({
+    platform: () => "linux",
+    shell: { quoteFor: (v: any) => `'${v}'` },
+    fs: { readFile: (p: string) => fs.readFileSync(p, "utf8") },
+  });
+  eq(viaFsReadFile.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 2, "host.fs.readFile is used when present");
+  fs.unlinkSync(tmp);
 }
 
 console.log("\n--- multi-line chat delivery ---\n");
