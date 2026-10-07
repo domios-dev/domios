@@ -1015,7 +1015,7 @@ export interface ModelCatalogueCapability {
   liveDiscoveryRequired: boolean;
 }
 
-export type ModelSwitchMode = "restart_resume" | "unsupported";
+export type ModelSwitchMode = "live" | "restart_resume" | "unsupported";
 
 export interface ProviderDescriptor {
   schema_version: number;

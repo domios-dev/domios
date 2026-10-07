@@ -56,6 +56,73 @@ fn definition() -> ModelProviderDefinition {
 }
 
 #[test]
+fn model_provider_saved_secret_copy_is_owned_and_source_survives_removal() {
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = adapter(dir.path().join("opencode.json"));
+    let store = store();
+    tauri::async_runtime::block_on(async {
+        store
+            .read()
+            .await
+            .save(SaveRequest {
+                name: "source".into(),
+                value: SecretString::from("opaque-fixture"),
+                notes: Some("foreign-owner".into()),
+                folder: None,
+                organization: None,
+                collection: None,
+                overwrite: false,
+            })
+            .await
+            .unwrap();
+    });
+    execute(
+        &store,
+        "fixture",
+        &adapter,
+        ModelProviderRequest::AddFromSecret {
+            provider: definition(),
+            source_secret: "source".into(),
+        },
+    )
+    .unwrap();
+    let providers = adapter.read(&read_config(&adapter.path).unwrap()).unwrap();
+    assert_eq!(
+        providers[0].secret_name.as_deref(),
+        Some("domios/model-provider/demo")
+    );
+    assert!(get_secret(&store, "fixture", &providers[0]).is_ok());
+    execute(
+        &store,
+        "fixture",
+        &adapter,
+        ModelProviderRequest::Remove {
+            name: "demo".into(),
+        },
+    )
+    .unwrap();
+    tauri::async_runtime::block_on(async {
+        assert_eq!(
+            store
+                .read()
+                .await
+                .get("source")
+                .await
+                .unwrap()
+                .notes
+                .as_deref(),
+            Some("foreign-owner")
+        );
+        assert!(store
+            .read()
+            .await
+            .get("domios/model-provider/demo")
+            .await
+            .is_err());
+    });
+}
+
+#[test]
 fn model_provider_add_launch_remove_preserves_foreign_config_and_secret_confinement() {
     let dir = tempfile::tempdir().unwrap();
     let adapter = adapter(dir.path().join("opencode.json"));

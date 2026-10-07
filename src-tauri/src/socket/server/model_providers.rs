@@ -9,6 +9,7 @@ pub(super) fn dispatch(
 ) -> Result<Value, JsonRpcError> {
     let action = match method {
         "model_provider.add" => "add",
+        "model_provider.add_from_secret" => "add_from_secret",
         "model_provider.remove" => "remove",
         "model_provider.list" => "list",
         "model_provider.test" => "test",

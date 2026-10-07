@@ -40,6 +40,9 @@ function tab(overrides: Partial<Tab> = {}): Tab {
 }
 
 describe("which rows offer a model switch", () => {
+  it("offers the switch when the provider declares the live protocol", () => {
+    expect(tabModelMenuView(tab(), descriptor({ model_switch: "live" }), null)).not.toBeNull();
+  });
   it("offers it to a PTY agent whose provider declares a live switch and models", () => {
     expect(tabModelMenuView(tab(), descriptor(), null)).not.toBeNull();
   });

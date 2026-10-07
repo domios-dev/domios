@@ -52,6 +52,7 @@ pub(super) fn dispatch(
                 "mesh.status",
                 "mesh.peers",
                 "model_provider.add",
+                "model_provider.add_from_secret",
                 "model_provider.remove",
                 "model_provider.list",
                 "model_provider.test",

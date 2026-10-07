@@ -59,6 +59,10 @@ pub enum ModelProviderRequest {
         #[serde(deserialize_with = "secret_from_wire")]
         value: SecretString,
     },
+    AddFromSecret {
+        provider: ModelProviderDefinition,
+        source_secret: String,
+    },
     Remove {
         name: String,
     },
@@ -216,6 +220,30 @@ pub fn execute(
     adapter: &dyn ModelProviderConfig,
     request: ModelProviderRequest,
 ) -> Result<Value, ModelProviderError> {
+    let request = match request {
+        ModelProviderRequest::AddFromSecret {
+            mut provider,
+            source_secret,
+        } => {
+            if !valid_id(&provider.id) || source_secret.trim().is_empty() {
+                return Err(ModelProviderError::InvalidRequest);
+            }
+            let source = tauri::async_runtime::block_on(async {
+                tokio::time::timeout(Duration::from_secs(10), async {
+                    store.read().await.get(&source_secret).await
+                })
+                .await
+            })
+            .map_err(|_| ModelProviderError::Timeout)?
+            .map_err(secret_error)?;
+            provider.secret_name = Some(format!("domios/model-provider/{}", provider.id));
+            ModelProviderRequest::Add {
+                provider,
+                value: source.value,
+            }
+        }
+        request => request,
+    };
     let path = adapter.path().map_err(|_| ModelProviderError::Config)?;
     let _lock = config_lock(&path)?;
     let config = read_config(&path)?;
@@ -223,6 +251,7 @@ pub fn execute(
         .read(&config)
         .map_err(|_| ModelProviderError::Config)?;
     match request {
+        ModelProviderRequest::AddFromSecret { .. } => unreachable!(),
         ModelProviderRequest::List => Ok(json!({ "providers": providers })),
         ModelProviderRequest::Test { name } => {
             let provider = providers
@@ -340,7 +369,9 @@ impl ServiceContext {
             .ok_or(ModelProviderError::Unsupported)?;
         let changes = matches!(
             &request,
-            ModelProviderRequest::Add { .. } | ModelProviderRequest::Remove { .. }
+            ModelProviderRequest::Add { .. }
+                | ModelProviderRequest::AddFromSecret { .. }
+                | ModelProviderRequest::Remove { .. }
         );
         let result = execute(&self.secrets, owner.id(), &*adapter, request)?;
         if changes {
