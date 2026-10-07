@@ -45,7 +45,7 @@ fn blueprint_owner_close_cancels_active_tab_owned_run_only() {
     let tab_job = store
         .create(
             serde_json::from_value(json!({
-                "probe":"status", "question":"state", "buckets":["done"], "every":"10s", "timeout":"1h"
+                "name":"owner-close-tab", "probe":"status", "question":"state", "buckets":["done"], "every":"10s", "timeout":"1h"
             }))
             .unwrap(),
             Owner {
