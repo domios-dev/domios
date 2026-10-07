@@ -965,7 +965,7 @@ pub(super) fn advance(
             || !store.lock().action_permitted(&job, transition)
         {
             let failure = super::handlers::Effect {
-                status: Status::Failed,
+                status: Status::Unconfirmed,
                 execution_id: None,
                 command_result: None,
                 reason: Some("route_claim_fenced".into()),
