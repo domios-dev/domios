@@ -591,7 +591,21 @@ fn deliver_composed_text(
 pub async fn interrupt_agent(
     svc: tauri::State<'_, ServiceState>,
     pty_id: String,
+    tab_id: Option<String>,
 ) -> Result<(), String> {
+    if let Some(tab_id) = tab_id {
+        let owns_pty = svc
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .is_some_and(|tab| tab.pty_id.as_deref() == Some(&pty_id));
+        if !owns_pty {
+            return Err("Tab does not own this PTY".to_string());
+        }
+        crate::service::stop_execution::stop_agent_turn(svc.inner().as_ref().clone(), tab_id)
+            .await?;
+        return Ok(());
+    }
     write_pty_string_core(&svc, pty_id, "\x1b".to_string())
 }
 

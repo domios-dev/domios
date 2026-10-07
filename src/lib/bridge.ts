@@ -605,7 +605,7 @@ const HTTP_MAP: Record<string, Mapper> = {
       data: a.data,
       raw: a.raw !== false,
     }),
-  interrupt_agent: (a) =>
+  interrupt_agent: (a) => a.tabId ? webJson("POST", `/api/tabs/${enc(s(a, "tabId"))}/stop`) :
     webJson("POST", `/api/pty/${enc(s(a, "ptyId"))}/write`, {
       data: "\x1b",
       raw: true,

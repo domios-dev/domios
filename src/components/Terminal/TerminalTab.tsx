@@ -143,7 +143,7 @@ export const TerminalTab = memo(function TerminalTab({
     priority: isVisible || isFocused,
     renderEnabled: renderTerminal,
   });
-  const stopManagedGeneration = useManagedTerminal(termRef, connectedPtyRef, termReady, managedView.locked);
+  const stopManagedGeneration = useManagedTerminal(termRef, connectedPtyRef, termReady, managedView.locked, tabId);
   const resizeClientId = useMemo(() => getResizeClientId(), []);
   const {
     commitResize,
