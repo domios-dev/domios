@@ -2,7 +2,6 @@ use codeterm_types::agent::chat_types::{
     ChatAttachment, ChatMsg, ChatTimelineMarker, InteractiveElement, RichMessage,
 };
 
-
 /// Short, human-readable summary of a tool input (file path, command, …),
 /// mirroring the desktop parser's `summarizeInput`.
 fn summarize_tool_input(input: Option<&serde_json::Value>) -> String {
