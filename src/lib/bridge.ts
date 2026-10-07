@@ -661,6 +661,7 @@ const HTTP_MAP: Record<string, Mapper> = {
       `/api/essence-source?project=${enc(s(a, "projectPath"))}&path=${enc(s(a, "sourcePath"))}`,
     ),
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
+  model_provider_manage: (a) => localJson("POST", "/api/model-providers", a.request),
   get_remote_workers: () => webJson("GET", "/api/remote-workers"),
   save_session: () => webJson("POST", "/api/session/save"),
   restart_general_agent: () => webJson("POST", "/api/agents/general/restart"),
@@ -671,6 +672,7 @@ const HTTP_MAP: Record<string, Mapper> = {
   switch_agent_model: (a) =>
     webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/model`, {
       model: s(a, "model"),
+      reasoning_effort: a.reasoningEffort,
     }),
   complete_general_agent_first_run: (a) =>
     webJson("POST", "/api/agents/general/complete-first-run", {

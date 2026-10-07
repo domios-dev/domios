@@ -111,6 +111,7 @@ mod tests {
     #[test]
     fn test_build_launch_no_task() {
         let params = AgentLaunchParams {
+            tool_less_instructions_path: None,
             agent_name: None,
             task: None,
             args: None,
@@ -137,6 +138,7 @@ mod tests {
     #[test]
     fn test_build_launch_with_task() {
         let params = AgentLaunchParams {
+            tool_less_instructions_path: None,
             agent_name: None,
             task: Some("line one\n<location>/repo</location>\n'quotes' \"double\" $HOME `whoami` --flag\nюникод".to_string()),
             args: None,
@@ -219,6 +221,7 @@ mod tests {
     #[test]
     fn test_build_launch_with_agent_name() {
         let params = AgentLaunchParams {
+            tool_less_instructions_path: None,
             agent_name: Some("architect".to_string()),
             task: None,
             args: None,
@@ -238,6 +241,7 @@ mod tests {
     fn test_build_launch_visible_task_positional_after_flags_and_separator() {
         let model_id = codeterm_types::agent::models::resolve_model_id("haiku");
         let params = AgentLaunchParams {
+            tool_less_instructions_path: None,
             agent_name: None,
             task: Some("hello".to_string()),
             args: Some(vec!["--model".into(), model_id.into()]),
@@ -265,6 +269,7 @@ mod tests {
     #[test]
     fn test_build_launch_command_with_session_id_injection() {
         let params = AgentLaunchParams {
+            tool_less_instructions_path: None,
             agent_name: None,
             task: None,
             args: None,
@@ -292,6 +297,7 @@ mod tests {
     fn test_session_id_injected_even_with_task() {
         // Interactive launch always honors --session-id (the old -p path that ignored it is gone).
         let params = AgentLaunchParams {
+            tool_less_instructions_path: None,
             agent_name: None,
             task: Some("hello".to_string()),
             args: None,

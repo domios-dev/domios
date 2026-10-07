@@ -47,6 +47,7 @@ pub(crate) mod launch_readiness;
 pub(crate) mod launch_session_detection;
 pub mod message_gateway;
 pub mod messenger;
+pub mod model_providers;
 pub mod notification;
 mod notification_desktop;
 pub(crate) mod notification_push;
@@ -1016,3 +1017,5 @@ pub(crate) fn resolve_refs(
         other => other.clone(),
     }
 }
+
+pub(crate) mod tool_less_instructions;

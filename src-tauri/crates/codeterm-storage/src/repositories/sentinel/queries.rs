@@ -258,7 +258,7 @@ fn load_transitions(conn: &Connection, id: &str) -> Result<Vec<TransitionRecord>
     }
     let mut statement = conn
         .prepare_cached(
-            "SELECT transition_id, bucket, accepted_at, terminal, definition_version \
+            "SELECT transition_id, bucket, accepted_at, terminal, definition_version, decision_json \
              FROM sentinel_transitions WHERE sentinel_id = ?1 ORDER BY ordinal",
         )
         .map_err(|e| sqlite_error("read sentinel transitions", e))?;
@@ -270,14 +270,16 @@ fn load_transitions(conn: &Connection, id: &str) -> Result<Vec<TransitionRecord>
                 row.get::<_, i64>(2)?,
                 row.get::<_, bool>(3)?,
                 row.get::<_, Option<i64>>(4)?,
+                row.get::<_, Option<String>>(5)?,
             ))
         })
         .map_err(|e| sqlite_error("read sentinel transitions", e))?;
     let mut transitions = Vec::new();
     for row in rows {
-        let (transition, bucket, accepted_at, terminal, version) =
+        let (transition, bucket, accepted_at, terminal, version, decision_json) =
             row.map_err(|e| sqlite_error("read sentinel transitions", e))?;
         transitions.push(TransitionRecord {
+            decision_json,
             handlers: results.remove(&transition).unwrap_or_default(),
             id: transition,
             bucket,

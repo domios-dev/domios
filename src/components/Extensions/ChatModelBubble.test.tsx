@@ -61,12 +61,14 @@ const MODELS: ModelInfo[] = [
 ];
 
 let catalogModels = MODELS;
+let catalogueVersion = 1;
 let modelsUpdated: (() => void) | undefined;
 
 function catalogProvider(): ProviderDescriptor {
   return {
     schema_version: 1,
     id: "provider-shell",
+    catalogue_version: catalogueVersion,
     display_name: "Provider Shell",
     transport: "chat_backend",
     system_prompt_delivery: "external",
@@ -99,6 +101,16 @@ function bubble(host: HTMLElement): HTMLButtonElement | null {
   return host.querySelector('[data-testid="chat-model-bubble"]');
 }
 
+function buttonNamed(host: HTMLElement, name: string): HTMLButtonElement | null {
+  return Array.from(host.querySelectorAll<HTMLButtonElement>("button"))
+    .find((button) => button.getAttribute("aria-label") === name || button.textContent?.trim() === name) ?? null;
+}
+
+function modelOptionNames(host: HTMLElement): string[] {
+  return Array.from(host.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"][aria-label]'))
+    .map((button) => button.getAttribute("aria-label")!);
+}
+
 function options(host: HTMLElement): HTMLButtonElement[] {
   return Array.from(host.querySelectorAll('[data-testid="chat-model-option"]'));
 }
@@ -126,11 +138,11 @@ __setInvokeForTest(async <T,>(command: string): Promise<T> => {
   throw new Error(`Unexpected command: ${command}`);
 });
 __setListenForTest(async <T,>(event: string, handler: (event: { payload: T }) => void) => {
-  if (event === "models-updated") {
-    modelsUpdated = () => handler({ payload: { provider: "provider-shell" } as T });
+  if (event === "model-catalogue-changed") {
+    modelsUpdated = () => handler({ payload: { provider: "provider-shell", version: catalogueVersion } as T });
   }
   return () => {
-    if (event === "models-updated") modelsUpdated = undefined;
+    if (event === "model-catalogue-changed") modelsUpdated = undefined;
   };
 });
 
@@ -337,15 +349,17 @@ test("updates selector entries exactly when the live plugin catalog changes", as
   const { host, root } = await render(<ChatModelBubble pluginId="provider-shell" sessionId="s1" />);
   await flush();
 
-  await act(async () => bubble(host)?.click());
-  assert(options(host).map((option) => option.dataset.modelId).join(",") === "model-a,model-b", "initial entries equal catalog");
+  await act(async () => buttonNamed(host, "Model A")?.click());
+  assert(modelOptionNames(host).join(",") === "Model A,Model B", "initial accessible model choices equal catalog");
 
   catalogModels = [{ id: "model-next", display_name: "Model Next" }];
+  catalogueVersion = 2;
   await act(async () => modelsUpdated?.());
   await flush();
-  assert(options(host).map((option) => option.dataset.modelId).join(",") === "model-next", "mounted selector follows catalog update");
+  assert(modelOptionNames(host).join(",") === "Model Next", "mounted selector follows the versioned catalogue event");
 
   catalogModels = MODELS;
+  catalogueVersion = 1;
   __setChatModelBubbleApiForTest(null);
   await act(async () => root.unmount());
 });

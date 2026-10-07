@@ -193,6 +193,7 @@
       "-m",
       "{model}"
     ],
+    "modelSwitch": "restart_resume",
     "reasoningEffortLaunchArgsFormat": [
       "-c",
       "model_reasoning_effort=\"{effort}\""

@@ -67,23 +67,31 @@ pub fn decide(
     request: &DecisionRequest,
     deadline: Instant,
 ) -> Classification {
-    Classification::adapter(match model.decide(request, deadline) {
+    let adapter_id = Some(model.id().to_owned());
+    let model_id = model.model_id();
+    let mut reported_confidence = None;
+    let mut classification = Classification::adapter(match model.decide(request, deadline) {
         Ok(DecisionAnswer::Choice {
             choice,
             probabilities,
             confidence,
-        }) => Ok(Verdict {
-            confidence: confidence
-                .or_else(|| probabilities.get(&choice).copied())
-                .unwrap_or(0.0),
-            bucket: choice,
-        }),
+        }) => {
+            reported_confidence = confidence.or_else(|| probabilities.get(&choice).copied());
+            Ok(Verdict {
+                confidence: reported_confidence.unwrap_or(0.0),
+                bucket: choice,
+            })
+        }
         Ok(_) => Err(Failure::InvalidAnswer),
         Err(DecisionError::Budget) => Err(Failure::Budget),
         Err(DecisionError::CreditExhausted) => Err(Failure::Credit),
         Err(DecisionError::Deadline) => Err(Failure::Deadline),
         Err(_) => Err(Failure::Model),
-    })
+    });
+    classification.adapter_id = adapter_id;
+    classification.model = model_id;
+    classification.confidence = reported_confidence;
+    classification
 }
 
 pub fn classify(
@@ -96,6 +104,9 @@ pub fn classify(
         if remaining.is_zero() {
             return Classification {
                 source: Source::NotAttempted,
+                confidence: None,
+                adapter_id: None,
+                model: None,
                 result: Err(Failure::Timeout),
             };
         }
@@ -143,6 +154,9 @@ pub fn fallback(job: &Sentinel, output: &str) -> Classification {
     } else {
         Classification {
             source: Source::Disconnected,
+            confidence: None,
+            adapter_id: None,
+            model: None,
             result: Err(Failure::Disconnected),
         }
     }
@@ -196,5 +210,52 @@ mod tests {
 
         assert_eq!(classification.source, Source::Adapter);
         assert_eq!(classification.result.unwrap().bucket, "waiting");
+    }
+
+    struct AdapterAnswer {
+        confidence: Option<f64>,
+    }
+
+    impl DecisionModel for AdapterAnswer {
+        fn id(&self) -> &str {
+            "actual-adapter"
+        }
+        fn model_id(&self) -> Option<String> {
+            Some("actual-model".into())
+        }
+        fn token_mode(&self) -> codeterm_types::decision::TokenMode {
+            codeterm_types::decision::TokenMode::None
+        }
+        fn primitives(&self) -> codeterm_types::decision::DecisionPrimitives {
+            Default::default()
+        }
+        fn decide(&self, _: &DecisionRequest, _: Instant) -> Result<DecisionAnswer, DecisionError> {
+            Ok(DecisionAnswer::Choice {
+                choice: "done".into(),
+                probabilities: Default::default(),
+                confidence: self.confidence,
+            })
+        }
+    }
+
+    #[test]
+    fn adapter_provenance_uses_selected_model_and_preserves_absent_confidence() {
+        let request = DecisionRequest {
+            state: json!({}),
+            instructions: String::new(),
+            question: DecisionQuestion::Choice {
+                options: Default::default(),
+            },
+        };
+        for confidence in [None, Some(0.9)] {
+            let result = decide(
+                Arc::new(AdapterAnswer { confidence }),
+                &request,
+                Instant::now(),
+            );
+            assert_eq!(result.adapter_id.as_deref(), Some("actual-adapter"));
+            assert_eq!(result.model.as_deref(), Some("actual-model"));
+            assert_eq!(result.confidence, confidence);
+        }
     }
 }

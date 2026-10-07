@@ -14,6 +14,7 @@ use crate::service::agent_restart::{
 #[derive(Debug, Deserialize)]
 pub struct AgentModelBody {
     pub model: String,
+    pub reasoning_effort: Option<String>,
 }
 
 pub async fn agent_model_handler(
@@ -33,8 +34,14 @@ pub async fn agent_model_handler(
         }
     };
     let svc = state.svc.clone();
-    let result =
-        tokio::task::spawn_blocking(move || svc.agent_switch_model(&tab_id, &body.model)).await;
+    let result = tokio::task::spawn_blocking(move || {
+        svc.agent_switch_model_with_reasoning(
+            &tab_id,
+            &body.model,
+            body.reasoning_effort.as_deref(),
+        )
+    })
+    .await;
     let result = match result {
         Ok(result) => result,
         Err(error) => {
@@ -68,9 +75,11 @@ pub async fn agent_model_handler(
 pub(crate) fn model_switch_success_body(outcome: &ModelSwitchOutcome) -> serde_json::Value {
     let mut body = serde_json::json!({
         "ok": true,
-        "tab_id": outcome.restart.tab_id,
-        "provider": outcome.restart.provider,
+        "tab_id": outcome.tab_id,
+        "provider": outcome.provider,
         "mechanism": outcome.mechanism,
+        "mode_used": outcome.mechanism,
+        "fallback_reason": outcome.fallback_reason,
         "previous_model": outcome.previous_model,
         "requested_model": outcome.requested_model,
         "launched_model": outcome.launched_model,
@@ -78,17 +87,23 @@ pub(crate) fn model_switch_success_body(outcome: &ModelSwitchOutcome) -> serde_j
             ModelSwitchConfirmation::Observed { .. } => "observed",
             ModelSwitchConfirmation::Pending => "pending",
         },
-        "session_id": outcome.restart.session_id,
-        "relaunch_evidence": {
-            "session_id": outcome.restart.session_id,
-            "launched_model": outcome.launched_model,
-            "agent_ready": outcome.restart.agent_ready,
-        },
-        "restart": crate::api::agent_routes::agent_restart_response(&outcome.restart),
+        "session_id": outcome.session_id,
     });
+    if let Some(detail) = &outcome.confirmation_detail {
+        body["confirmation_detail"] = detail.clone().into();
+    }
+    if let Some(restart) = &outcome.restart {
+        body["relaunch_evidence"] = serde_json::json!({
+            "session_id": restart.session_id,
+            "launched_model": outcome.launched_model,
+            "agent_ready": restart.agent_ready,
+        });
+        body["restart"] = crate::api::agent_routes::agent_restart_response(restart);
+    }
     if let ModelSwitchConfirmation::Observed { model, evidence } = &outcome.confirmation {
         body["observed_model"] = model.clone().into();
         body["evidence"] = match evidence {
+            ModelSwitchEvidence::LiveSessionRecord => "live_session_record",
             ModelSwitchEvidence::SessionStartReport => "session_start_report",
             ModelSwitchEvidence::FirstPostRelaunchTurn => "first_post_relaunch_turn",
         }
@@ -110,6 +125,7 @@ pub(crate) fn model_switch_error_status(error: &ModelSwitchError) -> StatusCode 
         } => StatusCode::GATEWAY_TIMEOUT,
         ModelSwitchError::RelaunchFailed { .. } => StatusCode::INTERNAL_SERVER_ERROR,
         ModelSwitchError::ModelMismatch { .. } => StatusCode::BAD_GATEWAY,
+        ModelSwitchError::LiveSwitchFailed(_) => StatusCode::BAD_GATEWAY,
     }
 }
 
@@ -122,12 +138,16 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         ModelSwitchError::RateLimited { .. } => "rate_limited",
         ModelSwitchError::RelaunchFailed { .. } => "relaunch_failed",
         ModelSwitchError::ModelMismatch { .. } => "model_mismatch",
+        ModelSwitchError::LiveSwitchFailed(_) => "live_switch_failed",
     };
     let mut body = serde_json::json!({
         "ok": false,
         "error": error.to_string(),
         "reason": reason,
     });
+    if matches!(error, ModelSwitchError::LiveSwitchFailed(_)) {
+        body["mode_used"] = "live".into();
+    }
     match error {
         ModelSwitchError::Unsupported { provider } => {
             body["provider"] = provider.clone().into();
@@ -150,7 +170,9 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
             body["observed_model"] = observed_model.clone().into();
             body["restart"] = crate::api::agent_routes::agent_restart_response(outcome);
         }
-        ModelSwitchError::NotFound(_) | ModelSwitchError::NotSwitchable(_) => {}
+        ModelSwitchError::NotFound(_)
+        | ModelSwitchError::NotSwitchable(_)
+        | ModelSwitchError::LiveSwitchFailed(_) => {}
     }
     body
 }

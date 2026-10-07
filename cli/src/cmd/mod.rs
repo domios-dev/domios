@@ -23,6 +23,7 @@ pub mod mem_secret;
 pub mod mem_secret_autounlock;
 pub mod mesh;
 pub mod model_error;
+pub mod model_provider;
 pub mod notify;
 pub mod orchestrator;
 pub mod pad;

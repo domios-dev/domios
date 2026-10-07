@@ -693,6 +693,10 @@ impl UnixRun {
             failure.primary = "probe_cancel_wake_failed";
             failure.cleanup_error(error);
         }
+        failure.processes_confirmed = self.status.is_some()
+            && self.child.is_none()
+            && self.group_absent
+            && !self.group_unconfirmed;
         failure.exit_code = self.status.and_then(|status| status.code());
         failure.stdout = (self.child_id != 0).then(|| self.stdout.data.metadata());
         failure.stderr = (self.child_id != 0).then(|| self.stderr.data.metadata());

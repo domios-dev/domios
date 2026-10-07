@@ -4,12 +4,17 @@
 import { invoke } from "../../lib/bridge";
 
 export interface TabModelApi {
-  switchModel(tabId: string, modelId: string): Promise<void>;
+  switchModel(tabId: string, modelId: string, reasoningEffort?: string): Promise<ModelSwitchResult | void>;
+}
+
+export interface ModelSwitchResult {
+  mode_used: "live" | "restart_resume";
+  model_confirmation: "observed" | "pending";
 }
 
 const defaultApi: TabModelApi = {
-  switchModel: async (tabId, model) => {
-    await invoke("switch_agent_model", { tabId, model });
+  switchModel: async (tabId, model, reasoningEffort) => {
+    return invoke<ModelSwitchResult>("switch_agent_model", { tabId, model, reasoningEffort });
   },
 };
 

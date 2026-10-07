@@ -1,3 +1,4 @@
+use super::PluginManifest;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -30,6 +31,16 @@ use session_wire::WireUsageSource;
 impl AgentProvider for JsProvider {
     fn id(&self) -> &str {
         &self.manifest.id
+    }
+
+    fn model_provider_config(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::model_providers::ModelProviderConfig>> {
+        self.manifest.capabilities.model_provider_config.then(|| {
+            std::sync::Arc::new(super::super::model_providers::JsModelProviderConfig::new(
+                self.vm.clone(),
+            )) as std::sync::Arc<dyn crate::model_providers::ModelProviderConfig>
+        })
     }
 
     fn display_name(&self) -> &str {
@@ -1041,7 +1052,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn model_catalogue_capability(&self) -> provider::ModelCatalogueCapability {
-        self.manifest.model_catalogue
+        self.manifest.model_catalogue.clone()
     }
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
@@ -1071,7 +1082,11 @@ impl AgentProvider for JsProvider {
     }
 
     fn model_credential_files(&self) -> Vec<PathBuf> {
-        super::host_credentials::declared_files(&self.manifest.credentials)
+        self.manifest
+            .model_catalogue
+            .fingerprint_files(super::host_credentials::declared_files(
+                &self.manifest.credentials,
+            ))
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {

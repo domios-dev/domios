@@ -740,6 +740,7 @@ pub fn build_agent_launch_command(
     let launch_task =
         crate::service::provider_launch_task(&svc.agent_registry, &agent_id, None, None, None);
     let params = crate::agent::provider::AgentLaunchParams {
+        tool_less_instructions_path: None,
         agent_name: None,
         task: launch_task,
         starter_prompt: crate::service::starter_prompt_for_role(None),
@@ -756,7 +757,10 @@ pub fn build_agent_launch_command(
     };
     svc.agent_registry
         .with_provider(&agent_id, |p| {
-            crate::agent::stub_launch::apply(&agent_id, p.build_launch_command(&params))
+            crate::agent::stub_launch::apply(
+                &agent_id,
+                crate::service::tool_less_instructions::build(p, &params),
+            )
         })
         .ok_or_else(|| format!("Unknown agent provider: {}", agent_id))
 }

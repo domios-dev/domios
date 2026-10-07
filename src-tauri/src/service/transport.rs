@@ -147,6 +147,7 @@ impl AgentTransport for PtyTransport {
             role_profile.as_deref(),
         );
         let mut params = AgentLaunchParams {
+            tool_less_instructions_path: None,
             agent_name: None,
             task: launch_task.clone(),
             starter_prompt: crate::agent::provider::StarterPrompt::NoStarter,

@@ -157,6 +157,39 @@ fn sentinel_probe_capture_failure_cannot_return_output() {
 }
 
 #[test]
+fn sentinel_probe_capture_error_keeps_process_completion_separate() {
+    for (parent, boundary) in [(true, true), (false, true), (true, false)] {
+        let failure = capture::assemble_confirmed(
+            test_status(),
+            completed_data(b"out"),
+            completed_data(b"err"),
+            CompletionFacts {
+                parent_complete: parent,
+                boundary_complete: boundary,
+                stdout_eof: true,
+                stderr_eof: true,
+                error: Some("capture error"),
+            },
+        )
+        .unwrap_err();
+        assert_eq!(failure.processes_confirmed, parent && boundary);
+        assert!(failure.is_unconfirmed());
+        assert_eq!(
+            failure
+                .unconfirmed
+                .contains(&super::process::ResourceKind::Child),
+            !parent
+        );
+        assert_eq!(
+            failure
+                .unconfirmed
+                .contains(&super::process::ResourceKind::ProcessGroup),
+            !boundary
+        );
+    }
+}
+
+#[test]
 fn sentinel_probe_original_deadline_is_not_renewed() {
     let admitted = Instant::now();
     let deadlines =

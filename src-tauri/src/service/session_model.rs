@@ -489,7 +489,7 @@ impl ServiceContext {
         true
     }
 
-    fn apply_session_model(
+    pub(crate) fn apply_session_model(
         &self,
         tab_id: &str,
         agent_id: &str,

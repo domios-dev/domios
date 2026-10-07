@@ -30,6 +30,7 @@ fn provider_descriptor_round_trip() {
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             cli_status: None,
             id: "test".into(),
+            catalogue_version: 0,
             display_name: "Test Provider".into(),
             icon_hint: Some("T".into()),
             icon_svg: Some("<svg viewBox=\"0 0 24 24\" fill=\"currentColor\"><circle cx=\"12\" cy=\"12\" r=\"6\"/></svg>".into()),

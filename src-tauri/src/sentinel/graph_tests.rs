@@ -720,3 +720,25 @@ fn sentinel_graph_terminal_lease_release_invalidates_with_committed_scope_revisi
         false
     );
 }
+
+#[test]
+fn blueprint_snapshot_keeps_fallback_separate_from_execution() {
+    let (_dir, mut store, mux, owner) = setup();
+    create(&mut store, &owner, false, json!({}));
+    let fallback = json!({"adapter_id":"configured-adapter","model":"configured-model"});
+    let graph = graph::project(
+        &owner.workspace_id,
+        None,
+        store.list(),
+        &mux,
+        &BTreeMap::new(),
+        fallback.clone(),
+        1000,
+        &Default::default(),
+    )
+    .unwrap();
+    assert_eq!(graph.configured_fallback, fallback);
+    assert!(graph.nodes[0]["executor"].is_null());
+    assert_eq!(graph.nodes[0]["detail"]["version"], 1);
+    assert_eq!(graph.nodes[0]["detail"]["decisions"]["adapter_used"], false);
+}
