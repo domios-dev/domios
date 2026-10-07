@@ -11,6 +11,10 @@ use std::sync::{Arc, LazyLock};
 
 pub struct Sidecar {
     pub client: Client,
+    pub controls: Mutex<super::model::TurnControls>,
+    pub control: Mutex<super::control::ControlState>,
+    pub compaction: Mutex<super::compaction::CompactionState>,
+    pub turn_settled: tokio::sync::watch::Sender<u64>,
     pub port: u16,
     pub binary: std::path::PathBuf,
     pub version: String,
@@ -66,6 +70,7 @@ pub fn for_tab(tab: &str) -> Option<Arc<Sidecar>> {
 pub fn clear_tab(tab: &str) {
     let sidecar = for_tab(tab);
     if let Some(sidecar) = sidecar {
+        super::approvals::clear_tab(tab);
         crate::service::structured_endpoint::remove(tab);
         sidecar.client.close("Tab lifecycle ended");
         sidecar.process.stop();
@@ -173,10 +178,29 @@ pub async fn ensure_for_spawn(
         client.close("Unsupported protocol version");
         return Err("Unsupported app-server protocol version".into());
     }
+    let runtime_mode = svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .and_then(|tab| tab.restorable_launch.structured_runtime_mode.clone())
+        .and_then(|mode| serde_json::from_value::<super::model::RuntimeMode>(json!(mode)).ok())
+        .unwrap_or(if spawn.full_access {
+            super::model::RuntimeMode::FullAccess
+        } else {
+            super::model::RuntimeMode::AutoAcceptEdits
+        });
     let mut params = json!({"cwd":spawn.cwd,"developerInstructions":spawn.instructions,
         "model":spawn.model,"config":{},
         "approvalPolicy":if spawn.full_access {"never"} else {"on-request"},
         "approvalsReviewer":"user", "sandbox":if spawn.full_access {"danger-full-access"} else {"workspace-write"}});
+    let overrides = runtime_mode.overrides();
+    params["approvalPolicy"] = overrides["approvalPolicy"].clone();
+    params["approvalsReviewer"] = overrides["approvalsReviewer"].clone();
+    params["sandbox"] = json!(match runtime_mode {
+        super::model::RuntimeMode::ApprovalRequired => "read-only",
+        super::model::RuntimeMode::FullAccess => "danger-full-access",
+        _ => "workspace-write",
+    });
     if let Some(effort) = spawn.effort {
         params["config"]["model_reasoning_effort"] = json!(effort);
     }
@@ -228,6 +252,16 @@ pub async fn ensure_for_spawn(
     }
     let sidecar = Arc::new(Sidecar {
         auth: Mutex::new(auth),
+        controls: Mutex::new(super::model::TurnControls {
+            model: spawn.model.clone(),
+            effort: params["config"]["model_reasoning_effort"]
+                .as_str()
+                .map(str::to_owned),
+            mode: runtime_mode,
+        }),
+        control: Mutex::new(super::control::ControlState::default()),
+        compaction: Mutex::new(super::compaction::CompactionState::default()),
+        turn_settled: tokio::sync::watch::channel(0).0,
         busy: std::sync::atomic::AtomicBool::new(false),
         client,
         port,
@@ -243,6 +277,13 @@ pub async fn ensure_for_spawn(
         tab,
         crate::service::structured_endpoint::Endpoint::Rpc(sidecar.clone()),
     );
+    if let Some(tab) = svc.mux.write().get_tab_mut(tab) {
+        tab.structured_control_active = true;
+        tab.structured_runtime_mode = serde_json::to_value(runtime_mode)
+            .ok()
+            .and_then(|value| value.as_str().map(str::to_owned));
+    }
+    svc.chat_registry.shutdown_tab(tab);
     bind(svc, tab, thread);
     super::subscriber::start(svc.clone(), tab.into(), &sidecar);
     crate::service::launch_diagnostics::log_rpc_sidecar(tab);

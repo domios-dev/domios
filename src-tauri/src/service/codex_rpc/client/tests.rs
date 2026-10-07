@@ -92,14 +92,9 @@ async fn codex_rpc_client_death_fails_pending_and_rejects_new_requests() {
 }
 
 #[tokio::test]
-async fn codex_rpc_client_forbids_turns_and_global_config_writes() {
+async fn codex_rpc_client_forbids_global_config_writes() {
     let (client, mut outgoing) = client();
-    for method in [
-        "turn/start",
-        "turn/steer",
-        "config/batchWrite",
-        "config/value/write",
-    ] {
+    for method in ["config/batchWrite", "config/value/write"] {
         assert!(client.request(method, json!({})).await.is_err());
     }
     assert!(outgoing.try_recv().is_err());

@@ -198,9 +198,14 @@ impl Client {
                 | "thread/items/list"
                 | "account/read"
                 | "model/list"
+                | "turn/start"
+                | "turn/steer"
+                | "turn/interrupt"
+                | "thread/compact/start"
+                | "thread/goal/set"
         ) {
             return Err(ClientError::Closed(
-                "Method is outside the read-only sidecar contract".into(),
+                "Method is outside the sidecar contract".into(),
             ));
         }
         let id = RequestId::Number(self.0.next_id.fetch_add(1, Ordering::Relaxed));
@@ -230,6 +235,23 @@ impl Client {
             .map_err(|_| ClientError::Closed("RPC response channel closed".into()))?;
         drop(cleanup);
         result
+    }
+
+    pub fn reply(
+        &self,
+        id: &RequestId,
+        result: Result<Value, RpcError>,
+    ) -> Result<(), ClientError> {
+        let frame = match result {
+            Ok(result) => json!({"id":id,"result":result}),
+            Err(error) => {
+                json!({"id":id,"error":{"code":error.code,"message":error.message,"data":error.data}})
+            }
+        };
+        self.0
+            .outgoing
+            .try_send(Message::Text(frame.to_string().into()))
+            .map_err(|_| ClientError::Closed("RPC reply queue unavailable".into()))
     }
 
     fn notify(&self, method: &str, params: Value) -> Result<(), ClientError> {

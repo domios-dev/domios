@@ -47,7 +47,6 @@ impl NotificationBuffer {
     }
 
     pub fn release(&mut self, thread: &str) -> Vec<Frame> {
-        self.ready.clear();
         self.ready.insert(thread.into());
         let frames: Vec<_> = self
             .threads

@@ -19,6 +19,7 @@ pub fn live_state_for(verdict: ProviderStateVerdict) -> AgentLiveState {
         state: match verdict {
             ProviderStateVerdict::Working => TimelineState::Working,
             ProviderStateVerdict::Idle => TimelineState::Idle,
+            ProviderStateVerdict::Waiting => TimelineState::Question,
         },
         subtype: None,
     }
