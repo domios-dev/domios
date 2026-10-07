@@ -22,6 +22,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/file-diffs.test.ts
       plugins/provider-claude/tests/subagents.test.ts
       plugins/provider-claude/tests/launch-session.test.ts
+      plugins/provider-claude/tests/account-home.test.ts
       plugins/provider-codex/tests/plugin.test.ts
       plugins/provider-codex/tests/resume-compatibility.test.ts
       plugins/provider-codex/tests/models.test.ts
@@ -45,9 +46,15 @@ case "${1:-all}" in
       plugins/provider-codex/tests/windows-hook-command.test.ts
       plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-codex/tests/launch-session.test.ts
+      plugins/provider-codex/tests/account-home.test.ts
       plugins/provider-codex/tests/user-images.test.ts
       plugins/provider-opencode/tests/plugin.test.ts
       plugins/provider-opencode/tests/lifecycle.test.ts
+      plugins/provider-opencode/tests/opencodeConfig.test.ts
+      plugins/provider-opencode/tests/modelProviders.test.ts
+      plugins/provider-opencode/tests/modelVariants.test.ts
+      plugins/provider-opencode/tests/opencodePresets.test.ts
+      plugins/provider-opencode/tests/decisionModel.test.ts
       plugins/provider-cursor/tests/plugin.test.ts
       plugins/chat-preprocessor/tests/plugin.test.ts
       src/lib/plugins/registry.test.ts
@@ -76,6 +83,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/file-diffs.test.ts
       plugins/provider-claude/tests/subagents.test.ts
       plugins/provider-claude/tests/launch-session.test.ts
+      plugins/provider-claude/tests/account-home.test.ts
     )
     ;;
   provider-codex)
@@ -101,6 +109,7 @@ case "${1:-all}" in
       plugins/provider-codex/tests/windows-hook-command.test.ts
       plugins/provider-codex/tests/file-diffs.test.ts
       plugins/provider-codex/tests/launch-session.test.ts
+      plugins/provider-codex/tests/account-home.test.ts
       plugins/provider-codex/tests/user-images.test.ts
     )
     ;;
@@ -108,6 +117,11 @@ case "${1:-all}" in
     tests=(
       plugins/provider-opencode/tests/plugin.test.ts
       plugins/provider-opencode/tests/lifecycle.test.ts
+      plugins/provider-opencode/tests/opencodeConfig.test.ts
+      plugins/provider-opencode/tests/modelProviders.test.ts
+      plugins/provider-opencode/tests/modelVariants.test.ts
+      plugins/provider-opencode/tests/opencodePresets.test.ts
+      plugins/provider-opencode/tests/decisionModel.test.ts
     )
     ;;
   chat-preprocessor)

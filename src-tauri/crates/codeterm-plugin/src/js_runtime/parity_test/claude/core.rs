@@ -247,6 +247,9 @@ fn resume_with_context_reapplies_the_prompt_on_both_paths() {
     let (n, j) = pair();
     let prompt = "## Composed identity\nparity-sentinel-91c3";
     let params = crate::provider::AgentResumeParams {
+        cwd: None,
+        context_files: None,
+        tool_less_instructions_path: None,
         session_id: "abc-def-123-456".into(),
         skip_permissions: true,
         agent_name: None,

@@ -243,7 +243,6 @@ export const TerminalTab = memo(function TerminalTab({
   const FB_TOP = "calc(var(--ct-safe-top, 0px) + 2.75rem)";
   const FB_SIDE = 16;
   const FB_HEADER = "2.5rem";
-  const FB_BOTTOM = "calc(5.75rem + var(--ct-composer-bottom-padding, 0.5rem))";
   const FB_SHADOW = "0 24px 64px rgba(0,0,0,0.5)";
 
   useEffect(() => {
@@ -512,7 +511,7 @@ export const TerminalTab = memo(function TerminalTab({
             : mobileSheet
               ? `calc(0.75rem + ${SHEET_FOOTER})`
               : fallbackChat
-                ? FB_BOTTOM
+                ? "var(--ct-composer-height, 0px)"
                 : 0,
           left: showTerminalKeyBar ? undefined : fallbackChat ? (mobileSheet ? 10 : FB_SIDE) : 0,
           height: undefined,

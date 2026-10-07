@@ -89,6 +89,10 @@ pub struct SpawnResult {
 
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct SpawnAgentParams {
+    #[serde(default, skip)]
+    pub(crate) context_files: Option<crate::plan::TaskFiles>,
+    #[serde(default, skip)]
+    pub(crate) context_skills: Option<String>,
     pub agent: Option<String>,
     pub agent_name: Option<String>,
     pub args: Option<Vec<String>>,

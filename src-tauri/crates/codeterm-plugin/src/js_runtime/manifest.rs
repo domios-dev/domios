@@ -13,6 +13,7 @@ mod capabilities;
 mod config;
 mod graph_nodes;
 mod methods;
+mod read_root;
 mod tab_menu;
 
 use std::path::PathBuf;
@@ -37,6 +38,7 @@ pub use graph_nodes::{
     NodeScalarType, NodeSchema, SchemaError,
 };
 pub use methods::manifest_settings_sections;
+pub use read_root::ReadRootEnvironment;
 pub use tab_menu::{TabMenuAction, TabMenuItem, MAX_TAB_MENU_ITEMS};
 
 /// Top-level `plugin.json` document.
@@ -80,6 +82,8 @@ pub struct PluginManifest {
     pub binary_name: Option<String>,
     #[serde(default)]
     pub cli_binary: Option<String>,
+    #[serde(default)]
+    pub cli_compatibility: Option<crate::provider_compat::CompatibilityManifest>,
 
     // (transcriber, secret backend) leave it defaulted.
     #[serde(default)]
@@ -214,6 +218,7 @@ fn default_capabilities() -> Capabilities {
         reply_relay: false,
         tool_less: false,
         model_provider_config: false,
+        context_attach: None,
         secret_backend: SecretBackendCap::default(),
         transcriber: false,
         graph_nodes: GraphNodesCap::default(),

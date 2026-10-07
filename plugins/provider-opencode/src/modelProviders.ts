@@ -1,6 +1,7 @@
 import type { ModelProviderConfig, ModelProviderDefinition } from "@codeterm/plugin-sdk";
 import { applyDomiosProviders, providerKeyEnvName } from "./opencodeConfig";
 import { opencodeConfigPath } from "./helpers";
+import { applyDomiosPresets, readDomiosPresets } from "./opencodePresets";
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -36,6 +37,9 @@ export function readModelProviders(config: unknown): ModelProviderDefinition[] {
 }
 
 export const modelProviderExports: ModelProviderConfig = {
+  readModelPresets: readDomiosPresets,
+  applyModelPresets: applyDomiosPresets,
+  modelPresetLaunchArgs: (name) => ["--agent", name],
   modelProviderConfigPath: opencodeConfigPath,
   readModelProviders,
   applyModelProviders: applyDomiosProviders,

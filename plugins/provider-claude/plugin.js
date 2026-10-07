@@ -48,76 +48,11 @@ function manifest() {
   }
 }
 
-// plugins/provider-claude/src/permissionHook.ts
-function permissionHookCapability() {
-  return {
-    protocol: "claude-permission-request",
-    options: [
-      { label: "Allow", value: "allow" },
-      { label: "Deny", value: "deny" }
-    ]
-  };
-}
-
-// plugins/provider-claude/src/context.ts
-var LIMIT = 1e7;
-function count(value) {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= LIMIT ? value : null;
-}
-function parseContextUsage(record2) {
-  if (!record2 || typeof record2 !== "object") return null;
-  const statusline = record2.context_window;
-  const hasStatusline = Object.prototype.hasOwnProperty.call(record2, "context_window");
-  const usage = hasStatusline ? statusline?.current_usage : record2.type === "assistant" ? record2.message?.usage : null;
-  if (!usage || typeof usage !== "object") return null;
-  const input = count(usage.input_tokens);
-  const creation = usage.cache_creation_input_tokens === void 0 ? 0 : count(usage.cache_creation_input_tokens);
-  const read = usage.cache_read_input_tokens === void 0 ? 0 : count(usage.cache_read_input_tokens);
-  if (input === null || creation === null || read === null || input + creation + read > LIMIT) return null;
-  const window = count(statusline?.context_window_size !== void 0 ? statusline.context_window_size : usage.context_window_size !== void 0 ? usage.context_window_size : 0);
-  if (window === null) return null;
-  const rawCost = record2.cost?.total_cost_usd;
-  const cost = typeof rawCost === "number" && Number.isFinite(rawCost) && rawCost >= 0 && rawCost <= 1e6 ? rawCost : null;
-  return {
-    used_tokens: input + creation + read,
-    window_tokens: window,
-    cost_usd: cost,
-    source: hasStatusline ? "claude-statusline" : "claude-jsonl"
-  };
-}
-var STATUSLINE_FLAG = "--codeterm-statusline";
-var STATUSLINE_FORWARD = 'payload=$(cat); if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then printf \'%s\' "$payload" | curl -s --max-time 2 -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/context" -H \'Content-Type: application/json\' -H "Authorization: Bearer $CODETERM_API_TOKEN" -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE:-}" --data-binary @- || true; fi';
-function statuslineSettings(settings) {
-  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return null;
-  const line = settings.statusLine;
-  if (line !== void 0 && (!line || line.type !== "command" || typeof line.command !== "string" || !line.command.trim())) return null;
-  if (line) {
-    let bytes = 0;
-    for (const character of line.command) {
-      const point = character.codePointAt(0);
-      bytes += point > 65535 ? 4 : point > 2047 ? 3 : point > 127 ? 2 : 1;
-    }
-    if (bytes > 8192) return null;
-    if (line.padding !== void 0 && (count(line.padding) === null || line.padding > 1e3)) return null;
-  }
-  const command = STATUSLINE_FORWARD + (line ? `; printf '%s' "$payload" | ( ${line.command}
-)` : "; true");
-  return JSON.stringify({ statusLine: { command, ...line?.padding !== void 0 ? { padding: line.padding } : {}, type: "command" } });
-}
-function statuslineLaunchArgs(args) {
-  const enabled = args.includes(STATUSLINE_FLAG);
-  const rest = args.filter((arg) => arg !== STATUSLINE_FLAG);
-  if (!enabled || rest.some((arg) => arg === "--settings" || arg.startsWith("--settings="))) return rest;
-  const path = host.expandHome("~/.claude/settings.json");
-  if (!path) return rest;
-  const text2 = host.fs.fileExists(path) ? host.fs.readFileHead(path, 65537) : "{}";
-  if (text2 === null || text2.length > 65536) return rest;
-  try {
-    const settings = statuslineSettings(JSON.parse(text2));
-    return settings ? [...rest, "--settings", settings] : rest;
-  } catch {
-    return rest;
-  }
+// plugins/provider-shared/readHome.ts
+function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
+  if (!inheritedHome) return fallback;
+  if (!subpath) return inheritedHome;
+  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
 }
 
 // plugins/provider-claude/src/launchSession.ts
@@ -125,10 +60,9 @@ var PROCESS_REGISTRY_DIR_ENV = "CODETERM_CLAUDE_PROCESS_REGISTRY_DIR";
 function registryDir() {
   const override = host.envGet(PROCESS_REGISTRY_DIR_ENV);
   if (override) return override;
-  const home = host.homeDir();
-  if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".claude" + sep + "sessions";
+  const home = host.homeDir();
+  return effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), home ? home + sep + ".claude" + sep + "sessions" : null, "sessions", sep);
 }
 function registrySessionId(raw, pid, startToken) {
   let record2;
@@ -175,9 +109,10 @@ function usageNormalize(raw) {
 }
 var CLAUDE_USAGE_KIND = "codeterm_usage_v1";
 function fetchClaudeUsage(host2) {
-  const credentialsPath = host2.expandHome("~/.claude/.credentials.json");
+  const inheritedHome = host2.envGet("CLAUDE_CONFIG_DIR");
+  const credentialsPath = effectiveReadPath(inheritedHome, host2.expandHome("~/.claude/.credentials.json"), ".credentials.json", host2.platform() === "windows" ? "\\" : "/");
   const fileCredentials = credentialsPath ? safeJson(host2.fs.readFile(credentialsPath)) : null;
-  const credentials = readMacOsCredentials(host2) ?? fileCredentials;
+  const credentials = (inheritedHome ? null : readMacOsCredentials(host2)) ?? fileCredentials;
   const oauth = objectAt(credentials, "claudeAiOauth");
   const accessToken = stringAt(oauth, "accessToken");
   if (!accessToken) throw new Error("usage credentials unavailable");
@@ -420,10 +355,10 @@ function claudeSessionFilePath(cwd, sessionId) {
   const m = manifest();
   const root = m && m.sessions && m.sessions.rootDir || "~/.claude/projects";
   const ext = m && m.sessions && m.sessions.fileExtension || "jsonl";
-  const expanded = host.expandHome(root);
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const expanded = effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), host.expandHome(root), "projects", sep);
   if (!expanded) return null;
   const encoded = encodeCwdDashed(cwd);
-  const sep = host.platform() === "windows" ? "\\" : "/";
   return expanded + sep + encoded + sep + sessionId + "." + ext;
 }
 function sessionModelTranscriptBoundary(cwd, sessionId) {
@@ -608,9 +543,6 @@ function capitalize(s) {
 
 // plugins/provider-claude/src/models.ts
 var FAMILIES = ["opus", "sonnet", "haiku", "fable"];
-var MINIMUM_CLI_BY_MODEL = {
-  fable: [2, 1, 258]
-};
 function decideAvailability(probe, minimum, declared) {
   if (declared === false) return "unavailable";
   if (probe.kind !== "version") return "unknown";
@@ -664,19 +596,20 @@ function fetchLiveModels(key) {
 function probeInstalledCli() {
   let raw;
   try {
-    raw = host.exec(JSON.stringify({ bin: "claude", args: ["--version"], timeoutMs: 3e3 }));
+    raw = host.providerVersionJson();
   } catch (_) {
     return { kind: "unreachable" };
   }
   const result = safeJson2(raw);
-  if (!result || result.code !== 0) return { kind: "unreachable" };
-  const match = /(\d+)\.(\d+)\.(\d+)/.exec(String(result.stdout || ""));
+  if (!result || result.status !== "detected") return { kind: "unreachable" };
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(result.version || ""));
   if (!match) return { kind: "unreachable" };
   return { kind: "version", version: [Number(match[1]), Number(match[2]), Number(match[3])] };
 }
 function applyInstalledCapabilities(models, probe) {
   return models.map((model) => {
-    const minimum = MINIMUM_CLI_BY_MODEL[model.id];
+    const declaredMinimum = manifest()?.cliCompatibility?.modelMinimumCli?.[model.id];
+    const minimum = declaredMinimum?.split(".").map(Number);
     if (!minimum) return { ...model };
     const verdict = decideAvailability(probe, minimum, model.available);
     if (verdict === "unknown") {
@@ -906,7 +839,7 @@ function record(value) {
 function text(value) {
   return typeof value === "string" ? value.trim() : "";
 }
-function count2(value) {
+function count(value) {
   if (value === null || !/^\d+$/.test(value)) return void 0;
   const parsed = Number(value);
   return Number.isSafeInteger(parsed) ? parsed : void 0;
@@ -987,9 +920,9 @@ function subAgentNotification(content) {
     state: NOTIFICATION_STATES[xmlTagBody(block, "status") ?? ""] ?? "unknown",
     ...result ? { result } : {},
     ...usage !== null ? {
-      tokens: count2(xmlTagBody(usage, "subagent_tokens")),
-      toolUses: count2(xmlTagBody(usage, "tool_uses")),
-      durationMs: count2(xmlTagBody(usage, "duration_ms"))
+      tokens: count(xmlTagBody(usage, "subagent_tokens")),
+      toolUses: count(xmlTagBody(usage, "tool_uses")),
+      durationMs: count(xmlTagBody(usage, "duration_ms"))
     } : {}
   };
 }
@@ -1564,8 +1497,8 @@ function buildWizardSubmitResponse(screen) {
   const parsed = parseClaudeWizardPrompt(screen);
   const steps = [];
   const active = parsed?.sections?.findIndex((section) => section.active) ?? -1;
-  const count3 = parsed?.sections?.length ?? 0;
-  const moves = active >= 0 && count3 > active ? count3 - active : 1;
+  const count2 = parsed?.sections?.length ?? 0;
+  const moves = active >= 0 && count2 > active ? count2 - active : 1;
   for (let i = 0; i < moves; i++) steps.push("G1tD");
   steps.push("DQ==");
   return steps;
@@ -1982,8 +1915,6 @@ function retainForeignPrecompactEntry(entry) {
   return remaining.length > 0;
 }
 var plugin = {
-  permissionHookCapability,
-  parseContextUsage,
   starterPromptText(prompt) {
     return prompt === "team_bootstrap" ? void 0 : starterPrompt(prompt);
   },
@@ -2117,9 +2048,8 @@ var plugin = {
       parts.push("--session-id");
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
-    const launchArgs = statuslineLaunchArgs(p.args || []);
-    if (launchArgs.length > 0) {
-      for (const arg of launchArgs) parts.push(host.shell.quoteFor(String(arg), host.platform()));
+    if (p.args && p.args.length > 0) {
+      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
     }
     if (p.task) {
       const visiblePath = writeTaskTempFile(p.task);
@@ -2147,9 +2077,8 @@ var plugin = {
   buildResumeCommandWithContext(params) {
     const p = params || {};
     const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
-    const resumeArgs = statuslineLaunchArgs(p.args || []);
-    if (resumeArgs.length > 0) {
-      for (const arg of resumeArgs) parts.push(quoteArg(String(arg)));
+    if (p.args && p.args.length > 0) {
+      for (let i = 0; i < p.args.length; i++) parts.push(quoteArg(String(p.args[i])));
     }
     const systemPrompt = p.systemPrompt;
     if (systemPrompt && systemPrompt.trim()) {
@@ -2484,9 +2413,7 @@ var plugin = {
       if (t === "system" && sourceSubtype === "compact_boundary") {
         timelineMarker = { kind: "context_compaction" };
       }
-      const context = parseContextUsage(v);
       out.push({
-        ...context ? { context_usage: context } : {},
         role,
         blocks,
         ts,

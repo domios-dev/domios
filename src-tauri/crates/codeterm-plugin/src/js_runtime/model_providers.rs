@@ -1,5 +1,7 @@
 use super::vm::{call_json, PluginVm};
-use crate::model_providers::{ConfigUpdate, ModelProviderConfig, ModelProviderDefinition};
+use crate::model_providers::{
+    ConfigUpdate, ModelPreset, ModelProviderConfig, ModelProviderDefinition,
+};
 use serde_json::{json, Value};
 use std::{path::PathBuf, sync::Arc};
 
@@ -14,6 +16,26 @@ impl JsModelProviderConfig {
 }
 
 impl ModelProviderConfig for JsModelProviderConfig {
+    fn read_presets(&self, config: &Value) -> Result<Vec<ModelPreset>, String> {
+        call_json(&self.vm, "readModelPresets", &[config.clone()])
+            .map_err(|_| "model presets unavailable".into())
+    }
+    fn apply_presets(
+        &self,
+        config: &Value,
+        presets: &[ModelPreset],
+    ) -> Result<ConfigUpdate, String> {
+        call_json(
+            &self.vm,
+            "applyModelPresets",
+            &[config.clone(), json!(presets)],
+        )
+        .map_err(|_| "model preset transform failed".into())
+    }
+    fn preset_launch_args(&self, name: &str) -> Result<Vec<String>, String> {
+        call_json(&self.vm, "modelPresetLaunchArgs", &[json!(name)])
+            .map_err(|_| "model preset launch unavailable".into())
+    }
     fn path(&self) -> Result<PathBuf, String> {
         let path: String = call_json(&self.vm, "modelProviderConfigPath", &[])
             .map_err(|_| "model provider config path unavailable")?;

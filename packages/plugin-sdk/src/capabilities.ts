@@ -6,6 +6,19 @@
 import type { ModelProviderConfig } from "./modelProviders";
 import type {ProviderAuthStatus, ProviderSessionObservations} from "./providerSignals";
 
+/** Manifest spawn.turnEvidenceNormalization; applies symmetrically to exact user-turn matching. */
+export interface TurnEvidenceNormalization {
+  unwrapPastedContentWrapper?: boolean;
+  collapseHorizontalWhitespace?: boolean;
+  dropSupplementaryCharacters?: boolean;
+  dropLineBreaks?: boolean;
+}
+
+/** Manifest spawn contract; absent means the provider does not restore chat on resume. */
+export interface ResumeHistoryCapability {
+  restoresConversationHistoryOnResume?: boolean;
+}
+
 export interface TabContext {
   cwd?: string | null;
 }
@@ -75,7 +88,11 @@ export type ViewCall = (method: string, args: unknown) => unknown;
 // ── agentProvider ──
 // Method set mirrors plugins/provider-*/plugin.js + the AgentProvider trait.
 
+export interface ContextAttach { editable: boolean; readOnly: boolean; }
+export interface ContextFiles { edit: string[]; read: string[]; }
+
 export interface LaunchParams {
+  contextFiles?: ContextFiles;
   /** Absolute host-owned shared instructions file; an unreadable supplied path must refuse launch. */
   toolLessInstructionsPath?: string;
   skipPermissions?: boolean;
@@ -102,6 +119,8 @@ export interface LaunchParams {
 export interface LaunchArtifactSweepRequest {
   instanceId: string;
   liveTabIds: string[];
+  /** Host holds each registered instance's exclusive lifetime lock throughout this call. */
+  goneInstanceIds?: string[];
   confirm: boolean;
   includeLegacy: boolean;
 }
@@ -156,6 +175,9 @@ export interface LaunchSessionDetection {
 
 /** Full launch context for a resumed session, not just its id. */
 export interface ResumeParams {
+  cwd?: string | null;
+  contextFiles?: ContextFiles | null;
+  toolLessInstructionsPath?: string | null;
   sessionId: string;
   skipPermissions?: boolean;
   agentName?: string | null;
@@ -574,11 +596,15 @@ export interface DecisionModelCapability {
   selectModel?(id: string): boolean;
   metadata?(): { display_name?: string; help_url?: string; server_address?: string; settings_url?: string };
   pricing?(): DecisionPricing | null;
-  decide(request: DecisionRequest): DecisionAnswer;
+  decide(request: DecisionRequest, remainingMs?: number): DecisionAnswer | DecisionFailure;
   /** Named questions over shared state; omitted methods use sequential decide calls. */
-  decideQuestions?(request: DecisionQuestionsRequest): DecisionResponse;
+  decideQuestions?(request: DecisionQuestionsRequest, remainingMs?: number): DecisionResponse | DecisionFailure;
   models(): DecisionModelInfo[];
   primitives(): DecisionPrimitives;
+}
+
+export interface DecisionFailure {
+  error: "unavailable" | "timeout" | "invalid_response" | "transport";
 }
 
 /** Manifest token policy for `capabilities.decisionModel`. Bare true is optional. */

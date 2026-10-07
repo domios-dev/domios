@@ -26,6 +26,12 @@ impl ReasoningEffortIdentity {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RestorableLaunchParameters {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_files: Option<codeterm_types::plan::TaskFiles>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_skills: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worker_restart: Option<WorkerRestartState>,
     #[serde(default)]
     pub captured: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -48,7 +54,10 @@ pub struct RestorableLaunchParameters {
 
 impl RestorableLaunchParameters {
     pub fn is_empty(&self) -> bool {
-        !self.captured
+        self.context_files.is_none()
+            && self.context_skills.is_none()
+            && self.worker_restart.is_none()
+            && !self.captured
             && self.requested_model.is_none()
             && self.model.is_none()
             && self.requested_reasoning_effort.is_none()
@@ -58,4 +67,27 @@ impl RestorableLaunchParameters {
             && self.identity_instructions.is_none()
             && !self.permission_bypass_requested
     }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkerRestartState {
+    pub attempt_id: String,
+    pub original_brief: String,
+    pub sender_tab: String,
+    #[serde(default)]
+    pub pending: Vec<RestorableWorkerTurn>,
+    #[serde(default)]
+    pub claimed_nonce: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestorableWorkerTurn {
+    pub delivery_id: String,
+    pub sender_tab: String,
+    pub provider_id: String,
+    pub session_id: String,
+    pub binding_nonce: String,
+    pub after_offset: u64,
+    pub user_text: String,
+    pub hops: u8,
 }

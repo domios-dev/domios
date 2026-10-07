@@ -370,6 +370,7 @@ export interface Host {
   homeDir(): string | null;
   expandHome(path: string): string | null;
   envGet(name: string): string | null;
+  providerVersionJson(): string;
   // Non-secret fields of a manifest-declared credential, as a JSON object.
   // Secret fields are never returned — see `FetchOpts.credential`.
   credentialPublic(id: string): string | null;

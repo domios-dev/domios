@@ -37,6 +37,9 @@ impl AgentProvider for RelayNative {
         "Relay fixture"
     }
     fn build_launch_command(&self, params: &AgentLaunchParams) -> String {
+        if let Some(files) = params.context_files.as_ref() {
+            return serde_json::to_string(files).unwrap();
+        }
         params
             .tool_less_instructions_path
             .clone()
@@ -68,8 +71,29 @@ impl AgentProvider for RelayNative {
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
         None
     }
+    fn restores_conversation_history_on_resume(&self) -> bool {
+        true
+    }
+    fn build_resume_command_with_context(
+        &self,
+        params: &crate::provider::AgentResumeParams,
+    ) -> Option<String> {
+        Some(serde_json::to_string(params).unwrap())
+    }
+    fn context_attach(&self) -> Option<crate::provider::ContextAttach> {
+        Some(crate::provider::ContextAttach {
+            editable: true,
+            read_only: true,
+        })
+    }
     fn is_tool_less(&self) -> bool {
         true
+    }
+    fn turn_evidence_normalization(&self) -> crate::provider::TurnEvidenceNormalization {
+        crate::provider::TurnEvidenceNormalization {
+            drop_line_breaks: true,
+            ..Default::default()
+        }
     }
     fn supports_reply_relay(&self) -> bool {
         true
@@ -92,9 +116,11 @@ fn fixture(enabled: bool, source: &str) -> JsProvider {
 fn fixture_class(enabled: bool, tool_less: bool, source: &str) -> JsProvider {
     let manifest_json = serde_json::json!({
         "id": "relay-js", "version": "0.1.0", "displayName": "Relay fixture",
-        "capabilities": { "agentProvider": true, "replyRelay": enabled, "toolLess": tool_less },
+        "capabilities": { "agentProvider": true, "replyRelay": enabled, "toolLess": tool_less, "contextAttach": if tool_less { serde_json::json!({"editable":true,"readOnly":true}) } else { serde_json::Value::Null } },
         "spawn": { "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
-            "taskDelivery": "pty_input", "verifySubmit": { "kind": "none" } }
+            "restoresConversationHistoryOnResume": tool_less,
+            "taskDelivery": "pty_input", "verifySubmit": { "kind": "none" },
+            "turnEvidenceNormalization": { "dropLineBreaks": true } }
     })
     .to_string();
     let manifest = serde_json::from_str(&manifest_json).unwrap();
@@ -225,4 +251,83 @@ fn tool_less_instructions_path_native_js_launch_parity() {
         js.build_launch_command(&AgentLaunchParams::default()),
         RelayNative.build_launch_command(&AgentLaunchParams::default())
     );
+}
+
+#[test]
+fn reply_relay_line_break_normalization_native_js_parity_preserves_raw_evidence() {
+    let js = fixture(true, "module.exports.default = {};");
+    let native = RelayNative.turn_evidence_normalization();
+    assert_eq!(js.turn_evidence_normalization(), native);
+    let sent = "<domios from=\"tab\" tab=\"sender\">opaque\r\nassignment\n [hint]</domios>";
+    let stored = sent.replace(['\r', '\n'], "");
+    assert_eq!(native.normalize(sent), native.normalize(&stored));
+    assert_ne!(
+        crate::provider::TurnEvidenceNormalization::default().normalize(sent),
+        crate::provider::TurnEvidenceNormalization::default().normalize(&stored)
+    );
+    let mut evidence = turn();
+    evidence.user_text = stored.clone();
+    let source = format!(
+        "module.exports.default = {{ readReplyRelayTurn() {{ return {}; }} }};",
+        serde_json::to_string(&evidence).unwrap()
+    );
+    let js = fixture(true, &source);
+    let Some(ReplyRelayEvidence::Answered(raw)) = js.read_reply_relay_turn("/work", "own", 100)
+    else {
+        panic!("completed raw evidence")
+    };
+    assert_eq!(raw.user_text, stored);
+}
+
+#[test]
+fn context_attach_capability_and_launch_files_native_js_parity() {
+    let js = fixture_class(false, true, "module.exports.default = {buildLaunchCommand(p) { return JSON.stringify(p.contextFiles); }};");
+    assert_eq!(js.context_attach(), RelayNative.context_attach());
+    assert!(fixture(false, "module.exports.default = {};")
+        .context_attach()
+        .is_none());
+    let params = AgentLaunchParams {
+        context_files: Some(codeterm_types::plan::TaskFiles {
+            edit: vec!["/opaque/new file.rs".into()],
+            read: vec!["/opaque/skill.md".into()],
+        }),
+        task: Some("opaque multiline\nbrief".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        js.build_launch_command(&params),
+        RelayNative.build_launch_command(&params)
+    );
+    assert_eq!(params.task.as_deref(), Some("opaque multiline\nbrief"));
+}
+
+#[test]
+fn resume_history_and_context_native_js_parity() {
+    let js = fixture_class(false, true, "module.exports.default = {buildResumeCommandWithContext(p) { return JSON.stringify(p); }};");
+    assert_eq!(
+        js.restores_conversation_history_on_resume(),
+        RelayNative.restores_conversation_history_on_resume()
+    );
+    assert!(
+        !fixture(false, "module.exports.default = {};").restores_conversation_history_on_resume()
+    );
+    let params = crate::provider::AgentResumeParams {
+        session_id: "existing-own-session".into(),
+        cwd: Some("/opaque/worker".into()),
+        context_files: Some(codeterm_types::plan::TaskFiles {
+            edit: vec!["/opaque/new.rs".into()],
+            read: vec!["/opaque/context.md".into()],
+        }),
+        tool_less_instructions_path: Some("/opaque/shared.md".into()),
+        ..Default::default()
+    };
+    let native: serde_json::Value = serde_json::from_str(
+        &RelayNative
+            .build_resume_command_with_context(&params)
+            .unwrap(),
+    )
+    .unwrap();
+    let bridged: serde_json::Value =
+        serde_json::from_str(&js.build_resume_command_with_context(&params).unwrap()).unwrap();
+    assert_eq!(native, bridged);
 }

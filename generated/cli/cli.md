@@ -181,7 +181,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--parent-tab` — Parent tab ID. Required for Workers; for a Planner, resolved from --plan (its Orchestrator) when omitted
 - `--plan` — Plan id to bind — required for `--role Planner` to auto-bind Plan.planner and deliver the peer prompt naming the Orchestrator
 - `--plan-task` — Plan task to bind when spawning `--role Worker` (handle, id, or prefix)
-- `--preset` — Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents
+- `--preset` — Select a provider-owned preset supported by the target provider
 - `--provider-reserve-pct`
 - `--reason` — Why this Worker needs an unplanned task
 - `--reasoning-effort` — Reasoning-effort level supported by the selected model. The provider's list is used when that model publishes no per-model levels; unsupported values are rejected, never silently downgraded
@@ -206,6 +206,14 @@ Cancel automatic cleanup for an inspected startup attempt
 
 - `--attempt` — Launch attempt shown in the startup-overdue report
 - `--tab` — Target spawned Tab
+
+#### `codeterm agent turns`
+
+Read completed turns from a tool-less agent's exact bound session
+
+- `--after` — UTF-8 user-record lower bound; use next_offset to continue a bounded window
+- `--last`
+- `--tab`
 
 #### `codeterm agent unlink`
 
@@ -675,10 +683,10 @@ Show a provider's hook integration state
 
 #### `codeterm integration sweep-profiles`
 
-Preview or remove dead provider launch artifacts owned by this instance
+Preview dead provider launch artifacts; only the machine owner may remove them
 
 - `--confirm` — Remove the profiles listed by this instance's scan
-- `--include-legacy` — Include every unmarked legacy profile, regardless of tab liveness
+- `--include-legacy` — Include exact-pattern unmarked legacy profiles whose tabs are not live here
 - `--provider` — Provider id (e.g. codex)
 
 #### `codeterm keepawake`
@@ -1441,6 +1449,61 @@ List tabs on a remote mesh peer
 Explicitly lift a peer identity revocation so it can pair again
 
 - `<instance_id>` — Instance ID of the revoked peer
+
+#### `codeterm model-provider`
+
+Configure model endpoints through the installed provider capability
+
+#### `codeterm model-provider add`
+
+Add an endpoint; pipe the key on stdin. Omit --model to discover models
+
+- `--base-url`
+- `--kind`
+- `--model`
+- `--name`
+- `--secret`
+
+#### `codeterm model-provider list`
+
+List Domios-owned endpoints without key values
+
+#### `codeterm model-provider preset`
+
+Manage Domios-owned provider presets
+
+#### `codeterm model-provider preset add`
+
+Create or replace an owned model, prompt and parameter preset
+
+- `--model`
+- `--name`
+- `--prompt`
+- `--steps`
+- `--temperature`
+- `--top-p`
+
+#### `codeterm model-provider preset list`
+
+List Domios-owned presets
+
+#### `codeterm model-provider preset remove`
+
+Remove only a Domios-owned preset
+
+- `--name`
+
+#### `codeterm model-provider remove`
+
+Remove a Domios-owned endpoint and its owned secret
+
+- `--name`
+
+#### `codeterm model-provider test`
+
+Check an endpoint within a bounded deadline and return its models
+
+- `--name`
 
 #### `codeterm notify`
 
@@ -2514,6 +2577,15 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
 - `<task_id>`
 - `--workspace`
+
+#### `codeterm plan task files`
+
+Replace structured task context files (relative paths resolve against the Worker cwd)
+
+- `--edit-file`
+- `<plan_id>`
+- `--read-file`
+- `<task_id>`
 
 #### `codeterm plan task link`
 

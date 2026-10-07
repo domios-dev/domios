@@ -465,6 +465,8 @@ pub(super) fn install(
     manifest_json: Option<&str>,
     sandbox: Arc<PluginSandbox>,
 ) -> Result<(), VmError> {
+    let provider_observation =
+        Arc::new(super::provider_observation::ProviderObservation::from_manifest(manifest_json));
     let host = rquickjs::Object::new(ctx.clone())
         .map_err(|e| VmError::Script(format!("host obj: {e}")))?;
 
@@ -480,6 +482,11 @@ pub(super) fn install(
     let manifest_owned: Option<String> = manifest_json.map(|s| s.to_string());
     bind!("manifestJson", move || -> Option<String> {
         manifest_owned.clone()
+    });
+    let sb = sandbox.clone();
+    let observation = provider_observation.clone();
+    bind!("providerVersionJson", move || -> String {
+        serde_json::to_string(&observation.version(&sb)).unwrap_or_else(|_| "null".into())
     });
 
     bind!("platform", || -> String {
@@ -680,10 +687,11 @@ pub(super) fn install(
     });
 
     let sb = sandbox.clone();
+    let observation = provider_observation.clone();
     bind!(
         "sqliteQueryAllJson",
         move |ctx: Ctx, db: String, sql: String, params_json: Option<String>| {
-            sqlite::host_query(&ctx, &sb, &db, &sql, params_json.as_deref())
+            sqlite::host_query(&ctx, &sb, &observation, &db, &sql, params_json.as_deref())
         }
     );
 

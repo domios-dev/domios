@@ -429,6 +429,14 @@ impl PluginVm {
         self.sandbox.can_read(path) && self.sandbox.can_write(path)
     }
 
+    pub(crate) fn can_read_path(&self, path: &Path) -> bool {
+        self.sandbox.can_read(&path.to_string_lossy())
+    }
+
+    pub(crate) fn can_read_environment(&self, name: &str) -> bool {
+        self.sandbox.can_env(name)
+    }
+
     pub fn plugin_id(&self) -> &str {
         &self.plugin_id
     }

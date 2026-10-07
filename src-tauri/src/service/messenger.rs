@@ -559,6 +559,9 @@ impl Messenger {
             .bytes_written()
             {
                 svc.reply_relays.cancel(&resolved_target, &id);
+                if let Err(error) = svc.settle_restored_worker_turn(&resolved_target, &id) {
+                    log::error!("[tool-less-restart] cancellation persistence failed: {error}");
+                }
             }
         }
         result

@@ -15,6 +15,10 @@
       "rootSubdir": "sessions",
       "directoryDepth": 3,
       "fileStemRegex": "^rollout-.{19}-([A-Za-z0-9._-]{1,128})$"
+    },
+    "rootEnvironment": {
+      "variable": "CODEX_HOME",
+      "subdir": ""
     }
   },
   "credentials": [
@@ -26,6 +30,10 @@
       },
       "secret": {
         "accessToken": "tokens.access_token"
+      },
+      "fileEnvironment": {
+        "variable": "CODEX_HOME",
+        "subdir": "auth.json"
       }
     }
   ],
@@ -213,5 +221,11 @@
       ]
     }
   },
-  "icon": "icon.svg"
+  "icon": "icon.svg",
+  "cliCompatibility": {
+    "supported": [
+      "=0.160.0"
+    ],
+    "breaking": []
+  }
 }

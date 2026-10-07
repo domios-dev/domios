@@ -9,6 +9,9 @@ export interface ModelProviderDefinition {
 }
 
 export interface ModelProviderConfig {
+  readModelPresets(config: unknown): ModelPreset[];
+  applyModelPresets(config: unknown, presets: ModelPreset[]): { config: object; changed: boolean; conflicts: string[] };
+  modelPresetLaunchArgs(name: string): string[];
   modelProviderConfigPath(): string | null;
   readModelProviders(config: unknown): ModelProviderDefinition[];
   applyModelProviders(config: unknown, providers: ModelProviderDefinition[]): {
@@ -17,4 +20,11 @@ export interface ModelProviderConfig {
     conflicts: string[];
   };
   modelProviderKeyEnvName(id: string): string;
+}
+
+export interface ModelPreset {
+  name: string;
+  model: string;
+  prompt: string;
+  params?: { temperature?: number; top_p?: number; steps?: number };
 }

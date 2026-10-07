@@ -39,6 +39,9 @@ pub(crate) fn capture_tab_launch_parameters(
         })
         .flatten();
     let launch = RestorableLaunchParameters {
+        context_files: None,
+        context_skills: None,
+        worker_restart: None,
         captured: true,
         requested_model: capture.requested_model,
         model: capture.model,
@@ -157,6 +160,8 @@ pub(crate) fn restored_fresh_launch_input(
     mut launch_parameters: crate::multiplexer::types::RestorableLaunchParameters,
 ) -> RestoredFreshLaunchInput {
     let legacy_snapshot = !launch_parameters.captured;
+    params.context_files = launch_parameters.context_files.clone();
+    params.context_skills = launch_parameters.context_skills.clone();
     params.task = None;
     params.starter_prompt = crate::agent::provider::StarterPrompt::NoStarter;
     params.agent_name = launch_parameters.agent_name.clone();
@@ -297,5 +302,37 @@ mod tests {
                 .as_deref(),
             Some(identity.as_str())
         );
+    }
+    #[test]
+    fn restored_launch_preserves_context_and_skills_without_replaying_task() {
+        let registry = crate::agent::registry::AgentRegistry::new();
+        registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+            "resume-fixture",
+        )));
+        let files = crate::plan::TaskFiles {
+            edit: vec!["/opaque/new.rs".into()],
+            read: vec!["/opaque/context.md".into()],
+        };
+        let input = super::restored_fresh_launch_input(
+            &registry,
+            crate::service::SpawnAgentParams {
+                agent: Some("resume-fixture".into()),
+                cwd: Some("/opaque/worker".into()),
+                ..Default::default()
+            },
+            crate::multiplexer::types::RestorableLaunchParameters {
+                captured: true,
+                context_files: Some(files.clone()),
+                context_skills: Some("opaque skills".into()),
+                ..Default::default()
+            },
+        );
+        assert_eq!(input.params.context_files, Some(files));
+        assert_eq!(
+            input.params.context_skills.as_deref(),
+            Some("opaque skills")
+        );
+        assert_eq!(input.params.cwd.as_deref(), Some("/opaque/worker"));
+        assert!(input.params.task.is_none());
     }
 }

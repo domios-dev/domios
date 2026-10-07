@@ -33,6 +33,7 @@ fn milestone(id: &str, ts: u64) -> Milestone {
 
 fn task(id: &str, status: TaskStatus, sections: &[&str]) -> Task {
     Task {
+        files: Default::default(),
         id: id.into(),
         name: format!("name-{id}"),
         kind: "implement".into(),

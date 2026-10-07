@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Check, CornerDownLeft, Pencil } from "lucide-react";
 import type { PendingPrompt, PromptOption, PromptSection } from "../../lib/types";
+import { encodePromptSelection } from "../../lib/promptSelection";
 
 const WIZARD_SUBMIT_VALUE = "9000";
-const WIZARD_MULTI_MASK_BASE = 10000;
 
 const FREE_TEXT_LABEL =
   /^(?:\(?\s*)?(?:other|custom|none of (?:the above|these)|type (?:your own|something(?: else)?)|write your own|enter (?:your own|custom|text)|free[\s-]?text|something else)/i;
@@ -60,12 +60,7 @@ function PromptCard({
   };
 
   const confirmMulti = () => {
-    let mask = 0;
-    for (const opt of pendingPrompt.options) {
-      const idx = Number.parseInt(opt.value, 10) - 1;
-      if (idx >= 0 && selected.has(opt.value)) mask += 1 << idx;
-    }
-    onRespond(String(WIZARD_MULTI_MASK_BASE + mask));
+    onRespond(encodePromptSelection(pendingPrompt.options, selected));
   };
 
   const activeStep = Math.max(0, sections.findIndex((s) => s.active));
@@ -74,9 +69,9 @@ function PromptCard({
     : "Your turn";
 
   return (
-    <div className="mt-2" data-testid="tab-pending-prompt">
+    <div className="mb-2" data-testid="tab-pending-prompt">
       <div
-        className="rounded-xl px-4 py-3.5"
+        className="rounded-lg px-3 py-2"
         style={{
           background: "color-mix(in srgb, var(--ct-accent) 7%, var(--ct-surface))",
           border: "1px solid color-mix(in srgb, var(--ct-accent) 26%, transparent)",
@@ -211,10 +206,6 @@ function PromptCard({
 function LiveDot() {
   return (
     <span className="relative inline-flex h-2 w-2 shrink-0" aria-hidden>
-      <span
-        className="absolute inline-flex h-full w-full rounded-full opacity-60 animate-ping motion-reduce:hidden"
-        style={{ background: "var(--ct-accent)" }}
-      />
       <span
         className="relative inline-flex h-2 w-2 rounded-full"
         style={{ background: "var(--ct-accent)" }}

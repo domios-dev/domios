@@ -49,6 +49,21 @@ impl PluginManifest {
     pub fn from_json_str(text: &str) -> Result<Self, String> {
         let manifest: PluginManifest = serde_json::from_str(text).map_err(|e| e.to_string())?;
         manifest.capabilities.validate_tab_menu()?;
+        for credential in &manifest.credentials {
+            if let Some(environment) = &credential.file_environment {
+                environment.validate()?;
+            }
+        }
+        if let Some(environment) = manifest
+            .sessions
+            .as_ref()
+            .and_then(|sessions| sessions.root_environment.as_ref())
+        {
+            environment.validate()?;
+        }
+        if let Some(compatibility) = &manifest.cli_compatibility {
+            compatibility.validate()?;
+        }
         for capability in manifest.capabilities.unknown_capabilities() {
             log::debug!(
                 "[plugin] {} ignores unknown capability {}",

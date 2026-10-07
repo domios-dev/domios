@@ -468,6 +468,7 @@ fn provider_normalized_user_turn_confirms_chat_send() {
         unwrap_pasted_content_wrapper: true,
         collapse_horizontal_whitespace: true,
         drop_supplementary_characters: false,
+        drop_line_breaks: false,
     };
     let pending = ledger
         .try_start_scoped_with_normalization(

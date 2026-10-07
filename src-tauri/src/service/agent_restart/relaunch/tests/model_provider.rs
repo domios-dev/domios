@@ -53,6 +53,18 @@ fn model_provider_fresh_pty_resume_keeps_tab_session_and_transcript() {
         let tab = mux.get_tab_mut(&id).unwrap();
         tab.agent_type = Some("opencode".into());
         tab.agent_session_id = Some("ses_resume".into());
+        let launch = crate::multiplexer::types::RestorableLaunchParameters {
+            context_files: None,
+            context_skills: None,
+            worker_restart: None,
+            captured: true,
+            model: Some("endpoint/model".into()),
+            requested_model: Some("endpoint/model".into()),
+            args: Some(vec!["--agent".into(), "demo".into()]),
+            ..Default::default()
+        };
+        tab.restorable_launch =
+            serde_json::from_value(serde_json::to_value(launch).unwrap()).unwrap();
         id
     };
     let (old_id, old_session) = svc
@@ -75,6 +87,17 @@ fn model_provider_fresh_pty_resume_keeps_tab_session_and_transcript() {
     };
     let resumed = build_relaunch(svc, &snapshot, true).unwrap();
     assert!(resumed.command.contains("--session 'ses_resume'"));
+    assert!(
+        resumed.command.contains("'--agent' 'demo'") || resumed.command.contains("--agent 'demo'"),
+        "{}",
+        resumed.command
+    );
+    assert!(
+        resumed.command.contains("'-m' 'endpoint/model'")
+            || resumed.command.contains("-m 'endpoint/model'"),
+        "{}",
+        resumed.command
+    );
     let (new_id, _) = svc
         .pty
         .lock()

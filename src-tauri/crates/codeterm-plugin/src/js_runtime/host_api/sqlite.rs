@@ -12,6 +12,7 @@ const SQLITE_RESULT_MAX_BYTES: usize = 64 << 20;
 pub(super) fn host_query(
     ctx: &rquickjs::Ctx<'_>,
     sandbox: &super::PluginSandbox,
+    observation: &super::super::provider_observation::ProviderObservation,
     db: &str,
     sql: &str,
     params_json: Option<&str>,
@@ -19,6 +20,16 @@ pub(super) fn host_query(
     if !sandbox.can_read(db) {
         log::warn!("[plugin] denied sqliteQuery outside sandbox: {db}");
         return Ok(None);
+    }
+    if let Some(compatibility) = observation.sqlite_compatibility(sandbox) {
+        if compatibility.verdict != crate::provider_compat::CompatibilityVerdict::Supported {
+            log::warn!(
+                "[provider-compatibility] direct_sqlite disabled verdict={:?} reasons={:?}",
+                compatibility.verdict,
+                compatibility.reasons
+            );
+            return Ok(None);
+        }
     }
     query_all_json(db, sql, params_json, SQLITE_RESULT_MAX_BYTES).map_err(|error| {
         log::warn!("[plugin] {error} (db {db})");
