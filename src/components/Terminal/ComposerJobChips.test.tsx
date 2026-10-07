@@ -67,10 +67,11 @@ async function main() {
   const root = createRoot(host);
   await act(async () => { root.render(<ComposerJobChips tabId="tab-a" workspaceId="workspace-a" adapter={adapter} />); });
 
-  const chip = await waitForSelector<HTMLButtonElement>('button[aria-label="Job rust-rss-new-videos, running"]');
-  assert.ok(chip, "a bound running cron renders a chip with its accessible name");
+  const cronChip = await waitForSelector<HTMLDivElement>('[data-job-key="cron:cron-rss"][data-job-state="active"]');
+  const chip = cronChip.querySelector<HTMLButtonElement>("button[aria-label]");
+  assert.ok(chip, "a bound active cron renders an accessible button");
   await act(async () => { chip.click(); });
-  const blueprintChip = host.querySelector<HTMLButtonElement>('button[aria-label="Blueprint Echo pipeline, running"]');
+  const blueprintChip = host.querySelector<HTMLButtonElement>('button[data-blueprint-id="blueprint-echo"][data-job-state="active"]');
   assert.ok(blueprintChip, "an owner tab's running Blueprint renders a chip");
   await act(async () => { blueprintChip.click(); });
   assert.deepEqual(opened, [
@@ -81,8 +82,9 @@ async function main() {
   const moreJobs = host.querySelector<HTMLButtonElement>('button[aria-label="2 more jobs"]');
   assert.ok(moreJobs, "overflow button reports the hidden job count");
   await act(async () => { moreJobs.click(); });
-  const hiddenJob = host.querySelector<HTMLButtonElement>('button[aria-label="Job hidden-run-4, running"]');
-  assert.ok(hiddenJob?.closest(".ct-composer-activity-chip"), "overflow entries use the visible chip capsule");
+  const hiddenJobChip = host.querySelector<HTMLDivElement>('[data-job-key="cron:cron-4"][data-job-state="active"]');
+  const hiddenJob = hiddenJobChip?.querySelector<HTMLButtonElement>("button[aria-label]");
+  assert.ok(hiddenJob, "overflow entries use the visible chip capsule and active state");
   assert.ok(host.querySelector('button[aria-label="Actions for hidden-run-4"]'), "overflow entries retain their actions menu");
 
   await act(async () => { root.render(<ComposerJobChips tabId="tab-b" workspaceId="workspace-a" adapter={adapter} />); });
