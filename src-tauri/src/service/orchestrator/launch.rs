@@ -972,6 +972,12 @@ pub(crate) fn launch_agent_in_background_with_env(
         }
         delivery_gate.mark_provider_ready();
 
+        let fallback_spec = fallback_spec.filter(|_| {
+            resume_binding::fallback_still_required(
+                binding_turn_planned,
+                launch.await_provider_ack(std::time::Duration::ZERO),
+            )
+        });
         if let Some(spec) = fallback_spec {
             let task_text = spec.payload.clone();
             set_booting(false);
