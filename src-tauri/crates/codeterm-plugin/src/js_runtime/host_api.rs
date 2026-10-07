@@ -687,10 +687,11 @@ pub(super) fn install(
     });
 
     let sb = sandbox.clone();
+    let observation = provider_observation.clone();
     bind!(
         "sqliteQueryAllJson",
         move |ctx: Ctx, db: String, sql: String, params_json: Option<String>| {
-            sqlite::host_query(&ctx, &sb, &db, &sql, params_json.as_deref())
+            sqlite::host_query(&ctx, &sb, &observation, &db, &sql, params_json.as_deref())
         }
     );
 
