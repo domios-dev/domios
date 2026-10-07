@@ -14,15 +14,15 @@ pub(super) struct InputFiles {
     pub source: PathBuf,
 }
 
-pub(super) struct Cleanup(Option<PathBuf>);
+pub(super) struct Cleanup(std::sync::Mutex<Option<PathBuf>>);
 
 impl Cleanup {
     pub(super) fn new(path: PathBuf) -> Self {
-        Self(Some(path))
+        Self(std::sync::Mutex::new(Some(path)))
     }
 
-    pub(super) fn settle(&mut self) {
-        let Some(path) = self.0.take() else {
+    pub(super) fn settle(&self) {
+        let Some(path) = self.0.lock().expect("cleanup mutex").take() else {
             return;
         };
         if let Err(error) = std::fs::remove_dir_all(&path) {
@@ -51,7 +51,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let run = temp.path().join("run");
         std::fs::create_dir_all(&run).unwrap();
-        drop(Cleanup(Some(run.clone())));
+        drop(Cleanup::new(run.clone()));
         assert!(!run.exists());
     }
 }

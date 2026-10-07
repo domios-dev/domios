@@ -24,6 +24,7 @@ fn request(output_dir: &std::path::Path) -> ConvertRequest {
         output_dir: output_dir.to_path_buf(),
         language: Some("ru".into()),
         deadline: Instant::now() + Duration::from_secs(30),
+        cancellation: Default::default(),
     }
 }
 

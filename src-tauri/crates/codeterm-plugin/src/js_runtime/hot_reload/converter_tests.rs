@@ -44,6 +44,7 @@ fn request(from: MediaKind, to: MediaKind, dir: &std::path::Path) -> ConvertRequ
         output_dir: dir.to_path_buf(),
         language: None,
         deadline: std::time::Instant::now() + std::time::Duration::from_secs(30),
+        cancellation: Default::default(),
     }
 }
 
