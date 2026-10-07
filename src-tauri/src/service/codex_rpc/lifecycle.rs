@@ -41,6 +41,7 @@ pub struct Sidecar {
     pub compaction: Mutex<super::compaction::CompactionState>,
     pub turn_settled: tokio::sync::watch::Sender<u64>,
     pub port: u16,
+    pub upstream_port: u16,
     pub binary: std::path::PathBuf,
     pub version: String,
     pub thread: Mutex<String>,
@@ -112,6 +113,47 @@ pub fn stop_tab(tab: &str) {
         sidecar.client.close("Tab lifecycle ended");
         sidecar.process.stop();
     }
+}
+
+pub async fn reconnect(tab: &str, sidecar: &Arc<Sidecar>) -> Result<(), String> {
+    sidecar
+        .verified
+        .store(false, std::sync::atomic::Ordering::Release);
+    if *sidecar.process.death.borrow() {
+        return Err("App-server exited".into());
+    }
+    sidecar
+        .client
+        .reconnect(sidecar.upstream_port, &sidecar.token)
+        .await?;
+    sidecar.client.initialize().await.map_err(rpc_error)?;
+    let thread = sidecar.thread.lock().clone();
+    let mut settings = sidecar.thread_settings.clone();
+    settings["threadId"] = json!(thread);
+    settings["excludeTurns"] = json!(true);
+    sidecar
+        .client
+        .request("thread/resume", settings)
+        .await
+        .map_err(rpc_error)?;
+    let read = sidecar
+        .client
+        .request(
+            "thread/read",
+            json!({"threadId":thread,"includeTurns":false}),
+        )
+        .await
+        .map_err(rpc_error)?;
+    if !super::routing::verified_user_thread(&thread, &read)
+        || !for_tab(tab).is_some_and(|current| Arc::ptr_eq(&current, sidecar))
+    {
+        return Err("Reconnected thread identity unverified".into());
+    }
+    sidecar.client.release_thread(&thread);
+    sidecar
+        .verified
+        .store(true, std::sync::atomic::Ordering::Release);
+    Ok(())
 }
 
 pub fn extend_env(tab: &str, env: &mut HashMap<String, String>) {
@@ -332,6 +374,7 @@ pub async fn ensure_for_spawn(
         busy: std::sync::atomic::AtomicBool::new(busy),
         client,
         port: remote_port,
+        upstream_port: port,
         binary,
         version: init.user_agent,
         thread: Mutex::new(thread.clone()),
@@ -354,10 +397,17 @@ pub async fn ensure_for_spawn(
     }
     svc.chat_registry.shutdown_tab(tab);
     bind(svc, tab, thread.clone());
-    if busy {
-        svc.mark_agent_turn_started(tab);
-        crate::agent::state_verdict::observe_declared_event(svc, tab, &thread, "turn/started");
-    }
+    super::status::observe(
+        svc,
+        tab,
+        &thread,
+        &sidecar,
+        if busy {
+            "turn/started"
+        } else {
+            "turn/completed"
+        },
+    );
     super::subscriber::start(svc.clone(), tab.into(), &sidecar);
     log::info!("[codex-rpc-attach] tab={tab} nonce={attach_nonce} upstream_port={port} remote_port={remote_port} state=pending");
     super::attachment::start(
