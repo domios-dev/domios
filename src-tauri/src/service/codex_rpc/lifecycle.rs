@@ -95,6 +95,11 @@ pub fn for_tab(tab: &str) -> Option<Arc<Sidecar>> {
     crate::service::structured_endpoint::rpc(tab)
 }
 pub fn clear_tab(tab: &str) {
+    super::delivery::disconnected(tab);
+}
+
+pub fn stop_tab(tab: &str) {
+    super::recovery::completed(tab);
     let sidecar = for_tab(tab);
     if let Some(sidecar) = sidecar {
         log::info!(
@@ -140,7 +145,7 @@ pub async fn ensure_for_spawn(
         .clone();
     let _permit = gate.acquire().await.map_err(|error| error.to_string())?;
     let previous = for_tab(tab);
-    clear_tab(tab);
+    stop_tab(tab);
     super::delivery::begin(tab, &svc.ensure_session_binding_nonce(tab));
     if let Some(tab) = svc.mux.write().get_tab_mut(tab) {
         tab.structured_control_active = false;
@@ -363,7 +368,7 @@ pub async fn ensure_for_spawn(
         sidecar.token.clone(),
         port,
         remote_listener,
-        sidecar.client.death(),
+        sidecar.process.death.clone(),
     );
     crate::service::launch_diagnostics::log_rpc_sidecar(tab);
     artifacts.committed = true;

@@ -431,7 +431,7 @@ impl ServiceContext {
             });
         }
         outcome.old_pty_torn_down = true;
-        crate::service::codex_rpc::lifecycle::clear_tab(&snap.tab_id);
+        crate::service::codex_rpc::lifecycle::stop_tab(&snap.tab_id);
         if provider_changed {
             let reset = {
                 let mut mux = self.mux.write();

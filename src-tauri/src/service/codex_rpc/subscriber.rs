@@ -182,9 +182,6 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
             }
             super::lifecycle::clear_tab(&tab);
             svc.push_structured_prompt(&tab, None);
-            if let Some(tab) = svc.mux.write().get_tab_mut(&tab) {
-                tab.structured_control_active = false;
-            }
             svc.emit_state_changed();
         }
     });

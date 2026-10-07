@@ -46,7 +46,7 @@ pub fn start(
     token: String,
     upstream: u16,
     listener: tokio::net::TcpListener,
-    mut shutdown: tokio::sync::watch::Receiver<Option<String>>,
+    mut shutdown: tokio::sync::watch::Receiver<bool>,
 ) {
     tauri::async_runtime::spawn(async move {
         let connections = std::sync::Arc::new(tokio::sync::Semaphore::new(2));
@@ -136,6 +136,7 @@ pub fn start(
                 super::delivery::detached(&tab, &nonce, &connection);
                 if authorized.load(std::sync::atomic::Ordering::Acquire) {
                     super::delivery::attach_failed(&tab, &nonce);
+                    super::recovery::try_start(&svc, &tab, &nonce, "remote TUI connection ended");
                 }
                 if let Err(reason) = result {
                     log::warn!("[codex-rpc-attach] tab={tab} nonce={nonce} reason={reason}");

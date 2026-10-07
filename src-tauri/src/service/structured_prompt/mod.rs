@@ -118,7 +118,9 @@ pub fn clear_tab(tab_id: &str) {
     if let Some(subscriber) = subscriber {
         *subscriber.live.lock() = false;
     }
-    super::structured_endpoint::remove(tab_id);
+    if crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_none() {
+        super::structured_endpoint::remove(tab_id);
+    }
     ACTIVE.lock().remove(tab_id);
     QUEUED.lock().remove(tab_id);
 }
