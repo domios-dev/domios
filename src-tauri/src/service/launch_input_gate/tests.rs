@@ -910,6 +910,91 @@ fn provider_declared_onboarding_dialog_is_answered_for_every_launch() {
 }
 
 #[test]
+fn structured_chat_serves_rows_without_a_session_id() {
+    use codeterm_plugin::provider::AgentProvider;
+    use codeterm_types::agent::chat_types::StructuredChat;
+
+    struct SessionlessChatProvider;
+    impl AgentProvider for SessionlessChatProvider {
+        fn id(&self) -> &str {
+            "sessionless-chat"
+        }
+        fn display_name(&self) -> &str {
+            "Sessionless Chat"
+        }
+        fn build_launch_command(
+            &self,
+            _params: &codeterm_plugin::provider::AgentLaunchParams,
+        ) -> String {
+            String::new()
+        }
+        fn readiness_strategy(&self) -> codeterm_plugin::provider::ReadinessStrategy {
+            codeterm_plugin::provider::ReadinessStrategy::PollShellPrompt {
+                timeout: std::time::Duration::from_secs(1),
+            }
+        }
+        fn task_delivery(&self) -> codeterm_plugin::provider::TaskDelivery {
+            codeterm_plugin::provider::TaskDelivery::PtyInput
+        }
+        fn detect_from_title(&self, _title: &str) -> bool {
+            false
+        }
+        fn detect_from_output(&self, _text: &str) -> bool {
+            false
+        }
+        fn session_file_path(
+            &self,
+            _cwd: &str,
+            _session_id: &str,
+        ) -> Option<std::path::PathBuf> {
+            None
+        }
+        fn detect_session_id(
+            &self,
+            _cwd: &str,
+            _exclude: &[String],
+            _max_age: Option<std::time::Duration>,
+        ) -> Option<String> {
+            None
+        }
+        fn build_resume_command(
+            &self,
+            _session_id: &str,
+            _skip_permissions: bool,
+        ) -> Option<String> {
+            None
+        }
+        fn uses_structured_chat(&self) -> bool {
+            true
+        }
+        fn read_structured_chat(
+            &self,
+            _cwd: &str,
+            _session_id: &str,
+            _cursor: Option<&str>,
+        ) -> StructuredChat {
+            StructuredChat {
+                messages: vec![codeterm_types::agent::chat_types::ChatMsg {
+                    id: "hist_0".into(),
+                    r#type: "user".into(),
+                    content: "hello".into(),
+                    ..Default::default()
+                }],
+                cursor: Some("1".into()),
+            }
+        }
+    }
+
+    let provider = SessionlessChatProvider;
+    assert!(provider.uses_structured_chat());
+    assert!(provider.supports_chat_ui());
+    let chat = provider.read_structured_chat("/cwd", "", None);
+    assert_eq!(chat.messages.len(), 1);
+    assert_eq!(chat.messages[0].content, "hello");
+    assert_eq!(chat.cursor.as_deref(), Some("1"));
+}
+
+#[test]
 fn onboarding_auto_answer_defaults_to_delegated_only() {
     let mock = MockProvider::new("no-onboarding-policy");
     assert_eq!(
