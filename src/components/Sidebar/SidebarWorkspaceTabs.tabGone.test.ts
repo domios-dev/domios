@@ -62,3 +62,9 @@ console.log("✓ workspace sidebar: closed worker Tab is not rendered as a live 
 const staleOrder = [orchestrator, liveWorker, goneWorker];
 const current = { orch: orchestrator, "worker-live": liveWorker };
 assert(!visibleWorkspaceTabs(staleOrder, current).some((tab) => tab.id === "worker-gone"), "stale workspace ordering cannot resurrect a tab");
+
+const freshWorker = { ...liveWorker, title: "Fresh worker" };
+const aliasedSnapshot = { leader: orchestrator, worker: freshWorker };
+const visibleAliased = visibleWorkspaceTabs(staleOrder, aliasedSnapshot);
+assert(visibleAliased.map((tab) => tab.id).join(",") === "orch,worker-live", "live membership uses snapshot IDs despite record aliases");
+assert(visibleAliased[1] === freshWorker, "ordered rows use the current snapshot object");

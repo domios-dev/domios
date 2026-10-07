@@ -355,11 +355,10 @@ export function SidebarWorkspaceTabs({
   };
 
   for (const [index, tab] of sortedTabs.entries()) {
-    const teamTab = tab as TeamTab;
-    const teamId = effectiveTeamId(teamTab);
+    const teamId = effectiveTeamId(tab);
     if (!teamId) {
-      if (!looseChildIds.has(teamTab.id)) {
-        rows.push(renderLooseTabTree(teamTab, index, "tab", ws.id, pinnedLooseItems));
+      if (!looseChildIds.has(tab.id)) {
+        rows.push(renderLooseTabTree(tab, index, "tab", ws.id, pinnedLooseItems));
       }
       continue;
     }
