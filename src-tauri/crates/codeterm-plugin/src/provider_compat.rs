@@ -49,6 +49,12 @@ pub struct CompatibilityEvaluation {
     pub reasons: Vec<CompatibilityReason>,
 }
 
+impl Default for CompatibilityEvaluation {
+    fn default() -> Self {
+        unknown(CompatibilityReason::VersionUnknown)
+    }
+}
+
 impl CompatibilityManifest {
     pub fn validate(&self) -> Result<(), String> {
         for range in self

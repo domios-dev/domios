@@ -216,6 +216,10 @@ surfaces as agents:
   hardcoded shell list — core enumerates the `chatBackend` registry. Every row
   carries `availability` (`available` / `unavailable` / `unknown`); the CLI marks
   the latter two inline, and the UI provider picker reads the same field.
+  `cli_status.detected_version`, `version_probe`, and `compatibility` expose the
+  cached CLI version and declared compatibility verdict with typed reasons.
+  The first observation can be `pending` with an unknown verdict while a bounded
+  worker probes the binary. Unknown versions never authorize a declared direct sqlite reader.
 - **Spawn:** `codeterm agent spawn <shell-id> [--system TEXT] [--preset ID] [--model M]`
   (or `POST /api/agents/spawn`) routes by capability to the shell. `--system`
   overrides the preset's system prompt for that session, `--preset` picks a preset,
