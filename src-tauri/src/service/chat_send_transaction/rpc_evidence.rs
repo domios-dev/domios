@@ -80,7 +80,10 @@ impl ChatSendLedger {
         status.error = None;
         status.pending_reason = None;
         let status = status.clone();
-        Some(Self::with_retention_window(&state, status))
+        let status = Self::with_retention_window(&state, status);
+        drop(state);
+        self.wake_owner(&status.tab_id);
+        Some(status)
     }
 
     pub(crate) fn rpc_uncertain_for_launch(
