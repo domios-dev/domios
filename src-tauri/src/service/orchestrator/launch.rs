@@ -36,6 +36,7 @@ use exit_recovery_shell::exited_provider_recovery_has_shell_ready_evidence;
 mod generation;
 #[path = "launch/owner_prompt_wait.rs"]
 mod owner_prompt_wait;
+mod preparation;
 mod public_send;
 #[path = "launch/reader_readiness.rs"]
 mod reader_readiness;
@@ -451,55 +452,17 @@ pub(crate) fn launch_agent_in_background_with_env(
     mark_tab_agent_launch_started(&svc.mux, &tab_id);
     crate::service::boot_wait::notify_boot_changed();
     std::thread::spawn(move || {
-        let launch_cmd =
-            crate::service::codex_rpc::launch::prepare(&svc, &tab_id, &agent_cmd, launch_cmd);
-        let structured = crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some();
-        let binding_turn = if structured {
-            None
-        } else {
-            resume_binding::for_launch(
-                &svc,
-                &tab_id,
-                &agent_cmd,
-                origin,
-                has_startup_task_turn || fallback_spec.is_some(),
-            )
-        };
-        let binding_turn_planned = binding_turn.is_some();
-        let fallback_spec = fallback_spec.or(binding_turn).or_else(|| {
-            (structured && has_startup_task_turn)
-                .then_some(structured_startup_text)
-                .flatten()
-                .map(
-                    |payload| crate::service::launch_delivery::FallbackDeliverySpec {
-                        channel:
-                            crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
-                        payload,
-                    },
-                )
-        });
-        let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
-        let session_starts_on_first_turn = !structured
-            && (binding_turn_planned
-                || startup_readiness::launch_waits_for_first_turn_binding(
-                    &svc,
-                    &tab_id,
-                    &agent_cmd,
-                    has_startup_task_turn,
-                    origin,
-                ));
         let public_send_guard = public_send::guard(&svc, &tab_id, public_send_key);
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
         let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
         if !launch.emit(&svc, BootStage::PtyStarting) {
             return;
         }
-        let structured_nonce = crate::service::codex_rpc::lifecycle::for_tab(&tab_id)
-            .map(|sidecar| sidecar.launch_nonce.clone());
+        let preparation = preparation::start(&svc, &tab_id, &agent_cmd, launch_cmd);
         let set_booting = |value: bool| {
             if !value
-                && structured_nonce.as_deref().is_some_and(|nonce| {
-                    crate::service::codex_rpc::recovery::recovering(&tab_id, nonce)
+                && crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some_and(|sidecar| {
+                    crate::service::codex_rpc::recovery::recovering(&tab_id, &sidecar.launch_nonce)
                 })
             {
                 return;
@@ -512,7 +475,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         let pty_claim = svc.pty_ownership.acquire(&tab_id);
         let existing_pty = existing_live_pty(&svc, &tab_id);
         let fresh_pty = svc.model_provider_requires_fresh_pty(&agent_cmd)
-            || crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some();
+            || crate::service::codex_rpc::launch::requested(&svc, &agent_cmd);
         let reusable_pty = existing_pty.clone().filter(|_| !fresh_pty);
         let (backend_pty, reused_live_pty) = match reusable_pty {
             Some(pty_id) => match start_backend_reader(&svc, &pty_id) {
@@ -592,6 +555,53 @@ pub(crate) fn launch_agent_in_background_with_env(
         if !launch.emit(&svc, BootStage::ReaderReady) {
             return;
         }
+
+        let launch_cmd = match preparation.finish() {
+            Ok(command) => command,
+            Err(reason) => {
+                launch.fail(&svc, LaunchFailure::LaunchWrite(reason.clone()));
+                set_booting(false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(reason));
+                }
+                return;
+            }
+        };
+        let structured = crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some();
+        let binding_turn = if structured {
+            None
+        } else {
+            resume_binding::for_launch(
+                &svc,
+                &tab_id,
+                &agent_cmd,
+                origin,
+                has_startup_task_turn || fallback_spec.is_some(),
+            )
+        };
+        let binding_turn_planned = binding_turn.is_some();
+        let fallback_spec = fallback_spec.or(binding_turn).or_else(|| {
+            (structured && has_startup_task_turn)
+                .then_some(structured_startup_text)
+                .flatten()
+                .map(
+                    |payload| crate::service::launch_delivery::FallbackDeliverySpec {
+                        channel:
+                            crate::multiplexer::types::PendingDeliveryChannel::InteractiveInput,
+                        payload,
+                    },
+                )
+        });
+        let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
+        let session_starts_on_first_turn = !structured
+            && (binding_turn_planned
+                || startup_readiness::launch_waits_for_first_turn_binding(
+                    &svc,
+                    &tab_id,
+                    &agent_cmd,
+                    has_startup_task_turn,
+                    origin,
+                ));
 
         let (tab_agent_type, existing_binding_nonce) = {
             let mux = svc.mux.read();
