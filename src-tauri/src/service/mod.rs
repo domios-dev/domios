@@ -39,6 +39,7 @@ pub(crate) mod instance_env;
 pub(crate) mod integration_silence;
 mod kpi_hooks;
 pub(crate) mod lane_removal;
+pub(crate) mod lane_stats;
 pub(crate) mod launch_artifacts;
 pub(crate) mod launch_delivery;
 pub(crate) mod launch_diagnostics;

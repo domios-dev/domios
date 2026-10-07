@@ -328,6 +328,7 @@ mod tests {
             executor_tab_id: tab_id.into(),
             ..Default::default()
         }
+        lane_turn_stats: Vec::new(),
     }
 
     #[test]

@@ -14,6 +14,7 @@ fn attempt(id: &str, group: &str) -> TaskExecutionAttempt {
         session_id: Some(format!("session-{id}")),
         ..Default::default()
     }
+    lane_turn_stats: Vec::new(),
 }
 
 fn competitive_task(attempts: Vec<TaskExecutionAttempt>) -> (tempfile::TempDir, Plan, String) {

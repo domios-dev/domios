@@ -483,6 +483,7 @@ pub async fn hook_stop(
             .complete_via_stop_hook(&state.svc, &tab_id),
     }
     state.svc.on_agent_turn_settled(&tab_id);
+    state.svc.record_lane_turn_boundary(&tab_id);
     state.svc.complete_worker_turn_without_report(
         &tab_id,
         crate::service::WorkerTurnSignal::ProviderStop,
