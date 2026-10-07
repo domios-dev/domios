@@ -210,7 +210,7 @@ async function runStream(): Promise<void> {
     hasAttemptedConnection = true;
     try {
       const token = currentToken();
-      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
       if (probeFirst && reconnecting) {
         const probe = await fetch(webEventStreamUrl(cursor), {
           method: "HEAD",
