@@ -868,6 +868,60 @@ function scanSessionDirectory(db, sessionId) {
   }
 }
 
+// plugins/provider-opencode/src/opencodePresets.ts
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isOwned(value) {
+  return isRecord(value) && value["x-domios"] === true;
+}
+function readDomiosPresets(config) {
+  if (!isRecord(config) || config.agent !== void 0 && !isRecord(config.agent)) throw new Error("Invalid agent config");
+  return Object.entries(config.agent ?? {}).flatMap(([name, entry]) => {
+    if (!isRecord(entry) || !isOwned(entry)) return [];
+    if (typeof entry.model !== "string" || typeof entry.prompt !== "string") throw new Error("Invalid owned preset");
+    if (["temperature", "top_p", "steps"].some((key) => entry[key] !== void 0 && (typeof entry[key] !== "number" || !Number.isFinite(entry[key])))) throw new Error("Invalid owned preset params");
+    return [{ name, model: entry.model, prompt: entry.prompt, params: {
+      ...typeof entry.temperature === "number" ? { temperature: entry.temperature } : {},
+      ...typeof entry.top_p === "number" ? { top_p: entry.top_p } : {},
+      ...typeof entry.steps === "number" ? { steps: entry.steps } : {}
+    } }];
+  });
+}
+function applyDomiosPresets(config, presets) {
+  const base = isRecord(config) ? config : {};
+  const existing = isRecord(base.agent) ? base.agent : {};
+  const wanted = new Set(presets.map((preset) => preset.name));
+  const agents = new Map(
+    Object.entries(existing).filter(([name, entry]) => !isOwned(entry) || wanted.has(name))
+  );
+  const conflicts = [];
+  for (const preset of presets) {
+    if (agents.has(preset.name) && !isOwned(agents.get(preset.name))) {
+      conflicts.push(preset.name);
+      continue;
+    }
+    const params = preset.params;
+    agents.set(preset.name, {
+      model: preset.model,
+      prompt: preset.prompt,
+      mode: "primary",
+      ...params?.temperature !== void 0 ? { temperature: params.temperature } : {},
+      ...params?.top_p !== void 0 ? { top_p: params.top_p } : {},
+      ...params?.steps !== void 0 ? { steps: params.steps } : {},
+      "x-domios": true
+    });
+  }
+  const result = { ...base };
+  if (agents.size > 0) result.agent = Object.fromEntries(agents);
+  else delete result.agent;
+  return {
+    config: result,
+    changed: JSON.stringify(base) !== JSON.stringify(result),
+    conflicts
+  };
+}
+
 // plugins/provider-opencode/src/modelProviders.ts
 function record(value) {
   return value !== null && typeof value === "object" && !Array.isArray(value);
@@ -902,6 +956,9 @@ function readModelProviders(config) {
   });
 }
 var modelProviderExports = {
+  readModelPresets: readDomiosPresets,
+  applyModelPresets: applyDomiosPresets,
+  modelPresetLaunchArgs: (name) => ["--agent", name],
   modelProviderConfigPath: opencodeConfigPath,
   readModelProviders,
   applyModelProviders: applyDomiosProviders,

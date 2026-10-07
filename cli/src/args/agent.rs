@@ -295,7 +295,7 @@ pub enum AgentAction {
         /// Override the shell system prompt of a chatBackend shell; refused for PTY agents.
         #[arg(long = "system", allow_hyphen_values = true)]
         system_prompt: Option<String>,
-        /// Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents.
+        /// Select a provider-owned preset supported by the target provider.
         #[arg(long)]
         preset: Option<String>,
         /// Watcher charter text.

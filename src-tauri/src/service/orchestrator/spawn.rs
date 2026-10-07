@@ -295,6 +295,7 @@ impl ServiceContext {
             .clone()
             .unwrap_or_else(crate::config::default_agent_provider);
         self.move_chatbackend_task_to_system_prompt(&agent, &mut params)?;
+        self.apply_model_preset(&agent, &mut params)?;
         let reasoning_effort = params.reasoning_effort.clone();
         self.classify_spawn_target_for_params(&agent, &params)?;
         let bind_params = params.clone();
@@ -399,6 +400,16 @@ impl ServiceContext {
             .clone()
             .unwrap_or_else(|| default_provider.clone());
         self.move_chatbackend_task_to_system_prompt(&agent_cmd, &mut params)?;
+        {
+            let svc = self.clone();
+            let provider = agent_cmd.clone();
+            params = tokio::task::spawn_blocking(move || {
+                svc.apply_model_preset(&provider, &mut params)?;
+                Ok::<_, String>(params)
+            })
+            .await
+            .map_err(|_| "preset resolution worker failed")??;
+        }
         let is_shell = self.classify_spawn_target_for_params(&agent_cmd, &params)?;
         let tab_created_by_spawn = params.existing_tab_id.is_none();
         if is_shell {
