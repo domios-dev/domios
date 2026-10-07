@@ -73,6 +73,17 @@ function withLaunchEnv(command: string, p: LaunchParams): string {
   const isPowerShell = platform === "windows";
   const settings = pluginSettings();
   const exports: string[] = [];
+  const nonce =
+    (typeof p.sessionId === "string" && p.sessionId) ||
+    (typeof p.launchMarker === "string" && p.launchMarker) ||
+    null;
+  if (nonce) {
+    exports.push(
+      isPowerShell
+        ? `$env:CODETERM_SESSION_BINDING_NONCE=${quote(nonce)};`
+        : `export CODETERM_SESSION_BINDING_NONCE=${quote(nonce)};`,
+    );
+  }
   const apiBase =
     (typeof settings.apiBase === "string" && settings.apiBase) ||
     (typeof p.apiBase === "string" && p.apiBase) ||
@@ -393,6 +404,21 @@ const plugin: PluginModule = {
       if (a > b) newest = entry;
     }
     return newest ? newest.id : null;
+  },
+
+  detectLaunchSession(evidence: {
+    cwd: string;
+    launchMarker?: string | null;
+    launchedAtMs: number;
+    processes?: unknown[];
+  }): { sessionId: string; source: "pid_registry" | "launch_marker" } | null {
+    const marker = evidence && typeof evidence.launchMarker === "string" ? evidence.launchMarker : "";
+    if (!marker) return null;
+    const cwd = evidence && typeof evidence.cwd === "string" ? evidence.cwd : "";
+    if (!cwd) return null;
+    return historyFileEntries(cwd).some((entry) => entry.id === marker)
+      ? { sessionId: marker, source: "launch_marker" }
+      : null;
   },
 
   enumerateSessions(): unknown[] {
