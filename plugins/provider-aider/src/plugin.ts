@@ -315,11 +315,21 @@ const plugin: PluginModule = {
     const platform = host.platform();
     const quote = (v: string) => host.shell.quoteFor(v, platform);
     const isPowerShell = platform === "windows";
-    const nonceRef = isPowerShell
-      ? "$env:CODETERM_SESSION_BINDING_NONCE"
-      : "$CODETERM_SESSION_BINDING_NONCE";
     const cwd = typeof p.cwd === "string" && p.cwd ? p.cwd : ".";
     const historyDirPath = `${cwd}/.aider/history`;
+    // The nonce must expand at run time, so the path is a double-quoted
+    // string with the variable left unquoted; only the directory is escaped.
+    const escapeDir = (value: string) =>
+      isPowerShell
+        ? value.replace(/`/g, "``").replace(/"/g, '`"')
+        : value.replace(/(["\\$`])/g, "\\$1");
+    const dirQuoted = escapeDir(historyDirPath);
+    const chatHistoryPath = isPowerShell
+      ? `"$($dirQuoted)/$($env:CODETERM_SESSION_BINDING_NONCE).md"`
+      : `"${dirQuoted}/${CODETERM_SESSION_BINDING_NONCE}.md"`;
+    const inputHistoryPath = isPowerShell
+      ? `"$($dirQuoted)/$($env:CODETERM_SESSION_BINDING_NONCE).input"`
+      : `"${dirQuoted}/${CODETERM_SESSION_BINDING_NONCE}.input"`;
     const parts: string[] = ["aider"];
     if (p.args && p.args.length > 0) {
       for (let i = 0; i < p.args.length; i++) {
@@ -342,9 +352,9 @@ const plugin: PluginModule = {
     const command = parts.join(" ");
     const historyFlags = [
       "--chat-history-file",
-      quote(`${historyDirPath}/${nonceRef}.md`),
+      chatHistoryPath,
       "--input-history-file",
-      quote(`${historyDirPath}/${nonceRef}.input`),
+      inputHistoryPath,
     ].join(" ");
     const mkdir = isPowerShell
       ? `New-Item -ItemType Directory -Force -Path ${quote(historyDirPath)} | Out-Null;`
