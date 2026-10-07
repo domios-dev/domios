@@ -244,6 +244,10 @@ pub trait AgentProvider: Send + Sync {
         SessionIdInjection::None
     }
 
+    fn supports_launch_session_detection(&self) -> bool {
+        false
+    }
+
     /// Session named by this launch's own provider record; `None` when no record
     /// names it. Never a cwd or recency guess.
     fn detect_launch_session(&self, _: &LaunchSessionEvidence) -> Option<LaunchSessionDetection> {

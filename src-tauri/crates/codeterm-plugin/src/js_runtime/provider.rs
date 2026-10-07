@@ -42,6 +42,7 @@ pub struct JsProvider {
     /// them through QuickJS every time — a profiled CPU hot path. Compute once.
     schema_cache: std::sync::OnceLock<(Vec<SettingField>, Vec<SettingField>)>,
     has_custom_settings_schema: bool,
+    has_launch_session_detection: bool,
     /// VM-backed usage parser, built once when the plugin exports `parseUsage`.
     /// `usage_parser()` hands out a reference, so the adapter must live on the
     /// provider.
@@ -78,6 +79,7 @@ impl JsProvider {
             manifest.default_reasoning_effort.clone(),
         );
         let has_custom_settings_schema = super::vm::has_method(&vm, "settingsSchema");
+        let has_launch_session_detection = super::vm::has_method(&vm, "detectLaunchSession");
         Self {
             vm,
             manifest,
@@ -85,6 +87,7 @@ impl JsProvider {
             registry: None,
             schema_cache: std::sync::OnceLock::new(),
             has_custom_settings_schema,
+            has_launch_session_detection,
             usage_parser_cell: std::sync::OnceLock::new(),
         }
     }
