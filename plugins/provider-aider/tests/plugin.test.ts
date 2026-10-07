@@ -652,12 +652,17 @@ console.log("\n--- launch command carries per-nonce history files ---\n");
     "posix launch exports the binding nonce for the history flags",
   );
   assert(
-    posix.includes("--chat-history-file '/ws/.aider/history/$CODETERM_SESSION_BINDING_NONCE.md'"),
+    posix.includes('--chat-history-file "/ws/.aider/history/${CODETERM_SESSION_BINDING_NONCE}.md"'),
     "posix launch names the chat history file by the binding nonce",
   );
   assert(
-    posix.includes("--input-history-file '/ws/.aider/history/$CODETERM_SESSION_BINDING_NONCE.input'"),
+    posix.includes('--input-history-file "/ws/.aider/history/${CODETERM_SESSION_BINDING_NONCE}.input"'),
     "posix launch names the input history file by the binding nonce",
+  );
+  assert(
+    !posix.includes("'$CODETERM_SESSION_BINDING_NONCE'") &&
+      !posix.includes("'$CODETERM_SESSION_BINDING_NONCE"),
+    "posix nonce is never single-quoted",
   );
   const winHost = aiderHost({
     platform: () => "windows",
@@ -677,12 +682,17 @@ console.log("\n--- launch command carries per-nonce history files ---\n");
     "powershell launch exports the binding nonce for the history flags",
   );
   assert(
-    win.includes('--chat-history-file "C:/ws/.aider/history/$env:CODETERM_SESSION_BINDING_NONCE.md"'),
+    win.includes('--chat-history-file "C:/ws/.aider/history/$($env:CODETERM_SESSION_BINDING_NONCE).md"'),
     "powershell launch names the chat history file by the binding nonce",
   );
   assert(
-    win.includes('--input-history-file "C:/ws/.aider/history/$env:CODETERM_SESSION_BINDING_NONCE.input"'),
+    win.includes('--input-history-file "C:/ws/.aider/history/$($env:CODETERM_SESSION_BINDING_NONCE).input"'),
     "powershell launch names the input history file by the binding nonce",
+  );
+  assert(
+    !win.includes("'$env:CODETERM_SESSION_BINDING_NONCE'") &&
+      !win.includes("'$env:CODETERM_SESSION_BINDING_NONCE"),
+    "powershell nonce is never single-quoted",
   );
 }
 
