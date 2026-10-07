@@ -203,7 +203,11 @@ command's native event and its owned cleanup. The shutdown subscription closes a
 certify that the daemon waited for process settlement before exiting. Cancellation cannot undo external effects. On
 Unix, direct commands require macOS process kqueue events or Linux pidfd support; unsupported platforms/kernels refuse
 before command spawn. Ordinary observation probes retain their existing wait path. Confirmed command errors allow
-independent sibling handlers; unconfirmed resource cleanup stops the source and fences the remaining batch.
+independent sibling handlers; unconfirmed command resource cleanup stops the source and fences the remaining batch.
+Read-only probe capture or completion failures skip the tick only when the child and its process boundary are
+positively confirmed exited (including killed and reaped children). Capture-only uncertainty remains journaled;
+unconfirmed child or process-boundary resources stop the source. Three consecutive capture failures stop the source;
+a successful tick or another failure kind resets the count. The next scheduled tick is the only retry.
 Peer-qualified handlers and remote Blueprint execution are unavailable; a graph belongs to one actual connected instance.
 Mesh transport does not provide a remote execution claimant or replay contract.
 
@@ -244,4 +248,4 @@ automatic migration, reset or discard. Use fresh isolated dev data for demonstra
 A failed persistence write returns an error and holds Blueprint unavailable; cancellation stays in memory and durability
 is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->

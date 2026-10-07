@@ -639,10 +639,7 @@ impl WindowsRun {
         }
     }
 
-    fn observe_job_event(&mut self, message: u32, process_id: u32) -> Result<(), String> {
-        if !matches!(message, 1..=12) {
-            return Err("probe Job packet did not contain a known notification".into());
-        }
+    fn observe_job_accounting(&mut self) -> Result<(), String> {
         let mut accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
         if unsafe {
             QueryInformationJobObject(
@@ -658,7 +655,18 @@ impl WindowsRun {
         {
             return Err(last_error());
         }
-        if accounting.ActiveProcesses == 0 || message == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO {
+        if accounting.ActiveProcesses == 0 {
+            self.job_empty = true;
+        }
+        Ok(())
+    }
+
+    fn observe_job_event(&mut self, message: u32, process_id: u32) -> Result<(), String> {
+        if !matches!(message, 1..=12) {
+            return Err("probe Job packet did not contain a known notification".into());
+        }
+        self.observe_job_accounting()?;
+        if message == JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO {
             self.job_empty = true;
         }
         if message == JOB_OBJECT_MSG_EXIT_PROCESS && process_id == self.child_id {
@@ -850,6 +858,19 @@ impl WindowsRun {
                 }
             }
         }
+        if self.process.is_open() {
+            if let Err(error) = self.observe_parent_exit_if_signaled() {
+                failure.cleanup_error(error);
+            }
+        }
+        if self.assigned && !self.job_empty && self.job.raw().is_some() {
+            if let Err(error) = self.observe_job_accounting() {
+                failure.cleanup_error(error);
+            }
+        }
+        if let Err(error) = self.close_completed_runtime_handles() {
+            failure.cleanup_error(error);
+        }
         if !self.failure_resources_settled() || self.permanent_unconfirmed {
             self.mark_runtime_unconfirmed(failure);
         }
@@ -995,6 +1016,12 @@ impl WindowsRun {
             failure.primary = "probe_cancel_wake_failed";
             failure.cleanup_error(error);
         }
+        map_process_completion(
+            &mut failure,
+            self.parent_exited,
+            self.assigned,
+            self.job_empty,
+        );
         failure.exit_code = self.exit_code.map(|code| code as i32);
         failure.stdout = (self.child_id != 0).then(|| self.stdout.data.metadata());
         failure.stderr = (self.child_id != 0).then(|| self.stderr.data.metadata());
@@ -1088,5 +1115,32 @@ impl WindowsRun {
             }
         }
         Ok(())
+    }
+}
+
+fn map_process_completion(
+    failure: &mut ProbeFailure,
+    parent_exited: bool,
+    assigned: bool,
+    job_empty: bool,
+) {
+    failure.processes_confirmed = parent_exited && (!assigned || job_empty);
+}
+
+#[cfg(test)]
+#[test]
+fn capture_wait_failure_requires_both_process_and_job_completion() {
+    let mut failure = ProbeFailure::new("probe_capture_or_completion_failed");
+    failure.unconfirmed(ResourceKind::OverlappedIo);
+    for (parent, assigned, empty, expected) in [
+        (true, true, true, true),
+        (true, true, false, false),
+        (false, true, true, false),
+        (true, false, false, true),
+    ] {
+        map_process_completion(&mut failure, parent, assigned, empty);
+        assert_eq!(failure.processes_confirmed, expected);
+        assert!(failure.is_unconfirmed());
+        assert_eq!(failure.unconfirmed, vec![ResourceKind::OverlappedIo]);
     }
 }
