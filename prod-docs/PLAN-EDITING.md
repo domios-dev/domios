@@ -81,3 +81,11 @@ carrying a task id the daemon has moved should drop `--task` and let the daemon
 resolve its live binding.
 
 <!-- revision: 5 -->
+
+Task file context is structured data, separate from the brief:
+
+```bash
+codeterm plan task files PLAN TASK --edit-file src/new.rs --read-file docs/context.md
+```
+
+Repeat flags to attach multiple files. This replaces both lists; omit both flags to clear them. The task JSON field is `files: {edit: [...], read: [...]}`. Paths resolve against the dispatched Worker's cwd. Editable files may be new; read-only files must exist at dispatch. Core rejects overlapping resolved paths. Planners may set these structural fields through the same authorized draft mutation path as other task structure.
