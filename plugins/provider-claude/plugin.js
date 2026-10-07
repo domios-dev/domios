@@ -48,6 +48,17 @@ function manifest() {
   }
 }
 
+// plugins/provider-claude/src/permissionHook.ts
+function permissionHookCapability() {
+  return {
+    protocol: "claude-permission-request",
+    options: [
+      { label: "Allow", value: "allow" },
+      { label: "Deny", value: "deny" }
+    ]
+  };
+}
+
 // plugins/provider-claude/src/launchSession.ts
 var PROCESS_REGISTRY_DIR_ENV = "CODETERM_CLAUDE_PROCESS_REGISTRY_DIR";
 function registryDir() {
@@ -1910,6 +1921,7 @@ function retainForeignPrecompactEntry(entry) {
   return remaining.length > 0;
 }
 var plugin = {
+  permissionHookCapability,
   starterPromptText(prompt) {
     return prompt === "team_bootstrap" ? void 0 : starterPrompt(prompt);
   },

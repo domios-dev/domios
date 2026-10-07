@@ -9,6 +9,7 @@ import type {
   ResumeParams,
 } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
+import { permissionHookCapability } from "./permissionHook";
 import { detectClaudeLaunchSession } from "./launchSession";
 import {
   fetchClaudeUsage,
@@ -171,6 +172,7 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
 }
 
 const plugin: PluginModule = {
+  permissionHookCapability,
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt(prompt);
   },
