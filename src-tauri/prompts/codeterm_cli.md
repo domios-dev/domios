@@ -32,33 +32,34 @@ Env vars set CONDITIONALLY, only when the tab actually has that identity — tes
 
 ## Capability map — where to look when the task mentions…
 
-| Domain / trigger | Commands | Depth |
+Each command's `--help` has the flags; the Docs column has the depth.
+
+| Task mentions… | Use | Docs |
 |---|---|---|
-| Environment, version, what-can-this-do | `codeterm identify`, `capabilities`, `docs` | — |
-| Tabs, sending text, reading a tab | Plain `tab list` first (`--workspace <id>` scopes it), then `tab inspect`/`tab get-text --tab <ID>`. Answer only a numbered prompt confirmed by the tab's declared provider classifier and current screen with `tab respond OPTION --tab <ID>`; if it remains, reread and escalate without raw keys. Use `tab chat` for chat backends and `tab exec` only for explicitly authorized commands. Recover stale provider-session binding with `tab rebind SESSION_ID --tab <ID>`. Wrong provider identity on a live tab: `tab repair --from-evidence` (or `--from-journal`); it verifies the tab's own session without restarting, for self or the task's Plan owner. To keep a live foreign agent PTY and make `send --from-pad` a routed agent message, run `codeterm tab adopt-agent --tab ID --provider <id>`; a login shell is refused unless the owner passes `--force`. Never inject task or ACK prose into an unverified shell or picker. | `docs ROUTING` |
-| Long-running processes (servers, watchers) | `tab new --purpose dev --cmd "..."`; later use `tab restart --tab ID --cmd "..."` to replace that shell without creating another tab | — |
-| Restarting an agent or changing providers | `agent restart --help`; `agent restart --tab ID --provider PROVIDER` starts the target provider fresh, and `--handoff-history` opts into a bounded, redacted transcript in its launch task | `docs ORCHESTRATION` |
-| Scheduled/future message to a tab | `send --delay/--at`, `delayed --help` | — |
-| Spawning agents, worker/orchestrator shapes, reports | `agent spawn --help`, `agent startup-ack`, `agent startup-hold`, `agent report`, `agent providers/models`, `agent cli status <provider>`, `agent cli install <provider>`, `agent cli update <provider>` | `codeterm docs ORCHESTRATION` |
-| Becoming an Orchestrator | You are not automatically an Orchestrator. Use the tab menu Make Orchestrator action or the `--role Orchestrator` flag. | as above |
-| Plans, specs, tasks, strides, canvas | `plan --help`, `spec --help`, `task --help`; targeted same-attempt recovery uses `plan rebind PLAN --task TASK --attempt ATTEMPT` | only the original Worker may target its own current authenticated session and acknowledged nonterminal attempt; mismatched identity or retained lineage is refused |
-| Blueprints: watch CI, builds, files, agents or crons and act, including running your own code | A graph watches (`--probe` shell, `--observe tab:<id>|cron-run:<id-or-name>`, or an input stage), a classifier picks a verdict, routes act: notify, send to a Team agent, chain a blueprint or cron, answer a safe prompt, escalate, or run author-written `command` handlers via `--handlers-file` (any script, file, HTTP; the model never writes commands). Start with `blueprint recipe [<name>]` and `--dry-run`; updates require the expected version; `blueprint history <id>` and `blueprint escalation resolve <id> <transition_id>` | `docs BLUEPRINTS` |
-| Recurring/oneshot jobs | `cron create --help` (read it first — flags evolve); create requires a short meaningful name | `docs CONFIG` |
-| Telegram / bridges | `bridge send --to ID --service telegram "..."`; long answers: first send, then `--append` parts. A tab's send lands in its own topic; `bridge thread open` prints one relayable sentence; only the General Agent may add `--tab ID` for another tab | `docs TELEGRAM-SETUP` |
-| Remote machines (mesh) | see Mesh block below | `docs MESH` |
-| Memory, remember/recall, skills | see Mem block below | `docs MEMORY` |
-| Past chat sessions | `sessions search/get/resume` (resume handles cwd — never hand-craft `--resume`) | — |
-| Services/daemons registry | `service --help` | `docs MESH` |
-| Config keys | `config get <key>` (dot-notation) or bare `config get` to dump the whole redacted config; `config set` (JSON values) | `docs CONFIG` |
-| Desktop notifications | `notify send "title" [--from-pad PATH] [--severity info\|warning\|error] [--level verbose\|action_needed\|failure] [--event-key ..] [--choice LABEL]...` is canonical; `notify list` / `notify clear`. `send` is required — there is no bare `notify "title"`. The body is read only from the calling tab's AgentPad; an inline body is refused at parse time. `--level` takes only those three values; `verbose` is progress, `action_needed` is waiting on the user, `failure` is a stop | `docs CONFIG` |
-| Updates | `update check`, `update install --auto` | `--continue-prompt` targets the authenticated caller's own tab; `--no-continue` suppresses that tab's next-start mark. `--after-update` replaces the General Agent's one resume prompt for that start. |
-| Source-backed essence map | `essence-map generate`, `essence-map validate`, `essence-map record --summary .. --reason ..`, `essence-map release-summary [--since decision-N]`, `essence-map revert --to decision-N`; validates stable essence `map` anchors against the generated node ids | `docs ESSENCE-MAP` |
-| Plugins/providers | `plugin list/install/update/update-system` reports manifest CLI presence and explains update eligibility from the channel cache; update requires a newer compatible channel version, reinstall local changes with `plugin install --from-dir <path>`; `agent cli status/install/update <provider>` (local-only) manages the CLI in a visible utility tab; completion reaches agent callers as a report and shell callers as a notification record; exact network grants use `plugin settings <id> --allow-host <host[:port]>` / `--disallow-host` | `codeterm docs API-CLI` |
-| Model endpoints and presets | `model-provider add/remove/list/test`, `model-provider preset add/remove/list`; endpoint keys enter only on stdin, `--secret` names the owned store slot | `codeterm docs INTEGRATIONS` |
-| Provider launch artifacts | `codeterm integration sweep-profiles --provider <id> [--confirm] [--include-legacy]` | Dry run lists dead artifacts of this and lock-holding registered instances plus dead exact-pattern legacy profiles. Only the machine owner deletes, with `--confirm`; `--include-legacy` adds eligible unmarked profiles, never live tabs or user files. Owner startup migrates legacy profiles once |
-| Provider CLI prerequisites | `agent cli status <provider>` names missing manifest command runners and setup guidance; install/update warnings preserve this diagnostic and never install prerequisites automatically | `codeterm docs API-CLI` |
-| Cross-machine payload handoff | `paste put`, then `paste get <id>` / `paste rm <id>` (id may be bare `fpu2zp` or `paste:fpu2zp` — both resolve); `--pop` for one-shot (in-memory, TTL) — not `mem save` | — |
-| Keep system awake | `keepawake start/stop/status` | — |
+| Version, abilities, documents | `identify`, `capabilities`, `docs` | — |
+| Tabs: list, read, send | `tab list`, then `tab inspect` / `tab get-text --tab <ID>`; `send`; chat backends: `tab chat`; a numbered prompt the provider classifier confirmed: `tab respond OPTION --tab <ID>` | `docs ROUTING` |
+| A tab with a wrong or stale agent binding | `tab rebind`, `tab repair --from-evidence`, `tab adopt-agent` (read `--help` first). Never type task or ACK text into an unverified shell or picker | `docs ROUTING` |
+| Servers, watchers | `tab new --purpose dev --cmd "..."`; replace it with `tab restart --tab ID --cmd "..."` | — |
+| Agents: spawn, restart, switch provider, report | `agent spawn`, `agent restart`, `agent report`, `agent providers` / `agent models` | `docs ORCHESTRATION` |
+| Becoming an Orchestrator | Tab menu Make Orchestrator, or `--role Orchestrator` | `docs ORCHESTRATION` |
+| Plans, specs, tasks | `plan --help`, `spec --help`, `task --help` | `docs PLAN-EDITING` |
+| Delayed or repeated message to a tab | `send --delay` / `--at` / `--every`, `delayed --help` | — |
+| Scheduled jobs (fresh agent per run) | `cron create --help`; a short meaningful name is required | `docs CONFIG` |
+| Watch CI, builds, files, agents and act | `blueprint recipe`, then `--dry-run` | `docs BLUEPRINTS` |
+| Telegram | `bridge send --to ID --service telegram "..."`; long answers continue with `--append` | `docs TELEGRAM-SETUP` |
+| Remote machines | Mesh block below | `docs MESH` |
+| Memory, skills | Memory block below | `docs MEMORY` |
+| Past chats | `sessions search` / `get` / `resume` (never hand-craft `--resume`) | — |
+| Config | `config get [key]`, `config set` | `docs CONFIG` |
+| Notifying the user | `notify send "title" --from-pad PATH --level verbose\|action_needed\|failure` | `docs CONFIG` |
+| Plugins, provider CLIs | `plugin list` / `install` / `update`, `agent cli status <provider>` | `docs API-CLI` |
+| Model endpoints, presets | `model-provider --help`; keys go in on stdin only | `docs INTEGRATIONS` |
+| Updates | `update check`, `update install --auto` | — |
+| Payload between machines | `paste put`, `paste get <id>` (not `mem save`) | — |
+| Services registry | `service --help` | `docs MESH` |
+| Essence map | `essence-map --help` | `docs ESSENCE-MAP` |
+| Provider launch leftovers | `integration sweep-profiles --provider <id>` is a dry run; only the owner adds `--confirm` | — |
+| Keep the machine awake | `keepawake start` / `stop` / `status` | — |
 
 ## Plan/task quick flags — the intuitive guesses that are WRONG
 
