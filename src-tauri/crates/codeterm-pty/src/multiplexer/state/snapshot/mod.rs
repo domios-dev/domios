@@ -155,6 +155,7 @@ impl MultiplexerState {
                     prior_session_bindings: p.prior_session_binding_nonces.clone(),
                     task_binding: p.task_binding.clone(),
                     roleless_tracked: p.roleless_tracked,
+                    managed: p.managed.clone(),
                     lifecycle_epoch: p.lifecycle_epoch,
                     lifecycle_operation_id: p.lifecycle_operation_id.clone(),
                 }),
@@ -597,6 +598,9 @@ fn install_leaf(
             lifecycle_operation_id: restored_identity
                 .and_then(|identity| identity.lifecycle_operation_id.clone()),
             task_binding: restored_identity.and_then(|identity| identity.task_binding.clone()),
+            managed: agent_identity
+                .as_ref()
+                .and_then(|identity| identity.managed.clone()),
             roleless_tracked: restored_identity
                 .map(|identity| identity.roleless_tracked)
                 .unwrap_or(false),

@@ -92,6 +92,8 @@ pub struct AgentIdentitySnapshot {
     /// Whether this pane is a tracked roleless agent (parent + audit assigned).
     #[serde(default)]
     pub roleless_tracked: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub managed: Option<crate::multiplexer::types::ManagedTab>,
     /// Lifecycle lineage this snapshot was written under. Recovery matches it
     /// against the journal; absent lineage is unproven, never permissive.
     #[serde(default, skip_serializing_if = "Option::is_none")]
