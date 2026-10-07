@@ -67,6 +67,12 @@ pub(crate) fn provider_launch_task(
     role: Option<&str>,
     role_profile: Option<&str>,
 ) -> Option<String> {
+    if registry
+        .with_provider(provider_id, |provider| provider.is_tool_less())
+        .unwrap_or(false)
+    {
+        return tool_less_prompt(assignment);
+    }
     let system_prompt_capable = registry
         .with_provider(provider_id, |provider| {
             matches!(
@@ -187,4 +193,37 @@ pub(crate) fn spawn_launch_task(
         Some(prompt) => format!("{prompt}\n\n{context}"),
         None => context,
     })
+}
+
+pub(crate) fn tool_less_prompt(assignment: Option<&str>) -> Option<String> {
+    assignment.map(|assignment| {
+        let (identity, assignment) =
+            crate::service::plan::worker_identity::split_worker_identity(assignment);
+        let assignment = assignment
+            .strip_prefix(crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION)
+            .unwrap_or(assignment)
+            .trim_start();
+        [identity, Some(assignment)]
+            .into_iter()
+            .flatten()
+            .filter(|part| !part.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    })
+}
+
+pub(crate) fn spawn_launch_task_for_provider(
+    registry: &AgentRegistry,
+    params: &SpawnAgentParams,
+    system_prompt_capable: bool,
+) -> Option<String> {
+    if registry
+        .with_provider(params.agent.as_deref().unwrap_or_default(), |provider| {
+            provider.is_tool_less()
+        })
+        .unwrap_or(false)
+    {
+        return tool_less_prompt(params.task.as_deref());
+    }
+    spawn_launch_task(params, system_prompt_capable)
 }

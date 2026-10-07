@@ -11,6 +11,7 @@ fn pending() -> PendingReplyRelay {
         user_text: "opaque payload".into(),
         turn_normalization: Default::default(),
         hops: 0,
+        task: None,
     }
 }
 

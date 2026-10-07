@@ -2,7 +2,9 @@ use codeterm_types::agent::role_kind::builtins;
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
 
 use super::launch::{launch_agent_in_background_with_task_turn, skip_local_worker_role};
-use super::prompt_compose::{agent_system_prompt, role_onboarding_task, spawn_launch_task};
+use super::prompt_compose::{
+    agent_system_prompt, role_onboarding_task, spawn_launch_task_for_provider,
+};
 use super::types::{ReasoningEffortProvenance, SpawnAgentParams, SpawnResult};
 use crate::multiplexer::types::TabCloseReason;
 use crate::service::general_agent::{
@@ -765,7 +767,13 @@ impl ServiceContext {
             prepare_standard_starter_prompt(&mut params);
             None
         };
-        apply_startup_handshake(&mut params, startup_supervised);
+        if !self
+            .agent_registry
+            .with_provider(&agent_cmd, |provider| provider.is_tool_less())
+            .unwrap_or(false)
+        {
+            apply_startup_handshake(&mut params, startup_supervised);
+        }
         let fallback_bootstrap =
             fallback_bootstrap.map(|body| team_bootstrap_payload(system_prompt_capable, body));
         let bg_task = if params.manager_bootstrap.is_some() {
@@ -775,7 +783,7 @@ impl ServiceContext {
                 params.task.clone()
             }
         } else {
-            spawn_launch_task(&params, system_prompt_capable)
+            spawn_launch_task_for_provider(&self.agent_registry, &params, system_prompt_capable)
         };
         // Planner gets a short display hint plus its full onboarding as launch input.
         let is_planner = params.role_kind() == Some(builtins::PLANNER);
