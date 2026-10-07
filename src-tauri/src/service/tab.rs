@@ -687,6 +687,14 @@ impl ServiceContext {
         value: &str,
         expected_identity: Option<&codeterm_types::pty::PromptIdentity>,
     ) -> Result<RespondPromptOutcome, String> {
+        if let Some(result) = crate::api::hook_routes::permission_decision::respond_with_identity(
+            self,
+            tab_id,
+            value,
+            expected_identity,
+        ) {
+            return result.map(|_| RespondPromptOutcome::Structured);
+        }
         let Some(tab) = self.mux.read().get_tab(tab_id).cloned() else {
             return Err(format!("Tab not found: {}", tab_id));
         };
@@ -698,6 +706,11 @@ impl ServiceContext {
             }
         }
         let structured_prompt = crate::service::structured_prompt::pending_for_tab(tab_id);
+        if tab.pending_prompt_kind == Some(codeterm_types::pty::PromptKind::Structured)
+            && structured_prompt.is_none()
+        {
+            return Ok(RespondPromptOutcome::StalePrompt);
+        }
         if let Some(expected) = expected_identity {
             if expected.kind == codeterm_types::pty::PromptKind::Structured {
                 let current_identity = structured_prompt.as_ref().map(|prompt| {
@@ -854,6 +867,7 @@ impl ServiceContext {
         let resolved_pty = tab.pending_prompt.as_ref().and(tab.pty_id.clone());
         let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
         drop(mux);
+        crate::api::hook_routes::permission_decision::clear_tab(tab_id);
         if let Some(pty_id) = resolved_pty {
             self.release_prompt_waiting(tab_id, &pty_id);
         }

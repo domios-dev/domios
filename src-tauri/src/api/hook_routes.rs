@@ -13,6 +13,8 @@ use crate::api::{
     routes::{check_auth, resolve_tab, AppState},
 };
 
+pub(crate) mod context_feed;
+pub(crate) mod permission_decision;
 mod provider_events;
 mod run_session;
 mod session_ack;
@@ -253,6 +255,11 @@ pub async fn hook_permission(
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "permission")?;
+    if let Some(raw) = body.as_ref() {
+        if let Some(response) = permission_decision::handle(&state, &tab_id, &headers, raw).await {
+            return Ok(Json(response));
+        }
+    }
     // Hook firing = authoritative proof that an agent is running in this tab.
     ensure_agent_state(&state, &tab_id);
 
@@ -466,6 +473,7 @@ pub async fn hook_stop(
 
     // Stop = turn boundary, not exit — agent_type stays; PTY-close clears it.
     state.svc.prompt_detector.lock().clear(&tab_id);
+    permission_decision::clear_tab(&tab_id);
     if let Some(identity) = state.svc.clear_pending_prompt(&tab_id) {
         state.svc.resolve_prompt_notifications(&tab_id, &identity);
     }

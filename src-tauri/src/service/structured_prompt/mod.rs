@@ -95,6 +95,9 @@ fn endpoint_for_tab(tab_id: &str) -> Option<(String, String)> {
 /// The live structured prompt for a tab, if one is pending. Cheap in-memory
 /// read on the hot path.
 pub fn pending_for_tab(tab_id: &str) -> Option<PendingPrompt> {
+    if let Some(prompt) = crate::api::hook_routes::permission_decision::pending_for_tab(tab_id) {
+        return Some(prompt);
+    }
     ACTIVE.lock().get(tab_id).map(|a| a.prompt.clone())
 }
 
@@ -116,6 +119,7 @@ fn clear_request(active: &mut HashMap<String, Active>, tab_id: &str, request_id:
 
 /// Drop all structured-prompt state for a tab (tab closed / agent exited).
 pub fn clear_tab(tab_id: &str) {
+    crate::api::hook_routes::permission_decision::clear_tab(tab_id);
     let subscriber = SUBSCRIBED.lock().remove(tab_id);
     if let Some(subscriber) = subscriber {
         *subscriber.live.lock() = false;
@@ -188,6 +192,11 @@ pub(crate) fn respond(
     tab_id: &str,
     value: &str,
 ) -> Option<Result<StructuredResponse, String>> {
+    if let Some(result) = crate::api::hook_routes::permission_decision::respond_with_identity(
+        svc, tab_id, value, None,
+    ) {
+        return Some(result.map(|()| StructuredResponse::Advanced));
+    }
     let mut active = ACTIVE.lock();
     let entry = active.get_mut(tab_id)?;
     if entry.in_flight {

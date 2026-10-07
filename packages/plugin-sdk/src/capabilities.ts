@@ -251,6 +251,11 @@ export interface SettingField {
 }
 
 export interface AgentProvider {
+  parseContextUsage?(record: unknown): {used_tokens: number; window_tokens: number; cost_usd: number | null; source: string} | null;
+  permissionHookCapability?(): {
+    protocol: string;
+    options: Array<{ label: string; value: string }>;
+  } | null;
   starterPromptText?(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined;
   detectFromTitle?(title: string): boolean;
   detectFromOutput?(text: string): boolean;

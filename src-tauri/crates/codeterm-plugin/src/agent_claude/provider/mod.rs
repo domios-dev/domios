@@ -5,6 +5,7 @@
 //! sibling modules. This file owns `ClaudeProvider` and the `AgentProvider`
 //! trait impl, which delegates each method to the right child.
 
+mod context;
 mod detection;
 mod folder_trust;
 pub mod hook_ownership;
@@ -13,6 +14,7 @@ mod interactive;
 mod launch;
 pub(crate) mod launch_session;
 mod onboarding;
+mod permission_hook;
 mod permission_prompt;
 mod read_home;
 mod schemas;
@@ -52,6 +54,12 @@ impl ClaudeProvider {
 }
 
 impl AgentProvider for ClaudeProvider {
+    fn parse_context_usage(
+        &self,
+        record: &serde_json::Value,
+    ) -> Option<codeterm_types::agent::context::TurnContext> {
+        context::parse(record)
+    }
     fn cli_compatibility(&self) -> Option<crate::provider_compat::CompatibilityManifest> {
         #[derive(serde::Deserialize)]
         #[serde(rename_all = "camelCase")]
@@ -72,6 +80,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn supports_chat_ui(&self) -> bool {
         true
+    }
+
+    fn permission_hook_capability(&self) -> Option<crate::provider::PermissionHookCapability> {
+        Some(permission_hook::capability())
     }
 
     fn supports_structured_prompts(&self) -> bool {
