@@ -275,8 +275,7 @@ pub(crate) fn start_background_tasks(app_handle: &tauri::AppHandle, states: &App
                 std::thread::sleep(poll_interval);
                 let structured_ptys: std::collections::HashSet<_> = mux
                     .read()
-                    .tabs
-                    .values()
+                    .all_tabs()
                     .filter(|tab| tab.structured_control_active)
                     .filter_map(|tab| tab.pty_id.clone())
                     .collect();
