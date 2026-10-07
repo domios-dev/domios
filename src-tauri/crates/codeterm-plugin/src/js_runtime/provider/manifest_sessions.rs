@@ -222,14 +222,6 @@ impl JsProvider {
                 .join(format!("{}.{}", session_id, cfg.file_extension)),
         )
     }
-
-    /// The one path the chat tailer reads: the plugin's `sessionFilePath` when
-    /// it exports one, else the manifest-derived store path. Both the
-    /// `session_file_path` and `session_jsonl_path` routes must resolve the
-    /// same file or Chat serves a stale transcript.
-    pub(super) fn owned_session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<PathBuf> {
-        self.owned_session_file_path(cwd, session_id)
-    }
 }
 
 impl JsProvider {
