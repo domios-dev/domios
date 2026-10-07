@@ -123,7 +123,7 @@ fn non_success_turns_map_to_blocked_without_answer_text() {
             user_record_start: 100,
             user_text: "opaque task".into(),
             complete: false,
-            outcome,
+            outcome: outcome.clone(),
         });
         let report = WorkerTurnState::default()
             .observe_completion(&pending(), source(), Some(&evidence))
