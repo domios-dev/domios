@@ -5,6 +5,7 @@ pub mod client;
 pub mod diagnostics;
 pub mod launch;
 pub mod lifecycle;
+pub mod normalize;
 pub mod process;
 pub mod protocol;
 pub mod routing;
