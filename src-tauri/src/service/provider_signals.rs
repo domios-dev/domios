@@ -163,15 +163,13 @@ pub(crate) fn warn(svc: &ServiceContext, tab: &str, body: String) {
 pub(crate) fn warn_dispatch(svc: &ServiceContext, from_tab: &str, target_tab: &str) {
     let drift = {
         let mux = svc.mux.read();
-        mux.get_tab(from_tab)
-            .is_some_and(|tab| {
-                tab.role == Some(crate::multiplexer::types::AgentRole::Manager)
-                    && tab.role_kind_id()
-                        == Some(codeterm_types::agent::role_kind::builtins::ORCHESTRATOR)
-            })
-            && mux
-                .get_tab(target_tab)
-                .is_some_and(|tab| plan_drift(&tab.provider_signals))
+        mux.get_tab(from_tab).is_some_and(|tab| {
+            tab.role == Some(crate::multiplexer::types::AgentRole::Manager)
+                && tab.role_kind_id()
+                    == Some(codeterm_types::agent::role_kind::builtins::ORCHESTRATOR)
+        }) && mux
+            .get_tab(target_tab)
+            .is_some_and(|tab| plan_drift(&tab.provider_signals))
     };
     if drift {
         warn(svc, from_tab, format!("Target tab {target_tab} is in plan mode; dispatched work may require a mode change."));
