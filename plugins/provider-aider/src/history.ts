@@ -218,13 +218,5 @@ function readHistoryFile(filePath: string): string | null {
       return null;
     }
   }
-  if (fs && typeof fs.readTextFile === "function") {
-    try {
-      const value = (fs.readTextFile as (p: string) => unknown)(filePath);
-      return value === null || value === undefined ? null : String(value);
-    } catch (_) {
-      return null;
-    }
-  }
   return null;
 }

@@ -365,15 +365,6 @@ console.log("\n--- history file reader fallbacks ---\n");
     },
   });
   eq(viaFsReadFile.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 2, "host.fs.readFile is used when present");
-  const viaFsReadTextFile = readVia({
-    platform: () => "linux",
-    shell: { quoteFor: (v: any) => `'${v}'` },
-    fs: {
-      readTextFile: (p: string) =>
-        p === historyPath ? fs.readFileSync(tmp, "utf8") : null,
-    },
-  });
-  eq(viaFsReadTextFile.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 2, "host.fs.readTextFile is used when readFile is absent");
   const missingFs = readVia({ platform: () => "linux", shell: { quoteFor: (v: any) => `'${v}'` } });
   eq(missingFs.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 0, "host without fs.readFile reports no messages");
   fs.unlinkSync(tmp);
