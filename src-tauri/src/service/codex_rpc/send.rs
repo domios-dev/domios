@@ -1,9 +1,12 @@
+mod gate;
+
 use super::{client::ClientError, lifecycle::Sidecar, protocol::Frame};
 use crate::service::{
     chat_send_transaction::{ChatSendStatus, SendLiveBinding},
     delivery_error::DeliveryError,
     ServiceContext,
 };
+use gate::SendGate;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::{
@@ -56,30 +59,45 @@ pub fn try_send(
         .mux
         .read()
         .get_tab(tab)
-        .and_then(|tab| tab.agent_type.clone())?;
-    if !super::launch::requested(svc, &provider) {
-        return None;
-    }
-    let sidecar = super::lifecycle::for_tab(tab)?;
-    if sidecar.client.death().borrow().is_some() || *sidecar.process.death.borrow() {
-        return None;
-    }
-    let thread = sidecar.thread.lock().clone();
-    let binding = {
+        .and_then(|tab| tab.agent_type.clone());
+    let capability = provider
+        .as_deref()
+        .map(|provider| super::launch::requested(svc, provider));
+    let state = super::lifecycle::delivery_state(tab);
+    let sidecar = super::lifecycle::for_tab(tab);
+    let available = sidecar.as_ref().is_some_and(|sidecar| {
+        sidecar.client.death().borrow().is_none() && !*sidecar.process.death.borrow()
+    });
+    let thread = sidecar
+        .as_ref()
+        .map(|sidecar| sidecar.thread.lock().clone());
+    let binding = sidecar.as_ref().and_then(|sidecar| {
         let mux = svc.mux.read();
         mux.get_tab(tab).and_then(|tab| {
-            (sidecar.verified.load(Ordering::Acquire)
+            (provider.is_some()
+                && sidecar.verified.load(Ordering::Acquire)
                 && tab.launch_session_authenticated()
-                && tab.agent_session_id.as_deref() == Some(&thread))
+                && tab.agent_session_id.as_deref() == thread.as_deref())
             .then(|| tab.session_binding_nonce.clone())
             .flatten()
         })
-    };
-    let Some(nonce) = binding else {
-        return Some(Err(DeliveryError::TabBusyRefused {
-            tab: tab.into(),
-            detail: "sidecar thread binding pending".into(),
-        }));
+    });
+    let gate = SendGate::classify(capability, state, available, binding.is_some());
+    let (sidecar, thread, nonce) = match (gate, sidecar, thread, binding) {
+        (SendGate::Pty, _, _, _) => return None,
+        (SendGate::Hold(reason), _, _, _) => {
+            return Some(Err(DeliveryError::TabBusyRefused {
+                tab: tab.into(),
+                detail: reason.into(),
+            }));
+        }
+        (SendGate::Rpc, Some(sidecar), Some(thread), Some(nonce)) => (sidecar, thread, nonce),
+        _ => {
+            return Some(Err(DeliveryError::TabBusyRefused {
+                tab: tab.into(),
+                detail: "sidecar readiness changed before admission".into(),
+            }));
+        }
     };
     let pending = match send_id {
         Some(id) => svc.chat_send_ledger.status(id),
