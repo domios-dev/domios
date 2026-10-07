@@ -365,9 +365,63 @@ console.log("\n--- history file reader fallbacks ---\n");
     },
   });
   eq(viaFsReadFile.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 2, "host.fs.readFile is used when present");
+  const viaFsReadTextFile = readVia({
+    platform: () => "linux",
+    shell: { quoteFor: (v: any) => `'${v}'` },
+    fs: {
+      readTextFile: (p: string) =>
+        p === historyPath ? fs.readFileSync(tmp, "utf8") : null,
+    },
+  });
+  eq(viaFsReadTextFile.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 2, "host.fs.readTextFile is used when readFile is absent");
   const missingFs = readVia({ platform: () => "linux", shell: { quoteFor: (v: any) => `'${v}'` } });
   eq(missingFs.readStructuredChat(path.dirname(tmp), "ses_x").messages.length, 0, "host without fs.readFile reports no messages");
   fs.unlinkSync(tmp);
+}
+
+console.log("\n--- history cursor advances ---\n");
+{
+  const content = [
+    "#### Q1",
+    "",
+    "A1",
+    "",
+    "#### Q2",
+    "",
+    "A2",
+  ].join("\n");
+  const first = parseAiderHistory(content, 0);
+  eq(first.messages.length, 4, "first read returns all 4 messages");
+  eq(first.cursor, "4", "cursor is the message count");
+  const second = parseAiderHistory(content, 0, first.cursor!);
+  eq(second.messages.length, 4, "second read still returns all messages (host merges by id)");
+  eq(second.cursor, "4", "cursor stays stable at the message count");
+}
+
+console.log("\n--- thinking blocks stripped from assistant text ---\n");
+{
+  const withThinking = [
+    "#### Q",
+    "",
+    "<thinking-content-abc>",
+    "internal reasoning",
+    "</thinking-content-abc>",
+    "Final answer",
+  ].join("\n");
+  const result = parseAiderHistory(withThinking, 0);
+  eq(result.messages.length, 2, "thinking block does not create extra rows");
+  eq(result.messages[1].role, "assistant", "assistant row survives");
+  eq(result.messages[1].text, "Final answer", "thinking block is stripped from assistant text");
+  const onlyThinking = [
+    "#### Q",
+    "",
+    "<thinking-content-abc>",
+    "internal reasoning",
+    "</thinking-content-abc>",
+  ].join("\n");
+  const empty = parseAiderHistory(onlyThinking, 0);
+  eq(empty.messages.length, 1, "assistant row with only thinking content is dropped");
+  eq(empty.messages[0].role, "user", "user row survives");
 }
 
 console.log("\n--- multi-line chat delivery ---\n");
