@@ -113,7 +113,7 @@ fn opencode_reads_one_session_newest_first_within_budget() {
     let db = dir.path().join("opencode.db");
     shared_store(&db);
     let _env = EnvGuard::new(&[("OPENCODE_DB", db.to_str().unwrap())]);
-    let j = load_js("opencode");
+    let j = super::sqlite_fixture::load_sqlite_fixture_js("opencode");
 
     let whole = j
         .read_session_content("ses_one", &query(1024 * 1024, &[]))

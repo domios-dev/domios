@@ -1113,6 +1113,7 @@ fn a_declared_credential_file_stays_unreadable_inside_its_own_read_root() {
     std::fs::write(&auth, r#"{"tokens":{"access_token":"t"}}"#).unwrap();
 
     let credential = CredentialConfig {
+        file_environment: None,
         id: "codexAuth".into(),
         file: auth.to_string_lossy().into_owned(),
         public: Default::default(),

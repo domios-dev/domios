@@ -11,7 +11,7 @@ pub(crate) const PROCESS_REGISTRY_DIR_ENV: &str = "CODETERM_CLAUDE_PROCESS_REGIS
 fn registry_dir() -> Option<PathBuf> {
     match std::env::var_os(PROCESS_REGISTRY_DIR_ENV) {
         Some(dir) if !dir.is_empty() => Some(PathBuf::from(dir)),
-        _ => dirs::home_dir().map(|home| home.join(".claude").join("sessions")),
+        _ => super::read_home::config_root().map(|home| home.join("sessions")),
     }
 }
 

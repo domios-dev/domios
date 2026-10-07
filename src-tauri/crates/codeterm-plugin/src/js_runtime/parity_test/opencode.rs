@@ -10,7 +10,7 @@ const TC_SESSION: i64 = 1_700_000_000_000;
 const TC_PART: i64 = 1_700_000_000_002;
 
 fn opencode() -> JsProvider {
-    load_js("opencode")
+    super::sqlite_fixture::load_sqlite_fixture_js("opencode")
 }
 
 // Resume reads the session's stored cwd, so it needs the same env lock and an empty store.

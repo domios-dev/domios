@@ -28,6 +28,7 @@ let hideSidechain = false;
   manifestJson: () => "null",
   log: () => undefined,
   platform: () => "linux",
+  envGet: () => null,
   expandHome: (path: string) => path === "~/.claude/projects" ? projects : path,
   fs: {
     readFileTail(path: string, maxBytes: number): string | null {
