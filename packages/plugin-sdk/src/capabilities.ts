@@ -229,6 +229,7 @@ export interface SettingField {
 }
 
 export interface AgentProvider {
+  parseContextUsage?(record: unknown): {used_tokens: number; window_tokens: number; cost_usd: number | null; source: string} | null;
   permissionHookCapability?(): {
     protocol: string;
     options: Array<{ label: string; value: string }>;

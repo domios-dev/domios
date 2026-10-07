@@ -896,6 +896,7 @@ fn model_identity_update(
 }
 
 pub(crate) fn clear_runtime_model_evidence(tab: &mut crate::multiplexer::types::Tab) {
+    tab.context = None;
     tab.agent_session_model = None;
     tab.agent_session_model_identity = None;
     tab.pending_model_switch_observation = None;

@@ -1,4 +1,5 @@
 pub mod chat_types;
+pub mod context;
 pub mod keys;
 pub mod models;
 pub mod roles;

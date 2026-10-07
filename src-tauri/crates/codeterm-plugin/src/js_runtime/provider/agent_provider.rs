@@ -29,6 +29,13 @@ use session_wire::WireUsageSource;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
+    fn parse_context_usage(
+        &self,
+        record: &serde_json::Value,
+    ) -> Option<codeterm_types::agent::context::TurnContext> {
+        self.try_call("parseContextUsage", &[record.clone()])
+            .flatten()
+    }
     fn id(&self) -> &str {
         &self.manifest.id
     }
@@ -273,11 +280,9 @@ impl AgentProvider for JsProvider {
     }
 
     fn parse_prompt(&self, text: &str) -> Option<PendingPrompt> {
-        // Plugin returns `{question, options: [[id, label]]}` or null.
         if let Some(v) = self.try_call::<Option<Value>>("parsePrompt", &[json!(text)]) {
             return v.and_then(prompt_parse::parsed_prompt_from_js);
         }
-        // Fallback to universal detector if plugin doesn't implement.
         crate::detector::parse_permission_prompt(text)
             .map(|(question, options)| crate::prompt::build_prompt(question, options))
     }
@@ -304,7 +309,6 @@ impl AgentProvider for JsProvider {
                 .filter_map(|s| engine.decode(s.as_bytes()).ok())
                 .collect();
         }
-        // Default to the trait default (arrow-down + Enter).
         let mut steps = Vec::new();
         let arrow_down = b"\x1b[B".to_vec();
         for _ in 0..option_index {

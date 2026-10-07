@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
 use crate::agent::chat_types::ChatMsg;
 use crate::multiplexer::commands::MuxState;
@@ -241,6 +241,19 @@ impl FlattenDeltaSink {
         source_range: Option<super::tailer::SourceRange>,
     ) {
         use std::sync::atomic::Ordering;
+        if let (Some(session), Some(nonce), Some(svc)) = (
+            self.source_session_id.as_deref(),
+            self.session_binding_nonce.as_deref(),
+            self.app.try_state::<crate::service::ServiceState>(),
+        ) {
+            if let Some(context) = messages
+                .iter()
+                .rev()
+                .find_map(|message| message.context_usage.clone())
+            {
+                crate::api::hook_routes::context_feed::apply(&svc, tab_id, session, nonce, context);
+            }
+        }
         let mut out: Vec<ChatMsg> = Vec::new();
         let mut positions = Vec::new();
         for r in &messages {

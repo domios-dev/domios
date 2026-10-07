@@ -13,6 +13,7 @@ use crate::api::{
     routes::{check_auth, resolve_tab, AppState},
 };
 
+pub(crate) mod context_feed;
 pub(crate) mod permission_decision;
 mod provider_events;
 mod run_session;

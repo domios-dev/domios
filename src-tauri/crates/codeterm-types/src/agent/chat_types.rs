@@ -77,6 +77,8 @@ pub struct ChatSessionIntent {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RichMessage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_usage: Option<super::context::TurnContext>,
     /// Free-form role string. Common values: "user", "assistant",
     /// "system". Plugin chooses; frontend renderer maps to styling.
     pub role: String,
