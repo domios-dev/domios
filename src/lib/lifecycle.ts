@@ -1,5 +1,5 @@
 import { IS_WEB } from "./webApi";
-import { resetWebEvents } from "./webEvents";
+import { resetWebEvents, wakeWebEvents, webReconnectEnabled } from "./webEvents";
 import { fireResync } from "./resync";
 
 const DEBOUNCE_MS = 250;
@@ -26,6 +26,10 @@ export function setWakeResyncForTests(fn: (() => void) | null): void {
 }
 
 function scheduleWakeResync(): void {
+  if (webReconnectEnabled()) {
+    wakeWebEvents();
+    return;
+  }
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
     debounceTimer = null;
