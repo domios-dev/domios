@@ -87,6 +87,10 @@ fn claimed_agent_report_is_not_replayed_after_reopen() {
             temp.path(),
         );
     assert!(reopened.pending_head(tab_id).unwrap().is_none());
+    let receipts = reopened.pending_receipts(tab_id).unwrap();
+    assert_eq!(receipts.len(), 1);
+    assert_eq!(receipts[0].id, id);
+    assert_eq!(receipts[0].status, None);
 }
 
 #[test]

@@ -203,6 +203,28 @@ fn chat_closed_delivery_reconciles_from_persisted_turn_on_read() {
 }
 
 #[test]
+fn retired_agent_delivery_requires_an_exact_turn_in_its_own_append_window() {
+    let fx = Fixture::new();
+    fx.append_user_turn("sess-a", "same payload");
+    let anchor = fx.anchor_now("sess-a");
+    fx.ledger
+        .track_retired_agent_delivery("tab-1", "delivery-a", 1, "same payload", anchor);
+
+    fx.append_user_turn("sess-other", "same payload");
+    assert!(fx.scan("tab-1").is_empty());
+    assert_eq!(
+        fx.ledger.status("delivery-a").unwrap().state,
+        ChatSendState::Unknown
+    );
+
+    fx.append_user_turn("sess-a", "same payload");
+    let confirmed = fx.scan("tab-1");
+    assert_eq!(confirmed.len(), 1);
+    assert_eq!(confirmed[0].send_id, "delivery-a");
+    assert_eq!(confirmed[0].state, ChatSendState::Sent);
+}
+
+#[test]
 fn exact_turn_lookup_requires_the_anchored_session_append_window() {
     let fx = Fixture::new();
     fx.append_user_turn("sess-a", "prior session A turn");
