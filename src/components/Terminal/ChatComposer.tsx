@@ -5,6 +5,8 @@ import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
 import { supportsLiveModelSwitch } from "../../lib/modelSwitch";
 import { getTabModelApi } from "../Sidebar/tabModelApi";
+import { ComposerContextMeter } from "./ComposerContextMeter";
+import { useComposerRecall } from "./useComposerRecall";
 import { PtyModelChip } from "./PtyModelChip";
 import { isModelSelectable, modelAvailability } from "../../lib/modelAvailability";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
@@ -280,6 +282,7 @@ function ChatComposerImpl({
   showComposerError,
   onOpenTerminalFallback,
   modelBubble,
+  promptDock,
   chatBackend = false,
   isActive = true,
 }: {
@@ -306,6 +309,7 @@ function ChatComposerImpl({
   showComposerError: (message: string) => void;
   onOpenTerminalFallback?: () => void;
   modelBubble?: ReactNode;
+  promptDock?: ReactNode;
 }) {
   recordComposerRender(tabId);
   const isActiveRef = useRef(isActive);
@@ -313,6 +317,7 @@ function ChatComposerImpl({
   const pluginTabMenu = usePluginTabMenu();
 
   const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`);
+  const recall = useComposerRecall(tabId);
   const workspaceId = useMuxSelector(useCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
@@ -648,6 +653,7 @@ function ChatComposerImpl({
           observeChatSendStatus(await sendTrackedChatMessage(tabId, optimisticId, composed));
         }
       }
+      recall.remember(text);
       if (currentDraftRef.current.revision === submittedDraft.revision
         && textareaRef.current?.value === submittedDraft.input) {
         setInput("");
@@ -853,6 +859,7 @@ function ChatComposerImpl({
       )}
       <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="composer" />
       <div className="mb-2 flex flex-wrap items-center gap-1 empty:hidden">
+      <ComposerContextMeter tabId={tabId} />
       <TabTaskStrip tabId={tabId} presentation="inline" />
       <ComposerJobChips tabId={tabId} workspaceId={workspaceId} />
       <ComposerBubbleRow
@@ -867,6 +874,7 @@ function ChatComposerImpl({
         }}
       />
       </div>
+      {promptDock}
       <div data-testid="composer-row" className="relative">
         <ComposerActions
           onAttach={addAttachments}
@@ -902,6 +910,7 @@ function ChatComposerImpl({
             value={input}
             onChange={(e) => {
               setComposerInvalid(false);
+              recall.reset();
               setInput(e.target.value);
             }}
             onBeforeInput={(e) => {
@@ -910,6 +919,16 @@ function ChatComposerImpl({
             onKeyDown={(e) => {
               recordComposerIgnoredKey(e.key);
               if (isImeKeyEvent(compositionGate, e.nativeEvent.isComposing, e.nativeEvent.keyCode)) return;
+              if ((e.code === "ArrowUp" || e.code === "ArrowDown") && e.currentTarget.selectionStart === 0 && !pickerOpen && !modelPickerOpen && !modelSuggestionOpen) {
+                const previous = recall.move(input, e.code === "ArrowUp" ? -1 : 1);
+                if (previous !== undefined) { e.preventDefault(); setInput(previous); }
+                return;
+              }
+              if (e.code === "KeyS" && (e.ctrlKey || e.metaKey) && e.shiftKey) {
+                e.preventDefault();
+                setInput(recall.stash(input));
+                return;
+              }
               if (touchMode && e.key === "Enter" && !e.shiftKey) {
                 setPickerOpen(false);
                 setModelPickerOpen(false);
@@ -1055,6 +1074,7 @@ export const ChatComposer = memo(ChatComposerImpl, (a, b) =>
   && a.showComposerError === b.showComposerError
   && a.onOpenTerminalFallback === b.onOpenTerminalFallback
   && a.modelBubble === b.modelBubble
+  && a.promptDock === b.promptDock
   && a.chatBackend === b.chatBackend
   && a.isActive === b.isActive
 );

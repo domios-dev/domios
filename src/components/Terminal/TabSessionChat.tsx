@@ -32,6 +32,7 @@ import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { ManagedTabBar } from "./ManagedTabBar";
 import { managedTabPresentation } from "../../lib/managedTab";
+import { ComposerApprovalDock } from "./ComposerApprovalDock";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
@@ -279,27 +280,17 @@ export function TabSessionChat({
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
-  // clears tab.pending_prompt shortly after on the next state poll.
-  const [answeredPromptQuestion, setAnsweredPromptQuestion] = useState<string | null>(null);
-
   useEffect(() => {
     if (!sessionBindingSurface.showRecoveryAction) setBindingRecoveryOpen(false);
   }, [sessionBindingSurface.showRecoveryAction]);
-  const activePrompt = pendingPrompt && pendingPrompt.question !== answeredPromptQuestion ? pendingPrompt : null;
-  const inlinePrompt = effectiveChatBackend ? activePrompt : null;
-
-  useEffect(() => {
-    if (!pendingPrompt) setAnsweredPromptQuestion(null);
-  }, [pendingPrompt]);
-
-  const handleRespondPrompt = useCallback(
-    (value: string) => {
-      if (pendingPrompt) setAnsweredPromptQuestion(pendingPrompt.question);
-      void invoke("mux_respond_prompt", { tabId, value })
-        .catch((e) => showComposerError(e instanceof Error ? e.message : String(e)));
-    },
-    [pendingPrompt, tabId, showComposerError],
-  );
+  const inlinePrompt = pendingPrompt;
+  const handleRespondPrompt = useCallback(async (value: string) => {
+    try { await invoke("mux_respond_prompt", { tabId, value }); }
+    catch (error) {
+      showComposerError(error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+  }, [tabId, showComposerError]);
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useCallback((command: string) => {
     if (!currentPtyId) {
@@ -825,7 +816,6 @@ export function TabSessionChat({
           onEscape={focusComposer}
         />
         <AutoConfirmedPromptRows records={autoConfirmations} />
-        <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={handleRespondPrompt} />
         </div>
       </div>
       {showScrollDown && (
@@ -887,6 +877,9 @@ export function TabSessionChat({
         observeChatSendStatus={observeChatSendStatus}
         showComposerError={showComposerError}
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
+        promptDock={inlinePrompt && (tab?.agent_state?.subtype === "permission" && !inlinePrompt.multi_select && !inlinePrompt.sections?.length
+          ? <ComposerApprovalDock key={JSON.stringify(inlinePrompt)} prompt={inlinePrompt} tabId={tabId} active={isActive} onRespond={handleRespondPrompt} />
+          : <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={(value) => { void handleRespondPrompt(value).catch(() => {}); }} />)}
         modelBubble={composerModelBubble}
       />}
       </>
