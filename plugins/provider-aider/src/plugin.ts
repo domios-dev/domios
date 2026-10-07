@@ -394,11 +394,26 @@ const plugin: PluginModule = {
     return delivered === text ? null : { text: delivered };
   },
 
-  detectSessionId(_cwd: string, _exclude?: string[] | string, _maxAgeMs?: number): string | null {
-    // Never guess by recency: two live Aider tabs in the same folder would
-    // otherwise bind to each other's history. Only `detectLaunchSession`
-    // (the exact launch marker) binds a tab to its own nonce file.
-    return null;
+  detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
+    const excluded = Array.isArray(exclude) ? exclude : exclude ? [exclude] : [];
+    const limit = typeof maxAgeMs === "number" && maxAgeMs > 0 ? maxAgeMs : 0;
+    const now = Date.now();
+    let newest: HistoryFileEntry | null = null;
+    for (const entry of historyFileEntries(cwd)) {
+      if (excluded.indexOf(entry.id) !== -1) continue;
+      if (limit > 0) {
+        if (entry.modifiedMs === null) continue;
+        if (now - entry.modifiedMs > limit) continue;
+      }
+      if (!newest) {
+        newest = entry;
+        continue;
+      }
+      const a = typeof entry.modifiedMs === "number" ? entry.modifiedMs : -1;
+      const b = typeof newest.modifiedMs === "number" ? newest.modifiedMs : -1;
+      if (a > b) newest = entry;
+    }
+    return newest ? newest.id : null;
   },
 
   detectLaunchSession(evidence: {
