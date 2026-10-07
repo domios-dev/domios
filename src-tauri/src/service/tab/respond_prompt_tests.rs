@@ -288,6 +288,7 @@ fn respond_prompt_rejects_invalid_options_before_pty_access() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn respond_prompt_rejects_multi_select_options_before_pty_access() {
     let (fixture, tab_id) = fixture_with_pending_prompt();
     fixture

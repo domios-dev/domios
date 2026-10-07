@@ -351,7 +351,7 @@ fn lane_removal_refuses_unmerged_branch_before_deleting_worktree() {
 #[test]
 fn canonical_checkout_is_refused_as_a_lane() {
     let root = tempfile::tempdir().unwrap();
-    let project = fixture_project(root.path());
+    let project = fixture_project(&root.path().canonicalize().unwrap());
 
     let error = remove_lane(
         &LaneRemovalRequest {
@@ -552,8 +552,8 @@ fn lane_remove_prunes_a_registration_for_an_already_missing_worktree() {
 #[test]
 fn lane_remove_reports_a_missing_branch_as_already_removed() {
     let root = tempfile::tempdir().unwrap();
-    let project = fixture_project(root.path());
-    let worktree = root.path().join("detached");
+    let project = fixture_project(&root.path().canonicalize().unwrap());
+    let worktree = root.path().canonicalize().unwrap().join("detached");
     git(
         &project,
         &[

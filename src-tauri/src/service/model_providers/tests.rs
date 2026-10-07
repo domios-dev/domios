@@ -489,9 +489,11 @@ fn model_provider_config_lock_is_immediate_refusal() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("config.json");
     let first = config_lock(&path).unwrap();
+    let inherited = first.0.try_clone().unwrap();
     assert_eq!(config_lock(&path).unwrap_err(), ModelProviderError::Busy);
     drop(first);
     assert!(config_lock(&path).is_ok());
+    drop(inherited);
 }
 
 #[test]

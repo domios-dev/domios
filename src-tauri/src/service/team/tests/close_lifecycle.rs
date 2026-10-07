@@ -504,7 +504,8 @@ fn team_close_does_not_rewrite_done_task_lane_for_a_closed_attempt() {
 #[test]
 fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     let dir = tempfile::tempdir().unwrap();
-    let repo = dir.path().join("repo");
+    let root = dir.path().canonicalize().unwrap();
+    let repo = root.join("repo");
     fs::create_dir_all(&repo).unwrap();
     git(&repo, &["init"]);
     git(&repo, &["config", "user.name", "CodeTerm Tests"]);
@@ -514,10 +515,10 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
     git(&repo, &["commit", "-m", "base"]);
     git(&repo, &["branch", "-M", "main"]);
     let base = git(&repo, &["rev-parse", "HEAD"]);
-    let clean_lane = dir.path().join("clean-lane");
-    let work_lane = dir.path().join("work-lane");
-    let dirty_lane = dir.path().join("dirty-lane");
-    let retained_lane = dir.path().join("retained-lane");
+    let clean_lane = root.join("clean-lane");
+    let work_lane = root.join("work-lane");
+    let dirty_lane = root.join("dirty-lane");
+    let retained_lane = root.join("retained-lane");
     git(
         &repo,
         &[
@@ -614,7 +615,7 @@ fn team_close_removes_clean_lanes_and_records_debt_for_lanes_with_work() {
         &plan.id,
         "lane branch without worktree",
         &worker,
-        &dir.path().join("missing-lane"),
+        &root.join("missing-lane"),
         "lane/orphan",
         &base,
         5,

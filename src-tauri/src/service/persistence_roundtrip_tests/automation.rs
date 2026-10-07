@@ -16,7 +16,8 @@ fn cron_for(
         crate::agent::test_provider::MockProvider::with_reasoning_efforts(
             "round-trip-agent",
             &["low", "medium", "high"],
-        ),
+        )
+        .with_launch_binary(if cfg!(windows) { "cmd.exe" } else { "sh" }),
     ));
     let store = CronStore::open_storage(
         storage,

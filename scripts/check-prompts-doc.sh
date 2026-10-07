@@ -37,8 +37,12 @@ pattern = re.compile(
     r'(pub\s+)?const\s+([A-Z0-9_]+)\s*:[^=]+?=\s*include_str!\("(?:\.\./)+prompts/([^\"]+\.md)"\)',
     re.S,
 )
+concat_pattern = re.compile(
+    r'(pub\s+)?const\s+([A-Z0-9_]+)\s*:[^=]+?=\s*concat!\(\s*include_str!\("(?:\.\./)+prompts/([^\"]+\.md)"\)',
+    re.S,
+)
 for source in loader_sources:
-    for visibility, const, file in pattern.findall(source.read_text(encoding="utf-8")):
+    for visibility, const, file in pattern.findall(source.read_text(encoding="utf-8")) + concat_pattern.findall(source.read_text(encoding="utf-8")):
         loaders.setdefault(file, []).append((source.relative_to(root).as_posix(), const, bool(visibility)))
 
 errors = []

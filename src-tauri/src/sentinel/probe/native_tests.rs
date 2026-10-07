@@ -55,7 +55,7 @@ fn sentinel_probe_process_receives_instance_cli_and_auth_environment() {
             use std::os::unix::fs::PermissionsExt;
             std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
         }
-        "codeterm"
+        "command -v codeterm; codeterm"
     };
     let inherited_path = std::env::var_os("PATH");
     let environment = Environment::for_instance(

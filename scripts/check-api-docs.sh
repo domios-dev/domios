@@ -82,7 +82,7 @@ for call in route_calls(routes_text):
         registered.add((method.upper(), path))
 
 documented = set()
-for line in api_md.read_text(encoding="utf-8").splitlines():
+for line in "\n".join(source.read_text(encoding="utf-8") for source in sorted(api_md.parent.glob("API*.md"))).splitlines():
     m = re.match(r"\|\s*(GET|POST|PUT|PATCH|DELETE)\s*\|\s*`([^`]+)`", line)
     if m:
         documented.add((m.group(1), m.group(2)))
