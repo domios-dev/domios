@@ -68,7 +68,7 @@ console.log("\n--- declared hook event roster (manifest data) ---\n");
       { event: "turn/completed", route: "session_state", verdict: "idle" },
       { event: "serverRequest/pending", route: "session_state", verdict: "waiting" },
     ],
-    "manifest declares SessionStart + Stop as roster data",
+    "manifest declares session and RPC turn events as roster data",
   );
   eq(
     manifest.integration.trust_grant.managedKeys,

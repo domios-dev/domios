@@ -8,7 +8,13 @@ use crate::{agent::chat_types::ChatMsg, service::ServiceContext};
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
-pub async fn history(client: &Client, thread: &str) -> Result<Vec<ChatMsg>, String> {
+pub struct History {
+    pub messages: Vec<ChatMsg>,
+    pub active_turn: Option<String>,
+    pub completed_turns: Vec<String>,
+}
+
+pub async fn history(client: &Client, thread: &str) -> Result<History, String> {
     client
         .request(
             "thread/resume",
@@ -22,6 +28,21 @@ pub async fn history(client: &Client, thread: &str) -> Result<Vec<ChatMsg>, Stri
         json!({"threadId":thread,"itemsView":"notLoaded","sortDirection":"asc","limit":100}),
     )
     .await?;
+    let active_turn = turns
+        .iter()
+        .find(|turn| turn["status"] == "inProgress" && !turn["startedAt"].is_null())
+        .and_then(|turn| turn["id"].as_str())
+        .map(str::to_owned);
+    let completed_turns = turns
+        .iter()
+        .filter(|turn| {
+            matches!(
+                turn["status"].as_str(),
+                Some("completed" | "interrupted" | "failed")
+            )
+        })
+        .filter_map(|turn| turn["id"].as_str().map(str::to_owned))
+        .collect();
     let mut normalizer = Normalizer::default();
     let mut messages = Vec::new();
     for turn in turns {
@@ -41,7 +62,11 @@ pub async fn history(client: &Client, thread: &str) -> Result<Vec<ChatMsg>, Stri
             }
         }
     }
-    Ok(messages)
+    Ok(History {
+        messages,
+        active_turn,
+        completed_turns,
+    })
 }
 
 async fn pages(client: &Client, method: &str, mut params: Value) -> Result<Vec<Value>, String> {
@@ -97,7 +122,7 @@ pub fn snapshot(
         .read()
         .get_tab(tab)
         .and_then(|tab| tab.session_binding_nonce.clone());
-    let messages = tauri::async_runtime::block_on(history(&sidecar.client, &thread))?;
+    let messages = tauri::async_runtime::block_on(history(&sidecar.client, &thread))?.messages;
     let current = svc.mux.read().get_tab(tab).is_some_and(|tab| {
         tab.agent_session_id.as_deref() == Some(&thread) && tab.session_binding_nonce == nonce
     });
