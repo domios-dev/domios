@@ -448,6 +448,9 @@ console.log("\n--- per-nonce session files ---\n");
   eq(p.sessionJsonlPath("/ws", "nonce-b"), `${historyDir}/nonce-b.md`, "sessionJsonlPath names the nonce file");
   eq(p.sessionJsonlPath("", "nonce-b"), null, "sessionJsonlPath rejects empty cwd");
   eq(p.sessionJsonlPath("/ws", ""), null, "sessionJsonlPath rejects empty session id");
+  eq(p.sessionFilePath("/ws", "nonce-b"), `${historyDir}/nonce-b.md`, "sessionFilePath names the nonce file");
+  eq(p.sessionFilePath("", "nonce-b"), null, "sessionFilePath rejects empty cwd");
+  eq(p.sessionFilePath("/ws", ""), null, "sessionFilePath rejects empty session id");
   const stale = readVia(hostWith([{ name: "nonce-a.md", modifiedMs: now - 7200000 }]));
   eq(stale.detectSessionId("/ws", [], 60000), null, "stale file is rejected within maxAgeMs");
   eq(stale.detectSessionId("/ws", [], 0), "nonce-a", "no maxAgeMs keeps the file regardless of age");
@@ -498,6 +501,34 @@ console.log("\n--- thinking blocks stripped from assistant text ---\n");
   const empty = parseAiderHistory(onlyThinking, 0);
   eq(empty.messages.length, 1, "assistant row with only thinking content is dropped");
   eq(empty.messages[0].role, "user", "user row survives");
+}
+
+console.log("\n--- meta lines dropped from assistant text ---\n");
+{
+  const withMeta = [
+    "#### Q",
+    "",
+    "> Tokens: 608 sent, 79 received.",
+    "Final answer",
+    "> Tokens: 700 sent, 90 received.",
+  ].join("\n");
+  const result = parseAiderHistory(withMeta, 0);
+  eq(result.messages.length, 2, "meta lines do not create extra rows");
+  eq(result.messages[1].role, "assistant", "assistant row survives meta lines");
+  eq(result.messages[1].text, "Final answer", "meta lines are stripped from assistant text");
+  const onlyMeta = [
+    "#### Q",
+    "",
+    "> Tokens: 608 sent, 79 received.",
+  ].join("\n");
+  const empty = parseAiderHistory(onlyMeta, 0);
+  eq(empty.messages.length, 1, "assistant row with only meta lines is dropped");
+  eq(empty.messages[0].role, "user", "user row survives meta-only assistant");
+  const delta = parseAiderHistoryDelta(withMeta) as {
+    messages: Array<{ role: string; blocks: Array<{ kind: string; data: { text: string } }> }>;
+  };
+  eq(delta.messages.length, 2, "delta drops meta lines without extra rows");
+  eq(delta.messages[1].blocks[0].data.text, "Final answer", "delta assistant text drops meta lines");
 }
 
 console.log("\n--- multi-line chat delivery ---\n");
