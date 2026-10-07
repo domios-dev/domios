@@ -400,21 +400,8 @@ console.log("\n--- history cursor advances ---\n");
   eq(second.cursor, "4", "cursor stays stable at the message count");
 }
 
-console.log("\n--- session id detection ---\n");
+console.log("\n--- per-nonce session files ---\n");
 {
-  const twoBlocks = [
-    "# aider chat started at 2026-10-06 10:00:00.000",
-    "",
-    "#### Old question",
-    "",
-    "Old answer",
-    "",
-    "# aider chat started at 2026-10-06 12:00:00.000",
-    "",
-    "#### New question",
-    "",
-    "New answer",
-  ].join("\n");
   const readVia = (host: any) => {
     const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
     const source = fs.readFileSync(pluginPath, "utf8");
@@ -422,34 +409,53 @@ console.log("\n--- session id detection ---\n");
     new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
     return context.module.exports.default;
   };
-  const historyPath = "/ws/.aider.chat.history.md";
-  const hostWith = (content: string) => ({
+  const now = Date.now();
+  const historyDir = "/ws/.aider/history";
+  const hostWith = (files: Array<{ name: string; modifiedMs: number | null }>) => ({
     platform: () => "linux",
     shell: { quoteFor: (v: any) => `'${v}'` },
-    fs: { readFile: (p: string) => (p === historyPath ? content : null) },
+    fs: {
+      readFile: (p: string) => (p === `${historyDir}/nonce-b.md` ? "#### Q\n\nA\n" : null),
+      readDir: (p: string) =>
+        p === historyDir
+          ? files.map((f) => ({
+              name: f.name,
+              path: `${historyDir}/${f.name}`,
+              isFile: true,
+              isDir: false,
+              size: 10,
+              modifiedMs: f.modifiedMs,
+              createdMs: null,
+            }))
+          : [],
+    },
     log: () => {},
   });
-  const p = readVia(hostWith(twoBlocks));
-  const newest = p.detectSessionId("/ws", [], 0);
-  eq(newest, "2026-10-06 12:00:00.000", "detectSessionId returns the newest block id");
-  eq(p.detectSessionId("/ws", [newest!], 0), "2026-10-06 10:00:00.000", "exclude list skips the named block");
-  eq(p.detectSessionId("/ws", [], 1), null, "maxAgeMs excludes blocks older than the window");
-  eq(p.sessionExists("/ws", "2026-10-06 12:00:00.000"), true, "sessionExists finds a known block");
+  const p = readVia(
+    hostWith([
+      { name: "nonce-a.md", modifiedMs: now - 5000 },
+      { name: "nonce-b.md", modifiedMs: now - 1000 },
+      { name: "nonce-a.input", modifiedMs: now - 5000 },
+    ]),
+  );
+  eq(p.detectSessionId("/ws", [], 0), "nonce-b", "detectSessionId returns the newest history file");
+  eq(p.detectSessionId("/ws", ["nonce-b"], 0), "nonce-a", "exclude list skips the named file");
+  eq(p.detectSessionId("/ws", [], 2000), "nonce-b", "maxAgeMs keeps the fresh file");
+  eq(p.sessionExists("/ws", "nonce-b"), true, "sessionExists finds a known nonce file");
+  eq(p.sessionExists("/ws", "nonce-a"), true, "sessionExists finds the older nonce file");
   eq(p.sessionExists("/ws", "nope"), false, "sessionExists rejects an unknown id");
-  eq(p.findSession("2026-10-06 12:00:00.000"), null, "findSession returns null without a cwd to verify against");
-  eq(p.sessionJsonlPath("/ws", "2026-10-06 12:00:00.000"), "/ws/.aider.chat.history.md", "sessionJsonlPath names the history file");
-  const chat = p.parseSessionDelta("#### New question\n\nNew answer\n") as {
-    messages: Array<{ role: string; blocks: Array<{ kind: string; data: { text: string } }> }>;
-  };
-  eq(chat.messages.length, 2, "parseSessionDelta returns the block's rows");
-  eq(chat.messages[0].role, "user", "block user row shape");
-  eq(chat.messages[0].blocks[0].data.text, "New question", "block user turn parsed");
-  eq(chat.messages[1].role, "assistant", "block assistant row shape");
-  eq(chat.messages[1].blocks[0].data.text, "New answer", "block assistant turn parsed");
-  const again = p.parseSessionDelta("#### New question\n\nNew answer\n") as {
-    messages: Array<{ role: string; blocks: Array<{ kind: string; data: { text: string } }> }>;
-  };
-  eq(again.messages.length, 2, "re-read returns the same rows for host merge");
+  eq(p.sessionJsonlPath("/ws", "nonce-b"), `${historyDir}/nonce-b.md`, "sessionJsonlPath names the nonce file");
+  eq(p.sessionJsonlPath("", "nonce-b"), null, "sessionJsonlPath rejects empty cwd");
+  eq(p.sessionJsonlPath("/ws", ""), null, "sessionJsonlPath rejects empty session id");
+  const stale = readVia(hostWith([{ name: "nonce-a.md", modifiedMs: now - 7200000 }]));
+  eq(stale.detectSessionId("/ws", [], 60000), null, "stale file is rejected within maxAgeMs");
+  eq(stale.detectSessionId("/ws", [], 0), "nonce-a", "no maxAgeMs keeps the file regardless of age");
+  eq(stale.detectSessionId("/ws", [], undefined), "nonce-a", "undefined maxAgeMs keeps the file");
+  const unknownMtime = readVia(hostWith([{ name: "nonce-a.md", modifiedMs: null }]));
+  eq(unknownMtime.detectSessionId("/ws", [], 60000), null, "unknown mtime is not fresh within maxAgeMs");
+  eq(unknownMtime.detectSessionId("/ws", [], 0), "nonce-a", "unknown mtime keeps the file when no maxAgeMs is set");
+  const empty = readVia(hostWith([]));
+  eq(empty.detectSessionId("/ws", [], 0), null, "empty history dir yields no session");
 }
 
 console.log("\n--- thinking blocks stripped from assistant text ---\n");
