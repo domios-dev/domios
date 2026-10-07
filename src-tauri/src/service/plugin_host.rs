@@ -477,6 +477,13 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         crate::config::load_config().api.token
     }
 
+    fn model_provider_process_env(
+        &self,
+        plugin_id: &str,
+    ) -> Result<std::collections::HashMap<String, String>, ()> {
+        self.model_provider_launch_env(plugin_id).map_err(|_| ())
+    }
+
     fn supporter_token(&self, plugin_id: &str) -> Option<String> {
         stored_supporter_token(
             plugin_id,

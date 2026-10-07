@@ -202,6 +202,7 @@ export interface ExternalRef {
 }
 
 export interface Task {
+  files?: { edit: string[]; read: string[] };
   id: string;
   name: string;
   type: string; // open string: implement | research | review | ...

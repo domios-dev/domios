@@ -963,6 +963,7 @@ impl PlanStore {
                     let parent_id = p.tasks[idx].id.clone();
                     let parent_name = p.tasks[idx].name.clone();
                     let mut follow_up = Task {
+                        files: Default::default(),
                         id: fid.clone(),
                         name: format!("Follow-up hardening: {parent_name}"),
                         kind: "implement".into(),

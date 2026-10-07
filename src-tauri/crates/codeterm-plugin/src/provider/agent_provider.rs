@@ -25,6 +25,10 @@ pub trait AgentProvider: Send + Sync {
         self.id()
     }
 
+    fn cli_compatibility(&self) -> Option<crate::provider_compat::CompatibilityManifest> {
+        None
+    }
+
     /// Maximum text body size accepted as an inline paste. `None` means undeclared.
     fn paste_limit_bytes(&self) -> Option<usize> {
         None
@@ -248,6 +252,10 @@ pub trait AgentProvider: Send + Sync {
     /// has to detect them post-launch via `detect_session_id`.
     fn session_id_injection(&self) -> SessionIdInjection {
         SessionIdInjection::None
+    }
+
+    fn context_attach(&self) -> Option<ContextAttach> {
+        None
     }
 
     fn is_tool_less(&self) -> bool {

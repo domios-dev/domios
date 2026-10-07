@@ -1020,4 +1020,5 @@ pub(crate) fn resolve_refs(
     }
 }
 
+pub(crate) mod context_bundle;
 pub(crate) mod tool_less_instructions;

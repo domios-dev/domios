@@ -257,6 +257,8 @@ pub async fn spawn_agent(
     )?;
     let starter_prompt = crate::service::starter_prompt_for_role(role_probe.role.as_deref());
     let params = crate::service::SpawnAgentParams {
+        context_files: None,
+        context_skills: None,
         agent: body.agent,
         agent_name: body.agent_name,
         args: body.args,

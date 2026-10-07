@@ -93,6 +93,7 @@ pub(super) fn dispatch(
                 "agent.set_role",
                 "agent.clear_role",
                 "agent.status",
+                "agent.turns",
                 "agent.children",
                 "agent.link",
                 "agent.report",

@@ -19,6 +19,7 @@ pub mod delayed_send;
 pub mod dispatch;
 mod fdlimit;
 pub mod glance;
+mod instance_lifetime;
 mod keepawake;
 mod liveness;
 pub mod lock_hold;
@@ -103,6 +104,13 @@ pub fn run() {
     startup::setup_logging();
 
     log::info!("CodeTerm starting...");
+    let _instance_lifetime = match instance_lifetime::acquire() {
+        Ok(lifetime) => lifetime,
+        Err(error) => {
+            log::error!("[startup] could not acquire instance lifetime lock: {error}");
+            return;
+        }
+    };
     let startup_recovery = crash::record_startup();
     if let Some(record) = &startup_recovery.last_crash {
         log::warn!(
@@ -1045,6 +1053,7 @@ pub fn run() {
             startup::install_bundled_cli(app);
             drop(startup::restore_complete(&service_state));
             startup::start_servers(app, &states, &service_state);
+            service_state.schedule_restored_agent_delivery_reconciliation();
             commands::ensure_integrations_for_all(
                 &service_state.agent_registry,
                 &states.config,

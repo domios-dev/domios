@@ -33,7 +33,7 @@ mod tests {
         not(windows),
         ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
     )]
-    fn startup_profile_sweep_preserves_disproved_failure_and_runtime_keeps_all_failed_tabs() {
+    fn startup_profile_sweep_respects_machine_owner_and_runtime_dry_run_keeps_failed_tabs() {
         let (mut mux, existing_tab_id) = MultiplexerState::new();
         let workspace_id = mux.list_workspaces()[0].id.clone();
         let restored_tab_id = mux.create_tab(&workspace_id).unwrap();
@@ -66,26 +66,32 @@ mod tests {
 
         {
             let requests = requests.lock();
-            assert_eq!(requests.len(), 1);
-            assert!(requests[0].live_tab_ids.contains(&existing_tab_id));
-            assert!(requests[0].live_tab_ids.contains(&restored_tab_id));
-            assert!(requests[0].live_tab_ids.contains(&disproved_failure_tab_id));
-            assert!(!requests[0].live_tab_ids.contains(&failed_tab_id));
-            assert!(requests[0].confirm);
-            assert!(!requests[0].include_legacy);
+            let owner = codeterm_plugin::global_writes::machine_global_write_allowed();
+            assert_eq!(requests.len(), usize::from(owner));
+            if owner {
+                assert!(requests[0].live_tab_ids.contains(&existing_tab_id));
+                assert!(requests[0].live_tab_ids.contains(&restored_tab_id));
+                assert!(requests[0].live_tab_ids.contains(&disproved_failure_tab_id));
+                assert!(!requests[0].live_tab_ids.contains(&failed_tab_id));
+                assert!(requests[0].confirm);
+                assert!(requests[0].include_legacy);
+            }
         }
 
         crate::service::launch_artifacts::sweep_for_owner(
             &fixture.service,
             "sweep-probe",
-            true,
+            false,
             false,
         )
         .expect("runtime sweep should succeed");
 
         let requests = requests.lock();
-        assert_eq!(requests.len(), 2);
-        assert!(requests[1].live_tab_ids.contains(&failed_tab_id));
-        assert!(requests[1].live_tab_ids.contains(&disproved_failure_tab_id));
+        let owner = codeterm_plugin::global_writes::machine_global_write_allowed();
+        assert_eq!(requests.len(), 1 + usize::from(owner));
+        let runtime = requests.last().unwrap();
+        assert!(!runtime.confirm);
+        assert!(runtime.live_tab_ids.contains(&failed_tab_id));
+        assert!(runtime.live_tab_ids.contains(&disproved_failure_tab_id));
     }
 }

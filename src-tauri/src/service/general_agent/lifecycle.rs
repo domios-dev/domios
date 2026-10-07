@@ -630,6 +630,7 @@ pub fn start_general_agent(
             }
         }
         let mut params = crate::agent::provider::AgentLaunchParams {
+            context_files: None,
             tool_less_instructions_path: None,
             agent_name: None,
             task: launch_instructions.task,

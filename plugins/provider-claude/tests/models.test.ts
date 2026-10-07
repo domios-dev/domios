@@ -54,6 +54,16 @@ const baseHost = (over: Record<string, unknown>) => ({
   unixNowMs: () => 0,
   envGet: () => null,
   exec: () => JSON.stringify({ error: "not configured" }),
+  providerVersionJson: () => {
+    try {
+      const exec = over.exec;
+      const result = typeof exec === "function" ? JSON.parse(exec()) as { code?: number; stdout?: string } : null;
+      const version = result?.code === 0 ? /\d+\.\d+\.\d+/.exec(result.stdout || "")?.[0] : null;
+      return JSON.stringify({ status: version ? "detected" : "failed", version });
+    } catch (_) {
+      return JSON.stringify({ status: "failed", version: null });
+    }
+  },
   fetch: () => JSON.stringify({ error: "not configured" }),
   shell: {
     quoteFor: (value: unknown) => String(value),
@@ -77,7 +87,7 @@ console.log("\n--- discoverModels: shipped manifest has no static veto over the 
 
 {
   // A hardcoded manifest `available` is a static veto over a dynamic gate,
-  // which is the regression this file guards: MINIMUM_CLI_BY_MODEL decides.
+  // which is the regression this file guards: the declared CLI minimum decides.
   assert(
     !manifestSeed.models.some((m) => m.available === false),
     "shipped plugin.json does not hardcode any model unavailable",
@@ -230,6 +240,7 @@ console.log("\n--- discoverModels: manifest flag and version gate are independen
   // plugin.json once hardcoded fable unavailable while the CLI gate was already
   // satisfied, so a manifest veto must not mask a satisfied version gate.
   const staleManifest = {
+    ...manifestSeed,
     models: [
       { id: "fable", displayName: "Claude Fable", description: "desc", available: false },
     ],
@@ -251,6 +262,7 @@ console.log("\n--- discoverModels: manifest flag and version gate are independen
   // Conversely, a manifest that never mentions `available` at all (the
   // permissive/default shape) must not mask a failing version gate.
   const permissiveManifest = {
+    ...manifestSeed,
     models: [
       { id: "fable", displayName: "Claude Fable", description: "desc" },
     ],

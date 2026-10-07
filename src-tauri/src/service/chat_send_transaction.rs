@@ -15,7 +15,7 @@ use super::pending_delivery_payloads::user_sends::{
 };
 
 use parking_lot::Mutex;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 const MAX_RESULTS: usize = 256;
 const MAX_IN_FLIGHT: usize = 32;
@@ -52,7 +52,8 @@ pub struct ChatSendStatus {
 }
 
 /// Capability-based append-window boundary captured at send start.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum EvidenceWindow {
     /// Append-only transcript file: the window is bytes at/after this offset.
     Jsonl { transcript_offset: u64 },
@@ -65,7 +66,7 @@ pub(crate) enum EvidenceWindow {
 /// Authoritative transcript identity captured at send start. Evidence for the
 /// send may only come from THIS session, inside its append window — never from
 /// another/latest session and never from pre-send history.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct SendEvidenceAnchor {
     pub(crate) provider_id: String,
     pub(crate) cwd: String,
@@ -174,6 +175,57 @@ impl ChatSendLedger {
             .get(send_id)
             .cloned()
             .map(|status| Self::with_retention_window(&state, status))
+    }
+
+    pub(crate) fn track_retired_agent_delivery(
+        &self,
+        tab_id: &str,
+        send_id: &str,
+        sequence: u64,
+        payload: &str,
+        anchor: SendEvidenceAnchor,
+    ) {
+        let mut state = self.state.lock();
+        let status = ChatSendStatus {
+            send_id: send_id.to_string(),
+            tab_id: tab_id.to_string(),
+            state: ChatSendState::Unknown,
+            error: Some("submit_unconfirmed: delivery was claimed before restart".into()),
+            ledger_id: state.ledger_id.clone(),
+            sequence,
+            retained_from: sequence,
+            correlation_id: None,
+            pending_reason: None,
+        };
+        let payload = normalize_turn_evidence_with(payload, anchor.turn_normalization);
+        let position = state.order.iter().position(|id| {
+            state
+                .by_id
+                .get(id)
+                .is_some_and(|previous| previous.sequence > sequence)
+        });
+        if let Some(position) = position {
+            state.order.insert(position, send_id.to_string());
+        } else {
+            state.order.push_back(send_id.to_string());
+        }
+        state.payload_by_id.insert(send_id.to_string(), payload);
+        state
+            .turn_normalization_by_id
+            .insert(send_id.to_string(), anchor.turn_normalization);
+        state.anchor_by_id.insert(send_id.to_string(), anchor);
+        state.by_id.insert(send_id.to_string(), status);
+        state.next_sequence = state.next_sequence.max(sequence.saturating_add(1));
+        let latest_sequence = state
+            .latest_by_tab
+            .get(tab_id)
+            .and_then(|id| state.by_id.get(id))
+            .map_or(0, |latest| latest.sequence);
+        if sequence >= latest_sequence {
+            state
+                .latest_by_tab
+                .insert(tab_id.to_string(), send_id.to_string());
+        }
     }
 
     pub(crate) fn reserve_identity(&self) -> (String, u64) {

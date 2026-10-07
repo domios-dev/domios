@@ -342,6 +342,8 @@ pub fn resolve_hook_event_roster(
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SessionsConfig {
+    #[serde(default)]
+    pub root_environment: Option<super::ReadRootEnvironment>,
     /// Filesystem root the provider writes session files into. May
     /// start with `~/` (expanded to home dir). E.g.
     /// `~/.claude/projects`.
@@ -384,6 +386,8 @@ fn default_session_ext() -> String {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct CredentialConfig {
+    #[serde(default)]
+    pub file_environment: Option<super::ReadRootEnvironment>,
     /// Name the plugin uses to reference this credential.
     pub id: String,
     /// JSON file holding it. May start with `~/`.

@@ -667,6 +667,7 @@ impl PlanError {
 }
 
 pub struct NewTask {
+    pub files: crate::plan::TaskFiles,
     pub name: String,
     pub kind: String,
     pub section_ids: Vec<String>,
@@ -698,6 +699,7 @@ pub struct NewTask {
 impl Default for NewTask {
     fn default() -> Self {
         Self {
+            files: Default::default(),
             name: String::new(),
             kind: "task".into(),
             section_ids: Vec::new(),

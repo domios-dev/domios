@@ -45,15 +45,21 @@ function updatePromptSafeChoice(prompt) {
   return value;
 }
 
+// plugins/provider-shared/readHome.ts
+function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
+  if (!inheritedHome) return fallback;
+  if (!subpath) return inheritedHome;
+  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
+}
+
 // plugins/provider-codex/src/models.ts
 function discoverCodexModels() {
   return discoverCodexModelsFromCache();
 }
 function codexModelsCachePath() {
   const home = host.homeDir();
-  if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".codex" + sep + "models_cache.json";
+  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" + sep + "models_cache.json" : null, "models_cache.json", sep);
 }
 function discoverCodexModelsFromCache() {
   const path = codexModelsCachePath();
@@ -311,7 +317,7 @@ function codexSessionsRoot(sep) {
   const override = host.envGet(sessionStoreOverrides.root);
   if (override) return trimTrailingSeparators(override);
   const home = host.homeDir();
-  return home ? home + sep + ".codex" : null;
+  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" : null, "", sep);
 }
 function readSessionIndex(path) {
   if (!host.fs.fileExists(path)) return [];
@@ -2160,6 +2166,17 @@ function carryCodexProjectTrust(host2, profilePath2, configPath) {
 // plugins/provider-codex/src/profile-sweep.ts
 var CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+?)(?:-(?:preserved(?:-\d+-\d+)?|retry-\d+-\d+))?\.config\.toml$/;
 var INSTANCE_MARKER_RE = /^# codeterm-instance: ([A-Za-z0-9_-]+)$/;
+var LEGACY_PROFILE_NAME_RE = /^codeterm-([a-f0-9]{8})(?:-(?:preserved(?:-\d+-\d+)?|retry-\d+-\d+))?\.config\.toml$/;
+function classifyCodexProfile(name, contents, liveTabIds, instanceId, goneInstanceIds) {
+  const tabId = codexProfileTabId(name);
+  if (tabId === null) return null;
+  const owner = codexProfileInstanceId(contents);
+  if (owner === instanceId) return liveTabIds.has(tabId) ? null : "dead";
+  if (owner !== null) return goneInstanceIds.has(owner) ? "dead" : null;
+  if (contents.includes("# codeterm-instance:")) return null;
+  const legacyTabId = LEGACY_PROFILE_NAME_RE.exec(name)?.[1];
+  return legacyTabId && !liveTabIds.has(legacyTabId) ? "legacy" : null;
+}
 function codexConfigPath(host2, home) {
   const separator = host2.platform() === "windows" ? "\\" : "/";
   return `${home}${separator}.codex${separator}config.toml`;
@@ -2337,11 +2354,11 @@ function removeProfile(host2, path) {
     return false;
   }
 }
-function removeProfileAfterTrustCarry(host2, path) {
+function removeProfileAfterTrustCarry(host2, path, expected) {
   const home = host2.homeDir();
   if (!home) return false;
   const original = readProfile(host2, path);
-  if (original === null) return false;
+  if (original === null || original !== expected) return false;
   const configPath = codexConfigPath(host2, home);
   if (!carryCodexProjectTrust(host2, path, configPath)) return false;
   return readProfile(host2, path) === original && removeProfile(host2, path);
@@ -2364,10 +2381,11 @@ function carryCodexProjectTrustForTab(host2, tabId, instanceId) {
   }
   return foundTrustedEntry;
 }
-function inspectCodexProfiles(host2, liveTabIds, instanceId) {
+function inspectCodexProfiles(host2, liveTabIds, instanceId, goneInstanceIds = []) {
   const listing = profiles(host2);
   if (!listing) return { dead: [], legacy: [] };
   const live = new Set(liveTabIds);
+  const gone = new Set(goneInstanceIds);
   const dead = [];
   const legacy = [];
   for (const name of listing) {
@@ -2377,9 +2395,9 @@ function inspectCodexProfiles(host2, liveTabIds, instanceId) {
     if (!path) continue;
     const contents = readProfile(host2, path);
     if (contents === null) continue;
-    const owner = codexProfileInstanceId(contents);
-    if (owner === instanceId && !live.has(tabId)) dead.push(name);
-    else if (owner === null) legacy.push(name);
+    const classification = classifyCodexProfile(name, contents, live, instanceId, gone);
+    if (classification === "dead") dead.push(name);
+    else if (classification === "legacy") legacy.push(name);
   }
   return { dead, legacy };
 }
@@ -2387,20 +2405,21 @@ function sweepCodexProfiles(host2, liveTabIds, instanceId) {
   return manageCodexProfiles(host2, liveTabIds, instanceId, true, false);
 }
 var MAX_SWEEP_REMOVALS = 200;
-function manageCodexProfiles(host2, liveTabIds, instanceId, confirm, includeLegacy) {
-  const candidates = inspectCodexProfiles(host2, liveTabIds, instanceId);
+function manageCodexProfiles(host2, liveTabIds, instanceId, confirm, includeLegacy, goneInstanceIds = []) {
+  const candidates = inspectCodexProfiles(host2, liveTabIds, instanceId, goneInstanceIds);
   const removed = [];
   if (!confirm) return { ...candidates, removed };
   const targets = [...candidates.dead, ...includeLegacy ? candidates.legacy : []];
-  for (const name of targets.slice(0, MAX_SWEEP_REMOVALS)) {
+  const live = new Set(liveTabIds);
+  const gone = new Set(goneInstanceIds);
+  for (const name of targets) {
+    if (removed.length >= MAX_SWEEP_REMOVALS) break;
     const path = profilePath(host2, name);
     if (!path) continue;
     const contents = readProfile(host2, path);
     if (contents === null) continue;
-    const owner = codexProfileInstanceId(contents);
-    const stillOwned = owner === instanceId;
-    const stillLegacy = includeLegacy && owner === null;
-    if ((stillOwned || stillLegacy) && removeProfileAfterTrustCarry(host2, path)) removed.push(name);
+    const classification = classifyCodexProfile(name, contents, live, instanceId, gone);
+    if ((classification === "dead" || includeLegacy && classification === "legacy") && removeProfileAfterTrustCarry(host2, path, contents)) removed.push(name);
   }
   return { ...candidates, removed };
 }
@@ -2412,7 +2431,8 @@ function releaseCodexProfile(host2, tabId, instanceId) {
   if (ownedPaths.length === 0) return false;
   let released = true;
   for (const path of ownedPaths) {
-    if (!removeProfileAfterTrustCarry(host2, path)) released = false;
+    const contents = readProfile(host2, path);
+    if (contents === null || codexProfileInstanceId(contents) !== instanceId || !removeProfileAfterTrustCarry(host2, path, contents)) released = false;
   }
   return released;
 }
@@ -3636,8 +3656,8 @@ function requireDirectResume(command) {
 }
 function windowsProfileCommand(parts, taskPath, instanceId) {
   const quotedInstanceId = host.shell.quoteFor(instanceId, host.platform());
-  const taskSetup = taskPath ? `$ctTaskInstructions = [System.IO.File]::ReadAllText(${host.shell.quoteFor(taskPath, host.platform())}, [System.Text.Encoding]::UTF8); $ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); ` : "$ctTaskJson = $null; ";
-  const profileValue = taskPath ? "('# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine + 'developer_instructions = ' + $ctTaskJson)" : "('# codeterm-instance: ' + $ctInstanceId)";
+  const taskSetup = taskPath ? `$ctTaskInstructions = [System.IO.File]::ReadAllText(${host.shell.quoteFor(taskPath, host.platform())}, [System.Text.Encoding]::UTF8); $ctTaskInstructions = $ctTaskInstructions.Replace("\`r\`n", "\`n").Replace("\`r", "\`n"); $ctTaskJson = ($ctTaskInstructions | ConvertTo-Json -Compress); ` : "$ctTaskJson = $null; ";
+  const profileValue = taskPath ? `('# codeterm-instance: ' + $ctInstanceId + "\`n" + 'developer_instructions = ' + $ctTaskJson)` : "('# codeterm-instance: ' + $ctInstanceId)";
   const prefix = "$PSNativeCommandArgumentPassing = 'Standard'; $ctTabId = $env:CODETERM_TAB_ID; if (-not $ctTabId) { throw 'CODETERM_TAB_ID is required for a per-tab Codex profile' }; " + taskSetup + `$ctProfileSuffix = $ctTabId -replace '[^A-Za-z0-9_-]', '-'; $ctProfileName = 'codeterm-' + $ctProfileSuffix; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); $ctInstanceId = ${quotedInstanceId}; if (Test-Path -LiteralPath $ctProfilePath) { $ctPriorReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { $ctPriorReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; $ctPriorRelease = Invoke-RestMethod -Method Post -Uri $ctPriorReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; $ctPriorReleased = [bool]$ctPriorRelease.released } } catch { Write-Warning 'Codex project trust carry-over was not confirmed'; }; if (-not $ctPriorReleased) { $ctOwnsPriorProfile = $false; try { $ctOwnsPriorProfile = ([System.IO.File]::ReadAllLines($ctProfilePath) | Select-Object -First 1) -eq ('# codeterm-instance: ' + $ctInstanceId) } catch {}; if ($ctOwnsPriorProfile) { $ctPreservedProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '-preserved.config.toml'); $ctExistingPreserved = Get-ChildItem -LiteralPath (Join-Path $env:USERPROFILE '.codex') -Filter ($ctProfileName + '-preserved*.config.toml') -File -ErrorAction SilentlyContinue | Select-Object -First 1; if (-not $ctExistingPreserved -and -not (Test-Path -LiteralPath $ctPreservedProfilePath)) { try { [System.IO.File]::Move($ctProfilePath, $ctPreservedProfilePath); Write-Warning 'Unreleased Codex profile was preserved'; } catch {} } }; if ((Test-Path -LiteralPath $ctProfilePath) -or -not $ctOwnsPriorProfile) { $ctProfileName = $ctProfileName + '-retry-' + $PID + '-' + [DateTime]::UtcNow.Ticks; $ctProfilePath = Join-Path $env:USERPROFILE ('.codex\\' + $ctProfileName + '.config.toml'); Write-Warning 'Unreleased Codex profile was retained; using a separate profile for this launch'; } } }; [System.IO.File]::WriteAllText($ctProfilePath, ${profileValue}, [System.Text.UTF8Encoding]::new($false)); $ctProfileReleased = $false; try { try { `;
   const suffix = " } finally { if (Test-Path -LiteralPath $ctProfilePath) { $ctProfileReleased = $false; try { if ($env:CODETERM_API_URL -and $env:CODETERM_API_TOKEN) { $ctReleaseUri = $env:CODETERM_API_URL.TrimEnd('/') + '/api/tabs/' + [uri]::EscapeDataString($ctTabId) + '/launch-artifacts/release'; $ctRelease = Invoke-RestMethod -Method Post -Uri $ctReleaseUri -Headers @{ Authorization = ('Bearer ' + $env:CODETERM_API_TOKEN) } -ContentType 'application/json' -Body '{}' -ErrorAction Stop; $ctProfileReleased = [bool]$ctRelease.released } } catch { Write-Warning 'Codex profile retained because project trust could not be persisted'; }; } } } finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath -Force -ErrorAction SilentlyContinue } }";
   return prefix + parts.join(" ") + suffix;
@@ -3745,7 +3765,8 @@ var plugin = {
       request.liveTabIds,
       request.instanceId,
       request.confirm,
-      request.includeLegacy
+      request.includeLegacy,
+      request.goneInstanceIds
     );
   },
   buildLaunchCommand(params) {
