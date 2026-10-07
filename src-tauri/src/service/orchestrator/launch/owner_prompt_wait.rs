@@ -11,12 +11,11 @@ pub(super) fn await_input_readiness(
     agent_id: &str,
     attempt: &LaunchAttempt,
     session_starts_on_first_turn: bool,
-    startup_binding_deadline: Duration,
     input_readiness_timeout: Duration,
     provider_readiness: ProviderReadinessStrategy,
     composer_cursor_position: ComposerCursorPosition,
 ) -> Result<LaunchInputEvidence, LaunchInputRefusal> {
-    let mut launch_input_deadline = Instant::now() + startup_binding_deadline;
+    let mut launch_input_deadline = Instant::now() + input_readiness_timeout;
     let mut resumed_after_owner_prompt = false;
     loop {
         if crate::service::launch_readiness::owner_prompt_is_active(tab_id) {
@@ -26,7 +25,7 @@ pub(super) fn await_input_readiness(
                 return Err(LaunchInputRefusal::OwnerPromptDeadline(question));
             }
             resumed_after_owner_prompt = true;
-            launch_input_deadline = Instant::now() + startup_binding_deadline;
+            launch_input_deadline = Instant::now() + input_readiness_timeout;
             continue;
         }
         let readiness = if session_starts_on_first_turn {
@@ -66,7 +65,7 @@ pub(super) fn await_input_readiness(
             });
             if stage_waited_for_owner && !resumed_after_owner_prompt {
                 resumed_after_owner_prompt = true;
-                launch_input_deadline = Instant::now() + startup_binding_deadline;
+                launch_input_deadline = Instant::now() + input_readiness_timeout;
                 continue;
             }
         }
