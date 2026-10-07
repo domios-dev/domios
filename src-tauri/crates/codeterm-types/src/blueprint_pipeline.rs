@@ -33,19 +33,9 @@ pub enum BlueprintOwner {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Trigger {
-    Schedule {
-        every: String,
-    },
-    Event {
-        kind: String,
-        params: Value,
-    },
-    Input {
-        kind: MediaKind,
-        source: DataRef,
-        #[serde(default)]
-        convert_to: Option<MediaKind>,
-    },
+    Schedule { every: String },
+    Event { kind: String, params: Value },
+    Input { kind: MediaKind, source: DataRef },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -224,28 +214,15 @@ pub fn validate(
             "trigger.kind",
             "must be a bounded capability kind",
         ),
-        Trigger::Input {
-            kind,
-            source,
-            convert_to,
-        } => {
+        Trigger::Input { kind, source } => {
             let input = crate::sentinel_input::InputSpec {
                 kind: *kind,
                 data: source.clone(),
-                convert_to: *convert_to,
+                convert_to: None,
                 convert_timeout_ms: None,
             };
             if let Err(reason) = crate::sentinel_input::validate(&input) {
                 error(&mut errors, "trigger", reason.as_str());
-            }
-            if let Some(to) = convert_to {
-                if !has_converter_path(*kind, *to, converters) {
-                    error(
-                        &mut errors,
-                        "trigger.convert_to",
-                        "no converter chain is available",
-                    );
-                }
             }
         }
         _ => {}
@@ -402,7 +379,10 @@ pub fn validate(
 }
 
 pub fn trigger_unavailable(trigger: &Trigger) -> bool {
-    !matches!(trigger, Trigger::Schedule { .. } | Trigger::Event { .. })
+    !matches!(
+        trigger,
+        Trigger::Schedule { .. } | Trigger::Event { .. } | Trigger::Input { .. }
+    )
 }
 
 pub fn ensure_trigger_available(trigger: &Trigger) -> Result<(), ValidationError> {
@@ -472,7 +452,7 @@ pub fn converter_path(
     converters: &[ConverterEdge],
 ) -> Option<Vec<usize>> {
     if from == to {
-        return Some(Vec::new());
+        return (from == MediaKind::Text).then(Vec::new);
     }
     let mut frontier: Vec<(MediaKind, Vec<usize>)> = vec![(from, Vec::new())];
     while !frontier.is_empty() {
@@ -509,9 +489,7 @@ fn has_converter_path(from: MediaKind, to: MediaKind, converters: &[ConverterEdg
 fn trigger_output(trigger: &Trigger) -> IoType {
     match trigger {
         Trigger::Schedule { .. } | Trigger::Event { .. } => IoType::Text,
-        Trigger::Input {
-            kind, convert_to, ..
-        } => IoType::from(convert_to.unwrap_or(*kind)),
+        Trigger::Input { kind, .. } => IoType::from(*kind),
     }
 }
 
@@ -897,9 +875,19 @@ mod tests {
             trigger: Trigger::Input {
                 kind: MediaKind::Audio,
                 source: DataRef::Url("https://example.com/voice.wav".into()),
-                convert_to: Some(MediaKind::Text),
             },
-            steps: vec![command("inspect", IoType::Text)],
+            steps: vec![
+                Step {
+                    name: "convert".into(),
+                    input: IoType::Audio,
+                    kind: StepKind::Convert {
+                        from: MediaKind::Audio,
+                        to: MediaKind::Text,
+                    },
+                    on: BTreeMap::new(),
+                },
+                command("inspect", IoType::Text),
+            ],
             result: BlueprintResult {
                 to: ResultTarget::Owner,
             },
@@ -992,16 +980,11 @@ mod tests {
             params: Value::Null,
         })
         .is_ok());
-        assert_eq!(
-            ensure_trigger_available(&Trigger::Input {
-                kind: MediaKind::Text,
-                source: DataRef::Text("hello".into()),
-                convert_to: None,
-            })
-            .unwrap_err()
-            .reason,
-            "trigger_unavailable"
-        );
+        assert!(ensure_trigger_available(&Trigger::Input {
+            kind: MediaKind::Text,
+            source: DataRef::Text("hello".into()),
+        })
+        .is_ok());
     }
 
     #[test]

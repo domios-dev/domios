@@ -220,10 +220,8 @@ impl Store {
     ) -> Result<Sentinel, String> {
         let every = match &spec.trigger {
             codeterm_types::blueprint_pipeline::Trigger::Schedule { every } => every.clone(),
-            codeterm_types::blueprint_pipeline::Trigger::Event { .. } => "20s".into(),
-            codeterm_types::blueprint_pipeline::Trigger::Input { .. } => {
-                return Err("trigger_unavailable".into())
-            }
+            codeterm_types::blueprint_pipeline::Trigger::Event { .. }
+            | codeterm_types::blueprint_pipeline::Trigger::Input { .. } => "20s".into(),
         };
         let create = Create {
             name: Some(spec.name.clone()),

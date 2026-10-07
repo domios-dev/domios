@@ -746,14 +746,9 @@ fn trigger_view(trigger: &codeterm_types::blueprint_pipeline::Trigger) -> Value 
         Trigger::Event { kind, .. } => {
             json!({"type":"event","summary":format!("event {kind}")})
         }
-        Trigger::Input {
-            kind,
-            source,
-            convert_to,
-        } => json!({
-            "type":"input",
-            "summary":format!("{} convert_to={}", input_summary(*kind, source), convert_to.map(|kind| kind.as_str()).unwrap_or("-"))
-        }),
+        Trigger::Input { kind, source } => {
+            json!({"type":"input", "summary":input_summary(*kind, source)})
+        }
     }
 }
 
