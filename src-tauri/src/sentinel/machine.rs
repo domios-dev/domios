@@ -356,6 +356,7 @@ pub fn evaluate_with_other_rearm(
     machine.last_hash = Some(hash);
     let classification = classify();
     evidence.classified(classification.source);
+    evidence.record_decision(&classification);
     let mut verdict = match classification.result {
         Ok(verdict) => verdict,
         Err(failure) => return skipped(failure.reason(), evidence),

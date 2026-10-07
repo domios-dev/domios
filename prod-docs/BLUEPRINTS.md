@@ -196,7 +196,7 @@ commands can access files available to the daemon account.
 Each command claim is persisted before launch and is never replayed, including an uncertain crash. Success requires
 actual zero exit and confirmed parent, boundary and capture settlement. Nonzero, API/spawn error, cancellation, deadline
 and unconfirmed resources remain distinguishable in `command_result`. Safe metadata includes nullable exit code, capture
-counts and truncation, start/finish Unix milliseconds and the enclosing actual execution ID. Graph results exclude
+counts and truncation, start/finish Unix milliseconds and the enclosing actual execution ID. Graph execution results exclude
 command text, stdout/stderr, cwd and credentials. Captured command output is never automatically forwarded to a handler,
 model or tab. Stop, expiry, Team cleanup and graceful daemon shutdown request cancellation through the exact active
 command's native event and its owned cleanup. The shutdown subscription closes admission and wakes waits; it does not
@@ -209,8 +209,17 @@ Mesh transport does not provide a remote execution claimant or replay contract.
 
 Team Mission Control and the workspace automation entry list named Blueprints; an entry opens its graph. Nodes show
 declared purpose, exact scope, state, expiry, handler results and connected targets; cron-to-Worker edges need retained
-run and tab IDs. Probe text, task bodies, credentials and secrets are excluded, truncation at the read limit is reported,
+run and tab IDs. Task bodies, raw stdout/stderr, cwd, environment and credentials are excluded, truncation at the read limit is reported,
 and graph Stop validates the exact node scope through authenticated host control.
+
+An exact Team graph view may include version-1 node detail for that Team's stored definition: redacted probe text,
+question, bucket patterns and command handlers. This narrow exception does not expose execution output or environment.
+The workspace overview returns `definition.unavailable`; a mismatched scope never grants definition access. Probe and
+command text are capped at 4096 bytes with explicit truncation flags; an unrepresentable definition or one exceeding
+64 KiB is unavailable. Pipeline definitions are unavailable in version 1. Origin remains unknown without positive
+provenance. An absent creator name does not imply system ownership. Accepted transitions retain pattern or adapter
+provenance, adapter/model identity and confidence separately from the configured fallback. `adapter_used` stays null
+when retained history lacks decision provenance. A next-check timestamp appears only for an authoritative active schedule.
 
 ## Inspect and stop
 
@@ -235,4 +244,4 @@ automatic migration, reset or discard. Use fresh isolated dev data for demonstra
 A failed persistence write returns an error and holds Blueprint unavailable; cancellation stays in memory and durability
 is unconfirmed until a valid store reload. Repair the filesystem first. No stop success or handler replay is inferred.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

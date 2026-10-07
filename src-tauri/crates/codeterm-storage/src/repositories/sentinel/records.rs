@@ -1,3 +1,5 @@
+mod transition;
+
 use crate::error::StorageError;
 use crate::repositories::{to_sql_u64, Revision};
 use codeterm_types::sentinel_input::InputSpec;
@@ -464,6 +466,7 @@ pub struct HandlerResultRecord {
 /// `definition_version` is `None` for transitions accepted before versioned history.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransitionRecord {
+    pub decision_json: Option<String>,
     pub id: String,
     pub bucket: String,
     pub accepted_at: u64,
@@ -535,6 +538,7 @@ pub struct RuntimeOutcome {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewTransition {
+    pub decision_json: Option<String>,
     pub id: String,
     pub bucket: String,
     pub accepted_at: u64,
@@ -979,49 +983,6 @@ impl HandlerResultRecord {
                 .command_result
                 .as_ref()
                 .map_or(0, CommandResultRecord::cost)
-    }
-}
-
-impl TransitionRecord {
-    fn validate(&self) -> Result<(), StorageError> {
-        identifier("transition id", &self.id)?;
-        identifier("transition bucket", &self.bucket)?;
-        integer("transition time", self.accepted_at)?;
-        count("transition results", self.handlers.len(), MAX_RESULTS)?;
-        let mut handlers = HashSet::new();
-        for result in &self.handlers {
-            result.validate()?;
-            if !handlers.insert(result.handler_id.as_str()) {
-                return Err(StorageError::invalid(
-                    "transition results",
-                    "repeat a handler id",
-                ));
-            }
-        }
-        Ok(())
-    }
-
-    fn cost(&self) -> usize {
-        RECORD_OVERHEAD
-            + self.id.len()
-            + self.bucket.len()
-            + self
-                .handlers
-                .iter()
-                .map(HandlerResultRecord::cost)
-                .sum::<usize>()
-    }
-}
-
-impl NewTransition {
-    pub(super) fn validate(&self) -> Result<(), StorageError> {
-        identifier("transition id", &self.id)?;
-        identifier("transition bucket", &self.bucket)?;
-        integer("transition time", self.accepted_at)
-    }
-
-    pub(super) fn cost(&self) -> usize {
-        RECORD_OVERHEAD + self.id.len() + self.bucket.len()
     }
 }
 
