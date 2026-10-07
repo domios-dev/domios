@@ -35,6 +35,7 @@ impl RelayBinding {
 pub(super) struct ActiveRelay {
     binding: RelayBinding,
     model: Mutex<ReplyRelayModel>,
+    worker: Mutex<super::worker::WorkerTurnState>,
     signal: SyncSender<()>,
     _watcher: Mutex<Option<RecommendedWatcher>>,
 }
@@ -60,6 +61,7 @@ impl ReplyRelayRegistry {
         let entry = Arc::new(ActiveRelay {
             binding,
             model: Mutex::new(Default::default()),
+            worker: Mutex::new(Default::default()),
             signal,
             _watcher: Mutex::new(Some(watcher)),
         });
@@ -104,6 +106,7 @@ impl ReplyRelayRegistry {
     pub(crate) fn cancel(&self, tab: &str, delivery_id: &str) {
         if let Some(entry) = self.entries.lock().get(tab) {
             entry.model.lock().cancel(delivery_id);
+            entry.worker.lock().cancel(delivery_id);
         }
         if let Some(pending) = self.staged.lock().get_mut(tab) {
             pending.retain(|pending| pending.delivery_id != delivery_id);
@@ -193,6 +196,7 @@ impl ServiceContext {
             user_text: text.to_string(),
             turn_normalization: capture.turn_normalization,
             hops: envelope.relay_hops,
+            task: self.reply_relay_task_binding(&target),
         };
         let id = pending.delivery_id.clone();
         if pending.session_id.is_empty() {
@@ -261,6 +265,7 @@ impl ServiceContext {
                 user_text: text.into(),
                 turn_normalization: normalization,
                 hops: 0,
+                task: None,
             }],
         );
     }
@@ -290,6 +295,7 @@ impl ServiceContext {
                 continue;
             }
             pending.session_id = binding.session.clone();
+            pending.task = self.reply_relay_task_binding(target);
             if let Err(error) = self.record_bound_reply_relay(target, pending) {
                 log::warn!("[reply-relay] target={target} activation failed: {error}");
             }
@@ -297,7 +303,7 @@ impl ServiceContext {
         self.reply_relays.wake(target);
     }
 
-    fn current_reply_relay_binding(&self, target: &str) -> Option<RelayBinding> {
+    pub(super) fn current_reply_relay_binding(&self, target: &str) -> Option<RelayBinding> {
         let (provider, session, nonce, cwd) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(target)?;
@@ -356,8 +362,14 @@ impl ServiceContext {
             );
             return Ok(());
         }
-        if !entry.model.lock().record(pending) {
-            return Err("relay capacity or duplicate delivery".into());
+        {
+            let mut model = entry.model.lock();
+            let mut worker = entry.worker.lock();
+            let worker_pending = pending.clone();
+            if !model.record(pending) {
+                return Err("relay capacity or duplicate delivery".into());
+            }
+            worker.track(worker_pending);
         }
         let _ = entry.signal.try_send(());
         Ok(())

@@ -7,20 +7,44 @@ impl ServiceContext {
             return;
         }
         let max_hops = crate::config::load_config().agent.reply_relay_max_hops;
-        let pending = entry.model.lock().pending();
+        let mut pending = entry.worker.lock().pending();
+        for relay in entry.model.lock().pending() {
+            if !pending
+                .iter()
+                .any(|pending| pending.delivery_id == relay.delivery_id)
+            {
+                pending.push(relay);
+            }
+        }
         for pending in pending {
+            self.observe_tool_less_worker_ack(target, &entry.binding, &pending, &entry.worker);
+            let after_offset = entry
+                .model
+                .lock()
+                .read_offset(&pending)
+                .max(entry.worker.lock().read_offset(&pending));
             let evidence = self
                 .agent_registry
                 .with_provider(&entry.binding.provider, |provider| {
                     provider.read_reply_relay_turn(
                         &entry.binding.cwd,
                         &entry.binding.session,
-                        pending.after_offset,
+                        after_offset,
                     )
                 })
                 .flatten();
             if self.current_reply_relay_binding(target).as_ref() != Some(&entry.binding) {
                 return;
+            }
+            let report = {
+                entry.worker.lock().observe_completion(
+                    &pending,
+                    entry.binding.source(),
+                    evidence.as_ref(),
+                )
+            };
+            if let Some(report) = report {
+                self.publish_tool_less_worker_report(target, &entry.binding, &pending, report);
             }
             let open_senders = {
                 let mux = self.mux.read();
@@ -33,7 +57,8 @@ impl ServiceContext {
                     .map(|pending| pending.sender_tab.clone())
                     .collect::<std::collections::HashSet<_>>()
             };
-            let actions = entry.model.lock().observe_evidence(
+            let actions = entry.model.lock().observe_delivery_evidence(
+                &pending.delivery_id,
                 entry.binding.source(),
                 evidence.as_ref(),
                 |sender| open_senders.contains(sender),
