@@ -396,7 +396,7 @@ fn insert_transition(
         .transpose()?;
     cx.write(
         "INSERT INTO sentinel_transitions (sentinel_id, ordinal, transition_id, bucket, \
-         accepted_at, terminal, definition_version) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+         accepted_at, terminal, definition_version, decision_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             id,
             ordinal,
@@ -404,7 +404,8 @@ fn insert_transition(
             transition.bucket,
             to_sql_u64("transition time", transition.accepted_at)?,
             transition.terminal,
-            version
+            version,
+            transition.decision_json
         ],
     )?;
     Ok(())
@@ -654,6 +655,7 @@ fn import_transition(
     transition: &TransitionRecord,
 ) -> Result<(), StorageError> {
     let accepted = NewTransition {
+        decision_json: transition.decision_json.clone(),
         id: transition.id.clone(),
         bucket: transition.bucket.clone(),
         accepted_at: transition.accepted_at,

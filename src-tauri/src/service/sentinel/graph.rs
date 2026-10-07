@@ -221,7 +221,7 @@ impl ServiceContext {
             .map(|state| connected_crons(&state.lock(), &jobs, workspace, team))
             .unwrap_or_default();
         let now = handle.store.lock().clock.now_ms();
-        let executor = self.automation_decision_executor();
+        let executor = self.automation_configured_fallback();
         let mux = self.mux.read();
         let mut snapshot = graph::project(
             workspace,
@@ -274,7 +274,7 @@ impl ServiceContext {
             }
         }
         let now = handle.store.lock().clock.now_ms();
-        let executor = self.automation_decision_executor();
+        let executor = self.automation_configured_fallback();
         let mux = self.mux.read();
         let mut combined = graph::project(
             workspace,
@@ -334,6 +334,11 @@ impl ServiceContext {
         }
         combined.revision = format!("{:x}", Sha256::digest(revisions.join("|")));
         combined.all_teams = true;
+        for node in &mut combined.nodes {
+            if let Some(detail) = node.get_mut("detail") {
+                detail["definition"] = json!({"unavailable":"team_view_required"});
+            }
+        }
         project_pipeline_contract(
             &mut combined,
             &jobs,
@@ -345,33 +350,20 @@ impl ServiceContext {
         Ok(combined)
     }
 
-    fn automation_decision_executor(&self) -> Value {
+    fn automation_configured_fallback(&self) -> Value {
         let config = self
             .app_handle
             .try_state::<crate::config::ConfigState>()
             .map(|s| s.lock().supporter.clone());
-        let adapter = config
+        match config
             .as_ref()
-            .and_then(|c| c.active_id())
-            .and_then(|id| self.supporter_models.get(id));
-        let configured = config
-            .as_ref()
-            .and_then(|c| c.active_id().and_then(|id| c.connection(id).model));
-        let capabilities = adapter.as_ref().map(|a| {
-            let p = a.primitives();
-            let mut names = Vec::new();
-            if p.choice {
-                names.push("choice");
+            .and_then(|config| config.active_id().map(|id| (config, id)))
+        {
+            Some((config, id)) => {
+                graph::configured_fallback(Some(id), config.connection(id).model.as_deref())
             }
-            if p.noul {
-                names.push("noul");
-            }
-            if p.score {
-                names.push("score");
-            }
-            names
-        });
-        json!({"kind":"decision","selection":"shared_active","provider_id":null,"adapter_id":config.as_ref().and_then(|c| c.active_id()),"model":configured,"configured_model":configured,"reported_model":null,"capabilities":capabilities})
+            None => Value::Null,
+        }
     }
 
     pub(crate) fn automation_graph_stop_host(
@@ -940,6 +932,7 @@ mod tests {
             nodes: vec![json!({"identity":graph::identity(job)})],
             edges: Vec::new(),
             truncated: false,
+            configured_fallback: Value::Null,
         };
         project_pipeline_contract(
             &mut snapshot,

@@ -277,6 +277,10 @@ fn domain_result(record: HandlerResultRecord) -> ResultRecord {
 /// Transitions recorded before versioned history keep `definition_version: None`.
 fn transition(transition: &Transition) -> TransitionRecord {
     TransitionRecord {
+        decision_json: transition
+            .decision
+            .as_ref()
+            .and_then(|decision| serde_json::to_string(decision).ok()),
         id: transition.id.clone(),
         bucket: transition.bucket.clone(),
         accepted_at: transition.accepted_at,
@@ -288,6 +292,10 @@ fn transition(transition: &Transition) -> TransitionRecord {
 
 pub(super) fn new_transition(transition: &Transition) -> NewTransition {
     NewTransition {
+        decision_json: transition
+            .decision
+            .as_ref()
+            .and_then(|decision| serde_json::to_string(decision).ok()),
         id: transition.id.clone(),
         bucket: transition.bucket.clone(),
         accepted_at: transition.accepted_at,
@@ -297,6 +305,13 @@ pub(super) fn new_transition(transition: &Transition) -> NewTransition {
 
 fn domain_transition(record: TransitionRecord) -> Transition {
     Transition {
+        decision: record
+            .decision_json
+            .as_deref()
+            .and_then(|json| {
+                serde_json::from_str::<crate::sentinel::provenance::Decision>(json).ok()
+            })
+            .filter(|decision| decision.valid()),
         id: record.id,
         bucket: record.bucket,
         accepted_at: record.accepted_at,

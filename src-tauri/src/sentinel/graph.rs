@@ -1,3 +1,6 @@
+mod detail;
+pub(crate) use detail::configured_fallback;
+
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use serde::{Deserialize, Serialize};
@@ -46,6 +49,7 @@ pub struct Snapshot {
     pub nodes: Vec<Value>,
     pub edges: Vec<Value>,
     pub truncated: bool,
+    pub configured_fallback: Value,
 }
 
 #[derive(Clone)]
@@ -225,7 +229,11 @@ fn record(result: &ResultRecord) -> Value {
 }
 
 fn placeholder(identity: &Identity) -> Value {
-    json!({"identity":identity,"name":format!("Missing {}", identity.kind),"purpose":null,"state":null,"availability":"missing","hidden":null,"schedule":null,"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"exact target unavailable"},"executor":null})
+    let mut node = json!({"identity":identity,"name":format!("Missing {}", identity.kind),"purpose":null,"state":null,"availability":"missing","hidden":null,"schedule":null,"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"exact target unavailable"},"executor":null});
+    if identity.kind == "sentinel" {
+        node["detail"] = detail::missing(identity);
+    }
+    node
 }
 
 pub fn tab_identity(tab: &Tab, workspace: &str) -> Identity {
@@ -398,7 +406,7 @@ pub fn project(
     jobs: &[Sentinel],
     mux: &MultiplexerState,
     crons: &BTreeMap<String, ConnectedCron>,
-    decision_executor: Value,
+    configured_fallback: Value,
     now_ms: u64,
     live_leases: &BTreeSet<String>,
 ) -> Result<Snapshot, String> {
@@ -530,8 +538,8 @@ pub fn project(
             }
             outcomes.push(json!({"bucket":bucket,"handlers":handlers}));
         }
-        let last_result = last.map(|t| json!({"bucket":t.bucket,"accepted_at":t.accepted_at,"handlers":t.handlers.iter().map(|r| { let mut value=record(r); value["handler_id"]=json!(r.handler_id); value }).collect::<Vec<_>>()}));
-        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":decision_executor,"source":source_descriptor(job),"sentinel_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
+        let last_result = last.map(|t| { let mut result = json!({"bucket":t.bucket,"accepted_at":t.accepted_at,"handlers":t.handlers.iter().map(|r| { let mut value=record(r); value["handler_id"]=json!(r.handler_id); value }).collect::<Vec<_>>()}); detail::project_decision(&mut result, t.decision.as_ref()); result });
+        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":null,"detail":detail::project(job, mux, workspace, team, now_ms, executing),"source":source_descriptor(job),"sentinel_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
     }
     Ok(Snapshot {
         workspace_id: workspace.into(),
@@ -542,5 +550,6 @@ pub fn project(
         nodes: nodes.into_values().collect(),
         edges,
         truncated,
+        configured_fallback,
     })
 }
