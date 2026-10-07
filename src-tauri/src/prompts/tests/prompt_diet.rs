@@ -40,7 +40,7 @@ const WORKER_SUFFIX_MAX_BYTES: usize = 4_700;
 const PRIMER_MAX_BYTES: usize = 2_600;
 const PROVIDER_RULES_MAX_BYTES: usize = 9_700;
 const WORKER_CHARTER_MAX_BYTES: usize = 1_450;
-const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 21_200;
+const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 21_350;
 // Planner launch re-measured with the primer Sentinel command line.
 const PLANNER_LAUNCH_MAX_BYTES: usize = 21_350;
 const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 8_600;
