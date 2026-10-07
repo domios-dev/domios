@@ -1,3 +1,4 @@
+mod parked_order;
 use super::{
     matching_turn_send_ids, ChatSendLedger, ChatSendState, ChatSendStatus, SendEvidenceAnchor,
 };
@@ -44,6 +45,29 @@ fn merged_turn_evidence_key(tab_id: &str, anchor: &SendEvidenceAnchor, turn_text
 }
 
 impl ChatSendLedger {
+    pub(crate) fn has_written_user_send_before(
+        &self,
+        authority: &UserSendAuthority,
+        sequence: u64,
+        held: bool,
+    ) -> bool {
+        let state = self.state.lock();
+        state.owned.iter().any(|(id, (prior, _))| {
+            state.by_id.get(id).is_some_and(|status| {
+                parked_order::blocks_later(
+                    held,
+                    prior.tab_id == authority.tab_id
+                        && prior.pty_id == authority.pty_id
+                        && prior.binding_nonce == authority.binding_nonce
+                        && prior.pty_session_generation == authority.pty_session_generation
+                        && prior.provider_id == authority.provider_id,
+                    status.sequence < sequence,
+                    &status.state,
+                )
+            })
+        })
+    }
+
     pub(crate) fn has_unsettled_user_send_before(
         &self,
         authority: &UserSendAuthority,

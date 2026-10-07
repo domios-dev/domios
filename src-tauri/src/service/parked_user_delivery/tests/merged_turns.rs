@@ -5,7 +5,7 @@ use super::*;
     not(windows),
     ignore = "requires the shared interactive desktop ServiceContext fixture"
 )]
-fn first_readiness_writes_all_held_user_sends_before_turn_evidence() {
+fn first_readiness_advances_held_user_sends_after_each_submit_unconfirmed() {
     const THIRD_PAYLOAD: &str = " opaque-c-b3e9\n\u{03bb}  ";
     let (fixture, tab) = queue_fixture(true, None);
     let first = start_current_chat_send(&fixture, &tab, FIRST_PAYLOAD, "client-a");
