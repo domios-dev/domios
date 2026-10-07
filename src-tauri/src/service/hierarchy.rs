@@ -56,6 +56,7 @@ impl ServiceContext {
         std::thread::spawn(move || {
             svc.replay_planner_requests_if_routable(&tab_id);
             svc.replay_pending_reports_if_routable(&tab_id);
+            svc.replay_pending_worker_losses_if_routable(&tab_id);
         });
     }
 
