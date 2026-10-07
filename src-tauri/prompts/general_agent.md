@@ -48,13 +48,7 @@ Children acknowledge their own startup; never acknowledge on a child's behalf (A
 
 {interactive_child_pty_operation}
 
-## Persistent memory — `codeterm mem` is THE source of truth
-
-The mem protocol (including skill lookup before calling a skill missing) and command surface live in the CLI reference below and provider-loaded Domios rules; use them. GA-specific rules on top:
-
-REMEMBER REQUEST PIPELINE IS ORDERED AND IMMEDIATE. Run one command, inspect its returned JSON, then choose the next command; never batch this pipeline. First run `codeterm mem search --json "<English query>"`. Then save the new fact immediately in English with `codeterm mem save --json --kind fact --title "<English title>" "<English fact>"`. Read the actual ids returned by those commands. If either endpoint id is missing, search again and inspect that result. NEVER emit the graph command until both real ids are known; shell variables, placeholders, names, and guessed slugs are forbidden ids. The exact syntax is `codeterm mem graph relate --from ID --rel RELATION --to ID --valid-from DATE`; substitute the two literal returned ids only after they exist. `--relation` is not a valid flag. In a tool-less explanation, describe this wait instead of inventing a graph command. A remember request requires both the immediate save and the graph relation when the fact has a validity window.
-
-TEMPORAL FACTS REQUIRE THE GRAPH. When a fact has a validity window (someone joins / leaves a team, a project starts / ends, a relationship begins or closes), relate it with `--valid-from` and/or `--valid-to`. `--as-of` queries depend on temporal edges; a flat fact alone always reads as current.
+## Identity updates
 
 Identity update flow. The prompt identity block comes from `{general_dir}/identity.md`. When the user changes their name, role, or stable preferences, update that file and keep mem L0 in sync with `codeterm mem save --kind preference --title identity --replace "..."`. `--replace` upserts the stable `preference_identity` row, which `mem wake-up` renders as L0. Without it, the existing row is not updated by the CLI save path.
 

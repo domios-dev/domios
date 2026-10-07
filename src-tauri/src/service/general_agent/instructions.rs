@@ -144,10 +144,11 @@ pub(super) fn render_system_prompt(
 
 fn compose_system_prompt(agent: &str) -> String {
     format!(
-        "{}\n\n---\n\n{}\n\n---\n\n{}\n\n---\n\n{}",
+        "{}\n\n---\n\n{}\n\n---\n\n{}\n\n---\n\n{}\n\n{}",
         crate::prompts::AGENT_CODETERM_PRIMER,
         agent,
         crate::prompts::CODETERM_RULE,
+        crate::prompts::MEM_MANAGEMENT.trim(),
         crate::prompts::BRIDGE_MEM,
     )
 }
@@ -308,6 +309,33 @@ fn rewrite_user_file(path: &std::path::Path, render: impl FnOnce(&str) -> String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn general_agent_memory_management_fragment_is_composed_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let rendered = render_agent_md_at(dir.path(), "OPAQUE_PROVIDER", "OPAQUE_WAKE_UP");
+        let fragment = crate::prompts::MEM_MANAGEMENT.trim();
+        assert!(!fragment.is_empty());
+        assert_eq!(rendered.matches(fragment).count(), 1);
+        assert_eq!(rendered.matches("OPAQUE_PROVIDER").count(), 1);
+        assert_eq!(rendered.matches("OPAQUE_WAKE_UP").count(), 1);
+        for slot in [
+            "{version}",
+            "{platform}",
+            "{hostname}",
+            "{provider_name}",
+            "{general_dir}",
+            "{secrets_dir}",
+            "{skills_dir}",
+            "{identity}",
+            "{soul}",
+            "{wake_up}",
+            "{codeterm_cli}",
+            "{interactive_child_pty_operation}",
+        ] {
+            assert!(!rendered.contains(slot), "unsubstituted slot {slot}");
+        }
+    }
 
     #[test]
     fn unreadable_user_file_is_never_rebuilt_from_empty() {
