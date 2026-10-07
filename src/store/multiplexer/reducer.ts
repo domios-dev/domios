@@ -1,3 +1,4 @@
+import { applyShellState, type ShellCommandState } from "../../lib/shellCommandState";
 import { TitleLevel } from "../../lib/types";
 import type {
   MultiplexerState,
@@ -15,6 +16,7 @@ import {
 import type { RemoteTransportAvailability, RemoteTransportChannel } from "../../lib/remoteTabTransportState";
 
 export type Action =
+  | { type: "UPDATE_SHELL_STATE"; tabId: string; ptyId: string; state: ShellCommandState }
   | { type: "SET_STATE"; state: MultiplexerState }
   | { type: "ADD_WORKSPACE"; workspace: Workspace; tab: Tab }
   | { type: "SET_ACTIVE_WORKSPACE"; id: string }
@@ -476,6 +478,12 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
       if (action.tabId && !state.tabs[action.tabId]) return state;
       return { ...state, focused_tab_id: action.tabId };
 
+    case "UPDATE_SHELL_STATE": {
+      const tab = state.tabs[action.tabId];
+      if (!tab) return state;
+      const updated = applyShellState(tab, action.ptyId, action.state);
+      return updated === tab ? state : { ...state, tabs: { ...state.tabs, [action.tabId]: updated } };
+    }
     case "SET_TAB_PTY": {
       const tab = state.tabs[action.tabId];
       if (!tab) return state;
@@ -483,7 +491,7 @@ export function reducer(state: ExtendedState, action: Action): ExtendedState {
         ...state,
         tabs: {
           ...state.tabs,
-          [action.tabId]: { ...tab, pty_id: action.ptyId },
+          [action.tabId]: { ...tab, pty_id: action.ptyId, shell_command_state: tab.pty_id === action.ptyId ? tab.shell_command_state : undefined },
         },
       };
     }

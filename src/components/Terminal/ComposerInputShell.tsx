@@ -41,13 +41,11 @@ export function ComposerInputShell({
   return (
     <ComposerCard ref={shellRef}
       header={!composerHidden ? header : undefined}
-      footer={<>
-        <div className={composerHidden ? "invisible flex flex-wrap items-center gap-1" : "flex flex-wrap items-center gap-1"} inert={composerHidden || undefined}>{footer}</div>
-        {!composerHidden && <div className="flex items-center gap-2">
-          {actions}
-          {mainIsSend && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}
-        </div>}
-      </>}
+      footer={!composerHidden && footer ? <div className="flex flex-wrap items-center gap-1">{footer}</div> : undefined}
+      actions={!composerHidden && <div className="flex shrink-0 items-center gap-1">
+        {actions}
+        {mainIsSend && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}
+      </div>}
     >
       {composerHidden && (
         <div className="absolute inset-1 z-10 flex items-center px-1.5">

@@ -6,6 +6,7 @@ use crate::session::store::SplitNodeSnapshot;
 /// A persisted role claim, with or without a provider identity behind it.
 fn role_claim_leaf(role: &str, role_profile: Option<&str>) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
         tab_id: "db79d2da".into(),
         cwd: None,
         title: Some("Plan card fixture".into()),

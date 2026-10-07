@@ -66,4 +66,14 @@ const plugin = sandbox.module.exports.default;
 check(() => assert.deepEqual(JSON.parse(JSON.stringify(plugin.parseContextUsage(record))), parseContextUsage(record)));
 const delta = plugin.parseSessionDelta(JSON.stringify({type:"assistant",uuid:"own",message:{content:[{type:"text",text:"opaque"}],usage:{input_tokens:9,cache_read_input_tokens:2}}}));
 check(() => assert.equal(delta.messages[0].context_usage.used_tokens, 11));
+for (const platform of ["linux", "windows"]) {
+  Object.assign(sandbox.host, {
+    platform: () => platform,
+    shell: {quoteFor: (value: string) => `'${value.replace(/'/g, "'\\''")}'`},
+  });
+  const settingsArg = '{"opaque":"value with spaces"}';
+  const command = plugin.buildLaunchCommand({args:["--settings", settingsArg]});
+  check(() => assert.ok(command.includes("claude --settings ")));
+  check(() => assert.ok(command.includes(`'${settingsArg}'`)));
+}
 console.log(`${checks} passed, 0 failed`);

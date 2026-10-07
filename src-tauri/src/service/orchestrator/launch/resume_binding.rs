@@ -63,6 +63,10 @@ fn recovery_required(relaunch: bool, authenticated: bool, current: bool) -> bool
     relaunch && !authenticated && current
 }
 
+pub(super) fn fallback_still_required(binding_only: bool, authenticated: bool) -> bool {
+    !binding_only || !authenticated
+}
+
 pub(super) fn finish_unbound_relaunch(
     launch: &LaunchGeneration,
     svc: &ServiceContext,

@@ -109,6 +109,9 @@ pub enum TabAction {
     /// Plain shell tab, inheriting the calling tab's workspace and Team. For an
     /// AI tab use `codeterm agent spawn`.
     New {
+        /// Utility shell purpose shown in the sidebar.
+        #[arg(long, default_value = "shell", value_parser = ["build", "dev", "qa", "shell"], conflicts_with = "chat_backend")]
+        purpose: String,
         /// Target workspace id. Defaults to the calling tab's own workspace, then
         /// the focused workspace for a caller with no tab identity.
         #[arg(long)]

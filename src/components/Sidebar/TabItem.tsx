@@ -1,3 +1,5 @@
+import { ShellPurposeIcon, ShellStatus } from "../shared/ShellStatus";
+import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { ShieldCheck, TriangleAlert } from "lucide-react";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
@@ -229,7 +231,8 @@ function TabItemInner({
   const canonicalTitle = displayTitleForTab(tab);
   const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
   const isGeneralAgent = isGeneralAgentTab(tab);
-  const accessibleTitle = isGeneralAgent ? "General Agent" : displayTitle;
+  const utilityShell = isUtilityShell(tab);
+  const accessibleTitle = isGeneralAgent ? "General Agent" : utilityShell ? `${shellPurposeLabel(tab.purpose)}, ${displayTitle}` : displayTitle;
   const roleShield = restoreFailure.showIdentityBadges
     ? (isGeneralAgent ? "General Agent" : roleShieldLabel(tab))
     : null;
@@ -287,8 +290,6 @@ function TabItemInner({
     <div
       ref={tabRef}
       role="group"
-      // Name the row from the title alone — the tooltip also carries the live
-      // description, which would make the accessible name churn on every update.
       aria-label={accessibleTitle}
       data-testid="tab-item"
       data-tab-id={tab.id}
@@ -355,7 +356,7 @@ function TabItemInner({
           ) : tab.tab_type === "Choice" ? (
             <ChoiceIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
           ) : (
-            <TerminalIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
+            utilityShell ? <ShellPurposeIcon purpose={tab.purpose} /> : <TerminalIcon className={`${touchMode ? "scale-110" : isSubTab ? "scale-90" : ""}`} />
           )}
         </span>
         <span className="min-w-0 flex-1">
@@ -376,6 +377,7 @@ function TabItemInner({
                 <TabWorkingActivity active={status === "Working"} />
               )}
             </span>
+            {utilityShell && <ShellStatus tab={tab} />}
             {collapsed && groupCollapsible && collapsedSummary ? (
               <span
                 data-testid="group-collapsed-summary"
@@ -448,7 +450,7 @@ function TabItemInner({
           <TriangleAlert size={13} aria-hidden="true" />
         </span>
       )}
-      <span
+      {!utilityShell && <span
         className="sr-only"
         role="status"
         aria-live="polite"
@@ -456,7 +458,7 @@ function TabItemInner({
         aria-label={`${accessibleTitle} tab status ${status ?? "Unknown"}`}
       >
         {accessibleTitle} tab status {status ?? "Unknown"}
-      </span>
+      </span>}
       <div className="shrink-0 relative z-[1] flex items-center min-w-5 justify-end">
         {tabModelBadge && !touchMode ? (
           <SidebarModelBadge label={tabModelBadge} title={tabModelTitle} />
@@ -532,6 +534,9 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     // a stale label after wake/cache-reconcile.
     pp.title === np.title &&
     pp.title_level === np.title_level &&
+    pp.purpose === np.purpose &&
+    pp.shell_command_state?.activity === np.shell_command_state?.activity &&
+    pp.shell_command_state?.last_exit_code === np.shell_command_state?.last_exit_code &&
     pp.description === np.description &&
     pp.agent_type === np.agent_type &&
     pp.agent_session_id === np.agent_session_id &&
@@ -546,6 +551,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     pp.boot_failure_reason === np.boot_failure_reason &&
     pp.role_profile === np.role_profile &&
     pp.role === np.role &&
+    pp.roleless_tracked === np.roleless_tracked &&
     pp.role_profile === np.role_profile &&
     JSON.stringify(pp.remote_channels) === JSON.stringify(np.remote_channels) &&
     pp.ownership?.controller_title === np.ownership?.controller_title &&

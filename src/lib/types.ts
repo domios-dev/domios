@@ -150,6 +150,8 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
+  purpose?: import("./shellCommandState").ShellPurpose;
+  shell_command_state?: import("./shellCommandState").ShellCommandState;
   context?: { used_tokens: number; window_tokens: number; cost_usd: number | null; source: string };
   id: string;
   workspace_id?: string | null;
@@ -195,6 +197,7 @@ export interface Tab {
   }>;
   role?: AgentRole | null;
   role_profile?: string | null;
+  roleless_tracked?: boolean;
   team_id?: string | null;
   spawned_by_tab_id?: string | null;
   managed?: { manager_tab_id: string; manager_name: string; manager_closed: boolean } | null;

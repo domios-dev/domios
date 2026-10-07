@@ -210,6 +210,7 @@ fn authoritative_session_binding_persists_orchestration_identity() {
 
 fn leaf(id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
+        purpose: Default::default(),
         tab_id: id.into(),
         cwd: None,
         title: None,
