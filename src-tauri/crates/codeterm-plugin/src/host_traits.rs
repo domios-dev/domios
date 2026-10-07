@@ -57,6 +57,14 @@ pub trait PluginHostCtx: Send + Sync {
         None
     }
 
+    /// Host-only owned provider keys for decision subprocesses; never exposed to JS.
+    fn model_provider_process_env(
+        &self,
+        _plugin_id: &str,
+    ) -> Result<std::collections::HashMap<String, String>, ()> {
+        Ok(std::collections::HashMap::new())
+    }
+
     // ── Secrets ─────────────────────────────────────────────────────────
     fn secret_get(&self, plugin_id: &str, name: &str) -> Option<String>;
     fn secret_set(&self, plugin_id: &str, name: &str, value: &str) -> bool;

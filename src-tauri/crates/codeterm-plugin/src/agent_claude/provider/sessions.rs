@@ -25,9 +25,9 @@ pub(super) fn encode_cwd(cwd: &str) -> String {
 /// raw cwd would encode to a dir that doesn't exist. Canonicalize to match;
 /// fall back to the raw cwd if the path can't be resolved (e.g. it was removed).
 pub(super) fn sessions_dir(cwd: &str) -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
+    let home = super::read_home::config_root()?;
     let encoded = encode_cwd(&codeterm_paths::canonical_cwd(cwd));
-    Some(home.join(".claude").join("projects").join(encoded))
+    Some(home.join("projects").join(encoded))
 }
 
 /// Read the real cwd out of a Claude session JSONL. Claude's directory
@@ -616,7 +616,7 @@ mod model_label_tests;
 type SessionsIndex = std::collections::HashMap<String, serde_json::Value>;
 
 fn claude_projects_root() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".claude").join("projects"))
+    super::read_home::config_root().map(|home| home.join("projects"))
 }
 
 fn is_session_stem(stem: &str) -> bool {

@@ -59,6 +59,9 @@ pub fn handle_plugin(json: bool, action: PluginAction) {
         Ok(mut value) => {
             if report_cli {
                 cli_status::attach(&mut value, &root, requested_id.as_deref());
+                if let Err(error) = cli_status::register_installed(&mut value) {
+                    crate::cmd::print::fail(1, error);
+                }
             }
             if json {
                 println!("{}", serde_json::to_string_pretty(&value).unwrap());

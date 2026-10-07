@@ -204,14 +204,15 @@ const sharedDecisionModel: DecisionModelCapability = {
   decideQuestions(request: DecisionQuestionsRequest): DecisionResponse {
     return {
       answers: Object.fromEntries(
-        Object.entries(request.questions).map(([name, spec]) => [
-          name,
-          decisionModel.decide({
+        Object.entries(request.questions).map(([name, spec]) => {
+          const answer = decisionModel.decide({
             state: request.state,
             instructions: spec.instructions,
             question: spec.question,
-          }),
-        ]),
+          });
+          if ("error" in answer) throw new Error(answer.error);
+          return [name, answer];
+        }),
       ),
       usage: { input_tokens: 12, output_tokens: 4 },
     };

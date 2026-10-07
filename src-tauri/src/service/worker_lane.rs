@@ -130,10 +130,8 @@ impl ProvisionedWorkerLane {
     }
 
     pub(crate) fn cleanup(self) -> Result<(), String> {
-        let worktree = run_git(
-            &self.canonical_cwd,
-            ["worktree", "remove", "--force", &self.cwd],
-        );
+        let worktree =
+            super::lane_removal::remove_lane_worktree(&self.canonical_cwd, &self.cwd, true);
         let branch = run_git(&self.canonical_cwd, ["branch", "-D", &self.branch]);
         match (worktree, branch) {
             (Ok(()), Ok(())) => Ok(()),
@@ -663,7 +661,7 @@ fn provision_lane_at_base(
         &project_cwd,
         ["worktree", "add", "-b", &branch, &lane_cwd, &base],
     ) {
-        let _ = std::fs::remove_dir_all(&lane_path);
+        let _ = super::lane_removal::remove_lane_residue(&lane_path);
         let _ = run_git(&project_cwd, ["worktree", "prune"]);
         let _ = run_git(&project_cwd, ["branch", "-D", &branch]);
         return Err(error);

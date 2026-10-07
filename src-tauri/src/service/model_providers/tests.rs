@@ -9,6 +9,22 @@ struct Adapter {
 }
 
 impl ModelProviderConfig for Adapter {
+    fn read_presets(
+        &self,
+        config: &Value,
+    ) -> Result<Vec<codeterm_plugin::model_providers::ModelPreset>, String> {
+        self.inner.read_presets(config)
+    }
+    fn apply_presets(
+        &self,
+        config: &Value,
+        presets: &[codeterm_plugin::model_providers::ModelPreset],
+    ) -> Result<ConfigUpdate, String> {
+        self.inner.apply_presets(config, presets)
+    }
+    fn preset_launch_args(&self, name: &str) -> Result<Vec<String>, String> {
+        self.inner.preset_launch_args(name)
+    }
     fn path(&self) -> Result<PathBuf, String> {
         Ok(self.path.clone())
     }
@@ -24,6 +40,137 @@ impl ModelProviderConfig for Adapter {
     }
     fn key_env_name(&self, id: &str) -> Result<String, String> {
         self.inner.key_env_name(id)
+    }
+}
+
+#[test]
+fn model_provider_preset_owned_roundtrip_foreign_entries_and_launch_resolution() {
+    use codeterm_plugin::model_providers::{ModelPreset, PresetParams};
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = adapter(dir.path().join("config.json"));
+    let store = store();
+    let foreign = json!({"agent":{"foreign":{"model":"foreign/model","prompt":"opaque"}},"provider":{"foreign":{"npm":"foreign"}}});
+    std::fs::write(&adapter.path, serde_json::to_vec(&foreign).unwrap()).unwrap();
+    let preset = ModelPreset {
+        name: "demo".into(),
+        model: "endpoint/model".into(),
+        prompt: "opaque-prompt".into(),
+        params: PresetParams {
+            temperature: Some(0.2),
+            top_p: Some(0.8),
+            steps: Some(12),
+        },
+    };
+    execute(
+        &store,
+        "fixture",
+        &adapter,
+        ModelProviderRequest::PresetAdd {
+            preset: preset.clone(),
+        },
+    )
+    .unwrap();
+    let listed = execute(
+        &store,
+        "fixture",
+        &adapter,
+        ModelProviderRequest::PresetList,
+    )
+    .unwrap();
+    assert_eq!(listed["presets"], json!([preset]));
+    assert_eq!(
+        read_config(&adapter.path).unwrap()["provider"],
+        foreign["provider"]
+    );
+    assert_eq!(
+        presets::resolve(&adapter, "demo", None, &[]).unwrap(),
+        (
+            "endpoint/model".into(),
+            vec!["--agent".into(), "demo".into()]
+        )
+    );
+    assert_eq!(
+        presets::resolve(&adapter, "demo", Some("other/model"), &[]).unwrap_err(),
+        ModelProviderError::Conflict
+    );
+    assert_eq!(
+        presets::resolve(&adapter, "demo", None, &["--agent=foreign".into()]).unwrap_err(),
+        ModelProviderError::Conflict
+    );
+    let bytes = std::fs::read(&adapter.path).unwrap();
+    let mut collision = preset.clone();
+    collision.name = "foreign".into();
+    assert_eq!(
+        execute(
+            &store,
+            "fixture",
+            &adapter,
+            ModelProviderRequest::PresetAdd { preset: collision }
+        )
+        .unwrap_err(),
+        ModelProviderError::Conflict
+    );
+    assert_eq!(
+        execute(
+            &store,
+            "fixture",
+            &adapter,
+            ModelProviderRequest::PresetRemove {
+                name: "foreign".into()
+            }
+        )
+        .unwrap_err(),
+        ModelProviderError::NotFound
+    );
+    assert_eq!(std::fs::read(&adapter.path).unwrap(), bytes);
+    execute(
+        &store,
+        "fixture",
+        &adapter,
+        ModelProviderRequest::PresetRemove {
+            name: "demo".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(read_config(&adapter.path).unwrap(), foreign);
+}
+
+#[test]
+fn model_provider_preset_invalid_params_do_not_write_config() {
+    use codeterm_plugin::model_providers::{ModelPreset, PresetParams};
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = adapter(dir.path().join("config.json"));
+    for params in [
+        PresetParams {
+            temperature: Some(f64::NAN),
+            ..Default::default()
+        },
+        PresetParams {
+            top_p: Some(2.0),
+            ..Default::default()
+        },
+        PresetParams {
+            steps: Some(0),
+            ..Default::default()
+        },
+    ] {
+        let preset = ModelPreset {
+            name: "demo".into(),
+            model: "endpoint/model".into(),
+            prompt: "opaque".into(),
+            params,
+        };
+        assert_eq!(
+            execute(
+                &store(),
+                "fixture",
+                &adapter,
+                ModelProviderRequest::PresetAdd { preset }
+            )
+            .unwrap_err(),
+            ModelProviderError::InvalidRequest
+        );
+        assert!(!adapter.path.exists());
     }
 }
 
@@ -164,6 +311,85 @@ fn model_provider_add_launch_remove_preserves_foreign_config_and_secret_confinem
     assert!(
         tauri::async_runtime::block_on(async { store.read().await.get("slot").await }).is_err()
     );
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
+fn model_provider_decision_exec_uses_owned_launch_env_without_exposing_keys() {
+    use codeterm_plugin::{
+        js_runtime::{JsDecisionModel, JsProvider, PluginManifest, PluginVm},
+        PluginHostCtx,
+    };
+    use codeterm_types::decision::{
+        DecisionAnswer, DecisionModel, DecisionQuestion, DecisionRequest, TokenMode,
+    };
+    let mut fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    fixture.service.secrets = store();
+    let path = fixture.temp.path().join("decision-config.json");
+    let manifest: PluginManifest = serde_json::from_value(json!({"id":"arbitrary-owner","version":"0.1.0","displayName":"Fixture","capabilities":{"agentProvider":true,"modelProviderConfig":true,"decisionModel":true}})).unwrap();
+    let bundle = include_str!("../../../../plugins/provider-opencode/plugin.js");
+    let source = format!(
+        r#"{bundle}
+        module.exports.default.modelProviderConfigPath = () => {};
+        module.exports.default.decide = () => host.exec.async({{
+            bin:'node', args:['-e',"process.stdout.write(JSON.stringify({{type:'noul',p:process.env.DOMIOS_PROVIDER_DEMO_KEY ? 0.8 : 0}}))"], timeoutMs:2000
+        }}, result => JSON.parse(result.stdout));
+    "#,
+        serde_json::to_string(&path).unwrap()
+    );
+    let vm = Arc::new(PluginVm::from_source("arbitrary-owner", source).unwrap());
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(JsProvider::new(manifest, vm.clone())));
+    let host: Arc<dyn PluginHostCtx> = Arc::new(fixture.service.clone());
+    vm.set_service(Arc::downgrade(&host));
+    let key = ["generated", "decision", "fixture"].join("-");
+    fixture
+        .service
+        .model_provider_command(ModelProviderRequest::Add {
+            provider: definition(),
+            value: SecretString::from(key.clone()),
+        })
+        .unwrap();
+    let env = host.model_provider_process_env("arbitrary-owner").unwrap();
+    assert_eq!(
+        env,
+        fixture
+            .service
+            .model_provider_launch_env("arbitrary-owner")
+            .unwrap()
+    );
+    assert_eq!(env.get("DOMIOS_PROVIDER_DEMO_KEY"), Some(&key));
+    assert!(host
+        .model_provider_process_env("absent-owner")
+        .unwrap()
+        .is_empty());
+    assert!(!std::fs::read_to_string(&path).unwrap().contains(&key));
+    let model = JsDecisionModel::new(vm, "arbitrary-owner", TokenMode::None);
+    let request = DecisionRequest {
+        state: json!({}),
+        instructions: "opaque".into(),
+        question: DecisionQuestion::Noul { criteria: None },
+    };
+    assert_eq!(
+        model
+            .decide(&request, std::time::Instant::now() + Duration::from_secs(3))
+            .unwrap(),
+        DecisionAnswer::Noul { p: 0.8 }
+    );
+    fixture
+        .service
+        .model_provider_command(ModelProviderRequest::Remove {
+            name: "demo".into(),
+        })
+        .unwrap();
+    assert!(host
+        .model_provider_process_env("arbitrary-owner")
+        .unwrap()
+        .is_empty());
 }
 
 #[test]

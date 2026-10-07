@@ -1,3 +1,8 @@
+#[path = "spawn/cwd.rs"]
+mod cwd;
+mod dispatch_rollback;
+use dispatch_rollback::create_pending_delivery_or_rollback_dispatch;
+
 use codeterm_types::agent::role_kind::builtins;
 use codeterm_types::team::general_agent_membership::MembershipAttempt;
 
@@ -116,56 +121,6 @@ fn build_or_refuse_orchestrated_launch_command(
     Ok(launch_cmd)
 }
 
-fn revert_task_dispatch_after_launch_failure(
-    service: &ServiceContext,
-    params: &SpawnAgentParams,
-    failure: &str,
-) -> String {
-    let Some(task_ref) = crate::service::spawn_plan_task::worker_spawn_plan_task_ref(params) else {
-        return failure.to_string();
-    };
-    let resolved = match service
-        .plan_store
-        .resolve_task_ref(params.plan_id.as_deref(), task_ref)
-    {
-        Ok(resolved) => resolved,
-        Err(error) => {
-            return format!(
-                "{failure}; task dispatch rollback target could not be resolved: {error}"
-            )
-        }
-    };
-    match service.plan_store.revert_task_dispatch(
-        &resolved.plan_id,
-        &resolved.task_id,
-        crate::service::wall_now_ms(),
-    ) {
-        Ok(()) => {
-            service.emit_plan_changed(&resolved.plan_id);
-            failure.to_string()
-        }
-        Err(error) => format!("{failure}; task dispatch rollback failed: {error}"),
-    }
-}
-
-fn create_pending_delivery_or_rollback_dispatch(
-    service: &ServiceContext,
-    params: &SpawnAgentParams,
-    tab_id: &str,
-    spec: &crate::service::launch_delivery::FallbackDeliverySpec,
-) -> Result<(), String> {
-    let Err(error) = service.create_pending_delivery(tab_id, spec.channel.clone(), &spec.payload)
-    else {
-        return Ok(());
-    };
-    let failure = revert_task_dispatch_after_launch_failure(service, params, &error.to_string());
-    Err(service.rollback_failed_agent_spawn_if_created(
-        tab_id,
-        &failure,
-        params.existing_tab_id.is_none(),
-    ))
-}
-
 fn planner_startup_payload(
     system_prompt_capable: bool,
     manager_prompt: Option<String>,
@@ -202,55 +157,6 @@ fn compose_chatbackend_system_prompt(params: &mut SpawnAgentParams) -> Option<St
 }
 
 impl ServiceContext {
-    pub(crate) fn normalize_resolved_agent_cwd(path: &str) -> String {
-        codeterm_paths::strip_verbatim_prefix(path)
-    }
-
-    /// Resolve agent cwd against workspace cwd:
-    /// - If no cwd specified → inherit from workspace
-    /// - If cwd differs from workspace → return warning
-    /// - If nothing is specified → pin the daemon's own cwd, the dir the PTY
-    ///   would inherit anyway. Leaving it `None` desyncs the tab record from
-    ///   where the agent actually runs, so provider session-file resolution
-    ///   (`~/.claude/projects/<encoded-cwd>/<sid>.jsonl`) looks in the wrong
-    ///   dir and the chat pipeline reads empty.
-    pub(crate) fn resolve_agent_cwd(
-        agent_cwd: &Option<String>,
-        workspace_cwd: &Option<String>,
-    ) -> (Option<String>, Option<String>) {
-        let agent_cwd = agent_cwd.as_deref().map(Self::normalize_resolved_agent_cwd);
-        let workspace_cwd = workspace_cwd
-            .as_deref()
-            .map(Self::normalize_resolved_agent_cwd);
-        match (agent_cwd.as_deref(), workspace_cwd.as_deref()) {
-            (None, Some(ws_cwd)) => {
-                log::info!("[spawn] agent cwd inherited from workspace: {}", ws_cwd);
-                (Some(ws_cwd.to_string()), None)
-            }
-            (Some(agent_dir), Some(ws_dir)) if !Self::paths_equal(agent_dir, ws_dir) => {
-                let warning = format!(
-                    "Agent cwd '{}' differs from workspace cwd '{}'. \
-                     The agent will run in '{}', but the workspace is at '{}'.",
-                    agent_dir, ws_dir, agent_dir, ws_dir
-                );
-                log::warn!("[spawn] {}", warning);
-                (Some(agent_dir.to_string()), Some(warning))
-            }
-            (Some(dir), _) => (Some(dir.to_string()), None),
-            (None, None) => (
-                std::env::current_dir()
-                    .ok()
-                    .and_then(|p| p.to_str().map(Self::normalize_resolved_agent_cwd)),
-                None,
-            ),
-        }
-    }
-
-    /// Compare paths ignoring Windows verbatim prefixes, trailing slashes, and case on Windows.
-    pub(crate) fn paths_equal(a: &str, b: &str) -> bool {
-        codeterm_paths::paths_equal(a, b)
-    }
-
     /// Legacy wrapper for callers still on `SpawnAgentParams` (CLI/REST/batch/cron/socket).
     pub fn spawn_agent_sync(&self, params: SpawnAgentParams) -> Result<SpawnResult, String> {
         self.spawn_agent_sync_with_ready(params, None)
@@ -297,6 +203,7 @@ impl ServiceContext {
             .clone()
             .unwrap_or_else(crate::config::default_agent_provider);
         self.move_chatbackend_task_to_system_prompt(&agent, &mut params)?;
+        self.apply_model_preset(&agent, &mut params)?;
         let reasoning_effort = params.reasoning_effort.clone();
         self.classify_spawn_target_for_params(&agent, &params)?;
         let bind_params = params.clone();
@@ -401,6 +308,16 @@ impl ServiceContext {
             .clone()
             .unwrap_or_else(|| default_provider.clone());
         self.move_chatbackend_task_to_system_prompt(&agent_cmd, &mut params)?;
+        {
+            let svc = self.clone();
+            let provider = agent_cmd.clone();
+            params = tokio::task::spawn_blocking(move || {
+                svc.apply_model_preset(&provider, &mut params)?;
+                Ok::<_, String>(params)
+            })
+            .await
+            .map_err(|_| "preset resolution worker failed")??;
+        }
         let is_shell = self.classify_spawn_target_for_params(&agent_cmd, &params)?;
         let tab_created_by_spawn = params.existing_tab_id.is_none();
         if is_shell {
@@ -511,6 +428,16 @@ impl ServiceContext {
             model_resolution.warning.clone(),
         );
         params.cwd = resolved_cwd;
+        {
+            let service = self.clone();
+            let provider = agent_cmd.clone();
+            params = tokio::task::spawn_blocking(move || {
+                crate::service::context_bundle::prepare(&service, &provider, &mut params)?;
+                Ok::<_, String>(params)
+            })
+            .await
+            .map_err(|error| format!("context preparation failed: {error}"))??;
+        }
 
         let default_chat_view = crate::service::spawn::should_default_agent_tab_to_chat(
             crate::service::spawn::TabVisibility::Visible,

@@ -23,6 +23,7 @@ use super::wire::{
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
 mod delivery;
+mod session_detection;
 mod session_wire;
 
 use session_wire::WireUsageSource;
@@ -36,6 +37,10 @@ impl AgentProvider for JsProvider {
         self.try_call("parseContextUsage", &[record.clone()])
             .flatten()
     }
+    fn cli_compatibility(&self) -> Option<crate::provider_compat::CompatibilityManifest> {
+        self.manifest.cli_compatibility.clone()
+    }
+
     fn id(&self) -> &str {
         &self.manifest.id
     }
@@ -154,6 +159,10 @@ impl AgentProvider for JsProvider {
 
     fn onboarding_auto_answer(&self) -> provider::OnboardingAutoAnswer {
         self.manifest.spawn.onboarding_auto_answer
+    }
+
+    fn restores_conversation_history_on_resume(&self) -> bool {
+        self.manifest.spawn.restores_conversation_history_on_resume
     }
 
     fn session_starts_on_first_user_turn(&self) -> bool {
@@ -523,6 +532,10 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.session_id_injection.into()
     }
 
+    fn context_attach(&self) -> Option<crate::provider::ContextAttach> {
+        self.manifest.capabilities.context_attach
+    }
+
     fn is_tool_less(&self) -> bool {
         self.manifest.capabilities.tool_less
     }
@@ -569,44 +582,13 @@ impl AgentProvider for JsProvider {
         ) {
             return v;
         }
-        let cfg = self.manifest.sessions.as_ref()?;
         let dir = self.sessions_dir(cwd)?;
-        if !dir.exists() {
-            return None;
-        }
-        let recency_limit = max_age.unwrap_or_else(|| Duration::from_secs(300));
-        let now = std::time::SystemTime::now();
-        let dot_ext = format!(".{}", cfg.file_extension);
-        let mut candidates: Vec<(String, std::time::SystemTime)> = Vec::new();
-
-        let entries = std::fs::read_dir(&dir).ok()?;
-        for entry in entries.flatten() {
-            let name = entry.file_name().to_string_lossy().to_string();
-            let Some(stem) = name.strip_suffix(&dot_ext) else {
-                continue;
-            };
-            // Heuristic: session ids look uuid-ish (>=32 chars with a dash).
-            if stem.len() < 32 || !stem.contains('-') {
-                continue;
-            }
-            if exclude.iter().any(|e| e == stem) {
-                continue;
-            }
-            let Ok(meta) = entry.metadata() else { continue };
-            if let Ok(modified) = meta.modified() {
-                if let Ok(age) = now.duration_since(modified) {
-                    if age > recency_limit {
-                        continue;
-                    }
-                }
-            }
-            let sort_key = meta.created().or_else(|_| meta.modified()).ok()?;
-            candidates.push((stem.to_string(), sort_key));
-        }
-        match candidates.as_slice() {
-            [(id, _)] => Some(id.clone()),
-            _ => None,
-        }
+        session_detection::unique_recent_session(
+            &dir,
+            &self.manifest.sessions.as_ref()?.file_extension,
+            exclude,
+            max_age,
+        )
     }
 
     fn enumerate_sessions(&self) -> Vec<SessionMetadata> {

@@ -12,6 +12,7 @@ pub(crate) const TASK_UPDATE_KEYS: &[&str] = &[
     "depends_on",
     "executor_role",
     "external_refs",
+    "files",
     "group",
     "handle",
     "intent",
@@ -170,6 +171,10 @@ pub(crate) fn valid_task_update_payloads(
         (
             "external_refs",
             serde_json::json!({ "external_refs": ["rollacode/codeterm-releases#18"] }),
+        ),
+        (
+            "files",
+            serde_json::json!({ "files": { "edit": ["new.rs"], "read": [] } }),
         ),
         ("group", serde_json::json!({ "group": "stream-a" })),
         ("handle", serde_json::json!({ "handle": "updated-handle" })),

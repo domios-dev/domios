@@ -62,6 +62,17 @@ export interface TaskLaneMetadata {
   cleanup_hints?: string[];
 }
 
+export interface LaneTurnChangeStats {
+  turn: number;
+  captured_at: number;
+  transcript_turn_key?: string | null;
+  numstat?: string | null;
+  staged_numstat?: string | null;
+  untracked_file_count?: number | null;
+  checkpoint_ref?: string | null;
+  checkpoint_refusal?: "lfs_repository" | "non_cone_sparse_checkout" | "git_failure" | "deadline" | null;
+}
+
 export interface TransferRecord {
   from: OrchestratorRef;
   to: OrchestratorRef;
@@ -179,6 +190,7 @@ export interface TaskExecutionAttempt {
   judge_reason?: string | null;
   judged_at?: number;
   winner?: boolean;
+  lane_turn_stats?: LaneTurnChangeStats[];
 }
 
 export interface ExternalRef {
@@ -190,6 +202,7 @@ export interface ExternalRef {
 }
 
 export interface Task {
+  files?: { edit: string[]; read: string[] };
   id: string;
   name: string;
   type: string; // open string: implement | research | review | ...

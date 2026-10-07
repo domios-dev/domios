@@ -19,6 +19,7 @@ pub mod delayed_send;
 pub mod dispatch;
 mod fdlimit;
 pub mod glance;
+mod instance_lifetime;
 mod keepawake;
 mod liveness;
 pub mod lock_hold;
@@ -103,6 +104,13 @@ pub fn run() {
     startup::setup_logging();
 
     log::info!("CodeTerm starting...");
+    let _instance_lifetime = match instance_lifetime::acquire() {
+        Ok(lifetime) => lifetime,
+        Err(error) => {
+            log::error!("[startup] could not acquire instance lifetime lock: {error}");
+            return;
+        }
+    };
     let startup_recovery = crash::record_startup();
     if let Some(record) = &startup_recovery.last_crash {
         log::warn!(
@@ -949,6 +957,10 @@ pub fn run() {
                 let _ = chatbackend_registry.start_discovery();
             }
             app.manage(service_state.clone());
+            let lane_watch_service = service_state.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                lane_watch_service.restore_lane_watches();
+            });
             crate::delayed_send::start_scheduler(service_state.clone());
             crate::service::start_plan_reminder_scheduler(service_state.clone());
             drop(startup_step);
@@ -1041,6 +1053,7 @@ pub fn run() {
             startup::install_bundled_cli(app);
             drop(startup::restore_complete(&service_state));
             startup::start_servers(app, &states, &service_state);
+            service_state.schedule_restored_agent_delivery_reconciliation();
             commands::ensure_integrations_for_all(
                 &service_state.agent_registry,
                 &states.config,

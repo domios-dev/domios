@@ -5,7 +5,10 @@
   "hostApi": 2,
   "capabilities": {
     "agentProvider": true,
-    "modelProviderConfig": true
+    "modelProviderConfig": true,
+    "decisionModel": {
+      "tokenMode": "none"
+    }
   },
   "displayName": "OpenCode",
   "binaryName": "opencode",
@@ -162,11 +165,30 @@
     "modelSwitch": "live"
   },
   "permissions": {
+    "subprocess": {
+      "allow": [
+        "opencode"
+      ]
+    },
     "network": {
       "allow": [
         "api.deepseek.com"
       ]
     }
   },
-  "icon": "icon.svg"
+  "icon": "icon.svg",
+  "cliCompatibility": {
+    "supported": [],
+    "breaking": [
+      {
+        "range": ">=2.0.0, <3.0.0",
+        "reasons": [
+          "sqlite_schema_conversion",
+          "event_route_changed",
+          "server_password_required"
+        ]
+      }
+    ],
+    "directSqlite": true
+  }
 }

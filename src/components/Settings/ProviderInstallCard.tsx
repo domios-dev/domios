@@ -3,7 +3,7 @@ import type { ProviderDescriptor } from "../../lib/types";
 import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";
 import { launchProviderInstaller } from "../../lib/providerInstall";
-import { providerCliPresentation } from "../../lib/providerCli";
+import { missingInstallerPrerequisites, providerCliPresentation } from "../../lib/providerCli";
 import { useProviderCliStatus } from "../../hooks/useProviderCliStatus";
 
 export function ProviderCliControls({ providerId, compact = false }: { providerId: string; compact?: boolean }) {
@@ -23,6 +23,7 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
       <span role="status">{error ? "CLI availability unknown" : model.label}</span>
       {!compact && status?.binary && <div className="text-xs font-mono">{status.resolved_path ?? status.binary}</div>}
       {!compact && status?.installer && <pre className="text-xs overflow-x-auto">{status.installer}</pre>}
+      {missingInstallerPrerequisites(status).map(item => <p role="status" key={item.binary}>Missing command prerequisite: {item.binary}. {item.hint}</p>)}
       {model.canInstall && (
         <Button size="compact" variant="primary" disabled={busy} aria-label={`Install CLI for ${providerId}`} onClick={() => void install()}>
           {busy ? "Launching…" : "Install CLI"}

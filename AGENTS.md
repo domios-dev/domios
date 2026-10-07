@@ -85,7 +85,7 @@ relaunches Domios, and resumes the calling tab. Do not manually replace the
 bundle or conclude that macOS self-install is missing because
 `./build.sh install-local` is Windows-only.
 
-`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Workers may run one focused test module of what they touched in their own lane (through `build.sh test-one` / `scripts/test-capped.sh`); dev runs, broad suites and release gates run from the canonical integration checkout under Orchestrator authority.
+`dev --wait` is automation-only; interactive verification uses one visible foreground dev tab. Run Rust tests only through `scripts/test-capped.sh`, one focused test at a time. Workers never compile Rust in their lane: every lane has its own cold target directory, and parallel cold builds overload the machine. In a lane, run only checks that need no Rust build: `rustfmt` on touched files, `tsc`, and the TypeScript/JS and plugin tests of what you touched; then commit, push, and list the exact Rust `test-one` selectors in the report. The Orchestrator compiles and runs them in a warm checkout, one build per machine; dev runs, broad suites and release gates run there too. Which machines and checkouts serve warm builds and QA is machine-specific and lives in `codeterm mem` (search "warm build and QA machines"), never in this file; an Orchestrator that finds no such entry records its own setup there before dispatching.
 
 Parallel writers always use separate worktrees/lanes; the canonical checkout has one writer/integrator at a time. This keeps commits atomic and allows ordinary `git add -A` inside a lane instead of fragile cross-owner file lists.
 
@@ -153,7 +153,8 @@ default for logic.
   no live agents; inject clocks, fixtures and fakes at the module boundary.
 - When logic is tangled into a component or a service, extract it first and test the
   extracted module; do not test it through rendering or a full fixture.
-- Workers run only the tests of the modules they touched, in their lane; the broad
+- Workers run only the non-Rust tests of what they touched, in their lane; Rust
+  compiles and Rust tests run in warm checkouts under the Orchestrator; the broad
   suite and live DEV checks run once at the end on the release SHA.
 
 **Never assert prompt wording.** Test the mechanism — that a recipient receives
@@ -370,7 +371,7 @@ SOLID + DRY non-negotiable. **Default: NO comments** — names + types + structu
 
 ## Architecture (agent providers, detection)
 
-Agent integration is abstracted via providers under `src-tauri/src/agent/`. Live: Claude, Codex, Opencode (PTY agents) + chatBackend plugins (non-PTY, e.g. LM Studio). Architecture-ready: Aider, Goose. Providers expose a unified capability descriptor (`transport` = pty | chat_backend, `behavior_config`, models, presets) — branch on capability, never a provider id. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`essences/core.md`**.
+Agent integration is abstracted via providers under `src-tauri/src/agent/`. Live: Claude, Codex, Opencode and Aider (PTY agents). Architecture-ready: Goose. Providers expose a unified capability descriptor (`transport` = pty | chat_backend, `behavior_config`, models, presets) — branch on capability, never a provider id. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`essences/core.md`**.
 
 ### Plugin & capability discipline (enforce on every provider change)
 
@@ -384,7 +385,7 @@ The provider/plugin boundary is the project's load-bearing seam. It stays clean 
 
 Full rationale + the boundary map: **`essences/core.md`**.
 
-**Where plugin source lives — not all of it is in this repo.** The bundled system provider plugins ship from the in-repo `plugins/` channel (`codeterm-core`: claude / codex / opencode / cursor / git / chat-preprocessor). Only claude / codex / opencode are on strict app-version lockstep — see "Plugin & capability discipline" above. The other **official, non-system capability plugins are NOT in this repo** — Bitwarden, Transcriber, LM Studio, and friends live in the separate **`codeterm-plugins`** repo (`~/Developer/codeterm-plugins`, channel `codeterm-plugins`, `github.com/rollacode/codeterm-plugins`), authored in TS against `@codeterm/plugin-sdk` and built to a QuickJS `plugin.js` + split UI bundles via `node scripts/build-plugin.mjs <id>`. Installed copies live under `~/.codeterm/plugins/<id>/`. To fix a non-bundled plugin (e.g. Bitwarden's connection view), edit it in `codeterm-plugins`, rebuild, and `codeterm plugin install --from-dir <path>` to test — do not look for it here.
+**Where plugin source lives — not all of it is in this repo.** The bundled system provider plugins ship from the in-repo `plugins/` channel (`codeterm-core`: claude / codex / opencode / cursor / git / chat-preprocessor). Only claude / codex / opencode are on strict app-version lockstep — see "Plugin & capability discipline" above. The other **official, non-system capability plugins are NOT in this repo** — Bitwarden, Transcriber, and friends live in the separate **`codeterm-plugins`** repo (`~/Developer/codeterm-plugins`, channel `codeterm-plugins`, `github.com/rollacode/codeterm-plugins`), authored in TS against `@codeterm/plugin-sdk` and built to a QuickJS `plugin.js` + split UI bundles via `node scripts/build-plugin.mjs <id>`. Installed copies live under `~/.codeterm/plugins/<id>/`. To fix a non-bundled plugin (e.g. Bitwarden's connection view), edit it in `codeterm-plugins`, rebuild, and `codeterm plugin install --from-dir <path>` to test — do not look for it here.
 
 ## Code navigation
 

@@ -177,6 +177,9 @@ mod restored_fresh_launch_tests {
                 &registry,
                 worker_params("fixture-provider", historical_task),
                 crate::multiplexer::types::RestorableLaunchParameters {
+                    context_files: None,
+                    context_skills: None,
+                    worker_restart: None,
                     captured: true,
                     identity_instructions: Some(RESTORED_INSTRUCTIONS.into()),
                     ..Default::default()
@@ -218,6 +221,9 @@ mod restored_fresh_launch_tests {
                 registry,
                 worker_params("claude", historical_task),
                 crate::multiplexer::types::RestorableLaunchParameters {
+                    context_files: None,
+                    context_skills: None,
+                    worker_restart: None,
                     captured: true,
                     identity_instructions: Some(RESTORED_INSTRUCTIONS.into()),
                     ..Default::default()
@@ -336,6 +342,9 @@ mod spawn_pty_restore_tests {
         tab.agent_session_id = Some(SESSION.into());
         tab.restored_from_snapshot = true;
         tab.restorable_launch = RestorableLaunchParameters {
+            context_files: None,
+            context_skills: None,
+            worker_restart: None,
             captured: true,
             requested_model: Some("gpt-6-luna".into()),
             model: Some("gpt-6-luna".into()),

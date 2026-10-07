@@ -150,3 +150,22 @@ impl WorkerTurnState {
 
 #[cfg(test)]
 mod tests;
+
+pub(super) fn completed_brief_ack_eligible(
+    pending: &PendingReplyRelay,
+    source: RelaySource<'_>,
+    evidence: Option<&ReplyRelayEvidence>,
+) -> bool {
+    let Some(ReplyRelayEvidence::Answered(turn)) = evidence else {
+        return false;
+    };
+    pending.task.is_some()
+        && turn.complete
+        && matches_source(pending, source)
+        && matches_user_turn(
+            pending,
+            &turn.user_turn_id,
+            turn.user_record_start,
+            &turn.user_text,
+        )
+}

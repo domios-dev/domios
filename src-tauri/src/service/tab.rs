@@ -711,19 +711,6 @@ impl ServiceContext {
         {
             return Ok(RespondPromptOutcome::StalePrompt);
         }
-        let Some(option_index) = structured_prompt
-            .as_ref()
-            .and_then(|prompt| {
-                prompt
-                    .options
-                    .iter()
-                    .position(|option| option.value == value)
-            })
-            .or_else(|| value.parse::<usize>().ok()?.checked_sub(1))
-        else {
-            return Ok(RespondPromptOutcome::InvalidOption);
-        };
-
         if let Some(expected) = expected_identity {
             if expected.kind == codeterm_types::pty::PromptKind::Structured {
                 let current_identity = structured_prompt.as_ref().map(|prompt| {
@@ -739,6 +726,37 @@ impl ServiceContext {
                 return Ok(RespondPromptOutcome::StalePrompt);
             }
         }
+        if structured_prompt.is_some() {
+            let Some(result) = crate::service::structured_prompt::respond(self, tab_id, value)
+            else {
+                return Ok(RespondPromptOutcome::StalePrompt);
+            };
+            match result? {
+                crate::service::structured_prompt::StructuredResponse::Advanced => {}
+                crate::service::structured_prompt::StructuredResponse::Answered {
+                    option_index,
+                } => {
+                    if let Some(identity) = response_identity.as_ref() {
+                        self.answer_prompt_notifications(
+                            tab_id,
+                            identity,
+                            option_index,
+                            "tab_respond",
+                        );
+                    }
+                }
+            }
+            self.emit_state_changed();
+            return Ok(RespondPromptOutcome::Structured);
+        }
+        let Some(option_index) = value
+            .parse::<usize>()
+            .ok()
+            .and_then(|index| index.checked_sub(1))
+        else {
+            return Ok(RespondPromptOutcome::InvalidOption);
+        };
+
         if structured_prompt
             .as_ref()
             .or(tab.pending_prompt.as_ref())
@@ -756,12 +774,6 @@ impl ServiceContext {
             });
         if pending_option_count.is_some_and(|count| option_index >= count) {
             return Ok(RespondPromptOutcome::InvalidOption);
-        }
-        if let Some(result) = crate::service::structured_prompt::respond(self, tab_id, value) {
-            result?;
-            self.mark_prompt_responded(tab_id, option_index, response_identity.as_ref());
-            self.emit_state_changed();
-            return Ok(RespondPromptOutcome::Structured);
         }
 
         let Ok(pty_id) = self.resolve_pty_id(tab_id) else {

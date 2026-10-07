@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
+import { useComposerHeight } from "./useComposerHeight";
 import { Eye } from "lucide-react";
 import type { WatcherSpec } from "../../lib/types";
 import { charterPreview } from "../../lib/watcherUi";
@@ -10,20 +11,23 @@ interface WatcherReadOnlyBarProps {
 }
 
 export function WatcherReadOnlyBar({ watcher, modelBubble }: WatcherReadOnlyBarProps) {
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  useComposerHeight(surfaceRef);
   const [charterExpanded, setCharterExpanded] = useState(false);
   const charter = watcher.charter.trim();
   const canExpandCharter = charter.length > charterPreview(charter, false).length;
 
   return (
     <div
+      ref={surfaceRef}
       data-testid="watcher-readonly-bar"
-      className="shrink-0 border-t px-3 py-2.5"
+      className="ct-composer-readonly shrink-0 border-t py-2.5"
       style={{
         borderColor: "var(--ct-border, #30363d)",
         background: "color-mix(in srgb, var(--ct-bg, #0d1117) 94%, var(--ct-muted-fg, #8b949e) 6%)",
       }}
     >
-      <div className="mx-auto flex w-full max-w-4xl min-w-0 flex-col gap-2">
+      <div className="mx-auto flex w-full ct-composer-lane min-w-0 flex-col gap-2">
         <div className="flex min-w-0 items-center gap-2">
           <Eye size={14} strokeWidth={2.2} style={{ color: "var(--ct-muted-fg, #8b949e)" }} />
           <span className="text-xs font-medium" style={{ color: "var(--ct-fg, #c9d1d9)" }}>

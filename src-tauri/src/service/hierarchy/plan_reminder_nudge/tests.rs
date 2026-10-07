@@ -24,6 +24,7 @@ pub(super) fn plan(id: &str, owner: &str, mode: PlanMode, tasks: Vec<Task>) -> P
 
 pub(super) fn task(id: &str, status: TaskStatus, tab_id: Option<&str>) -> Task {
     Task {
+        files: Default::default(),
         id: id.into(),
         name: id.into(),
         kind: "status_update".into(),

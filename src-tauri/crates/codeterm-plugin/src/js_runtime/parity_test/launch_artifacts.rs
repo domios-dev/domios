@@ -75,10 +75,17 @@ impl AgentProvider for LaunchArtifactsNativeStub {
         &self,
         request: &LaunchArtifactSweepRequest,
     ) -> Result<Option<LaunchArtifactSweepReport>, String> {
-        let dead = (!request.live_tab_ids.iter().any(|id| id == "dead-tab"))
+        let mut dead = (!request.live_tab_ids.iter().any(|id| id == "dead-tab"))
             .then(|| "dead-tab".to_string())
             .into_iter()
             .collect::<Vec<_>>();
+        if request
+            .gone_instance_ids
+            .iter()
+            .any(|id| id == "gone-instance-fixture")
+        {
+            dead.push("foreign-dead-tab".into());
+        }
         let legacy = vec!["legacy-tab".to_string()];
         let removed = if request.confirm {
             dead.iter()
@@ -185,6 +192,7 @@ fn launch_artifact_and_directory_trust_native_js_parity() {
             },
             sweepLaunchArtifacts(request) {
                 const dead = request.liveTabIds.includes("dead-tab") ? [] : ["dead-tab"];
+                if (request.goneInstanceIds.includes("gone-instance-fixture")) dead.push("foreign-dead-tab");
                 const legacy = ["legacy-tab"];
                 const removed = request.confirm
                     ? dead.concat(request.includeLegacy ? legacy : [])
@@ -197,6 +205,7 @@ fn launch_artifact_and_directory_trust_native_js_parity() {
     let request = LaunchArtifactSweepRequest {
         instance_id: "instance-fixture".into(),
         live_tab_ids: vec!["live-tab".into()],
+        gone_instance_ids: vec!["gone-instance-fixture".into()],
         confirm: true,
         include_legacy: true,
     };
@@ -231,6 +240,10 @@ fn launch_artifact_and_directory_trust_native_js_parity() {
     assert_eq!(
         native.sweep_launch_artifacts(&request),
         js.sweep_launch_artifacts(&request),
+    );
+    assert_eq!(
+        js.sweep_launch_artifacts(&request).unwrap().unwrap().dead,
+        vec!["dead-tab", "foreign-dead-tab"],
     );
 }
 

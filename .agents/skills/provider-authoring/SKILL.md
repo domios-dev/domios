@@ -92,6 +92,10 @@ Plugin install/update prints that status immediately. Agents can inspect it with
 `codeterm agent cli install <provider>` or `codeterm agent cli update <provider>`.
 Commands run in visible Team utility tabs, with completion reports and status
 refreshes; unsupported OS commands are refused before a tab is created.
+Status and dispatch warnings name missing command runners with setup guidance,
+derived from the manifest command's leading executable or explicit shell
+availability checks. This diagnostic does not parse arbitrary shell programs or
+install prerequisites; conditional installers can use an available alternative.
 
 ## Minimal vs full: pick your tier
 
@@ -128,12 +132,13 @@ Top-level `plugin.json` fields shared with capability plugins (`id`, `version`,
 |---|---|---|
 | `binaryName` | string? | Process name used for type-mapping a PTY to this provider. Defaults to `id`. |
 | `cliBinary` | string? | Binary probed for install/version checks. |
+| `cliCompatibility` | `{supported: string[], breaking: {range: string, reasons: string[]}[], modelMinimumCli?: map, directSqlite?: bool}` | Rust semver ranges (comma-separated comparisons); empty supported ranges explicitly mean unknown. Breaking ranges win. `directSqlite` defaults false and opts sqlite reads into fail-closed version enforcement. |
 | `installer` | map platform→string | Per-OS install command (`macos` / `linux` / `windows`). |
 | `updater` | map platform→string | Per-OS update command run automatically in a bounded utility process by the provider coordinator; working tabs keep running. |
 | `models` | `[{id, displayName, description?, available?}]` | Model seed registered with the model catalog. Each entry carries `id`, `displayName`, optional `description`, optional `available`; `available: false` ships an alias disabled until live discovery confirms it. |
 | `modelCatalogue` | `{authority: "authoritative"|"free_form", liveDiscoveryRequired?: bool}` | `authoritative` closes model selection to catalogue ids; `free_form` preserves provider-owned ids. Set `liveDiscoveryRequired` when the seed is not a trustworthy validation list. If no live snapshot is available, Domios preserves the requested id and returns a warning. |
 | `modelGroups` | `[{id, label}]` | Provider-owned groupings of `models` for the picker (e.g. the upstream company a routed model belongs to). `id` matches a model-id prefix, `label` is the text the picker renders; core never maps a vendor id to a label. Empty ⇒ one flat list. |
-| `credentials` | `[{id, file, public?, secret?}]` | Credential files the host reads on the plugin's behalf. Declaring one also revokes the plugin's own read access to that file. A declared file's fingerprint is captured with the cached model snapshot, so connecting a provider (the file appearing or changing) re-probes its models without a rebuild. |
+| `credentials` | `[{id, file, fileEnvironment?, public?, secret?}]` | Credential files the host reads on the plugin's behalf. Declaring one also revokes the plugin's own read access to that file. A declared file's fingerprint is captured with the cached model snapshot, so connecting a provider (the file appearing or changing) re-probes its models without a rebuild. |
 | `defaultModel` | string? | Default model id. |
 | `reasoningEfforts` | `[{id, displayName, description?}]` | Reasoning-effort levels. |
 | `defaultReasoningEffort` | string? | Default effort id. |
@@ -210,6 +215,13 @@ All fields optional.
 | `kind` | `"claude_settings_json"` \| `"provider_managed"` \| `"plugin_file"` \| `"none"` | `claude_settings_json`: edit a JSON file's `hooks` object with curl-back commands. `provider_managed`: provider JS owns a reviewable config merge + backup/restore. `plugin_file`: provider owns a marked plugin file that core may refresh only while its ownership marker remains. `none`: PTY parser does it all. |
 | `settingsPath` | string | Where the integration is stored (e.g. `~/.claude/settings.json`). |
 | `trust_grant` (alias `trustGrant`) | object? | One field, `managedKeys` (string[]): managed hook keys core passes to `grantIntegrationTrust` per install. |
+
+`spawn.restoresConversationHistoryOnResume` declares that a resume restores the
+existing conversation. Absent/false is non-restoring. A task-bound tool-less
+Worker then receives one host-restored brief after authenticated rebinding,
+subject to exact current-session evidence and a persisted launch claim. Resume
+context includes `cwd`, `contextFiles`, and `toolLessInstructionsPath`; mandatory
+attachments are revalidated and shared instructions are materialized again.
 
 ### `permissions`
 
@@ -405,3 +417,5 @@ Moved out of the embedded `codeterm docs` pages because they describe Domios's o
 - [prompt-detection.md](prompt-detection.md) — provider prompt detection architecture
 - [references/session-storage.md](references/session-storage.md) — provider session storage and search scanning
 - [references/secret-backends.md](references/secret-backends.md) — native secret backends and the retired credential erase
+
+Session manifests may declare `sessions.rootEnvironment: {variable, subdir}` for read-only inherited account homes. Empty/unset falls back to `rootDir`; the selected directory still requires sandbox read and environment permission. This does not grant write access or install integrations in that home. Credentials may declare `fileEnvironment` with the same shape; both default and selected credential paths remain denied to plugin reads.

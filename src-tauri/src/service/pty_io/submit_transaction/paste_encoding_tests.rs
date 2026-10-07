@@ -138,3 +138,28 @@ fn multiline_tui_bootstrap_encodes_as_one_hidden_system_turn() {
     assert_eq!(hidden_system.attr("context"), Some("general-bootstrap"));
     assert_eq!(hidden_system.payload.replace('\r', "\n"), opaque_body);
 }
+
+#[test]
+fn prompt_line_launch_brief_uses_one_frame_even_when_live_paste_mode_is_disabled() {
+    let brief = "opaque guidance\nopaque executor\nopaque assignment";
+    let prefix = crate::service::launch_delivery::launch_input_frame_prefix(
+        crate::agent::provider::ComposerCursorPosition::PromptLine,
+    );
+    let encoded = encode_paste_frame(
+        brief,
+        prefix,
+        None,
+        Some(false),
+        PasteEncodingCapability::MultilineTui,
+    );
+    assert_eq!(
+        encoded,
+        format!("{BRACKETED_PASTE_START}{brief}{BRACKETED_PASTE_END}").as_bytes()
+    );
+    for composer in [
+        crate::agent::provider::ComposerCursorPosition::BottomRegion,
+        crate::agent::provider::ComposerCursorPosition::VisibleAnywhere,
+    ] {
+        assert!(crate::service::launch_delivery::launch_input_frame_prefix(composer).is_none());
+    }
+}

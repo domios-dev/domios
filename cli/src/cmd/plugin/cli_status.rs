@@ -1,6 +1,27 @@
 use codeterm_plugin::provider_cli::manifest_cli_status;
 use std::path::Path;
 
+pub(super) fn register_installed(value: &mut serde_json::Value) -> Result<(), String> {
+    let ids: Vec<String> = value["cli_status"]
+        .as_object()
+        .into_iter()
+        .flat_map(|statuses| statuses.keys().cloned())
+        .collect();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let Ok((mut client, _)) = crate::client::SocketClient::connect_local() else {
+        value["provider_registration"] = serde_json::json!("offline");
+        return Ok(());
+    };
+    client.call(
+        "plugin.refresh_installed",
+        Some(serde_json::json!({"ids": ids})),
+    )?;
+    value["provider_registration"] = serde_json::json!("acknowledged");
+    Ok(())
+}
+
 pub(super) fn attach(value: &mut serde_json::Value, root: &Path, requested: Option<&str>) {
     let mut ids: Vec<String> = value
         .get("updated")
@@ -62,7 +83,7 @@ pub(crate) fn status_lines(id: &str, status: &serde_json::Value) -> Vec<String> 
         return vec![format!("{id}: no CLI required")];
     }
     let binary = status.get("binary").and_then(|v| v.as_str()).unwrap_or("?");
-    match status.get("installed").and_then(|v| v.as_bool()) {
+    let mut lines = match status.get("installed").and_then(|v| v.as_bool()) {
         Some(true) => vec![format!(
             "{id}: CLI {binary} installed ({})",
             status
@@ -85,12 +106,45 @@ pub(crate) fn status_lines(id: &str, status: &serde_json::Value) -> Vec<String> 
         None => vec![format!(
             "WARNING: {id}: CLI `{binary}` availability unknown"
         )],
+    };
+    for key in ["installer_prerequisites", "updater_prerequisites"] {
+        if let Some(prerequisites) = status.get(key) {
+            if let Ok(prerequisites) = serde_json::from_value::<
+                Vec<codeterm_plugin::provider_cli::CommandPrerequisite>,
+            >(prerequisites.clone())
+            {
+                if let Some(hint) =
+                    codeterm_plugin::provider_cli::missing_prerequisite_hint(&prerequisites)
+                {
+                    lines.push(format!("WARNING: {key}: {hint}"));
+                }
+            }
+        }
     }
+    lines
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn status_names_missing_installer_prerequisites_and_preserves_guidance() {
+        let lines = status_lines(
+            "fixture",
+            &serde_json::json!({
+                "required": true, "installed": false, "binary": "tool", "installer": "opaque",
+                "installer_prerequisites": [
+                    {"binary": "runner-a", "installed": false, "hint": "opaque setup A"},
+                    {"binary": "runner-b", "installed": false, "hint": "opaque setup B"}
+                ]
+            }),
+        );
+        assert!(lines.last().unwrap().contains("runner-a, runner-b"));
+        assert!(lines
+            .last()
+            .unwrap()
+            .contains("opaque setup A opaque setup B"));
+    }
     #[test]
     fn installed_manifest_drives_offline_plugin_reporting() {
         let root = tempfile::tempdir().unwrap();

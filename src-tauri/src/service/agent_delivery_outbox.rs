@@ -1,6 +1,8 @@
 use super::delivery_error::DeliveryError;
 use super::messenger::{AgentDeliveryPayload, Delivery, DeliveryWriteObserver};
-use super::pending_delivery_payloads::agent_deliveries::AgentDeliveryRecord;
+use super::pending_delivery_payloads::agent_deliveries::{
+    AgentDeliveryReceipt, AgentDeliveryReceiptStatus, AgentDeliveryRecord, AgentDeliveryRecovery,
+};
 use super::ServiceContext;
 use std::sync::Arc;
 
@@ -93,8 +95,46 @@ impl ServiceContext {
         tauri::async_runtime::spawn_blocking(move || service.flush_agent_deliveries(&tab));
     }
 
+    pub(crate) fn schedule_restored_agent_delivery_reconciliation(&self) {
+        let tab_ids = self
+            .mux
+            .read()
+            .snapshot()
+            .tabs
+            .into_values()
+            .map(|tab| tab.id)
+            .collect::<Vec<_>>();
+        for tab_id in tab_ids {
+            let owner = Arc::clone(&self.pending_delivery_payloads.agent_deliveries);
+            if !owner.start_worker(&tab_id) {
+                continue;
+            }
+            let service = self.clone();
+            tauri::async_runtime::spawn_blocking(move || {
+                service.reconcile_retired_agent_deliveries(&tab_id, &owner);
+                owner.finish_worker(&tab_id);
+                let bound_pending = owner
+                    .pending_head(&tab_id)
+                    .ok()
+                    .flatten()
+                    .and_then(|record| {
+                        owner.payload(&tab_id, &record).ok().and_then(|text| {
+                            serde_json::from_str::<AgentDeliveryPayload>(&text).ok()
+                        })
+                    })
+                    .is_some_and(|payload| {
+                        service.agent_delivery_binding_matches(&tab_id, &payload)
+                    });
+                if bound_pending {
+                    service.schedule_agent_delivery_flush(&tab_id);
+                }
+            });
+        }
+    }
+
     fn flush_agent_deliveries(&self, tab_id: &str) {
         let owner = Arc::clone(&self.pending_delivery_payloads.agent_deliveries);
+        self.reconcile_retired_agent_deliveries(tab_id, &owner);
         loop {
             let generation = owner.state_generation(tab_id);
             let record = match owner.pending_head(tab_id) {
@@ -137,6 +177,226 @@ impl ServiceContext {
         }
     }
 
+    fn reconcile_retired_agent_deliveries(
+        &self,
+        tab_id: &str,
+        owner: &super::pending_delivery_payloads::agent_deliveries::AgentDeliveryStore,
+    ) {
+        let mut receipts = match owner.pending_receipts(tab_id) {
+            Ok(receipts) => receipts,
+            Err(error) => {
+                log::error!(
+                    "[agent-delivery] tab={} receipt read failed: {}",
+                    tab_id,
+                    error
+                );
+                return;
+            }
+        };
+        if receipts.is_empty() {
+            return;
+        }
+        let ledger = super::chat_send_transaction::ChatSendLedger::default();
+        for receipt in &receipts {
+            if receipt.status.is_none() {
+                if let Some(anchor) = receipt.anchor.clone() {
+                    ledger.track_retired_agent_delivery(
+                        tab_id,
+                        &receipt.id,
+                        receipt.sequence,
+                        &receipt.exact_text,
+                        anchor,
+                    );
+                }
+            }
+        }
+        super::chat_send_evidence::scan_transcript_evidence(
+            &self.agent_registry,
+            &ledger,
+            tab_id,
+            |_| {},
+        );
+        for receipt in &mut receipts {
+            let worker_target = {
+                let mux = self.mux.read();
+                mux.resolve_tab_id(tab_id)
+                    .and_then(|resolved| mux.get_tab(&resolved))
+                    .is_some_and(|tab| worker_brief_flagged(tab.role))
+            };
+            if worker_target {
+                receipt.worker_brief = true;
+                if receipt.payload_kind == "agent_message" {
+                    receipt.payload_kind = "worker_brief".into();
+                }
+            }
+            if receipt.status.is_none() {
+                let evidence = ledger.status(&receipt.id).map(|status| {
+                    status.state == super::chat_send_transaction::ChatSendState::Sent
+                });
+                receipt.status = Some(retired_delivery_status(evidence));
+                if let Err(error) = owner.save_pending_receipt(receipt) {
+                    log::error!(
+                        "[agent-delivery] tab={} delivery={} receipt update failed: {}",
+                        tab_id,
+                        receipt.id,
+                        error
+                    );
+                }
+            }
+            if !receipt.settlement_notified {
+                self.publish_retired_delivery_status(receipt);
+                if receipt.status == Some(AgentDeliveryReceiptStatus::Delivered) {
+                    let payload = AgentDeliveryPayload {
+                        transport: super::messenger::QueuedAgentPayload::Text {
+                            text: receipt.exact_text.clone(),
+                        },
+                        observer: receipt.observer.clone(),
+                        idempotency_key: None,
+                        expected_pty_id: None,
+                        expected_session_id: None,
+                        expected_binding_nonce: None,
+                    };
+                    self.record_agent_delivery_written(
+                        tab_id,
+                        Some(&receipt.id),
+                        &payload,
+                        true,
+                        "delivered_after_restart",
+                    );
+                } else {
+                    self.publish_retired_delivery_incident(receipt);
+                }
+                receipt.settlement_notified = true;
+            }
+            if let Err(error) = owner.complete_receipt(receipt) {
+                log::error!(
+                    "[agent-delivery] tab={} delivery={} receipt settlement failed: {}",
+                    tab_id,
+                    receipt.id,
+                    error
+                );
+            }
+        }
+    }
+
+    fn publish_retired_delivery_status(&self, receipt: &AgentDeliveryReceipt) {
+        let state = match receipt.status {
+            Some(AgentDeliveryReceiptStatus::Delivered) => "delivered",
+            Some(AgentDeliveryReceiptStatus::SubmitUnconfirmed) | None => "submit_unconfirmed",
+        };
+        self.notify_event(
+            "agent-delivery-status",
+            serde_json::json!({
+                "tab_id": receipt.tab_id,
+                "delivery_id": receipt.id,
+                "payload_kind": receipt.payload_kind,
+                "worker_brief_flagged": receipt.worker_brief,
+                "report_flagged": receipt.report,
+                "status": state,
+            }),
+        );
+    }
+
+    fn publish_retired_delivery_incident(&self, receipt: &AgentDeliveryReceipt) {
+        let (plan_id, task_id, attempt_id) = match receipt.observer.as_ref() {
+            Some(DeliveryWriteObserver::Report {
+                plan_id,
+                task_id,
+                attempt_id,
+                ..
+            }) => (
+                plan_id.as_deref(),
+                task_id.as_deref(),
+                attempt_id.as_deref(),
+            ),
+            _ => (None, None, None),
+        };
+        self.notify_event(
+            "coordination-incident",
+            serde_json::json!({
+                "kind": "agent_delivery_submit_unconfirmed",
+                "tab_id": receipt.tab_id,
+                "delivery_id": receipt.id,
+                "payload_kind": receipt.payload_kind,
+                "worker_brief_flagged": receipt.worker_brief,
+                "report_flagged": receipt.report,
+                "plan_id": plan_id,
+                "task_id": task_id,
+                "attempt_id": attempt_id,
+                "impact": format!(
+                    "Claimed delivery {} to tab {} ({}) has no exact own-session turn proof after restart.",
+                    receipt.id,
+                    receipt.tab_id,
+                    receipt.payload_kind
+                ),
+                "cleanup": "The claimed payload was retired after its durable receipt was written.",
+                "fallback": "The delivery remains submit_unconfirmed, was not replayed, and may need explicit coordination.",
+            }),
+        );
+    }
+
+    fn retired_delivery_recovery(
+        &self,
+        tab_id: &str,
+        payload: &AgentDeliveryPayload,
+    ) -> AgentDeliveryRecovery {
+        let captured = self.chat_send_anchor(tab_id);
+        let anchor = captured.anchor.filter(|anchor| {
+            payload
+                .expected_session_id
+                .as_deref()
+                .is_some_and(|expected| anchor.session_id == expected)
+                && captured.live_binding.as_ref().is_some_and(|binding| {
+                    binding.session_id.as_deref() == payload.expected_session_id.as_deref()
+                        && binding.binding_nonce.as_deref()
+                            == payload.expected_binding_nonce.as_deref()
+                })
+        });
+        let worker_target = {
+            let mux = self.mux.read();
+            mux.resolve_tab_id(tab_id)
+                .and_then(|resolved| mux.get_tab(&resolved))
+                .is_some_and(|tab| worker_brief_flagged(tab.role))
+        };
+        let report = matches!(
+            payload.observer.as_ref(),
+            Some(DeliveryWriteObserver::Report { .. })
+        );
+        let (worker_brief, report) = retired_delivery_flags(worker_target, report);
+        let payload_kind = if report {
+            "report"
+        } else if worker_brief {
+            "worker_brief"
+        } else {
+            match payload.observer.as_ref() {
+                Some(DeliveryWriteObserver::PlanRole { .. }) => "plan_role",
+                Some(DeliveryWriteObserver::PlanReminder { .. }) => "reminder",
+                _ => "agent_message",
+            }
+        };
+        let exact_text = match &payload.transport {
+            super::messenger::QueuedAgentPayload::Text { text } => text.clone(),
+            super::messenger::QueuedAgentPayload::RoutedFrame {
+                opening_tag,
+                body,
+                suffix,
+            } => codeterm_types::domios::DomiosFrame {
+                opening_tag: opening_tag.clone(),
+                body: body.clone(),
+                suffix: suffix.clone(),
+            }
+            .to_message(),
+        };
+        AgentDeliveryRecovery {
+            payload_kind: payload_kind.into(),
+            worker_brief,
+            report,
+            observer: payload.observer.clone(),
+            exact_text,
+            anchor,
+        }
+    }
+
     fn flush_agent_delivery_record(
         &self,
         tab_id: &str,
@@ -166,7 +426,8 @@ impl ServiceContext {
             return AgentWriteResult::Continue;
         }
         let pty_claim = self.pty_ownership.acquire(tab_id);
-        let claim = match owner.claim(tab_id, &record.id) {
+        let recovery = self.retired_delivery_recovery(tab_id, payload);
+        let claim = match owner.claim_with_recovery(tab_id, &record.id, recovery) {
             Ok(claim) => claim,
             Err(error) => {
                 log::error!(
@@ -433,3 +694,23 @@ impl ServiceContext {
         }
     }
 }
+
+fn retired_delivery_status(evidence: Option<bool>) -> AgentDeliveryReceiptStatus {
+    if evidence == Some(true) {
+        AgentDeliveryReceiptStatus::Delivered
+    } else {
+        AgentDeliveryReceiptStatus::SubmitUnconfirmed
+    }
+}
+
+fn retired_delivery_flags(worker_target: bool, report: bool) -> (bool, bool) {
+    (worker_target, report)
+}
+
+fn worker_brief_flagged(role: Option<crate::multiplexer::types::AgentRole>) -> bool {
+    role == Some(crate::multiplexer::types::AgentRole::Worker)
+}
+
+#[cfg(test)]
+#[path = "agent_delivery_outbox/tests.rs"]
+mod tests;

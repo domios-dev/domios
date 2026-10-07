@@ -573,3 +573,29 @@ fn attempt_detail_labels_dispatched_and_session_models() {
     );
     assert!(rendered.contains("model_identity_mismatch: {\"actual_model\":\"other-model\",\"provider_resolved_model\":\"gpt-6-luna\",\"reason\":\"runtime_session_model_mismatch\",\"requested_model\":\"gpt-6-luna\"}\n"), "{rendered}");
 }
+
+#[test]
+fn structured_task_files_use_authorized_update_and_preserve_paths() {
+    let mut client = FakeRpc::scripted([
+        json!({"task": {"interruption": {"owner_epoch": 17}}}),
+        json!({"ok": true}),
+    ]);
+    run_task(
+        &mut client,
+        true,
+        PlanTaskAction::Files {
+            plan_id: "pl_1".into(),
+            task_id: "task_1".into(),
+            edit: vec!["new file.rs".into()],
+            read: vec!["context.md".into()],
+        },
+    )
+    .unwrap();
+    assert_eq!(client.methods(), ["task.show", "plan.task.update"]);
+    let params = client.calls[1].1.as_ref().unwrap();
+    assert_eq!(params["owner_epoch"], 17);
+    assert_eq!(
+        params["files"],
+        json!({"edit":["new file.rs"],"read":["context.md"]})
+    );
+}
