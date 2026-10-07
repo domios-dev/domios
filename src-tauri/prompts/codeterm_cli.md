@@ -111,3 +111,5 @@ Past conversations are NOT mem: `codeterm sessions search`. Kinds, graph, pin/le
 Forward slashes in paths (CLI normalizes); `/tmp/` works everywhere; macOS maps config `Ctrl` to `Cmd`.
 
 Structured task context: `codeterm plan task files PLAN TASK --edit-file PATH --read-file PATH` replaces the task's file lists. Repeat flags for multiple paths; omit both to clear. Paths resolve against the Worker cwd at dispatch. Read files must exist; editable files may be new. A file cannot belong to both lists.
+
+Read completed tool-less Worker turns with `codeterm agent turns --tab TAB --last N`. This uses exact session evidence. Results include outcomes and a bounded-window continuation cursor; see `codeterm docs PLAN-EDITING`.

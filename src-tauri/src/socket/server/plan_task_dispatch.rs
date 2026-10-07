@@ -121,8 +121,13 @@ fn task_launch_authority_for_dispatch(
     }
 }
 
-fn set_dispatch_task_brief(spawn_params: &mut SpawnAgentParams, brief: String) {
+fn set_dispatch_task_brief(
+    spawn_params: &mut SpawnAgentParams,
+    brief: String,
+    manifest: &[crate::plan::PlanSkillManifestEntry],
+) {
     spawn_params.task = Some(brief);
+    spawn_params.plan_skill_manifest = Some(manifest.to_vec());
 }
 
 pub(super) fn await_agent_ready(
@@ -712,7 +717,7 @@ where
         task: None,
         ..Default::default()
     };
-    set_dispatch_task_brief(&mut spawn_params, brief);
+    set_dispatch_task_brief(&mut spawn_params, brief, &manifest);
 
     refuse_live_dispatch_startup_owner(store, svc, &plan_id, &task_id)?;
 

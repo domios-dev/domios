@@ -117,6 +117,19 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
+    /// Read completed turns from a tool-less agent's exact bound session
+    Turns {
+        #[arg(long, value_name = "TAB")]
+        tab: String,
+        #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u16).range(1..=50))]
+        last: u16,
+        #[arg(
+            long,
+            default_value_t = 0,
+            help = "UTF-8 user-record lower bound; use next_offset to continue a bounded window"
+        )]
+        after: u64,
+    },
     /// Mark a tab as orchestrator (top-level, can spawn workers)
     SetOrchestrator {
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
@@ -362,6 +375,32 @@ pub enum AgentAction {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn agent_turns_parses_bounded_window_and_rejects_invalid_limits() {
+        let cli = Cli::try_parse_from([
+            "codeterm", "agent", "turns", "--tab", "worker", "--last", "2", "--after", "101",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            crate::Commands::Agent {
+                action: AgentAction::Turns {
+                    last: 2,
+                    after: 101,
+                    ..
+                }
+            }
+        ));
+        assert!(Cli::try_parse_from([
+            "codeterm", "agent", "turns", "--tab", "worker", "--last", "0"
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from([
+            "codeterm", "agent", "turns", "--tab", "worker", "--last", "51"
+        ])
+        .is_err());
+    }
+
     use super::*;
     use crate::Cli;
     use clap::{CommandFactory, Parser};
