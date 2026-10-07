@@ -43,6 +43,7 @@ impl ServiceContext {
             tab.reported_session_binding_nonce = None;
             if changed {
                 clear_runtime_model_evidence(tab);
+                tab.provider_signals = Default::default();
             }
         }
         drop(mux);
@@ -53,6 +54,7 @@ impl ServiceContext {
             // The binding commit shuts this tab's tailer down, and chat reads
             // its authority from the tab record: no broadcast, no re-attach.
             self.emit_state_changed();
+            crate::service::provider_signals::refresh_auth(self, tab_id);
             let _ = crate::service::session_persist::persist_session_after_mutation(
                 self,
                 crate::service::session_persist::SessionPersistUrgency::Prompt,
@@ -131,10 +133,12 @@ impl ServiceContext {
             tab.remember_superseded_binding_nonce();
             tab.session_binding_nonce = Some(nonce.clone());
             tab.reported_session_binding_nonce = None;
+            tab.provider_signals = Default::default();
             if let Some(session_id) = resume_target {
                 tab.remember_resume_binding_nonce(session_id);
             }
         }
+        crate::service::provider_signals::refresh_auth(self, tab_id);
         nonce
     }
 
@@ -158,6 +162,7 @@ impl ServiceContext {
         // A freshly minted nonce is a new launch, so it starts a new operation.
         if minted {
             self.open_lifecycle_epoch(tab_id);
+            crate::service::provider_signals::refresh_auth(self, tab_id);
         }
         nonce
     }

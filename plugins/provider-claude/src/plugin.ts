@@ -11,6 +11,7 @@ import type {
 import { manifest } from "./shared";
 import { permissionHookCapability } from "./permissionHook";
 import { parseContextUsage, statuslineLaunchArgs } from "./context";
+import { authStatusProbe, parseAuthStatus, parseSessionObservations } from "./signals";
 import { detectClaudeLaunchSession } from "./launchSession";
 import {
   fetchClaudeUsage,
@@ -173,6 +174,9 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
 }
 
 const plugin: PluginModule = {
+  authStatusProbe,
+  parseAuthStatus,
+  parseSessionObservations,
   permissionHookCapability,
   parseContextUsage,
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
@@ -734,6 +738,7 @@ const plugin: PluginModule = {
       const context = parseContextUsage(v);
       out.push({
         ...(context ? { context_usage: context } : {}),
+        provider_observations: parseSessionObservations(v),
         role: role,
         blocks: blocks,
         ts: ts,

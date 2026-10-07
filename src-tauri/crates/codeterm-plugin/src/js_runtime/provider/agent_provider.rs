@@ -22,6 +22,7 @@ use super::wire::{
 };
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
+mod chat_read;
 mod delivery;
 mod session_wire;
 
@@ -29,6 +30,19 @@ use session_wire::WireUsageSource;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
+    fn auth_status_probe(&self) -> Option<provider::AuthStatusProbe> {
+        self.try_call("authStatusProbe", &[]).flatten()
+    }
+
+    fn parse_auth_status(&self, record: &Value) -> Option<provider::AuthStatus> {
+        self.try_call("parseAuthStatus", &[record.clone()])
+            .flatten()
+    }
+
+    fn parse_session_observations(&self, record: &Value) -> Option<provider::SessionObservations> {
+        self.try_call("parseSessionObservations", &[record.clone()])
+            .flatten()
+    }
     fn parse_context_usage(
         &self,
         record: &serde_json::Value,
@@ -698,26 +712,7 @@ impl AgentProvider for JsProvider {
     }
 
     fn session_jsonl_path(&self, cwd: &str, session_id: &str) -> Option<std::path::PathBuf> {
-        // Hook-reported evidence wins over any reconstruction; absence falls through.
-        if let Some(stored) = crate::session_evidence::stored_transcript_path(session_id) {
-            return Some(stored);
-        }
-        if !self.has_js("sessionJsonlPath") {
-            return self
-                .native()
-                .and_then(|n| n.session_jsonl_path(cwd, session_id));
-        }
-        let resolved = match self.manifest.sessions.as_ref().map(|s| s.cwd_encoding) {
-            Some(super::CwdEncoding::DashEncoded) => codeterm_paths::canonical_cwd(cwd),
-            _ => cwd.to_string(),
-        };
-        self.try_call::<Option<String>>(
-            "sessionJsonlPath",
-            &[serde_json::json!(resolved), serde_json::json!(session_id)],
-        )
-        .flatten()
-        .filter(|path| !path.is_empty())
-        .map(std::path::PathBuf::from)
+        self.js_session_jsonl_path(cwd, session_id)
     }
 
     fn uses_structured_chat(&self) -> bool {
@@ -735,18 +730,7 @@ impl AgentProvider for JsProvider {
         session_id: &str,
         cursor: Option<&str>,
     ) -> codeterm_types::agent::chat_types::StructuredChat {
-        if self.has_js("readStructuredChat") {
-            return self
-                .try_call(
-                    "readStructuredChat",
-                    &[json!(cwd), json!(session_id), json!(cursor)],
-                )
-                .unwrap_or_default();
-        }
-        match self.native() {
-            Some(n) => n.read_structured_chat(cwd, session_id, cursor),
-            None => codeterm_types::agent::chat_types::StructuredChat::default(),
-        }
+        self.js_read_structured_chat(cwd, session_id, cursor)
     }
 
     fn supports_chat_ui(&self) -> bool {
@@ -768,21 +752,7 @@ impl AgentProvider for JsProvider {
         &self,
         msg: &codeterm_types::agent::chat_types::RichMessage,
     ) -> Vec<codeterm_types::agent::chat_types::InteractiveElement> {
-        if self.manifest.spawn.interactive_events && self.has_js("parseInteractiveEvents") {
-            let arg = match serde_json::to_value(msg) {
-                Ok(v) => v,
-                Err(_) => return Vec::new(),
-            };
-            return self
-                .try_call::<Vec<codeterm_types::agent::chat_types::InteractiveElement>>(
-                    "parseInteractiveEvents",
-                    &[arg],
-                )
-                .unwrap_or_default();
-        }
-        self.native()
-            .map(|n| n.parse_interactive_events(msg))
-            .unwrap_or_default()
+        self.js_parse_interactive_events(msg)
     }
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
@@ -1095,7 +1065,11 @@ impl AgentProvider for JsProvider {
 
     fn settings_schema(&self) -> Vec<SettingField> {
         if !self.has_custom_settings_schema {
-            return manifest_settings_sections(&self.manifest);
+            let mut fields = manifest_settings_sections(&self.manifest);
+            if self.auth_status_probe().is_some() {
+                fields.push(provider::structured_signals_section());
+            }
+            return fields;
         }
         // Cached: describe() polls hit this; the plugin schema is a pure constant.
         self.schema_cache

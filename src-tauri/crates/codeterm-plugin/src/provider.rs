@@ -4,6 +4,14 @@ pub use reply_relay::{
     ReplyRelayUnavailable,
 };
 pub(crate) mod update_prompt;
+pub use codeterm_types::agent::provider_signals::{AuthStatus, SessionObservations};
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AuthStatusProbe {
+    pub args: Vec<String>,
+    pub timeout_ms: u64,
+}
 
 use std::path::PathBuf;
 

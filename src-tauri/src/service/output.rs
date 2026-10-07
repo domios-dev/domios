@@ -664,7 +664,11 @@ impl ServiceContext {
                 };
                 self.agent_registry
                     .with_provider(&agent_type, |provider| {
-                        provider.classify_tab_state(&snapshot)
+                        crate::service::provider_signals::classify_for(
+                            self,
+                            &snapshot,
+                            provider.classify_tab_state(&snapshot),
+                        )
                     })
                     .flatten()
             },

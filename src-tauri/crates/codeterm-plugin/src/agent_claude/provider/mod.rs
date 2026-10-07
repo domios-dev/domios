@@ -18,6 +18,7 @@ mod permission_hook;
 mod permission_prompt;
 mod schemas;
 mod sessions;
+mod signals;
 mod subagents;
 mod usage;
 
@@ -53,6 +54,20 @@ impl ClaudeProvider {
 }
 
 impl AgentProvider for ClaudeProvider {
+    fn auth_status_probe(&self) -> Option<crate::provider::AuthStatusProbe> {
+        Some(signals::probe())
+    }
+
+    fn parse_auth_status(&self, record: &serde_json::Value) -> Option<crate::provider::AuthStatus> {
+        signals::auth(record)
+    }
+
+    fn parse_session_observations(
+        &self,
+        record: &serde_json::Value,
+    ) -> Option<crate::provider::SessionObservations> {
+        signals::session(record)
+    }
     fn parse_context_usage(
         &self,
         record: &serde_json::Value,
