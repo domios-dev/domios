@@ -908,12 +908,22 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
         }
         crate::AgentAction::Restart {
             tab: Some(tab),
+            provider,
+            handoff_history,
             force,
             grace_secs,
         } if !tab.trim().is_empty() => (
             "POST".into(),
             format!("/api/tabs/{}/agent/restart", urlencoding::encode(tab)),
-            Some(serde_json::json!({"force": force, "grace_secs": grace_secs}).to_string()),
+            Some(
+                serde_json::json!({
+                    "force": force,
+                    "grace_secs": grace_secs,
+                    "provider": provider,
+                    "handoff_history": handoff_history,
+                })
+                .to_string(),
+            ),
         ),
         crate::AgentAction::Restart { .. } => unsupported(
             "agent restart --mesh requires a non-empty explicit --tab <ID> from the target peer",

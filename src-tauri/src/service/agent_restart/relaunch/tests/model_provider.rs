@@ -79,11 +79,13 @@ fn model_provider_fresh_pty_resume_keeps_tab_session_and_transcript() {
         tab_id: tab_id.clone(),
         pty_id: old_id.clone(),
         provider: "opencode".into(),
+        target_provider: None,
         session_id: Some("ses_resume".into()),
         cwd: Some("/work".into()),
         auto_approve: false,
         role: None,
         role_profile: None,
+        handoff_history: None,
     };
     let resumed = build_relaunch(svc, &snapshot, true).unwrap();
     assert!(resumed.command.contains("--session 'ses_resume'"));
