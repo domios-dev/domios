@@ -1,6 +1,14 @@
 # Codex remote TUI gate
 
-## Verdict
+## Resumed verification and accepted risks
+
+The Orchestrator subsequently accepted the denied-command backfill gap as non-blocking for lane A: P1/P2 must persist approval outcomes from the live stream. The TUI busy-after-interrupt discrepancy is a recorded provider UI defect. Argv-versus-thread instruction/hook-trust precedence, selective hook disabling and exhaustive shared-daemon isolation carry into P1's live oracle. The original full-checklist verdict below records the earlier state; a final Windows verdict follows the remaining resize, thread-switch/discriminator and descendant checks.
+
+macOS verification was completed by Fulton on eight, using native arm64 Codex 0.160.0 at `/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/bin/codex`, from `/Users/dev/Developer/codeterm-worktrees/codex-hybrid-macqa` at lane tip `2b000075`. The Orchestrator's evidence stride on `pl_a0rcq7/task_8ghd29` records injection binding, slash transitions (/fork /clear /new /resume), subagent discrimination through thread/read, second-client streaming, clientId echo, approval fan-out both ways, interrupted turn with usable TUI, next-turn model and owned-process teardown. The same denied-command backfill gap was observed.
+
+The uncommitted macOS evidence bundle is `/Users/dev/.codeterm/runtime/agent-pads/20927f0a/hybrid-evidence/` on eight: per-flow launch.json, mint.ndjson, observer.ndjson, terminal screens, PID receipts, and teardown.txt containing every PID/token/listener and thread ID. These are **Fulton's executed results relayed through the Orchestrator**, not independently rerun by this Windows Worker. Mac evidence remains on eight and is not copied into this git lane. The plan stride and physical-machine transcript paths are the review references.
+
+## Historical full-checklist verdict (before carried-risk decision)
 
 **Windows: NO-GO for the complete checklist. macOS: NOT OBSERVED (NO-GO for release until verified). Lane A remains blocked.**
 
