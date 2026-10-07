@@ -87,9 +87,21 @@ pub(super) fn plan_due(
         }) {
             continue;
         }
-        if (job.next_run <= now || wake_pending.contains(&job.id)) && !active.contains_key(&job.id)
-        {
-            if job.next_run <= now {
+        let input_trigger = job.pipeline.as_ref().is_some_and(|pipeline| {
+            matches!(
+                &pipeline.trigger,
+                codeterm_types::blueprint_pipeline::Trigger::Input { .. }
+            )
+        });
+        let due_now = if input_trigger {
+            codeterm_types::sentinel_input::input_due(job.next_run, now)
+        } else {
+            job.next_run <= now || wake_pending.contains(&job.id)
+        };
+        if due_now && !active.contains_key(&job.id) {
+            if input_trigger {
+                job.next_run = codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS;
+            } else if job.next_run <= now {
                 let missed = (now - job.next_run) / job.interval_ms;
                 job.next_run = job
                     .next_run
@@ -124,5 +136,78 @@ pub(in crate::sentinel) fn transition_budget_spent(job: &Sentinel) -> bool {
         job.run.is_some() && job.run_transitions >= job.max_transitions
     } else {
         job.transitions.len() >= usize::from(job.max_transitions)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use codeterm_types::blueprint_pipeline::{
+        BlueprintResult, BlueprintSpec, IoType, Step, StepKind, Trigger,
+    };
+    use codeterm_types::sentinel_input::{DataRef, MediaKind};
+
+    #[test]
+    fn blueprint_input_due_is_once_per_activation_and_amendment_without_interval_runs() {
+        let temp = tempfile::tempdir().unwrap();
+        let clock = crate::cron::clock::MockClock::starting_at(1_000);
+        let store = Store::new(temp.path().join("input.json"), clock);
+        let mut job = store
+            .prepare_pipeline(
+                BlueprintSpec {
+                    name: "one-shot-input".into(),
+                    owner: codeterm_types::blueprint_pipeline::BlueprintOwner::Tab,
+                    trigger: Trigger::Input {
+                        kind: MediaKind::Text,
+                        source: DataRef::Text("hello".into()),
+                    },
+                    steps: vec![Step {
+                        name: "filter".into(),
+                        input: IoType::Text,
+                        kind: StepKind::Filter {
+                            pattern: "hello".into(),
+                            bucket: None,
+                        },
+                        on: Default::default(),
+                    }],
+                    result: BlueprintResult::default(),
+                },
+                Owner {
+                    creator_tab_id: "creator".into(),
+                    team_id: None,
+                    workspace_id: "workspace".into(),
+                    cwd: "/tmp".into(),
+                },
+                true,
+            )
+            .unwrap();
+        job.next_run = 1_000;
+        let id = job.id.clone();
+        let mut jobs = vec![job];
+        let mut active = HashMap::new();
+        let mut wake_pending = BTreeSet::new();
+
+        assert_eq!(
+            plan_due(&mut jobs, &mut active, &mut wake_pending, 1_000)
+                .0
+                .len(),
+            1
+        );
+        active.remove(&id);
+        assert!(plan_due(&mut jobs, &mut active, &mut wake_pending, 21_000)
+            .0
+            .is_empty());
+
+        jobs[0].next_run = 21_000;
+        assert_eq!(
+            plan_due(&mut jobs, &mut active, &mut wake_pending, 21_000)
+                .0
+                .len(),
+            1
+        );
+        active.remove(&id);
+        assert!(plan_due(&mut jobs, &mut active, &mut wake_pending, 41_000)
+            .0
+            .is_empty());
     }
 }

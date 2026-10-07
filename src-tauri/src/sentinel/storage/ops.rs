@@ -405,6 +405,7 @@ impl Store {
         source: &Sentinel,
         transition: &str,
         target: &str,
+        input_due_at: Option<u64>,
     ) -> Staged<bool> {
         let (stored, activated) = match (codec::id(&source.id), codec::id(target)) {
             (Ok(stored), Ok(activated)) => (stored, activated),
@@ -412,7 +413,7 @@ impl Store {
         };
         let fence = codec::fence(source, transition);
         self.submit(
-            move |repo| repo.activate_target(stored, fence, activated, MAX_ACTIVE),
+            move |repo| repo.activate_target(stored, fence, activated, MAX_ACTIVE, input_due_at),
             finishing(|_, outcome| {
                 let commit = outcome.map_err(Failure::message)?;
                 match commit.outcome {

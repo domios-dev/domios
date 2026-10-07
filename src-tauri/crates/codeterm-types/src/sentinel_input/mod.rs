@@ -43,6 +43,89 @@ pub const MAX_CONVERTED_TEXT_BYTES: usize = 1024 * 1024;
 pub const DEFAULT_CONVERT_TIMEOUT_MS: u64 = 15 * 60 * 1000;
 pub const MAX_CONVERT_TIMEOUT_MS: u64 = 60 * 60 * 1000;
 pub const MAX_URL_BYTES: usize = 2048;
+pub const MAX_RUN_ID_BYTES: usize = 128;
+pub const INPUT_DORMANT_DEADLINE_MS: u64 = i64::MAX as u64;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "state", content = "reason")]
+pub enum InputRun {
+    Pending,
+    Materializing,
+    Converting,
+    Delivered,
+    Failed(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InvalidInputRunTransition;
+
+impl InputRun {
+    pub fn advance(&mut self, next: Self) -> Result<(), InvalidInputRunTransition> {
+        let allowed = matches!(
+            (&*self, &next),
+            (Self::Pending, Self::Materializing)
+                | (Self::Materializing, Self::Converting)
+                | (Self::Materializing, Self::Delivered)
+                | (Self::Converting, Self::Delivered)
+                | (Self::Pending, Self::Failed(_))
+                | (Self::Materializing, Self::Failed(_))
+                | (Self::Converting, Self::Failed(_))
+        );
+        if !allowed {
+            return Err(InvalidInputRunTransition);
+        }
+        *self = next;
+        Ok(())
+    }
+}
+
+pub fn input_due(next_run_ms: u64, now_ms: u64) -> bool {
+    next_run_ms <= now_ms
+}
+
+pub fn within_budget(size: u64, budget: u64) -> Result<(), InputBudgetExceeded> {
+    if size <= budget {
+        Ok(())
+    } else {
+        Err(InputBudgetExceeded { size, budget })
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InputBudgetExceeded {
+    pub size: u64,
+    pub budget: u64,
+}
+
+pub fn run_dir(data_dir: &Path, blueprint_id: &str, run_id: &str) -> Result<PathBuf, String> {
+    if !safe_run_component(blueprint_id) || !safe_run_component(run_id) {
+        return Err("unsafe input run identity".into());
+    }
+    Ok(data_dir
+        .join("assets")
+        .join("blueprint-runs")
+        .join(blueprint_id)
+        .join(run_id))
+}
+
+fn safe_run_component(value: &str) -> bool {
+    let stem = value
+        .split('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let reserved = matches!(stem.as_str(), "con" | "prn" | "aux" | "nul")
+        || stem
+            .strip_prefix("com")
+            .or_else(|| stem.strip_prefix("lpt"))
+            .is_some_and(|suffix| suffix.len() == 1 && matches!(suffix.as_bytes()[0], b'1'..=b'9'));
+    !reserved
+        && !value.is_empty()
+        && value.len() <= MAX_RUN_ID_BYTES
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
 
 /// Where an input stage's data lives; `Text` is allowed only for `MediaKind::Text`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -438,5 +521,58 @@ mod tests {
             display_name(&DataRef::Url("https://[::1]:8080/x".into())),
             "::1"
         );
+    }
+
+    #[test]
+    fn input_run_accepts_only_lifecycle_edges() {
+        let states = [
+            InputRun::Pending,
+            InputRun::Materializing,
+            InputRun::Converting,
+            InputRun::Delivered,
+            InputRun::Failed("failure".into()),
+        ];
+        let allowed = [(0, 1), (0, 4), (1, 2), (1, 3), (1, 4), (2, 3), (2, 4)];
+        for (from, next) in states.iter().enumerate() {
+            for (to, target) in states.iter().enumerate() {
+                let mut run = next.clone();
+                assert_eq!(
+                    run.advance(target.clone()).is_ok(),
+                    allowed.contains(&(from, to))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn input_due_is_once_when_scheduler_disables_interval_after_claim() {
+        assert!(input_due(10, 10));
+        assert!(input_due(10, 11));
+        assert!(!input_due(INPUT_DORMANT_DEADLINE_MS, 11));
+    }
+
+    #[test]
+    fn budget_refuses_without_truncating() {
+        assert_eq!(within_budget(10, 10), Ok(()));
+        assert_eq!(
+            within_budget(11, 10),
+            Err(InputBudgetExceeded {
+                size: 11,
+                budget: 10
+            })
+        );
+    }
+
+    #[test]
+    fn run_dir_rejects_unsafe_ids() {
+        let root = Path::new("/data");
+        assert_eq!(
+            run_dir(root, "bp_1", "run-2").unwrap(),
+            root.join("assets/blueprint-runs/bp_1/run-2")
+        );
+        for unsafe_id in ["", "../x", "x/y", "x\\y", ".", "nul"] {
+            assert!(run_dir(root, unsafe_id, "run").is_err());
+            assert!(run_dir(root, "bp", unsafe_id).is_err());
+        }
     }
 }

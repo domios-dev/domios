@@ -156,10 +156,9 @@ fn pipeline_preview_summary(value: &Value) -> String {
             trigger["every"].as_str().unwrap_or("?")
         )),
         Some("input") => lines.push(format!(
-            "Trigger: input kind={} source={} convert_to={}",
+            "Trigger: input kind={} source={}",
             trigger["kind"].as_str().unwrap_or("?"),
-            input_ref_summary(&trigger["source"]),
-            trigger["convert_to"].as_str().unwrap_or("-")
+            input_ref_summary(&trigger["source"])
         )),
         Some("event") => lines.push(format!(
             "Trigger: event source={}",
