@@ -342,6 +342,7 @@ mod spawn_pty_restore_tests {
         tab.agent_session_id = Some(SESSION.into());
         tab.restored_from_snapshot = true;
         tab.restorable_launch = RestorableLaunchParameters {
+            structured_runtime_mode: None,
             context_files: None,
             context_skills: None,
             worker_restart: None,
