@@ -976,11 +976,12 @@ fn structured_chat_serves_rows_without_a_session_id() {
             StructuredChat {
                 messages: vec![codeterm_types::agent::chat_types::ChatMsg {
                     id: "hist_0".into(),
-                    r#type: "user".into(),
+                    kind: "user".into(),
                     content: "hello".into(),
                     ..Default::default()
                 }],
                 cursor: Some("1".into()),
+                done: false,
             }
         }
     }
