@@ -7,6 +7,7 @@ pub mod routes;
 pub mod agent_done_routes;
 pub mod agent_model_catalog_routes;
 pub mod agent_model_routes;
+pub(crate) mod agent_restart_routes;
 pub mod agent_routes;
 pub mod ai_helper_routes;
 pub mod bridge_routes;

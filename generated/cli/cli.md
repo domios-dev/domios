@@ -152,6 +152,8 @@ Restart a live agent, or resume an exited provider's verified session in its she
 
 - `--force` — Skip the graceful exit and force-kill instead. Use only when the agent is hung
 - `--grace-secs` — Wait this long for graceful exit before force-killing (seconds)
+- `--handoff-history` — Include bounded, redacted history in a provider-changing fresh launch
+- `--provider` — Relaunch with this installed PTY provider instead of the current provider
 - `--tab` — Tab ID (defaults to $CODETERM_TAB_ID locally; required with --mesh)
 
 #### `codeterm agent set-orchestrator`
@@ -206,6 +208,14 @@ Cancel automatic cleanup for an inspected startup attempt
 
 - `--attempt` — Launch attempt shown in the startup-overdue report
 - `--tab` — Target spawned Tab
+
+#### `codeterm agent turns`
+
+Read completed turns from a tool-less agent's exact bound session
+
+- `--after` — UTF-8 user-record lower bound; use next_offset to continue a bounded window
+- `--last`
+- `--tab`
 
 #### `codeterm agent unlink`
 
@@ -675,10 +685,10 @@ Show a provider's hook integration state
 
 #### `codeterm integration sweep-profiles`
 
-Preview or remove dead provider launch artifacts owned by this instance
+Preview dead provider launch artifacts; only the machine owner may remove them
 
 - `--confirm` — Remove the profiles listed by this instance's scan
-- `--include-legacy` — Include every unmarked legacy profile, regardless of tab liveness
+- `--include-legacy` — Include exact-pattern unmarked legacy profiles whose tabs are not live here
 - `--provider` — Provider id (e.g. codex)
 
 #### `codeterm keepawake`
@@ -2569,6 +2579,15 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
 - `<task_id>`
 - `--workspace`
+
+#### `codeterm plan task files`
+
+Replace structured task context files (relative paths resolve against the Worker cwd)
+
+- `--edit-file`
+- `<plan_id>`
+- `--read-file`
+- `<task_id>`
 
 #### `codeterm plan task link`
 

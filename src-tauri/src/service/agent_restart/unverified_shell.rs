@@ -133,11 +133,13 @@ impl ServiceContext {
             tab_id: resolved,
             pty_id,
             provider,
+            target_provider: None,
             session_id: tab.agent_session_id.clone(),
             cwd: tab.cwd.clone(),
             auto_approve,
             role: tab.role.map(|role| format!("{role:?}")),
             role_profile: tab.role_profile.clone(),
+            handoff_history: None,
         })
     }
 }

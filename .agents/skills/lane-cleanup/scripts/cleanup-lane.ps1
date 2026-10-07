@@ -13,6 +13,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    throw "cleanup-lane requires PowerShell 7 or newer; no lane files were removed."
+}
+
 function Resolve-ExistingPath([string]$Path) {
     (Resolve-Path -LiteralPath $Path).Path.TrimEnd('\')
 }
@@ -25,6 +29,22 @@ function Assert-Success([string]$Operation) {
 
 $canonical = Resolve-ExistingPath $CanonicalPath
 $root = Resolve-ExistingPath $WorktreeRoot
+$laneItem = Get-Item -LiteralPath $LanePath -Force
+if (($laneItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+    throw "Refusing lane path that is itself a reparse point: $LanePath"
+}
+
+function Remove-LaneReparsePoints([string]$Path) {
+    $links = @(Get-ChildItem -LiteralPath $Path -Force -Recurse -Attributes ReparsePoint -ErrorAction Stop |
+        Sort-Object { $_.FullName.Length } -Descending)
+    foreach ($link in $links) {
+        if (($link.Attributes -band [IO.FileAttributes]::Directory) -ne 0) {
+            [IO.Directory]::Delete($link.FullName, $false)
+        } else {
+            [IO.File]::Delete($link.FullName)
+        }
+    }
+}
 $lane = Resolve-ExistingPath $LanePath
 
 if ($lane -eq $canonical -or -not $lane.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) {
@@ -35,6 +55,8 @@ if ($TabId) {
     codeterm tab close $TabId
     Assert-Success "Close Domios tab $TabId"
 }
+
+Remove-LaneReparsePoints $lane
 
 $gitMarker = Join-Path $lane '.git'
 if (Test-Path -LiteralPath $gitMarker) {
@@ -62,7 +84,12 @@ if (Test-Path -LiteralPath $lane) {
 
     foreach ($artifact in $reserved) {
         $extendedPath = '\\?\' + $artifact.FullName
-        Remove-Item -LiteralPath $extendedPath -Force -Recurse
+        $item = Get-Item -LiteralPath $extendedPath -Force
+        if (($item.Attributes -band [IO.FileAttributes]::Directory) -ne 0) {
+            [IO.Directory]::Delete($extendedPath, $true)
+        } else {
+            [IO.File]::Delete($extendedPath)
+        }
     }
 
     $remaining = @(Get-ChildItem -LiteralPath $lane -Force)
