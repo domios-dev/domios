@@ -1,3 +1,4 @@
+import { RemovedChatPlugin } from "./RemovedChatPlugin";
 import { Fragment, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
@@ -652,16 +653,6 @@ export function TabSessionChat({
     backendState?.subtype,
   ]);
 
-  const composerModelBubble = useMemo(() => {
-    if (!effectiveChatBackend || !chatBacking) return undefined;
-    return (
-      <>
-        <ChatModelBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
-        <ChatPresetBubble pluginId={chatBacking.plugin_id} sessionId={chatBacking.session_id} />
-      </>
-    );
-  }, [chatBacking, effectiveChatBackend]);
-
   const watcherModelBubble = useMemo(() => {
     if (!effectiveChatBackend || !chatBacking) return undefined;
     return (
@@ -725,6 +716,7 @@ export function TabSessionChat({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
+      <RemovedChatPlugin error={effectiveChatBackend ? error : null} />
       <ChatSessionIntentLine intent={sessionIntent} />
       <div className="relative flex-1 min-h-0">
       {showEmptyState && (
@@ -900,7 +892,6 @@ export function TabSessionChat({
         promptDock={inlinePrompt && (tab?.agent_state?.subtype === "permission" && !inlinePrompt.multi_select && !inlinePrompt.sections?.length
           ? <ComposerApprovalDock key={JSON.stringify(inlinePrompt)} prompt={inlinePrompt} tabId={tabId} active={isActive} onRespond={handleRespondPrompt} />
           : <PendingPromptCard pendingPrompt={inlinePrompt} onRespond={(value) => { void handleRespondPrompt(value).catch(() => {}); }} />)}
-        modelBubble={composerModelBubble}
       />}
       </>
       )}

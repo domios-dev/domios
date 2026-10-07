@@ -69,6 +69,8 @@ pub struct SpawnConfig {
     #[serde(default, alias = "resumeBindsOnFirstUserTurn")]
     pub session_starts_on_first_user_turn: bool,
     #[serde(default)]
+    pub restores_conversation_history_on_resume: bool,
+    #[serde(default)]
     pub public_send_waits_for_startup_turn_completion: bool,
     /// Declared hook event roster (event name → core ingestion route).
     /// Absent ⇒ default roster: native fallback's declaration, else SessionStart-only when hooked.

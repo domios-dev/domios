@@ -64,6 +64,9 @@ fn seeded_tab(provider: &str) -> (MultiplexerState, String) {
     tab.agent_requested_model = Some(PRIOR_MODEL.into());
     tab.agent_provider_resolved_model = Some(PRIOR_MODEL.into());
     tab.restorable_launch = crate::multiplexer::types::RestorableLaunchParameters {
+        context_files: None,
+        context_skills: None,
+        worker_restart: None,
         captured: true,
         requested_model: Some(PRIOR_MODEL.into()),
         model: Some(PRIOR_MODEL.into()),
