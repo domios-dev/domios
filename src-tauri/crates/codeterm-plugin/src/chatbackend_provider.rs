@@ -726,7 +726,10 @@ mod tests {
         while let Ok(change) = changes.try_recv() {
             completion_seen |= change.provider == id && change.version == version;
         }
-        assert!(completion_seen, "the completed refresh must publish its version");
+        assert!(
+            completion_seen,
+            "the completed refresh must publish its version"
+        );
         registry.unregister(id);
     }
 

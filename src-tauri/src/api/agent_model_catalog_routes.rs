@@ -36,16 +36,15 @@ pub async fn refresh_agent_provider_models(
             crate::agent::model_catalog::invalidate(&body.provider_id);
             let registry = state.svc.chatbackend_registry.clone();
             let provider_id = body.provider_id.clone();
-            let refreshed = tokio::task::spawn_blocking(move || {
-                registry.refresh_and_wait(&provider_id)
-            })
-            .await
-            .map_err(|error| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!("chatBackend catalogue refresh failed: {error}"),
-                )
-            })?;
+            let refreshed =
+                tokio::task::spawn_blocking(move || registry.refresh_and_wait(&provider_id))
+                    .await
+                    .map_err(|error| {
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            format!("chatBackend catalogue refresh failed: {error}"),
+                        )
+                    })?;
             (discovery_required, refreshed)
         } else {
             return Err((

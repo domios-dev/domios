@@ -272,7 +272,11 @@ pub fn subscribe_changes() -> broadcast::Receiver<ModelCatalogueChanged> {
 }
 
 pub fn current_version(provider_id: &str) -> u64 {
-    versions().read().get(provider_id).copied().unwrap_or_default()
+    versions()
+        .read()
+        .get(provider_id)
+        .copied()
+        .unwrap_or_default()
 }
 
 pub fn version_snapshot() -> Vec<ModelCatalogueChanged> {
@@ -590,7 +594,10 @@ pub async fn refresh_models(
 pub async fn refresh_after_catalogue_input_change(
     provider: Arc<dyn AgentProvider>,
 ) -> Option<Vec<ModelInfo>> {
-    log::info!("[model_catalog] {} catalogue input changed - re-probing", provider.id());
+    log::info!(
+        "[model_catalog] {} catalogue input changed - re-probing",
+        provider.id()
+    );
     refresh_models(provider, true).await
 }
 

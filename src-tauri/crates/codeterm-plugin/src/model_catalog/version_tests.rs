@@ -28,7 +28,7 @@ fn invalidation_advances_and_emits_the_provider_version() {
 
     assert_eq!(change.provider, provider);
     assert_eq!(change.version, prior_version + 1);
-    let observed = std::iter::from_fn(|| changes.try_recv().ok())
-        .find(|event| event.provider == provider);
+    let observed =
+        std::iter::from_fn(|| changes.try_recv().ok()).find(|event| event.provider == provider);
     assert_eq!(observed, Some(change));
 }

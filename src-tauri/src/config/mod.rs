@@ -372,13 +372,13 @@ mod tests {
         before
             .plugins
             .insert("plugin-a".into(), serde_json::json!({ "model": "one" }));
-        before
-            .plugins
-            .insert("plugin-stable".into(), serde_json::json!({ "enabled": true }));
-        before.agents.insert(
-            "agent-removed".into(),
-            schema::ProviderConfig::default(),
+        before.plugins.insert(
+            "plugin-stable".into(),
+            serde_json::json!({ "enabled": true }),
         );
+        before
+            .agents
+            .insert("agent-removed".into(), schema::ProviderConfig::default());
         let mut after = before.clone();
         after
             .plugins

@@ -145,15 +145,27 @@ fn discovered_models() -> Vec<ModelInfo> {
 fn seed_models() -> Vec<ModelInfo> {
     [
         ("anthropic/claude-opus-4-8", "Claude Opus 4.8", "Anthropic"),
-        ("anthropic/claude-sonnet-4-6", "Claude Sonnet 4.6", "Anthropic"),
-        ("opencode/gpt-5.4-mini", "OpenCode Zen GPT-5.4 Mini", "OpenCode Zen"),
+        (
+            "anthropic/claude-sonnet-4-6",
+            "Claude Sonnet 4.6",
+            "Anthropic",
+        ),
+        (
+            "opencode/gpt-5.4-mini",
+            "OpenCode Zen GPT-5.4 Mini",
+            "OpenCode Zen",
+        ),
         ("opencode/gpt-5.5", "OpenCode Zen GPT-5.5", "OpenCode Zen"),
         (
             "opencode/deepseek-v4-flash-free",
             "OpenCode Zen DeepSeek V4 Flash Free",
             "OpenCode Zen",
         ),
-        ("opencode/big-pickle", "OpenCode Zen Big Pickle", "OpenCode Zen"),
+        (
+            "opencode/big-pickle",
+            "OpenCode Zen Big Pickle",
+            "OpenCode Zen",
+        ),
     ]
     .into_iter()
     .map(|(id, display, group)| ModelInfo {
