@@ -2,26 +2,9 @@ use tauri::State;
 
 use crate::service::ServiceState;
 
-#[derive(serde::Serialize)]
-pub struct InstallTabResult {
-    pub tab_id: String,
-    pub launch_state: &'static str,
-}
+pub use crate::service::provider_cli_actions::CliLaunch as InstallTabResult;
 
-fn dispatch_install_command(
-    svc: &ServiceState,
-    tab_id: &str,
-    install_cmd: &str,
-) -> Result<(), String> {
-    svc.ensure_tab_pty_for_send(tab_id)
-        .map_err(|error| format!("installer PTY launch failed: {error}"))?;
-    let pty_id = svc
-        .resolve_pty_id(tab_id)
-        .map_err(|error| format!("installer PTY acknowledgement failed: {error}"))?;
-    svc.send_shell_spawn(&pty_id, install_cmd)
-        .map_err(|error| format!("installer command dispatch failed: {error}"))
-}
-
+#[cfg(any(test, debug_assertions))]
 fn install_provider_in_tab_with_dispatch(
     svc: &ServiceState,
     provider_id: String,
@@ -70,7 +53,12 @@ pub fn install_provider_in_tab_core(
     svc: &ServiceState,
     provider_id: String,
 ) -> Result<InstallTabResult, String> {
-    install_provider_in_tab_with_dispatch(svc, provider_id, dispatch_install_command)
+    crate::service::provider_cli_actions::launch(
+        svc,
+        &provider_id,
+        crate::service::provider_cli_actions::CliOperation::Install,
+        None,
+    )
 }
 
 #[cfg(debug_assertions)]
@@ -98,11 +86,19 @@ pub(crate) fn install_provider_in_tab_with_fixture_failure(
 pub async fn install_provider_in_tab(
     svc: State<'_, ServiceState>,
     provider_id: String,
+    caller_tab_id: Option<String>,
 ) -> Result<InstallTabResult, String> {
     let svc = (*svc).clone();
-    tokio::task::spawn_blocking(move || install_provider_in_tab_core(&svc, provider_id))
-        .await
-        .map_err(|error| format!("installer launch worker failed: {error}"))?
+    tokio::task::spawn_blocking(move || {
+        crate::service::provider_cli_actions::launch(
+            &svc,
+            &provider_id,
+            crate::service::provider_cli_actions::CliOperation::Install,
+            caller_tab_id,
+        )
+    })
+    .await
+    .map_err(|error| format!("installer launch worker failed: {error}"))?
 }
 
 #[tauri::command]

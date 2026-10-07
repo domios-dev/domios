@@ -6,6 +6,8 @@ use crate::cmd::print::handle_result;
 use crate::{build_local_api, read_api_config, resolve_tab, AgentAction};
 use std::io::Read;
 
+#[path = "agent_cli.rs"]
+mod agent_cli;
 #[path = "agent_model_switch.rs"]
 mod agent_model_switch;
 #[path = "agent_models.rs"]
@@ -283,6 +285,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
     };
     match action {
+        AgentAction::Cli { action } => agent_cli::run(client, json, action),
         AgentAction::Providers => match local_http
             .get(format!("{}/api/agents/providers", base))
             .send()
@@ -334,6 +337,13 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         models_count,
                         provider_availability_marker(p)
                     );
+                    if let Some(status) = p.get("cli_status") {
+                        if status.get("installed").and_then(|v| v.as_bool()) != Some(true) {
+                            for line in crate::cmd::plugin::cli_status::status_lines(id, status) {
+                                println!("  {line}");
+                            }
+                        }
+                    }
                 }
             }
             Err(e) => {
