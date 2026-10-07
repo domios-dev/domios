@@ -6,13 +6,15 @@ REST endpoints for agent restart, model switch, spawn, reports, keep-awake, and 
 Restart an agent whose process is observed live in a tab. The body is optional (defaults below). Default is graceful: send the provider-specific exit command and wait up to `grace_secs` for the shell-ready event, then tear down the old PTY, create a replacement, and relaunch. A recorded provider session resumes when it still exists on disk; otherwise the provider starts a fresh session. With liveness unobserved, a known PTY provider restarts fresh from a confirmed bare shell (stage `LaunchBindingUnconfirmed`, no owning launch, live PTY at a shell prompt, no verified recovery session in lineage or journal): no exit command, a new PTY, the unverified session id cleared. Other unobserved states are refused. A provider observed to have exited into its surviving shell is recovered in place: Domios skips exit and teardown, takes the tab's newest session from its binding lineage (or, without lineage, its lifecycle journal), requires the journal to prove that session was nonce-verified and exactly one provider to own its session record, then relaunches that provider with resume through the ordinary launch pipeline in the same PTY.
 
 ```json
-{"force": false, "grace_secs": 10}
+{"force": false, "grace_secs": 10, "provider": null, "handoff_history": false}
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `force` | `bool` | `false` | Skip the graceful exit event wait and tear down the old PTY immediately. Use only when the agent is hung or unresponsive. |
 | `grace_secs` | `u64` | `10` | Failure deadline around the shell-ready event wait before the old PTY is torn down. Ignored when `force=true`. |
+| `provider` | `string?` | `null` | Relaunch a live PTY agent with this installed PTY provider. A different provider starts fresh and does not resume the source session. |
+| `handoff_history` | `bool` | `false` | With a different `provider`, include a bounded, redacted transcript in the target provider's launch task. The source tab's own transcript must be readable. |
 
 **Ready response** (`202 Accepted`):
 ```json

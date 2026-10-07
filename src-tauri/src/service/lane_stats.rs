@@ -9,6 +9,7 @@ use wait_timeout::ChildExt;
 const TURN_CAPTURE_DEADLINE: Duration = Duration::from_secs(12);
 const GIT_COMMAND_DEADLINE: Duration = Duration::from_secs(4);
 const CHECKPOINTS_PER_ATTEMPT: usize = 20;
+const MAX_GIT_OUTPUT_BYTES: usize = 1024 * 1024;
 
 struct LaneAttemptTarget {
     plan_id: String,
@@ -32,6 +33,37 @@ enum CheckpointResult {
 }
 
 impl ServiceContext {
+    pub(crate) fn restore_lane_watches(&self) {
+        for plan in self.plan_store.list_full() {
+            let canonical_path = if plan.canonical_project_path.trim().is_empty() {
+                &plan.project_path
+            } else {
+                &plan.canonical_project_path
+            };
+            for task in &plan.tasks {
+                let lane = &task.lane;
+                let Some(worktree_path) = lane.worktree_path.as_deref() else {
+                    continue;
+                };
+                if lane.branch.is_none()
+                    || lane.destination.is_none()
+                    || lane.cleanup_status.as_deref().is_some_and(|status| {
+                        status.eq_ignore_ascii_case("offered")
+                            || status.eq_ignore_ascii_case("done")
+                    })
+                {
+                    continue;
+                }
+                if let Err(error) = self
+                    .repo_watch
+                    .retain_lane_watch(worktree_path, Path::new(canonical_path))
+                {
+                    log::warn!("[lane-cleanup-offer] repository watch unavailable: {error}");
+                }
+            }
+        }
+    }
+
     pub(crate) fn record_lane_turn_boundary(&self, tab_id: &str) {
         let store = self.plan_store.clone();
         let repo_watch = self.repo_watch.clone();
@@ -444,11 +476,18 @@ fn run_git_status_with_index(
         .stderr
         .take()
         .ok_or_else(|| CaptureFailure::Git("git stderr pipe missing".into()))?;
-    let stdout_reader = thread::spawn(move || read_all(stdout));
-    let stderr_reader = thread::spawn(move || read_all(stderr));
     let remaining = deadline
         .saturating_duration_since(Instant::now())
         .min(GIT_COMMAND_DEADLINE);
+    let command_deadline = Instant::now() + remaining;
+    let (sender, receiver) = std::sync::mpsc::channel();
+    let stdout_sender = sender.clone();
+    let stdout_reader = thread::spawn(move || {
+        let _ = stdout_sender.send((true, read_bounded(stdout)));
+    });
+    let stderr_reader = thread::spawn(move || {
+        let _ = sender.send((false, read_bounded(stderr)));
+    });
     let waited = if remaining.is_zero() {
         None
     } else {
@@ -457,8 +496,6 @@ fn run_git_status_with_index(
             Err(error) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let _ = stdout_reader.join();
-                let _ = stderr_reader.join();
                 return Err(CaptureFailure::Git(error.to_string()));
             }
         }
@@ -466,25 +503,47 @@ fn run_git_status_with_index(
     let Some(status) = waited else {
         let _ = child.kill();
         let _ = child.wait();
-        let _ = stdout_reader.join();
-        let _ = stderr_reader.join();
         return Err(CaptureFailure::Deadline);
     };
-    let stdout = stdout_reader
-        .join()
-        .map_err(|_| CaptureFailure::Git("git stdout reader failed".into()))?
-        .map_err(|error| CaptureFailure::Git(error.to_string()))?;
-    let stderr = stderr_reader
-        .join()
-        .map_err(|_| CaptureFailure::Git("git stderr reader failed".into()))?
-        .map_err(|error| CaptureFailure::Git(error.to_string()))?;
+    let (mut stdout, mut stderr) = (None, None);
+    while stdout.is_none() || stderr.is_none() {
+        let timeout = command_deadline.saturating_duration_since(Instant::now());
+        let (is_stdout, output) = receiver
+            .recv_timeout(timeout)
+            .map_err(|_| CaptureFailure::Deadline)?;
+        let (bytes, exceeded_limit) =
+            output.map_err(|error| CaptureFailure::Git(error.to_string()))?;
+        if exceeded_limit {
+            return Err(CaptureFailure::Git(
+                "git command output exceeded its one MiB bound".into(),
+            ));
+        }
+        if is_stdout {
+            stdout = Some(bytes);
+        } else {
+            stderr = Some(bytes);
+        }
+    }
+    let _ = stdout_reader.join();
+    let _ = stderr_reader.join();
     Ok(Output { status, stdout, stderr })
 }
 
-fn read_all(mut reader: impl std::io::Read) -> std::io::Result<Vec<u8>> {
+fn read_bounded(mut reader: impl std::io::Read) -> std::io::Result<(Vec<u8>, bool)> {
     let mut output = Vec::new();
-    reader.read_to_end(&mut output)?;
-    Ok(output)
+    let mut buffer = [0u8; 8192];
+    let mut exceeded_limit = false;
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        let available = MAX_GIT_OUTPUT_BYTES.saturating_sub(output.len());
+        let retained = read.min(available);
+        output.extend_from_slice(&buffer[..retained]);
+        exceeded_limit |= retained < read;
+    }
+    Ok((output, exceeded_limit))
 }
 
 fn capture_failure_text(error: CaptureFailure) -> String {

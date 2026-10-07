@@ -87,6 +87,7 @@ pub(crate) mod plan_batch_authority;
 mod plan_pause;
 mod plan_reconcile;
 mod prompt_chain;
+mod provider_handoff;
 pub(crate) use plan_reconcile::tab_has_live_agent;
 pub mod managed_tabs;
 pub mod plugin_host;

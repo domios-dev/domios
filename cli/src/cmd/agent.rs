@@ -880,11 +880,18 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
         AgentAction::Restart {
             tab,
+            provider,
+            handoff_history,
             force,
             grace_secs,
         } => {
             let tab_id = resolve_tab(client, tab);
-            let body = serde_json::json!({"force": force, "grace_secs": grace_secs});
+            let body = serde_json::json!({
+                "force": force,
+                "grace_secs": grace_secs,
+                "provider": provider,
+                "handoff_history": handoff_history,
+            });
             match local_http
                 .post(format!("{}/api/tabs/{}/agent/restart", base, tab_id))
                 .json(&body)

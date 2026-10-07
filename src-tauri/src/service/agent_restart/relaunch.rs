@@ -18,22 +18,32 @@ pub(super) fn build_relaunch(
     snap: &TabRestartSnapshot,
     session_present: bool,
 ) -> Option<Relaunch> {
-    if let Some(relaunch) = recorded_launch_relaunch(svc, snap, session_present) {
-        return Some(relaunch);
+    let provider = snap.target_provider.as_deref().unwrap_or(&snap.provider);
+    let provider_changed = provider != snap.provider;
+    if !provider_changed {
+        if let Some(relaunch) = recorded_launch_relaunch(svc, snap, session_present) {
+            return Some(relaunch);
+        }
     }
-    let task = (!session_present)
+    let mut task = (!session_present)
         .then(|| {
             crate::service::orchestrator::provider_launch_task(
                 &svc.agent_registry,
-                &snap.provider,
+                provider,
                 None,
                 snap.role.as_deref(),
                 snap.role_profile.as_deref(),
             )
         })
         .flatten();
-    build_relaunch_command(svc, snap, session_present, task.as_deref()).map(|command| Relaunch {
-        command: crate::agent::stub_launch::apply(&snap.provider, command),
+    if let Some(history) = snap.handoff_history.as_deref() {
+        task = Some(crate::service::provider_handoff::compose_launch_task(
+            task.as_deref(),
+            history,
+        ));
+    }
+    build_relaunch_command(svc, snap, provider, session_present, task.as_deref()).map(|command| Relaunch {
+        command: crate::agent::stub_launch::apply(provider, command),
         task,
     })
 }

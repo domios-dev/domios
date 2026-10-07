@@ -79,11 +79,13 @@ fn snapshot(tab_id: &str, provider: &str) -> TabRestartSnapshot {
         tab_id: tab_id.into(),
         pty_id: "pty-7f3a".into(),
         provider: provider.into(),
+        target_provider: None,
         session_id: Some(SESSION.into()),
         cwd: Some(std::env::temp_dir().display().to_string()),
         auto_approve: false,
         role: None,
         role_profile: None,
+        handoff_history: None,
     }
 }
 
