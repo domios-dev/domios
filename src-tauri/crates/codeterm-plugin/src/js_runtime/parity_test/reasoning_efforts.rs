@@ -133,7 +133,7 @@ fn bundled_providers_advertise_only_efforts_they_can_launch() {
     let fixture = JsProvider::new(
         manifest,
         std::sync::Arc::new(
-            PluginVm::from_source(
+            super::super::PluginVm::from_source(
                 "opencode-per-model-effort-contract",
                 "module.exports.default = {};".into(),
             )
