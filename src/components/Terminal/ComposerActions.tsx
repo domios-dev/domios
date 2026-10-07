@@ -62,11 +62,11 @@ export function ComposerActions({
         }}
       />
       <div className="relative flex w-full items-end gap-1.5">
-        {onSchedule && !voiceUi.isPreview && (
-          <ComposerScheduleButton onSchedule={onSchedule} disabled={!voiceUi.mainIsSend} />
+        {!voiceUi.isPreview && (
+          <ComposerAttachButton uploading={uploading} onClick={() => fileRef.current?.click()} />
         )}
         <ComposerInputShell voiceUi={voiceUi} header={cardHeader} footer={cardFooter}
-          actions={!voiceUi.isPreview && <ComposerAttachButton uploading={uploading} onClick={() => fileRef.current?.click()} />}>
+          actions={voiceUi.mainIsSend && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}>
           {children}
         </ComposerInputShell>
         {!voiceUi.isPreview && (

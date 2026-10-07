@@ -551,7 +551,7 @@ function ChatComposerImpl({
             failedCount={0}
             onOpenDelayedQueue={openDelayedQueue}
           />}
-          cardFooter={<ComposerBubbleRow
+          cardFooter={(queuedCount > 0 || failedCount > 0) && <ComposerBubbleRow
             attachments={[]}
             onRemove={removeAttachment}
             queuedCount={queuedCount}
