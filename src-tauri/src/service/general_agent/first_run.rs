@@ -363,6 +363,7 @@ mod tests {
                     title: "Get started".into(),
                     description: Some(FIRST_RUN_TAB_MARKER.into()),
                     split_tree: SplitNodeSnapshot::Leaf {
+                        purpose: Default::default(),
                         tab_id: "tab-picker".into(),
                         cwd: None,
                         title: Some("Get started".into()),

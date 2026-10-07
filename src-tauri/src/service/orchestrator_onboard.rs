@@ -253,6 +253,8 @@ mod tests {
             pty_id: None,
             backing: TabBacking::default(),
             tab_type: TabType::Terminal,
+            purpose: Default::default(),
+            shell_command_state: Default::default(),
             pending_delivery: None,
             title: "Terminal".to_string(),
             description: None,

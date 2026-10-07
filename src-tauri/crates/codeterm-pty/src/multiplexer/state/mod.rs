@@ -312,6 +312,8 @@ impl MultiplexerState {
             pty_id: None,
             backing: TabBacking::default(),
             tab_type: TabType::Terminal,
+            purpose: Default::default(),
+            shell_command_state: Default::default(),
             pending_delivery: None,
             title: names::generate_tab_name(),
             description: None,

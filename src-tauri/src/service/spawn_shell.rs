@@ -32,6 +32,7 @@ impl ServiceContext {
             let result = mux.create_tab(&ws_id)?;
             if let Some(tab) = mux.get_tab_mut(&result) {
                 tab.audience = spec.audience;
+                tab.purpose = spec.purpose;
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
                 }
@@ -103,6 +104,7 @@ impl ServiceContext {
                 tab.hidden = true;
                 tab.show_in_tabbar = false;
                 tab.audience = spec.audience;
+                tab.purpose = spec.purpose;
                 if let Some(ref dir) = resolved_cwd {
                     tab.cwd = Some(dir.clone());
                 }
