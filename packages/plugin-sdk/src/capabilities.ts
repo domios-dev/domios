@@ -73,6 +73,8 @@ export type ViewCall = (method: string, args: unknown) => unknown;
 // Method set mirrors plugins/provider-*/plugin.js + the AgentProvider trait.
 
 export interface LaunchParams {
+  /** Absolute host-owned shared instructions file; an unreadable supplied path must refuse launch. */
+  toolLessInstructionsPath?: string;
   skipPermissions?: boolean;
   args?: string[];
   agentName?: string;

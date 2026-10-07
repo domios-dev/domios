@@ -54,3 +54,32 @@ fn managed_ownership_survives_snapshot_serialization() {
         serde_json::from_str(&serde_json::to_string(&original).unwrap()).unwrap();
     assert_eq!(restored, original);
 }
+
+#[test]
+fn manager_team_utility_is_allowed_but_foreign_shell_and_ui_are_refused() {
+    let managed = managed();
+    for source in [Some((false, Some("team"))), Some((true, Some("foreign")))] {
+        assert!(
+            managed_send_refusal(Some(&managed), managed_send_origin(source, Some("team")))
+                .is_none()
+        );
+    }
+    for source in [
+        None,
+        Some((false, Some("foreign"))),
+        Some((false, None)),
+        Some((false, Some(""))),
+    ] {
+        assert!(
+            managed_send_refusal(Some(&managed), managed_send_origin(source, Some("team")))
+                .is_some()
+        );
+    }
+    assert_eq!(
+        managed_send_origin(Some((false, None)), None),
+        ManagedSendOrigin::User
+    );
+    let mut released = managed;
+    reconcile_manager(&mut released, false);
+    assert!(managed_send_refusal(Some(&released), managed_send_origin(None, None)).is_none());
+}

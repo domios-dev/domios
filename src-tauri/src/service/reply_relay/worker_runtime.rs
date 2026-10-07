@@ -109,6 +109,53 @@ impl ServiceContext {
         }
     }
 
+    pub(super) fn observe_tool_less_startup_ack(&self, target: &str, binding: &RelayBinding) {
+        if self.reply_relay_task_binding(target).is_some()
+            || !self.worker_ack.startup_handshake_owed(target)
+        {
+            return;
+        }
+        let first_user = self
+            .agent_registry
+            .with_provider(&binding.provider, |provider| {
+                if !super::worker::host_startup_ack_eligible(
+                    provider.is_tool_less(),
+                    provider.supports_reply_relay(),
+                    provider.session_starts_on_first_user_turn(),
+                    true,
+                ) {
+                    return false;
+                }
+                provider
+                    .parse_session_delta(&binding.history, 0)
+                    .messages
+                    .iter()
+                    .any(|message| {
+                        message.role == "user"
+                            && message.blocks.iter().any(|block| {
+                                block.kind == "text"
+                                    && block
+                                        .data
+                                        .get("text")
+                                        .and_then(|value| value.as_str())
+                                        .is_some_and(|text| !text.trim().is_empty())
+                            })
+                    })
+            })
+            .unwrap_or(false);
+        let attempt = self
+            .mux
+            .read()
+            .get_tab(target)
+            .and_then(|tab| tab.pty_id.clone());
+        let Some(attempt) = attempt else { return };
+        if first_user && self.current_reply_relay_binding(target).as_ref() == Some(binding) {
+            if let Err(error) = self.acknowledge_agent_startup(target, &attempt, &binding.nonce) {
+                log::warn!("[tool-less-worker] target={target} host startup ACK refused: {error}");
+            }
+        }
+    }
+
     pub(super) fn publish_tool_less_worker_report(
         &self,
         target: &str,
