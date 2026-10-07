@@ -1,3 +1,4 @@
+import { modelSwitchModeSupported } from "../../lib/modelSwitch";
 import type { PendingPrompt } from "../../lib/types";
 
 export function approvalHotkey(prompt: PendingPrompt, code: string): string | undefined {
@@ -44,4 +45,9 @@ export function recallPrompt(history: readonly string[], position: RecallPositio
 export function createApprovalLatch() {
   let answered = false;
   return { claim() { if (answered) return false; answered = true; return true; } };
+}
+
+export function composerPickerState(modelSwitch: string | undefined, permissionBypass: boolean | undefined) {
+  return { modelEnabled: modelSwitchModeSupported(modelSwitch), fastEnabled: false,
+    runtimeMode: permissionBypass ? "launch_flag" as const : "unavailable" as const };
 }

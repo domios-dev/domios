@@ -2,7 +2,8 @@ import { useCallback, useState } from "react";
 import { useComposerPopover } from "./useComposerPopover";
 import type { ProviderDescriptor } from "../../lib/types";
 import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
-import { supportsLiveModelSwitch, modelSwitchLabel } from "../../lib/modelSwitch";
+import { composerPickerState } from "./composerModels";
+import { modelSwitchLabel } from "../../lib/modelSwitch";
 import { useMuxSelector } from "../../store/multiplexer";
 import { getTabModelApi, type ModelSwitchResult } from "../Sidebar/tabModelApi";
 
@@ -15,9 +16,9 @@ export function PtyModelChip({ tabId, provider, onError }: {
   const { open, triggerRef, popoverRef, close, toggle } = useComposerPopover();
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ModelSwitchResult | null>(null);
-  if (!tab?.pty_id || tab.protected || !provider || !supportsLiveModelSwitch(provider)) return null;
+  if (!tab?.pty_id || tab.protected || !provider) return null;
   const models = provider.available_models;
-  if (!models.length) return null;
+  const picker = composerPickerState(provider.model_switch, provider.supports_permission_bypass);
   const model = tab.agent_provider_resolved_model ?? tab.agent_session_model;
   const efforts = reasoningEffortsForModel(provider, model ?? undefined);
   const requested = tab.reasoning_effort_identity?.resolved ?? tab.reasoning_effort_identity?.requested;
@@ -37,22 +38,23 @@ export function PtyModelChip({ tabId, provider, onError }: {
     </button>
     {open && <div ref={popoverRef} role="dialog" aria-label="Model and traits" className="absolute bottom-full z-40 mb-2 min-w-64 rounded-lg border bg-[var(--ct-surface)] p-3 shadow-lg"
       onKeyDown={(event) => { if (event.code === "Escape") { event.preventDefault(); close(); } }}>
-      <fieldset role="radiogroup" aria-label="Model" disabled={busy}><legend>Model</legend>
+      <fieldset role="radiogroup" aria-label="Model" disabled={busy || !picker.modelEnabled}><legend>Model</legend>
         {models.map((entry) => <label key={entry.id} className="flex gap-2 py-1">
           <input type="radio" name={`model-${tabId}`} checked={model === entry.id} disabled={entry.availability === "unavailable"}
             onChange={() => void switchModel(entry.id, resolveEffort(provider, entry.id, effort))} />{entry.display_name}
         </label>)}
       </fieldset>
-      {efforts.length > 0 && <fieldset role="radiogroup" aria-label="Reasoning level" disabled={busy || !model}><legend>Reasoning level</legend>
+      {efforts.length > 0 && <fieldset role="radiogroup" aria-label="Reasoning level" disabled={busy || !model || !picker.modelEnabled}><legend>Reasoning level</legend>
         {efforts.map((entry) => <label key={entry.id} className="flex gap-2 py-1">
           <input type="radio" name={`effort-${tabId}`} checked={effort === entry.id}
             onChange={() => { if (model) void switchModel(model, entry.id); }} />{entry.display_name}
         </label>)}
       </fieldset>}
       <span>{modelSwitchLabel(provider.model_switch)}</span>
-      <button type="button" disabled title="This tab does not declare fast control">Fast unavailable</button>
-      <button type="button" disabled title={provider.supports_permission_bypass ? "Permissions are a launch flag for this tab" : "This tab does not declare runtime mode control"}>
-        {provider.supports_permission_bypass ? `Permissions bypass: ${tab.auto_approve === undefined ? "unknown" : tab.auto_approve ? "on" : "off"} (launch flag)` : "Runtime mode unavailable"}
+      {!picker.modelEnabled && <p>This tab does not declare model switching.</p>}
+      <button type="button" disabled={!picker.fastEnabled} title="This tab does not declare fast control">Fast unavailable</button>
+      <button type="button" disabled title={picker.runtimeMode === "launch_flag" ? "Permissions are a launch flag for this tab" : "This tab does not declare runtime mode control"}>
+        {picker.runtimeMode === "launch_flag" ? `Permissions bypass: ${tab.auto_approve === undefined ? "unknown" : tab.auto_approve ? "on" : "off"} (launch flag)` : "Runtime mode unavailable"}
       </button>
       <button type="button" onClick={close}>Close</button>
     </div>}

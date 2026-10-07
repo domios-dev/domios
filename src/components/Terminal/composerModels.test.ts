@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { createApprovalLatch, recallPrompt, approvalActions, approvalHotkey, contextMeter, rememberPrompt, swapStash } from "./composerModels";
+import { composerPickerState, createApprovalLatch, recallPrompt, approvalActions, approvalHotkey, contextMeter, rememberPrompt, swapStash } from "./composerModels";
 import { modelSwitchLabel, supportsLiveModelSwitch } from "../../lib/modelSwitch";
 
 test("approval docking promotes decline without changing response values or hotkeys", () => {
@@ -53,4 +53,13 @@ test("approval latch permits one response across competing UI actions", () => {
   assert.equal(latch.claim(), false);
   assert.equal(latch.claim(), false);
   assert.equal(createApprovalLatch().claim(), true);
+});
+
+test("picker gates unknown declarations and keeps unimplemented backend controls off", () => {
+  assert.deepEqual(composerPickerState(undefined, undefined), { modelEnabled: false, fastEnabled: false, runtimeMode: "unavailable" });
+  assert.deepEqual(composerPickerState("unsupported", true), { modelEnabled: false, fastEnabled: false, runtimeMode: "launch_flag" });
+  for (const mode of ["live", "restart_resume", "next_turn"]) {
+    assert.deepEqual(composerPickerState(mode, false), { modelEnabled: true, fastEnabled: false, runtimeMode: "unavailable" });
+  }
+  assert.equal(composerPickerState("unknown-protocol", false).modelEnabled, false);
 });
