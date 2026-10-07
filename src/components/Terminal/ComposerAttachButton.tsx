@@ -17,14 +17,14 @@ export function ComposerAttachButton({
       title="Attach file"
       disabled={uploading}
       onClick={onClick}
-      className={`${btnBase} ct-composer-round-button ct-composer-inner-button h-8 w-8 rounded-full border shadow-none disabled:opacity-40`}
+      className={`${btnBase} ct-composer-round-button h-10 w-10 rounded-full border shadow-none disabled:opacity-40`}
       style={{
         background: "var(--ct-surface, #161b22)",
         border: "1px solid var(--ct-border)",
         color: "var(--ct-fg, #c9d1d9)",
       }}
     >
-      <Paperclip size={16} strokeWidth={2.3} className={uploading ? "animate-pulse" : undefined} />
+      <Paperclip size={20} strokeWidth={2.3} className={uploading ? "animate-pulse" : undefined} />
     </button>
   );
 }
