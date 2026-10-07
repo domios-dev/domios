@@ -8,6 +8,7 @@ use tokio::sync::{oneshot, watch};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Marker {
     pub owner_pid: u32,
+    pub owner_start_token: String,
     pub instance: String,
     pub tab: String,
     pub pid: u32,
@@ -52,6 +53,32 @@ pub async fn spawn(
     marker_file: &Path,
 ) -> Result<Process, String> {
     let mut command = tokio::process::Command::new(binary);
+    for key in codeterm_pty::pty::manager::INHERITED_ORCHESTRATION_ENV {
+        command.env_remove(key);
+    }
+    command.envs(&env);
+    command.env("CODETERM", "1");
+    for key in codeterm_pty::pty::manager::STRIPPED_PTY_ENV {
+        command.env_remove(key);
+    }
+    if let Some(cli) = env
+        .get("CODETERM_CLI_PATH")
+        .map(std::ffi::OsString::from)
+        .or_else(|| std::env::var_os("CODETERM_CLI_PATH"))
+    {
+        if let Some(dir) = codeterm_pty::pty::manager::cli_dir_of(&cli) {
+            let inherited = env
+                .get("PATH")
+                .map(std::ffi::OsString::from)
+                .or_else(|| std::env::var_os("PATH"))
+                .unwrap_or_default();
+            if let Some(path) =
+                codeterm_pty::pty::manager::path_with_cli_dir_first(&inherited, &dir)
+            {
+                command.env("PATH", path);
+            }
+        }
+    }
     command
         .args([
             "app-server",
@@ -63,7 +90,6 @@ pub async fn spawn(
         ])
         .arg(token_file)
         .current_dir(cwd)
-        .envs(env)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -82,6 +108,10 @@ pub async fn spawn(
         .ok_or("Sidecar process identity unavailable")?;
     let marker = Marker {
         owner_pid: std::process::id(),
+        owner_start_token: crate::service::process_tree::launch_processes(std::process::id())
+            .first()
+            .map(|process| process.start_token.clone())
+            .ok_or("Daemon process identity unavailable")?,
         instance: crate::paths::codeterm_instance_id().into(),
         tab: tab.into(),
         pid,
@@ -184,12 +214,19 @@ pub fn sweep(root: &Path, instance: &str) -> Vec<String> {
         if marker.instance != instance {
             continue;
         }
-        if marker.owner_pid == std::process::id() {
+        if marker.owner_pid == std::process::id()
+            && crate::service::process_tree::launch_processes(marker.owner_pid)
+                .first()
+                .is_some_and(|process| process.start_token == marker.owner_start_token)
+        {
             continue;
         }
         if identity_matches(&marker, instance) {
             #[cfg(unix)]
-            let killed = unsafe { libc::kill(-(marker.pid as i32), libc::SIGKILL) == 0 };
+            let killed = unsafe {
+                libc::getpgid(marker.pid as i32) == marker.pid as i32
+                    && libc::kill(-(marker.pid as i32), libc::SIGKILL) == 0
+            };
             #[cfg(windows)]
             let killed = super::windows_job::terminate_orphan(marker.pid, &marker.start_token);
             if !killed {
@@ -201,4 +238,48 @@ pub fn sweep(root: &Path, instance: &str) -> Vec<String> {
         let _ = std::fs::remove_file(entry.path().with_extension("token"));
     }
     errors
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn codex_rpc_process_sweep_leaves_foreign_instance_artifacts() {
+        let root = tempfile::tempdir().unwrap();
+        let marker = Marker {
+            owner_pid: 0,
+            owner_start_token: "old".into(),
+            instance: "foreign".into(),
+            tab: "tab".into(),
+            pid: 0,
+            start_token: "old".into(),
+            binary: PathBuf::from("binary"),
+        };
+        let path = root.path().join("foreign.json");
+        std::fs::write(&path, serde_json::to_vec(&marker).unwrap()).unwrap();
+        std::fs::write(path.with_extension("token"), "opaque").unwrap();
+        assert!(sweep(root.path(), "own").is_empty());
+        assert!(path.exists());
+        assert!(path.with_extension("token").exists());
+        assert!(!identity_matches(&marker, "own"));
+    }
+    #[test]
+    fn codex_rpc_process_sweep_removes_stale_owned_artifacts() {
+        let root = tempfile::tempdir().unwrap();
+        let marker = Marker {
+            owner_pid: 0,
+            owner_start_token: "old".into(),
+            instance: "own".into(),
+            tab: "tab".into(),
+            pid: 0,
+            start_token: "old".into(),
+            binary: PathBuf::from("binary"),
+        };
+        let path = root.path().join("owned.json");
+        std::fs::write(&path, serde_json::to_vec(&marker).unwrap()).unwrap();
+        std::fs::write(path.with_extension("token"), "opaque").unwrap();
+        assert!(sweep(root.path(), "own").is_empty());
+        assert!(!path.exists());
+        assert!(!path.with_extension("token").exists());
+    }
 }

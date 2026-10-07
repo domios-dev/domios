@@ -6,6 +6,7 @@ pub struct NotificationBuffer {
     ready: HashSet<String>,
     per_thread: usize,
     max_threads: usize,
+    bytes: usize,
 }
 
 impl NotificationBuffer {
@@ -15,6 +16,7 @@ impl NotificationBuffer {
             ready: HashSet::new(),
             per_thread,
             max_threads,
+            bytes: 0,
         }
     }
 
@@ -28,6 +30,10 @@ impl NotificationBuffer {
         if self.ready.contains(thread) {
             return Ok(Some(frame));
         }
+        let size = params.to_string().len();
+        if self.bytes.saturating_add(size) > 8 * 1024 * 1024 {
+            return Err("RPC pre-response byte buffer exhausted".into());
+        }
         if !self.threads.contains_key(thread) && self.threads.len() >= self.max_threads {
             return Err("RPC pre-response thread buffer exhausted".into());
         }
@@ -36,17 +42,25 @@ impl NotificationBuffer {
             return Err("RPC pre-response notification buffer exhausted".into());
         }
         queue.push_back(frame);
+        self.bytes += size;
         Ok(None)
     }
 
     pub fn release(&mut self, thread: &str) -> Vec<Frame> {
         self.ready.clear();
         self.ready.insert(thread.into());
-        self.threads
+        let frames: Vec<_> = self
+            .threads
             .remove(thread)
             .unwrap_or_default()
             .into_iter()
-            .collect()
+            .collect();
+        for frame in &frames {
+            if let Frame::Notification { params, .. } = frame {
+                self.bytes = self.bytes.saturating_sub(params.to_string().len());
+            }
+        }
+        frames
     }
 }
 

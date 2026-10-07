@@ -88,12 +88,18 @@ impl Client {
                 tokio::select! {
                     _ = shutdown.changed() => break,
                     message = messages.recv() => match message {
-                        Some(message) => if writer.send(message).await.is_err() { sender.close("RPC writer exited"); break; },
+                        Some(message) => {
+                            let sent = tokio::select! {
+                                _ = shutdown.changed() => break,
+                                sent = tokio::time::timeout(Duration::from_secs(15), writer.send(message)) => sent,
+                            };
+                            if !matches!(sent, Ok(Ok(()))) { sender.close("RPC writer exited"); break; }
+                        },
                         None => break,
                     }
                 }
             }
-            let _ = writer.close().await;
+            let _ = tokio::time::timeout(Duration::from_secs(1), writer.close()).await;
         });
         let receiver = client.clone();
         let mut shutdown = client.0.death.subscribe();

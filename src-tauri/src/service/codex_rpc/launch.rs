@@ -34,6 +34,10 @@ pub fn defer(
     if !requested(svc, provider) {
         return None;
     }
+    if params.args.as_ref().is_some_and(|args| !args.is_empty()) {
+        svc.notify_model_resolution_warning(tab, provider, "Structured control cannot translate these extra terminal arguments; using the plain terminal.");
+        return None;
+    }
     PLANS.lock().insert(
         tab.into(),
         Plan {

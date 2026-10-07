@@ -89,18 +89,6 @@ fn build_agent_command_inner(
     launch_marker: Option<&str>,
 ) -> String {
     let mut args: Vec<String> = params.args.clone().unwrap_or_default();
-    if let Some((service, tab_id)) = notice_context {
-        if let Some(command) = crate::service::codex_rpc::launch::defer(
-            service,
-            tab_id,
-            agent_cmd,
-            params,
-            task,
-            injected_session_id,
-        ) {
-            return command;
-        }
-    }
     let resolved_model = params
         .model
         .as_deref()
@@ -132,6 +120,20 @@ fn build_agent_command_inner(
                 (!model.trim().is_empty()).then_some(model)
             }
         });
+    let mut resolved_params = params.clone();
+    resolved_params.model = resolved_model.clone();
+    if let Some((service, tab_id)) = notice_context {
+        if let Some(command) = crate::service::codex_rpc::launch::defer(
+            service,
+            tab_id,
+            agent_cmd,
+            &resolved_params,
+            task,
+            injected_session_id,
+        ) {
+            return command;
+        }
+    }
     if let Some(model) = resolved_model.as_deref() {
         let model_args = registry
             .with_provider(agent_cmd, |provider| provider.model_launch_args(model))
