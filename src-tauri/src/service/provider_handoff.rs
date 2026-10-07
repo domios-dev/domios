@@ -19,98 +19,110 @@ pub(crate) fn compose_launch_task(existing: Option<&str>, history: &str) -> Stri
     }
 }
 
+pub(crate) fn reset_tab_identity_for_provider_change(
+    tab: &mut crate::multiplexer::types::Tab,
+    auto_approve: bool,
+) {
+    tab.restorable_launch = Default::default();
+    tab.agent_planned_model = None;
+    tab.agent_requested_model = None;
+    tab.agent_provider_resolved_model = None;
+    tab.agent_session_model = None;
+    tab.agent_session_model_identity = None;
+    tab.pending_model_switch_observation = None;
+    tab.model_fallback = None;
+    tab.model_identity_mismatch = None;
+    tab.reasoning_effort_identity = Default::default();
+    tab.auto_approve = auto_approve;
+}
+
 pub(crate) fn select_history(messages: &[ChatMsg], budget_tokens: usize) -> String {
     let budget_bytes = budget_tokens.saturating_mul(BYTES_PER_TOKEN);
     if budget_bytes == 0 {
         return String::new();
     }
-    let entries: Vec<Option<String>> = messages.iter().map(render_entry).collect();
     let first_goal = messages.iter().enumerate().find_map(|(index, message)| {
-        (message.kind.eq_ignore_ascii_case("user") && entries[index].is_some()).then_some(index)
+        let entry = render_entry(message)?;
+        entry.starts_with("## User\n").then_some((index, entry))
     });
-    let mut selected = vec![None; messages.len()];
+    let first_goal_index = first_goal.as_ref().map(|(index, _)| *index);
+    let mut selected = Vec::new();
     let mut used_bytes = 0usize;
-    if let Some(index) = first_goal {
-        if let Some(entry) = entries[index].as_ref() {
-            let fitted = fit_entry(entry, budget_bytes, false);
-            if let Some(fitted) = fitted {
-                used_bytes = fitted.len();
-                selected[index] = Some(fitted);
-            }
+    if let Some((index, entry)) = first_goal {
+        if let Some(fitted) = fit_entry(&entry, budget_bytes, false) {
+            used_bytes = fitted.len();
+            selected.push((index, fitted));
         }
     }
     for index in (0..messages.len()).rev() {
-        if selected[index].is_some() {
+        if first_goal_index == Some(index) {
             continue;
         }
-        let Some(entry) = entries[index].as_ref() else {
+        let Some(entry) = render_entry(&messages[index]) else {
             continue;
         };
-        let separator = if selected.iter().any(Option::is_some) {
-            2
-        } else {
-            0
-        };
+        let separator = if selected.is_empty() { 0 } else { 2 };
         let available = budget_bytes.saturating_sub(used_bytes + separator);
         if entry.len() <= available {
             used_bytes += separator + entry.len();
-            selected[index] = Some(entry.clone());
+            selected.push((index, entry));
             continue;
         }
-        if let Some(fitted) = fit_entry(entry, available, true) {
+        if let Some(fitted) = fit_entry(&entry, available, true) {
             used_bytes += separator + fitted.len();
-            selected[index] = Some(fitted);
+            selected.push((index, fitted));
             break;
         }
     }
+    selected.sort_by_key(|(index, _)| *index);
     selected
         .into_iter()
-        .flatten()
+        .map(|(_, entry)| entry)
         .collect::<Vec<_>>()
         .join("\n\n")
 }
 
 fn render_entry(message: &ChatMsg) -> Option<String> {
     let kind = message.kind.to_ascii_lowercase();
-    let (role, content, is_tool) = if kind == "user" {
-        ("User", message.content.as_str(), false)
-    } else if kind == "assistant" {
-        ("Assistant", message.content.as_str(), false)
-    } else if matches!(kind.as_str(), "tool" | "tool_use" | "tool_result")
+    let is_tool = matches!(kind.as_str(), "tool" | "tool_use" | "tool_result")
         || message.tool_kind.is_some()
-        || message.tool_result.is_some()
-    {
+        || message.tool_summary.is_some()
+        || message.tool_result.is_some();
+    let (role, content) = if is_tool {
         (
             "Tool",
             message
-                .tool_summary
+                .tool_result
                 .as_deref()
-                .or(message.tool_result.as_deref())
+                .or(message.tool_summary.as_deref())
                 .unwrap_or(&message.content),
-            true,
         )
+    } else if kind == "user" {
+        ("User", message.content.as_str())
+    } else if kind == "assistant" {
+        ("Assistant", message.content.as_str())
     } else {
         return None;
     };
+    let content = crate::service::launch_diagnostics::redact_secrets(content);
     let content = if is_tool {
-        summarize_tool_output(content)
+        summarize_tool_output(&content)
     } else {
-        content.to_string()
+        content
     };
-    let content = crate::service::launch_diagnostics::redact_secrets(&content);
     let content = content.trim();
     (!content.is_empty()).then(|| format!("## {role}\n{content}"))
 }
 
 fn summarize_tool_output(text: &str) -> String {
-    let lines: Vec<&str> = text.lines().collect();
+    let mut lines = text.lines();
     let mut summary: Vec<String> = lines
-        .iter()
+        .by_ref()
         .take(TOOL_LINE_LIMIT)
-        .map(|line| truncate_line(line))
+        .map(truncate_line)
         .collect();
-    if lines.len() > TOOL_LINE_LIMIT {
-        summary.push(format!("… {} lines omitted", lines.len() - TOOL_LINE_LIMIT));
+    if lines.next().is_some() {
+        summary.push("… additional output omitted".into());
     }
     summary.join("\n")
 }
