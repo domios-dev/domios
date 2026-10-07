@@ -148,7 +148,7 @@ Session backup list and restore commands read Storage-backed desk projections. R
 
 ## Attempt retirement fences a closed tab's dispatch
 
-Closed attempts cannot become ready or be reactivated; recover through the Plan owner. When the closed tab (or a fenced Worker whose agent process exited) held an `in_progress` task, the plan owner gets one `[worker lost: <task>]` notice and the bus one `worker-lost` event (`plan_id`, `task_id`, `worker_tab_id`, `orchestrator_tab_id`, `worktree_path`, `branch`, `lane` state `dirty`/`clean`/`missing`/`no_lane`/`unknown`, `cause`, `recovery`, `delivery`), keyed once per plan, task, and attempt. An attributed `tab close` of such a Worker is refused (`busy worker close refused`, `409`) unless `--force`; a human close proceeds and returns `warnings`. `plan doctor` reports remaining `in_progress_tab_gone` drift as an error.
+Closed attempts cannot become ready or be reactivated; recover through the Plan owner. When the closed tab (or a fenced Worker whose agent process exited) held an `in_progress` task, the plan owner gets one `[worker lost: <task>]` notice and the bus one `worker-lost` event (`plan_id`, `task_id`, `worker_tab_id`, `orchestrator_tab_id`, `worktree_path`, `branch`, `lane` state `dirty`/`clean`/`missing`/`no_lane`/`unknown`, `cause`, `recovery`, `delivery`), keyed once per plan, task, and attempt. When the plan owner's tab has no live agent (a bare shell), the notice is withheld rather than typed into the shell (`delivery` `withheld_no_agent`), the user gets one alert naming the affected tasks, and each withheld notice is delivered once when the owner's agent is ready again. An attributed `tab close` of such a Worker is refused (`busy worker close refused`, `409`) unless `--force`; a human close proceeds and returns `warnings`. `plan doctor` reports remaining `in_progress_tab_gone` drift as an error.
 
 ## Not in scope
 
@@ -217,4 +217,4 @@ The summary reports restarted, pending and failed restart counts, and updates
 in place as pending tabs finish. Update runs, safe prompt answers and individual
 restart outcomes enter the Supporter journal.
 
-<!-- revision: 43 -->
+<!-- revision: 44 -->
