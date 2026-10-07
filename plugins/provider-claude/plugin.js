@@ -2126,7 +2126,7 @@ var plugin = {
     }
     const launchArgs = statuslineLaunchArgs(p.args || []);
     if (launchArgs.length > 0) {
-      for (const arg of launchArgs) parts.push(host.shell.quoteFor(String(arg), host.platform()));
+      for (const arg of launchArgs) parts.push(quoteArg(String(arg)));
     }
     if (p.task) {
       const visiblePath = writeTaskTempFile(p.task);
