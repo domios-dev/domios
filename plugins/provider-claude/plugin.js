@@ -59,6 +59,59 @@ function permissionHookCapability() {
   };
 }
 
+// plugins/provider-claude/model-capabilities.json
+var model_capabilities_default = {
+  profiles: {
+    standard: { efforts: { low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" }, defaultEffort: "medium", contextWindowTokens: 2e5 },
+    long: { efforts: { low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" }, defaultEffort: "medium", contextWindowTokens: 1e6 },
+    haiku: { efforts: {}, contextWindowTokens: 2e5 },
+    opus47: { efforts: { low: "low", medium: "medium", high: "high", xhigh: "max", max: "max" }, defaultEffort: "xhigh", contextWindowTokens: 1e6 }
+  },
+  models: {
+    opus: "standard",
+    sonnet: "standard",
+    haiku: "haiku",
+    fable: "standard",
+    best: "standard",
+    opusplan: "standard",
+    "opus[1m]": "long",
+    "sonnet[1m]": "long",
+    "fable[1m]": "long",
+    "claude-opus-4-7": "opus47"
+  }
+};
+
+// plugins/provider-claude/src/modelCapabilities.ts
+var MODEL_CAPABILITIES_FLAG = "--codeterm-model-capabilities";
+function modelCapabilities(model) {
+  const key = model_capabilities_default.models[model || ""];
+  return key ? model_capabilities_default.profiles[key] || null : null;
+}
+function modelWithCapabilities(model) {
+  const profile = modelCapabilities(model.id);
+  if (!profile) return model;
+  return {
+    ...model,
+    reasoningEfforts: Object.keys(profile.efforts).map((id) => ({ id, displayName: id })),
+    ...profile.defaultEffort ? { defaultReasoningEffort: profile.defaultEffort } : {}
+  };
+}
+function reasoningEffortLaunchArgsForModel(model, effort) {
+  const mapped = modelCapabilities(model)?.efforts[effort];
+  return mapped ? ["--effort", mapped] : model ? [] : effort ? ["--effort", effort] : [];
+}
+function modelSettings(args) {
+  const enabled = args.includes(MODEL_CAPABILITIES_FLAG);
+  const rest = args.filter((arg) => arg !== MODEL_CAPABILITIES_FLAG);
+  let model;
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === "--model") model = rest[++i];
+    else if (rest[i].startsWith("--model=")) model = rest[i].slice(8);
+  }
+  const profile = modelCapabilities(model);
+  return { args: rest, env: enabled && profile ? { CLAUDE_CODE_AUTO_COMPACT_WINDOW: String(profile.contextWindowTokens) } : {} };
+}
+
 // plugins/provider-claude/src/context.ts
 var LIMIT = 1e7;
 function count(value) {
@@ -66,6 +119,15 @@ function count(value) {
 }
 function parseContextUsage(record2) {
   if (!record2 || typeof record2 !== "object") return null;
+  if (record2.type === "system" && record2.subtype === "compact_boundary") {
+    const tokens = count(record2.compactMetadata?.postTokens);
+    return tokens === null ? null : {
+      used_tokens: tokens,
+      window_tokens: 0,
+      cost_usd: null,
+      source: "claude-jsonl-compaction"
+    };
+  }
   const statusline = record2.context_window;
   const hasStatusline = Object.prototype.hasOwnProperty.call(record2, "context_window");
   const usage = hasStatusline ? statusline?.current_usage : record2.type === "assistant" ? record2.message?.usage : null;
@@ -104,20 +166,111 @@ function statuslineSettings(settings) {
 )` : "; true");
   return JSON.stringify({ statusLine: { command, ...line?.padding !== void 0 ? { padding: line.padding } : {}, type: "command" } });
 }
-function statuslineLaunchArgs(args) {
-  const enabled = args.includes(STATUSLINE_FLAG);
-  const rest = args.filter((arg) => arg !== STATUSLINE_FLAG);
-  if (!enabled || rest.some((arg) => arg === "--settings" || arg.startsWith("--settings="))) return rest;
-  const path = host.expandHome("~/.claude/settings.json");
-  if (!path) return rest;
-  const text2 = host.fs.fileExists(path) ? host.fs.readFileHead(path, 65537) : "{}";
-  if (text2 === null || text2.length > 65536) return rest;
+function settingsObject(text2) {
+  if (text2 === null || text2.length > 65536) return null;
   try {
-    const settings = statuslineSettings(JSON.parse(text2));
-    return settings ? [...rest, "--settings", settings] : rest;
+    const value = JSON.parse(text2);
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
   } catch {
-    return rest;
+    return null;
   }
+}
+function sortedJson(value) {
+  return JSON.stringify(value, (_key, item) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+    return Object.fromEntries(Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
+  });
+}
+function statuslineLaunchArgs(args) {
+  const model = modelSettings(args);
+  args = model.args;
+  const enabled = args.includes(STATUSLINE_FLAG);
+  const rest = [];
+  let overlay = {};
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index];
+    if (arg === STATUSLINE_FLAG) continue;
+    if (arg !== "--settings" && !arg.startsWith("--settings=")) {
+      rest.push(arg);
+      continue;
+    }
+    const raw = arg === "--settings" ? args[++index] : arg.slice("--settings=".length);
+    if (typeof raw !== "string") return null;
+    const value = settingsObject(raw) ?? settingsObject(host.fs.readFileHead(raw, 65537));
+    if (!value) return null;
+    overlay = { ...overlay, ...value };
+  }
+  if (enabled) {
+    const path = host.expandHome("~/.claude/settings.json");
+    const user = path ? settingsObject(host.fs.fileExists(path) ? host.fs.readFileHead(path, 65537) : "{}") : null;
+    const composed = user ? statuslineSettings({ ...user, ...overlay }) : null;
+    if (composed) overlay = { ...overlay, ...JSON.parse(composed) };
+  }
+  overlay.showThinkingSummaries = true;
+  if (Object.keys(model.env).length) {
+    const existing = overlay.env;
+    if (existing !== void 0 && (!existing || typeof existing !== "object" || Array.isArray(existing))) return null;
+    overlay.env = { ...existing, ...model.env };
+  }
+  return [...rest, "--settings", sortedJson(overlay)];
+}
+
+// plugins/provider-claude/src/signals.ts
+function authStatusProbe() {
+  return { args: ["auth", "status"], timeoutMs: 3e3 };
+}
+function object(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function parseAuthStatus(value) {
+  const record2 = object(value);
+  if (!record2 || typeof record2.loggedIn !== "boolean") return null;
+  const result = { loggedIn: record2.loggedIn };
+  for (const key of ["authMethod", "subscriptionType", "configDirectory"]) {
+    const field = record2[key];
+    if (field !== void 0 && field !== null && (typeof field !== "string" || field.length > 4096)) return null;
+    result[key] = field ?? null;
+  }
+  return result;
+}
+function parseSessionObservations(value) {
+  const record2 = object(value);
+  if (!record2) return null;
+  const modes = ["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto"];
+  const permission_mode = typeof record2.permissionMode === "string" && modes.includes(record2.permissionMode) ? record2.permissionMode : null;
+  const isError = record2.isApiErrorMessage === true;
+  const error = typeof record2.error === "string" ? record2.error : object(record2.error)?.type;
+  const api_error = !isError ? null : error === "rate_limit" || error === "rate_limit_error" ? "rate_limit" : error === "authentication_error" || error === "auth" ? "authentication" : "other";
+  const clears_api_error = record2.type === "assistant" && !isError && !!object(record2.message);
+  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error } : null;
+}
+
+// plugins/provider-claude/src/backgroundWork.ts
+function object2(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+function parseBackgroundWork(value) {
+  const row = object2(value);
+  if (!row) return [];
+  const result = object2(row.toolUseResult);
+  const events = [];
+  for (const [key, state] of [["backgroundTaskId", "running"], ["agentId", result?.status === "async_launched" || result?.status === "running" ? "running" : result?.status]]) {
+    const id = result?.[key];
+    if (typeof id === "string" && /^[A-Za-z0-9_-]{1,256}$/.test(id) && ["running", "completed", "failed", "killed"].includes(String(state))) events.push({ id, state });
+  }
+  const content = object2(row.message)?.content;
+  const prompt = object2(row.attachment)?.prompt;
+  const texts = typeof content === "string" ? [content] : Array.isArray(content) ? content.map((block) => object2(block)?.text).filter((text2) => typeof text2 === "string") : [];
+  if (typeof prompt === "string") texts.push(prompt);
+  for (const text2 of texts) {
+    const notifications = text2.match(/<task-notification>[\s\S]*?<\/task-notification>/g) || [];
+    for (const block of notifications) {
+      const id = /<task-id>([^<]+)<\/task-id>/.exec(block)?.[1].trim();
+      const state = /<status>([^<]+)<\/status>/.exec(block)?.[1].trim();
+      if (id && /^[A-Za-z0-9_-]{1,256}$/.test(id) && state && ["running", "completed", "killed", "failed"].includes(state)) events.push({ id, state });
+    }
+  }
+  return events;
 }
 
 // plugins/provider-shared/readHome.ts
@@ -632,7 +785,8 @@ function discoverAnthropicModels() {
 function manifestModels() {
   const m = manifest();
   if (!Array.isArray(m && m.models)) return [];
-  return m.models.map((model) => ({
+  return m.models.map((model) => modelWithCapabilities({
+    ...model,
     id: model.id,
     displayName: model.displayName,
     ...model.description ? { description: model.description } : {}
@@ -706,6 +860,7 @@ function mapAliasesToLive(aliases, live) {
     const family = familyOf(alias);
     const match = family ? bestLiveMatch(live, family) : null;
     const mapped = {
+      ...alias,
       id: alias.id,
       displayName: match && !alias.id.endsWith("[1m]") ? withVersion(alias.displayName, versionOf(match)) : alias.displayName
     };
@@ -1589,7 +1744,7 @@ function classifyClaudeTabState(snapshot) {
     return {
       state: "waiting_on_auth",
       confidence: authConfidence,
-      action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
+      action: { surface: { kind: "auth_prompt", payload: { reason: "login_screen_fallback" } } }
     };
   }
   const rl = scoreRateLimit(screen, host.unixNowMs());
@@ -1989,6 +2144,13 @@ function retainForeignPrecompactEntry(entry) {
   return remaining.length > 0;
 }
 var plugin = {
+  authStatusProbe,
+  tracksBackgroundWork: () => true,
+  parseBackgroundWork,
+  reasoningEffortLaunchArgsForModel,
+  modelCatalogueSeed: manifestModels,
+  parseAuthStatus,
+  parseSessionObservations,
   permissionHookCapability,
   parseContextUsage,
   starterPromptText(prompt) {
@@ -2125,6 +2287,10 @@ var plugin = {
       parts.push(host.shell.quoteFor(p.sessionId, host.platform()));
     }
     const launchArgs = statuslineLaunchArgs(p.args || []);
+    if (!launchArgs) {
+      host.log("error", "[claude-launch] cannot compose launch settings");
+      return "";
+    }
     if (launchArgs.length > 0) {
       for (const arg of launchArgs) parts.push(quoteArg(String(arg)));
     }
@@ -2141,20 +2307,15 @@ var plugin = {
     return parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
-    const win = host.platform() === "windows";
-    const unset = win ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';" : "unset CLAUDECODE &&";
-    const parts = [unset, "claude"];
-    if (skipPermissions) parts.push("--dangerously-skip-permissions");
-    parts.push("--resume");
-    parts.push(host.shell.quoteFor(sessionId, host.platform()));
-    return parts.join(" ");
+    return [resumeBase(sessionId, skipPermissions), ...statuslineLaunchArgs([]).map(quoteArg)].join(" ");
   },
   // `--resume` restores the transcript but not the launch-time system prompt,
   // so it is re-applied through the same declared flag buildLaunchCommand uses.
   buildResumeCommandWithContext(params) {
     const p = params || {};
-    const parts = [this.buildResumeCommand(p.sessionId, p.skipPermissions)];
     const resumeArgs = statuslineLaunchArgs(p.args || []);
+    if (!resumeArgs) return null;
+    const parts = [resumeBase(p.sessionId, p.skipPermissions)];
     if (resumeArgs.length > 0) {
       for (const arg of resumeArgs) parts.push(quoteArg(String(arg)));
     }
@@ -2335,7 +2496,22 @@ var plugin = {
         }
         continue;
       }
+      const emitObservations = () => {
+        const observations = parseSessionObservations(v), background = parseBackgroundWork(v);
+        if (!observations && !background.length) return false;
+        out.push({
+          role: "system",
+          blocks: [],
+          ts: null,
+          uuid: null,
+          provider_observations: observations,
+          background_work: background,
+          provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null
+        });
+        return true;
+      };
       if (!validateEntry(v)) {
+        if (emitObservations()) continue;
         if (!hadInvalid) {
           if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
           hadInvalid = true;
@@ -2468,6 +2644,7 @@ var plugin = {
       } else if (t === "attachment") {
         const att = v.attachment;
         if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
+          emitObservations();
           continue;
         }
         const agentNotice = subAgentNotificationBlock(att.prompt, v);
@@ -2485,15 +2662,22 @@ var plugin = {
           blocks.push({ kind: "text", data: { text: att.prompt } });
         }
       } else {
+        emitObservations();
         continue;
       }
-      if (!blocks.length) continue;
+      if (!blocks.length) {
+        emitObservations();
+        continue;
+      }
       if (t === "system" && sourceSubtype === "compact_boundary") {
         timelineMarker = { kind: "context_compaction" };
       }
       const context = parseContextUsage(v);
       out.push({
         ...context ? { context_usage: context } : {},
+        provider_observations: parseSessionObservations(v),
+        provider_session_id: typeof v.sessionId === "string" ? v.sessionId : null,
+        background_work: parseBackgroundWork(v),
         role,
         blocks,
         ts,
@@ -2826,5 +3010,14 @@ function randomShortHex(len) {
   let out = "";
   for (let i = 0; i < len; i++) out += hex.charAt(Math.random() * 16 | 0);
   return out;
+}
+function resumeBase(sessionId, skipPermissions) {
+  const win = host.platform() === "windows";
+  const unset = win ? "Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue; $OutputEncoding = [Console]::OutputEncoding = [Console]::InputEncoding = [System.Text.Encoding]::UTF8; $PSNativeCommandArgumentPassing = 'Standard';" : "unset CLAUDECODE &&";
+  const parts = [unset, "claude"];
+  if (skipPermissions) parts.push("--dangerously-skip-permissions");
+  parts.push("--resume");
+  parts.push(host.shell.quoteFor(sessionId, host.platform()));
+  return parts.join(" ");
 }
 var plugin_default = plugin;
