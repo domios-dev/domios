@@ -710,7 +710,7 @@
               "value_name": "PRESET",
               "possible_values": [],
               "default": null,
-              "help": "Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents",
+              "help": "Select a provider-owned preset supported by the target provider",
               "aliases": []
             },
             {
@@ -6448,6 +6448,219 @@
               "possible_values": [],
               "default": null,
               "help": "Instance ID of the revoked peer",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        }
+      ]
+    },
+    {
+      "name": "model-provider",
+      "about": "Configure model endpoints through the installed provider capability",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "add",
+          "about": "Add an endpoint; pipe the key on stdin. Omit --model to discover models",
+          "aliases": [],
+          "args": [
+            {
+              "name": "base-url",
+              "positional": false,
+              "required": true,
+              "value_name": "BASE_URL",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "required": true,
+              "value_name": "KIND",
+              "possible_values": [
+                "openai-compatible",
+                "anthropic"
+              ],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "model",
+              "positional": false,
+              "required": false,
+              "value_name": "MODELS",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "name",
+              "positional": false,
+              "required": true,
+              "value_name": "NAME",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "secret",
+              "positional": false,
+              "required": true,
+              "value_name": "SECRET",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "list",
+          "about": "List Domios-owned endpoints without key values",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        },
+        {
+          "name": "preset",
+          "about": "Manage Domios-owned provider presets",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "add",
+              "about": "Create or replace an owned model, prompt and parameter preset",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "model",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "MODEL",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "name",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "prompt",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "PROMPT",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "steps",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "STEPS",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "temperature",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TEMPERATURE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "top-p",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TOP_P",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "list",
+              "about": "List Domios-owned presets",
+              "aliases": [],
+              "args": [],
+              "subcommands": []
+            },
+            {
+              "name": "remove",
+              "about": "Remove only a Domios-owned preset",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "name",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "NAME",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "remove",
+          "about": "Remove a Domios-owned endpoint and its owned secret",
+          "aliases": [],
+          "args": [
+            {
+              "name": "name",
+              "positional": false,
+              "required": true,
+              "value_name": "NAME",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "test",
+          "about": "Check an endpoint within a bounded deadline and return its models",
+          "aliases": [],
+          "args": [
+            {
+              "name": "name",
+              "positional": false,
+              "required": true,
+              "value_name": "NAME",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],

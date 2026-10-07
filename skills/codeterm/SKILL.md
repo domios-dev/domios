@@ -52,6 +52,10 @@ specific shell id).
 
 ## References
 
+Model endpoints and owned presets are managed through `codeterm model-provider`.
+Read `codeterm docs INTEGRATIONS` before adding an endpoint; pipe its key on stdin,
+never in an argument. A capable PTY provider accepts `agent spawn --preset NAME`.
+
 Full references live in `codeterm docs <NAME>`; the `references/` files only point there:
 - Memory — `codeterm docs MEMORY-USAGE` (commands, kinds, search fallbacks, wake-up, calibration), `codeterm docs MEMORY`, `codeterm docs MEMORY-SERVICES` (skill folders, Librarian, dreaming)
 - Agent roles — `codeterm docs AGENT-CONTROL` (hierarchy, placement, briefs) and `codeterm docs ORCHESTRATION`
@@ -66,4 +70,4 @@ Full references live in `codeterm docs <NAME>`; the `references/` files only poi
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 76 -->
+<!-- revision: 77 -->

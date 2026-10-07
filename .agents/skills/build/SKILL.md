@@ -210,6 +210,8 @@ Sign out and back in for a repaired PATH to reach new processes.
 
 | Symptom | Cause | Recovery |
 |---|---|---|
+| `build.ps1 cli` builds and writes the manifest, then fails copying the installed CLI with `Device or resource busy` | Windows has the active dev CLI executable open | Do not kill unrelated callers. For artifact verification, run `cli/target/release/codeterm.exe cli-manifest --write` from that checkout, then run the focused CLI manifest gate. Report the install failure separately; the owner can reinstall when its callers release the executable. |
+| `check-tests` fails to mmap `libcodeterm_lib.rlib` with Windows error 1455, followed by missing-crate or macro-resolution errors | The machine exhausted its paging-file commitment during concurrent Rust compilation | Let the owning compile finish; report the resource failure rather than changing source for secondary diagnostics. Run the next authorized focused selector through the gateway. Retry `check-tests` only after the owner has serialized compilation or restored memory capacity. |
 | `test-one app` in a fresh canonical checkout fails with `glob pattern bundled-cli/* path not found or didn't match any files` | The focused app operation skipped the compile-only frontend and CLI/embed resource preparation already used by `test` and `check` | Use the focused app operation with `prepare_dev_frontend_dist` and `prepare_bundle_stubs` before compilation. These existing placeholders satisfy Tauri metadata only; the authority test runs in-process and never executes them. Production bundling still replaces the placeholders with real signed binaries. |
 | A focused authority test cannot access the private `service::agent_transition` module | The regression was placed outside the service module that owns the recovery helper | Keep the fixture regression under `service::plan_authority::tests`; preserve production visibility, then rerun its focused app filter. |
 | Local production build reports `TS2304: Cannot find name 'RefreshCw'` in the mesh peer panel | The shared busy spinner consumed the icon without importing it | Import the existing `RefreshCw` icon from `lucide-react`; rerun the owning production build before self-install. |
@@ -504,4 +506,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
