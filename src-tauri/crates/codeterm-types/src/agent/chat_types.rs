@@ -17,13 +17,13 @@ use serde::{Deserialize, Serialize};
 /// by the enrich pipeline (`AgentProvider::parse_interactive_events`), never
 /// from raw JSONL parsing. New kinds (Confirm, Select, …) plug in here so call
 /// sites that already render `Vec<InteractiveElement>` need no change.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum InteractiveElement {
     Question(InteractiveQuestion),
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct InteractiveQuestion {
     /// Stable widget key: `{tool_use_id}-{question_index}`.
@@ -37,7 +37,7 @@ pub struct InteractiveQuestion {
     pub multi_select: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct InteractiveOption {
     pub label: String,
@@ -58,7 +58,7 @@ pub struct MessageBlock {
     pub data: serde_json::Value,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ChatTimelineMarker {
     Queued,
@@ -66,7 +66,7 @@ pub enum ChatTimelineMarker {
     ContextCompaction,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSessionIntent {
     #[serde(skip_serializing_if = "Option::is_none", default)]
@@ -174,7 +174,7 @@ pub struct SessionDelta {
 
 /// An image (or file) attachment on a user message, mirroring the frontend
 /// `ChatAttachment`.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatAttachment {
     pub id: String,
@@ -194,7 +194,7 @@ pub struct ChatAttachment {
 /// (`rich_to_chat_msgs`) — the single normalized shape for all providers.
 /// `id` must be stable across polls so the UI merges an updated message in
 /// place instead of duplicating it.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize, ts_rs::TS)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatMsg {
     pub id: String,

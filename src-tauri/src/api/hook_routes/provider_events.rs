@@ -4,6 +4,7 @@ use axum::{
     Json,
 };
 
+use super::recording::record_hook_post;
 use super::{header_str, resolve_hook_tab};
 use crate::api::routes::AppState;
 
@@ -56,6 +57,8 @@ pub(crate) async fn hook_provider_event(
             "provider event does not match the tab's claimed session".to_string(),
         ));
     }
+    let raw_event = serde_json::json!({"session_id": &body.session_id, "event": &body.event});
+    record_hook_post(&state, &tab_id, "provider_event", Some(&raw_event));
     let event_json = serde_json::to_string(&body.event).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,

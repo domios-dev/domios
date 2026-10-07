@@ -830,6 +830,10 @@ pub fn run() {
                 shell_caps: Arc::new(parking_lot::Mutex::new(Default::default())),
                 report_store: states.report_store.clone(),
                 kpi,
+                protocol_recorder: Arc::new(crate::service::protocol_recorder::ProtocolRecorder::new(
+                    crate::paths::data_dir().join("logs/protocol"),
+                    crate::paths::is_dev_instance(),
+                )),
                 plan_store,
                 plan_turn_counter,
                 pending_delivery_payloads,

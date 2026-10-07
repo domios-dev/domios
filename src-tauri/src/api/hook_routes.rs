@@ -18,11 +18,13 @@ mod hook_authority;
 pub(crate) mod permission_decision;
 use hook_authority::{stop_report_verdict, StopReportVerdict};
 mod provider_events;
+mod recording;
 mod run_session;
 mod session_ack;
 mod session_claim;
 mod session_start_payload;
 pub(crate) use provider_events::hook_provider_event;
+use recording::record_hook_post;
 #[cfg(test)]
 use session_ack::acknowledge_authenticated_launch;
 use session_ack::{acknowledge_and_reconcile_session_binding, unchanged_acknowledged_hook_report};
@@ -257,6 +259,7 @@ pub async fn hook_permission(
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "permission")?;
+    record_hook_post(&state, &tab_id, "permission", body.as_ref());
     if let Some(response) = hook_authority::telemetry_response(&tab_id, "permission") {
         return Ok(response);
     }
@@ -422,6 +425,7 @@ pub async fn hook_stop(
     }
     log::debug!("[hook_stop] fired for Tab {}", tab_id);
     let body = body.unwrap_or(serde_json::Value::Null);
+    record_hook_post(&state, &tab_id, "stop", Some(&body));
     let report_nonce = body
         .get("binding_nonce")
         .and_then(|v| v.as_str())
@@ -502,6 +506,7 @@ pub async fn hook_session_start(
         return Ok(response);
     }
     let body = body.unwrap_or(serde_json::Value::Null);
+    record_hook_post(&state, &tab_id, "session_start", Some(&body));
     let session_id = session_start_session_id(&body);
     let source = body
         .get("source")
