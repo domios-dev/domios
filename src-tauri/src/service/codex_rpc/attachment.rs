@@ -134,7 +134,9 @@ pub fn start(
                     result = relay => result,
                 };
                 super::delivery::detached(&tab, &nonce, &connection);
-                if authorized.load(std::sync::atomic::Ordering::Acquire) {
+                if authorized.load(std::sync::atomic::Ordering::Acquire)
+                    && !super::delivery::attached_for_launch(&tab, &nonce)
+                {
                     super::delivery::attach_failed(&tab, &nonce);
                     super::recovery::try_start(&svc, &tab, &nonce, "remote TUI connection ended");
                 }
