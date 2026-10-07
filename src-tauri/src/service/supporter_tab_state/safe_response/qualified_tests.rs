@@ -489,7 +489,7 @@ if (($first.KeyChar -eq 'j') -and ($second.Key -eq [System.ConsoleKey]::Enter)) 
     std::fs::write(&script_path, script).unwrap();
     let command_path = script_path.to_string_lossy().replace('\'', "''");
     let command = format!(
-        "$global:LASTEXITCODE = 98; $ErrorActionPreference = 'Stop'; try {{ & '{command_path}'; $scriptExit = $global:LASTEXITCODE; if ($scriptExit -eq 98) {{ throw 'fixture script returned without an exit code' }}; [Console]::Out.Flush(); [Console]::Error.Flush(); [System.Environment]::Exit([int]$scriptExit) }} catch {{ try {{ [Console]::Error.WriteLine('SAFE_TEST_SETUP_FAILURE: {{0}}', $_.Exception.Message); [Console]::Error.Flush() }} finally {{ [System.Environment]::Exit(98) }} }}\r"
+        "Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass; $global:LASTEXITCODE = 98; $ErrorActionPreference = 'Stop'; try {{ & '{command_path}'; $scriptExit = $global:LASTEXITCODE; if ($scriptExit -eq 98) {{ throw 'fixture script returned without an exit code' }}; [Console]::Out.Flush(); [Console]::Error.Flush(); [System.Environment]::Exit([int]$scriptExit) }} catch {{ try {{ [Console]::Error.WriteLine('SAFE_TEST_SETUP_FAILURE: {{0}}', $_.Exception.Message); [Console]::Error.Flush() }} finally {{ [System.Environment]::Exit(98) }} }}\r"
     );
     let (_, session) = fixture
         .service
