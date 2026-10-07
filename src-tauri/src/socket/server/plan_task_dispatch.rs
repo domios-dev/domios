@@ -47,8 +47,8 @@ use lane_commit::{
     dispatch_ready_event, dispatch_response_lane, lane_metadata_for_dispatch, DispatchEvidence,
 };
 use lane_resolution::{
-    checkout_required, invalid_dispatch, plan_dispatch_lane_placement, resolve_dispatch_lane,
-    DispatchLanePlacement,
+    checkout_required, invalid_dispatch, plan_dispatch_lane_placement, refuse_missing_explicit_cwd,
+    resolve_dispatch_lane, DispatchLanePlacement,
 };
 use lane_safety::{
     atomic_lane_commitment, dispatch_safety_nudges, preflight_checkout_occupancy,
@@ -431,6 +431,7 @@ where
     let store = &svc.plan_store;
     let p = params.as_ref();
     let authorized_gates = dispatch_authorized_gates(p)?;
+    refuse_missing_explicit_cwd(owned_str(p, "cwd").as_deref())?;
     let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
     let detail = store
         .show_task(&task_id)
