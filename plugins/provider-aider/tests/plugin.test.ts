@@ -364,7 +364,7 @@ console.log("\n--- history file reader fallbacks ---\n");
         p === historyPath ? fs.readFileSync(tmp, "utf8") : null,
     },
   });
-  eq(viaFsReadFile.sessionJsonlPath(path.dirname(tmp), "ses_x"), historyPath, "sessionJsonlPath names the history file");
+  eq(viaFsReadFile.sessionJsonlPath(path.dirname(tmp), "ses_x"), `${path.dirname(tmp)}/.aider/history/ses_x.md`, "sessionJsonlPath names the per-nonce history file");
   const delta = viaFsReadFile.parseSessionDelta(fs.readFileSync(tmp, "utf8")) as {
     messages: Array<{ role: string; blocks: Array<{ kind: string; data: { text: string } }> }>;
   };
@@ -376,7 +376,7 @@ console.log("\n--- history file reader fallbacks ---\n");
   eq(delta.messages[1].blocks[0].kind, "text", "delta assistant block kind");
   eq(delta.messages[1].blocks[0].data.text, "Hello there", "delta assistant text");
   const missingFs = readVia({ platform: () => "linux", shell: { quoteFor: (v: any) => `'${v}'` } });
-  eq(missingFs.sessionJsonlPath(path.dirname(tmp), "ses_x"), historyPath, "sessionJsonlPath needs no fs");
+  eq(missingFs.sessionJsonlPath(path.dirname(tmp), "ses_x"), `${path.dirname(tmp)}/.aider/history/ses_x.md`, "sessionJsonlPath needs no fs");
   eq((missingFs.parseSessionDelta("") as { messages: unknown[] }).messages.length, 0, "empty delta yields no rows");
   fs.unlinkSync(tmp);
 }
@@ -656,49 +656,43 @@ console.log("\n--- detectSessionId (newest history block id) ---\n");
   eq(p.readStructuredChat, undefined, "readStructuredChat is removed");
 }
 
-console.log("\n--- session id freshness uses file mtime, not header clock ---\n");
+console.log("\n--- launch command carries per-nonce history files ---\n");
 {
-  const skewedBlocks = [
-    "# aider chat started at 2026-10-07 03:19:55.000",
-    "",
-    "#### Live question",
-    "",
-    "Live answer",
-  ].join("\n");
-  const readVia = (host: any) => {
-    const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
-    const source = fs.readFileSync(pluginPath, "utf8");
-    const context = { host, console, module: { exports: {} as any }, exports: {} };
-    new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
-    return context.module.exports.default;
-  };
-  const historyPath = "/ws/.aider.chat.history.md";
-  const hostWith = (modifiedMs: number | null) => ({
-    platform: () => "linux",
-    shell: { quoteFor: (v: any) => `'${v}'` },
-    fs: {
-      readFile: (p: string) => (p === historyPath ? skewedBlocks : null),
-      readDir: (p: string) =>
-        p === "/ws"
-          ? [{ name: ".aider.chat.history.md", path: historyPath, isFile: true, isDir: false, size: skewedBlocks.length, modifiedMs, createdMs: null }]
-          : [],
-    },
-    log: () => {},
+  const secretHost = aiderHost({
+    secretGet: (name: string) => (name === "my-key" ? "sk-secret-value" : null),
   });
-  const now = Date.now();
-  const fresh = readVia(hostWith(now - 1000));
-  eq(fresh.detectSessionId("/ws", [], 60000), "2026-10-07 03:19:55.000", "fresh file mtime keeps the block despite a skewed header clock");
-  eq(fresh.detectSessionId("/ws", [], 3600000), "2026-10-07 03:19:55.000", "fresh file mtime keeps the block within a 1h window");
-  const stale = readVia(hostWith(now - 7200000));
-  eq(stale.detectSessionId("/ws", [], 60000), null, "stale file mtime rejects the block within maxAgeMs");
-  eq(stale.detectSessionId("/ws", [], 3600000), null, "stale file mtime rejects the block within a 1h window");
-  eq(stale.detectSessionId("/ws", [], 0), "2026-10-07 03:19:55.000", "no maxAgeMs keeps the block regardless of header clock");
-  eq(stale.detectSessionId("/ws", [], undefined), "2026-10-07 03:19:55.000", "undefined maxAgeMs keeps the block regardless of header clock");
-  const unknownMtime = readVia(hostWith(null));
-  eq(unknownMtime.detectSessionId("/ws", [], 60000), null, "unknown file mtime is not fresh within maxAgeMs");
-  eq(unknownMtime.detectSessionId("/ws", [], 0), "2026-10-07 03:19:55.000", "unknown file mtime keeps the block when no maxAgeMs is set");
-  eq(fresh.detectSessionId("/ws", ["2026-10-07 03:19:55.000"], 60000), null, "exclude list still skips the named block under mtime freshness");
-  eq(fresh.sessionExists("/ws", "2026-10-07 03:19:55.000"), true, "sessionExists stays consistent with the block id");
+  const p = loadAiderWithHost(secretHost);
+  const posix = p.buildLaunchCommand({ cwd: "/ws" });
+  assert(posix.includes("mkdir -p '/ws/.aider/history'"), "posix launch creates the history folder");
+  assert(
+    posix.includes("--chat-history-file '/ws/.aider/history/$CODETERM_SESSION_BINDING_NONCE.md'"),
+    "posix launch names the chat history file by the binding nonce",
+  );
+  assert(
+    posix.includes("--input-history-file '/ws/.aider/history/$CODETERM_SESSION_BINDING_NONCE.input'"),
+    "posix launch names the input history file by the binding nonce",
+  );
+  const winHost = aiderHost({
+    platform: () => "windows",
+    shell: {
+      quoteFor: (v: unknown) => `"${String(v)}"`,
+      quote: (v: unknown) => `"${String(v)}"`,
+    },
+    secretGet: (name: string) => (name === "my-key" ? "sk-secret-value" : null),
+  });
+  const win = loadAiderWithHost(winHost).buildLaunchCommand({ cwd: "C:/ws" });
+  assert(
+    win.includes('New-Item -ItemType Directory -Force -Path "C:/ws/.aider/history"'),
+    "powershell launch creates the history folder",
+  );
+  assert(
+    win.includes('--chat-history-file "C:/ws/.aider/history/$env:CODETERM_SESSION_BINDING_NONCE.md"'),
+    "powershell launch names the chat history file by the binding nonce",
+  );
+  assert(
+    win.includes('--input-history-file "C:/ws/.aider/history/$env:CODETERM_SESSION_BINDING_NONCE.input"'),
+    "powershell launch names the input history file by the binding nonce",
+  );
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
