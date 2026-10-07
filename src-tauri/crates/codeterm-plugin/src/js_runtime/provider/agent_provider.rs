@@ -153,6 +153,10 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.onboarding_auto_answer
     }
 
+    fn restores_conversation_history_on_resume(&self) -> bool {
+        self.manifest.spawn.restores_conversation_history_on_resume
+    }
+
     fn session_starts_on_first_user_turn(&self) -> bool {
         self.manifest.spawn.session_starts_on_first_user_turn
             || self

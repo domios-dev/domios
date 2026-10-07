@@ -208,5 +208,61 @@ fn attach_skills(
     Some(params)
 }
 
+pub(crate) fn build_resume(
+    provider: &dyn AgentProvider,
+    params: &crate::agent::provider::AgentResumeParams,
+    skills: Option<&str>,
+) -> Option<String> {
+    let params = prepare_resume_context(
+        params,
+        skills,
+        provider.is_tool_less(),
+        provider.system_prompt_delivery(),
+        provider.context_attach(),
+        codeterm_util::task_files::write,
+    )?;
+    provider.build_resume_command_with_context(&params)
+}
+
+fn prepare_resume_context(
+    params: &crate::agent::provider::AgentResumeParams,
+    skills: Option<&str>,
+    tool_less: bool,
+    delivery: crate::agent::provider::SystemPromptDelivery,
+    capability: Option<ContextAttach>,
+    mut materialize: impl FnMut(&str, Option<&str>) -> Option<String>,
+) -> Option<crate::agent::provider::AgentResumeParams> {
+    let mut params = params.clone();
+    if let Some(files) = params.context_files.take() {
+        validate_support(&files, skills.is_some(), capability).ok()?;
+        params.context_files = Some(resolve_files(Path::new(params.cwd.as_deref()?), files).ok()?);
+    }
+    if let Some(skills) = skills {
+        validate_support(&TaskFiles::default(), true, capability).ok()?;
+        params
+            .context_files
+            .get_or_insert_with(Default::default)
+            .read
+            .push(materialize(skills, Some(".plan-skills.md"))?);
+    }
+    if tool_less {
+        match delivery {
+            crate::agent::provider::SystemPromptDelivery::External => {
+                params.tool_less_instructions_path = Some(materialize(
+                    crate::prompts::TOOL_LESS,
+                    Some(".tool-less.md"),
+                )?);
+            }
+            _ => {
+                params.system_prompt = Some(params.system_prompt.map_or_else(
+                    || crate::prompts::TOOL_LESS.to_string(),
+                    |prompt| format!("{}\n\n{prompt}", crate::prompts::TOOL_LESS),
+                ));
+            }
+        }
+    }
+    Some(params)
+}
+
 #[cfg(test)]
 mod tests;

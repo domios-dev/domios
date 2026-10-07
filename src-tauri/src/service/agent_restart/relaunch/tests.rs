@@ -61,6 +61,9 @@ fn restart_fixture(
         tab.agent_type = Some(PROVIDER.into());
         tab.agent_session_id = Some("session-restart".into());
         tab.restorable_launch = crate::multiplexer::types::RestorableLaunchParameters {
+            context_files: None,
+            context_skills: None,
+            worker_restart: None,
             captured: true,
             requested_model: Some(spawn.model.clone()),
             model: Some(spawn.model.clone()),
