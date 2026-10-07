@@ -41,5 +41,6 @@ export type {
   ReceiverTargetRefusal,
 } from "./host";
 export * from "./capabilities";
+export type { ChatMsg } from "./gen/ChatMsg";
 
 export type { ModelProviderConfig, ModelProviderDefinition, ModelPreset } from './modelProviders';

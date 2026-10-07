@@ -56,6 +56,7 @@ mod orchestrator;
 pub(crate) mod parked_user_delivery;
 pub(crate) mod process_tree;
 mod prompt_resolution;
+pub(crate) mod protocol_recorder;
 pub(crate) mod provider_cli;
 pub(crate) mod provider_cli_actions;
 pub(crate) mod provider_update;
@@ -286,6 +287,7 @@ pub struct ServiceContext {
     pub report_store: ReportStoreState,
     /// Orchestration-economics event writer. Disabled (and file-less) unless `kpi.enabled`.
     pub kpi: crate::agent::kpi::KpiRecorder,
+    pub(crate) protocol_recorder: Arc<protocol_recorder::ProtocolRecorder>,
     pub agent_registry: Arc<AgentRegistry>,
     pub mem: Arc<crate::mem::MemManager>,
     pub mem_supervisor: Arc<crate::mem::supervisor::Supervisor>,

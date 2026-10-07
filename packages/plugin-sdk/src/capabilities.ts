@@ -4,6 +4,7 @@
 // ── Shared context ──
 
 import type { ModelProviderConfig } from "./modelProviders";
+import type { ChatMsg } from "./gen/ChatMsg";
 
 export interface TabContext {
   cwd?: string | null;
@@ -640,7 +641,11 @@ export interface ToolRichResult {
 }
 
 // Minimal shared chat shape mapped onto Rust ChatMsg. Only id/type/content are contractual; extra fields are allowed.
-export interface NormalizedChatMessage {
+export interface NormalizedChatMessage
+  extends Omit<
+    Partial<ChatMsg>,
+    "pluginIconSvg" | "inboundKind" | "toolKind" | "toolEdits" | "fileDiffs" | "toolRichResult"
+  > {
   id: string;
   type: string;
   content: string;

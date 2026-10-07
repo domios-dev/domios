@@ -260,6 +260,7 @@ pub struct TerminalConfig {
 #[serde(default)]
 pub struct DiagnosticsConfig {
     pub terminal_transport: bool,
+    pub protocol_recording: bool,
 }
 
 impl Default for TerminalConfig {

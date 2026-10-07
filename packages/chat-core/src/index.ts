@@ -20,6 +20,7 @@ export type {
   FileDiffHunk,
   ToolRichResult,
 } from "./types";
+export type { ChatMsg } from "./gen/ChatMsg";
 export { SYSTEM_ORIGIN_LABEL, systemOriginLabel } from "./originLabels";
 export {
   DOMIOS_CLOSE_TAG,
