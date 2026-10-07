@@ -4,6 +4,34 @@ use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+#[derive(Clone, Default)]
+pub(crate) struct Selection {
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub resume: Option<String>,
+    pub extra_args: bool,
+}
+
+impl Selection {
+    pub fn spawn(
+        self,
+        provider: &str,
+        cwd: &str,
+        instructions: Option<String>,
+        full_access: bool,
+    ) -> Spawn {
+        Spawn {
+            provider: provider.into(),
+            cwd: cwd.into(),
+            instructions,
+            resume: self.resume,
+            model: self.model,
+            effort: self.effort,
+            full_access,
+        }
+    }
+}
+
 const DEFERRED: &str = "__CODETERM_CODEX_RPC_LAUNCH__";
 struct Plan {
     params: SpawnAgentParams,
@@ -153,6 +181,25 @@ mod tests {
         ));
         assert!(!command.contains("--profile"));
         assert!(command.contains("-c check_for_update_on_startup=false"));
+    }
+}
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    #[test]
+    fn codex_rpc_control_hidden_selection_preserves_model_effort_and_resume() {
+        let selection = Selection {
+            model: Some("selected".into()),
+            effort: Some("effort".into()),
+            resume: Some("own".into()),
+            extra_args: false,
+        };
+        let spawn = selection.spawn("provider", "cwd", Some("instructions".into()), true);
+        assert_eq!(spawn.model.as_deref(), Some("selected"));
+        assert_eq!(spawn.effort.as_deref(), Some("effort"));
+        assert_eq!(spawn.resume.as_deref(), Some("own"));
+        assert!(spawn.full_access);
     }
 }
 

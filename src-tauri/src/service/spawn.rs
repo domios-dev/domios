@@ -933,6 +933,7 @@ impl ServiceContext {
             &env_vars,
         );
 
+        super::codex_rpc::lifecycle::launch_env(self, &tab_id, &mut env_vars);
         let pty_id = match self.link_hidden_agent_pty(&tab_id, resolved_cwd, env_vars) {
             Ok(pty_id) => pty_id,
             Err(error) => {
@@ -1030,6 +1031,12 @@ impl ServiceContext {
                 provider,
                 launch_session_id,
                 task: task_for_thread,
+                selection: super::codex_rpc::launch::Selection {
+                    model: launch_model.clone(),
+                    effort: agent.reasoning_effort.clone(),
+                    resume: agent.resume_session_id.clone(),
+                    extra_args: false,
+                },
                 model_args,
                 role: role_for_thread,
                 role_profile: role_profile_for_thread,

@@ -40,7 +40,9 @@ pub fn observe(
                 .store(true, std::sync::atomic::Ordering::Release);
             svc.mark_agent_turn_started(tab);
         }
-        "serverRequest/pending" => svc.mark_agent_waiting(tab),
+        "serverRequest/pending" => {
+            svc.mark_agent_waiting(tab);
+        }
         _ => return,
     }
     crate::agent::state_verdict::observe_declared_event(svc, tab, thread, event);
