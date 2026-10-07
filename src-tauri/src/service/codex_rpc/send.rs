@@ -1,4 +1,7 @@
 mod gate;
+mod startup;
+
+pub(crate) use startup::{admit_startup, send_startup};
 
 use super::{client::ClientError, lifecycle::Sidecar, protocol::Frame};
 use crate::service::{
@@ -151,26 +154,32 @@ pub fn try_send(
         params,
         |method, params| sidecar.client.request(method, params),
     ));
+    Some(finish_handoff(svc, tab, &thread, &pending.send_id, result))
+}
+
+fn finish_handoff(
+    svc: &ServiceContext,
+    tab: &str,
+    thread: &str,
+    send_id: &str,
+    result: Result<Value, ClientError>,
+) -> Result<(), DeliveryError> {
     match result {
         Ok(_) => {
-            if let Some(status) = svc.chat_send_ledger.mark_rpc_accepted(&pending.send_id) {
-                log::info!(
-                "[codex-rpc-send] tab={tab} thread={thread} clientUserMessageId={} state=written",
-                pending.send_id
-            );
+            if let Some(status) = svc.chat_send_ledger.mark_rpc_accepted(send_id) {
+                log::info!("[codex-rpc-send] tab={tab} thread={thread} clientUserMessageId={send_id} state=written");
                 emit(svc, &status);
             }
-            Some(Ok(()))
+            Ok(())
         }
         Err(error) => {
-            let error = DeliveryError::SubmitUnconfirmed {
-                tab: tab.into(),
-                detail: format!("RPC handoff uncertain: {error:?}"),
-            };
-            if let Some(status) = svc.chat_send_ledger.mark_rpc_uncertain(&pending.send_id) {
+            if let Some(status) = svc.chat_send_ledger.mark_rpc_uncertain(send_id) {
                 emit(svc, &status);
             }
-            Some(Err(error))
+            Err(DeliveryError::SubmitUnconfirmed {
+                tab: tab.into(),
+                detail: format!("RPC handoff uncertain: {error:?}"),
+            })
         }
     }
 }
@@ -238,7 +247,7 @@ fn not_steerable(error: &super::protocol::RpcError) -> bool {
     })
 }
 
-fn user_client_id<'a>(method: &str, params: &'a Value) -> Option<(&'a str, &'a str)> {
+pub(crate) fn user_client_id<'a>(method: &str, params: &'a Value) -> Option<(&'a str, &'a str)> {
     if !matches!(method, "item/started" | "item/completed") {
         return None;
     }
