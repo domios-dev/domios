@@ -18,6 +18,7 @@ pub(crate) struct LiveTabCwd {
 pub(crate) struct LaneRemovalRequest {
     pub(crate) worktree_path: String,
     pub(crate) branch: Option<String>,
+    pub(crate) force: bool,
     /// Canonical checkout the lane was branched from. Derived from the lane's
     /// own git common dir when the caller does not name one.
     pub(crate) canonical_cwd: Option<String>,
@@ -443,7 +444,7 @@ pub(crate) fn remove_lane(
                 "lane path '{worktree}' still exists but is not registered as a Git worktree; nothing was removed"
             ));
         }
-        remove_lane_worktree(&canonical, worktree, false)?;
+        remove_lane_worktree(&canonical, worktree, request.force)?;
     } else if registered {
         remove_stale_worktree_registration(&canonical, worktree).map_err(|error| {
             format!("stale lane registration for '{worktree}' could not be removed: {error}")
