@@ -203,6 +203,7 @@ fn update_coordinator_prompt_tab_answers_safe_choice_through_respond_prompt() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn owner_launched_update_prompt_remains_owner_facing() {
     let (mut mux, tab_id) = MultiplexerState::new();
     mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("fixture".into());

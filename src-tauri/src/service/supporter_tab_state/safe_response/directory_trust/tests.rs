@@ -342,6 +342,7 @@ fn unattended_launch_prompt_other_or_low_confidence_falls_back() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn planner_completion_onboarding_enters_the_owned_candidate_path() {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
     mux.link_pty(&tab_id, "planner-onboarding".into());
@@ -585,6 +586,7 @@ fn unattended_launch_prompt_permission_prompt_untouched() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn sentinel_respond_prompt_permission_uses_provider_declared_target() {
     use crate::agent::permission_request::PermissionRequestSignal;
 
@@ -626,6 +628,7 @@ fn sentinel_respond_prompt_permission_uses_provider_declared_target() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn sentinel_respond_prompt_preapproved_folder_trust_uses_declared_target() {
     let (mut mux, tab_id) = cron_tab();
     let prompt = claude()
@@ -683,6 +686,7 @@ fn sentinel_respond_prompt_preapproved_folder_trust_uses_declared_target() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn owner_launched_sentinel_respond_prompt_is_refused_before_dispatch() {
     let (mut mux, tab_id) = unattended_tab(crate::multiplexer::types::TabAudience::User, false);
     let prompt = claude().parse_prompt(TOOL_PERMISSION).unwrap();

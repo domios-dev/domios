@@ -293,6 +293,7 @@ fn cron_service_mutations_and_run_lifecycle_survive_storage_reopen() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn cron_history_accepts_a_unique_job_name_and_its_id() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
@@ -313,6 +314,7 @@ fn cron_history_accepts_a_unique_job_name_and_its_id() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn cron_history_refuses_an_ambiguous_job_name() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
