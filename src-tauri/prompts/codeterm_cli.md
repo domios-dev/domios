@@ -70,21 +70,8 @@ Flat peer model: paired = trusted. Most tab/agent/workspace commands accept `--m
 
 ## Memory (mem)
 
-Persistent vector + keyword store; hybrid search fuses FTS5 + embeddings on every query. Protocol:
-- All mem content is English (titles, bodies, queries) — the embedder is English-dominant; translate before saving, reply to the user in their language.
-- "Remember" (in any language) = run `mem save` now — acknowledging without saving loses it. Background workers handle classification/graph/dedup.
-- Search before answering about any person, project, or past event: `mem search "<query>"`; reformulate once (keyword → natural phrase) before giving up. Identity questions: `mem wake-up`.
-- Never guess ids — search first, then `mem get <real-id>`.
-- Facts change → save the new fact; no dates in bodies (timestamps are tracked).
-
-```bash
-codeterm mem search "<query>" [--kind K] [--limit N]
-codeterm mem save --kind fact|note|learning|skill|rule|preference --title "..." "<body>"
-codeterm mem get <id> · mem wake-up · mem save-preference --title "..." --replace "<body>"
-codeterm mem skill new <slug>        # skills are FOLDERS with SKILL.md; never write to ~/.claude/skills
-```
-Past conversations are NOT mem: `codeterm sessions search`. Kinds, graph, pin/learn, calibration, and the Dreamer are in the document the capability map already names.
+The Domios memory protocol is in your provider rules. Commands: `codeterm mem --help`; depth: `codeterm docs MEMORY`. Past conversations are not mem: `codeterm sessions search`.
 
 ## Platform notes
 
-Forward slashes in paths (CLI normalizes); `/tmp/` works everywhere; macOS maps config `Ctrl` to `Cmd`.
+Paths: use forward slashes; the CLI normalizes them on every OS.
