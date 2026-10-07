@@ -22,6 +22,10 @@ pub fn plain_launch(tab: &str, nonce: &str) {
     super::delivery::plain_launch(tab, nonce);
 }
 
+pub fn wait_attached(tab: &str, nonce: &str, timeout: std::time::Duration) -> bool {
+    super::delivery::wait_attached(tab, nonce, timeout)
+}
+
 pub struct Sidecar {
     pub client: Client,
     pub normalizer: Mutex<super::normalize::Normalizer>,
@@ -39,6 +43,8 @@ pub struct Sidecar {
     token: String,
     pub thread_settings: Value,
     pub process: Process,
+    pub spawn: Spawn,
+    pub launch_nonce: String,
 }
 
 impl Drop for Sidecar {
@@ -82,9 +88,13 @@ pub fn for_tab(tab: &str) -> Option<Arc<Sidecar>> {
     crate::service::structured_endpoint::rpc(tab)
 }
 pub fn clear_tab(tab: &str) {
-    super::delivery::disconnected(tab);
     let sidecar = for_tab(tab);
     if let Some(sidecar) = sidecar {
+        log::info!(
+            "[codex-rpc-lifecycle] tab={tab} nonce={} action=stop_sidecar reason=tab_lifecycle",
+            sidecar.launch_nonce
+        );
+        super::delivery::disconnected(tab);
         super::approvals::clear_tab(tab);
         crate::service::structured_endpoint::remove(tab);
         sidecar.client.close("Tab lifecycle ended");
@@ -98,6 +108,7 @@ pub fn extend_env(tab: &str, env: &mut HashMap<String, String>) {
     }
 }
 
+#[derive(Clone)]
 pub struct Spawn {
     pub provider: String,
     pub cwd: String,
@@ -113,6 +124,7 @@ pub async fn ensure_for_spawn(
     tab: &str,
     spawn: Spawn,
 ) -> Result<Arc<Sidecar>, String> {
+    let original_spawn = spawn.clone();
     super::delivery::begin(tab, &svc.ensure_session_binding_nonce(tab));
     let gate = STARTING
         .lock()
@@ -122,6 +134,7 @@ pub async fn ensure_for_spawn(
     let _permit = gate.acquire().await.map_err(|error| error.to_string())?;
     let previous = for_tab(tab);
     clear_tab(tab);
+    super::delivery::begin(tab, &svc.ensure_session_binding_nonce(tab));
     if let Some(tab) = svc.mux.write().get_tab_mut(tab) {
         tab.structured_control_active = false;
     }
@@ -314,6 +327,8 @@ pub async fn ensure_for_spawn(
         token,
         thread_settings: params,
         process,
+        spawn: original_spawn,
+        launch_nonce: attach_nonce.clone(),
     });
     crate::service::structured_endpoint::register(
         tab,
@@ -332,6 +347,7 @@ pub async fn ensure_for_spawn(
         crate::agent::state_verdict::observe_declared_event(svc, tab, &thread, "turn/started");
     }
     super::subscriber::start(svc.clone(), tab.into(), &sidecar);
+    log::info!("[codex-rpc-attach] tab={tab} nonce={attach_nonce} upstream_port={port} remote_port={remote_port} state=pending");
     super::attachment::start(
         svc.clone(),
         tab.into(),
