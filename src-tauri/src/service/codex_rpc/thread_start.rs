@@ -59,13 +59,37 @@ fn fresh_history(response: &Value) -> Result<(String, History), String> {
     ))
 }
 
+const BINDING_MARKER: &str = "Domios thread binding marker.";
+
+async fn materialized_fresh_history<F>(
+    response: &Value,
+    inject: impl FnOnce(Value) -> F,
+) -> Result<(String, History), String>
+where
+    F: std::future::Future<Output = Result<Value, String>>,
+{
+    let (thread, history) = fresh_history(response)?;
+    inject(json!({"threadId":thread,"items":[{
+        "type":"message","role":"developer",
+        "content":[{"type":"input_text","text":BINDING_MARKER}]
+    }]}))
+    .await?;
+    Ok((thread, history))
+}
+
 pub(super) async fn initial_state(
     client: &Client,
     response: Value,
     resumed: bool,
 ) -> Result<(String, AuthState, History), String> {
     if !resumed {
-        let (thread, history) = fresh_history(&response)?;
+        let (thread, history) = materialized_fresh_history(&response, |params| async move {
+            client
+                .request("thread/inject_items", params)
+                .await
+                .map_err(rpc_error)
+        })
+        .await?;
         return Ok((thread, AuthState::Unknown, history));
     }
     let response: super::schema::ThreadResponse =
@@ -117,7 +141,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn codex_rpc_instant_start_fresh_reply_is_sufficient_without_history_or_mcp_events() {
+    fn codex_rpc_instant_start_fresh_reply_identity_needs_no_history_or_mcp_events() {
         let reply = json!({"thread":{"id":"own", "threadSource":"user"}});
         let (thread, history) = fresh_history(&reply).unwrap();
         assert_eq!(thread, "own");
@@ -146,6 +170,29 @@ mod tests {
         ] {
             assert!(fresh_history(&reply).is_err());
         }
+    }
+
+    #[tokio::test]
+    async fn codex_rpc_instant_start_remote_resume_waits_for_materialization_reply() {
+        use futures_util::FutureExt;
+        let reply = json!({"thread":{"id":"own"}});
+        let (ack, received) = tokio::sync::oneshot::channel();
+        let prepared = materialized_fresh_history(&reply, |params| {
+            assert_eq!(params["threadId"], "own");
+            assert_eq!(params["items"].as_array().unwrap().len(), 1);
+            assert_eq!(params["items"][0]["role"], "developer");
+            assert_eq!(params["items"][0]["content"][0]["text"], BINDING_MARKER);
+            async move { received.await.unwrap() }
+        });
+        tokio::pin!(prepared);
+        assert!(prepared.as_mut().now_or_never().is_none());
+        ack.send(Ok(json!({}))).unwrap();
+        assert_eq!(prepared.await.unwrap().0, "own");
+        let failed = materialized_fresh_history(&reply, |_| async {
+            Err("materialization rejected".into())
+        })
+        .await;
+        assert_eq!(failed.err().as_deref(), Some("materialization rejected"));
     }
 
     #[test]
