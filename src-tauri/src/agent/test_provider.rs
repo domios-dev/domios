@@ -19,6 +19,7 @@ pub struct MockProvider {
     id: String,
     launch_binary: Option<String>,
     supports_chat_ui: bool,
+    tool_less: bool,
     reasoning_efforts: Vec<ReasoningEffortInfo>,
     models: Vec<ModelInfo>,
     model_catalogue: codeterm_plugin::provider::ModelCatalogueCapability,
@@ -62,11 +63,17 @@ pub struct MockProvider {
 }
 
 impl MockProvider {
+    pub fn with_tool_less(mut self, tool_less: bool) -> Self {
+        self.tool_less = tool_less;
+        self
+    }
+
     pub fn new(id: &str) -> Self {
         Self {
             id: id.to_string(),
             launch_binary: None,
             supports_chat_ui: false,
+            tool_less: false,
             reasoning_efforts: Vec::new(),
             models: Vec::new(),
             model_catalogue: codeterm_plugin::provider::ModelCatalogueCapability::default(),
@@ -402,6 +409,10 @@ impl MockProvider {
 }
 
 impl AgentProvider for MockProvider {
+    fn is_tool_less(&self) -> bool {
+        self.tool_less
+    }
+
     fn model_switch(&self) -> codeterm_plugin::provider::ModelSwitchMode {
         self.model_switch
     }

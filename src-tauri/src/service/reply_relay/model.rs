@@ -15,6 +15,15 @@ pub struct PendingReplyRelay {
     pub user_text: String,
     pub turn_normalization: crate::agent::provider::TurnEvidenceNormalization,
     pub hops: u8,
+    pub task: Option<WorkerTaskBinding>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct WorkerTaskBinding {
+    pub plan_id: String,
+    pub task_id: String,
+    pub attempt_id: String,
+    pub owner_epoch: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -165,7 +174,7 @@ pub fn decide_reply_relay_evidence(
     }
 }
 
-fn matches_source(pending: &PendingReplyRelay, source: RelaySource<'_>) -> bool {
+pub(super) fn matches_source(pending: &PendingReplyRelay, source: RelaySource<'_>) -> bool {
     !source.provider_id.is_empty()
         && !source.session_id.is_empty()
         && !source.binding_nonce.is_empty()
@@ -176,7 +185,12 @@ fn matches_source(pending: &PendingReplyRelay, source: RelaySource<'_>) -> bool 
         && source.binding_nonce == pending.binding_nonce
 }
 
-fn matches_user_turn(pending: &PendingReplyRelay, id: &str, start: u64, text: &str) -> bool {
+pub(super) fn matches_user_turn(
+    pending: &PendingReplyRelay,
+    id: &str,
+    start: u64,
+    text: &str,
+) -> bool {
     !id.is_empty()
         && start >= pending.after_offset
         && !normalize(&pending.user_text, pending).is_empty()
@@ -209,6 +223,13 @@ impl ReplyRelayModel {
         }
         self.pending.push_back(pending);
         true
+    }
+
+    pub fn read_offset(&self, pending: &PendingReplyRelay) -> u64 {
+        self.relayed_through
+            .map_or(pending.after_offset, |through| {
+                pending.after_offset.max(through.saturating_add(1))
+            })
     }
 
     pub fn pending(&self) -> Vec<PendingReplyRelay> {
@@ -246,6 +267,28 @@ impl ReplyRelayModel {
         sender_open: impl Fn(&str) -> bool,
         max_hops: u8,
     ) -> Vec<(PendingReplyRelay, ReplyRelayDecision)> {
+        self.observe_matching_evidence(None, source, evidence, sender_open, max_hops)
+    }
+
+    pub fn observe_delivery_evidence(
+        &mut self,
+        delivery_id: &str,
+        source: RelaySource<'_>,
+        evidence: Option<&ReplyRelayEvidence>,
+        sender_open: impl Fn(&str) -> bool,
+        max_hops: u8,
+    ) -> Vec<(PendingReplyRelay, ReplyRelayDecision)> {
+        self.observe_matching_evidence(Some(delivery_id), source, evidence, sender_open, max_hops)
+    }
+
+    fn observe_matching_evidence(
+        &mut self,
+        delivery_id: Option<&str>,
+        source: RelaySource<'_>,
+        evidence: Option<&ReplyRelayEvidence>,
+        sender_open: impl Fn(&str) -> bool,
+        max_hops: u8,
+    ) -> Vec<(PendingReplyRelay, ReplyRelayDecision)> {
         let user_record_start = match evidence {
             Some(ReplyRelayEvidence::Answered(turn)) => Some(turn.user_record_start),
             Some(ReplyRelayEvidence::Ended(turn)) => Some(turn.user_record_start),
@@ -254,6 +297,10 @@ impl ReplyRelayModel {
         let mut actions = Vec::new();
         let mut remaining = VecDeque::new();
         while let Some(pending) = self.pending.pop_front() {
+            if delivery_id.is_some_and(|id| pending.delivery_id != id) {
+                remaining.push_back(pending);
+                continue;
+            }
             let decision = decide_reply_relay_evidence(
                 &pending,
                 source,
