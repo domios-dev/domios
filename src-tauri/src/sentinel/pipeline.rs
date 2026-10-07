@@ -168,7 +168,7 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
                         state: "failed".into(),
                         outcome: "failed".into(),
                         ended_at_ms: now(handle),
-                        result_summary: Some(format!("conversion failed: {reason}")),
+                        result_summary: format!("conversion failed: {reason}"),
                         reason: Some(reason.into()),
                     },
                 );
