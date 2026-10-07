@@ -73,7 +73,8 @@ const aiderHost = (over: Record<string, unknown>) => ({
 {
   const p = loadAiderWithHost(aiderHost({}));
   const launch = p.buildLaunchCommand({ task: "do the thing", starterPrompt: "assigned_task" });
-  assert(launch.startsWith("aider "), "launch starts with aider");
+  assert(launch.includes("aider "), "launch invokes aider");
+  assert(launch.includes("mkdir -p "), "launch creates the history folder");
   assert(launch.includes("--no-auto-commits"), "launch disables auto commits");
   assert(launch.includes("--no-pretty"), "launch disables pretty output");
   assert(launch.includes("--no-fancy-input"), "launch disables fancy input");
@@ -615,49 +616,10 @@ console.log("\n--- parseSessionDelta (file-tail chat route) ---\n");
   eq(empty.messages.length, 0, "empty chunk yields no rows");
 }
 
-console.log("\n--- detectSessionId (newest history block id) ---\n");
+
+console.log("\n--- structured chat exports removed ---\n");
 {
-  const twoBlocks = [
-    "# aider chat started at 2026-10-06 10:00:00.000",
-    "",
-    "#### Old question",
-    "",
-    "Old answer",
-    "",
-    "# aider chat started at 2026-10-06 12:00:00.000",
-    "",
-    "#### New question",
-    "",
-    "New answer",
-  ].join("\n");
-  const readVia = (host: any) => {
-    const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
-    const source = fs.readFileSync(pluginPath, "utf8");
-    const context = { host, console, module: { exports: {} as any }, exports: {} };
-    new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
-    return context.module.exports.default;
-  };
-  const historyPath = "/ws/.aider.chat.history.md";
-  const hostWith = (content: string, modifiedMs: number | null = null) => ({
-    platform: () => "linux",
-    shell: { quoteFor: (v: any) => `'${v}'` },
-    fs: {
-      readFile: (p: string) => (p === historyPath ? content : null),
-      readDir: (p: string) =>
-        p === "/ws"
-          ? [{ name: ".aider.chat.history.md", path: historyPath, isFile: true, isDir: false, size: content.length, modifiedMs, createdMs: null }]
-          : [],
-    },
-    log: () => {},
-  });
-  const p = readVia(hostWith(twoBlocks));
-  const newest = p.detectSessionId("/ws", [], 0);
-  eq(newest, "2026-10-06 12:00:00.000", "detectSessionId returns the newest block id");
-  eq(p.detectSessionId("/ws", [newest!], 0), "2026-10-06 10:00:00.000", "exclude list skips the named block");
-  eq(p.sessionExists("/ws", "2026-10-06 12:00:00.000"), true, "sessionExists finds a known block");
-  eq(p.sessionExists("/ws", "nope"), false, "sessionExists rejects an unknown id");
-  eq(p.sessionJsonlPath("/ws", "2026-10-06 12:00:00.000"), "/ws/.aider.chat.history.md", "sessionJsonlPath returns the history file");
-  eq(p.sessionJsonlPath("", "x"), null, "sessionJsonlPath rejects empty cwd");
+  const p = loadAiderWithHost(aiderHost({}));
   eq(p.usesStructuredChat, undefined, "usesStructuredChat is removed");
   eq(p.readStructuredChat, undefined, "readStructuredChat is removed");
 }
