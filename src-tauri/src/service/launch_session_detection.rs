@@ -178,7 +178,10 @@ pub(crate) fn marked_provider_launch_command(
     );
     params.args = (!args.is_empty()).then_some(args);
     registry.with_provider(provider_id, |provider| {
-        crate::agent::stub_launch::apply(provider_id, provider.build_launch_command(params))
+        crate::agent::stub_launch::apply(
+            provider_id,
+            crate::service::tool_less_instructions::build(provider, params),
+        )
     })
 }
 

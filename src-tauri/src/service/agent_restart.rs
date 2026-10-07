@@ -864,17 +864,21 @@ fn build_relaunch_command_with_registry(
                 &mut args,
             );
             return registry.with_provider(provider, |p| {
-                p.build_launch_command(&AgentLaunchParams {
-                    agent_name: None,
-                    task: None,
-                    starter_prompt,
-                    args: (!args.is_empty()).then_some(args),
-                    skip_permissions: auto_approve,
-                    session_id: Some(sid.to_string()),
-                    structured_prompt_server: structured_prompt_server.clone(),
-                    launch_marker: None,
-                    instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
-                })
+                crate::service::tool_less_instructions::build(
+                    p,
+                    &AgentLaunchParams {
+                        tool_less_instructions_path: None,
+                        agent_name: None,
+                        task: None,
+                        starter_prompt,
+                        args: (!args.is_empty()).then_some(args),
+                        skip_permissions: auto_approve,
+                        session_id: Some(sid.to_string()),
+                        structured_prompt_server: structured_prompt_server.clone(),
+                        launch_marker: None,
+                        instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
+                    },
+                )
             });
         }
     }
@@ -932,6 +936,7 @@ fn build_relaunch_command_with_registry(
         }
     }
     let mut params = AgentLaunchParams {
+        tool_less_instructions_path: None,
         agent_name: None,
         task: launch_task.map(str::to_string),
         starter_prompt,
@@ -972,7 +977,9 @@ fn build_relaunch_command_with_registry(
         params.args = (!args.is_empty()).then_some(args);
     }
     crate::service::launch_session_detection::mark_fresh_launch(tab_id, &mut params);
-    registry.with_provider(provider, |p| p.build_launch_command(&params))
+    registry.with_provider(provider, |p| {
+        crate::service::tool_less_instructions::build(p, &params)
+    })
 }
 
 pub(crate) fn screen_shows_agent_tui(

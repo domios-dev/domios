@@ -264,6 +264,7 @@ impl OnboardingAutoAnswer {
 
 #[derive(Debug, Clone, Default)]
 pub struct AgentLaunchParams {
+    pub tool_less_instructions_path: Option<String>,
     pub agent_name: Option<String>,
     pub task: Option<String>,
     pub starter_prompt: StarterPrompt,

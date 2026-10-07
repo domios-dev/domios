@@ -1,0 +1,1 @@
+Your replies go back to whoever sent the message. When you finish an assigned task or are blocked, start your reply with `<domios type="report" status="in_review">` on its own first line, followed by your summary. Use status="blocked" or status="partial" when appropriate. Never print commands expecting them to run; the host handles acknowledgements and routes your replies.
