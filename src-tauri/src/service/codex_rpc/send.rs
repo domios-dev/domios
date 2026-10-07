@@ -135,11 +135,11 @@ pub fn try_send(
     ));
     match result {
         Ok(_) => {
-            log::info!(
+            if let Some(status) = svc.chat_send_ledger.mark_rpc_accepted(&pending.send_id) {
+                log::info!(
                 "[codex-rpc-send] tab={tab} thread={thread} clientUserMessageId={} state=written",
                 pending.send_id
             );
-            if let Some(status) = svc.chat_send_ledger.mark_rpc_accepted(&pending.send_id) {
                 emit(svc, &status);
             }
             Some(Ok(()))

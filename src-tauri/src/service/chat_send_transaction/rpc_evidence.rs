@@ -33,7 +33,7 @@ impl ChatSendLedger {
             return None;
         }
         let status = state.by_id.get_mut(send_id)?;
-        if matches!(status.state, ChatSendState::Sent | ChatSendState::Failed) {
+        if status.state != ChatSendState::Pending {
             return None;
         }
         status.state = ChatSendState::Written;

@@ -110,6 +110,7 @@ fn codex_rpc_send_ledger_uncertainty_keeps_late_exact_evidence_and_refuses_recla
         ledger.mark_rpc_uncertain(&status.send_id).unwrap().state,
         ChatSendState::Unknown
     );
+    assert!(ledger.mark_rpc_accepted(&status.send_id).is_none());
     assert!(!ledger.bind_rpc_send(&status.send_id, SendLiveBinding::default()));
     assert!(ledger
         .confirm_rpc_send("tab-a", "thread-a", "nonce-a", &status.send_id)
