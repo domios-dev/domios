@@ -100,7 +100,16 @@ pub fn select_owner(
     Ok(owner)
 }
 
-fn config_lock(path: &Path) -> Result<File, ModelProviderError> {
+#[derive(Debug)]
+struct ConfigLock(File);
+
+impl Drop for ConfigLock {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
+fn config_lock(path: &Path) -> Result<ConfigLock, ModelProviderError> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|_| ModelProviderError::Config)?;
     }
@@ -112,7 +121,7 @@ fn config_lock(path: &Path) -> Result<File, ModelProviderError> {
         .open(path.with_extension("domios.lock"))
         .map_err(|_| ModelProviderError::Config)?;
     file.try_lock().map_err(|_| ModelProviderError::Busy)?;
-    Ok(file)
+    Ok(ConfigLock(file))
 }
 
 fn read_config(path: &Path) -> Result<Value, ModelProviderError> {
