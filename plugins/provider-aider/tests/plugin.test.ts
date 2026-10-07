@@ -439,9 +439,9 @@ console.log("\n--- per-nonce session files ---\n");
       { name: "nonce-a.input", modifiedMs: now - 5000 },
     ]),
   );
-  eq(p.detectSessionId("/ws", [], 0), "nonce-b", "detectSessionId returns the newest history file");
-  eq(p.detectSessionId("/ws", ["nonce-b"], 0), "nonce-a", "exclude list skips the named file");
-  eq(p.detectSessionId("/ws", [], 2000), "nonce-b", "maxAgeMs keeps the fresh file");
+  eq(p.detectSessionId("/ws", [], 0), null, "detectSessionId is null even with fresh files present");
+  eq(p.detectSessionId("/ws", ["nonce-b"], 0), null, "detectSessionId stays null with an exclude list");
+  eq(p.detectSessionId("/ws", [], 2000), null, "detectSessionId stays null within maxAgeMs");
   eq(p.sessionExists("/ws", "nonce-b"), true, "sessionExists finds a known nonce file");
   eq(p.sessionExists("/ws", "nonce-a"), true, "sessionExists finds the older nonce file");
   eq(p.sessionExists("/ws", "nope"), false, "sessionExists rejects an unknown id");
@@ -453,17 +453,17 @@ console.log("\n--- per-nonce session files ---\n");
   eq(p.sessionFilePath("/ws", ""), null, "sessionFilePath rejects empty session id");
   const stale = readVia(hostWith([{ name: "nonce-a.md", modifiedMs: now - 7200000 }]));
   eq(stale.detectSessionId("/ws", [], 60000), null, "stale file is rejected within maxAgeMs");
-  eq(stale.detectSessionId("/ws", [], 0), "nonce-a", "no maxAgeMs keeps the file regardless of age");
-  eq(stale.detectSessionId("/ws", [], undefined), "nonce-a", "undefined maxAgeMs keeps the file");
+  eq(stale.detectSessionId("/ws", [], 0), null, "no maxAgeMs still yields null");
+  eq(stale.detectSessionId("/ws", [], undefined), null, "undefined maxAgeMs still yields null");
   const unknownMtime = readVia(hostWith([{ name: "nonce-a.md", modifiedMs: null }]));
   eq(unknownMtime.detectSessionId("/ws", [], 60000), null, "unknown mtime is not fresh within maxAgeMs");
-  eq(unknownMtime.detectSessionId("/ws", [], 0), "nonce-a", "unknown mtime keeps the file when no maxAgeMs is set");
+  eq(unknownMtime.detectSessionId("/ws", [], 0), null, "unknown mtime still yields null");
   const empty = readVia(hostWith([]));
   eq(empty.detectSessionId("/ws", [], 0), null, "empty history dir yields no session");
   eq(
     p.detectLaunchSession!({ cwd: "/ws", launchMarker: "nonce-b", launchedAtMs: now }),
     { sessionId: "nonce-b", source: "launch_marker" },
-    "detectLaunchSession binds the launch marker to its own history file",
+    "detectLaunchSession binds the matching nonce even when detectSessionId is null",
   );
   eq(
     p.detectLaunchSession!({ cwd: "/ws", launchMarker: "nonce-z", launchedAtMs: now }),
