@@ -138,7 +138,7 @@ console.log("\n--- task instructions launch ---\n");
   assert(cmd.includes("$ctInstanceId = 'instance-test';"), "Windows carries the writing instance into the profile");
   assert(cmd.includes("[System.IO.File]::WriteAllText($ctProfilePath,"), "Windows writes a temporary Codex profile");
   assert(cmd.includes("[System.Text.UTF8Encoding]::new($false)"), "Windows writes the profile as UTF-8 without a BOM that TOML parsers reject");
-  assert(cmd.includes("'# codeterm-instance: ' + $ctInstanceId + [Environment]::NewLine"), "the owner marker starts the TOML profile");
+  assert(cmd.includes("'# codeterm-instance: ' + $ctInstanceId + \"`n\""), "the owner marker uses an LF separator in the TOML profile");
   const profileValueAssignment = /'developer_instructions = ' \+ (\$\w+)\)/.exec(cmd);
   assert(!!profileValueAssignment, "the profile content assigns developer_instructions from a variable expression, not a bare literal");
   const jsonVarName = profileValueAssignment?.[1] ?? "";
