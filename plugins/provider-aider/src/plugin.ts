@@ -120,26 +120,6 @@ function historyBlocks(cwd: string): { id: string; startMs: number; content: str
   return listAiderHistoryBlocks(content);
 }
 
-/**
- * Aider writes its `# aider chat started at` header in a clock that does not
- * match the host clock, so header timestamps are never used for freshness.
- * Freshness comes from the history file's own modification time.
- */
-function historyFileModifiedMs(cwd: string): number | null {
-  const fs = (globalThis as { host?: { fs?: { readDir?: (p: string) => unknown[] } } }).host?.fs;
-  if (!fs || typeof fs.readDir !== "function") return null;
-  try {
-    const entries = fs.readDir(String(cwd || "")) as Array<{
-      name?: string;
-      modifiedMs?: number | null;
-    }>;
-    const entry = entries.find((e) => e && e.name === ".aider.chat.history.md");
-    const modified = entry && typeof entry.modifiedMs === "number" ? entry.modifiedMs : null;
-    return modified;
-  } catch (_) {
-    return null;
-  }
-}
 
 function lastNonEmptyLine(text: string): string {
   const lines = String(text || "").split(/\r?\n/);
@@ -346,15 +326,10 @@ const plugin: PluginModule = {
     return delivered === text ? null : { text: delivered };
   },
 
-  detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
+  detectSessionId(cwd: string, exclude?: string[] | string, _maxAgeMs?: number): string | null {
     const blocks = historyBlocks(cwd);
     if (blocks.length === 0) return null;
     const excluded = Array.isArray(exclude) ? exclude : exclude ? [exclude] : [];
-    const limit = typeof maxAgeMs === "number" && maxAgeMs > 0 ? maxAgeMs : 0;
-    if (limit > 0) {
-      const modifiedMs = historyFileModifiedMs(cwd);
-      if (modifiedMs === null || Date.now() - modifiedMs > limit) return null;
-    }
     for (let i = blocks.length - 1; i >= 0; i--) {
       const block = blocks[i];
       if (excluded.indexOf(block.id) !== -1) continue;

@@ -651,7 +651,7 @@ console.log("\n--- detectSessionId (newest history block id) ---\n");
   eq(p.readStructuredChat, undefined, "readStructuredChat is removed");
 }
 
-console.log("\n--- session id freshness uses file mtime, not header clock ---\n");
+console.log("\n--- session id ignores maxAgeMs (caller owns recency) ---\n");
 {
   const skewedBlocks = [
     "# aider chat started at 2026-10-07 03:19:55.000",
@@ -685,14 +685,14 @@ console.log("\n--- session id freshness uses file mtime, not header clock ---\n"
   eq(fresh.detectSessionId("/ws", [], 60000), "2026-10-07 03:19:55.000", "fresh file mtime keeps the block despite a skewed header clock");
   eq(fresh.detectSessionId("/ws", [], 3600000), "2026-10-07 03:19:55.000", "fresh file mtime keeps the block within a 1h window");
   const stale = readVia(hostWith(now - 7200000));
-  eq(stale.detectSessionId("/ws", [], 60000), null, "stale file mtime rejects the block within maxAgeMs");
-  eq(stale.detectSessionId("/ws", [], 3600000), null, "stale file mtime rejects the block within a 1h window");
+  eq(stale.detectSessionId("/ws", [], 60000), "2026-10-07 03:19:55.000", "stale file mtime still returns the block (caller owns recency)");
+  eq(stale.detectSessionId("/ws", [], 3600000), "2026-10-07 03:19:55.000", "stale file mtime still returns the block within a 1h window");
   eq(stale.detectSessionId("/ws", [], 0), "2026-10-07 03:19:55.000", "no maxAgeMs keeps the block regardless of header clock");
   eq(stale.detectSessionId("/ws", [], undefined), "2026-10-07 03:19:55.000", "undefined maxAgeMs keeps the block regardless of header clock");
   const unknownMtime = readVia(hostWith(null));
-  eq(unknownMtime.detectSessionId("/ws", [], 60000), null, "unknown file mtime is not fresh within maxAgeMs");
+  eq(unknownMtime.detectSessionId("/ws", [], 60000), "2026-10-07 03:19:55.000", "unknown file mtime still returns the block");
   eq(unknownMtime.detectSessionId("/ws", [], 0), "2026-10-07 03:19:55.000", "unknown file mtime keeps the block when no maxAgeMs is set");
-  eq(fresh.detectSessionId("/ws", ["2026-10-07 03:19:55.000"], 60000), null, "exclude list still skips the named block under mtime freshness");
+  eq(fresh.detectSessionId("/ws", ["2026-10-07 03:19:55.000"], 60000), null, "exclude list still skips the named block");
   eq(fresh.sessionExists("/ws", "2026-10-07 03:19:55.000"), true, "sessionExists stays consistent with the block id");
 }
 
