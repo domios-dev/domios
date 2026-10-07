@@ -35,9 +35,9 @@ mod workspace_admission;
 
 use super::safety_nudge::{safety_incident_text, SAFETY_INCIDENT_KIND};
 use attempt_rollback::roll_back_dispatch_attempt;
-use brief::build_brief_with_manifest;
+use brief::build_brief_for_capabilities;
 #[cfg(test)]
-pub(super) use brief::{build_brief, build_brief_with_personality};
+pub(super) use brief::{build_brief, build_brief_with_manifest, build_brief_with_personality};
 use dispatch_failure::{
     cleanup_succeeded, dispatch_startup_failed_event, dispatch_wait_failed,
     DispatchFailureDisposition, DispatchWaitFailure,
@@ -646,7 +646,10 @@ where
         .is_some_and(DispatchLanePlacement::provisions)
         && (detail.task.lane.worktree_path.is_some() || detail.task.lane.branch.is_some());
     let brief = canonical_writer::compose_dispatch_brief(
-        build_brief_with_manifest(
+        build_brief_for_capabilities(
+            svc.agent_registry
+                .with_provider(&resolved_provider, |provider| provider.is_tool_less())
+                .unwrap_or(false),
             &detail.task,
             &detail.sections,
             &plan_id,

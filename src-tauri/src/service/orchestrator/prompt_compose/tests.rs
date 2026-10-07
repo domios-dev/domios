@@ -346,3 +346,41 @@ fn mesh_spawn_return_route_prefers_the_matching_owned_peer_identity() {
     assert!(prompt.contains("opaque-other-peer"));
     assert!(!prompt.contains(PEER_ID));
 }
+
+#[test]
+fn tool_less_capability_selects_assignment_without_cli_contract_fragments() {
+    let registry = crate::agent::registry::AgentRegistry::new();
+    let task = crate::service::plan::worker_identity::attach_worker_identity(
+        "opaque identity",
+        "opaque assignment",
+    );
+    let params = SpawnAgentParams {
+        agent: Some("opaque-provider".into()),
+        role: Some("Worker".into()),
+        task: Some(task),
+        ..Default::default()
+    };
+    registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("opaque-provider").with_tool_less(true),
+    ));
+    assert_eq!(
+        super::spawn_launch_task_for_provider(&registry, &params, false),
+        Some("opaque identity\n\nopaque assignment".into())
+    );
+    assert_eq!(
+        super::provider_launch_task(
+            &registry,
+            "opaque-provider",
+            params.task.as_deref(),
+            Some("Worker"),
+            None
+        ),
+        Some("opaque identity\n\nopaque assignment".into())
+    );
+    registry.register_provider(Box::new(crate::agent::test_provider::MockProvider::new(
+        "opaque-provider",
+    )));
+    let ordinary = super::spawn_launch_task_for_provider(&registry, &params, false).unwrap();
+    assert!(ordinary.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
+    assert!(ordinary.contains(crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION));
+}

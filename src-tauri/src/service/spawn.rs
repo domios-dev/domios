@@ -572,11 +572,12 @@ impl ServiceContext {
             system_prompt_capable,
             native_starter_capable,
         );
-        let role_suffixed_task = super::orchestrator::role_launch_task(
+        let role_suffixed_task = super::orchestrator::provider_launch_task(
+            &self.agent_registry,
+            &agent_cmd,
             task_selection.provider_launch,
             agent.role.as_deref(),
             agent.role_profile.as_deref(),
-            system_prompt_capable,
         );
         let role_suffixed_task =
             role_suffixed_task.map(|task| self.spawn_task_message(&tab_id, &task).unwrap_or(task));
