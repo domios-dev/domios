@@ -57,9 +57,11 @@ fn parity_structured_control_native_js_describe() {
         Native.describe().structured_control,
         js.describe().structured_control
     );
-    assert!(js.describe().settings_schema.iter().any(|section| matches!(section,
-        SettingField::Section { fields, .. } if fields.iter().any(|field| matches!(field,
-            SettingField::Toggle { key, default: false, .. } if key == "structured_control_enabled")))));
+    for descriptor in [Native.describe(), js.describe()] {
+        assert!(descriptor.settings_schema.iter().any(|section| matches!(section,
+            SettingField::Section { fields, .. } if fields.iter().any(|field| matches!(field,
+                SettingField::Toggle { key, default: true, .. } if key == "structured_control_enabled")))));
+    }
     let absent = load_inline_js("absent", "");
     assert_eq!(absent.structured_control(), None);
 }

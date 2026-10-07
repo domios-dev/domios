@@ -452,9 +452,17 @@ pub(crate) fn marked_launch_command_for_tab(
     cwd: &str,
     params: &mut crate::agent::provider::AgentLaunchParams,
 ) -> Option<String> {
-    if super::codex_rpc::launch::requested(svc, provider_id)
-        && params.args.as_ref().is_none_or(|args| args.is_empty())
-    {
+    let structured_requested = super::codex_rpc::launch::requested(svc, provider_id);
+    let extra_args = params.args.as_ref().is_some_and(|args| !args.is_empty());
+    if structured_requested && extra_args {
+        super::codex_rpc::diagnostics::fallback(
+            svc,
+            tab_id,
+            provider_id,
+            "unsupported extra terminal arguments",
+        );
+    }
+    if structured_requested && !extra_args {
         let instructions = svc
             .agent_registry
             .with_provider(provider_id, |provider| {
@@ -476,11 +484,7 @@ pub(crate) fn marked_launch_command_for_tab(
             Ok(sidecar) => return Some(super::codex_rpc::launch::remote_command(&sidecar)),
             Err(error) => {
                 log::error!("[codex-rpc] hidden launch tab={tab_id} fallback: {error}");
-                svc.notify_model_resolution_warning(
-                    tab_id,
-                    provider_id,
-                    &format!("Structured control unavailable; using the plain terminal: {error}"),
-                );
+                super::codex_rpc::diagnostics::fallback(svc, tab_id, provider_id, &error);
             }
         }
     }

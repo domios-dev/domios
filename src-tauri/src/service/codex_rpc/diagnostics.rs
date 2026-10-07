@@ -46,3 +46,12 @@ mod tests {
         assert!(!restart_when_idle(false, true, true));
     }
 }
+
+pub fn fallback(svc: &crate::service::ServiceContext, tab: &str, provider: &str, reason: &str) {
+    log::warn!("[launch] tab={tab} structured_control=plain-pty reason={reason}");
+    svc.notify_model_resolution_warning(
+        tab,
+        provider,
+        &format!("Structured control unavailable; using the plain terminal: {reason}"),
+    );
+}

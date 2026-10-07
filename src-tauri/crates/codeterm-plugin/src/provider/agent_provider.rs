@@ -935,7 +935,7 @@ pub trait AgentProvider: Send + Sync {
                 fields: vec![SettingField::Toggle {
                     key: "structured_control_enabled".into(),
                     label: "Enable structured control".into(),
-                    default: false,
+                    default: true,
                     description: None,
                 }],
             });
