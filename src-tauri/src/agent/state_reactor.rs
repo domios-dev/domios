@@ -224,11 +224,21 @@ fn react_heuristic(
 ) {
     let tab_id = &snapshot.tab_id;
     let agent_type = &snapshot.agent_type;
+    let needs_auth = {
+        let mux = svc.mux.read();
+        mux.get_tab(tab_id)
+            .is_some_and(|tab| tab.provider_signals.auth.is_none())
+    };
+    if needs_auth {
+        crate::service::provider_signals::refresh_auth(svc, tab_id);
+    }
     // Ask the tab's OWN provider. No lock held across this call.
     let classification = svc
         .agent_registry
         .with_provider(agent_type, |provider| provider.classify_tab_state(snapshot))
         .unwrap_or(None);
+    let classification =
+        crate::service::provider_signals::classify_for(svc, snapshot, classification);
 
     let decision = if svc.prompt_chain_blocks_keys(tab_id) {
         classification
@@ -290,6 +300,8 @@ pub(crate) fn classify_adopted_launch_screen(svc: &ServiceContext, tab_id: &str,
             provider.classify_tab_state(&snapshot)
         })
         .flatten();
+    let classification =
+        crate::service::provider_signals::classify_for(svc, &snapshot, classification);
     let Some(classification) = classification.filter(|value| {
         value.confidence >= GLOBAL_THRESHOLD
             && matches!(

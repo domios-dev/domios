@@ -486,6 +486,8 @@ pub fn latest_prior_session(lineage: &[PriorBindingNonce]) -> Option<&str> {
 /// A tab represents one terminal, chat backend, or transient choice surface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
+    #[serde(default, skip_deserializing)]
+    pub provider_signals: codeterm_types::agent::provider_signals::ProviderSignals,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub context: Option<codeterm_types::agent::context::TurnContext>,
     pub id: String,

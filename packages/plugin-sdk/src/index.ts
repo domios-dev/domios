@@ -1,4 +1,5 @@
 // @codeterm/plugin-sdk — type-only SDK for authoring CodeTerm plugin logic in TS.
+export type {ProviderAuthStatus, ProviderSessionObservations} from "./providerSignals";
 export type {
   Host,
   HostFs,

@@ -58,6 +58,8 @@ pub(crate) mod process_tree;
 mod prompt_resolution;
 pub(crate) mod provider_cli;
 pub(crate) mod provider_cli_actions;
+pub(crate) mod provider_signals;
+mod provider_signals_probe;
 pub(crate) mod provider_update;
 pub(crate) mod public_send_readiness;
 pub(crate) mod sentinel;

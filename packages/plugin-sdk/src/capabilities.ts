@@ -4,6 +4,7 @@
 // ── Shared context ──
 
 import type { ModelProviderConfig } from "./modelProviders";
+import type {ProviderAuthStatus, ProviderSessionObservations} from "./providerSignals";
 
 export interface TabContext {
   cwd?: string | null;
@@ -229,6 +230,9 @@ export interface SettingField {
 }
 
 export interface AgentProvider {
+  authStatusProbe?(): {args: string[]; timeoutMs: number} | null;
+  parseAuthStatus?(record: unknown): ProviderAuthStatus | null;
+  parseSessionObservations?(record: unknown): ProviderSessionObservations | null;
   parseContextUsage?(record: unknown): {used_tokens: number; window_tokens: number; cost_usd: number | null; source: string} | null;
   permissionHookCapability?(): {
     protocol: string;

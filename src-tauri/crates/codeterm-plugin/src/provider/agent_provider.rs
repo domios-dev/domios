@@ -6,6 +6,20 @@ use std::time::Duration;
 /// Trait for agent backend providers (Claude, Codex, Aider, etc.)
 #[async_trait]
 pub trait AgentProvider: Send + Sync {
+    fn auth_status_probe(&self) -> Option<AuthStatusProbe> {
+        None
+    }
+
+    fn parse_auth_status(&self, _record: &serde_json::Value) -> Option<AuthStatus> {
+        None
+    }
+
+    fn parse_session_observations(
+        &self,
+        _record: &serde_json::Value,
+    ) -> Option<SessionObservations> {
+        None
+    }
     /// Unique identifier for this provider (e.g. "claude").
     fn id(&self) -> &str;
 

@@ -124,6 +124,7 @@ pub(super) fn notifications_schema() -> Vec<SettingField> {
 
 pub(super) fn settings_schema() -> Vec<SettingField> {
     vec![
+        provider::structured_signals_section(),
         provider::session_resume_section(
             "Automatically resume Claude Code sessions when CodeTerm restarts.",
             "--dangerously-skip-permissions",

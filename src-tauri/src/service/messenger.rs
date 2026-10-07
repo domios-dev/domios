@@ -477,6 +477,9 @@ impl Messenger {
             )
         };
         let entry = pty_submit_entry(envelope.kind);
+        if envelope.kind == MessageKind::Message {
+            super::provider_signals::warn_dispatch(svc, &envelope.from_tab, &resolved_target);
+        }
         let messenger = Self::from(envelope.clone());
         let routed_frame = should_prefix.then(|| messenger.routed_frame(body));
         let text = if let Some(frame) = &routed_frame {

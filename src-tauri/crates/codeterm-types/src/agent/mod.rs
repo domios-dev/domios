@@ -2,6 +2,7 @@ pub mod chat_types;
 pub mod context;
 pub mod keys;
 pub mod models;
+pub mod provider_signals;
 pub mod roles;
 pub mod session_model;
 pub use roles::{

@@ -33,6 +33,13 @@ Every claim below is transcribed from the Rust source of truth:
 
 ## The two-surface contract
 
+`authStatusProbe()` declares bounded subprocess arguments; `parseAuthStatus(record)`
+decodes its supported JSON. `parseSessionObservations(record)` carries typed API
+errors and permission mode from the claimed transcript. Native and JS paths owe
+parity fixtures. The host runs probes on a worker thread and consumes observations
+only when the provider's `structured_signals` setting is enabled (default false).
+No new sandbox host function is exposed by these capabilities.
+
 A JS provider never sees the ~70-method Rust `AgentProvider` trait. It sees two
 surfaces:
 
