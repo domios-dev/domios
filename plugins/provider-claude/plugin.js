@@ -780,7 +780,7 @@ function discoverAnthropicModels() {
   const live = fetchLiveModels(key);
   if (!live) return applyInstalledCapabilities(manifestModels(), installed);
   const mapped = mapAliasesToLive(manifestModels(), live);
-  return mapped.length ? applyInstalledCapabilities(mapped, installed) : null;
+  return mapped.length ? applyInstalledCapabilities(mapped, installed, true) : null;
 }
 function manifestModels() {
   const m = manifest();
@@ -832,12 +832,12 @@ function probeInstalledCli() {
   if (!match) return { kind: "unreachable" };
   return { kind: "version", version: [Number(match[1]), Number(match[2]), Number(match[3])] };
 }
-function applyInstalledCapabilities(models, probe) {
+function applyInstalledCapabilities(models, probe, liveDiscovery = false) {
   return models.map((model) => {
     const declaredMinimum = manifest()?.cliCompatibility?.modelMinimumCli?.[model.id];
     const minimum = declaredMinimum?.split(".").map(Number);
     if (!minimum) return { ...model };
-    const verdict = decideAvailability(probe, minimum, model.available);
+    const verdict = decideAvailability(probe, minimum, liveDiscovery ? model.available : void 0);
     if (verdict === "unknown") {
       const unknown = { ...model, availability: "unknown" };
       delete unknown.available;
