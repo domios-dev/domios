@@ -23,10 +23,10 @@ export function shouldRefreshAgentProviders(eventType: string): boolean {
 
 export function visibleAgentProviders(
   items: ProviderDescriptor[],
-  loading: boolean,
+  _loading: boolean,
   error: string | null,
 ): ProviderDescriptor[] {
-  return error || loading ? EMPTY_AGENT_PROVIDERS : items;
+  return error ? EMPTY_AGENT_PROVIDERS : items;
 }
 
 export function agentProvidersFromResponse(result: unknown): ProviderDescriptor[] {
@@ -43,7 +43,7 @@ export function syncAgentDescriptorCache(
   loading: boolean,
   error: string | null,
 ): void {
-  setAgentDescriptors(visibleAgentProviders(items, loading, error));
+  setAgentDescriptors(visibleAgentProviders(items, loading, error), loading);
 }
 
 export function attachModelCatalogueChangedRefresh(
@@ -93,8 +93,8 @@ export function useAgentProviders(): {
 }
 
 export function useAgentProviderCachePublisher(): void {
-  const { providers } = useAgentProviders();
+  const { providers, loading } = useAgentProviders();
   useLayoutEffect(() => {
-    setAgentDescriptors(providers);
-  }, [providers]);
+    setAgentDescriptors(providers, loading);
+  }, [providers, loading]);
 }
