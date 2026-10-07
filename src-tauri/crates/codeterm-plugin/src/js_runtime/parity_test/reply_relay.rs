@@ -71,6 +71,15 @@ impl AgentProvider for RelayNative {
     fn build_resume_command(&self, _: &str, _: bool) -> Option<String> {
         None
     }
+    fn restores_conversation_history_on_resume(&self) -> bool {
+        true
+    }
+    fn build_resume_command_with_context(
+        &self,
+        params: &crate::provider::AgentResumeParams,
+    ) -> Option<String> {
+        Some(serde_json::to_string(params).unwrap())
+    }
     fn context_attach(&self) -> Option<crate::provider::ContextAttach> {
         Some(crate::provider::ContextAttach {
             editable: true,
@@ -109,6 +118,7 @@ fn fixture_class(enabled: bool, tool_less: bool, source: &str) -> JsProvider {
         "id": "relay-js", "version": "0.1.0", "displayName": "Relay fixture",
         "capabilities": { "agentProvider": true, "replyRelay": enabled, "toolLess": tool_less, "contextAttach": if tool_less { serde_json::json!({"editable":true,"readOnly":true}) } else { serde_json::Value::Null } },
         "spawn": { "readinessStrategy": { "kind": "fixed_delay", "durationMs": 0 },
+            "restoresConversationHistoryOnResume": tool_less,
             "taskDelivery": "pty_input", "verifySubmit": { "kind": "none" },
             "turnEvidenceNormalization": { "dropLineBreaks": true } }
     })
@@ -289,4 +299,35 @@ fn context_attach_capability_and_launch_files_native_js_parity() {
         RelayNative.build_launch_command(&params)
     );
     assert_eq!(params.task.as_deref(), Some("opaque multiline\nbrief"));
+}
+
+#[test]
+fn resume_history_and_context_native_js_parity() {
+    let js = fixture_class(false, true, "module.exports.default = {buildResumeCommandWithContext(p) { return JSON.stringify(p); }};");
+    assert_eq!(
+        js.restores_conversation_history_on_resume(),
+        RelayNative.restores_conversation_history_on_resume()
+    );
+    assert!(
+        !fixture(false, "module.exports.default = {};").restores_conversation_history_on_resume()
+    );
+    let params = crate::provider::AgentResumeParams {
+        session_id: "existing-own-session".into(),
+        cwd: Some("/opaque/worker".into()),
+        context_files: Some(codeterm_types::plan::TaskFiles {
+            edit: vec!["/opaque/new.rs".into()],
+            read: vec!["/opaque/context.md".into()],
+        }),
+        tool_less_instructions_path: Some("/opaque/shared.md".into()),
+        ..Default::default()
+    };
+    let native: serde_json::Value = serde_json::from_str(
+        &RelayNative
+            .build_resume_command_with_context(&params)
+            .unwrap(),
+    )
+    .unwrap();
+    let bridged: serde_json::Value =
+        serde_json::from_str(&js.build_resume_command_with_context(&params).unwrap()).unwrap();
+    assert_eq!(native, bridged);
 }

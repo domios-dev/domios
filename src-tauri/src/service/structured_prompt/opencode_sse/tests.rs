@@ -155,7 +155,7 @@ fn text_delta_frames_omit_kind_and_full_part_frames_normalize() {
     assert_eq!(message.timestamp.as_deref(), Some("1789814516718"));
 
     let first_frame: Value = serde_json::from_str(include_str!(
-        "fixtures/captured_message_part_delta_first.json"
+        "../fixtures/captured_message_part_delta_first.json"
     ))
     .unwrap();
     let first = parse_event(&first_frame);
@@ -168,7 +168,7 @@ fn text_delta_frames_omit_kind_and_full_part_frames_normalize() {
     assert!(update.part.get("type").is_none());
 
     let second_frame: Value = serde_json::from_str(include_str!(
-        "fixtures/captured_message_part_delta_second.json"
+        "../fixtures/captured_message_part_delta_second.json"
     ))
     .unwrap();
     let second = parse_event(&second_frame);
@@ -179,7 +179,7 @@ fn text_delta_frames_omit_kind_and_full_part_frames_normalize() {
     assert!(update.part.get("type").is_none());
 
     let full_frame: Value = serde_json::from_str(include_str!(
-        "fixtures/captured_message_part_updated_text.json"
+        "../fixtures/captured_message_part_updated_text.json"
     ))
     .unwrap();
     let ParsedEvent::PartUpdated { update } = parse_event(&full_frame) else {
@@ -201,7 +201,7 @@ fn live_reasoning_and_tool_lifecycle_keep_their_part_identity() {
         timestamp: Some("1789814516718".into()),
     };
     let reasoning_frame: Value = serde_json::from_str(include_str!(
-        "fixtures/captured_message_part_reasoning.json"
+        "../fixtures/captured_message_part_reasoning.json"
     ))
     .unwrap();
     let ParsedEvent::PartUpdated { update: reasoning } = parse_event(&reasoning_frame) else {

@@ -30,6 +30,9 @@ fn restored_worker(
     tab.agent_session_id = Some("fixture-session".into());
     tab.agent_session_model = Some("fixture-model".into());
     tab.restorable_launch = RestorableLaunchParameters {
+        context_files: None,
+        context_skills: None,
+        worker_restart: None,
         captured: true,
         identity_instructions: Some("opaque-worker-identity-instructions".into()),
         permission_bypass_requested: true,
@@ -249,6 +252,9 @@ fn parsed_flag_value(command: &str, flag: &str) -> Option<String> {
 
 fn launch_parameters() -> RestorableLaunchParameters {
     RestorableLaunchParameters {
+        context_files: None,
+        context_skills: None,
+        worker_restart: None,
         captured: true,
         requested_model: Some("gpt-6-luna".into()),
         model: Some("gpt-6-luna".into()),

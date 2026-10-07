@@ -10,7 +10,8 @@ if (process.platform !== "win32") {
 } else {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "codeterm-launch-contract-"));
   try {
-    const token = 'opaque-launch-token "quoted"\nsecond-line \\ ${notAnExpression}';
+    const token = 'opaque-launch-token "quoted"\r\nsecond-line \\ ${notAnExpression}\rthird-line\nfourth-line';
+    const normalizedToken = 'opaque-launch-token "quoted"\nsecond-line \\ ${notAnExpression}\nthird-line\nfourth-line';
     const taskPath = path.join(root, "instructions.txt");
     const receiptPath = path.join(root, "receipt.json");
     const releasePath = path.join(root, "release-uri.txt");
@@ -75,6 +76,7 @@ function Invoke-RestMethod {
 function codex {
   $profilePath = Join-Path $env:USERPROFILE ('.codex/' + $ctProfileName + '.config.toml')
   $profileText = [IO.File]::ReadAllText($profilePath)
+  if ($profileText.Contains("\`r")) { throw 'profile text contains a carriage return' }
   $lines = $profileText -split "\`r?\`n"
   if ($lines[0] -ne '# codeterm-instance: instance-launch-test') { throw 'instance marker is not the first profile line' }
   $assignment = $profileText.Substring($profileText.IndexOf('developer_instructions = ') + 'developer_instructions = '.Length)
@@ -99,7 +101,7 @@ ${command}`;
         continue;
       }
       assert.equal(result.status, 0, result.stderr || result.error?.message);
-      assert.equal(JSON.parse(fs.readFileSync(receiptPath, "utf8")), token);
+      assert.equal(JSON.parse(fs.readFileSync(receiptPath, "utf8")), normalizedToken);
       assert.equal(fs.readdirSync(path.join(root, ".codex")).length, 0);
       assert.equal(
         fs.readFileSync(releasePath, "utf8"),
@@ -111,7 +113,7 @@ ${command}`;
       assert.equal(releasedProfiles.split("# codeterm-instance:").length - 1, 2,
         "prior and current profiles both pass through release");
       assert.equal(fs.readFileSync(taskPath, "utf8"), token);
-      console.log(`PASS ${shell} exact instruction round trip, retained brief, and owned profile cleanup`);
+      console.log(`PASS ${shell} LF instruction round trip, retained brief, and owned profile cleanup`);
 
       const unownedProfile = "developer_instructions = 'foreign profile data'\n";
       const profilePath = path.join(root, ".codex", "codeterm-owned-launch-fixture.config.toml");
@@ -120,7 +122,7 @@ ${command}`;
       const refusedScript = script.replace("$script:ReleaseResult = $true", "$script:ReleaseResult = $false");
       const refused = spawnSync(shell, ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(refusedScript, "utf16le").toString("base64")], { encoding: "utf8" });
       assert.equal(refused.status, 0, refused.stderr || refused.error?.message);
-      assert.equal(JSON.parse(fs.readFileSync(receiptPath, "utf8")), token,
+      assert.equal(JSON.parse(fs.readFileSync(receiptPath, "utf8")), normalizedToken,
         "Codex still receives the task when a leftover unowned profile cannot be released");
       const retryName = fs.readdirSync(path.join(root, ".codex")).find((name) => name.includes("-retry-"));
       assert.ok(retryName, "an unowned profile is left in place while the launch uses a retry profile");

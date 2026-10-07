@@ -89,6 +89,9 @@ fn codex_sandbox_writable_roots_native_js_parity() {
     assert_eq!(launch.matches("--add-dir").count(), 4);
     let resume = provider
         .build_resume_command_with_context(&crate::provider::AgentResumeParams {
+            cwd: None,
+            context_files: None,
+            tool_less_instructions_path: None,
             session_id: CODEX_UUID.to_string(),
             args,
             instance_id: Some("parity-instance".to_string()),
@@ -302,6 +305,9 @@ fn resume_with_context_restores_profile_and_launch_parameters() {
     }
     let j = codex();
     let params = crate::provider::AgentResumeParams {
+        cwd: None,
+        context_files: None,
+        tool_less_instructions_path: None,
         session_id: CODEX_UUID.into(),
         skip_permissions: true,
         agent_name: Some("restored-agent".into()),
@@ -346,6 +352,9 @@ fn resume_with_context_keeps_the_conservative_default() {
     }
     let provider = codex();
     let params = crate::provider::AgentResumeParams {
+        cwd: None,
+        context_files: None,
+        tool_less_instructions_path: None,
         session_id: CODEX_UUID.into(),
         skip_permissions: false,
         instance_id: Some("instance-parity".into()),

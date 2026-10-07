@@ -113,6 +113,10 @@ pub trait AgentProvider: Send + Sync {
         OnboardingAutoAnswer::default()
     }
 
+    fn restores_conversation_history_on_resume(&self) -> bool {
+        false
+    }
+
     fn session_starts_on_first_user_turn(&self) -> bool {
         false
     }

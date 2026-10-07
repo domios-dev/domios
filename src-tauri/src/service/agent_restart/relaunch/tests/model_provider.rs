@@ -54,6 +54,9 @@ fn model_provider_fresh_pty_resume_keeps_tab_session_and_transcript() {
         tab.agent_type = Some("opencode".into());
         tab.agent_session_id = Some("ses_resume".into());
         let launch = crate::multiplexer::types::RestorableLaunchParameters {
+            context_files: None,
+            context_skills: None,
+            worker_restart: None,
             captured: true,
             model: Some("endpoint/model".into()),
             requested_model: Some("endpoint/model".into()),
