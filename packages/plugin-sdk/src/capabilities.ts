@@ -113,6 +113,8 @@ export interface LaunchParams {
 export interface LaunchArtifactSweepRequest {
   instanceId: string;
   liveTabIds: string[];
+  /** Host holds each registered instance's exclusive lifetime lock throughout this call. */
+  goneInstanceIds?: string[];
   confirm: boolean;
   includeLegacy: boolean;
 }
