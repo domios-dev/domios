@@ -12,6 +12,9 @@ pub(super) enum Decision {
 }
 
 pub(super) fn decide(previous: Option<&str>, failure: &ProbeFailure) -> Decision {
+    if failure.primary == "probe_owner_capacity" {
+        return Decision::StopResources;
+    }
     let capture = matches!(
         failure.primary,
         "probe_capture_or_completion_failed"
@@ -51,6 +54,14 @@ pub(super) fn decide(previous: Option<&str>, failure: &ProbeFailure) -> Decision
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_owner_capacity_stops_for_routed_lifecycle_failure() {
+        assert_eq!(
+            decide(None, &ProbeFailure::new("probe_owner_capacity")),
+            Decision::StopResources
+        );
+    }
 
     fn capture() -> ProbeFailure {
         let mut failure = ProbeFailure::new("probe_capture_or_completion_failed");
