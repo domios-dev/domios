@@ -888,7 +888,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             set_booting(false);
             if let Some(tx) = ready_tx {
                 let _ = tx.send(Err(
-                    "remote TUI attachment failed; plain resume recovery started".into(),
+                    "remote TUI attachment failed; sidecar retained for reattachment".into(),
                 ));
             }
             return;
@@ -934,11 +934,13 @@ pub(crate) fn launch_agent_in_background_with_env(
             );
         }
         let startup_binding_deadline = crate::service::worker_ack::STARTUP_BINDING_DEADLINE;
-        let readiness_receiver = svc.observe_launch_readiness(
-            readiness_attempt.clone(),
-            startup_binding_deadline,
-            session_starts_on_first_turn,
-        );
+        let readiness_receiver = (!structured).then(|| {
+            svc.observe_launch_readiness(
+                readiness_attempt.clone(),
+                startup_binding_deadline,
+                session_starts_on_first_turn,
+            )
+        });
 
         let (provider_readiness, composer_cursor_position) = svc
             .agent_registry
@@ -1062,12 +1064,19 @@ pub(crate) fn launch_agent_in_background_with_env(
         }
 
         set_booting(false);
-        let readiness = readiness_receiver.recv().unwrap_or_else(|_| {
-            crate::service::launch_readiness::LaunchSettlement::Provisional {
-                stage: BootStage::LaunchDeadlineElapsed,
-                reason: "launch readiness observer stopped before session binding".into(),
-            }
-        });
+        let readiness = if structured {
+            crate::service::launch_readiness::LaunchSettlement::Ready
+        } else {
+            readiness_receiver
+                .expect("plain launch readiness observer")
+                .recv()
+                .unwrap_or_else(|_| {
+                    crate::service::launch_readiness::LaunchSettlement::Provisional {
+                        stage: BootStage::LaunchDeadlineElapsed,
+                        reason: "launch readiness observer stopped before session binding".into(),
+                    }
+                })
+        };
         if let Some(finished) =
             startup_readiness::finish_waiting_for_first_turn(&mut launch, &readiness, &svc, origin)
         {

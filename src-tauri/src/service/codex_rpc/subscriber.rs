@@ -132,6 +132,11 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
             if params.get("threadId").and_then(Value::as_str) != Some(&current) {
                 continue;
             }
+            if method == "thread/status/changed" {
+                if let Some(event) = super::status::declared_event(&params["status"]) {
+                    super::status::observe(&svc, &tab, &current, &sidecar, event);
+                }
+            }
             let message = sidecar.normalizer.lock().apply(&frame);
             if let Some(message) = message {
                 super::transcript::emit(&svc, &tab, &current, message);
