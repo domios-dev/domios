@@ -278,7 +278,7 @@ foreground owner:
 
 ```powershell
 # Verify no previous dev listener/process remains, then open one visible tab.
-codeterm tab new --cmd "Set-Location '<checkout>'; .\build.ps1 dev"
+codeterm tab new --team <team-id> --purpose dev --cmd "Set-Location '<checkout>'; .\build.ps1 dev"
 ```
 
 Keep that Tab open and require all of the following before reporting ready:
@@ -486,4 +486,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 11 -->
+<!-- revision: 12 -->

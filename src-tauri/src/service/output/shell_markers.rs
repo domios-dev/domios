@@ -1,6 +1,27 @@
 use super::super::ServiceContext;
 
 impl ServiceContext {
+    fn publish_shell_command_state(
+        &self,
+        tab_id: &str,
+        pty_id: &str,
+        state: crate::multiplexer::types::ShellCommandState,
+    ) {
+        let changed = {
+            let mut mux = self.mux.write();
+            mux.get_tab_mut(tab_id).is_some_and(|tab| {
+                crate::agent::shell_command_state::apply_shell_command_state(tab, pty_id, state)
+            })
+        };
+        if changed {
+            crate::api::events::emit_everywhere(
+                &self.app_handle,
+                "shell-state-changed",
+                serde_json::json!({ "tab_id": tab_id, "pty_id": pty_id, "state": state }),
+            );
+        }
+    }
+
     pub(super) fn process_shell_markers(
         &self,
         pty_id: &str,
@@ -8,7 +29,14 @@ impl ServiceContext {
         nonce: Option<String>,
         data: &[u8],
     ) {
-        let events = self.shell_caps.lock().feed(pty_id, nonce, data);
+        let (events, command_state) = {
+            let mut caps = self.shell_caps.lock();
+            let events = caps.feed(pty_id, nonce, data);
+            (events, caps.command_state(pty_id))
+        };
+        if let Some(tab_id) = tab_id {
+            self.publish_shell_command_state(tab_id, pty_id, command_state);
+        }
         if events.is_empty() {
             return;
         }

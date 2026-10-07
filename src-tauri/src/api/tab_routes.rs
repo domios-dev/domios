@@ -232,6 +232,8 @@ pub async fn inspect_tabs(
 
 #[derive(Deserialize)]
 pub struct CreateShellTabBody {
+    #[serde(default)]
+    pub purpose: crate::multiplexer::types::ShellPurpose,
     pub workspace_id: Option<String>,
     pub cwd: Option<String>,
     pub title: Option<String>,
@@ -276,6 +278,13 @@ pub async fn create_shell_tab(
         body.creator_tab_id = caller_tab_header(&headers);
     }
     use crate::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
+    if body.purpose != crate::multiplexer::types::ShellPurpose::Shell && body.chat_backend.is_some()
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "utility shell purpose requires PTY shell backing".into(),
+        ));
+    }
     if body.team_id.is_some() && body.chat_backend.is_some() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -318,6 +327,7 @@ pub async fn create_shell_tab(
     let handle = state
         .svc
         .spawn_tab(SpawnTabSpec {
+            purpose: body.purpose,
             workspace_id: body.workspace_id,
             team_id: body.team_id,
             creator_tab_id: body.creator_tab_id,

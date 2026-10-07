@@ -1,6 +1,11 @@
 use super::{SpawnTabSpec, TabCommand};
 
 pub(super) fn prepare_tab_identity(spec: &mut SpawnTabSpec) -> Result<(), String> {
+    if spec.purpose != crate::multiplexer::types::ShellPurpose::Shell
+        && !matches!(spec.command, TabCommand::Shell)
+    {
+        return Err("utility shell purpose requires PTY shell backing".into());
+    }
     if let TabCommand::Agent(agent) = &spec.command {
         spec.title = crate::service::spawn_title::normalize_agent_title(spec.title.take());
         crate::service::spawn_title::validate_agent_tab_title(
@@ -49,3 +54,6 @@ mod tests {
         assert!(error.contains("description"));
     }
 }
+
+#[cfg(test)]
+mod purpose_tests;
