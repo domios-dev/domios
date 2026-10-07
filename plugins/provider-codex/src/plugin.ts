@@ -107,6 +107,8 @@ const OUTPUT_FINGERPRINTS = [
 const TUI_FRAGMENTS = ["openai codex", "ctrl+c to cancel"];
 const ASSIGNED_TASK_START_PROMPT = "Execute the assigned task. Follow the provided developer instructions.";
 const IDLE_WAKEUP_START_PROMPT = "You are a newly started agent. Wait for instructions from the user or your orchestration parent.";
+// Codex truncates AGENTS.md at 32 KiB by default; agent repos routinely exceed it.
+const CODEX_LAUNCH_CONFIG = ["-c", "check_for_update_on_startup=false", "-c", "project_doc_max_bytes=65536"];
 
 function starterPrompt(params: LaunchParams): string | undefined {
   if (params.starterPromptText) return params.starterPromptText;
@@ -319,7 +321,7 @@ const plugin: PluginModule = {
 
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
-    const parts: string[] = ["codex", "-c", "check_for_update_on_startup=false"];
+    const parts: string[] = ["codex", ...CODEX_LAUNCH_CONFIG];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -359,7 +361,7 @@ const plugin: PluginModule = {
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
+    const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");
@@ -373,7 +375,7 @@ const plugin: PluginModule = {
   buildResumeCommandWithContext(params: ResumeParams): string {
     const p = params || ({} as ResumeParams);
     const platform = host.platform();
-    const parts = ["codex", "-c", "check_for_update_on_startup=false", "resume"];
+    const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (p.skipPermissions) {
       parts.push("--dangerously-bypass-approvals-and-sandbox");
       parts.push("--dangerously-bypass-hook-trust");

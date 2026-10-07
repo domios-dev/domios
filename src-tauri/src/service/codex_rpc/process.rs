@@ -82,6 +82,8 @@ pub async fn spawn(
     command
         .args([
             "app-server",
+            "-c",
+            "project_doc_max_bytes=65536",
             "--listen",
             &format!("ws://127.0.0.1:{port}"),
             "--ws-auth",

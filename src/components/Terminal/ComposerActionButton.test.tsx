@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { ComposerActionButton } from "./ComposerActionButton";
 import { ComposerAttachButton } from "./ComposerAttachButton";
-import { ComposerInputShell } from "./ComposerInputShell";
+import { ComposerScheduleButton } from "./ComposerScheduleButton";
 import type { ComposerVoiceHandle } from "./voice/useComposerVoice";
 
 type TestFn = () => void | Promise<void>;
@@ -80,15 +80,13 @@ async function renderAttachButton(props: { uploading?: boolean; onClick?: () => 
   return { button: host.querySelector("button") as HTMLButtonElement, root };
 }
 
-async function renderScheduleButton(onSchedule: () => void): Promise<{ button: HTMLButtonElement; root: Root }> {
+async function renderScheduleButton(onSchedule: () => void, disabled = false): Promise<{ button: HTMLButtonElement; root: Root }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      <ComposerInputShell voiceUi={voiceHandle()} onSchedule={onSchedule}>
-        <span>Message</span>
-      </ComposerInputShell>,
+      <ComposerScheduleButton onSchedule={onSchedule} disabled={disabled} />,
     );
   });
   return { button: host.querySelector('[data-testid="composer-schedule-button"]') as HTMLButtonElement, root };
@@ -123,6 +121,9 @@ test("composer icon actions remain round and preserve their callbacks", async ()
   assert(schedule.className.includes("ct-liquid-interactive"), "schedule must use shared liquid interaction");
   await act(async () => schedule.click());
   assert(schedules === 1, "schedule callback did not fire exactly once");
+
+  const { button: idleSchedule } = await renderScheduleButton(() => { schedules++; }, true);
+  assert(idleSchedule.disabled, "schedule must stay visible but disabled with nothing to send");
 });
 
 test("send scheduling and disabled state remain unchanged", async () => {

@@ -217,8 +217,11 @@ body {
     aspect-ratio: 1 / 1;
   }
 
-  .ct-composer-input-shell {
-    min-height: 2.5rem !important;
+  button.ct-composer-round-button.ct-composer-inner-button {
+    width: 2rem !important;
+    height: 2rem !important;
+    min-width: 2rem !important;
+    min-height: 2rem !important;
   }
 
 }
