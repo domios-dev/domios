@@ -103,7 +103,7 @@ fn read_settings(path: &std::path::Path) -> Option<Value> {
     value.is_object().then_some(value)
 }
 
-pub(super) fn launch_args(args: &[String]) -> Option<Vec<String>> {
+fn compose_args(args: &[String]) -> Option<Vec<String>> {
     let enabled = args.iter().any(|arg| arg == FLAG);
     let mut rest = Vec::new();
     let mut overlay = serde_json::Map::new();
@@ -154,6 +154,17 @@ pub(super) fn launch_args(args: &[String]) -> Option<Vec<String>> {
     }
     rest.extend(["--settings".into(), Value::Object(overlay).to_string()]);
     Some(rest)
+}
+
+fn settings_file_args(mut composed: Vec<String>, path: String) -> Vec<String> {
+    *composed.last_mut().expect("composed settings argument") = path;
+    composed
+}
+
+pub(super) fn launch_args(args: &[String]) -> Option<Vec<String>> {
+    let composed = compose_args(args)?;
+    let path = codeterm_util::task_files::write(composed.last()?, Some(".ct-settings.json"))?;
+    Some(settings_file_args(composed, path))
 }
 
 #[cfg(test)]

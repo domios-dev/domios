@@ -693,6 +693,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             }
             return;
         }
+        crate::service::task_files::retire_settings_for_launch(&svc, &tab_id, &launch_cmd);
         if let Err(error) = launch.capture_binding_nonce(
             &svc,
             task_identity.as_ref(),

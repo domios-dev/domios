@@ -85,7 +85,7 @@ fn claude_statusline_settings_preserve_command_padding_and_do_not_mutate_user_se
     assert_eq!(composed.as_object().unwrap().len(), 1);
     assert!(settings(&json!({"statusLine":false})).is_none());
     assert_eq!(
-        launch_args(&["--model".into(), "opaque".into()]),
+        compose_args(&["--model".into(), "opaque".into()]),
         Some(vec![
             "--model".into(),
             "opaque".into(),
@@ -94,7 +94,7 @@ fn claude_statusline_settings_preserve_command_padding_and_do_not_mutate_user_se
         ])
     );
     assert_eq!(
-        launch_args(&[FLAG.into(), "--settings".into(), "opaque".into()]),
+        compose_args(&[FLAG.into(), "--settings".into(), "opaque".into()]),
         None
     );
 }
@@ -111,7 +111,7 @@ fn claude_thinking_settings_merge_inline_and_file_without_writes() {
             vec!["--settings".into(), raw.clone()],
             vec![format!("--settings={raw}")],
         ] {
-            let composed = launch_args(&args).unwrap();
+            let composed = compose_args(&args).unwrap();
             assert_eq!(composed.len(), 2);
             let overlay: Value = serde_json::from_str(&composed[1]).unwrap();
             assert_eq!(overlay["showThinkingSummaries"], true);
@@ -120,5 +120,16 @@ fn claude_thinking_settings_merge_inline_and_file_without_writes() {
         }
     }
     assert_eq!(std::fs::read_to_string(path).unwrap(), original);
-    assert!(launch_args(&["--settings".into()]).is_none());
+    assert!(compose_args(&["--settings".into()]).is_none());
+}
+
+#[test]
+fn claude_settings_command_uses_a_file_path_without_inline_json() {
+    let path = "/instance data/runtime/task-files/opaque.ct-settings.json";
+    let args = settings_file_args(compose_args(&[]).unwrap(), path.into());
+    let command = crate::provider::append_launch_args("claude".into(), &args);
+    assert!(command.contains(path));
+    assert!(!command.contains("showThinkingSummaries"));
+    assert!(!command.contains('{'));
+    assert_eq!(args, vec!["--settings", path]);
 }

@@ -16,6 +16,7 @@ pub mod blocker;
 mod first_run;
 pub mod identity;
 mod instructions;
+mod launch_files;
 pub(crate) mod launch_lock;
 mod lifecycle;
 pub(crate) mod recovery;

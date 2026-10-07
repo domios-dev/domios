@@ -381,8 +381,9 @@ const plugin: PluginModule = {
     return parts.join(" ");
   },
 
-  buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
-    return [resumeBase(sessionId, skipPermissions), ...statuslineLaunchArgs([])!.map(quoteArg)].join(" ");
+  buildResumeCommand(sessionId: string, skipPermissions?: boolean): string | null {
+    const args = statuslineLaunchArgs([]);
+    return args ? [resumeBase(sessionId, skipPermissions), ...args.map(quoteArg)].join(" ") : null;
   },
 
   // `--resume` restores the transcript but not the launch-time system prompt,

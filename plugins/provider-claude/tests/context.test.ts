@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
-import { parseContextUsage, statuslineLaunchArgs, statuslineSettings, STATUSLINE_FLAG } from "../src/context";
+import { parseContextUsage, composeSettingsArgs, statuslineSettings, STATUSLINE_FLAG } from "../src/context";
 
 let checks = 0;
 function check(run: () => void) { run(); checks++; }
@@ -57,25 +57,31 @@ check(() => assert.equal(failedForward.stdout, payload));
 check(() => assert.equal(statuslineSettings({statusLine:false}), null));
 check(() => assert.equal(statuslineSettings({statusLine:{type:"command",command:"x".repeat(8193)}}), null));
 check(() => assert.equal(statuslineSettings({statusLine:{type:"command",command:"cat",padding:{opaque:true}}}), null));
-check(() => assert.deepEqual(statuslineLaunchArgs(["--model","opaque"]), ["--model","opaque","--settings",'{"showThinkingSummaries":true}']));
+check(() => assert.deepEqual(composeSettingsArgs(["--model","opaque"]), ["--model","opaque","--settings",'{"showThinkingSummaries":true}']));
 let reads = 0;
 (globalThis as any).host = {
   expandHome: () => "/fixture/settings.json",
   fs: {fileExists: () => true,readFileHead: () => { reads++; return original; }},
 };
-const args = statuslineLaunchArgs([STATUSLINE_FLAG,"--model","opaque"])!;
+const args = composeSettingsArgs([STATUSLINE_FLAG,"--model","opaque"])!;
 check(() => assert.equal(reads, 1));
 check(() => assert.equal(args[2], "--settings"));
 check(() => assert.deepEqual(JSON.parse(args[3]), {...settings,showThinkingSummaries:true}));
 (globalThis as any).host.fs.readFileHead = () => "x".repeat(65_537);
-check(() => assert.deepEqual(statuslineLaunchArgs([STATUSLINE_FLAG]), ["--settings",'{"showThinkingSummaries":true}']));
-check(() => assert.equal(statuslineLaunchArgs(["--settings","opaque"]), null));
+check(() => assert.deepEqual(composeSettingsArgs([STATUSLINE_FLAG]), ["--settings",'{"showThinkingSummaries":true}']));
+check(() => assert.equal(composeSettingsArgs(["--settings","opaque"]), null));
 const source = fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8");
 let writes = 0;
+const launchFiles = new Map<string, string>();
 const readonlyHost = {
-  platform: () => "linux", expandHome: () => "/fixture/settings.json",
+  platform: () => "linux", log: () => {}, expandHome: () => "/fixture/settings.json",
   shell: {quoteFor: (value: string) => value},
   fs: {fileExists: () => true, readFileHead: () => original,
+    writeTempFile: (body: string, suffix: string) => {
+      const path = `/fixture/runtime/task-files/launch-${launchFiles.size}${suffix}`;
+      launchFiles.set(path, body);
+      return path;
+    },
     writeFile: () => { writes++; throw new Error("unexpected settings write"); },
     writeJson: () => { writes++; throw new Error("unexpected settings write"); }},
 };
@@ -97,11 +103,14 @@ for (const command of [
   plugin.buildResumeCommandWithContext({sessionId:"own",args:["--settings=/fixture/extra.json"]}),
 ]) {
   check(() => assert.equal(command.split("--settings").length, 2));
-  const overlay = JSON.parse(command.slice(command.indexOf("--settings ") + 11));
+  const path = command.slice(command.indexOf("--settings ") + 11);
+  check(() => assert.ok(path.endsWith(".ct-settings.json")));
+  check(() => assert.equal(command.includes("showThinkingSummaries"), false));
+  const overlay = JSON.parse(launchFiles.get(path)!);
   check(() => assert.equal(overlay.showThinkingSummaries, true));
 }
 const mergedCommand = plugin.buildLaunchCommand({args:["--settings",original]});
-const mergedSettings = JSON.parse(mergedCommand.slice(mergedCommand.indexOf("--settings ") + 11));
+const mergedSettings = JSON.parse(launchFiles.get(mergedCommand.slice(mergedCommand.indexOf("--settings ") + 11))!);
 check(() => assert.deepEqual(mergedSettings.hooks, user.hooks));
 check(() => assert.deepEqual(mergedSettings.statusLine, user.statusLine));
 check(() => assert.equal(writes, 0));
@@ -114,7 +123,14 @@ for (const platform of ["linux", "windows"]) {
   const settingsArg = '{"opaque":"value with spaces"}';
   const command = plugin.buildLaunchCommand({args:["--settings", settingsArg]});
   check(() => assert.ok(command.includes("claude --settings ")));
-  const composed = statuslineLaunchArgs(["--settings", settingsArg])![1];
-  check(() => assert.ok(command.includes(`'${composed}'`)));
+  const paths = [...launchFiles.keys()];
+  const path = paths[paths.length - 1];
+  check(() => assert.ok(command.includes(`'${path}'`)));
+  check(() => assert.equal(command.includes("value with spaces"), false));
+  check(() => assert.equal(JSON.parse(launchFiles.get(path)!).opaque, "value with spaces"));
 }
+sandbox.host.fs.writeTempFile = () => null as any;
+check(() => assert.equal(plugin.buildLaunchCommand({}), ""));
+check(() => assert.equal(plugin.buildResumeCommand("own", false), null));
+check(() => assert.equal(plugin.buildResumeCommandWithContext({sessionId:"own",args:[]}), null));
 console.log(`${checks} passed, 0 failed`);
