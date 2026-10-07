@@ -40,7 +40,7 @@ every_gates = 15  # emit a one-shot self-review block every N gate/bounce events
 [orchestration.map]
 enabled = false  # opt in to the workspace essence map and its boundary Cartographer
 
-[keybindings]
+[keybindings]  # Ctrl maps to Cmd on macOS
 new_tab = "Ctrl+T"
 reopen_tab = "Ctrl+Shift+T"
 close_tab = "Ctrl+W"
@@ -231,4 +231,4 @@ Codex structured control is enabled by default in 1.12.4. The provider declares 
 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
 
-<!-- revision: 97 -->
+<!-- revision: 98 -->
