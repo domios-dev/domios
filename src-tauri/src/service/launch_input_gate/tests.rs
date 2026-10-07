@@ -899,10 +899,7 @@ fn provider_declared_onboarding_dialog_is_answered_for_every_launch() {
         provider.launch_onboarding_safe_choice(&screen).as_deref(),
         Some("1")
     );
-    assert_eq!(
-        provider.launch_onboarding_response("no prompt here"),
-        None
-    );
+    assert_eq!(provider.launch_onboarding_response("no prompt here"), None);
     assert!(
         provider.onboarding_auto_answer().answers_for_owner_launch(),
         "Aider declares onboardingAutoAnswer: always"
@@ -942,11 +939,7 @@ fn structured_chat_serves_rows_without_a_session_id() {
         fn detect_from_output(&self, _text: &str) -> bool {
             false
         }
-        fn session_file_path(
-            &self,
-            _cwd: &str,
-            _session_id: &str,
-        ) -> Option<std::path::PathBuf> {
+        fn session_file_path(&self, _cwd: &str, _session_id: &str) -> Option<std::path::PathBuf> {
             None
         }
         fn detect_session_id(

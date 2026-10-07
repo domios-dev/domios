@@ -782,7 +782,9 @@ fn launch_composer_input_ready_for_frame(
     }
     if cursor_position == crate::agent::provider::ComposerCursorPosition::PromptLine {
         return input.cursor_visible
-            && input.last_nonblank_row.is_some_and(|row| row == input.cursor_row);
+            && input
+                .last_nonblank_row
+                .is_some_and(|row| row == input.cursor_row);
     }
     if let Some(screen_rows) = screen_rows {
         return crate::agent::offline_state_classifier::prompt_glyph_cursor_ready_for_frame(
