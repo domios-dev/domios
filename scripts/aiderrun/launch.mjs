@@ -26,7 +26,7 @@ process.env.CODETERM_TAB_ID = binding.orchestrator;
 const command = shellCommand([process.execPath, path.join(harness, 'lane-check.mjs'), ...process.argv.slice(2)]);
 const started = performance.now();
 const pad = call(binary, ['pad', 'path'], binding.lane, 1000);
-const result = spawnSync(binary, ['tab', 'new', '--team', 'team_dd6d7d99', '--cwd', binding.lane, '--title', 'Lanecheck', '--eager', '--cmd', command, '--json'], { encoding: 'utf8', timeout: 6500, windowsHide: true });
+const result = spawnSync(binary, ['tab', 'new', '--purpose', 'qa', '--team', 'team_dd6d7d99', '--cwd', binding.lane, '--title', 'Lanecheck', '--eager', '--cmd', command, '--json'], { encoding: 'utf8', timeout: 6500, windowsHide: true });
 const evidence = { durationMs: performance.now() - started, code: result.status, error: result.error?.message, stdout: result.stdout, stderr: result.stderr };
 
 writeFileSync(path.join(pad, 'lane-launch.json'), JSON.stringify(evidence, null, 2), 'utf8');

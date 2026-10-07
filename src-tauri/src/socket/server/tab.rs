@@ -129,6 +129,18 @@ pub(super) fn dispatch(
                 .and_then(|p| p.get("title"))
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
+            let purpose = params
+                .as_ref()
+                .and_then(|p| p.get("purpose"))
+                .cloned()
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|error| JsonRpcError {
+                    code: -32602,
+                    message: format!("invalid shell purpose: {error}"),
+                    data: None,
+                })?
+                .unwrap_or_default();
             let team_id = opt_string_param(params, "team_id");
             let creator_tab_id = opt_string_param(params, "creator_tab_id");
             let detach_from_team = params
@@ -143,6 +155,7 @@ pub(super) fn dispatch(
                 .unwrap_or(false);
             let handle = svc
                 .spawn_tab(crate::service::spawn::SpawnTabSpec {
+                    purpose,
                     workspace_id,
                     team_id,
                     creator_tab_id,

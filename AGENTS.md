@@ -91,7 +91,7 @@ Parallel writers always use separate worktrees/lanes; the canonical checkout has
 
 Gateway-backed build commands fail fast when the machine slot is busy. Report the returned blocker and continue source-only work; never poll or retry it. Use `--wait-build` only when blocking the caller is explicitly intended.
 
-Run builds and dev restarts in a separate Team-bound utility shell tab (`codeterm tab new --team <team-id> --cmd "..."`), never inline in the agent's own call.
+Run builds in a separate Team-bound utility shell tab (`codeterm tab new --team <team-id> --purpose build --cmd "..."`), dev servers with `--purpose dev`, and QA with `--purpose qa`, never inline in the agent's own call.
 
 For parent-routed dev and QA reports, see [utility-shell-reports](.agents/skills/utility-shell-reports/SKILL.md).
 
@@ -120,7 +120,7 @@ Interactive dev uses one visible foreground tab. Confirm 7686 is free, then:
 
 ```bash
 ./build.sh kill
-codeterm tab new --cmd "cd $(pwd) && ./build.sh dev"
+codeterm tab new --team <team-id> --purpose dev --cmd "cd $(pwd) && ./build.sh dev"
 ```
 
 On PowerShell use `Set-Location '<checkout>'; .\build.ps1 dev`. Verify `/api/health` build SHA and a responsive window. A second Cargo/build owner is a failure.

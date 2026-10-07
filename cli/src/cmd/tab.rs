@@ -95,6 +95,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             handle_tab_inspect(client, json, tabs, tab, lifecycle);
         }
         TabAction::New {
+            purpose,
             workspace,
             cwd,
             title,
@@ -112,7 +113,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     crate::cmd::print::fail(1, format!("failed to connect to local API: {}", e));
                 }
             };
-            let mut body = serde_json::json!({});
+            let mut body = serde_json::json!({ "purpose": purpose });
             if let Some(w) = workspace {
                 body["workspace_id"] = serde_json::Value::String(w);
             }

@@ -1,5 +1,7 @@
 # Orchestration control loop
 
+Create Team utility shells with `codeterm tab new --team <team-id> --purpose build` for builds, `--purpose dev` for servers, and `--purpose qa` for verification. The default purpose is `shell`; restart and desk restore keep it. Shell rows and headers show command-mark evidence: running, idle with the last exit, or unknown without marks.
+
 Use command `--help` for syntax; this is the Domios Orchestrator contract.
 
 ## Related documents
@@ -180,4 +182,4 @@ delivered heartbeat names a next step. Reports, owner messages, decisions and
 failure alerts still reach you through their own channels. Record deliberate
 holds with `plan review hold --note`.
 
-<!-- revision: 107 -->
+<!-- revision: 108 -->
