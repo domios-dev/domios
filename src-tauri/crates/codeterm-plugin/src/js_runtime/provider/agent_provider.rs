@@ -24,30 +24,9 @@ use super::wire::{
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
 mod delivery;
+mod session_wire;
 
-/// `usageSources` wire row: a path plus the session that scopes a shared log.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WireUsageSource {
-    path: String,
-    #[serde(default)]
-    session_id: Option<String>,
-}
-
-impl JsProvider {
-    fn detect_session_model_wire(&self, method: &str, args: &[Value]) -> Option<String> {
-        self.try_call::<Option<String>>(method, args)
-            .flatten()
-            .map(|model| {
-                let resolved = crate::model_catalog::resolve_model(self.id(), Some(&model));
-                if resolved.fell_back {
-                    model
-                } else {
-                    resolved.id
-                }
-            })
-    }
-}
+use session_wire::WireUsageSource;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
