@@ -372,6 +372,7 @@ impl MockProvider {
     pub fn with_empty_launch_command(id: &str) -> Self {
         Self {
             empty_launch_command: true,
+            launch_binary: Some(if cfg!(windows) { "cmd.exe" } else { "sh" }.into()),
             ..Self::new(id)
         }
     }
@@ -379,6 +380,7 @@ impl MockProvider {
     pub fn with_empty_launch_command_when_task_present(id: &str) -> Self {
         Self {
             empty_launch_command_when_task_present: true,
+            launch_binary: Some(if cfg!(windows) { "cmd.exe" } else { "sh" }.into()),
             system_prompt_delivery: SystemPromptDelivery::SessionConfig,
             task_delivery: TaskDelivery::InlineFlag,
             ..Self::new(id)

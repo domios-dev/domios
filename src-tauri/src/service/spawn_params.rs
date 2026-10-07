@@ -266,6 +266,12 @@ impl ServiceContext {
     pub(crate) fn require_agent_provider_ready(&self, provider_id: &str) -> Result<(), String> {
         match self.agent_registry.wait_for_provider_startup(provider_id) {
             crate::agent::registry::ProviderStartupStatus::Ready => {
+                super::spawn_cli::provider_launch_preflight(
+                    &self.agent_registry,
+                    provider_id,
+                    false,
+                )
+                .map_err(|error| error.to_string())?;
                 let command = self.agent_registry.with_provider(provider_id, |provider| {
                     provider
                         .build_launch_command(&crate::agent::provider::AgentLaunchParams::default())
