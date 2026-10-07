@@ -391,7 +391,7 @@ function printSelection(options, files) {
 
   if (compileFallback) {
     console.log("Rust compile fallback");
-    console.log("./build.sh check-tests --wait-build");
+    console.log("./build.sh check-tests");
     console.log("  Reason: Rust changes were found but cargo metadata selected no test crate.");
     console.log("  Cost: app and CLI test-profile compile; no test filters selected.");
   }
