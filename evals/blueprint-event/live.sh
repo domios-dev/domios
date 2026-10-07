@@ -11,6 +11,8 @@ PLUGIN="$ROOT/evals/blueprint-event/fixture-plugin"
 SPEC="$ROOT/evals/blueprint-event/pipeline.yaml"
 TRANSCRIPT="$ROOT/evals/blueprint-event/transcript.md"
 AUTH="$(dev_auth_header)"
+OWNER_TAB="$(dc tab new --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tab_id") or d.get("id"))')"
+[[ -n "$OWNER_TAB" ]] || { echo "Could not create the owner tab." >&2; exit 1; }
 API="$(dev_api_url)"
 
 coproc GRAPH_EVENTS {
@@ -21,8 +23,9 @@ EVENT_PID="$GRAPH_EVENTS_PID"
 BLUEPRINT_ID=""
 cleanup() {
   if [[ -n "$BLUEPRINT_ID" ]]; then
-    dc blueprint stop "$BLUEPRINT_ID" --json >/dev/null 2>&1 || true
+    dc --as-tab "$OWNER_TAB" blueprint stop "$BLUEPRINT_ID" --json >/dev/null 2>&1 || true
   fi
+  dc tab close --tab "$OWNER_TAB" >/dev/null 2>&1 || true
   if [[ -n "$EVENT_PID" ]]; then
     kill "$EVENT_PID" 2>/dev/null || true
   fi
@@ -41,7 +44,7 @@ dc plugin config fixture-plugin --grant graph_events --json >/dev/null
 source_ready=0
 while IFS= read -r event_line <&"${GRAPH_EVENTS[0]}"; do
   if [[ "$event_line" == data:* ]]; then
-    nodes="$(dc blueprint nodes --json)"
+    nodes="$(dc --as-tab "$OWNER_TAB" blueprint nodes --json)"
     if python3 -c 'import json,sys; assert any(node.get("kind")=="event_source" and node.get("type")=="fixture.message" for node in json.loads(sys.argv[1]))' "$nodes"; then
       source_ready=1
       break
@@ -49,13 +52,13 @@ while IFS= read -r event_line <&"${GRAPH_EVENTS[0]}"; do
   fi
 done
 [[ "$source_ready" == 1 ]] || { echo "Fixture event source did not become available." >&2; exit 1; }
-created="$(dc blueprint create --spec "$SPEC" --json)"
+created="$(dc --as-tab "$OWNER_TAB" blueprint create --spec "$SPEC" --json)"
 BLUEPRINT_ID="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["id"])' <<<"$created")"
 
 verify_result() {
   local show log
-  show="$(dc blueprint show "$BLUEPRINT_ID" --json)" || return 1
-  log="$(dc blueprint log "$BLUEPRINT_ID" --limit 200 --json)" || return 1
+  show="$(dc --as-tab "$OWNER_TAB" blueprint show "$BLUEPRINT_ID" --json)" || return 1
+  log="$(dc --as-tab "$OWNER_TAB" blueprint log "$BLUEPRINT_ID" --limit 200 --json)" || return 1
   python3 -c '
 import json,sys
 show=json.loads(sys.argv[1])
