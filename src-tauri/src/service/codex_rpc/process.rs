@@ -43,6 +43,25 @@ impl Process {
     }
 }
 
+fn effective_env(command: &std::process::Command) -> Vec<(String, String)> {
+    let mut env: std::collections::BTreeMap<String, String> = std::env::vars_os()
+        .map(|(key, value)| {
+            (
+                key.to_string_lossy().into_owned(),
+                value.to_string_lossy().into_owned(),
+            )
+        })
+        .collect();
+    for (key, value) in command.get_envs() {
+        let key = key.to_string_lossy().into_owned();
+        match value {
+            Some(value) => env.insert(key, value.to_string_lossy().into_owned()),
+            None => env.remove(&key),
+        };
+    }
+    env.into_iter().collect()
+}
+
 pub async fn spawn(
     binary: &Path,
     cwd: &str,
@@ -78,6 +97,16 @@ pub async fn spawn(
                 command.env("PATH", path);
             }
         }
+    }
+    let effective = effective_env(command.as_std());
+    let effective = effective
+        .iter()
+        .map(|(key, value)| (key.as_str(), value.as_str()));
+    for (key, value) in codeterm_pty::pty::child_env::child_env_changes(effective) {
+        match value {
+            Some(value) => command.env(key, value),
+            None => command.env_remove(key),
+        };
     }
     command
         .args([
