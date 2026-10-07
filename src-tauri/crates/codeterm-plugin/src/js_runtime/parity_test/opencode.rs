@@ -119,6 +119,9 @@ fn restored_resume_command_preserves_exact_session_model_and_launch_args() {
     let _store = empty_session_store();
     let command = opencode()
         .build_resume_command_with_context(&crate::provider::AgentResumeParams {
+            cwd: None,
+            context_files: None,
+            tool_less_instructions_path: None,
             session_id: SES_ID.into(),
             skip_permissions: false,
             agent_name: None,
@@ -154,6 +157,9 @@ fn resume_with_context_restages_the_session_config() {
     let (command, staged) =
         codeterm_util::task_files::capture_in(task_root.path(), "resume-tab", || {
             j.build_resume_command_with_context(&crate::provider::AgentResumeParams {
+                cwd: None,
+                context_files: None,
+                tool_less_instructions_path: None,
                 session_id: SES_ID.into(),
                 skip_permissions: false,
                 agent_name: None,

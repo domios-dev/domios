@@ -54,3 +54,10 @@ anchors:
   - capability:isolated-lanes
   - capability:integration
 ```
+
+Task-bound tool-less Workers retain their original brief and pending completed-turn
+windows across daemon restart. A provider declares whether resume restores its
+conversation. Restoring providers receive no repeated brief; non-restoring ones
+receive one new-launch admission only after authenticated binding and only when
+exact current-session evidence has not already proved delivery. Attempt identity,
+file context, skills, and shared class instructions continue through resume.
