@@ -1,5 +1,8 @@
 use crate::plan::{LaneCheckpointRefusal, LaneTurnChangeStats, Plan, TaskExecutionAttempt};
-use crate::service::{plan::PlanStore, ServiceContext};
+use crate::service::{
+    plan::{PlanError, PlanStore},
+    ServiceContext,
+};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::thread;
@@ -211,7 +214,7 @@ fn reserve_turn(
     store
         .with_plan(&target.plan_id, captured_at, |plan| {
             let attempt = find_attempt_mut(plan, &target.task_id, &target.attempt_id)
-                .ok_or(crate::plan::PlanError::TaskNotFound)?;
+                .ok_or(PlanError::TaskNotFound)?;
             if is_duplicate_transcript_turn(&attempt.lane_turn_stats, transcript_turn_key) {
                 return Ok(None);
             }
@@ -281,7 +284,7 @@ fn mutate_attempt(
     store
         .with_plan(&target.plan_id, unix_time_millis(), |plan| {
             let attempt = find_attempt_mut(plan, &target.task_id, &target.attempt_id)
-                .ok_or(crate::plan::PlanError::TaskNotFound)?;
+                .ok_or(PlanError::TaskNotFound)?;
             update(attempt);
             Ok(())
         })
@@ -432,7 +435,11 @@ fn attribute_uses_lfs(line: &str) -> bool {
 
 fn has_non_cone_sparse_checkout(cwd: &Path, deadline: Instant) -> Result<bool, CaptureFailure> {
     let sparse = run_git_status(cwd, &["config", "--bool", "core.sparseCheckout"], deadline)?;
-    if !sparse.status.success() || !sparse.stdout.trim().eq_ignore_ascii_case("true") {
+    if !sparse.status.success()
+        || !String::from_utf8_lossy(&sparse.stdout)
+            .trim()
+            .eq_ignore_ascii_case("true")
+    {
         return Ok(false);
     }
     let cone = run_git_status(
@@ -440,7 +447,10 @@ fn has_non_cone_sparse_checkout(cwd: &Path, deadline: Instant) -> Result<bool, C
         &["config", "--bool", "core.sparseCheckoutCone"],
         deadline,
     )?;
-    Ok(!cone.status.success() || !cone.stdout.trim().eq_ignore_ascii_case("true"))
+    Ok(!cone.status.success()
+        || !String::from_utf8_lossy(&cone.stdout)
+            .trim()
+            .eq_ignore_ascii_case("true"))
 }
 
 fn retain_checkpoints(
@@ -601,6 +611,8 @@ fn run_git_status_with_index(
             stderr = Some(bytes);
         }
     }
+    let stdout = stdout.ok_or_else(|| CaptureFailure::Git("git stdout capture missing".into()))?;
+    let stderr = stderr.ok_or_else(|| CaptureFailure::Git("git stderr capture missing".into()))?;
     let _ = stdout_reader.join();
     let _ = stderr_reader.join();
     Ok(Output {
@@ -710,7 +722,7 @@ fn offer_merged_lanes(store: &PlanStore, app: &tauri::AppHandle, repository_iden
                     }
                 }
                 Ok(false) => {}
-                Err(error) => log::warn!("[lane-cleanup-offer] ancestry check failed: {error}"),
+                Err(error) => log::warn!("[lane-cleanup-offer] ancestry check failed: {error:?}"),
             }
         }
     }
