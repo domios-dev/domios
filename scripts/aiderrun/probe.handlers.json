@@ -1,0 +1,2 @@
+{"waiting":[],"completed":[{"id":"launch-probe-lane-check","type":"command","parameters":{"command":"node 'D:/Developer/codeterm-worktrees/aid1-bp-harness/scripts/aiderrun/launch.mjs' --lane 'D:/Developer/codeterm-worktrees/aiderrun-probe2' --worker '31823296' --orchestrator b3a2c8ff --surface config","label":"Launch Probe lane checks","timeout_ms":9000}}],"failed":[{"id":"report-probe-source-failure","type":"notify","parameters":{}}]}
+
