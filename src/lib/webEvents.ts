@@ -331,6 +331,7 @@ export function webListen(event: string, handler: Handler): () => void {
  * current apiHost automatically, replaying from the last cursor. */
 export function resetWebEvents(): void {
   stopReconnect();
+  hasAttemptedConnection = true;
   seqGaps.reset();
   cursor = readCursor();
   if (watchdogTimer) {

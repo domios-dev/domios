@@ -994,9 +994,12 @@ mod launch_artifact_close_tests {
         fixture.service.close_tab(&tab_id).unwrap();
 
         let releases = releases.lock();
-        assert_eq!(releases.len(), 1);
-        assert_eq!(releases[0].0, tab_id);
-        assert!(!releases[0].1.is_empty());
+        let owner = codeterm_plugin::global_writes::machine_global_write_allowed();
+        assert_eq!(releases.len(), usize::from(owner));
+        if owner {
+            assert_eq!(releases[0].0, tab_id);
+            assert!(!releases[0].1.is_empty());
+        }
         assert!(fixture.service.mux.read().get_tab(&tab_id).is_none());
     }
 }
