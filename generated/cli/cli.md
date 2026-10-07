@@ -93,6 +93,12 @@ Compact agent context (sends /compact to Claude)
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
+#### `codeterm agent fork`
+
+Open a new tab from a provider-declared session fork; bind only from its own session evidence
+
+- `--tab`
+
 #### `codeterm agent ledger`
 
 List an orchestrator's workers from the durable ledger (survives daemon restart): branch / model / status / last-seen, one row per worker
@@ -110,6 +116,7 @@ Link a tab as worker under a parent
 
 Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`
 
+- `--force` — Explicitly override the background-work restart guard and report the affected work
 - `<name>` — Model id. Run `agent models PROVIDER` to list
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
@@ -1952,6 +1959,7 @@ Set the declared milestone kind columns (CSV)
 Remove one lane worktree and its branch, refusing while a live tab's shell sits inside it
 
 - `--branch` — Lane branch to delete after worktree removal, if merged into project HEAD
+- `--force` — Force removal, discarding uncommitted and untracked lane content
 - `--project` — Canonical checkout (needed for a missing worktree unless its task identifies the project)
 - `<worktree>` — Lane worktree path to remove
 
@@ -2274,6 +2282,7 @@ ACCEPT: attaches the verdict and closes the task (in_review -> done)
 - `--changed-executable-surfaces`
 - `--distinct-oracle`
 - `--note`
+- `--note-from-pad` — Read the review note from a file in this tab's pad
 - `<plan_id>`
 - `--residual-risk` — Past the default round bound, routes residual risk to a follow-up task
 - `<task_id>`
@@ -2301,6 +2310,7 @@ BOUNCE: atomically exits in_review back to in_progress
 - `--changed-executable-surfaces`
 - `--distinct-oracle`
 - `--note`
+- `--note-from-pad` — Read the review note from a file in this tab's pad
 - `<plan_id>`
 - `<task_id>`
 
@@ -2309,6 +2319,7 @@ BOUNCE: atomically exits in_review back to in_progress
 HOLD: records a review hold without releasing the task assignment or lane
 
 - `--note`
+- `--note-from-pad` — Read the review note from a file in this tab's pad
 - `<plan_id>`
 - `<task_id>`
 
@@ -3309,6 +3320,7 @@ Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab 
 - `--cwd` — Working directory for the new tab
 - `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
 - `--no-team` — Keep the new shell outside the calling tab's Team
+- `--purpose` — Utility shell purpose shown in the sidebar
 - `--team` — Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team
 - `--title` — Tab title
 - `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity

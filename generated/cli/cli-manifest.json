@@ -178,6 +178,24 @@
           "subcommands": []
         },
         {
+          "name": "fork",
+          "about": "Open a new tab from a provider-declared session fork; bind only from its own session evidence",
+          "aliases": [],
+          "args": [
+            {
+              "name": "tab",
+              "positional": false,
+              "required": false,
+              "value_name": "TAB",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "ledger",
           "about": "List an orchestrator's workers from the durable ledger (survives daemon restart): branch / model / status / last-seen, one row per worker",
           "aliases": [],
@@ -228,6 +246,16 @@
           "about": "Switch one idle agent Tab to another model. Only that Tab changes: it is relaunched on its own session and the command returns once the provider reports the new model. Providers without a live switch refuse; respawn them with `agent spawn PROVIDER --model X`",
           "aliases": [],
           "args": [
+            {
+              "name": "force",
+              "positional": false,
+              "required": false,
+              "value_name": "FORCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Explicitly override the background-work restart guard and report the affected work",
+              "aliases": []
+            },
             {
               "name": "name",
               "positional": true,
@@ -8650,6 +8678,16 @@
               "aliases": []
             },
             {
+              "name": "force",
+              "positional": false,
+              "required": false,
+              "value_name": "FORCE",
+              "possible_values": [],
+              "default": null,
+              "help": "Force removal, discarding uncommitted and untracked lane content",
+              "aliases": []
+            },
+            {
               "name": "project",
               "positional": false,
               "required": false,
@@ -10183,11 +10221,21 @@
                 {
                   "name": "note",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "NOTE",
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note-from-pad",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Read the review note from a file in this tab's pad",
                   "aliases": []
                 },
                 {
@@ -10333,11 +10381,21 @@
                 {
                   "name": "note",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "NOTE",
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note-from-pad",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Read the review note from a file in this tab's pad",
                   "aliases": []
                 },
                 {
@@ -10371,11 +10429,21 @@
                 {
                   "name": "note",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "NOTE",
                   "possible_values": [],
                   "default": null,
                   "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "note-from-pad",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Read the review note from a file in this tab's pad",
                   "aliases": []
                 },
                 {
@@ -15503,6 +15571,21 @@
               "possible_values": [],
               "default": null,
               "help": "Keep the new shell outside the calling tab's Team",
+              "aliases": []
+            },
+            {
+              "name": "purpose",
+              "positional": false,
+              "required": false,
+              "value_name": "PURPOSE",
+              "possible_values": [
+                "build",
+                "dev",
+                "qa",
+                "shell"
+              ],
+              "default": "shell",
+              "help": "Utility shell purpose shown in the sidebar",
               "aliases": []
             },
             {
