@@ -10,41 +10,16 @@ fn install_provider_in_tab_with_dispatch(
     provider_id: String,
     dispatch: impl FnOnce(&ServiceState, &str, &str) -> Result<(), String>,
 ) -> Result<InstallTabResult, String> {
-    let platform = crate::agent::provider::current_platform_tag();
-    let install_cmd = crate::service::provider_cli::provider_cli_status(
-        &svc.provider_registry,
+    crate::service::provider_cli_actions::launch_with_dispatch(
+        svc,
         &provider_id,
-        platform,
-    )?
-    .installer
-    .ok_or_else(|| {
-        format!(
-            "Provider '{}' has no install command for {}",
-            provider_id, platform
-        )
-    })?;
-
-    let ws_id = {
-        let mux = svc.mux.write();
-        mux.snapshot()
-            .active_workspace_id
-            .clone()
-            .or_else(|| mux.list_workspaces().first().map(|w| w.id.clone()))
-            .ok_or("No workspace found")?
-    };
-
-    let tab_id = svc.create_named_tab(&ws_id, &format!("Install-{provider_id}"))?;
-    if let Err(error) = dispatch(svc, &tab_id, &install_cmd) {
-        let _ = svc.close_tab_with_reason(
-            &tab_id,
-            crate::multiplexer::types::TabCloseReason::SpawnRollback,
-        );
-        return Err(error);
-    }
-    Ok(InstallTabResult {
-        tab_id,
-        launch_state: "command_dispatched",
-    })
+        crate::service::provider_cli_actions::CliOperation::Install,
+        None,
+        |svc, tab_id, command| {
+            let service = std::sync::Arc::new(svc.clone());
+            dispatch(&service, tab_id, command)
+        },
+    )
 }
 
 /// Spawn a fresh tab and return only after its PTY accepts the provider's
@@ -349,6 +324,7 @@ mod install_provider_tests {
         let (_fixture, service) = fixture_with_provider("install-failure", "echo never-dispatched");
         let failure = "opaque installer dispatch failure b921";
         let provisional_pty = RefCell::new(None);
+        let before = service.mux.read().snapshot().tabs.len();
         let result = install_provider_in_tab_with_dispatch(
             &service,
             "install-failure".into(),
@@ -360,11 +336,7 @@ mod install_provider_tests {
         );
         assert_eq!(result.err().as_deref(), Some(failure));
         let mux = service.mux.read();
-        assert!(mux
-            .snapshot()
-            .tabs
-            .values()
-            .all(|tab| tab.title != "Install-install-failure"));
+        assert_eq!(mux.snapshot().tabs.len(), before);
         drop(mux);
         let pty_id = provisional_pty
             .into_inner()
