@@ -477,23 +477,10 @@ fn selected_instruction_references_name_whole_documents() {
                 .and_then(|rest| rest.split_whitespace().next())
                 .unwrap_or_default();
             assert!(
-                [
-                    "ORCHESTRATION",
-                    "ORCHESTRATION-TASKS",
-                    "ORCHESTRATION-OPERATIONS",
-                    "PLANNER",
-                    "PLAN-EDITING",
-                    "LANES",
-                    "BOUNCE",
-                    "TEST-AUTHORING",
-                    "ROUTING",
-                    "MESH",
-                    "MEMORY",
-                    "SECRETS",
-                    "API-CLI",
-                    "API-PLAN",
-                ]
-                .contains(&document),
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("../prod-docs")
+                    .join(format!("{document}.md"))
+                    .is_file(),
                 "instruction reference names an unknown document: {command}"
             );
             assert_eq!(command, format!("codeterm docs {document}"));
