@@ -198,12 +198,29 @@ fn claude_init_probe_fake_binary_deadline_kills_owned_children() {
     run_fixture("blocked", Duration::from_secs(3), false);
 }
 fn run_fixture(mode: &str, deadline: Duration, success: bool) {
-    let node = codeterm_plugin::js_runtime::resolved_bin_path("node")
-        .unwrap_or_else(|| PathBuf::from("node"));
+    let interpreter = if cfg!(windows) { "node.exe" } else { "node" };
+    let probe = codeterm_plugin::js_runtime::probe_bin(interpreter);
+    let node = match probe.resolution {
+        codeterm_plugin::js_runtime::BinResolution::Found(path) => path,
+        codeterm_plugin::js_runtime::BinResolution::Missing => {
+            eprintln!(
+                "SKIP capability probe fixture: {interpreter} unavailable in {:?}",
+                probe.searched
+            );
+            return;
+        }
+        codeterm_plugin::js_runtime::BinResolution::Unknown => {
+            panic!(
+                "cannot resolve fixture interpreter {interpreter}: {:?}",
+                probe.searched
+            );
+        }
+    };
+    eprintln!("capability probe fixture interpreter: {}", node.display());
     let project = tempfile::tempdir().unwrap();
     let fixture =
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("src/service/capability_probe/fixture.mjs");
-    let mut command = std::process::Command::new(node);
+    let mut command = std::process::Command::new(&node);
     command
         .arg(fixture)
         .arg(mode)
@@ -212,7 +229,11 @@ fn run_fixture(mode: &str, deadline: Duration, success: bool) {
         .env("FORCE_CODE_TERMINAL", "opaque");
     let result = process::capture_command(command, project.path(), deadline);
     if success {
-        assert!(result.is_ok(), "{result:?}");
+        assert!(
+            result.is_ok(),
+            "interpreter={} result={result:?}",
+            node.display()
+        );
     } else {
         assert_eq!(result, Err(ProbeFailure::Deadline));
     }
