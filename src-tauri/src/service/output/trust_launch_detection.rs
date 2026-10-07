@@ -22,9 +22,16 @@ impl ServiceContext {
         }
     }
 
-    /// Hookless providers use session heuristics; hooked providers inspect launch
-    /// records after trust clears or the binding deadline expires.
     pub(super) fn maybe_detect_agent_session(&self, tab_id: &str, agent_type: &str) {
+        self.detect_agent_session_with_fallback(tab_id, agent_type, false);
+    }
+
+    pub(crate) fn detect_agent_session_with_fallback(
+        &self,
+        tab_id: &str,
+        agent_type: &str,
+        exact_returned_null: bool,
+    ) {
         let (cwd, set_at_elapsed, current_session, binding_nonce, deadline_elapsed) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
@@ -49,7 +56,7 @@ impl ServiceContext {
         if !should_detect_unbound_session(current_session.as_deref()) {
             return;
         }
-        let (heuristic, hooked) = self
+        let (heuristic, hooked, exact) = self
             .agent_registry
             .with_provider(agent_type, |p| {
                 let inj = matches!(
@@ -63,25 +70,33 @@ impl ServiceContext {
                         p.uses_structured_chat(),
                     ),
                     p.has_hooks(),
+                    p.supports_launch_session_detection(),
                 )
             })
-            .unwrap_or((false, false));
+            .unwrap_or((false, false, false));
         let trust_prompt_resolved = binding_nonce.as_deref().is_some_and(|nonce| {
             super::super::directory_trust::trust_prompt_resolved_for_launch(tab_id, nonce)
         });
         let launch_detection = launch_session_detection_due(
             heuristic,
             hooked,
+            exact,
             deadline_elapsed,
             trust_prompt_resolved,
         );
+        let launch_detection = launch_detection && !exact_returned_null;
+        if exact_returned_null
+            && !heuristic_session_fallback_allowed(heuristic, exact, deadline_elapsed)
+        {
+            return;
+        }
         if !heuristic && !launch_detection {
             return;
         }
         if !launch_detection && cwd.is_empty() {
             return;
         }
-        {
+        if !exact_returned_null {
             let mut cd = SESSION_DETECT_COOLDOWN.lock().unwrap();
             let now = Instant::now();
             if let Some(last) = cd.get(tab_id) {
@@ -120,10 +135,11 @@ impl ServiceContext {
 pub(super) fn launch_session_detection_due(
     heuristic: bool,
     hooked: bool,
+    exact: bool,
     deadline_elapsed: bool,
     trust_prompt_resolved: bool,
 ) -> bool {
-    !heuristic && hooked && (deadline_elapsed || trust_prompt_resolved)
+    (!hooked && exact) || (!heuristic && hooked && (deadline_elapsed || trust_prompt_resolved))
 }
 
 pub(super) fn should_detect_unbound_session(current_session: Option<&str>) -> bool {
@@ -136,4 +152,12 @@ pub(super) fn should_heuristically_detect_session(
     uses_structured_chat: bool,
 ) -> bool {
     has_no_injection && !has_hooks && !uses_structured_chat
+}
+
+pub(crate) fn heuristic_session_fallback_allowed(
+    heuristic: bool,
+    exact: bool,
+    deadline_elapsed: bool,
+) -> bool {
+    heuristic && (!exact || deadline_elapsed)
 }

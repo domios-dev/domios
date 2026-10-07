@@ -653,18 +653,52 @@ impl ServiceContext {
         if !IN_FLIGHT.lock().insert(tab_id.to_string()) {
             return;
         }
+        let fallback_identity = {
+            let mux = self.mux.read();
+            mux.get_tab(tab_id)
+                .and_then(|tab| Some((tab.agent_type.clone()?, tab.session_binding_nonce.clone()?)))
+        }
+        .filter(|(provider_id, _)| {
+            self.agent_registry
+                .with_provider(provider_id, |provider| {
+                    !provider.has_hooks() && provider.supports_launch_session_detection()
+                })
+                .unwrap_or(false)
+        });
         let svc = self.clone();
         let tab_id = tab_id.to_string();
         tauri::async_runtime::spawn(async move {
             let probe_svc = svc.clone();
             let probe_tab = tab_id.clone();
-            let detected =
+            let Ok(detected) =
                 tokio::task::spawn_blocking(move || probe_svc.probe_launch_session(&probe_tab))
                     .await
-                    .ok()
-                    .flatten();
+            else {
+                IN_FLIGHT.lock().remove(&tab_id);
+                return;
+            };
             if let Some(detected) = detected {
                 svc.commit_detected_launch_session(&tab_id, detected).await;
+            } else if let Some((provider_id, nonce)) = fallback_identity {
+                let fallback_svc = svc.clone();
+                let fallback_tab = tab_id.clone();
+                let _ = tokio::task::spawn_blocking(move || {
+                    let still_current = {
+                        let mux = fallback_svc.mux.read();
+                        mux.get_tab(&fallback_tab).is_some_and(|tab| {
+                            tab.agent_type.as_deref() == Some(provider_id.as_str())
+                                && tab.session_binding_nonce.as_deref() == Some(nonce.as_str())
+                        })
+                    };
+                    if still_current {
+                        fallback_svc.detect_agent_session_with_fallback(
+                            &fallback_tab,
+                            &provider_id,
+                            true,
+                        );
+                    }
+                })
+                .await;
             }
             IN_FLIGHT.lock().remove(&tab_id);
         });

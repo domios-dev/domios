@@ -104,6 +104,10 @@ impl AgentProvider for ClaudeProvider {
         SessionIdInjection::None
     }
 
+    fn supports_launch_session_detection(&self) -> bool {
+        true
+    }
+
     fn detect_launch_session(
         &self,
         evidence: &crate::provider::LaunchSessionEvidence,
