@@ -134,9 +134,98 @@ fn claude_permission_hook_identity_is_request_specific_and_cleanup_is_scoped() {
     assert_ne!(first_identity, second_identity);
     let mut broker = Broker::default();
     assert!(broker.register("tab", first));
-    assert!(!broker.register("tab", second));
-    assert!(broker.remove("tab", "second").is_none());
+    assert!(broker.register("tab", second));
+    assert!(broker.remove("tab", "second").is_some());
+    assert_eq!(broker.requests["tab"].len(), 1);
     assert!(broker.remove("tab", "first").is_some());
+}
+
+#[test]
+#[cfg_attr(not(windows), ignore = "requires the desktop ServiceContext fixture")]
+fn claude_permission_hook_concurrent_notifications_answer_independently() {
+    use crate::multiplexer::state::MultiplexerState;
+    use crate::service::test_fixture::ServiceFixture;
+    let (mux, tab_id) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_session_id = Some("session".into());
+        tab.session_binding_nonce = Some("nonce".into());
+    }
+    let mut pending = Vec::new();
+    for id in ["first", "second"] {
+        let (request, receiver) = request(id);
+        let prompt = request.prompt.clone();
+        assert!(BROKER.lock().register(&tab_id, request));
+        let guard = PendingGuard {
+            svc: std::sync::Arc::new(fixture.service.clone()),
+            tab_id: tab_id.clone(),
+            id: id.into(),
+            identity: PromptIdentity::new(PromptKind::Structured, &prompt),
+        };
+        sync_display(&fixture.service, &tab_id);
+        let notice = notify(&fixture.service, &tab_id, "opaque", &prompt, id);
+        pending.push((guard, receiver, prompt, notice));
+    }
+    let (second, mut second_receiver, second_prompt, second_notice) = pending.pop().unwrap();
+    let (first, mut first_receiver, first_prompt, first_notice) = pending.pop().unwrap();
+    assert_ne!(first_notice, second_notice);
+    assert!(
+        !fixture
+            .service
+            .notif
+            .lock()
+            .notification(&first_notice)
+            .unwrap()
+            .resolved
+    );
+    assert!(
+        !fixture
+            .service
+            .notif
+            .lock()
+            .notification(&second_notice)
+            .unwrap()
+            .resolved
+    );
+    let response = fixture
+        .service
+        .answer_notification(&second_notice, &second_prompt.options[1].label)
+        .unwrap();
+    assert_eq!(response["delivered"], true);
+    assert_eq!(second_receiver.try_recv().unwrap(), Answer::Deny);
+    assert!(first_receiver.try_recv().is_err());
+    drop(second);
+    assert_eq!(pending_for_tab(&tab_id), Some(first_prompt.clone()));
+    assert!(
+        !fixture
+            .service
+            .notif
+            .lock()
+            .notification(&first_notice)
+            .unwrap()
+            .resolved
+    );
+    let response = fixture
+        .service
+        .answer_notification(&first_notice, &first_prompt.options[0].label)
+        .unwrap();
+    assert_eq!(response["delivered"], true);
+    assert_eq!(first_receiver.try_recv().unwrap(), Answer::Allow);
+    drop(first);
+    assert!(pending_for_tab(&tab_id).is_none());
+    for notice in [first_notice, second_notice] {
+        assert!(
+            fixture
+                .service
+                .notif
+                .lock()
+                .notification(&notice)
+                .unwrap()
+                .resolved
+        );
+    }
 }
 
 #[test]

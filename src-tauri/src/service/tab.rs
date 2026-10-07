@@ -687,6 +687,14 @@ impl ServiceContext {
         value: &str,
         expected_identity: Option<&codeterm_types::pty::PromptIdentity>,
     ) -> Result<RespondPromptOutcome, String> {
+        if let Some(result) = crate::api::hook_routes::permission_decision::respond_with_identity(
+            self,
+            tab_id,
+            value,
+            expected_identity,
+        ) {
+            return result.map(|_| RespondPromptOutcome::Structured);
+        }
         let Some(tab) = self.mux.read().get_tab(tab_id).cloned() else {
             return Err(format!("Tab not found: {}", tab_id));
         };

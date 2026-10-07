@@ -676,12 +676,13 @@ impl NotificationStore {
                     )
                 })
             });
-            let unanswered = notification.answer.as_ref().is_some_and(|answer| {
-                answer.answered.is_none() && answer.asked_from_tab.as_deref() == Some(tab_id)
-            });
+            let asked_here = notification
+                .answer
+                .as_ref()
+                .is_some_and(|answer| answer.asked_from_tab.as_deref() == Some(tab_id));
             if notification.tab_id.as_deref() == Some(tab_id)
                 && matching_prompt
-                && unanswered
+                && asked_here
                 && !notification.resolved
             {
                 notification.resolved = true;

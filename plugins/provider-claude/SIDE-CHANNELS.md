@@ -19,10 +19,10 @@ rebind, missing authentication or an unavailable daemon produces no decision;
 Claude keeps its own permission flow. Notification hook events retain their
 previous route. This channel creates no automatic answering policy.
 
-This checkpoint supports one external permission request per tab. An overlapping
-request falls back to Claude's own prompt without creating a second notification.
-Queueing overlapping requests remains necessary to satisfy the requirement that
-every pending permission request reaches the existing notification system.
+Concurrent requests have independent identities, answers and notification records.
+They do not occupy the tab-wide PendingPrompt notification condition. The composer
+shows the oldest live request; notification choices can answer any live request.
+Resolving or cancelling one request leaves the others pending.
 
 ## Installed-hook evidence and re-trust note
 

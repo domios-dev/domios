@@ -417,7 +417,6 @@ impl ServiceContext {
         )
     }
 
-    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn create_prompt_notification_ext(
         &self,
