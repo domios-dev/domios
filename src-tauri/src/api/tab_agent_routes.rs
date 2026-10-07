@@ -23,6 +23,10 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             )),
         )
         .route("/api/tabs/{id}/stop", post(tab_routes::stop_tab))
+        .route(
+            "/api/tabs/{id}/agent/fork",
+            post(super::agent_fork_routes::fork),
+        )
         .route("/api/tabs/{id}/focus", post(tab_routes::focus_tab))
         .route("/api/tabs/{id}/close", post(tab_routes::close_tab))
         .route(

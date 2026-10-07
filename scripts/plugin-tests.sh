@@ -13,6 +13,7 @@ case "${1:-all}" in
       plugins/provider-claude/tests/availability.test.ts
       plugins/provider-claude/tests/context.test.ts
       plugins/provider-claude/tests/signals.test.ts
+      plugins/provider-claude/tests/background-work.test.ts
       plugins/provider-claude/tests/model-capabilities.test.ts
       plugins/provider-claude/tests/detect.test.ts
       plugins/provider-claude/tests/models.test.ts
@@ -74,6 +75,7 @@ case "${1:-all}" in
     tests=(
       plugins/provider-claude/tests/context.test.ts
       plugins/provider-claude/tests/signals.test.ts
+      plugins/provider-claude/tests/background-work.test.ts
       plugins/provider-claude/tests/model-capabilities.test.ts
       plugins/provider-claude/tests/availability.test.ts
       plugins/provider-claude/tests/detect.test.ts

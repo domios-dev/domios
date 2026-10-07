@@ -31,6 +31,33 @@ fn parity_claude_auth_probe_and_status() {
 }
 
 #[test]
+fn parity_claude_background_work_and_fork_capabilities() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    assert!(native.tracks_background_work());
+    assert_eq!(native.tracks_background_work(), js.tracks_background_work());
+    assert_eq!(native.fork_session_args(), js.fork_session_args());
+    assert_eq!(
+        native.fork_session_args(),
+        Some(vec!["--fork-session".into()])
+    );
+    for record in [
+        json!({"toolUseResult":{"backgroundTaskId":"shell"}}),
+        json!({"toolUseResult":{"agentId":"agent","status":"async_launched"}}),
+        json!({"type":"user","message":{"content":"<task-notification><task-id>shell</task-id><status>completed</status></task-notification>"}}),
+        json!({"attachment":{"prompt":"<task-notification><task-id>agent</task-id><status>killed</status></task-notification>"}}),
+        json!({"toolUseResult":{"agentId":"agent","status":"opaque"}}),
+    ] {
+        assert_eq!(
+            native.parse_background_work(&record),
+            js.parse_background_work(&record)
+        );
+    }
+}
+
+#[test]
 fn parity_claude_transcript_observations() {
     if require_plugins().is_none() {
         return;

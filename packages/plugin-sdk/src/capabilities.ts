@@ -253,6 +253,8 @@ export interface SettingField {
 
 export interface AgentProvider {
   authStatusProbe?(): {args: string[]; timeoutMs: number} | null;
+  tracksBackgroundWork?(): boolean;
+  parseBackgroundWork?(record: unknown): {id:string;state:"running"|"completed"|"failed"|"killed"}[];
   reasoningEffortLaunchArgsForModel?(model: string | null, effort: string): string[];
   modelCatalogueSeed?(): ModelInfo[];
   parseAuthStatus?(record: unknown): ProviderAuthStatus | null;

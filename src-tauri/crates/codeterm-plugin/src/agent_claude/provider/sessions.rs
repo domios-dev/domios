@@ -140,6 +140,11 @@ fn read_rich_tail(
             })
             .collect();
         let mut msg = RichMessage {
+            provider_session_id: v
+                .get("sessionId")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+            background_work: super::background_work::parse(&v),
             provider_observations: super::signals::session(&v),
             context_usage: super::context::parse(&v),
             role: role.to_string(),

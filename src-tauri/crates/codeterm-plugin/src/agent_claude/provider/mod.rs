@@ -5,6 +5,7 @@
 //! sibling modules. This file owns `ClaudeProvider` and the `AgentProvider`
 //! trait impl, which delegates each method to the right child.
 
+mod background_work;
 mod context;
 mod detection;
 mod folder_trust;
@@ -56,6 +57,18 @@ impl ClaudeProvider {
 }
 
 impl AgentProvider for ClaudeProvider {
+    fn fork_session_args(&self) -> Option<Vec<String>> {
+        schemas::fork_session_args()
+    }
+    fn tracks_background_work(&self) -> bool {
+        true
+    }
+    fn parse_background_work(
+        &self,
+        record: &serde_json::Value,
+    ) -> Vec<codeterm_types::agent::background_work::BackgroundWorkObservation> {
+        background_work::parse(record)
+    }
     fn reasoning_effort_launch_args_for_model(
         &self,
         model: Option<&str>,

@@ -111,6 +111,7 @@ impl SpawnTabSpec {
                 spawned_by: None,
                 spawned_by_tab_id: params.spawned_by_tab_id.clone(),
                 resume_session_id: params.resume_session_id.clone(),
+                fork_session: params.fork_session,
                 activate: params.activate,
                 launch_purpose: Default::default(),
             })
@@ -191,6 +192,7 @@ impl SpawnTabSpec {
             manager_bootstrap: None,
             preset: None,
             resume_session_id: agent.resume_session_id.clone(),
+            fork_session: agent.fork_session,
             charter: None,
             tick_interval_secs: None,
             nudge_cooldown_secs: None,

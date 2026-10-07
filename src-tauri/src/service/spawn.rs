@@ -158,6 +158,8 @@ pub struct AgentSpawnSpec {
     pub spawned_by_tab_id: Option<String>,
     #[serde(default)]
     pub resume_session_id: Option<String>,
+    #[serde(default, skip_deserializing)]
+    pub(crate) fork_session: bool,
     #[serde(default)]
     pub activate: Option<bool>,
     #[serde(skip)]
@@ -545,7 +547,11 @@ impl ServiceContext {
         } else {
             None
         };
-        if let Some(ref sid) = agent.resume_session_id {
+        if agent.fork_session {
+            if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+                tab.fork_source_session_id = agent.resume_session_id.clone();
+            }
+        } else if let Some(ref sid) = agent.resume_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
@@ -880,7 +886,11 @@ impl ServiceContext {
         } else {
             None
         };
-        if let Some(ref sid) = agent.resume_session_id {
+        if agent.fork_session {
+            if let Some(tab) = self.mux.write().get_tab_mut(&tab_id) {
+                tab.fork_source_session_id = agent.resume_session_id.clone();
+            }
+        } else if let Some(ref sid) = agent.resume_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));
         } else if let Some(ref sid) = launch_session_id {
             self.set_agent_session_id(&tab_id, Some(sid.clone()));

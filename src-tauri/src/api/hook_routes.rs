@@ -898,6 +898,7 @@ pub(crate) async fn finish_session_binding(
     session_binding_hook_succeeded: bool,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     if claim.changed {
+        crate::service::provider_signals::refresh_auth(svc, tab_id);
         if let Some(previous_session_id) = claim.prev.as_deref() {
             crate::service::integration_silence::clear_hook_binding_fallback_session(
                 provider_id,

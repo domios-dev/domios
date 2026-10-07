@@ -21,6 +21,12 @@ impl ServiceContext {
         let bound_session_id = session_id.clone();
         let mut mux = self.mux.write();
         if let Some(ref new_sid) = session_id {
+            if mux
+                .get_tab(tab_id)
+                .is_some_and(|tab| tab.fork_source_session_id.as_deref() == Some(new_sid))
+            {
+                return;
+            }
             let conflict = mux
                 .tab_ids_with_session(new_sid)
                 .into_iter()

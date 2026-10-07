@@ -581,6 +581,7 @@ fn install_leaf(
             agent_session_name: None,
             context: None,
             provider_signals: Default::default(),
+            fork_source_session_id: None,
             agent_session_model: agent_session_model.clone(),
             agent_session_model_identity: None,
             pending_model_switch_observation: None,

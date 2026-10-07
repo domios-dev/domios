@@ -14,11 +14,13 @@
 
 pub mod activity;
 pub(crate) mod agent_delivery_outbox;
+pub(crate) mod agent_fork;
 pub mod agent_pad;
 pub mod agent_restart;
 mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 mod analytics_host;
+pub(crate) mod background_work;
 mod blueprint_pipeline;
 pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;

@@ -34,6 +34,19 @@ impl AgentProvider for JsProvider {
     fn auth_status_probe(&self) -> Option<provider::AuthStatusProbe> {
         self.try_call("authStatusProbe", &[]).flatten()
     }
+    fn tracks_background_work(&self) -> bool {
+        self.try_call("tracksBackgroundWork", &[]).unwrap_or(false)
+    }
+    fn fork_session_args(&self) -> Option<Vec<String>> {
+        self.manifest.spawn.fork_session_args.clone()
+    }
+    fn parse_background_work(
+        &self,
+        record: &Value,
+    ) -> Vec<codeterm_types::agent::background_work::BackgroundWorkObservation> {
+        self.try_call("parseBackgroundWork", &[record.clone()])
+            .unwrap_or_default()
+    }
 
     fn reasoning_effort_launch_args_for_model(
         &self,

@@ -490,6 +490,8 @@ pub fn latest_prior_session(lineage: &[PriorBindingNonce]) -> Option<&str> {
 pub struct Tab {
     #[serde(default, skip_deserializing)]
     pub provider_signals: codeterm_types::agent::provider_signals::ProviderSignals,
+    #[serde(default, skip_deserializing)]
+    pub fork_source_session_id: Option<String>,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub context: Option<codeterm_types::agent::context::TurnContext>,
     pub id: String,

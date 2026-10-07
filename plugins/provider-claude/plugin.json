@@ -9,6 +9,7 @@
   "iconColor": "#d97757",
   "entry": "plugin.js",
   "spawn": {
+    "forkSessionArgs": ["--fork-session"],
     "readinessStrategy": {
       "kind": "poll_shell_prompt",
       "timeoutSecs": 30

@@ -43,6 +43,8 @@ pub struct SessionObservations {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProviderSignals {
+    #[serde(default)]
+    pub background: super::background_work::BackgroundRoster,
     #[serde(skip)]
     pub auth_probe_pending: bool,
     pub auth: Option<AuthStatus>,

@@ -9,6 +9,18 @@ pub trait AgentProvider: Send + Sync {
     fn auth_status_probe(&self) -> Option<AuthStatusProbe> {
         None
     }
+    fn tracks_background_work(&self) -> bool {
+        false
+    }
+    fn fork_session_args(&self) -> Option<Vec<String>> {
+        None
+    }
+    fn parse_background_work(
+        &self,
+        _record: &serde_json::Value,
+    ) -> Vec<codeterm_types::agent::background_work::BackgroundWorkObservation> {
+        Vec::new()
+    }
 
     fn parse_auth_status(&self, _record: &serde_json::Value) -> Option<AuthStatus> {
         None
@@ -969,6 +981,7 @@ pub trait AgentProvider: Send + Sync {
             settings.push(usage_store_tracking_section());
         }
         ProviderDescriptor {
+            supports_session_fork: self.fork_session_args().is_some(),
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             cli_status: None,
             id: self.id().to_string(),

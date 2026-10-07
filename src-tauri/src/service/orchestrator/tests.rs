@@ -322,6 +322,7 @@ fn make_params(agent: &str, task: Option<&str>) -> SpawnAgentParams {
         system_prompt: None,
         preset: None,
         resume_session_id: None,
+        fork_session: false,
         charter: None,
         tick_interval_secs: None,
         nudge_cooldown_secs: None,
@@ -697,6 +698,21 @@ fn test_build_with_resume_session_id_uses_provider_resume_form() {
         "claude resume: {}",
         cmd
     );
+}
+
+#[test]
+fn agent_fork_command_resumes_source_with_provider_declared_fork_flag() {
+    let registry = AgentRegistry::new();
+    registry.register_provider(Box::new(crate::plugin::agent_claude::ClaudeProvider::new()));
+    let mut params = make_params("claude", None);
+    params.resume_session_id = Some("source-fixture".into());
+    params.fork_session = true;
+    let command = build_agent_command("claude", &params, None, None, &registry);
+    assert!(command.contains("--resume"));
+    assert!(command.contains("source-fixture"));
+    assert!(command.contains("--fork-session"));
+    assert!(!command.contains("--session-id"));
+    assert_eq!(command.matches("--settings").count(), 1);
 }
 
 #[test]

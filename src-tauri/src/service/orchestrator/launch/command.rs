@@ -220,6 +220,15 @@ fn build_agent_command_inner(
     }
 
     if let Some(session_id) = &params.resume_session_id {
+        if params.fork_session {
+            let Some(fork_args) = registry
+                .with_provider(agent_cmd, |provider| provider.fork_session_args())
+                .flatten()
+            else {
+                return String::new();
+            };
+            args.extend(fork_args);
+        }
         let resume = crate::agent::provider::AgentResumeParams {
             cwd: params.cwd.clone(),
             context_files: params.context_files.clone(),
