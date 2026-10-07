@@ -1,6 +1,7 @@
 pub mod approvals;
 mod attachment;
 pub mod auth;
+pub(crate) mod bootstrap;
 pub mod buffer;
 pub mod capability;
 pub mod client;

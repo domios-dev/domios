@@ -83,6 +83,12 @@ pub fn state(tab: &str) -> DeliveryState {
         .map_or(DeliveryState::Plain, |launch| launch.state)
 }
 
+pub fn attached_for_launch(tab: &str, nonce: &str) -> bool {
+    LAUNCHES.lock().get(tab).is_some_and(|launch| {
+        launch.nonce == nonce && launch.connection.is_some() && !launch.attach_failed
+    })
+}
+
 pub fn begin(tab: &str, nonce: &str) {
     LAUNCHES.lock().insert(tab.into(), Launch::new(nonce));
     CHANGED.notify_all();
