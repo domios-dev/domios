@@ -44,9 +44,9 @@ foreach ($entry in $previous.observed) { [void]$known.Add([int]$entry.pid) }
 $snapshot = [SpikeProcessTree]::Snapshot()
 $reused = @()
 foreach ($entry in @($previous.observed | Group-Object pid)) {
-    $original = $entry.Group | Sort-Object { [DateTime]::Parse($_.started).ToUniversalTime() } | Select-Object -First 1
+    $original = $entry.Group | Sort-Object { ([DateTime]$_.started).ToUniversalTime() } | Select-Object -First 1
     $current = Get-Process -Id ([int]$original.pid) -ErrorAction SilentlyContinue
-    if ($current -and $current.StartTime.ToUniversalTime().Ticks -ne [DateTime]::Parse($original.started).ToUniversalTime().Ticks) {
+    if ($current -and $current.StartTime.ToUniversalTime().Ticks -ne ([DateTime]$original.started).ToUniversalTime().Ticks) {
         [void]$known.Remove([int]$original.pid)
         $reused += [pscustomobject]@{ pid = $original.pid; originalStarted = $original.started; currentStarted = $current.StartTime.ToUniversalTime().ToString('o') }
     }
