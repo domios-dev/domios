@@ -135,6 +135,7 @@ test("renders per-turn lane stats and a cleanup offer without removing the lane"
     lane: { cleanup_status: "offered", cleanup_hints: ["codeterm plan lane-remove lane-path"] },
     execution_attempts: [{
       id: "lane-attempt",
+      tab_id: "lane-executor",
       lane_turn_stats: [{
         turn: 2,
         captured_at: 10,
