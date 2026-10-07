@@ -23,10 +23,10 @@ export function shouldRefreshAgentProviders(eventType: string): boolean {
 
 export function visibleAgentProviders(
   items: ProviderDescriptor[],
-  _loading: boolean,
+  loading: boolean,
   error: string | null,
 ): ProviderDescriptor[] {
-  return error ? EMPTY_AGENT_PROVIDERS : items;
+  return error || loading ? EMPTY_AGENT_PROVIDERS : items;
 }
 
 export function agentProvidersFromResponse(result: unknown): ProviderDescriptor[] {
