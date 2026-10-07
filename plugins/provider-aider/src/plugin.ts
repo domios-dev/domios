@@ -8,7 +8,7 @@ import type {
 import {
   listAiderHistoryBlocks,
   parseAiderHistory,
-  readAiderHistory,
+  readHistoryFile,
 } from "./history";
 
 const TITLE_RE = /aider/i;
@@ -114,22 +114,9 @@ function starterPrompt(params: LaunchParams): string | undefined {
 
 function historyBlocks(cwd: string): { id: string; startMs: number; content: string }[] {
   const historyPath = `${cwd}/.aider.chat.history.md`;
-  const content = readAiderHistory(historyPath, 0);
+  const content = readHistoryFile(historyPath);
   if (!content) return [];
-  return listAiderHistoryBlocks(readHistoryText(historyPath));
-}
-
-function readHistoryText(filePath: string): string {
-  const fs = (host as { fs?: Record<string, unknown> }).fs;
-  if (fs && typeof fs.readFile === "function") {
-    try {
-      const value = (fs.readFile as (p: string) => unknown)(filePath);
-      return value === null || value === undefined ? "" : String(value);
-    } catch (_) {
-      return "";
-    }
-  }
-  return "";
+  return listAiderHistoryBlocks(content);
 }
 
 function lastNonEmptyLine(text: string): string {
@@ -341,12 +328,12 @@ const plugin: PluginModule = {
     const blocks = historyBlocks(cwd);
     if (blocks.length === 0) return null;
     const excluded = Array.isArray(exclude) ? exclude : exclude ? [exclude] : [];
-    const limit = typeof maxAgeMs === "number" && maxAgeMs > 0 ? maxAgeMs : 300000;
+    const limit = typeof maxAgeMs === "number" && maxAgeMs > 0 ? maxAgeMs : 0;
     const now = Date.now();
     for (let i = blocks.length - 1; i >= 0; i--) {
       const block = blocks[i];
       if (excluded.indexOf(block.id) !== -1) continue;
-      if (now - block.startMs > limit) continue;
+      if (limit > 0 && now - block.startMs > limit) continue;
       return block.id;
     }
     return null;
