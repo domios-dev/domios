@@ -7,6 +7,7 @@ use sha2::{Digest, Sha256};
 use super::{
     handlers::ResultRecord,
     machine::Route,
+    source::TabBinding,
     storage::Staged,
     store::{Sentinel, Store},
 };
@@ -100,7 +101,10 @@ pub fn scoped_inventory(
 pub fn reachable_ids(jobs: &[Sentinel]) -> BTreeSet<String> {
     let mut pending: Vec<_> = jobs
         .iter()
-        .filter(|job| job.agent_authored && job.scenario_id.as_deref() == Some(job.id.as_str()))
+        .filter(|job| {
+            (job.agent_authored || job.pipeline.is_some())
+                && job.scenario_id.as_deref() == Some(job.id.as_str())
+        })
         .map(|job| job.id.clone())
         .collect();
     let mut seen = BTreeSet::new();
@@ -108,7 +112,10 @@ pub fn reachable_ids(jobs: &[Sentinel]) -> BTreeSet<String> {
         if !seen.insert(id.clone()) {
             continue;
         }
-        let Some(source) = jobs.iter().find(|job| job.id == id && job.agent_authored) else {
+        let Some(source) = jobs
+            .iter()
+            .find(|job| job.id == id && (job.agent_authored || job.pipeline.is_some()))
+        else {
             continue;
         };
         pending.extend(source.routes.values().flatten().filter_map(|handler| {
@@ -133,14 +140,14 @@ pub fn host_delete_staged(
 ) -> Result<Staged<()>, String> {
     validate_scope(mux, workspace, team)?;
     store.ensure_available()?;
-    let root = store.get(id).ok_or("Sentinel scenario not found")?;
+    let root = store.get(id).ok_or("Blueprint scenario not found")?;
     if root.workspace_id != workspace
         || root.team_id.as_deref() != team
-        || !root.agent_authored
+        || (!root.agent_authored && root.pipeline.is_none())
         || root.scenario_id.as_deref() != Some(id)
         || !reachable_ids(store.list()).contains(id)
     {
-        return Err("Sentinel scenario is unavailable in this automation scope".into());
+        return Err("Blueprint scenario is unavailable in this automation scope".into());
     }
     Ok(store.stage_delete_scenario(id, workspace, team))
 }
@@ -170,7 +177,8 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
                 j.routes,
                 j.transitions,
                 j.expires_at,
-                j.next_run
+                j.next_run,
+                j.input
             ])
         })
         .collect();
@@ -178,6 +186,34 @@ pub fn scope_revision(jobs: &[Sentinel], workspace: &str, team: Option<&str>) ->
         "{:x}",
         Sha256::digest(serde_json::to_vec(&rows).unwrap_or_default())
     )
+}
+
+/// The node source shape: probe, observe kind, or input metadata without inline text,
+/// path directories or the URL query.
+pub(crate) fn source_descriptor(job: &Sentinel) -> Value {
+    if let Some(input) = &job.input {
+        use codeterm_types::sentinel_input::DataRef;
+        let ref_type = match &input.data {
+            DataRef::Text(_) => "text",
+            DataRef::File(_) => "file",
+            DataRef::Url(_) => "url",
+        };
+        return json!({
+            "type": "input",
+            "kind": input.kind.as_str(),
+            "ref_type": ref_type,
+            "display_name": codeterm_types::sentinel_input::display_name(&input.data),
+            "convert_to": input.convert_to.map(|kind| kind.as_str()),
+        });
+    }
+    if let Some(binding) = &job.observe {
+        let kind = match binding {
+            TabBinding::Tab(_) => "tab",
+            TabBinding::CronRun(_) => "cron_run",
+        };
+        return json!({"type": "observe", "kind": kind});
+    }
+    json!({"type": "probe"})
 }
 
 fn record(result: &ResultRecord) -> Value {
@@ -205,7 +241,7 @@ pub fn tab_identity(tab: &Tab, workspace: &str) -> Identity {
 fn worker(tab: &Tab, identity: &Identity) -> Value {
     let configured = tab.agent_requested_model.clone();
     let reported = tab.agent_session_model.clone();
-    json!({"identity":identity,"name":safe_name(&tab.title),"purpose":tab.description.as_deref().map(safe_purpose),"state":if tab.agent_booting{Some("launching")}else{None},"state_source":"tab_lifecycle","availability":"available","hidden":tab.hidden,"schedule":null,"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Sentinels"},"executor":{"kind":"agent","selection":if configured.is_some(){"explicit"}else{"unknown"},"provider_id":tab.agent_type,"adapter_id":null,"model":reported.as_ref().or(configured.as_ref()),"configured_model":configured,"reported_model":reported,"capabilities":null}})
+    json!({"identity":identity,"name":safe_name(&tab.title),"purpose":tab.description.as_deref().map(safe_purpose),"state":if tab.agent_booting{Some("launching")}else{None},"state_source":"tab_lifecycle","availability":"available","hidden":tab.hidden,"schedule":null,"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Blueprints"},"executor":{"kind":"agent","selection":if configured.is_some(){"explicit"}else{"unknown"},"provider_id":tab.agent_type,"adapter_id":null,"model":reported.as_ref().or(configured.as_ref()),"configured_model":configured,"reported_model":reported,"capabilities":null}})
 }
 
 pub fn project_worker_states(
@@ -307,7 +343,7 @@ fn add_cron(
     truncated: &mut bool,
 ) {
     nodes.entry(exact.clone()).or_insert_with(|| match &cron.job {
-        Some(job) => json!({"identity":exact,"name":safe_name(&job.name),"purpose":job.description.as_deref().map(safe_purpose),"state":if job.enabled{"enabled"}else{"disabled"},"availability":"available","hidden":null,"schedule":safe_purpose(&job.schedule),"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Sentinels"},"executor":null}),
+        Some(job) => json!({"identity":exact,"name":safe_name(&job.name),"purpose":job.description.as_deref().map(safe_purpose),"state":if job.enabled{"enabled"}else{"disabled"},"availability":"available","hidden":null,"schedule":safe_purpose(&job.schedule),"cadence_ms":null,"expires_at":null,"outcomes":[],"last_result":null,"stop":{"allowed":false,"reason":"graph stop applies only to Blueprints"},"executor":null}),
         None => placeholder(exact),
     });
     for run in cron.runs.iter().take(MAX_RUNS_PER_CRON) {
@@ -370,7 +406,7 @@ pub fn project(
     let mut scenarios: Vec<_> = jobs
         .iter()
         .filter(|j| {
-            j.agent_authored
+            (j.agent_authored || j.pipeline.is_some())
                 && j.workspace_id == workspace
                 && j.team_id.as_deref() == team
                 && j.scenario_id.as_deref() == Some(j.id.as_str())
@@ -404,7 +440,7 @@ pub fn project(
             .or_insert_with(|| placeholder(&exact));
         let Some(job) = jobs
             .iter()
-            .find(|j| identity(j) == exact && j.agent_authored)
+            .find(|j| identity(j) == exact && (j.agent_authored || j.pipeline.is_some()))
         else {
             continue;
         };
@@ -495,7 +531,7 @@ pub fn project(
             outcomes.push(json!({"bucket":bucket,"handlers":handlers}));
         }
         let last_result = last.map(|t| json!({"bucket":t.bucket,"accepted_at":t.accepted_at,"handlers":t.handlers.iter().map(|r| { let mut value=record(r); value["handler_id"]=json!(r.handler_id); value }).collect::<Vec<_>>()}));
-        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":decision_executor,"sentinel_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
+        nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":decision_executor,"source":source_descriptor(job),"sentinel_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
     }
     Ok(Snapshot {
         workspace_id: workspace.into(),

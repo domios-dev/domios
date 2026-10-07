@@ -1,6 +1,7 @@
 use std::sync::LazyLock;
 
 use parking_lot::Mutex;
+use tauri::Manager;
 
 use crate::mem::{workers, SearchQuery};
 use crate::multiplexer::types::TabCloseReason;
@@ -360,9 +361,105 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
             });
     }
 
+    fn event_sources_changed(&self) {
+        self.contributions_changed("graph-nodes");
+        if let Some(handle) = self
+            .app_handle
+            .try_state::<crate::sentinel::scheduler::Handle>()
+        {
+            handle.notify();
+        }
+    }
+
     fn emit_graph_worker_spawned_json(&self, info_json: &str) {
         if let Ok(info) = serde_json::from_str::<workers::GraphWorkerInfo>(info_json) {
             crate::api::events::emit_everywhere(&self.app_handle, "graph-worker-spawned", &info);
+        }
+    }
+
+    fn emit_graph_event_json(&self, plugin_id: &str, event_json: &str) -> String {
+        if event_json.len() > codeterm_plugin::graph_events::MAX_EVENT_BYTES {
+            return serde_json::json!({"admitted":false,"reason":"oversize"}).to_string();
+        }
+        let event: serde_json::Value = match serde_json::from_str(event_json) {
+            Ok(event) => event,
+            Err(error) => return serde_json::json!({ "error": error.to_string() }).to_string(),
+        };
+        let Some(subscription_id) = event.get("subscriptionId").and_then(|value| value.as_str())
+        else {
+            return serde_json::json!({ "error": "subscriptionId is required" }).to_string();
+        };
+        let Some(token) = event.get("token").and_then(|value| value.as_str()) else {
+            return serde_json::json!({ "error": "token is required" }).to_string();
+        };
+        let Some(event_id) = event.get("eventId").and_then(|value| value.as_str()) else {
+            return serde_json::json!({ "error": "eventId is required" }).to_string();
+        };
+        let Some(payload) = event.get("payload") else {
+            return serde_json::json!({ "error": "payload is required" }).to_string();
+        };
+        let payload_bytes = match serde_json::to_vec(payload) {
+            Ok(bytes) => bytes.len(),
+            Err(error) => return serde_json::json!({ "error": error.to_string() }).to_string(),
+        };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|elapsed| elapsed.as_millis().min(u128::from(u64::MAX)) as u64)
+            .unwrap_or_default();
+        let decision =
+            self.graph_event_subscriptions
+                .admit(codeterm_plugin::graph_events::AdmissionRequest {
+                    subscription_id,
+                    token,
+                    plugin_id,
+                    event_id,
+                    payload,
+                    payload_bytes,
+                    now_ms,
+                });
+        match decision {
+            codeterm_plugin::graph_events::AdmissionDecision::Admit => {
+                if let Some(pipeline_id) = self
+                    .graph_event_subscriptions
+                    .pipeline_id_for(subscription_id)
+                {
+                    if let Some(handle) = self
+                        .app_handle
+                        .try_state::<crate::sentinel::scheduler::Handle>()
+                    {
+                        handle.notify_event_subscription_changed(&pipeline_id);
+                    }
+                }
+                serde_json::json!({ "admitted": true }).to_string()
+            }
+            codeterm_plugin::graph_events::AdmissionDecision::Refuse(reason) => {
+                if let Some(pipeline_id) = self
+                    .graph_event_subscriptions
+                    .pipeline_id_for(subscription_id)
+                {
+                    if let Some(handle) = self
+                        .app_handle
+                        .try_state::<crate::sentinel::scheduler::Handle>()
+                    {
+                        handle.notify_event_subscription_changed(&pipeline_id);
+                    }
+                }
+                let reason = match reason {
+                    codeterm_plugin::graph_events::AdmitRefusal::UnknownSubscription => {
+                        "unknown_subscription"
+                    }
+                    codeterm_plugin::graph_events::AdmitRefusal::BadToken => "bad_token",
+                    codeterm_plugin::graph_events::AdmitRefusal::ForeignPlugin => "foreign_plugin",
+                    codeterm_plugin::graph_events::AdmitRefusal::InvalidPayload => {
+                        "invalid_payload"
+                    }
+                    codeterm_plugin::graph_events::AdmitRefusal::Oversize => "oversize",
+                    codeterm_plugin::graph_events::AdmitRefusal::Duplicate => "duplicate",
+                    codeterm_plugin::graph_events::AdmitRefusal::Backpressure => "backpressure",
+                    codeterm_plugin::graph_events::AdmitRefusal::RateLimited => "rate_limited",
+                };
+                serde_json::json!({ "admitted": false, "reason": reason }).to_string()
+            }
         }
     }
 

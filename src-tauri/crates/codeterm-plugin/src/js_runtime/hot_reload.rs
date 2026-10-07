@@ -37,6 +37,9 @@ pub struct CapabilityRegistries {
     pub decision_model:
         Arc<crate::capability::CapabilityRegistry<dyn codeterm_types::decision::DecisionModel>>,
     pub transcribe: Arc<crate::transcribe::TranscribeRegistry>,
+    pub converter: Arc<crate::converter::ConverterRegistry>,
+    pub graph_nodes: Arc<crate::graph_nodes::GraphNodeRegistry>,
+    pub event_source: Arc<crate::event_source::EventSourceRegistry>,
     pub glance: crate::glance::GlanceRegistryHandle,
     pub bubble: crate::bubble::BubbleRegistryHandle,
     pub view: crate::view_host::ViewRegistryHandle,
@@ -59,10 +62,39 @@ impl CapabilityRegistries {
             self.deregister_plugin(id);
         }
         if caps.transcriber {
-            self.transcribe.register(
+            let transcriber = Arc::new(super::JsTranscriber::new(vm.clone(), id.clone()));
+            self.transcribe.register(id.clone(), transcriber.clone());
+            if caps.graph_nodes.converters.is_empty() {
+                // A transcriber is the audio -> text edge unless the plugin
+                // declares its own converters, which win.
+                self.converter.register(
+                    id.clone(),
+                    Arc::new(crate::converter::TranscriberConverter::new(transcriber)),
+                );
+            }
+        }
+        if !caps.graph_nodes.converters.is_empty() {
+            self.converter.register(
                 id.clone(),
-                Arc::new(super::JsTranscriber::new(vm.clone(), id.clone())),
+                Arc::new(super::JsConverter::new(
+                    vm.clone(),
+                    caps.graph_nodes.converters.clone(),
+                )),
             );
+        }
+        if !caps.graph_nodes.event_sources.is_empty() && vm.graph_events_allowed() {
+            if let Err(error) = self.event_source.register(
+                id.clone(),
+                Arc::new(super::JsEventSource::new(
+                    vm.clone(),
+                    caps.graph_nodes.event_sources.clone(),
+                )),
+            ) {
+                log::error!("[plugin] event source registration refused: {error}");
+            }
+            if let Err(error) = self.graph_nodes.register(id.clone(), &caps.graph_nodes) {
+                log::error!("[plugin] graph node catalog registration refused: {error}");
+            }
         }
         if caps.decision_model.enabled {
             self.decision_model.register(
@@ -165,6 +197,9 @@ impl CapabilityRegistries {
     fn deregister_common(&self, id: &str) {
         self.decision_model.unregister(id);
         self.transcribe.unregister(id);
+        self.converter.unregister(id);
+        self.graph_nodes.unregister(id);
+        self.event_source.unregister(id);
         if let Some(reg) = &self.secret {
             reg.unregister_secret_backend(id);
         }
@@ -214,6 +249,17 @@ pub fn set_watcher_service(svc: std::sync::Weak<dyn PluginHostCtx>) {
 }
 
 impl HotReloadRegistry {
+    fn notify_event_sources_changed(&self) {
+        if let Some(service) = self
+            .service
+            .lock()
+            .as_ref()
+            .and_then(std::sync::Weak::upgrade)
+        {
+            service.event_sources_changed();
+        }
+    }
+
     pub fn new(
         roots: Vec<PathBuf>,
         registrar: Arc<dyn PluginProviderRegistrar>,
@@ -405,6 +451,7 @@ impl HotReloadRegistry {
         let mut provider_changed = false;
         let mut tab_menu_changed = false;
         let mut agent_commands_changed = false;
+        let event_sources_changed = !removed.is_empty();
         for id in removed {
             self.vms.lock().remove(&id);
             provider_changed |= self.registrar.unregister_provider(&id);
@@ -424,6 +471,9 @@ impl HotReloadRegistry {
         }
         if agent_commands_changed {
             self.emit_agent_commands_changed();
+        }
+        if event_sources_changed {
+            self.notify_event_sources_changed();
         }
         self.failed.lock().retain(|path, _| path.exists());
     }
@@ -586,6 +636,7 @@ impl HotReloadRegistry {
                 let had_agent_commands = self.caps.agent_command.contains(&id);
                 self.caps
                     .register_plugin(provider.manifest(), provider.vm());
+                self.notify_event_sources_changed();
                 if had_tab_menu || self.caps.tab_menu.contains(&id) {
                     self.emit_tab_menu_changed();
                 }
@@ -720,5 +771,7 @@ fn warn_stage_conflicts(
 
 #[cfg(test)]
 mod agent_verb_tests;
+#[cfg(test)]
+mod converter_tests;
 #[cfg(test)]
 mod tests;

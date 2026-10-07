@@ -12,6 +12,8 @@ export interface PluginCapabilities {
   chat_backend?: boolean;
   /** Send-time outbound text stage (`chatPreprocess`). */
   chat_preprocessor?: boolean;
+  /** Graph node declarations (`graphNodes`): media converters and event sources. */
+  graph_nodes?: boolean;
 }
 
 export type PluginInstallSource =

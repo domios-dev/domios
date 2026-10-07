@@ -387,6 +387,82 @@ export interface Transcriber {
   transcribeStatus?(): unknown;
 }
 
+// ─── converter + graphNodes (declared conversions and event sources) ───
+
+export type MediaKind = "text" | "audio" | "video" | "image";
+
+export interface GraphNodeConversion {
+  from: MediaKind;
+  to: MediaKind;
+}
+
+/** One declared conversion of an input file. */
+export interface ConvertRequest {
+  inputPath: string;
+  from: MediaKind;
+  to: MediaKind;
+  outputDir: string;
+  language?: string | null;
+  deadlineMs: number;
+}
+
+/** `{text}` | `{path}` (inside outputDir) | `{error}`. */
+export interface ConvertResult {
+  text?: string;
+  path?: string;
+  error?: string;
+}
+
+/** Mirrors the core Converter trait; the host chains declared edges into plans. */
+export interface Converter {
+  convert(request: ConvertRequest): ConvertResult;
+}
+
+// NodeSchema subset: an object of scalar or one-level scalar-array properties.
+// No $ref, combinators, patternProperties or nested objects.
+export type NodeScalarType = "string" | "integer" | "number" | "boolean";
+
+export interface NodeScalarSchema {
+  type: NodeScalarType;
+  description?: string;
+  /** Strings only. */
+  enum?: string[];
+  /** Strings only; at most 65536. */
+  maxLength?: number;
+}
+
+export interface NodeArraySchema {
+  type: "array";
+  items: NodeScalarSchema;
+  /** At most 256. */
+  maxItems: number;
+  description?: string;
+}
+
+export type NodePropertySchema = NodeScalarSchema | NodeArraySchema;
+
+export interface NodeSchema {
+  type: "object";
+  properties: Record<string, NodePropertySchema>;
+  required?: string[];
+}
+
+/** A declared event source for graph nodes. */
+export interface EventSourceDeclaration {
+  /** Namespaced kind (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`, <= 64 bytes). */
+  kind: string;
+  /** 1-128 bytes. */
+  title: string;
+  params?: NodeSchema;
+  payload?: NodeSchema;
+}
+
+/** Manifest `capabilities.graphNodes`. */
+export interface GraphNodesManifestCapability {
+  converters?: GraphNodeConversion[];
+  eventSources?: EventSourceDeclaration[];
+}
+
 export type DecisionQuestion =
   | { type: "choice"; options: Record<string, string> }
   | { type: "noul"; criteria?: { true: string; false: string } | null }
@@ -789,6 +865,7 @@ export interface PluginModule
   extends Partial<AgentProvider>,
     Partial<SecretBackend>,
     Partial<Transcriber>,
+    Partial<Converter>,
     Partial<DecisionModelCapability>,
     Partial<ChatBackend>,
     Partial<ChatPreprocessor>,

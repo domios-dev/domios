@@ -1,5 +1,6 @@
 import type { CronJob, Tab, Team, Workspace } from "../../lib/types";
 import type { Plan, Task } from "../Canvas/types";
+import type { BlueprintSnapshot } from "../Automation/types";
 import { flattenSidebarTabs } from "./workspaceTabs";
 
 export interface TeamCloseResource {
@@ -7,6 +8,7 @@ export interface TeamCloseResource {
   name: string;
   members: Array<{ tabId: string; title: string; role: string | null; roleProfile: string | null }>;
   crons: string[];
+  blueprints: string[];
   lanes: string[];
 }
 
@@ -31,6 +33,7 @@ export function teamCloseResourcesForWorkspace(
   teams: readonly Team[],
   crons: readonly CronJob[],
   plans: readonly Plan[],
+  blueprints: readonly BlueprintSnapshot[] = [],
 ): TeamCloseResource[] {
   const workspaceTabs = flattenSidebarTabs(workspace.tabs, tabs);
   const membersByTeam = new Map<string, Tab[]>();
@@ -69,6 +72,10 @@ export function teamCloseResourcesForWorkspace(
           roleProfile: member.role_profile ?? null,
         })),
         crons: crons.filter((cron) => cron.team_id === teamId).map((cron) => cron.name),
+        blueprints: blueprints.filter((blueprint) => blueprint.state === "running" && (
+          blueprint.owner?.kind === "team" && blueprint.owner.team_id === teamId
+          || blueprint.owner?.kind === "tab" && blueprint.owner.tab_id !== null && memberIds.has(blueprint.owner.tab_id)
+        )).map((blueprint) => blueprint.name),
         lanes: [...lanes].sort((left, right) => left.localeCompare(right)),
       };
     });

@@ -7,6 +7,7 @@
 
 mod agent;
 mod agent_commands;
+mod blueprint;
 mod bridge;
 mod canvas;
 mod cron;
@@ -47,7 +48,6 @@ mod plan_time;
 pub(crate) mod protocol;
 mod receiver_target;
 mod safety_nudge;
-mod sentinel;
 mod services;
 mod spec;
 mod tab;

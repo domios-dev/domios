@@ -95,7 +95,7 @@ the run and restart outcomes.
 The words an agent starts from: shared guidance, role contracts for Orchestrator, Planner and Worker, the task's own framing, the General Agent's permanent prompt and first-run bootstrap, and the memory worker prompts.
 
 - Part of: core:agents-and-providers.
-- Invariants: prompts owned by the product ship with the app and are composed for their role rather than copied between roles; the General Agent receives its installation and user context, while project agents receive their role and task framing; task-specific framing dominates and generic boilerplate is cut; first-run bootstrap is separate from the permanent General Agent prompt and is not repeated on resume; shared agent guidance teaches [Sentinels](sentinels.md) for recurring watching and routing without LLM polling; the [Supporter introduction](supporter-agent.md#onboarding-the-guide-and-the-web) follows completed setup and links to the Guide; agent-to-agent text is English.
+- Invariants: prompts owned by the product ship with the app and are composed for their role rather than copied between roles; the General Agent receives its installation and user context, while project agents receive their role and task framing; task-specific framing dominates and generic boilerplate is cut; first-run bootstrap is separate from the permanent General Agent prompt and is not repeated on resume; shared agent guidance teaches [Blueprints](sentinels.md) for recurring watching and routing without LLM polling; the [Supporter introduction](supporter-agent.md#onboarding-the-guide-and-the-web) follows completed setup and links to the Guide; agent-to-agent text is English.
 - Dependent capabilities: teams and roles, task-fitted personality.
 
 ### Plans and orchestration {#core:plans-and-orchestration}
@@ -125,18 +125,18 @@ One flat, trusted fabric of the owner's machines, and the relay that carries com
 The confined runtime for everything that is not core: agent providers, capability plugins, views, receivers and the channels they install from.
 
 - Part of: core:service-layer.
-- Invariants: plugin capabilities and access follow the [permission contract](permissions.md#plugin-grants-and-integration-consent). Plugin logic and views stay within the host's confinement boundary, and host APIs expose only the access that boundary allows. Official core providers ship with the app, are trusted by their official provenance, track the app version, and are never downgraded; third-party capability plugins are opt-in and remain sandboxed. Inbound receiver destinations are host-owned and user-selected; events go to the selected live tab and use the General Agent path if no live target remains, with no retry into a different tab, while plugins can see or clear only their own binding. Setup helpers and global provider integrations follow that contract's explicit-consent and ownership boundaries.
+- Invariants: plugin capabilities and access follow the [permission contract](permissions.md#plugin-grants-and-integration-consent). Plugin logic and views stay within the host's confinement boundary, and host APIs expose only the access that boundary allows. Official core providers ship with the app, are trusted by their official provenance, track the app version, and are never downgraded; third-party capability plugins are opt-in and remain sandboxed. Inbound receiver destinations are host-owned and user-selected; events go to the selected live tab and use the General Agent path if no live target remains, with no retry into a different tab, while plugins can see or clear only their own binding. Setup helpers and global provider integrations follow that contract's explicit-consent and ownership boundaries. Plugins declare graph nodes (media conversions and typed event sources), and conversion chains come from those declarations alone, never from a plugin identity.
 - Dependent capabilities: agent providers, plugins and channels, webhook receivers, voice, and Analytics.
 
 The system channel participates in the same list, diff and refresh inventory as registered channels, even before it has a local registration. Listing needs no network access. An explicitly named channel failure is visible; an unavailable channel does not hide the others from an aggregate diff.
 
 ### Supporter Agent {#core:supporter-agent}
 
-The judgment part of Domios's spinal cord: small model decisions shared by memory, tab observation and the host's bounded reflexes. It has no Team role or task authority. The [Supporter Agent essence](supporter-agent.md) is the authoritative home for connection and fallback, model-first event classification and heuristic fallback, recovery, request accounting and optional caps, fan-out, spend, Sentinel decisions, visibility, data handling and future onboarding and web-client use. The marketing website consumes these contracts to explain the product.
+The judgment part of Domios's spinal cord: small model decisions shared by memory, tab observation and the host's bounded reflexes. It has no Team role or task authority. The [Supporter Agent essence](supporter-agent.md) is the authoritative home for connection and fallback, model-first event classification and heuristic fallback, recovery, request accounting and optional caps, fan-out, spend, Blueprint decisions, visibility, data handling and future onboarding and web-client use. The marketing website consumes these contracts to explain the product.
 
 - Part of: core:service-layer.
 - Invariants: the model names the state and deterministic evidence authorizes the action; the host contract stays independent of any adapter or provider.
-- Dependent capabilities: memory decision recall, health and diagnostics, session continuity, scheduling, Sentinels, provider updates, guided onboarding and the web UI.
+- Dependent capabilities: memory decision recall, health and diagnostics, session continuity, scheduling, Blueprints, provider updates, guided onboarding and the web UI.
 
 ### Memory {#core:memory}
 

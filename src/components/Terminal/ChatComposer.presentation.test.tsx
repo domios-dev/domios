@@ -18,7 +18,7 @@ async function withComposer(
   const removed: string[] = [];
   const reject = () => { throw new Error("Unexpected composer action"); };
   __setInvokeForTest(async <T,>(command: string): Promise<T> => {
-    if (command === "list_agent_providers" || command === "delayed_send_list") return [] as T;
+    if (command === "list_agent_providers" || command === "delayed_send_list" || command === "cron_list") return [] as T;
     if (command === "plugin_tab_menu") return { items: [], receiverTargets: {} } as T;
     unexpected.push(command);
     throw new Error(`Unexpected bridge command: ${command}`);

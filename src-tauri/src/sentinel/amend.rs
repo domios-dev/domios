@@ -8,6 +8,7 @@ use super::machine::{self, Route};
 use super::source::{bounded_id, TabBinding};
 use super::storage::Staged;
 use super::store::{Sentinel, Store};
+use codeterm_types::sentinel_input::{DataRef, InputSpec, MediaKind};
 
 pub const MAX_AMENDMENTS: usize = crate::storage::MAX_SENTINEL_LINEAGE;
 const MAX_UPDATE_BYTES: usize = 65_536;
@@ -16,8 +17,12 @@ const MAX_UPDATE_BYTES: usize = 65_536;
 #[serde(deny_unknown_fields)]
 pub struct DefinitionSnapshot {
     pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pipeline: Option<codeterm_types::blueprint_pipeline::BlueprintSpec>,
     pub probe: String,
     pub observe: Option<TabBinding>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<InputSpec>,
     pub question: String,
     pub interval_ms: u64,
     pub buckets: Vec<String>,
@@ -30,6 +35,19 @@ pub struct DefinitionSnapshot {
     pub max_actions: u16,
     pub on_other: Vec<Handler>,
     pub escalation_timeout_ms: Option<u64>,
+}
+
+/// Amendable part of an input source; `kind` is optional and must name the immutable kind.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct InputPatch {
+    #[serde(default)]
+    pub kind: Option<MediaKind>,
+    pub data: DataRef,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub convert_to: Option<MediaKind>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub convert_timeout_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -75,7 +93,8 @@ pub struct Update {
     pub name: Option<String>,
     pub question: String,
     pub buckets: Vec<String>,
-    pub every: String,
+    #[serde(default)]
+    pub every: Option<String>,
     #[serde(default)]
     pub routes: BTreeMap<String, String>,
     #[serde(default)]
@@ -83,13 +102,17 @@ pub struct Update {
     #[serde(default)]
     pub rearm_on_change: BTreeSet<String>,
     pub until: Option<String>,
+    #[serde(default)]
+    pub input: Option<InputPatch>,
     pub handlers: Option<BTreeMap<String, Vec<Definition>>>,
     #[serde(default)]
     pub on_other: Vec<Definition>,
     #[serde(default)]
     pub escalation_timeout_ms: Option<u64>,
-    pub max_transitions: u16,
-    pub max_actions: u16,
+    #[serde(default)]
+    pub max_transitions: Option<u16>,
+    #[serde(default)]
+    pub max_actions: Option<u16>,
     #[serde(default)]
     pub cause: Option<String>,
     #[serde(default)]
@@ -134,7 +157,7 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
                             .map_or(true, |bytes| bytes.len() > MAX_UPDATE_BYTES)
                 })
         {
-            return Err("invalid sentinel amendment lineage".into());
+            return Err("invalid blueprint amendment lineage".into());
         }
         previous = amendment.version;
     }
@@ -144,7 +167,7 @@ pub(super) fn validate(job: &Sentinel) -> Result<(), String> {
         || job.amendments.len() > MAX_AMENDMENTS
         || head_lineage != expected
     {
-        return Err("invalid sentinel definition version".into());
+        return Err("invalid blueprint definition version".into());
     }
     Ok(())
 }
@@ -153,8 +176,10 @@ impl DefinitionSnapshot {
     pub fn from_job(job: &Sentinel) -> Self {
         Self {
             name: job.name.clone(),
+            pipeline: job.pipeline.clone(),
             probe: job.probe.clone(),
             observe: job.observe.clone(),
+            input: job.input.clone(),
             question: job.question.clone(),
             interval_ms: job.interval_ms,
             buckets: job.buckets.clone(),
@@ -178,14 +203,18 @@ impl Update {
         connected: bool,
     ) -> Result<PreparedUpdate, String> {
         let name = self.name.as_deref().ok_or_else(|| {
-            "Sentinel update definition needs a name; use a short name such as ci-green-watch"
+            "Blueprint update definition needs a name; use a short name such as ci-green-watch"
                 .to_string()
         })?;
         codeterm_types::automation_name::validate_sentinel_name(name)?;
         if self.question.trim().is_empty() || self.question.len() > 4096 {
             return Err("question must be nonempty and bounded to 4096 bytes".into());
         }
-        let interval_ms = super::store::duration_ms(&self.every)?;
+        let interval_ms = match self.every.as_deref() {
+            Some(every) => super::store::duration_ms(every)?,
+            None if current.input.is_some() => current.interval_ms,
+            None => return Err("every is required for a scheduled blueprint".into()),
+        };
         machine::validate(&self.buckets, &self.matches, connected, interval_ms)?;
         if self
             .rearm_on_change
@@ -209,15 +238,17 @@ impl Update {
         } else {
             current.transitions.len()
         };
-        if self.max_transitions == 0
-            || self.max_transitions > 256
-            || usize::from(self.max_transitions) < used_transitions
-            || self.max_actions == 0
-            || self.max_actions > 1024
-            || usize::from(self.max_actions) < claimed_actions(current)
+        let max_transitions = self.max_transitions.unwrap_or(current.max_transitions);
+        let max_actions = self.max_actions.unwrap_or(current.max_actions);
+        if max_transitions == 0
+            || max_transitions > 256
+            || usize::from(max_transitions) < used_transitions
+            || max_actions == 0
+            || max_actions > 1024
+            || usize::from(max_actions) < claimed_actions(current)
         {
             return Err(
-                "sentinel budgets must stay within limits and cannot shrink below use".into(),
+                "blueprint budgets must stay within limits and cannot shrink below use".into(),
             );
         }
         if self
@@ -238,6 +269,7 @@ impl Update {
         let on_other = handlers::definitions(&["other".into()], BTreeMap::new(), Some(other))?
             .remove("other")
             .unwrap_or_default();
+        let input = amended_input(&current.input, self.input)?;
         let mut job = current.clone();
         job.name = self.name;
         job.question = self.question;
@@ -247,10 +279,12 @@ impl Update {
         job.matches = self.matches;
         job.rearm_on_change = self.rearm_on_change;
         job.until = self.until;
-        job.max_transitions = self.max_transitions;
-        job.max_actions = self.max_actions;
+        job.input = input;
+        job.max_transitions = max_transitions;
+        job.max_actions = max_actions;
         job.on_other = on_other;
         job.escalation_timeout_ms = self.escalation_timeout_ms;
+        super::source::validate(&job)?;
         super::escalation::validate(&job)?;
         let snapshot = DefinitionSnapshot::from_job(&job);
         if serde_json::to_vec(&snapshot)
@@ -258,10 +292,10 @@ impl Update {
             .len()
             > MAX_UPDATE_BYTES
         {
-            return Err("sentinel definition exceeds 64 KiB".into());
+            return Err("blueprint definition exceeds 64 KiB".into());
         }
         if author_tab_id != current.creator_tab_id && has_new_command(current, &job) {
-            return Err("only the sentinel creator may introduce new command text".into());
+            return Err("only the blueprint creator may introduce new command text".into());
         }
         Ok(PreparedUpdate {
             job,
@@ -283,7 +317,7 @@ impl Store {
             return Staged::ready(Err(error));
         }
         let Some(current) = self.get(&update.job.id).cloned() else {
-            return Staged::ready(Err(format!("sentinel not found: {}", update.job.id)));
+            return Staged::ready(Err(format!("blueprint not found: {}", update.job.id)));
         };
         if current.definition_version != expect_version {
             return Staged::ready(Err(version_conflict(current.definition_version)));
@@ -293,26 +327,29 @@ impl Store {
                 .expires_at
                 .is_some_and(|at| self.clock.now_ms() >= at)
         {
-            return Staged::ready(Err("stopped sentinels cannot be amended".into()));
+            return Staged::ready(Err("stopped blueprints cannot be amended".into()));
         }
         if current.creator_tab_id != update.job.creator_tab_id
             || current.workspace_id != update.job.workspace_id
             || current.team_id != update.job.team_id
             || current.observe != update.job.observe
             || current.probe != update.job.probe
+            || current.input.as_ref().map(|input| input.kind)
+                != update.job.input.as_ref().map(|input| input.kind)
         {
             return Staged::ready(Err(
-                "sentinel identity and observation source are immutable".into(),
+                "blueprint identity and observation source are immutable".into(),
             ));
         }
         let Some(next_version) = current.definition_version.checked_add(1) else {
-            return Staged::ready(Err("sentinel definition version exhausted".into()));
+            return Staged::ready(Err("blueprint definition version exhausted".into()));
         };
         let Some(next_revision) = current.revision.checked_add(1) else {
-            return Staged::ready(Err("sentinel generation exhausted".into()));
+            return Staged::ready(Err("blueprint generation exhausted".into()));
         };
         let mut next = current.clone();
         next.name = update.job.name;
+        next.pipeline = update.job.pipeline;
         next.question = update.job.question;
         next.buckets = update.job.buckets;
         next.interval_ms = update.job.interval_ms;
@@ -320,6 +357,7 @@ impl Store {
         next.matches = update.job.matches;
         next.rearm_on_change = update.job.rearm_on_change;
         next.until = update.job.until;
+        next.input = update.job.input;
         next.max_transitions = update.job.max_transitions;
         next.max_actions = update.job.max_actions;
         next.on_other = update.job.on_other;
@@ -350,7 +388,7 @@ impl Store {
         }
         let mut jobs = self.jobs.clone();
         let Some(position) = jobs.iter().position(|job| job.id == current.id) else {
-            return Staged::ready(Err(format!("sentinel not found: {}", current.id)));
+            return Staged::ready(Err(format!("blueprint not found: {}", current.id)));
         };
         jobs[position] = next.clone();
         let jobs = match super::store::validate(jobs) {
@@ -477,7 +515,33 @@ fn claimed_actions(job: &Sentinel) -> usize {
         .count()
 }
 
-fn has_new_command(current: &Sentinel, next: &Sentinel) -> bool {
+/// The input after one amendment: the kind is immutable, the data and conversion are not.
+fn amended_input(
+    current: &Option<InputSpec>,
+    patch: Option<InputPatch>,
+) -> Result<Option<InputSpec>, String> {
+    match (current, patch) {
+        (Some(current_input), Some(patch)) => {
+            if patch.kind.is_some_and(|kind| kind != current_input.kind) {
+                return Err("input kind is immutable".into());
+            }
+            let next = InputSpec {
+                kind: current_input.kind,
+                data: patch.data,
+                convert_to: patch.convert_to,
+                convert_timeout_ms: patch.convert_timeout_ms,
+            };
+            codeterm_types::sentinel_input::validate(&next)
+                .map_err(|error| format!("input: {error}"))?;
+            Ok(Some(next))
+        }
+        (Some(current_input), None) => Ok(Some(current_input.clone())),
+        (None, Some(_)) => Err("input source is immutable; this stage has no input".into()),
+        (None, None) => Ok(None),
+    }
+}
+
+pub(crate) fn has_new_command(current: &Sentinel, next: &Sentinel) -> bool {
     let old: Vec<_> = current
         .routes
         .values()
