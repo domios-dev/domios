@@ -22,7 +22,7 @@ try {
     save(stateFile, state);
     const results = [];
     const end = Date.now() + 180000;
-    if (!existsSync(path.join(binding.lane, 'node_modules'))) results.push({ code: null, error: 'missing lane node_modules; provisioning incomplete' });
+    if (!existsSync(path.join(binding.lane, 'node_modules'))) results.push({ code: null, error: 'missing lane node_modules; run pnpm install --frozen-lockfile --offline inside the lane' });
     else if (!turn.complete) results.push({ code: null, error: `Aider outcome: ${turn.outcome}` });
     else for (const command of commands(binding.surface)) {
       const target = missingTarget(command, arg => existsSync(path.join(binding.lane, arg))); 

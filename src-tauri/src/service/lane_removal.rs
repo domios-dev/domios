@@ -38,6 +38,176 @@ pub(crate) enum CleanupStatusDoneError {
     Verification(String),
 }
 
+const MAX_LANE_WALK_ENTRIES: usize = 100_000;
+const MAX_LANE_WALK_DEPTH: usize = 256;
+
+pub(crate) fn remove_lane_links(path: &Path) -> Result<(), String> {
+    let path = path.to_path_buf();
+    std::thread::Builder::new()
+        .name("lane-link-cleanup".into())
+        .spawn(move || remove_lane_links_blocking(&path))
+        .map_err(|error| format!("cannot start lane link scan: {error}"))?
+        .join()
+        .map_err(|_| "lane link scan thread panicked".to_string())?
+}
+
+fn refuse_linked_lane_path(path: &Path) -> Result<(), String> {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|error| format!("cannot inspect lane path '{}': {error}", path.display()))?
+            .join(path)
+    };
+    let mut current = PathBuf::new();
+    for component in absolute.components() {
+        current.push(component.as_os_str());
+        match std::fs::symlink_metadata(&current) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                return Err(format!(
+                    "lane removal refused: path component '{}' is a symlink or reparse point",
+                    current.display()
+                ));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => break,
+            Err(error) => {
+                return Err(format!(
+                    "cannot inspect lane path component '{}': {error}",
+                    current.display()
+                ))
+            }
+        }
+    }
+    Ok(())
+}
+
+fn remove_lane_links_blocking(path: &Path) -> Result<(), String> {
+    let metadata = match std::fs::symlink_metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect lane path '{}': {error}",
+                path.display()
+            ))
+        }
+    };
+    if metadata.file_type().is_symlink() {
+        return remove_link(path, &metadata);
+    }
+    if !metadata.is_dir() {
+        return Ok(());
+    }
+    let mut pending = vec![(path.to_path_buf(), 0usize)];
+    let mut visited = 0usize;
+    while let Some((directory, depth)) = pending.pop() {
+        if depth > MAX_LANE_WALK_DEPTH {
+            return Err(format!(
+                "lane link scan exceeded depth at '{}'",
+                directory.display()
+            ));
+        }
+        let entries = std::fs::read_dir(&directory).map_err(|error| {
+            format!(
+                "cannot scan lane directory '{}': {error}",
+                directory.display()
+            )
+        })?;
+        for entry in entries {
+            visited += 1;
+            if visited > MAX_LANE_WALK_ENTRIES {
+                return Err(format!(
+                    "lane link scan exceeded {MAX_LANE_WALK_ENTRIES} entries at '{}'",
+                    directory.display()
+                ));
+            }
+            let entry = entry.map_err(|error| {
+                format!(
+                    "cannot inspect lane entry in '{}': {error}",
+                    directory.display()
+                )
+            })?;
+            let child = entry.path();
+            let metadata = std::fs::symlink_metadata(&child).map_err(|error| {
+                format!("cannot inspect lane entry '{}': {error}", child.display())
+            })?;
+            if metadata.file_type().is_symlink() {
+                remove_link(&child, &metadata)?;
+            } else if metadata.is_dir() {
+                pending.push((child, depth + 1));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn remove_link(path: &Path, metadata: &std::fs::Metadata) -> Result<(), String> {
+    let result = if metadata.is_dir() {
+        std::fs::remove_dir(path)
+    } else {
+        std::fs::remove_file(path)
+    };
+    result.map_err(|error| {
+        format!(
+            "cannot unlink lane reparse point or symlink '{}': {error}",
+            path.display()
+        )
+    })
+}
+
+pub(crate) fn remove_lane_residue(path: &Path) -> Result<(), String> {
+    remove_lane_links(path)?;
+    match std::fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => remove_link(path, &metadata)?,
+        Ok(metadata) if metadata.is_dir() => std::fs::remove_dir_all(path).map_err(|error| {
+            format!(
+                "cannot remove lane leftovers at '{}': {error}",
+                path.display()
+            )
+        })?,
+        Ok(_) => std::fs::remove_file(path).map_err(|error| {
+            format!("cannot remove lane leftover '{}': {error}", path.display())
+        })?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(format!(
+                "cannot inspect lane leftovers '{}': {error}",
+                path.display()
+            ))
+        }
+    }
+    match std::fs::symlink_metadata(path) {
+        Ok(_) => Err(format!("lane leftovers remain at '{}'", path.display())),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!(
+            "cannot verify lane leftovers at '{}': {error}",
+            path.display()
+        )),
+    }
+}
+
+pub(crate) fn remove_lane_worktree(
+    canonical_cwd: &str,
+    worktree_path: &str,
+    force: bool,
+) -> Result<(), String> {
+    let path = Path::new(worktree_path);
+    refuse_linked_lane_path(path)?;
+    remove_lane_links(path)?;
+    if force {
+        run_git(
+            canonical_cwd,
+            ["worktree", "remove", "--force", worktree_path],
+        )
+        .map_err(|error| format!("lane removal failed for '{worktree_path}': {error}"))?;
+    } else {
+        run_git(canonical_cwd, ["worktree", "remove", worktree_path])
+            .map_err(|error| format!("lane removal failed for '{worktree_path}': {error}"))?;
+    }
+    remove_lane_residue(path)
+}
+
 pub(crate) fn recorded_lane_remnant(
     worktree_path: Option<&str>,
     branch: Option<&str>,
@@ -123,6 +293,7 @@ pub(crate) fn remove_lane(
     if let Some(holder) = find_lane_holder(worktree, live_tabs) {
         return Err(holder_refusal(worktree, holder));
     }
+    refuse_linked_lane_path(Path::new(worktree))?;
     let worktree_exists = match std::fs::symlink_metadata(strip_verbatim(worktree)) {
         Ok(_) => true,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
@@ -175,8 +346,7 @@ pub(crate) fn remove_lane(
                 "lane path '{worktree}' still exists but is not registered as a Git worktree; nothing was removed"
             ));
         }
-        run_git(&canonical, ["worktree", "remove", worktree])
-            .map_err(|error| format!("lane removal failed for '{worktree}': {error}"))?;
+        remove_lane_worktree(&canonical, worktree, false)?;
     } else if registered {
         remove_stale_worktree_registration(&canonical, worktree).map_err(|error| {
             format!("stale lane registration for '{worktree}' could not be removed: {error}")
