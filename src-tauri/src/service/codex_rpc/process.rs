@@ -133,7 +133,9 @@ pub async fn spawn(
         #[cfg(unix)]
         {
             tokio::select! { _ = stopping.changed() => {}, _ = &mut exited => {} }
-            unsafe { libc::kill(-(pid as i32), libc::SIGKILL); }
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGKILL);
+            }
             let _ = child.wait().await;
         }
         #[cfg(windows)]

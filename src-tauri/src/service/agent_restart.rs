@@ -324,6 +324,7 @@ impl ServiceContext {
             });
         }
         outcome.old_pty_torn_down = true;
+        crate::service::codex_rpc::lifecycle::clear_tab(&snap.tab_id);
         if let Some(launch) = model_switch {
             launch.commit(self, &snap.tab_id);
         }
