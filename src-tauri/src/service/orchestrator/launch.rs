@@ -34,6 +34,7 @@ mod owner_prompt_wait;
 mod public_send;
 #[path = "launch/reader_readiness.rs"]
 mod reader_readiness;
+mod resume_binding;
 mod startup_readiness;
 pub(crate) use command::{
     build_agent_command, build_agent_command_for_service, build_agent_command_with_launch_marker,
@@ -439,14 +440,24 @@ pub(crate) fn launch_agent_in_background_with_env(
         return;
     }
     let registry = svc.agent_registry.clone();
-    let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
-    let session_starts_on_first_turn = startup_readiness::launch_waits_for_first_turn_binding(
+    let binding_turn = resume_binding::for_launch(
         &svc,
         &tab_id,
         &agent_cmd,
-        has_startup_task_turn,
         origin,
+        has_startup_task_turn || fallback_spec.is_some(),
     );
+    let binding_turn_planned = binding_turn.is_some();
+    let fallback_spec = fallback_spec.or(binding_turn);
+    let has_startup_task_turn = has_startup_task_turn || fallback_spec.is_some();
+    let session_starts_on_first_turn = binding_turn_planned
+        || startup_readiness::launch_waits_for_first_turn_binding(
+            &svc,
+            &tab_id,
+            &agent_cmd,
+            has_startup_task_turn,
+            origin,
+        );
     let launch_started = std::time::Instant::now();
     let (role, role_profile, model, reasoning_effort) = svc
         .mux
@@ -1005,6 +1016,9 @@ pub(crate) fn launch_agent_in_background_with_env(
             {
                 let mut mux = svc.mux.write();
                 let tab = mux.get_tab_mut(&tab_id).expect("launch Tab exists");
+                if binding_turn_planned {
+                    resume_binding::prepare_binding_turn(tab, &spec);
+                }
                 tab.pending_delivery.get_or_insert_with(|| {
                     crate::service::launch_delivery::pending_record_for_spec(spec.clone())
                 });
@@ -1119,14 +1133,16 @@ pub(crate) fn launch_agent_in_background_with_env(
             }
         });
         if let Some(finished) =
-            startup_readiness::finish_waiting_for_first_turn(&mut launch, &readiness, &svc)
+            startup_readiness::finish_waiting_for_first_turn(&mut launch, &readiness, &svc, origin)
         {
             if finished {
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Ok(()));
                 }
             } else if let Some(tx) = ready_tx {
-                let _ = tx.send(Err("launch readiness was superseded".into()));
+                let _ = tx.send(Err(
+                    "launch did not establish its authenticated session binding".into(),
+                ));
             }
             return;
         }
