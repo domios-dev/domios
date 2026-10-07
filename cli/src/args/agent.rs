@@ -583,7 +583,7 @@ mod tests {
     #[test]
     fn spawn_watcher_role_maps_to_manager_profile() {
         let cli = Cli::try_parse_from([
-            "codeterm", "agent", "spawn", "lmstudio", "--role", "Watcher",
+            "codeterm", "agent", "spawn", "fixture-backend", "--role", "Watcher",
         ])
         .expect("watcher role parses");
         match cli.command {
