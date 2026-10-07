@@ -740,6 +740,7 @@ pub fn build_agent_launch_command(
     let launch_task =
         crate::service::provider_launch_task(&svc.agent_registry, &agent_id, None, None, None);
     let params = crate::agent::provider::AgentLaunchParams {
+        context_files: None,
         tool_less_instructions_path: None,
         agent_name: None,
         task: launch_task,

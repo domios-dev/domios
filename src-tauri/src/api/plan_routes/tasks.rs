@@ -178,6 +178,8 @@ mod dependency_field_tests {
 
 #[derive(Deserialize, Default)]
 pub(crate) struct TaskAddBody {
+    #[serde(default)]
+    files: crate::plan::TaskFiles,
     name: String,
     #[serde(rename = "type", default)]
     kind: String,
@@ -302,6 +304,7 @@ pub async fn task_add(
         .add_task_with_external_refs(
             &id,
             NewTask {
+                files: body.files,
                 name: body.name,
                 kind,
                 section_ids,
@@ -404,6 +407,21 @@ fn task_update_core(
         .map_err(plan_authority_err)?;
     crate::service::ensure_planner_task_fields_are_structural(&author, &body)
         .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+    let files = body
+        .get("files")
+        .map(|value| {
+            serde_json::from_value::<crate::plan::TaskFiles>(value.clone())
+                .map_err(|e| e.to_string())
+                .and_then(crate::plan::TaskFiles::validated)
+        })
+        .transpose()
+        .map_err(|e| text_err(axum::http::StatusCode::BAD_REQUEST, e))?;
+    if let Some(files) = files {
+        service
+            .plan_store
+            .update_task_files(id, tid, files, epoch_ms())
+            .map_err(plan_err)?;
+    }
     let section_ids = if body.get("sections").is_some() {
         let requested_sections = body
             .get("sections")

@@ -80,4 +80,24 @@ tab is the one caller allowed to write tasks it does not execute. A shell
 carrying a task id the daemon has moved should drop `--task` and let the daemon
 resolve its live binding.
 
-<!-- revision: 5 -->
+
+
+Task file context is structured data, separate from the brief:
+
+```bash
+codeterm plan task files PLAN TASK --edit-file src/new.rs --read-file docs/context.md
+```
+
+Repeat flags to attach multiple files. This replaces both lists; omit both flags to clear them. The task JSON field is `files: {edit: [...], read: [...]}`. Paths resolve against the dispatched Worker's cwd. Editable files may be new; read-only files must exist at dispatch. Core rejects overlapping resolved paths. Planners may set these structural fields through the same authorized draft mutation path as other task structure.
+
+For a tool-less Worker, core attaches the task files and exact attempt skill snapshots through the provider's declared context-attachment capability. Unsupported attachment kinds, unreadable read-only files, or changed skill digests refuse dispatch rather than silently losing context.
+
+Inspect completed work without reading provider history files:
+
+```bash
+codeterm agent turns --tab WORKER --last 10
+```
+
+This local command returns authoritative completed user/assistant turns and outcomes from the Worker's authenticated session. Agent callers must be the authenticated manager, plan owner, or target itself. User administration remains allowed. `--last` accepts 1–50; `--after` is a UTF-8 user-record lower bound. Each request scans at most 256 completed records and returns the last requested rows within that window, with `next_offset` and `has_more`. Continue with `--after NEXT_OFFSET` when `has_more` is true. Individual rows are bounded to 256 KiB and the response to 1 MiB; request fewer turns if the response budget is exceeded. Pending generations are not completed turns; plain/non-adapter sessions return an explicit unavailable reason.
+
+<!-- revision: 6 -->

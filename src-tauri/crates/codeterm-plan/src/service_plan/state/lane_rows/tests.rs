@@ -11,6 +11,7 @@ fn plan_with(tasks: Vec<Task>) -> Plan {
 
 fn lane_task(id: &str, status: TaskStatus, lane: TaskLaneMetadata, changed: u64) -> Task {
     Task {
+        files: Default::default(),
         id: id.into(),
         name: format!("title-{id}"),
         kind: "implement".into(),

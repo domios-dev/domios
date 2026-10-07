@@ -49,6 +49,10 @@ impl PlanStore {
             for ((id, child), key) in prepared.into_iter().zip(keys) {
                 let depends_on = validate_task_dependencies(plan, &id, &child.depends_on)?;
                 let mut task = Task {
+                    files: child
+                        .files
+                        .validated()
+                        .map_err(PlanError::InvalidPlanText)?,
                     id,
                     name: child.name,
                     kind: child.kind,

@@ -250,6 +250,10 @@ pub trait AgentProvider: Send + Sync {
         SessionIdInjection::None
     }
 
+    fn context_attach(&self) -> Option<ContextAttach> {
+        None
+    }
+
     fn is_tool_less(&self) -> bool {
         false
     }
