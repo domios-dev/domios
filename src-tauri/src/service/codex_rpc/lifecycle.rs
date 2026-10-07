@@ -397,10 +397,17 @@ pub async fn ensure_for_spawn(
     }
     svc.chat_registry.shutdown_tab(tab);
     bind(svc, tab, thread.clone());
-    if busy {
-        svc.mark_agent_turn_started(tab);
-        crate::agent::state_verdict::observe_declared_event(svc, tab, &thread, "turn/started");
-    }
+    super::status::observe(
+        svc,
+        tab,
+        &thread,
+        &sidecar,
+        if busy {
+            "turn/started"
+        } else {
+            "turn/completed"
+        },
+    );
     super::subscriber::start(svc.clone(), tab.into(), &sidecar);
     log::info!("[codex-rpc-attach] tab={tab} nonce={attach_nonce} upstream_port={port} remote_port={remote_port} state=pending");
     super::attachment::start(
