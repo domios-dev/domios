@@ -390,6 +390,16 @@ pub(crate) fn startup_handshake_confirmed_first_turn(
     (!native_starter_capable).then_some(crate::agent::provider::StarterPrompt::StartupHandshake)
 }
 
+pub(crate) fn startup_starter_prompt_for_class(
+    supervised: bool,
+    task_bound: bool,
+    tool_less: bool,
+) -> Option<crate::agent::provider::StarterPrompt> {
+    (!tool_less)
+        .then(|| startup_starter_prompt(supervised, task_bound))
+        .flatten()
+}
+
 pub(crate) fn startup_starter_prompt(
     supervised: bool,
     task_bound: bool,

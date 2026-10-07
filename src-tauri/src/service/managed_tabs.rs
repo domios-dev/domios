@@ -4,6 +4,7 @@ use crate::multiplexer::types::ManagedTab;
 pub enum ManagedSendOrigin {
     User,
     Agent,
+    TeamUtility,
     System,
     Stop,
 }
@@ -26,13 +27,26 @@ pub fn reconcile_manager(managed: &mut ManagedTab, manager_open: bool) {
     }
 }
 
+pub fn managed_send_origin(
+    source: Option<(bool, Option<&str>)>,
+    manager_team: Option<&str>,
+) -> ManagedSendOrigin {
+    match source {
+        Some((true, _)) => ManagedSendOrigin::Agent,
+        Some((false, Some(team))) if !team.is_empty() && manager_team == Some(team) => {
+            ManagedSendOrigin::TeamUtility
+        }
+        _ => ManagedSendOrigin::User,
+    }
+}
+
 pub fn managed_send_refusal(
     managed: Option<&ManagedTab>,
     origin: ManagedSendOrigin,
 ) -> Option<String> {
     let managed = managed.filter(|state| state.is_active())?;
     (origin == ManagedSendOrigin::User).then(|| {
-        format!("This tab is managed by {}. Only agent tabs can send messages; you can stop generation.", managed.manager_name)
+        format!("This tab is managed by {}. Only agent tabs and utilities in the manager's Team can send messages; you can stop generation.", managed.manager_name)
     })
 }
 
@@ -72,15 +86,21 @@ impl super::ServiceContext {
     ) -> Result<(), String> {
         let mux = self.mux.read();
         let managed = mux.get_tab(target).and_then(|tab| tab.managed.as_ref());
-        let origin = if source
+        let source = source
             .and_then(|id| mux.resolve_tab_id(id))
-            .and_then(|id| mux.get_tab(&id))
-            .is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting)
-        {
-            ManagedSendOrigin::Agent
-        } else {
-            ManagedSendOrigin::User
-        };
+            .and_then(|id| mux.get_tab(&id));
+        let manager_team = managed
+            .and_then(|managed| mux.get_tab(&managed.manager_tab_id))
+            .and_then(|manager| manager.team_id.as_deref());
+        let origin = managed_send_origin(
+            source.map(|tab| {
+                (
+                    tab.agent_type.is_some() || tab.agent_booting,
+                    tab.team_id.as_deref(),
+                )
+            }),
+            manager_team,
+        );
         let state = managed.cloned().map(|mut state| {
             let manager_open = mux.get_tab(&state.manager_tab_id).is_some();
             reconcile_manager(&mut state, manager_open);
