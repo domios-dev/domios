@@ -244,7 +244,7 @@ console.log("\n--- session/model honesty ---\n");
   eq(runtime.detectSessionModel("/cwd", "ses_x"), null, "detectSessionModel is null");
   eq(runtime.sessionExists("/cwd", "ses_x"), false, "sessionExists is false");
   eq(runtime.enumerateSessions(), [], "enumerateSessions is empty");
-  eq(runtime.findSession("ses_x"), null, "findSession is null");
+  eq(runtime.findSession("ses_x"), null, "findSession is null for unknown id");
   eq(runtime.usageSources("/cwd", "ses_x"), [], "usageSources is empty");
 }
 
@@ -434,7 +434,7 @@ console.log("\n--- session id detection ---\n");
   eq(p.detectSessionId("/ws", [], 1), null, "maxAgeMs excludes blocks older than the window");
   eq(p.sessionExists("/ws", "2026-10-06 12:00:00.000"), true, "sessionExists finds a known block");
   eq(p.sessionExists("/ws", "nope"), false, "sessionExists rejects an unknown id");
-  eq(p.findSession("2026-10-06 12:00:00.000"), { sessionId: "2026-10-06 12:00:00.000" }, "findSession echoes the id");
+  eq(p.findSession("2026-10-06 12:00:00.000"), null, "findSession returns null without a cwd to verify against");
   const chat = p.readStructuredChat("/ws", "2026-10-06 12:00:00.000", null);
   eq(chat.messages.length, 2, "readStructuredChat returns only the named block");
   eq(chat.messages[0].content, "New question", "block user turn parsed");

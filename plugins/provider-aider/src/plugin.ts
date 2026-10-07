@@ -343,8 +343,8 @@ const plugin: PluginModule = {
     return [];
   },
 
-  findSession(sessionId: string): unknown | null {
-    return sessionId ? { sessionId } : null;
+  findSession(_sessionId: string): unknown | null {
+    return null;
   },
 
   sessionExists(cwd: string, sessionId: string): boolean {
@@ -378,11 +378,14 @@ const plugin: PluginModule = {
     const block = sessionId
       ? blocks.filter((b) => b.id === sessionId).pop()
       : blocks[blocks.length - 1];
-    if (!block) return { messages: [], cursor: cursor || null };
-    const result = parseAiderHistory(block.content, 0, cursor);
+    const content = block
+      ? block.content
+      : readHistoryFile(historyPath) || "";
+    const id = block ? block.id : "default";
+    const result = parseAiderHistory(content, 0, cursor);
     return {
       messages: result.messages.map((m, i) => ({
-        id: `${block.id}_${i}`,
+        id: `${id}_${i}`,
         type: m.role,
         content: m.text,
         seq: i,
