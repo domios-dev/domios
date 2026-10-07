@@ -10,6 +10,10 @@ use super::{
 
 pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
     router
+        .route(
+            "/api/tabs/{id}/agent/capabilities/refresh",
+            post(super::capability_probe_routes::refresh),
+        )
         .route("/api/tabs/{id}/send", post(tab_routes::send_text))
         .route("/api/tabs/{id}/chat", get(tab_chat_routes::snapshot))
         .route(

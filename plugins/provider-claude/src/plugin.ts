@@ -569,7 +569,16 @@ const plugin: PluginModule = {
         }
         continue;
       }
+      const emitObservations = () => {
+        const observations = parseSessionObservations(v), background = parseBackgroundWork(v);
+        if (!observations && !background.length) return false;
+        out.push({role:"system",blocks:[],ts:null,uuid:null,
+          provider_observations:observations, background_work:background,
+          provider_session_id:typeof v.sessionId === "string" ? v.sessionId : null});
+        return true;
+      };
       if (!validateEntry(v)) {
+        if (emitObservations()) continue;
         if (!hadInvalid) {
           if (typeof console !== "undefined") console.warn("[claude-plugin] parseSessionDelta: skipped invalid JSONL entry");
           hadInvalid = true;
@@ -716,6 +725,7 @@ const plugin: PluginModule = {
         // Input sent while the agent was busy is queued as a queued_command attachment; surface it as the user message it is.
         const att = v.attachment;
         if (!att || att.type !== "queued_command" || typeof att.prompt !== "string" || !att.prompt) {
+          emitObservations();
           continue;
         }
         const agentNotice = subAgentNotificationBlock(att.prompt, v);
@@ -735,9 +745,9 @@ const plugin: PluginModule = {
           blocks.push({ kind: "text", data: { text: att.prompt } });
         }
       } else {
-        continue;
+        emitObservations(); continue;
       }
-      if (!blocks.length) continue;
+      if (!blocks.length) {emitObservations(); continue;}
       if (t === "system" && sourceSubtype === "compact_boundary") {
         timelineMarker = { kind: "context_compaction" };
       }

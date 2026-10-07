@@ -464,3 +464,10 @@ mod tests {
         }
     }
 }
+
+pub(super) fn capability_probe() -> Option<crate::provider::CapabilityProbe> {
+    serde_json::from_str::<crate::js_runtime::PluginManifest>(BUNDLED_MANIFEST)
+        .ok()?
+        .spawn
+        .capability_probe
+}

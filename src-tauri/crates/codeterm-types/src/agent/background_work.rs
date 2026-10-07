@@ -19,6 +19,10 @@ pub enum BackgroundWorkState {
 pub struct BackgroundRoster {
     pub running: BTreeMap<String, String>,
     pub overflow: bool,
+    #[serde(default)]
+    pub history_incomplete: bool,
+    #[serde(default)]
+    pub history_initialized: bool,
     #[serde(skip)]
     completed: BTreeSet<String>,
 }
@@ -52,7 +56,14 @@ impl BackgroundRoster {
         }
     }
     pub fn is_empty(&self) -> bool {
-        self.running.is_empty() && !self.overflow
+        self.running.is_empty() && !self.overflow && !self.history_incomplete
+    }
+    pub fn guarded_items(&self) -> Vec<String> {
+        let mut items = self.items();
+        if !self.history_initialized {
+            items.push("background roster has not observed this session".into());
+        }
+        items
     }
     pub fn items(&self) -> Vec<String> {
         let mut items: Vec<_> = self
@@ -68,6 +79,9 @@ impl BackgroundRoster {
             .collect();
         if self.overflow {
             items.push("additional background work exceeded the roster bound".into());
+        }
+        if self.history_incomplete {
+            items.push("background history is incomplete; active work cannot be ruled out".into());
         }
         items
     }
@@ -93,6 +107,20 @@ mod tests {
         roster.observe(&event("agent", BackgroundWorkState::Running), "");
         roster.observe(&event("agent", BackgroundWorkState::Killed), "");
         assert!(roster.is_empty());
+    }
+    #[test]
+    fn restart_guard_unobserved_history_refuses_until_initialized() {
+        let mut roster = BackgroundRoster::default();
+        assert_eq!(roster.guarded_items().len(), 1);
+        roster.history_initialized = true;
+        assert!(roster.guarded_items().is_empty());
+    }
+    #[test]
+    fn restart_guard_incomplete_history_fails_closed() {
+        let mut roster = BackgroundRoster::default();
+        roster.history_incomplete = true;
+        assert!(!roster.is_empty());
+        assert_eq!(roster.items().len(), 1);
     }
     #[test]
     fn restart_guard_roster_bound_fails_closed_and_tabs_are_independent() {

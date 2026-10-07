@@ -62,3 +62,5 @@ pub mod web_plugin_routes;
 pub mod web_routes;
 pub mod webhook_routes;
 pub mod workspace_routes;
+
+mod capability_probe_routes;

@@ -14,3 +14,5 @@ pub use session_model::SessionModelTranscriptBoundary;
 pub mod role_identity;
 pub mod role_kind;
 pub use role_kind::{RoleKindCapability, RoleKindDescriptor, RoleKindOrigin};
+
+pub mod capability_probe;

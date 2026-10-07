@@ -669,6 +669,7 @@ const HTTP_MAP: Record<string, Mapper> = {
     webJson("POST", `/api/agents/general/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/restart`),
   restart_agent_tab: (a) =>
     webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/restart`),
+  refresh_provider_capabilities: (a) => webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/capabilities/refresh`),
   fork_agent_tab: (a) => webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/fork`),
   switch_agent_model: (a) =>
     webJson("POST", `/api/tabs/${enc(s(a, "tabId") ?? s(a, "tab_id"))}/agent/model`, {

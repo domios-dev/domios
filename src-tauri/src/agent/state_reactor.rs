@@ -224,6 +224,7 @@ fn react_heuristic(
 ) {
     let tab_id = &snapshot.tab_id;
     let agent_type = &snapshot.agent_type;
+    crate::service::background_work_watch::ensure(svc, tab_id);
     let needs_auth = {
         let mux = svc.mux.read();
         mux.get_tab(tab_id)

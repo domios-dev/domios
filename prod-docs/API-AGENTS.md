@@ -66,7 +66,7 @@ Every error body is `{"ok": false, "error": "...", "reason": "..."}` plus the fi
 - `502 model_mismatch` — the current binding's launch report or first post-relaunch turn names a different model; `launched_model`, `observed_model`, and `restart` are included. Missing model confirmation by its deadline is a pending success, not an error.
 - `502 live_switch_failed` — the tab server advertised the live route, but the POST failed. `mode_used` is `live`; Domios does not silently restart after a live request error.
 
-CLI: `codeterm agent model --tab TAB_ID MODEL [--json]`; `--json` prints the success body, or the error envelope carrying the error body as `data`.
+CLI: `codeterm agent model --tab TAB_ID MODEL [--force] [--json]`; `--json` prints the success body, or the error envelope carrying the error body as `data`.
 
 ### Plan task attempts and Teams
 
@@ -190,3 +190,13 @@ Plan surface contracts — planner authority over task structure, partial `plan 
 A provider declaring model-provider configuration support accepts `preset` on PTY spawn: Domios resolves its owned model and agent launch arguments before tab creation. See `codeterm docs INTEGRATIONS` for endpoint keys and preset commands. Provider changes publish versioned catalogue events; selectors refresh without reloading. OpenCode advertises per-model variants as reasoning levels, passed at launch and live switch. Model-switch responses and the chip expose the live or restart/resume path.
 
 <!-- revision: 49 -->
+
+### Background work and session forks
+
+With the provider's `background_work_guard` switch enabled, restart and restart-based model switches refuse running background tasks with `409 background_work_running` and `running_items`. Provider updates defer until an observed roster drain. Explicit owner `--force` overrides the guard and produces an owner-visible warning.
+
+`codeterm agent fork --tab TAB_ID` / `POST /api/tabs/{id}/agent/fork` creates a new local tab only for providers declaring fork support. The response carries `tab_id`, `source_tab_id`, `source_session_id`, `session_id` and `binding_pending`. A pending response is not proof of binding: inspect the new tab until provider launch evidence binds a distinct session. The source remains unchanged. The tab menu exposes the same capability-gated action; mesh forwarding is unsupported.
+
+### Model-free capabilities
+
+Providers declaring `spawn.capabilityProbe: stream_json_initialize` can enable `capability_probe_enabled` (default false). `POST /api/tabs/{id}/agent/capabilities/refresh` explicitly refreshes the cache for that tab's project and binary identity. The response is `status: pending`, `status: ready` with typed `data`, or `status: unavailable` with a typed `reason`. Binary and login changes invalidate and rebuild cached projects. Render, switch and send paths never launch this probe. Cached commands include argument hints; subscription and modes appear in the composer badge. No user prompt or usage request is sent.

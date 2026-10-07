@@ -46,7 +46,7 @@ pub(crate) fn running(svc: &ServiceContext, tab_id: &str) -> Vec<String> {
         .read()
         .get_tab(tab_id)
         .filter(|tab| tab.agent_type.as_deref() == Some(&provider))
-        .map(|tab| tab.provider_signals.background.items())
+        .map(|tab| tab.provider_signals.background.guarded_items())
         .unwrap_or_default()
 }
 
@@ -162,4 +162,19 @@ mod tests {
         assert!(restart_guard(items, true).is_ok());
         assert!(restart_guard(Vec::new(), false).is_ok());
     }
+}
+
+pub(crate) fn incomplete_snapshot(svc: &ServiceContext, tab_id: &str, session: &str, nonce: &str) {
+    let mut mux = svc.mux.write();
+    let Some(tab) = mux.get_tab_mut(tab_id).filter(|tab| {
+        tab.agent_session_id.as_deref() == Some(session)
+            && tab.session_binding_nonce.as_deref() == Some(nonce)
+    }) else {
+        return;
+    };
+    if !tab.provider_signals.background.history_initialized {
+        tab.provider_signals.background.history_incomplete = true;
+    }
+    drop(mux);
+    svc.emit_state_changed();
 }

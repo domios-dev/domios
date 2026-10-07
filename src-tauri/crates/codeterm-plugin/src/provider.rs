@@ -23,6 +23,12 @@ pub struct AuthStatusProbe {
     pub timeout_ms: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CapabilityProbe {
+    StreamJsonInitialize,
+}
+
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};

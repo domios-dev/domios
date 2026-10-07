@@ -37,6 +37,9 @@ impl AgentProvider for JsProvider {
     fn tracks_background_work(&self) -> bool {
         self.try_call("tracksBackgroundWork", &[]).unwrap_or(false)
     }
+    fn capability_probe(&self) -> Option<provider::CapabilityProbe> {
+        self.manifest.spawn.capability_probe
+    }
     fn fork_session_args(&self) -> Option<Vec<String>> {
         self.manifest.spawn.fork_session_args.clone()
     }

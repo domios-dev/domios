@@ -124,6 +124,7 @@ impl ServiceContext {
             .revoked
             .store(true, std::sync::atomic::Ordering::Release);
         self.invalidate_guarded_agent_input(tab_id);
+        super::background_work_watch::cancel(tab_id);
         self.chat_registry.shutdown_tab(tab_id);
         self.deferred_session_bindings.clear(tab_id);
 

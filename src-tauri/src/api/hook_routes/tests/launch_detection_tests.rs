@@ -184,3 +184,29 @@ fn detection_cannot_claim_another_tabs_session() {
     assert_eq!(err.0, StatusCode::CONFLICT);
     assert_eq!(bound_session(&mux, &second), None);
 }
+
+#[test]
+fn restart_guard_session_change_discards_prior_background_roster() {
+    let (mux, tab_id) = launched_tab("claude", Some("fixture-nonce"));
+    {
+        let mut state = mux.write();
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.provider_signals.background.history_incomplete = true;
+    }
+    bind_reported_session(
+        &mux,
+        &registry(&["claude"]),
+        &tab_id,
+        "claude",
+        "fresh-session",
+        Some("fixture-nonce"),
+    )
+    .unwrap();
+    assert!(mux
+        .read()
+        .get_tab(&tab_id)
+        .unwrap()
+        .provider_signals
+        .background
+        .is_empty());
+}
