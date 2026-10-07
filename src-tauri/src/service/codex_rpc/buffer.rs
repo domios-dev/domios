@@ -21,8 +21,9 @@ impl NotificationBuffer {
     }
 
     pub fn accept(&mut self, frame: Frame) -> Result<Option<Frame>, String> {
-        let Frame::Notification { params, .. } = &frame else {
-            return Ok(Some(frame));
+        let params = match &frame {
+            Frame::Notification { params, .. } | Frame::ServerRequest { params, .. } => params,
+            _ => return Ok(Some(frame)),
         };
         let Some(thread) = params.get("threadId").and_then(serde_json::Value::as_str) else {
             return Ok(Some(frame));
@@ -55,7 +56,8 @@ impl NotificationBuffer {
             .into_iter()
             .collect();
         for frame in &frames {
-            if let Frame::Notification { params, .. } = frame {
+            if let Frame::Notification { params, .. } | Frame::ServerRequest { params, .. } = frame
+            {
                 self.bytes = self.bytes.saturating_sub(params.to_string().len());
             }
         }
@@ -81,5 +83,20 @@ mod tests {
         assert!(buffer.accept(event("a")).is_err());
         assert_eq!(buffer.release("a"), vec![event("a"), event("a")]);
         assert_eq!(buffer.accept(event("a")).unwrap(), Some(event("a")));
+    }
+
+    #[test]
+    fn codex_rpc_control_buffer_keeps_root_ready_and_retains_prebind_requests() {
+        let mut buffer = NotificationBuffer::new(4, 3);
+        let request = Frame::ServerRequest {
+            id: super::super::protocol::RequestId::String("approval".into()),
+            method: "item/commandExecution/requestApproval".into(),
+            params: serde_json::json!({"threadId":"root"}),
+        };
+        assert_eq!(buffer.accept(request.clone()).unwrap(), None);
+        assert_eq!(buffer.release("root"), [request]);
+        buffer.release("child");
+        assert_eq!(buffer.accept(event("root")).unwrap(), Some(event("root")));
+        assert_eq!(buffer.accept(event("child")).unwrap(), Some(event("child")));
     }
 }

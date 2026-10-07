@@ -1,6 +1,35 @@
 use super::*;
 use serde_json::json;
 
+#[test]
+fn codex_rpc_control_restored_items_keep_order_and_do_not_replay_old_deltas() {
+    let messages = vec![ChatMsg {
+        id: "old".into(),
+        seq: 9,
+        kind: "assistant".into(),
+        content: "snapshot".into(),
+        ..Default::default()
+    }];
+    let mut normalizer = Normalizer::from_history("bound", messages);
+    assert!(normalizer
+        .apply(&Frame::Notification {
+            method: "item/agentMessage/delta".into(),
+            params: json!({"threadId":"bound","itemId":"old","delta":"snapshot"})
+        })
+        .is_none());
+    let completed = normalizer.apply(&Frame::Notification { method: "item/completed".into(), params: json!({"threadId":"bound","item":{"id":"old","type":"agentMessage","text":"whole"}}) }).unwrap();
+    assert_eq!(completed.seq, 9);
+    assert_eq!(completed.content, "whole");
+    let next = normalizer
+        .apply(&Frame::Notification {
+            method: "item/agentMessage/delta".into(),
+            params: json!({"threadId":"bound","itemId":"next","delta":"new"}),
+        })
+        .unwrap();
+    assert_eq!(next.seq, 10);
+    assert_eq!(next.content, "new");
+}
+
 fn replay(data: &str) -> HashMap<String, ChatMsg> {
     let mut normalizer = Normalizer::default();
     let mut messages: HashMap<String, ChatMsg> = HashMap::new();

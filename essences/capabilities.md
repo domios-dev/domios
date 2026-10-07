@@ -120,6 +120,8 @@ Each provider owns its model and reasoning-effort catalog. A live provider catal
 
 Model availability has three honest states: available, unavailable, and unknown. A confirmed unavailable model is disabled. A failed or inconclusive availability check remains unknown and selectable; it is never reported as unavailable. Provider group labels, per-group usage, and quota values come from that provider, and Domios does not infer missing labels or balances. Unsupported reasoning efforts are refused at launch rather than silently downgraded. See the [core essence](core.md) for provider boundaries and session ownership.
 
+Providers that declare NextTurn switching apply model, reasoning effort and runtime-mode changes to the next turn without restarting. A successful request remains pending until the tab's own thread reports the setting or model. Structured sidecar tabs use app-server items for both live chat and history, and approval replies use the exact server request ID. Disabling the capability restores the plain-PTY transcript and control path.
+
 ### Web UI and health
 
 The web UI serves the complete interface to a phone or browser over the owner's private Tailnet, with no cloud relay and no public exposure by default. Access requires both Tailnet membership and the instance's API token. A paired machine uses its own web address and token. See the [core essence](core.md) for the web client and service boundaries.

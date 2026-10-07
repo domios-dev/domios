@@ -51,6 +51,11 @@ pub fn defer(
 
 pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String) -> String {
     if command != DEFERRED {
+        if super::lifecycle::for_tab(tab).is_none() {
+            if let Some(tab) = svc.mux.write().get_tab_mut(tab) {
+                tab.structured_control_active = false;
+            }
+        }
         return command;
     }
     let Some(plan) = PLANS.lock().remove(tab) else {

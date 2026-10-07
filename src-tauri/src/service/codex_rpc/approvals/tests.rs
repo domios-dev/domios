@@ -108,3 +108,26 @@ fn codex_rpc_control_resolved_clears_only_exact_request_and_promotes_next() {
     assert!(pending(tab).is_none());
     clear_tab(tab);
 }
+
+#[test]
+fn codex_rpc_control_ui_option_routes_and_numeric_free_text_round_trip() {
+    let mut approval = Request::new(
+        RequestId::String("wire-route".into()),
+        "item/commandExecution/requestApproval".into(),
+        json!({}),
+    );
+    let value = approval.prompt().unwrap().options[1].value.clone();
+    assert_eq!(
+        approval.answer(&value).unwrap(),
+        Some(json!({"decision":"acceptForSession"}))
+    );
+    let mut question = request(
+        "item/tool/requestUserInput",
+        json!({"questions":[{"id":"number","question":"opaque","options":[]}]}),
+    );
+    assert!(!question.prompt().unwrap().options.is_empty());
+    assert_eq!(
+        question.answer("12345").unwrap(),
+        Some(json!({"answers":{"number":{"answers":["12345"]}}}))
+    );
+}
