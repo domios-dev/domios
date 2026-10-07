@@ -38,6 +38,7 @@ pub fn defer(
         super::diagnostics::fallback(svc, tab, provider, "unsupported extra terminal arguments");
         return None;
     }
+    super::delivery::begin(tab, &svc.ensure_session_binding_nonce(tab));
     PLANS.lock().insert(
         tab.into(),
         Plan {
@@ -59,9 +60,34 @@ pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String)
         return command;
     }
     let Some(plan) = PLANS.lock().remove(tab) else {
-        return String::new();
+        super::diagnostics::fallback(svc, tab, provider, "deferred launch plan missing");
+        if let Some(sidecar) = super::lifecycle::for_tab(tab) {
+            return remote_command(&sidecar);
+        }
+        let params = svc
+            .mux
+            .read()
+            .get_tab(tab)
+            .map(|tab| SpawnAgentParams {
+                agent: Some(provider.into()),
+                cwd: tab.cwd.clone(),
+                resume_session_id: tab.agent_session_id.clone(),
+                model: tab.restorable_launch.model.clone(),
+                reasoning_effort: tab.restorable_launch.resolved_reasoning_effort.clone(),
+                ..Default::default()
+            })
+            .unwrap_or_default();
+        return crate::service::orchestrator::build_agent_command(
+            provider,
+            &params,
+            None,
+            None,
+            &svc.agent_registry,
+        );
     };
-    svc.rotate_session_binding_nonce(tab);
+    if super::lifecycle::for_tab(tab).is_none() {
+        svc.rotate_session_binding_nonce(tab);
+    }
     let instructions = svc
         .agent_registry
         .with_provider(provider, |p| {
@@ -80,7 +106,10 @@ pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String)
     match tauri::async_runtime::block_on(super::lifecycle::ensure_for_spawn(svc, tab, spawn)) {
         Ok(sidecar) => remote_command(&sidecar),
         Err(error) => {
-            super::lifecycle::clear_tab(tab);
+            if let Some(sidecar) = super::lifecycle::for_tab(tab) {
+                log::error!("[codex-rpc] tab={tab} retained sidecar refused replacement: {error}");
+                return remote_command(&sidecar);
+            }
             log::error!("[codex-rpc] tab={tab} sidecar unavailable, plain PTY fallback: {error}");
             super::diagnostics::fallback(svc, tab, provider, &error);
             crate::service::orchestrator::build_agent_command(
@@ -101,7 +130,7 @@ pub fn remote_command(sidecar: &Sidecar) -> String {
 fn remote_command_parts(binary: &std::path::Path, port: u16, thread: &str) -> String {
     let quote = codeterm_util::shell::ShellSyntax::quote;
     let prefix = if cfg!(windows) { "& " } else { "" };
-    format!("{prefix}{} --remote ws://127.0.0.1:{} --remote-auth-token-env CODETERM_CODEX_RPC_TOKEN resume {}",
+    format!("{prefix}{} -c check_for_update_on_startup=false --remote ws://127.0.0.1:{} --remote-auth-token-env CODETERM_CODEX_RPC_TOKEN resume {}",
         quote(&binary.to_string_lossy()), port, quote(thread))
 }
 
@@ -123,6 +152,7 @@ mod tests {
             "--remote ws://127.0.0.1:19001 --remote-auth-token-env CODETERM_CODEX_RPC_TOKEN resume"
         ));
         assert!(!command.contains("--profile"));
+        assert!(command.contains("-c check_for_update_on_startup=false"));
     }
 }
 
