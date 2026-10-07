@@ -20,6 +20,7 @@ pub mod routing;
 pub mod schema;
 pub mod send;
 mod subscriber;
+mod thread_start;
 pub mod transcript;
 #[cfg(windows)]
 mod windows_job;
