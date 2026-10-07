@@ -122,6 +122,17 @@ export interface LaunchSessionEvidence {
   processes: LaunchProcess[];
 }
 
+/** Provider-authoritative top-level completion, including automatic continuations. */
+export interface ReplyRelayTurn {
+  userTurnId: string;
+  /** UTF-8 byte start of the original user record; IDs remain stable in the own-session history. */
+  userRecordStart: number;
+  userText: string;
+  assistantTurnId: string;
+  answer: string;
+  complete: true;
+}
+
 export interface LaunchSessionDetection {
   sessionId: string;
   source: "pid_registry" | "launch_marker";
@@ -258,6 +269,8 @@ export interface AgentProvider {
   detectSessionId?(cwd: string, exclude?: string, maxAgeMs?: number): string | null;
   /** Session named by this launch's own provider record; null when none names it. */
   detectLaunchSession?(evidence: LaunchSessionEvidence): LaunchSessionDetection | null;
+  /** Requires manifest capabilities.replyRelay. Read after a captured UTF-8 append boundary; null without authoritative completion. */
+  readReplyRelayTurn?(cwd: string, sessionId: string, afterOffset: number): ReplyRelayTurn | null;
   detectActiveSession?(cwd: string, currentSid?: string): string | null;
   detectSessionModel?(cwd: string, sessionId: string): string | null;
   sessionModelTranscriptBoundary?(cwd: string, sessionId: string): SessionModelTranscriptBoundary | null;

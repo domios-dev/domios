@@ -211,6 +211,7 @@ fn default_entry() -> String {
 fn default_capabilities() -> Capabilities {
     Capabilities {
         agent_provider: true,
+        reply_relay: false,
         secret_backend: SecretBackendCap::default(),
         transcriber: false,
         graph_nodes: GraphNodesCap::default(),
