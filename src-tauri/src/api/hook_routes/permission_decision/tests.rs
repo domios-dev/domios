@@ -343,3 +343,57 @@ async fn claude_permission_hook_timeout_and_provider_clear_retire_notification_w
         );
     }
 }
+
+#[test]
+fn claude_permission_hook_numeric_reply_requires_displayed_hook_identity() {
+    let (pending, _receiver) = request("visible");
+    let identity = PromptIdentity::new(PromptKind::Structured, &pending.prompt);
+    let mut foreign = identity.clone();
+    foreign.options[0].value = "foreign-a".into();
+    foreign.options[1].value = "foreign-b".into();
+    assert_eq!(response_identity("1", None, None), None);
+    assert_eq!(response_identity("1", None, Some(&foreign)), None);
+    assert_eq!(
+        response_identity("1", None, Some(&identity)),
+        Some(Some(&identity))
+    );
+    assert_eq!(
+        response_identity("1", Some(&foreign), Some(&identity)),
+        None
+    );
+    assert_eq!(
+        response_identity("permission:visible:0", None, Some(&foreign)),
+        Some(None)
+    );
+    assert_eq!(response_identity("foreign-a", None, Some(&identity)), None);
+}
+
+#[tokio::test]
+async fn claude_permission_hook_cancelling_one_request_preserves_other_choice() {
+    let mut broker = Broker::default();
+    let (first, first_receiver) = request("cancelled");
+    let (second, second_receiver) = request("survivor");
+    broker.register("tab", first);
+    broker.register("tab", second);
+    broker.remove("tab", "cancelled");
+    assert_eq!(first_receiver.await.ok(), None);
+    assert!(broker
+        .answer(
+            "tab",
+            Some("session"),
+            Some("nonce"),
+            "permission:cancelled:0"
+        )
+        .unwrap()
+        .is_err());
+    assert_eq!(
+        broker.answer(
+            "tab",
+            Some("session"),
+            Some("nonce"),
+            "permission:survivor:1"
+        ),
+        Some(Ok(()))
+    );
+    assert_eq!(second_receiver.await.unwrap(), Answer::Deny);
+}
