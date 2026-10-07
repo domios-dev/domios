@@ -1,9 +1,15 @@
+mod gate;
+mod startup;
+
+pub(crate) use startup::{admit_startup, send_startup};
+
 use super::{client::ClientError, lifecycle::Sidecar, protocol::Frame};
 use crate::service::{
     chat_send_transaction::{ChatSendStatus, SendLiveBinding},
     delivery_error::DeliveryError,
     ServiceContext,
 };
+use gate::SendGate;
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::{
@@ -56,30 +62,45 @@ pub fn try_send(
         .mux
         .read()
         .get_tab(tab)
-        .and_then(|tab| tab.agent_type.clone())?;
-    if !super::launch::requested(svc, &provider) {
-        return None;
-    }
-    let sidecar = super::lifecycle::for_tab(tab)?;
-    if sidecar.client.death().borrow().is_some() || *sidecar.process.death.borrow() {
-        return None;
-    }
-    let thread = sidecar.thread.lock().clone();
-    let binding = {
+        .and_then(|tab| tab.agent_type.clone());
+    let capability = provider
+        .as_deref()
+        .map(|provider| super::launch::requested(svc, provider));
+    let state = super::lifecycle::delivery_state(tab);
+    let sidecar = super::lifecycle::for_tab(tab);
+    let available = sidecar.as_ref().is_some_and(|sidecar| {
+        sidecar.client.death().borrow().is_none() && !*sidecar.process.death.borrow()
+    });
+    let thread = sidecar
+        .as_ref()
+        .map(|sidecar| sidecar.thread.lock().clone());
+    let binding = sidecar.as_ref().and_then(|sidecar| {
         let mux = svc.mux.read();
         mux.get_tab(tab).and_then(|tab| {
-            (sidecar.verified.load(Ordering::Acquire)
+            (provider.is_some()
+                && sidecar.verified.load(Ordering::Acquire)
                 && tab.launch_session_authenticated()
-                && tab.agent_session_id.as_deref() == Some(&thread))
+                && tab.agent_session_id.as_deref() == thread.as_deref())
             .then(|| tab.session_binding_nonce.clone())
             .flatten()
         })
-    };
-    let Some(nonce) = binding else {
-        return Some(Err(DeliveryError::TabBusyRefused {
-            tab: tab.into(),
-            detail: "sidecar thread binding pending".into(),
-        }));
+    });
+    let gate = SendGate::classify(capability, state, available, binding.is_some());
+    let (sidecar, thread, nonce) = match (gate, sidecar, thread, binding) {
+        (SendGate::Pty, _, _, _) => return None,
+        (SendGate::Hold(reason), _, _, _) => {
+            return Some(Err(DeliveryError::TabBusyRefused {
+                tab: tab.into(),
+                detail: reason.into(),
+            }));
+        }
+        (SendGate::Rpc, Some(sidecar), Some(thread), Some(nonce)) => (sidecar, thread, nonce),
+        _ => {
+            return Some(Err(DeliveryError::TabBusyRefused {
+                tab: tab.into(),
+                detail: "sidecar readiness changed before admission".into(),
+            }));
+        }
     };
     let pending = match send_id {
         Some(id) => svc.chat_send_ledger.status(id),
@@ -133,26 +154,32 @@ pub fn try_send(
         params,
         |method, params| sidecar.client.request(method, params),
     ));
+    Some(finish_handoff(svc, tab, &thread, &pending.send_id, result))
+}
+
+fn finish_handoff(
+    svc: &ServiceContext,
+    tab: &str,
+    thread: &str,
+    send_id: &str,
+    result: Result<Value, ClientError>,
+) -> Result<(), DeliveryError> {
     match result {
         Ok(_) => {
-            if let Some(status) = svc.chat_send_ledger.mark_rpc_accepted(&pending.send_id) {
-                log::info!(
-                "[codex-rpc-send] tab={tab} thread={thread} clientUserMessageId={} state=written",
-                pending.send_id
-            );
+            if let Some(status) = svc.chat_send_ledger.mark_rpc_accepted(send_id) {
+                log::info!("[codex-rpc-send] tab={tab} thread={thread} clientUserMessageId={send_id} state=written");
                 emit(svc, &status);
             }
-            Some(Ok(()))
+            Ok(())
         }
         Err(error) => {
-            let error = DeliveryError::SubmitUnconfirmed {
-                tab: tab.into(),
-                detail: format!("RPC handoff uncertain: {error:?}"),
-            };
-            if let Some(status) = svc.chat_send_ledger.mark_rpc_uncertain(&pending.send_id) {
+            if let Some(status) = svc.chat_send_ledger.mark_rpc_uncertain(send_id) {
                 emit(svc, &status);
             }
-            Some(Err(error))
+            Err(DeliveryError::SubmitUnconfirmed {
+                tab: tab.into(),
+                detail: format!("RPC handoff uncertain: {error:?}"),
+            })
         }
     }
 }
@@ -220,7 +247,7 @@ fn not_steerable(error: &super::protocol::RpcError) -> bool {
     })
 }
 
-fn user_client_id<'a>(method: &str, params: &'a Value) -> Option<(&'a str, &'a str)> {
+pub(crate) fn user_client_id<'a>(method: &str, params: &'a Value) -> Option<(&'a str, &'a str)> {
     if !matches!(method, "item/started" | "item/completed") {
         return None;
     }

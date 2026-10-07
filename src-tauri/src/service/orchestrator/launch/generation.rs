@@ -29,6 +29,9 @@ impl LaunchGeneration {
                 None => svc.rotate_session_binding_nonce(&self.tab_id),
             }
         };
+        if sidecar.is_none() {
+            crate::service::codex_rpc::lifecycle::plain_launch(&self.tab_id, &nonce);
+        }
         svc.arm_spawn_reply_relay(&self.tab_id, &nonce);
         self.binding_nonce = Some(nonce.clone());
         LAUNCH_REGISTRY
@@ -114,6 +117,19 @@ impl LaunchGeneration {
     }
 
     pub(super) fn fail(&self, svc: &ServiceContext, failure: LaunchFailure) -> bool {
+        if let Some(nonce) = self.binding_nonce.as_deref() {
+            if crate::service::codex_rpc::recovery::recovering(&self.tab_id, nonce) {
+                return true;
+            }
+            if crate::service::codex_rpc::recovery::try_start(
+                svc,
+                &self.tab_id,
+                nonce,
+                &failure.reason(),
+            ) {
+                return true;
+            }
+        }
         // A fault proving process death voids its binding, so it cannot outrank the failure.
         if failure.proves_process_gone() {
             svc.void_launch_session_proof(&self.tab_id);
@@ -135,6 +151,42 @@ impl LaunchGeneration {
             crate::service::task_files::release_tab(svc, &self.tab_id);
         }
         failed
+    }
+
+    pub(super) fn await_remote_attachment(&self, svc: &ServiceContext) -> bool {
+        if crate::service::codex_rpc::lifecycle::for_tab(&self.tab_id).is_none() {
+            return true;
+        }
+        let Some(nonce) = self.binding_nonce.as_deref() else {
+            return false;
+        };
+        if crate::service::codex_rpc::lifecycle::wait_attached(
+            &self.tab_id,
+            nonce,
+            std::time::Duration::from_secs(30),
+        ) {
+            return true;
+        }
+        crate::service::codex_rpc::recovery::try_start(
+            svc,
+            &self.tab_id,
+            nonce,
+            "remote TUI attachment failed",
+        );
+        if crate::service::codex_rpc::recovery::wait_recovery(&self.tab_id, nonce) {
+            return true;
+        }
+        self.fail(
+            svc,
+            LaunchFailure::ProviderInputNotReady("remote TUI attachment failed".into()),
+        );
+        false
+    }
+
+    pub(super) fn complete_structured_startup(&self, svc: &ServiceContext, consumed: bool) {
+        if let Some(nonce) = self.binding_nonce.as_deref().filter(|_| consumed) {
+            crate::service::codex_rpc::lifecycle::startup_complete(svc, &self.tab_id, nonce);
+        }
     }
 
     pub(super) fn attempt(&self) -> Option<crate::service::launch_readiness::LaunchAttempt> {

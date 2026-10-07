@@ -1,3 +1,4 @@
+pub use super::delivery::DeliveryState;
 use super::{
     client::{Client, ClientError},
     process::Process,
@@ -9,6 +10,29 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::{Arc, LazyLock};
 
+pub fn delivery_state(tab: &str) -> DeliveryState {
+    super::delivery::state(tab)
+}
+
+pub fn startup_attachment_ready(tab: &str) -> bool {
+    for_tab(tab).is_some_and(|sidecar| {
+        sidecar.verified.load(std::sync::atomic::Ordering::Acquire)
+            && super::delivery::attached_for_launch(tab, &sidecar.launch_nonce)
+    })
+}
+
+pub fn startup_complete(svc: &ServiceContext, tab: &str, nonce: &str) {
+    super::delivery::startup_complete(svc, tab, nonce);
+}
+
+pub fn plain_launch(tab: &str, nonce: &str) {
+    super::delivery::plain_launch(tab, nonce);
+}
+
+pub fn wait_attached(tab: &str, nonce: &str, timeout: std::time::Duration) -> bool {
+    super::delivery::wait_attached(tab, nonce, timeout)
+}
+
 pub struct Sidecar {
     pub client: Client,
     pub normalizer: Mutex<super::normalize::Normalizer>,
@@ -17,6 +41,7 @@ pub struct Sidecar {
     pub compaction: Mutex<super::compaction::CompactionState>,
     pub turn_settled: tokio::sync::watch::Sender<u64>,
     pub port: u16,
+    pub upstream_port: u16,
     pub binary: std::path::PathBuf,
     pub version: String,
     pub thread: Mutex<String>,
@@ -26,6 +51,8 @@ pub struct Sidecar {
     token: String,
     pub thread_settings: Value,
     pub process: Process,
+    pub spawn: Spawn,
+    pub launch_nonce: String,
 }
 
 impl Drop for Sidecar {
@@ -69,13 +96,64 @@ pub fn for_tab(tab: &str) -> Option<Arc<Sidecar>> {
     crate::service::structured_endpoint::rpc(tab)
 }
 pub fn clear_tab(tab: &str) {
+    super::delivery::disconnected(tab);
+}
+
+pub fn stop_tab(tab: &str) {
+    super::recovery::completed(tab);
     let sidecar = for_tab(tab);
     if let Some(sidecar) = sidecar {
+        log::info!(
+            "[codex-rpc-lifecycle] tab={tab} nonce={} action=stop_sidecar reason=tab_lifecycle",
+            sidecar.launch_nonce
+        );
+        super::delivery::disconnected(tab);
         super::approvals::clear_tab(tab);
         crate::service::structured_endpoint::remove(tab);
         sidecar.client.close("Tab lifecycle ended");
         sidecar.process.stop();
     }
+}
+
+pub async fn reconnect(tab: &str, sidecar: &Arc<Sidecar>) -> Result<(), String> {
+    sidecar
+        .verified
+        .store(false, std::sync::atomic::Ordering::Release);
+    if *sidecar.process.death.borrow() {
+        return Err("App-server exited".into());
+    }
+    sidecar
+        .client
+        .reconnect(sidecar.upstream_port, &sidecar.token)
+        .await?;
+    sidecar.client.initialize().await.map_err(rpc_error)?;
+    let thread = sidecar.thread.lock().clone();
+    let mut settings = sidecar.thread_settings.clone();
+    settings["threadId"] = json!(thread);
+    settings["excludeTurns"] = json!(true);
+    sidecar
+        .client
+        .request("thread/resume", settings)
+        .await
+        .map_err(rpc_error)?;
+    let read = sidecar
+        .client
+        .request(
+            "thread/read",
+            json!({"threadId":thread,"includeTurns":false}),
+        )
+        .await
+        .map_err(rpc_error)?;
+    if !super::routing::verified_user_thread(&thread, &read)
+        || !for_tab(tab).is_some_and(|current| Arc::ptr_eq(&current, sidecar))
+    {
+        return Err("Reconnected thread identity unverified".into());
+    }
+    sidecar.client.release_thread(&thread);
+    sidecar
+        .verified
+        .store(true, std::sync::atomic::Ordering::Release);
+    Ok(())
 }
 
 pub fn extend_env(tab: &str, env: &mut HashMap<String, String>) {
@@ -84,6 +162,7 @@ pub fn extend_env(tab: &str, env: &mut HashMap<String, String>) {
     }
 }
 
+#[derive(Clone)]
 pub struct Spawn {
     pub provider: String,
     pub cwd: String,
@@ -94,30 +173,66 @@ pub struct Spawn {
     pub full_access: bool,
 }
 
+fn reuse_error(
+    live: bool,
+    requested_thread: Option<&str>,
+    bound_thread: &str,
+) -> Option<&'static str> {
+    if !live {
+        return Some("Existing sidecar exited; explicit restart required");
+    }
+    if requested_thread.is_some_and(|thread| thread != bound_thread) {
+        return Some("Existing sidecar owns another thread; explicit restart required");
+    }
+    None
+}
+
+fn reusable_sidecar(sidecar: Arc<Sidecar>, spawn: &Spawn) -> Result<Arc<Sidecar>, String> {
+    let error = reuse_error(
+        !*sidecar.process.death.borrow(),
+        spawn.resume.as_deref(),
+        &sidecar.thread.lock(),
+    );
+    if let Some(error) = error {
+        return Err(error.into());
+    }
+    Ok(sidecar)
+}
+
+#[cfg(test)]
+mod reuse_tests {
+    use super::reuse_error;
+
+    #[test]
+    fn codex_rpc_control_concurrent_recovery_reuses_live_server_without_replacement() {
+        assert_eq!(reuse_error(true, None, "own"), None);
+        assert_eq!(reuse_error(true, Some("own"), "own"), None);
+        assert!(reuse_error(true, Some("other"), "own").is_some());
+        assert!(reuse_error(false, Some("own"), "own").is_some());
+    }
+}
+
 pub async fn ensure_for_spawn(
     svc: &ServiceContext,
     tab: &str,
     spawn: Spawn,
 ) -> Result<Arc<Sidecar>, String> {
+    let original_spawn = spawn.clone();
+    if let Some(existing) = for_tab(tab) {
+        return reusable_sidecar(existing, &spawn);
+    }
+    super::delivery::begin(tab, &svc.ensure_session_binding_nonce(tab));
     let gate = STARTING
         .lock()
         .entry(tab.into())
         .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(1)))
         .clone();
     let _permit = gate.acquire().await.map_err(|error| error.to_string())?;
-    let previous = for_tab(tab);
-    clear_tab(tab);
+    if let Some(existing) = for_tab(tab) {
+        return reusable_sidecar(existing, &spawn);
+    }
     if let Some(tab) = svc.mux.write().get_tab_mut(tab) {
         tab.structured_control_active = false;
-    }
-    if let Some(previous) = previous {
-        let mut death = previous.process.death.clone();
-        if !*death.borrow() {
-            tokio::time::timeout(std::time::Duration::from_secs(5), death.changed())
-                .await
-                .map_err(|_| "Previous sidecar termination deadline")?
-                .map_err(|_| "Previous sidecar termination channel closed")?;
-        }
     }
     let (cap, binary) = svc
         .agent_registry
@@ -160,6 +275,9 @@ pub async fn ensure_for_spawn(
     };
     let mut env = svc.tab_env(tab);
     let launch_nonce = env.get("CODETERM_SESSION_BINDING_NONCE").cloned();
+    let attach_nonce = launch_nonce
+        .clone()
+        .ok_or("Structured launch requires a binding nonce")?;
     env.extend(
         svc.model_provider_launch_env(&spawn.provider)
             .map_err(|error| error.to_string())?,
@@ -193,22 +311,7 @@ pub async fn ensure_for_spawn(
         } else {
             super::model::RuntimeMode::AutoAcceptEdits
         });
-    let instructions = super::compaction::developer_instructions(spawn.instructions.as_deref());
-    let mut params = json!({"cwd":spawn.cwd,"developerInstructions":instructions,
-        "model":spawn.model,"config":{},
-        "approvalPolicy":if spawn.full_access {"never"} else {"on-request"},
-        "approvalsReviewer":"user", "sandbox":if spawn.full_access {"danger-full-access"} else {"workspace-write"}});
-    let overrides = runtime_mode.overrides();
-    params["approvalPolicy"] = overrides["approvalPolicy"].clone();
-    params["approvalsReviewer"] = overrides["approvalsReviewer"].clone();
-    params["sandbox"] = json!(match runtime_mode {
-        super::model::RuntimeMode::ApprovalRequired => "read-only",
-        super::model::RuntimeMode::FullAccess => "danger-full-access",
-        _ => "workspace-write",
-    });
-    if let Some(effort) = spawn.effort {
-        params["config"]["model_reasoning_effort"] = json!(effort);
-    }
+    let mut params = super::thread_start::parameters(&spawn, runtime_mode);
     let resume = spawn
         .resume
         .filter(|_| crate::config::resume_sessions_enabled(&spawn.provider));
@@ -222,31 +325,8 @@ pub async fn ensure_for_spawn(
             .await
             .map_err(rpc_error)?
     };
-    let response: super::schema::ThreadResponse =
-        serde_json::from_value(response).map_err(|error| error.to_string())?;
-    let thread = response.thread.id;
-    if resume.is_none() {
-        client.request("thread/inject_items", json!({"threadId":thread,"items":[{
-            "type":"message","role":"developer","content":[{"type":"input_text","text":super::compaction::CONTRACT}]
-        }]})).await.map_err(rpc_error)?;
-    }
-    let read = client
-        .request(
-            "thread/read",
-            json!({"threadId":thread,"includeTurns":false}),
-        )
-        .await
-        .map_err(rpc_error)?;
-    if !super::routing::verified_user_thread(&thread, &read) {
-        client.close("Thread identity unverified");
-        return Err("Sidecar thread identity unverified".into());
-    }
-    let auth = client
-        .request("account/read", json!({"refreshToken":false}))
-        .await
-        .map(|response| super::auth::account_state(&response))
-        .unwrap_or_default();
-    let history = super::transcript::history(&client, &thread).await?;
+    let (thread, auth, history) =
+        super::thread_start::initial_state(&client, response, resume.is_some()).await?;
     if !svc
         .mux
         .read()
@@ -263,6 +343,13 @@ pub async fn ensure_for_spawn(
         history.active_turn.as_deref(),
         &history.completed_turns,
     );
+    let remote_listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .map_err(|error| error.to_string())?;
+    let remote_port = remote_listener
+        .local_addr()
+        .map_err(|error| error.to_string())?
+        .port();
     let sidecar = Arc::new(Sidecar {
         normalizer: Mutex::new(super::normalize::Normalizer::from_history(
             &thread,
@@ -281,7 +368,8 @@ pub async fn ensure_for_spawn(
         turn_settled: tokio::sync::watch::channel(0).0,
         busy: std::sync::atomic::AtomicBool::new(busy),
         client,
-        port,
+        port: remote_port,
+        upstream_port: port,
         binary,
         version: init.user_agent,
         thread: Mutex::new(thread.clone()),
@@ -289,6 +377,8 @@ pub async fn ensure_for_spawn(
         token,
         thread_settings: params,
         process,
+        spawn: original_spawn,
+        launch_nonce: attach_nonce.clone(),
     });
     crate::service::structured_endpoint::register(
         tab,
@@ -302,11 +392,32 @@ pub async fn ensure_for_spawn(
     }
     svc.chat_registry.shutdown_tab(tab);
     bind(svc, tab, thread.clone());
-    if busy {
-        svc.mark_agent_turn_started(tab);
-        crate::agent::state_verdict::observe_declared_event(svc, tab, &thread, "turn/started");
-    }
+    super::status::observe(
+        svc,
+        tab,
+        &thread,
+        &sidecar,
+        if busy {
+            "turn/started"
+        } else {
+            "turn/completed"
+        },
+    );
     super::subscriber::start(svc.clone(), tab.into(), &sidecar);
+    log::info!("[codex-rpc-attach] tab={tab} nonce={attach_nonce} upstream_port={port} remote_port={remote_port} state=pending");
+    super::attachment::start(
+        svc.clone(),
+        tab.into(),
+        attach_nonce,
+        thread,
+        sidecar.token.clone(),
+        port,
+        remote_listener,
+        sidecar.process.death.clone(),
+    );
+    if resume.is_none() {
+        super::thread_start::refresh_account(svc.clone(), tab.into(), sidecar.clone());
+    }
     crate::service::launch_diagnostics::log_rpc_sidecar(tab);
     artifacts.committed = true;
     Ok(sidecar)
