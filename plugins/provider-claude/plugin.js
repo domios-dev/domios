@@ -181,7 +181,7 @@ function sortedJson(value) {
     return Object.fromEntries(Object.entries(item).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0));
   });
 }
-function statuslineLaunchArgs(args) {
+function composeSettingsArgs(args) {
   const model = modelSettings(args);
   args = model.args;
   const enabled = args.includes(STATUSLINE_FLAG);
@@ -213,6 +213,13 @@ function statuslineLaunchArgs(args) {
     overlay.env = { ...existing, ...model.env };
   }
   return [...rest, "--settings", sortedJson(overlay)];
+}
+function statuslineLaunchArgs(args) {
+  const composed = composeSettingsArgs(args);
+  if (!composed) return null;
+  const path = host.fs.writeTempFile(composed[composed.length - 1], ".ct-settings.json");
+  if (!path) return null;
+  return [...composed.slice(0, -1), path];
 }
 
 // plugins/provider-claude/src/signals.ts
@@ -1744,7 +1751,7 @@ function classifyClaudeTabState(snapshot) {
     return {
       state: "waiting_on_auth",
       confidence: authConfidence,
-      action: { surface: { kind: "auth_prompt", payload: { reason: "login_screen_fallback" } } }
+      action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
     };
   }
   const rl = scoreRateLimit(screen, host.unixNowMs());
@@ -2307,7 +2314,8 @@ var plugin = {
     return parts.join(" ");
   },
   buildResumeCommand(sessionId, skipPermissions) {
-    return [resumeBase(sessionId, skipPermissions), ...statuslineLaunchArgs([]).map(quoteArg)].join(" ");
+    const args = statuslineLaunchArgs([]);
+    return args ? [resumeBase(sessionId, skipPermissions), ...args.map(quoteArg)].join(" ") : null;
   },
   // `--resume` restores the transcript but not the launch-time system prompt,
   // so it is re-applied through the same declared flag buildLaunchCommand uses.

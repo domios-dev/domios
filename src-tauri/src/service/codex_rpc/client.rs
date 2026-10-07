@@ -82,8 +82,8 @@ impl Client {
                 .map_err(|_| "Invalid RPC token")?,
         );
         let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
-            .max_message_size(Some(8 * 1024 * 1024))
-            .max_frame_size(Some(8 * 1024 * 1024));
+            .max_message_size(None)
+            .max_frame_size(None);
         let (socket, _) = tokio::time::timeout(
             Duration::from_secs(15),
             tokio_tungstenite::connect_async_with_config(request, Some(config), false),
