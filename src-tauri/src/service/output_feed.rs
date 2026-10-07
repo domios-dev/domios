@@ -118,6 +118,10 @@ impl ServiceContext {
         self.mark_agent_turn_status(tab_id, TabStatus::Idle)
     }
 
+    pub(crate) fn mark_agent_waiting(&self, tab_id: &str) -> bool {
+        self.mark_agent_turn_status(tab_id, TabStatus::Waiting)
+    }
+
     pub(crate) fn mark_agent_turn_started(&self, tab_id: &str) -> bool {
         self.mark_agent_turn_status(tab_id, TabStatus::Working)
     }
@@ -136,11 +140,12 @@ impl ServiceContext {
             let previous = tracker.get_status(&pty_id);
             match status {
                 TabStatus::Working => tracker.set_working(&pty_id),
+                TabStatus::Waiting => tracker.set_waiting(&pty_id),
                 TabStatus::Error => tracker.set_error(&pty_id),
                 TabStatus::Idle => tracker.set_idle(&pty_id),
                 _ => return false,
             }
-            if status != TabStatus::Working {
+            if matches!(status, TabStatus::Idle | TabStatus::Error) {
                 tracker.notify_terminal_event(&pty_id);
             }
             (previous, tracker.get_status(&pty_id))

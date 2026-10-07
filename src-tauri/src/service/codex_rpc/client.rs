@@ -27,6 +27,7 @@ struct State {
     closed: Option<String>,
     pending: HashMap<RequestId, oneshot::Sender<Reply>>,
     buffer: NotificationBuffer,
+    additional_context: HashMap<String, serde_json::Map<String, Value>>,
 }
 
 struct Inner {
@@ -73,6 +74,7 @@ impl Client {
                 closed: None,
                 pending: HashMap::new(),
                 buffer: NotificationBuffer::new(128, 32),
+                additional_context: HashMap::new(),
             }),
             next_id: AtomicI64::new(1),
             initialized: AtomicBool::new(false),
@@ -172,6 +174,16 @@ impl Client {
         }
     }
 
+    pub fn additional_context(&self, thread: &str) -> serde_json::Map<String, Value> {
+        self.0
+            .state
+            .lock()
+            .additional_context
+            .get(thread)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     pub async fn initialize(&self) -> Reply {
         if self.0.initialized.swap(true, Ordering::SeqCst) {
             return Err(ClientError::Closed(
@@ -214,6 +226,18 @@ impl Client {
             let mut state = self.0.state.lock();
             if let Some(reason) = &state.closed {
                 return Err(ClientError::Closed(reason.clone()));
+            }
+            if matches!(method, "turn/start" | "turn/steer") {
+                if let (Some(thread), Some(context)) = (
+                    params["threadId"].as_str(),
+                    params["additionalContext"].as_object(),
+                ) {
+                    state
+                        .additional_context
+                        .entry(thread.into())
+                        .or_default()
+                        .extend(context.clone());
+                }
             }
             state.pending.insert(id.clone(), reply);
         }

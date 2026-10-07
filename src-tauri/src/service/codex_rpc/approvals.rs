@@ -102,16 +102,23 @@ impl Request {
             _ => return None,
         };
         let route = serde_json::to_string(&self.jsonrpc_id).ok()?;
+        let mut options: Vec<_> = labels
+            .into_iter()
+            .enumerate()
+            .map(|(i, label)| PromptOption {
+                label,
+                value: format!("{route}:{}:{i}", self.question),
+            })
+            .collect();
+        if self.kind == "item/tool/requestUserInput" {
+            options.push(PromptOption {
+                label: "Other".into(),
+                value: format!("{route}:{}:custom", self.question),
+            });
+        }
         Some(PendingPrompt {
             question,
-            options: labels
-                .into_iter()
-                .enumerate()
-                .map(|(i, label)| PromptOption {
-                    label,
-                    value: format!("{route}:{}:{i}", self.question),
-                })
-                .collect(),
+            options,
             sections: None,
             multi_select: None,
             submit_available: None,
@@ -119,10 +126,18 @@ impl Request {
         })
     }
     pub fn answer(&mut self, value: &str) -> Result<Option<Value>, String> {
-        let index = value
-            .parse::<usize>()
-            .ok()
-            .and_then(|index| index.checked_sub(1));
+        let selected = self.prompt().and_then(|prompt| {
+            prompt
+                .options
+                .iter()
+                .position(|option| option.value == value)
+        });
+        let index = selected.or_else(|| {
+            value
+                .parse::<usize>()
+                .ok()
+                .and_then(|index| index.checked_sub(1))
+        });
         let result = match self.kind.as_str() {
             "item/commandExecution/requestApproval" | "item/fileChange/requestApproval" => {
                 let decision = index
@@ -145,7 +160,11 @@ impl Request {
                     .and_then(Value::as_str)
                     .ok_or("Missing question id")?
                     .to_owned();
-                let answer = match index {
+                let has_options = question
+                    .get("options")
+                    .and_then(Value::as_array)
+                    .is_some_and(|options| !options.is_empty());
+                let answer = match index.filter(|_| has_options) {
                     Some(i) => question
                         .get("options")
                         .and_then(Value::as_array)
@@ -248,33 +267,40 @@ pub(crate) fn respond(
 ) -> Option<Result<crate::service::structured_prompt::StructuredResponse, String>> {
     let sidecar = for_tab(tab)?;
     let outcome = (|| {
-        let (id, result) = {
+        let (advanced, option_index) = {
             let mut requests = REQUESTS.lock();
-            let request = requests
-                .get_mut(tab)
-                .and_then(|queue| queue.front_mut())
-                .ok_or("No pending RPC request")?;
+            let queue = requests.get_mut(tab).ok_or("No pending RPC request")?;
+            let request = queue.front_mut().ok_or("No pending RPC request")?;
+            let option_index = request
+                .prompt()
+                .and_then(|prompt| {
+                    prompt
+                        .options
+                        .iter()
+                        .position(|option| option.value == value)
+                })
+                .unwrap_or_else(|| value.parse::<usize>().unwrap_or(1).saturating_sub(1));
             let mut next = request.clone();
-            let result = next.answer(value)?;
-            if result.is_none() {
-                *request = next;
+            match next.answer(value)? {
+                Some(result) => {
+                    sidecar
+                        .client
+                        .reply(&request.jsonrpc_id, Ok(result))
+                        .map_err(super::lifecycle::rpc_error)?;
+                    queue.pop_front();
+                    (false, option_index)
+                }
+                None => {
+                    *request = next;
+                    (true, option_index)
+                }
             }
-            (request.jsonrpc_id.clone(), result)
         };
-        let Some(result) = result else {
-            svc.push_structured_prompt(tab, pending(tab));
+        svc.push_structured_prompt(tab, pending(tab));
+        if advanced {
             return Ok(crate::service::structured_prompt::StructuredResponse::Advanced);
-        };
-        sidecar
-            .client
-            .reply(&id, Ok(result))
-            .map_err(super::lifecycle::rpc_error)?;
-        resolved(svc, tab, &id);
-        Ok(
-            crate::service::structured_prompt::StructuredResponse::Answered {
-                option_index: value.parse::<usize>().unwrap_or(1).saturating_sub(1),
-            },
-        )
+        }
+        Ok(crate::service::structured_prompt::StructuredResponse::Answered { option_index })
     })();
     Some(outcome)
 }

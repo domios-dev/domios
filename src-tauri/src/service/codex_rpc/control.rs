@@ -6,37 +6,52 @@ use std::collections::{HashMap, HashSet};
 pub struct ControlState {
     pub active: HashMap<String, String>,
     pub parents: HashMap<String, String>,
+    pub retired_roots: HashSet<String>,
     completed: HashSet<(String, String)>,
     interrupted: HashSet<(String, String)>,
 }
 
 impl ControlState {
-    pub fn started(&mut self, thread: &str, turn: &str) {
+    pub fn started(&mut self, thread: &str, turn: &str) -> bool {
+        if self.completed.contains(&(thread.into(), turn.into())) {
+            return false;
+        }
         self.active.insert(thread.into(), turn.into());
+        true
+    }
+    pub fn restore(&mut self, thread: &str, active: Option<&str>, completed: &[String]) {
+        self.active.remove(thread);
+        self.completed
+            .extend(completed.iter().map(|turn| (thread.into(), turn.clone())));
+        if let Some(turn) = active {
+            self.started(thread, turn);
+        }
     }
     pub fn completed(&mut self, thread: &str, turn: &str) -> bool {
-        if self.active.get(thread).is_some_and(|active| active == turn) {
+        let current = self.active.get(thread).is_none_or(|active| active == turn);
+        if current {
             self.active.remove(thread);
         }
-        self.completed.insert((thread.into(), turn.into()))
+        self.completed.insert((thread.into(), turn.into())) && current
+    }
+    pub fn owns_thread(&self, root: &str, thread: &str) -> bool {
+        let mut candidate = thread;
+        let mut seen = HashSet::new();
+        while candidate != root {
+            if !seen.insert(candidate) {
+                return false;
+            }
+            let Some(parent) = self.parents.get(candidate) else {
+                return false;
+            };
+            candidate = parent;
+        }
+        true
     }
     pub fn descendants(&self, root: &str) -> Vec<(String, String)> {
         self.active
             .iter()
-            .filter(|(thread, _)| {
-                let mut candidate = thread.as_str();
-                let mut seen = HashSet::new();
-                while candidate != root {
-                    if !seen.insert(candidate) {
-                        return false;
-                    }
-                    let Some(parent) = self.parents.get(candidate) else {
-                        return false;
-                    };
-                    candidate = parent;
-                }
-                true
-            })
+            .filter(|(thread, _)| self.owns_thread(root, thread))
             .map(|(thread, turn)| (thread.clone(), turn.clone()))
             .collect()
     }
@@ -126,6 +141,23 @@ pub fn turn_id(params: &Value) -> Option<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn codex_rpc_control_restore_does_not_replay_stop_or_settle_a_newer_turn() {
+        let mut state = ControlState::default();
+        state.restore("root", Some("active"), &["historical".into()]);
+        assert!(!state.started("root", "historical"));
+        assert!(!state.completed("root", "historical"));
+        assert!(!state.completed("root", "late"));
+        assert_eq!(state.active.get("root").map(String::as_str), Some("active"));
+        assert!(state.completed("root", "active"));
+        state.parents.insert("child".into(), "root".into());
+        state.parents.insert("grandchild".into(), "child".into());
+        assert!(state.owns_thread("root", "grandchild"));
+        assert!(!state.owns_thread("root", "foreign"));
+        state.parents.insert("loop-a".into(), "loop-b".into());
+        state.parents.insert("loop-b".into(), "loop-a".into());
+        assert!(!state.owns_thread("root", "loop-a"));
+    }
     #[test]
     fn codex_rpc_control_stop_deduplicates_and_interrupts_descendants() {
         let mut state = ControlState::default();
