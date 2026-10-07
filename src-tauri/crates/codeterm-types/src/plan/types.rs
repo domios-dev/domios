@@ -477,6 +477,8 @@ pub struct Milestone {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Task {
+    #[serde(default)]
+    pub files: super::TaskFiles,
     pub id: String,
     pub name: String,
     #[serde(rename = "type")]
@@ -1088,6 +1090,7 @@ mod tests {
             capacity_grants: vec![],
         };
         let mut t = Task {
+            files: Default::default(),
             id: "task_1".into(),
             name: "n".into(),
             kind: "implement".into(),

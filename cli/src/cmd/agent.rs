@@ -298,6 +298,11 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
         }
     };
     match action {
+        AgentAction::Turns { tab, last, after } => {
+            let mut params = serde_json::json!({"tab_id":tab,"last":last,"after_offset":after});
+            CallerContext::from_env().apply_trusted_session(&mut params);
+            handle_result(json, client.call("agent.turns", Some(params)));
+        }
         AgentAction::Cli { action } => agent_cli::run(client, json, action),
         AgentAction::Providers => match local_http
             .get(format!("{}/api/agents/providers", base))

@@ -149,6 +149,7 @@ pub(super) fn dispatch_split(
             }
         }
         new_children.push(NewTask {
+            files: super::task_files_field(Some(child))?.unwrap_or_default(),
             name: get_string_param(&Some(child.clone()), "name")?,
             kind: child
                 .get("type")

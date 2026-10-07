@@ -164,6 +164,7 @@ fn corrupt_markdown_sidecar_keeps_plan_indexed_with_json_body() {
         attachments: vec![],
     });
     plan.tasks.push(crate::plan::Task {
+        files: Default::default(),
         id: "task_impl".into(),
         name: "Implement".into(),
         kind: "implement".into(),
@@ -631,6 +632,7 @@ fn inline_milestone_and_canvas_markdown_migrates_to_files_on_load() {
         OrchestratorRef::from_tab("owner"),
     );
     plan.tasks.push(crate::plan::Task {
+        files: Default::default(),
         id: "task_legacy".into(),
         name: "Task".into(),
         kind: "implement".into(),
@@ -744,6 +746,7 @@ fn legacy_inline_only_milestones_load_then_save_to_stride_log_and_stripped_json(
         OrchestratorRef::from_tab("owner"),
     );
     plan.tasks.push(crate::plan::Task {
+        files: Default::default(),
         id: "task_legacy".into(),
         name: "Task".into(),
         kind: "implement".into(),
