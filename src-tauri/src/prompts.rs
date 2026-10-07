@@ -158,8 +158,7 @@ pub const INTERACTIVE_CHILD_PTY_CAPABILITY_ID: &str = "interactive_child_pty";
 /// Compact CodeTerm control contract prepended to non-General agent launches.
 pub const AGENT_CODETERM_PRIMER: &str = concat!(
     include_str!("../prompts/agent_codeterm_primer.md"),
-    "
-",
+    "\n",
     include_str!("../prompts/plugin_discovery_rule.md"),
 );
 
