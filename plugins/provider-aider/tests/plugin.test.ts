@@ -627,23 +627,73 @@ console.log("\n--- detectSessionId (newest history block id) ---\n");
     return context.module.exports.default;
   };
   const historyPath = "/ws/.aider.chat.history.md";
-  const hostWith = (content: string) => ({
+  const hostWith = (content: string, modifiedMs: number | null = null) => ({
     platform: () => "linux",
     shell: { quoteFor: (v: any) => `'${v}'` },
-    fs: { readFile: (p: string) => (p === historyPath ? content : null) },
+    fs: {
+      readFile: (p: string) => (p === historyPath ? content : null),
+      readDir: (p: string) =>
+        p === "/ws"
+          ? [{ name: ".aider.chat.history.md", path: historyPath, isFile: true, isDir: false, size: content.length, modifiedMs, createdMs: null }]
+          : [],
+    },
     log: () => {},
   });
   const p = readVia(hostWith(twoBlocks));
   const newest = p.detectSessionId("/ws", [], 0);
   eq(newest, "2026-10-06 12:00:00.000", "detectSessionId returns the newest block id");
   eq(p.detectSessionId("/ws", [newest!], 0), "2026-10-06 10:00:00.000", "exclude list skips the named block");
-  eq(p.detectSessionId("/ws", [], 1), null, "maxAgeMs excludes blocks older than the window");
   eq(p.sessionExists("/ws", "2026-10-06 12:00:00.000"), true, "sessionExists finds a known block");
   eq(p.sessionExists("/ws", "nope"), false, "sessionExists rejects an unknown id");
   eq(p.sessionJsonlPath("/ws", "2026-10-06 12:00:00.000"), "/ws/.aider.chat.history.md", "sessionJsonlPath returns the history file");
   eq(p.sessionJsonlPath("", "x"), null, "sessionJsonlPath rejects empty cwd");
   eq(p.usesStructuredChat, undefined, "usesStructuredChat is removed");
   eq(p.readStructuredChat, undefined, "readStructuredChat is removed");
+}
+
+console.log("\n--- session id freshness uses file mtime, not header clock ---\n");
+{
+  const skewedBlocks = [
+    "# aider chat started at 2026-10-07 03:19:55.000",
+    "",
+    "#### Live question",
+    "",
+    "Live answer",
+  ].join("\n");
+  const readVia = (host: any) => {
+    const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
+    const source = fs.readFileSync(pluginPath, "utf8");
+    const context = { host, console, module: { exports: {} as any }, exports: {} };
+    new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+    return context.module.exports.default;
+  };
+  const historyPath = "/ws/.aider.chat.history.md";
+  const hostWith = (modifiedMs: number | null) => ({
+    platform: () => "linux",
+    shell: { quoteFor: (v: any) => `'${v}'` },
+    fs: {
+      readFile: (p: string) => (p === historyPath ? skewedBlocks : null),
+      readDir: (p: string) =>
+        p === "/ws"
+          ? [{ name: ".aider.chat.history.md", path: historyPath, isFile: true, isDir: false, size: skewedBlocks.length, modifiedMs, createdMs: null }]
+          : [],
+    },
+    log: () => {},
+  });
+  const now = Date.now();
+  const fresh = readVia(hostWith(now - 1000));
+  eq(fresh.detectSessionId("/ws", [], 60000), "2026-10-07 03:19:55.000", "fresh file mtime keeps the block despite a skewed header clock");
+  eq(fresh.detectSessionId("/ws", [], 3600000), "2026-10-07 03:19:55.000", "fresh file mtime keeps the block within a 1h window");
+  const stale = readVia(hostWith(now - 7200000));
+  eq(stale.detectSessionId("/ws", [], 60000), null, "stale file mtime rejects the block within maxAgeMs");
+  eq(stale.detectSessionId("/ws", [], 3600000), null, "stale file mtime rejects the block within a 1h window");
+  eq(stale.detectSessionId("/ws", [], 0), "2026-10-07 03:19:55.000", "no maxAgeMs keeps the block regardless of header clock");
+  eq(stale.detectSessionId("/ws", [], undefined), "2026-10-07 03:19:55.000", "undefined maxAgeMs keeps the block regardless of header clock");
+  const unknownMtime = readVia(hostWith(null));
+  eq(unknownMtime.detectSessionId("/ws", [], 60000), null, "unknown file mtime is not fresh within maxAgeMs");
+  eq(unknownMtime.detectSessionId("/ws", [], 0), "2026-10-07 03:19:55.000", "unknown file mtime keeps the block when no maxAgeMs is set");
+  eq(fresh.detectSessionId("/ws", ["2026-10-07 03:19:55.000"], 60000), null, "exclude list still skips the named block under mtime freshness");
+  eq(fresh.sessionExists("/ws", "2026-10-07 03:19:55.000"), true, "sessionExists stays consistent with the block id");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);
