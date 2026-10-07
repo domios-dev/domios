@@ -366,13 +366,15 @@ console.log("\n--- history file reader fallbacks ---\n");
   });
   eq(viaFsReadFile.sessionJsonlPath(path.dirname(tmp), "ses_x"), historyPath, "sessionJsonlPath names the history file");
   const delta = viaFsReadFile.parseSessionDelta(fs.readFileSync(tmp, "utf8")) as {
-    messages: Array<{ type: string; content: string }>;
+    messages: Array<{ role: string; blocks: Array<{ kind: string; data: { text: string } }> }>;
   };
   eq(delta.messages.length, 2, "parseSessionDelta turns the file tail into rows");
-  eq(delta.messages[0].type, "user", "delta user row");
-  eq(delta.messages[0].content, "Hi", "delta user text");
-  eq(delta.messages[1].type, "assistant", "delta assistant row");
-  eq(delta.messages[1].content, "Hello there", "delta assistant text");
+  eq(delta.messages[0].role, "user", "delta user row");
+  eq(delta.messages[0].blocks[0].kind, "text", "delta user block kind");
+  eq(delta.messages[0].blocks[0].data.text, "Hi", "delta user text");
+  eq(delta.messages[1].role, "assistant", "delta assistant row");
+  eq(delta.messages[1].blocks[0].kind, "text", "delta assistant block kind");
+  eq(delta.messages[1].blocks[0].data.text, "Hello there", "delta assistant text");
   const missingFs = readVia({ platform: () => "linux", shell: { quoteFor: (v: any) => `'${v}'` } });
   eq(missingFs.sessionJsonlPath(path.dirname(tmp), "ses_x"), historyPath, "sessionJsonlPath needs no fs");
   eq((missingFs.parseSessionDelta("") as { messages: unknown[] }).messages.length, 0, "empty delta yields no rows");
@@ -437,13 +439,15 @@ console.log("\n--- session id detection ---\n");
   eq(p.findSession("2026-10-06 12:00:00.000"), null, "findSession returns null without a cwd to verify against");
   eq(p.sessionJsonlPath("/ws", "2026-10-06 12:00:00.000"), "/ws/.aider.chat.history.md", "sessionJsonlPath names the history file");
   const chat = p.parseSessionDelta("#### New question\n\nNew answer\n") as {
-    messages: Array<{ type: string; content: string }>;
+    messages: Array<{ role: string; blocks: Array<{ kind: string; data: { text: string } }> }>;
   };
   eq(chat.messages.length, 2, "parseSessionDelta returns the block's rows");
-  eq(chat.messages[0].content, "New question", "block user turn parsed");
-  eq(chat.messages[1].content, "New answer", "block assistant turn parsed");
+  eq(chat.messages[0].role, "user", "block user row shape");
+  eq(chat.messages[0].blocks[0].data.text, "New question", "block user turn parsed");
+  eq(chat.messages[1].role, "assistant", "block assistant row shape");
+  eq(chat.messages[1].blocks[0].data.text, "New answer", "block assistant turn parsed");
   const again = p.parseSessionDelta("#### New question\n\nNew answer\n") as {
-    messages: Array<{ type: string; content: string }>;
+    messages: Array<{ role: string; blocks: Array<{ kind: string; data: { text: string } }> }>;
   };
   eq(again.messages.length, 2, "re-read returns the same rows for host merge");
 }
@@ -573,32 +577,33 @@ console.log("\n--- parseSessionDelta (file-tail chat route) ---\n");
     "Second answer",
   ].join("\n");
   const delta = parseAiderHistoryDelta(chunk) as {
-    messages: Array<{ id: string; type: string; content: string; recordIndex: number }>;
+    messages: Array<{ role: string; blocks: Array<{ kind: string; data: { text: string } }>; recordIndex: number }>;
   };
   eq(delta.messages.length, 4, "delta yields user + assistant + user + assistant");
-  eq(delta.messages[0].type, "user", "first delta row is user");
-  eq(delta.messages[0].content, "Hello, what can you do?", "first delta user text");
-  eq(delta.messages[1].type, "assistant", "second delta row is assistant");
-  eq(delta.messages[1].content, "I can help you with coding tasks.", "first delta assistant text");
-  eq(delta.messages[2].type, "user", "third delta row is user");
-  eq(delta.messages[2].content, "Second question", "second delta user text");
-  eq(delta.messages[3].type, "assistant", "fourth delta row is assistant");
-  eq(delta.messages[3].content, "Second answer", "thinking block stripped from delta assistant text");
+  eq(delta.messages[0].role, "user", "first delta row is user");
+  eq(delta.messages[0].blocks[0].kind, "text", "first delta row is a text block");
+  eq(delta.messages[0].blocks[0].data.text, "Hello, what can you do?", "first delta user text");
+  eq(delta.messages[1].role, "assistant", "second delta row is assistant");
+  eq(delta.messages[1].blocks[0].data.text, "I can help you with coding tasks.", "first delta assistant text");
+  eq(delta.messages[2].role, "user", "third delta row is user");
+  eq(delta.messages[2].blocks[0].data.text, "Second question", "second delta user text");
+  eq(delta.messages[3].role, "assistant", "fourth delta row is assistant");
+  eq(delta.messages[3].blocks[0].data.text, "Second answer", "thinking block stripped from delta assistant text");
   eq(delta.messages[0].recordIndex, 0, "recordIndex is the chunk line");
   eq(delta.messages[1].recordIndex, 2, "assistant recordIndex is its first line");
 
   const blankOnly = parseAiderHistoryDelta("#### \n\n#### Real\n\nAnswer\n") as {
-    messages: Array<{ type: string; content: string }>;
+    messages: Array<{ role: string; blocks: Array<{ kind: string; data: { text: string } }> }>;
   };
   eq(blankOnly.messages.length, 2, "blank #### turns are skipped in delta");
-  eq(blankOnly.messages[0].content, "Real", "real user turn survives in delta");
-  eq(blankOnly.messages[1].content, "Answer", "assistant turn survives in delta");
+  eq(blankOnly.messages[0].blocks[0].data.text, "Real", "real user turn survives in delta");
+  eq(blankOnly.messages[1].blocks[0].data.text, "Answer", "assistant turn survives in delta");
 
   const thinkingOnly = parseAiderHistoryDelta(
     "#### Q\n\n<thinking-content-x>\nhidden\n</thinking-content-x>\n",
-  ) as { messages: Array<{ type: string }> };
+  ) as { messages: Array<{ role: string }> };
   eq(thinkingOnly.messages.length, 1, "assistant row with only thinking is dropped in delta");
-  eq(thinkingOnly.messages[0].type, "user", "user row survives in delta");
+  eq(thinkingOnly.messages[0].role, "user", "user row survives in delta");
 
   const empty = parseAiderHistoryDelta("") as { messages: unknown[] };
   eq(empty.messages.length, 0, "empty chunk yields no rows");
