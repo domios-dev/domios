@@ -8,6 +8,8 @@ use std::io::Read;
 
 #[path = "agent_cli.rs"]
 mod agent_cli;
+#[path = "agent_compatibility.rs"]
+mod agent_compatibility;
 #[path = "agent_model_switch.rs"]
 mod agent_model_switch;
 #[path = "agent_models.rs"]
@@ -355,6 +357,9 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                         models_count,
                         provider_availability_marker(p)
                     );
+                    if let Some(line) = agent_compatibility::status_line(p) {
+                        println!("  {line}");
+                    }
                     if let Some(status) = p.get("cli_status") {
                         if status.get("installed").and_then(|v| v.as_bool()) != Some(true) {
                             for line in crate::cmd::plugin::cli_status::status_lines(id, status) {

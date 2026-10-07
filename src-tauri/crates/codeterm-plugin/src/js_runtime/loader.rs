@@ -491,6 +491,7 @@ mod tests {
         let mut manifest = shipped_codex_manifest();
         manifest.sessions.as_mut().unwrap().root_dir = home.to_string_lossy().into_owned();
         for credential in &mut manifest.credentials {
+            credential.file_environment = None;
             credential.file = home.join("auth.json").to_string_lossy().into_owned();
         }
 
@@ -611,6 +612,7 @@ mod tests {
         let mut manifest = shipped_codex_manifest();
         manifest.sessions.as_mut().unwrap().root_dir = home.to_string_lossy().into_owned();
         for credential in &mut manifest.credentials {
+            credential.file_environment = None;
             credential.file = auth.to_string_lossy().into_owned();
         }
 

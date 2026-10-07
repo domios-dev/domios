@@ -25,8 +25,15 @@ fn value_at<'a>(doc: &'a Value, path: &str) -> Option<&'a Value> {
     value.filter(|v| !v.is_null())
 }
 
+fn credential_path(cred: &CredentialConfig) -> Option<std::path::PathBuf> {
+    cred.file_environment
+        .as_ref()
+        .and_then(|environment| environment.resolve(std::env::var_os(&environment.variable)))
+        .or_else(|| PluginManifest::expand_home(&cred.file))
+}
+
 fn read_document(cred: &CredentialConfig) -> Option<Value> {
-    let path = PluginManifest::expand_home(&cred.file)?;
+    let path = credential_path(cred)?;
     let text = std::fs::read_to_string(path).ok()?;
     serde_json::from_str::<Value>(&text).ok()
 }
@@ -48,8 +55,17 @@ fn resolve_fields(doc: &Value, spec: &BTreeMap<String, String>) -> BTreeMap<Stri
 pub(super) fn declared_files(credentials: &[CredentialConfig]) -> Vec<std::path::PathBuf> {
     credentials
         .iter()
-        .filter_map(|c| PluginManifest::expand_home(&c.file))
-        .collect()
+        .flat_map(|c| {
+            [PluginManifest::expand_home(&c.file), credential_path(c)]
+                .into_iter()
+                .flatten()
+        })
+        .fold(Vec::new(), |mut paths, path| {
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+            paths
+        })
 }
 
 /// `host.credentialPublic(id)` — the non-secret fields only, as a JSON object.

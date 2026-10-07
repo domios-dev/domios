@@ -21,6 +21,7 @@ pub mod manifest;
 mod model_providers;
 pub mod plugin_config;
 mod provider;
+mod provider_observation;
 pub(crate) mod toolcall_parse;
 mod transcriber;
 mod view;
