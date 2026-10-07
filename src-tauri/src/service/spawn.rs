@@ -598,9 +598,12 @@ impl ServiceContext {
                 permission_bypass_requested: permission_bypass,
             },
         );
-        let startup_handshake = crate::service::launch_delivery::startup_starter_prompt(
+        let startup_handshake = crate::service::launch_delivery::startup_starter_prompt_for_class(
             startup_supervised,
             task_identity.is_some(),
+            self.agent_registry
+                .with_provider(&agent_cmd, |provider| provider.is_tool_less())
+                .unwrap_or(false),
         );
         let confirmed_first_turn = if startup_handshake.is_some() {
             crate::service::launch_delivery::startup_handshake_confirmed_first_turn(

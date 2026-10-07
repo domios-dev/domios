@@ -12,6 +12,7 @@ use crate::service::inject_verify::{
 use crate::service::ServiceContext;
 mod cycle;
 mod evidence_watcher;
+mod line_mode;
 mod recovery_guard;
 mod runner;
 pub(crate) use cycle::{
@@ -152,6 +153,9 @@ trait SubmitTransport {
             DeferredSubmitWait::Deadline
         }
     }
+    fn max_submit_keys(&self) -> usize {
+        MAX_SUBMIT_KEY_WRITES
+    }
     fn retry_active(&self) -> bool {
         true
     }
@@ -209,6 +213,7 @@ struct PtySubmitTransport<'a> {
     evidence_binding_nonce: RefCell<Option<String>>,
     evidence_pty_generation: Cell<Option<u64>>,
     require_exact_session_turn: bool,
+    max_submit_keys: usize,
     output_generation_at_start: Cell<u64>,
     turn_status_generation_at_start: Cell<u64>,
     deferred_ready_seen: Cell<bool>,
@@ -266,6 +271,10 @@ fn initial_submit_frames(
 }
 
 impl SubmitTransport for PtySubmitTransport<'_> {
+    fn max_submit_keys(&self) -> usize {
+        self.max_submit_keys
+    }
+
     fn dialog_guard(&self) -> Result<(), InjectionError> {
         pty_owner_guard(self.svc, self.pty_id)
     }
@@ -374,6 +383,9 @@ impl SubmitTransport for PtySubmitTransport<'_> {
         let current_binding = self.svc.mux.read().get_tab(&tab_id).is_some_and(|tab| {
             tab.agent_session_id.as_deref() == Some(anchor.session_id.as_str())
                 && tab.session_binding_nonce.as_deref() == evidence_binding_nonce.as_deref()
+                && (self.max_submit_keys != 1
+                    || tab.reported_session_binding_nonce.as_deref()
+                        == evidence_binding_nonce.as_deref())
                 && tab.pty_id.as_deref() == Some(self.pty_id)
         });
         let current_generation = self.svc.screen_state.lock().pty_generation(self.pty_id);
@@ -395,7 +407,7 @@ impl SubmitTransport for PtySubmitTransport<'_> {
     fn has_exact_user_turn_evidence(&self) -> bool {
         exact_session_turn_source_available(
             self.require_exact_session_turn,
-            self.evidence_anchor.borrow().is_some(),
+            self.evidence_anchor.borrow().is_some() || self.max_submit_keys == 1,
         )
     }
 
@@ -948,6 +960,16 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
     let status_signal = svc.agent_tracker.lock().arm_status_change_signal(pty_id);
     let output_generation_at_start = submit_cycle.output_generation();
     let turn_status_generation_at_start = status_signal.generation();
+    let provider = {
+        let mux = svc.mux.read();
+        mux.tab_id_for_pty(pty_id)
+            .and_then(|tab| mux.get_tab(&tab).and_then(|tab| tab.agent_type.clone()))
+    };
+    let composer = provider.and_then(|provider| {
+        svc.agent_registry
+            .with_provider(&provider, |provider| provider.composer_cursor_position())
+    });
+    let policy = line_mode::submit_policy(track_exact_session_turn, composer);
     let transport = PtySubmitTransport {
         svc,
         pty_id,
@@ -963,7 +985,8 @@ fn submit_text_with_key_claimed_and_parts_revalidated(
         evidence_tab_id: RefCell::new(None),
         evidence_binding_nonce: RefCell::new(None),
         evidence_pty_generation: Cell::new(None),
-        require_exact_session_turn: track_exact_session_turn,
+        require_exact_session_turn: policy.0,
+        max_submit_keys: policy.1,
         output_generation_at_start: Cell::new(output_generation_at_start),
         turn_status_generation_at_start: Cell::new(turn_status_generation_at_start),
         turn_evidence_cursor: RefCell::new(

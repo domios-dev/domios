@@ -1,4 +1,4 @@
-use super::{DeferredSubmitWait, SubmitTransport, MAX_SUBMIT_KEY_WRITES};
+use super::{DeferredSubmitWait, SubmitTransport};
 use crate::agent::provider::{PasteCapability, VerifySubmitStrategy};
 use crate::service::inject_verify::{InjectionError, InjectionResult, VerifyOpts};
 use std::time::{Duration, Instant};
@@ -192,7 +192,7 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
     let mut submit_observed = !two_phase;
     let mut dialog_blocked = false;
     let mut force_key_schedule_after_deadline = false;
-    while submit_key_writes < MAX_SUBMIT_KEY_WRITES {
+    while submit_key_writes < transport.max_submit_keys() {
         if !transport.retry_active() {
             break;
         }
@@ -442,6 +442,12 @@ fn run_with_submit_key_and_parts<T: SubmitTransport>(
             }
             if exact_turn_evidence && transport.exact_user_turn_present(&expected_user_turn) {
                 submit_observed = true;
+                break;
+            }
+            if transport.max_submit_keys() == 1 && submit_key_writes >= 1 {
+                if transport.wait_retry_deadline_for_turn(deferred_deadline, &expected_user_turn) {
+                    submit_observed = true;
+                }
                 break;
             }
             match key_guard(false, turn_was_started) {

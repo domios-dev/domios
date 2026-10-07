@@ -392,3 +392,5 @@ pub const COMPOSED_ROLE_PROMPT_MAX_BYTES: usize = 33_700;
 
 #[cfg(test)]
 mod tests;
+
+pub const TOOL_LESS: &str = include_str!("../prompts/tool_less.md");

@@ -245,6 +245,7 @@ fn build_agent_command_inner(
 
     let launch_task = command_task.and_then(|task| task.text);
     let launch_params = AgentLaunchParams {
+        tool_less_instructions_path: None,
         agent_name: params.agent_name.clone(),
         task: launch_task,
         starter_prompt: params.starter_prompt,
@@ -262,12 +263,12 @@ fn build_agent_command_inner(
     let command = if let Some((service, tab_id)) = notice_context {
         crate::service::task_files::capture(service, tab_id, || {
             registry.with_provider(agent_cmd, |provider| {
-                provider.build_launch_command(&launch_params)
+                crate::service::tool_less_instructions::build(provider, &launch_params)
             })
         })
     } else {
         registry.with_provider(agent_cmd, |provider| {
-            provider.build_launch_command(&launch_params)
+            crate::service::tool_less_instructions::build(provider, &launch_params)
         })
     };
     match command {
