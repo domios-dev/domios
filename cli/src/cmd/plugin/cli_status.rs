@@ -1,6 +1,27 @@
 use codeterm_plugin::provider_cli::manifest_cli_status;
 use std::path::Path;
 
+pub(super) fn register_installed(value: &mut serde_json::Value) -> Result<(), String> {
+    let ids: Vec<String> = value["cli_status"]
+        .as_object()
+        .into_iter()
+        .flat_map(|statuses| statuses.keys().cloned())
+        .collect();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let Ok((mut client, _)) = crate::client::SocketClient::connect_local() else {
+        value["provider_registration"] = serde_json::json!("offline");
+        return Ok(());
+    };
+    client.call(
+        "plugin.refresh_installed",
+        Some(serde_json::json!({"ids": ids})),
+    )?;
+    value["provider_registration"] = serde_json::json!("acknowledged");
+    Ok(())
+}
+
 pub(super) fn attach(value: &mut serde_json::Value, root: &Path, requested: Option<&str>) {
     let mut ids: Vec<String> = value
         .get("updated")

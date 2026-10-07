@@ -13,6 +13,32 @@ pub(super) fn dispatch(
 ) -> Result<serde_json::Value, JsonRpcError> {
     // System methods are tiny — handle inline.
     match method {
+        "plugin.refresh_installed" => {
+            let ids: Vec<String> = params
+                .as_ref()
+                .and_then(|p| p.get("ids"))
+                .cloned()
+                .ok_or_else(|| JsonRpcError {
+                    code: -32602,
+                    message: "ids is required".into(),
+                    data: None,
+                })
+                .and_then(|value| {
+                    serde_json::from_value(value).map_err(|error| JsonRpcError {
+                        code: -32602,
+                        message: error.to_string(),
+                        data: None,
+                    })
+                })?;
+            crate::plugin::js_runtime::hot_reload::refresh_installed_plugins(&ids).map_err(
+                |message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                },
+            )?;
+            return Ok(serde_json::json!({"registered": ids}));
+        }
         "api.request" => return local_api::dispatch(&params, app),
         "system.identify" => {
             return Ok(serde_json::json!({
@@ -25,6 +51,7 @@ pub(super) fn dispatch(
         "system.capabilities" => {
             let methods = vec![
                 "system.identify",
+                "plugin.refresh_installed",
                 "system.capabilities",
                 "api.request",
                 "workspace.list",

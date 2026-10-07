@@ -223,6 +223,7 @@ pub struct HotReloadRegistry {
     pending_reload: Mutex<HashSet<String>>,
     failed: Mutex<HashMap<PathBuf, LoadFingerprint>>,
     service: Mutex<Option<std::sync::Weak<dyn PluginHostCtx>>>,
+    reconciliation: Mutex<()>,
     #[cfg(test)]
     load_count: std::sync::atomic::AtomicUsize,
     #[cfg(test)]
@@ -234,6 +235,13 @@ pub struct HotReloadRegistry {
 }
 
 static WATCHER: OnceLock<Arc<HotReloadRegistry>> = OnceLock::new();
+
+pub fn refresh_installed_plugins(ids: &[String]) -> Result<(), String> {
+    WATCHER
+        .get()
+        .ok_or("Plugin watcher is not ready")?
+        .refresh_installed(ids)
+}
 
 pub fn pending_reload_ids() -> Vec<String> {
     WATCHER
@@ -275,6 +283,7 @@ impl HotReloadRegistry {
             pending_reload: Mutex::new(HashSet::new()),
             failed: Mutex::new(HashMap::new()),
             service: Mutex::new(None),
+            reconciliation: Mutex::new(()),
             #[cfg(test)]
             load_count: std::sync::atomic::AtomicUsize::new(0),
             #[cfg(test)]
@@ -426,6 +435,40 @@ impl HotReloadRegistry {
     }
 
     pub fn tick(&self) {
+        let _reconciliation = self.reconciliation.lock();
+        self.tick_inner();
+    }
+
+    pub fn refresh_installed(&self, ids: &[String]) -> Result<(), String> {
+        let _reconciliation = self.reconciliation.lock();
+        for id in ids {
+            self.state.lock().remove(id);
+        }
+        for (id, paths) in self.discover_candidates() {
+            if ids.contains(&id) {
+                for path in paths {
+                    self.failed.lock().remove(&path);
+                }
+            }
+        }
+        self.tick_inner();
+        for id in ids {
+            if self.pending_reload.lock().contains(id) {
+                return Err(format!(
+                    "Plugin {id} was installed on disk but requires a daemon reload to activate"
+                ));
+            }
+        }
+        let state = self.state.lock();
+        for id in ids {
+            if !state.contains_key(id) {
+                return Err(format!("Plugin {id} was installed on disk but failed live registration; inspect plugin diagnostics"));
+            }
+        }
+        Ok(())
+    }
+
+    fn tick_inner(&self) {
         let mut seen: Vec<String> = Vec::new();
         let candidates = self.discover_candidates();
         for paths in candidates.values() {
@@ -721,6 +764,9 @@ impl HotReloadRegistry {
             .load(std::sync::atomic::Ordering::SeqCst)
     }
 }
+
+#[cfg(test)]
+mod install_refresh_tests;
 
 fn runtime_api_port() -> Option<u16> {
     std::env::var("CODETERM_API_PORT")
