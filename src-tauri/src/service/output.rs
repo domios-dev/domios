@@ -514,7 +514,7 @@ impl ServiceContext {
         use crate::agent::signal_extractor::Motion;
 
         // mux (1): the tab's identity + agent gate + picker question + previous.
-        let (tab_id, agent_type, prompt_question, previous) = {
+        let (tab_id, agent_type, session_id, cwd, prompt_question, previous) = {
             let mux = self.mux.read();
             let Some(tab_id) = mux.tab_id_for_pty(pty_id) else {
                 return;
@@ -534,12 +534,26 @@ impl ServiceContext {
                     state: TimelineState::Idle,
                     subtype: None,
                 });
-            (tab_id, agent_type, prompt_question, previous)
+            (
+                tab_id,
+                agent_type,
+                tab.agent_session_id.clone(),
+                tab.cwd.clone(),
+                prompt_question,
+                previous,
+            )
         };
         if Self::is_agent_stop_suppressed(pty_id) {
             self.force_agent_idle_for_tab(&tab_id);
             return;
         }
+
+        let Some(composer_position) = self
+            .agent_registry
+            .with_provider(&agent_type, |provider| provider.composer_cursor_position())
+        else {
+            return;
+        };
 
         // screen_state (3): trimmed lines + tail from the existing parser.
         const LIVE_TAIL_ROWS: usize = 60;
@@ -553,11 +567,27 @@ impl ServiceContext {
                 .map(|input| input.cursor_hidden)
                 .unwrap_or(false);
             let cursor_state = screen_state.cursor_input_state(pty_id);
-            let composer_ready = cursor_state
-                .map(|(_alt, vis, row, rows)| {
-                    crate::agent::offline_state_classifier::composer_cursor_ready(vis, row, rows)
-                })
-                .unwrap_or(false);
+            let composer_ready = if composer_position
+                == crate::agent::provider::ComposerCursorPosition::PromptLine
+            {
+                screen_state
+                    .composer_input_state(pty_id)
+                    .is_some_and(|input| {
+                        crate::agent::offline_state_classifier::prompt_line_cursor_ready(
+                            input.cursor_visible,
+                            input.cursor_row,
+                            input.last_nonblank_row,
+                        )
+                    })
+            } else {
+                cursor_state
+                    .map(|(_alt, vis, row, rows)| {
+                        crate::agent::offline_state_classifier::composer_cursor_ready(
+                            vis, row, rows,
+                        )
+                    })
+                    .unwrap_or(false)
+            };
             let cursor_row = cursor_state.map(|(_alt, _vis, row, _rows)| row as usize);
             Some((lines, tail, cursor_hidden, composer_ready, cursor_row))
         }) else {
@@ -598,17 +628,19 @@ impl ServiceContext {
             &agent_type,
             |builder| {
                 classify_state(
-                    &builder.build(ClassifyParts {
-                        picker_question: prompt_question.as_deref(),
-                        screen_lines: &lines,
-                        tail: &tail,
-                        byte_idle_ms,
-                        semantic_idle_ms,
-                        motion: Motion::Still,
-                        cursor_hidden,
-                        composer_ready,
-                        status_elapsed,
-                    }),
+                    &builder
+                        .with_composer_position(composer_position)
+                        .build(ClassifyParts {
+                            picker_question: prompt_question.as_deref(),
+                            screen_lines: &lines,
+                            tail: &tail,
+                            byte_idle_ms,
+                            semantic_idle_ms,
+                            motion: Motion::Still,
+                            cursor_hidden,
+                            composer_ready,
+                            status_elapsed,
+                        }),
                     previous,
                 )
             },
@@ -619,6 +651,21 @@ impl ServiceContext {
                 return;
             }
         };
+        let snapshot = crate::agent::tab_state::TabStateSnapshot {
+            tab_id: tab_id.clone(),
+            agent_type: agent_type.clone(),
+            session_id,
+            cwd,
+            screen_text: tail,
+        };
+        let classification = self
+            .agent_registry
+            .with_provider(&agent_type, |provider| {
+                provider.classify_tab_state(&snapshot)
+            })
+            .flatten();
+        let verdict =
+            crate::agent::state_reactor::display_verdict(verdict, classification.as_ref());
         let became_idle =
             previous.state != TimelineState::Idle && verdict.state == TimelineState::Idle;
         let mut new_state: AgentLiveState = verdict.into();

@@ -16,6 +16,25 @@ use crate::service::{ServiceContext, ServiceState};
 /// Minimum confidence an actionable verdict must clear — the no-false-positive gate.
 pub const GLOBAL_THRESHOLD: f32 = 0.8;
 
+pub fn display_verdict(
+    structural: super::offline_state_classifier::TabVerdict,
+    classification: Option<&TabStateClassification>,
+) -> super::offline_state_classifier::TabVerdict {
+    use super::offline_state_classifier::{TabVerdict, TimelineState};
+    if structural.state != TimelineState::Question
+        && classification.is_some_and(|value| {
+            value.state == TabState::Working && value.confidence >= GLOBAL_THRESHOLD
+        })
+    {
+        TabVerdict {
+            state: TimelineState::Working,
+            subtype: None,
+        }
+    } else {
+        structural
+    }
+}
+
 pub(crate) fn is_manual_update_prompt(classification: Option<&TabStateClassification>) -> bool {
     classification.is_some_and(|value| {
         value.state == TabState::UpdatePrompt && value.confidence >= GLOBAL_THRESHOLD

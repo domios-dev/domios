@@ -6,6 +6,45 @@ use crate::agent::tab_state::{
 use crate::agent::test_provider::MockProvider;
 use codeterm_types::pty::{PendingPrompt, PromptOption};
 
+#[test]
+fn plugin_working_verdict_updates_display_without_action() {
+    use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
+    let idle = TabVerdict {
+        state: TimelineState::Idle,
+        subtype: None,
+    };
+    let working = classification(TabState::Working, GLOBAL_THRESHOLD, None);
+    assert_eq!(
+        display_verdict(idle, Some(&working)).state,
+        TimelineState::Working
+    );
+    assert_eq!(display_verdict(idle, None), idle);
+    assert_eq!(
+        display_verdict(idle, Some(&classification(TabState::Working, 0.79, None))),
+        idle
+    );
+    assert_eq!(
+        display_verdict(idle, Some(&classification(TabState::Unknown, 1.0, None))),
+        idle
+    );
+}
+
+#[test]
+fn plugin_working_verdict_does_not_hide_structured_question() {
+    use crate::agent::offline_state_classifier::{QuestionSubtype, TabVerdict, TimelineState};
+    let question = TabVerdict {
+        state: TimelineState::Question,
+        subtype: Some(QuestionSubtype::Auth),
+    };
+    assert_eq!(
+        display_verdict(
+            question,
+            Some(&classification(TabState::Working, 1.0, None))
+        ),
+        question
+    );
+}
+
 fn classification(
     state: TabState,
     confidence: f32,

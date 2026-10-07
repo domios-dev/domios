@@ -1,4 +1,5 @@
 [
+  "src/components/Terminal/chatSessionAuthority.attachment.test.ts",
   "packages/chat-ui/src/codeterm/ReminderCard.test.tsx",
   "packages/chat-ui/src/MessageTime.test.tsx",
   "packages/chat-ui/src/timelineMarkers.test.tsx",

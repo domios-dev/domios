@@ -1,5 +1,7 @@
 use super::{extract_question_message, QuestionSubtype};
 
+mod prompt_line;
+
 fn lines(rows: &[&str]) -> Vec<String> {
     rows.iter().map(|row| (*row).to_string()).collect()
 }
