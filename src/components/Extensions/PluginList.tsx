@@ -426,6 +426,8 @@ function Badge({ tone, children }: { tone: "installed" | "update" | "dev"; child
         : { background: "var(--ct-bg-active)", color: "var(--ct-muted)", border: "1px solid var(--ct-border-default)" };
   return (
     <span
+      role={tone === "update" ? "status" : undefined}
+      aria-label={tone === "update" ? "Update available" : undefined}
       data-testid={`extensions-plugin-badge-${tone}`}
       style={{
         fontSize: 9.5,

@@ -18,6 +18,24 @@ Message and pad file options accept `-` as UTF-8 stdin, including
 For `plan create`, an implicit project path from a Team-bound caller is the
 caller Team workspace cwd; explicit `--project` remains an override.
 
+### Plugin update diagnostics
+
+`codeterm plugin list` shows `update=<reason>` and `channel_version=<version>`.
+With `--json`, each installed row includes `update.available`, `update.reason`,
+`update.channel`, `update.remote_version`, and `update.basis` (`channel_cache`).
+Listing is offline: refresh a named channel with `codeterm plugin channel refresh <name>`
+to check its current offer. `codeterm plugin update <id>` refreshes the recorded
+channel and installs only a newer compatible semantic version whose channel and
+plugin manifests agree. Bulk update skips plugins that are not updatable.
+
+Same-version manifest hash drift remains a diagnostic in `plugin channel diff`;
+it does not produce an UPDATE badge or count. Local directory installs and source
+tree plugins have no channel update. Reinstall local changes with
+`codeterm plugin install --from-dir <path>`. Unknown install provenance or a missing
+channel cannot authorize an update. `plugin update-system` remains the explicit
+system synchronization and same-version repair operation; it preserves newer
+installed versions.
+
 ### CLI JSON ID Contract
 
 Planner mutation commands emit one JSON envelope:

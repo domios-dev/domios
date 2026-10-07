@@ -174,12 +174,7 @@ pub(super) fn channel_diff(name: Option<&str>) -> Result<serde_json::Value, Stri
 /// returned to the caller so `channel_diff` can decide whether to propagate (named
 /// diff) or skip the channel and continue (aggregate diff for the snapshot).
 fn diff_channel_rows(ch: &ChannelRecord) -> Result<Vec<ChannelDiffRow>, String> {
-    let temp = std::env::temp_dir().join(format!(
-        "codeterm-channel-diff-{}-{}",
-        ch.name,
-        uuid::Uuid::new_v4()
-    ));
-    let channel_path = materialize_channel_for_diff(ch, &temp)?;
+    let channel_path = materialize_channel_for_diff(ch)?;
     let manifest = read_channel_manifest(&channel_path)?;
     let mut rows = Vec::new();
     for plugin in manifest.plugins {
@@ -188,6 +183,7 @@ fn diff_channel_rows(ch: &ChannelRecord) -> Result<Vec<ChannelDiffRow>, String> 
         let remote_dir = channel_path.join(&remote_path);
         let local_dir = plugin_dir(&plugin_id);
         let local_version = manifest_version(&local_dir).ok().flatten();
+        let payload_version = manifest_version(&remote_dir).ok().flatten();
         let remote_version = plugin
             .version
             .clone()
@@ -204,7 +200,10 @@ fn diff_channel_rows(ch: &ChannelRecord) -> Result<Vec<ChannelDiffRow>, String> 
             .min_codeterm
             .clone()
             .or_else(|| manifest_min_codeterm(&remote_dir));
-        let (compatible, blocked_reason) = match compat_check(remote_min.as_deref()) {
+        let payload_min = manifest_min_codeterm(&remote_dir);
+        let (compatible, blocked_reason) = match compat_check(remote_min.as_deref())
+            .and_then(|_| compat_check(payload_min.as_deref()))
+        {
             Ok(()) => (true, None),
             Err(reason) => (false, Some(reason)),
         };
@@ -220,6 +219,7 @@ fn diff_channel_rows(ch: &ChannelRecord) -> Result<Vec<ChannelDiffRow>, String> 
             );
         }
         rows.push(ChannelDiffRow {
+            payload_version,
             channel: ch.name.clone(),
             id: plugin.id,
             local_version,
@@ -231,16 +231,10 @@ fn diff_channel_rows(ch: &ChannelRecord) -> Result<Vec<ChannelDiffRow>, String> 
             blocked_reason,
         });
     }
-    if temp.exists() {
-        let _ = fs::remove_dir_all(&temp);
-    }
     Ok(rows)
 }
 
-pub(super) fn materialize_channel_for_diff(
-    ch: &ChannelRecord,
-    temp: &Path,
-) -> Result<PathBuf, String> {
+pub(super) fn materialize_channel_for_diff(ch: &ChannelRecord) -> Result<PathBuf, String> {
     match ch.kind {
         ChannelKind::Local => {
             // Diff the stable cached copy (ch.path), not source_dir(): a transiently absent
@@ -253,9 +247,8 @@ pub(super) fn materialize_channel_for_diff(
             }
         }
         ChannelKind::Git => {
-            let source = parse_channel_source(&ch.url);
-            clone_git_channel(&source, temp)?;
-            Ok(temp.to_path_buf())
+            refresh_channel_record(ch)?;
+            Ok(PathBuf::from(&ch.path))
         }
     }
 }

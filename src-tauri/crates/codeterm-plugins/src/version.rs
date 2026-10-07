@@ -32,15 +32,8 @@ pub(super) fn last_change_for_update(
 }
 
 pub(super) fn version_cmp(left: &str, right: &str) -> std::cmp::Ordering {
-    match (semverish(left), semverish(right)) {
-        (Some(a), Some(b)) => a.cmp(&b),
+    match (semver::Version::parse(left), semver::Version::parse(right)) {
+        (Ok(a), Ok(b)) => a.cmp_precedence(&b),
         _ => left.cmp(right),
     }
-}
-
-pub(super) fn semverish(value: &str) -> Option<Vec<u64>> {
-    value
-        .split('.')
-        .map(|part| part.parse::<u64>().ok())
-        .collect()
 }

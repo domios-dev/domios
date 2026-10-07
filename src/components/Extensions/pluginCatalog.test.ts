@@ -21,7 +21,7 @@ function assert(cond: unknown, msg: string): asserts cond {
 const snapshot: PluginSnapshot = {
   plugins: [
     { id: "claude", display_name: "Claude", system: true, removable: false, version: "1.4.6", capabilities: { agent_provider: true } },
-    { id: "git", display_name: "Git", system: false, removable: true, version: "0.1.0", capabilities: { status_bubble: true }, description: "Shows branch status." },
+    { id: "git", source: { kind: "channel", channel: "core", path: "git" }, update: { available: true, reason: "newer_version", remote_version: "0.2.0" }, display_name: "Git", system: false, removable: true, version: "0.1.0", capabilities: { status_bubble: true }, description: "Shows branch status." },
     { id: "bitwarden", display_name: "Bitwarden", system: false, removable: true, version: "0.1.0", capabilities: { secret_backend: true }, config_help: "Choose a vault server." },
   ],
   channels: [],
@@ -40,6 +40,34 @@ test("buildCatalog merges installed + marketplace by id", () => {
   const cat = buildCatalog(snapshot);
   const ids = cat.map((e) => e.id).sort();
   assert(ids.join(",") === "bitwarden,claude,future,git,transcriber", `got ${ids.join(",")}`);
+});
+
+test("hash drift and unrelated channels cannot override the installed update decision", () => {
+  for (const dev of [false, true]) {
+    const entries = buildCatalog({
+      plugins: [{ id: "demo", version: "0.1.0", dev, source: { kind: "dir", path: "/local/demo" }, update: { available: false, reason: "local_install" } }],
+      channels: [], diff: [],
+      marketplace: [
+        { id: "demo", channel: "store", drift: "hash_drift", local_version: "0.1.0", remote_version: "0.1.0", compatible: true },
+        { id: "demo", channel: "other", drift: "update_available", remote_version: "9.0.0", compatible: true },
+      ],
+    });
+    assert(entries[0].updateAvailable === false, "only the installed decision authorizes an update");
+    assert(updateCount(entries) === 0, "same-version drift contributes no Updates count");
+    assert(filterCatalog(entries, "", "updates").length === 0, "Updates filter agrees");
+    assert(primaryAction(entries[0]).kind !== "update", "Update action agrees");
+  }
+});
+
+test("an installed update survives unrelated and stale marketplace rows", () => {
+  const entries = buildCatalog({
+    ...snapshot,
+    marketplace: [...snapshot.marketplace!, { id: "git", channel: "other", drift: "hash_drift", compatible: false, remote_version: "99.0.0" }],
+  });
+  const git = entries.find((entry) => entry.id === "git")!;
+  assert(git.updateAvailable && git.channel === "core", "installed provenance wins");
+  assert(git.remoteVersion === "0.2.0" && git.compatible, "unrelated channel cannot replace the offer");
+  assert(updateCount(entries) === 1, "one installed decision contributes one update");
 });
 
 test("pending_reload flows from snapshot into catalog entry (§1.8)", () => {
