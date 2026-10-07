@@ -8,6 +8,18 @@ macOS verification was completed by Fulton on eight, using native arm64 Codex 0.
 
 The uncommitted macOS evidence bundle is `/Users/dev/.codeterm/runtime/agent-pads/20927f0a/hybrid-evidence/` on eight: per-flow launch.json, mint.ndjson, observer.ndjson, terminal screens, PID receipts, and teardown.txt containing every PID/token/listener and thread ID. These are **Fulton's executed results relayed through the Orchestrator**, not independently rerun by this Windows Worker. Mac evidence remains on eight and is not copied into this git lane. The plan stride and physical-machine transcript paths are the review references.
 
+### Windows final observations before the second restart
+
+The resumed owner DEV run used utility tab `9d68c34c`, launcher PID 5944, server PID 16564 and TUI PID 44304. `dc identify` reported CLI SHA `30170071c9cc73cc332a54a2e456954dd0075a30`; this is the CLI build receipt, not an independently verified daemon SHA. Codex remained native 0.160.0. Same injection flow, dedicated port 18471, fresh temp directory `C:/Users/dev/AppData/Local/Temp/codex-remote-spike-final-windows-bfbf99400cf845008a811446329fbc33`.
+
+Resize **PASS**: sourced the bench library and called `dev_post /api/tabs/9d68c34c/resize '{"cols":80,"rows":24}'`, then the same endpoint with 120/40; both returned `{"ok":true}` and the TUI visibly reflowed/truncated its cwd/footer at narrow width and restored them at wide width. Screens: windows-final-resize-80x24.txt and windows-final-resize-120x40.txt.
+
+Real subagent activity **OBSERVED**: root `01a11649-8af5-73e3-b620-f575ebc7c1fb` spawned child `01a1164a-9049-7490-ab67-7ed8f6e71069`; parent-stream `subAgentActivity` items explicitly carry `agentThreadId` and `agentPath:"/root/oracle_child"`. Child completed with CHILD_ORACLE; parent completed with PARENT_ORACLE. The observer stayed bound to the root. A different broadcast `thread/started` was an ephemeral title worker, `01a1164a-80f5-71e3-a762-67c88aeaee88`, with `threadSource:"thread_title"`; thread/read confirmed it. ParentThreadId alone would incorrectly admit this title worker because it is null. Filter explicit subAgentActivity agentThreadIds and non-user threadSource values; do not rebind to title threads. The actual child's thread/read and slash transitions were interrupted before observation, so this is partial discrimination evidence, not a completed slash-switch oracle.
+
+During the /fork step the host turn was interrupted by a PROD restart/restoration message. After restoration, DEV was unavailable and the owned launcher/server/TUI had exited. No normal slash transition result is claimed. Frames and composed environment: windows-final-pre-restart-{observer,mint}.ndjson and windows-final-pre-restart-launch.json.
+
+Descendant/orphan audit **PASS for the interrupted run**: native Toolhelp snapshots at launch and after subagent completion tracked launcher, both Codex processes, mint client, MCP node and conhost descendants (seven live processes). Post-restart verification found zero survivors and no 18471 listener. Windows reused PID 51260 for an unrelated process; creation-time comparison excluded it, and it was not touched. See windows-final-pre-restart-audit.json. The residual temp auth token was removed explicitly. CIM process-event access was denied by the OS, so the audit uses explicit-phase snapshots and creation identities; it does not claim a continuous process-start trace. Windows final GO remains pending slash transitions and the child's source/parent read, on the next owner-DEV readiness signal.
+
 ## Historical full-checklist verdict (before carried-risk decision)
 
 **Windows: NO-GO for the complete checklist. macOS: NOT OBSERVED (NO-GO for release until verified). Lane A remains blocked.**
