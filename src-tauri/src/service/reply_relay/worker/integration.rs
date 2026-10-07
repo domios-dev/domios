@@ -128,6 +128,13 @@ fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
             NewTask {
                 name: "opaque task".into(),
                 kind: "research".into(),
+                acceptance_criteria: vec![
+                    "The exact own-session user turn acknowledges the assigned attempt.".into(),
+                    "The final answer persists unchanged as one Worker report in review.".into(),
+                ],
+                test_plan: Some(
+                    "Run build.ps1 test-one app exact_first_user_ack_and_final_answer_persist_a_real_worker_report --wait-build; expect one passing test proving the durable ACK and report.".into(),
+                ),
                 ..Default::default()
             },
             2,
