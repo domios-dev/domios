@@ -161,11 +161,11 @@ fn main_impl() {
         }
     }
 
-    if let Commands::Sentinel {
-        action: args::sentinel::SentinelAction::Recipe { name },
+    if let Commands::Blueprint {
+        action: args::blueprint::BlueprintAction::Recipe { name },
     } = &cli.command
     {
-        cmd::sentinel::handle_recipe(cli.json, name.as_deref());
+        cmd::blueprint::handle_recipe(cli.json, name.as_deref());
         return;
     }
 
@@ -489,8 +489,8 @@ fn main_impl() {
             return;
         }
 
-        Commands::Sentinel { action } => {
-            cmd::sentinel::handle_sentinel(&mut client, cli.json, action);
+        Commands::Blueprint { action } => {
+            cmd::blueprint::handle_blueprint(&mut client, cli.json, action);
             return;
         }
 

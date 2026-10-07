@@ -17,12 +17,61 @@ fn owner() -> Owner {
     }
 }
 
+#[test]
+fn blueprint_owner_tab_close_stops_tab_owned_work() {
+    assert!(!super::routes::owner_is_live(None, false, true));
+    assert!(super::routes::owner_is_live(None, true, false));
+}
+
+#[test]
+fn blueprint_owner_team_survives_creator_close_and_stops_with_team() {
+    assert!(super::routes::owner_is_live(Some("team"), false, true));
+    assert!(!super::routes::owner_is_live(Some("team"), true, false));
+}
+
 fn create(store: &mut Store, paused: bool, handlers: serde_json::Value) -> Sentinel {
     store.create(serde_json::from_value(json!({
         "name":"scheduler-result-watch",
         "probe":"status", "question":"state", "buckets":["done","failed"], "every":"10s", "timeout":"1h",
         "paused":paused, "handlers":handlers, "matches":{"done":"^done$"}
     })).unwrap(), owner(), false).unwrap()
+}
+
+#[test]
+fn blueprint_owner_close_cancels_active_tab_owned_run_only() {
+    let dir = tempfile::tempdir().unwrap();
+    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let mut store = Store::new(dir.path().join("sentinels.json"), clock);
+    let tab_job = store
+        .create(
+            serde_json::from_value(json!({
+                "name":"owner-close-tab", "probe":"status", "question":"state", "buckets":["done"], "every":"10s", "timeout":"1h", "matches":{"done":"^done$"}
+            }))
+            .unwrap(),
+            Owner {
+                creator_tab_id: "creator".into(),
+                team_id: None,
+                workspace_id: "workspace".into(),
+                cwd: "/tmp".into(),
+            },
+            false,
+        )
+        .unwrap();
+    let team_job = create(&mut store, false, json!({}));
+    let leases = store.due().unwrap();
+    let tab_lease = leases
+        .iter()
+        .find(|lease| lease.job.id == tab_job.id)
+        .unwrap();
+    let team_lease = leases
+        .iter()
+        .find(|lease| lease.job.id == team_job.id)
+        .unwrap();
+    let conversion = tab_lease.cancelled.conversion_token();
+    assert_eq!(store.cancel_tab_owned_runs("creator"), 1);
+    assert!(tab_lease.is_cancelled());
+    assert!(conversion.is_cancelled());
+    assert!(!team_lease.is_cancelled());
 }
 
 fn execute(
@@ -136,6 +185,7 @@ fn sentinel_scheduler_graph_weak_other_and_unchanged_never_activate() {
         let lease = super::store::Lease {
             job: repeated,
             cancelled: lease.cancelled,
+            event: None,
         };
         super::scheduler::advance(
             &store,
@@ -417,7 +467,7 @@ fn sentinel_scheduler_graph_action_budget_stops_before_next_effect() {
 }
 
 #[test]
-fn sentinel_scheduler_graph_crash_after_claim_does_not_reclassify_or_replay_on_reload() {
+fn blueprint_delivery_route_claim_journal_failure_finishes_failed_without_replay() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("sentinels.json");
     let clock = crate::cron::clock::MockClock::starting_at(1000);
@@ -446,7 +496,9 @@ fn sentinel_scheduler_graph_crash_after_claim_does_not_reclassify_or_replay_on_r
         |_, _, _, _| panic!("journal refusal prevents effect"),
         |_, _, stage| {
             if matches!(stage, super::provenance::Stage::RouteClaim) {
-                Err(std::io::Error::other("interrupted after durable claim"))
+                Err(super::scheduler::known_pre_effect_journal_refusal(
+                    "route claim rejected before effect",
+                ))
             } else {
                 Ok(())
             }
@@ -472,5 +524,137 @@ fn sentinel_scheduler_graph_crash_after_claim_does_not_reclassify_or_replay_on_r
     let current = restored.lock();
     let records = &current.get(&job.id).unwrap().transitions;
     assert_eq!(records.len(), 1);
-    assert_eq!(records[0].handlers[0].status, Status::Unconfirmed);
+    assert_eq!(records[0].handlers[0].status, Status::Failed);
+    assert_eq!(
+        records[0].handlers[0].reason.as_deref(),
+        Some("journal_route_claim_failed")
+    );
+}
+
+#[test]
+fn blueprint_delivery_ambiguous_route_claim_journal_error_stays_unconfirmed() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("sentinels.json");
+    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let store = Arc::new(Mutex::new(Store::new(path.clone(), clock.clone())));
+    let job = create(
+        &mut store.lock(),
+        false,
+        json!({"done":[{"id":"attempt","type":"notify","parameters":{}}]}),
+    );
+    let lease = store.lock().due().unwrap().remove(0);
+    super::scheduler::advance(
+        &store,
+        &lease,
+        &super::probe::Output {
+            bytes: b"done".to_vec(),
+            text: "done".into(),
+            ..Default::default()
+        },
+        || {
+            Classification::regex(Verdict {
+                bucket: "done".into(),
+                confidence: 1.0,
+            })
+        },
+        |job, transition, handler| store.lock().claim_handler(job, transition, handler),
+        |_, _, _, _| panic!("ambiguous route claim must not run the effect"),
+        |_, _, stage| {
+            if matches!(stage, super::provenance::Stage::RouteClaim) {
+                Err(std::io::Error::other("interrupted after durable claim"))
+            } else {
+                Ok(())
+            }
+        },
+    );
+    let current = store.lock();
+    let claim = &current.get(&job.id).unwrap().transitions[0].handlers[0];
+    assert_eq!(claim.status, Status::Unconfirmed);
+    assert_eq!(
+        claim.reason.as_deref(),
+        Some("route_claim_journal_unconfirmed")
+    );
+}
+
+#[test]
+fn blueprint_delivery_rearm_on_change_claims_executes_and_completes() {
+    use super::provenance::Stage;
+
+    let dir = tempfile::tempdir().unwrap();
+    let clock = crate::cron::clock::MockClock::starting_at(1000);
+    let store = Arc::new(Mutex::new(Store::new(
+        dir.path().join("blueprints.json"),
+        clock.clone(),
+    )));
+    let job = store
+        .lock()
+        .create(
+            serde_json::from_value(json!({
+                "name":"rearm-delivery-watch",
+                "probe":"status",
+                "question":"state",
+                "buckets":["done"],
+                "every":"10s",
+                "timeout":"1h",
+                "matches":{"done":".*"},
+                "rearm_on_change":["done"],
+                "handlers":{"done":[{"id":"notice","type":"notify","parameters":{}}]}
+            }))
+            .unwrap(),
+            owner(),
+            false,
+        )
+        .unwrap();
+    let mut stages = Vec::new();
+    for output in ["first", "second"] {
+        let lease = store.lock().due().unwrap().remove(0);
+        super::scheduler::advance(
+            &store,
+            &lease,
+            &super::probe::Output {
+                bytes: output.as_bytes().to_vec(),
+                text: output.into(),
+                ..Default::default()
+            },
+            || {
+                Classification::regex(Verdict {
+                    bucket: "done".into(),
+                    confidence: 1.0,
+                })
+            },
+            |job, transition, handler| store.lock().claim_handler(job, transition, handler),
+            |_, transition, _, _| {
+                Ok(super::handlers::Effect {
+                    status: Status::Completed,
+                    execution_id: Some(format!("execution-{transition}")),
+                    command_result: None,
+                    reason: None,
+                })
+            },
+            |_, _, stage| {
+                stages.push(stage);
+                Ok(())
+            },
+        );
+        store.lock().release(&job.id);
+        clock.advance_ms(10_000);
+    }
+    assert_eq!(
+        stages,
+        [
+            Stage::Decision,
+            Stage::RouteClaim,
+            Stage::RouteCompleted,
+            Stage::Decision,
+            Stage::RouteClaim,
+            Stage::RouteCompleted,
+        ]
+    );
+    let current = store.lock();
+    let job = current.get(&job.id).unwrap();
+    assert_eq!(job.transitions.len(), 2);
+    assert!(job.transitions.iter().all(|transition| {
+        transition.handlers[0].execution_id.is_some()
+            && transition.handlers[0].status == Status::Completed
+    }));
 }

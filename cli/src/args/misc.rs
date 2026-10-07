@@ -622,10 +622,10 @@ pub enum BridgeAction {
         /// Service to migrate (currently only "telegram").
         #[arg(long, default_value = "telegram")]
         service: String,
-        /// Send a one-shot "now serving from <host>" message to the sentinel chat.
+        /// Send a one-shot "now serving from <host>" message to the Blueprint chat.
         #[arg(long)]
         announce: bool,
-        /// Sentinel chat id for --announce. Defaults to the target's first allow-listed bridge user.
+        /// Blueprint chat id for --announce. Defaults to the target's first allow-listed bridge user.
         #[arg(long)]
         announce_chat_id: Option<i64>,
         /// Skip auto-rollback if target claim fails (leave source disabled).

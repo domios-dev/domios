@@ -108,6 +108,26 @@ Response (one of):
 3. `codeterm config set integrations.text_hooks.daemon_url http://127.0.0.1:7892` (or wherever your daemon listens)
 4. Restart bridge (`codeterm bridge restart`) — picks up the new config.
 
+### Graph nodes (plugin declarations)
+
+A plugin contributes graph nodes through `capabilities.graphNodes` in its manifest: media `converters` and typed `eventSources`. Both lists are optional, and a declared block must name at least one node.
+
+```json
+"capabilities": {
+  "graphNodes": {
+    "converters": [{ "from": "audio", "to": "text" }],
+    "eventSources": [{
+      "kind": "telegram.message",
+      "title": "Telegram: new message",
+      "params":  { "type": "object", "properties": { "chat_id": { "type": "string", "maxLength": 128 } }, "required": ["chat_id"] },
+      "payload": { "type": "object", "properties": { "text": { "type": "string", "maxLength": 16384 } }, "required": ["text"] }
+    }]
+  }
+}
+```
+
+- **converters** declare which media kinds (`text`, `audio`, `video`, `image`) the plugin turns into which (`from` differs from `to`, at most 16). The plugin exports `convert(request)` returning `{ text }`, `{ path }` (a file inside the request's `outputDir`), or `{ error }`. The host chains conversion steps across plugins from the declarations alone, so a plan never depends on which plugin serves a step. A `transcriber` capability is registered as `audio -> text` automatically.
+- **eventSources** declare up to 16 event kinds per plugin (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`, at most 64 bytes, unique per plugin) with a 1-128 byte title and typed `params`/`payload` schemas. The schema subset is an object of scalar or one-level scalar-array properties (at most 32; `maxLength` <= 65536, `maxItems` <= 256) with optional `description` and `enum`; `$ref`, combinators (`oneOf`/`anyOf`), `patternProperties` and nested objects are refused at parse.
 ### Secrets
 
 Pluggable secret store for the `codeterm mem secret` command family and the Settings → Secrets UI. Configure the active backend, (for Bitwarden) the default org/collection that new items land in, and (for Bitwarden) the server URL. Auto-unlock is not a config key: a secret-backend plugin opts in through its manifest and the unlock request (see the secret-store reference below).
@@ -135,4 +155,4 @@ Full secret-store reference, including CLI, storage internals, error mapping, an
 
 Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

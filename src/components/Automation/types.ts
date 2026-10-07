@@ -107,6 +107,51 @@ export interface AutomationGraph extends AutomationScope {
   revision: string;
   nodes: readonly AutomationNode[];
   edges: readonly AutomationEdge[];
+  blueprints?: readonly BlueprintSnapshot[];
+}
+
+export type BlueprintOwnerKind = "tab" | "team";
+export type BlueprintState = "idle" | "running" | "held" | "stopped" | "failed";
+export type BlueprintStepState = "waiting" | "running" | "done" | "failed" | "skipped";
+export type BlueprintResultState = "waiting" | "delivering" | "delivered" | "failed";
+
+export interface BlueprintOwner {
+  kind: BlueprintOwnerKind;
+  tab_id: string | null;
+  team_id: string | null;
+}
+
+export interface BlueprintStep {
+  index: number;
+  name: string;
+  kind: "command" | "convert" | "ask" | "filter";
+  title: string;
+  state: BlueprintStepState;
+  outcome: string | null;
+  started_at_ms: number | null;
+  ended_at_ms: number | null;
+  result_summary: string | null;
+  reason: string | null;
+}
+
+export interface BlueprintResult {
+  target: { kind: "owner_tab" | "tab" | "team" | "notify"; id: string | null };
+  state: BlueprintResultState;
+  reason: string | null;
+  body_ref: string | null;
+}
+
+export interface BlueprintSnapshot {
+  id: string;
+  name: string;
+  owner?: BlueprintOwner;
+  state: BlueprintState;
+  run_id: string | null;
+  current_step: number | null;
+  last_event_at_ms: number | null;
+  trigger?: { type: "schedule" | "event" | "input"; summary: string };
+  steps?: readonly BlueprintStep[];
+  result?: BlueprintResult;
 }
 
 export interface AutomationAttachment extends AutomationScope {
@@ -126,4 +171,8 @@ export function automationKey(identity: AutomationIdentity): string {
 
 export function sameScope(a: AutomationScope, b: AutomationScope): boolean {
   return a.workspace_id === b.workspace_id && a.team_id === b.team_id;
+}
+
+export function automationKindLabel(kind: string): string {
+  return kind === "sentinel" ? "blueprint" : kind;
 }

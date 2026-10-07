@@ -106,6 +106,7 @@ fn team_storage_fixture() -> TeamStorageFixture {
                 name: Some("Team teardown sentinel".into()),
                 probe: Some("status".into()),
                 observe: None,
+                input: None,
                 question: "Did the state change?".into(),
                 buckets: vec!["waiting".into(), "passed".into(), "failed".into()],
                 every: "20s".into(),

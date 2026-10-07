@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod blueprint;
 pub mod cli;
 pub mod cron;
 pub mod debug;
@@ -14,7 +15,6 @@ pub mod pad;
 pub mod persona;
 pub mod plan;
 pub mod plugin;
-pub mod sentinel;
 pub mod service;
 pub mod sessions;
 pub mod spec;

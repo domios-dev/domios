@@ -1,0 +1,17 @@
+{
+  "name": "voice-note-to-text",
+  "owner": "tab",
+  "trigger": {
+    "type": "input",
+    "kind": "audio",
+    "source": { "file": "@@INPUT_FILE@@" }
+  },
+  "steps": [
+    {
+      "name": "transcribe",
+      "input": "audio",
+      "kind": { "kind": "convert", "from": "audio", "to": "text" }
+    }
+  ],
+  "result": { "to": "owner" }
+}

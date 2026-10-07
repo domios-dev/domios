@@ -1,0 +1,21 @@
+name: Pipeline echo
+owner: tab
+trigger:
+  type: schedule
+  every: 10s
+steps:
+  - name: emit
+    input: text
+    kind:
+      kind: command
+      command: "echo ready"
+  - name: match
+    input: text
+    kind:
+      kind: filter
+      pattern: '^ready\r?$'
+      bucket: matched
+    on:
+      matched: stop
+result:
+  to: owner

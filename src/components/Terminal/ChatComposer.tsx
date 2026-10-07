@@ -26,6 +26,8 @@ import {
 import type { ModelInfo, PendingPrompt } from "../../lib/types";
 import { ModelSuggestionPicker } from "./ModelSuggestionPicker";
 import { TabTaskStrip } from "./TabTaskStrip";
+import { ComposerJobChips } from "./ComposerJobChips";
+import { useMuxSelector } from "../../store/multiplexer";
 import { COMPOSER_MIN_HEIGHT, applyComposerAutosize } from "./composerAutosize";
 import {
   beginComposition,
@@ -310,6 +312,7 @@ function ChatComposerImpl({
   const pluginTabMenu = usePluginTabMenu();
 
   const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`);
+  const workspaceId = useMuxSelector(useCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerHighlight, setPickerHighlight] = useState(0);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -850,6 +853,7 @@ function ChatComposerImpl({
       <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="composer" />
       <div className="mb-2 flex flex-wrap items-center gap-1 empty:hidden">
       <TabTaskStrip tabId={tabId} presentation="inline" />
+      <ComposerJobChips tabId={tabId} workspaceId={workspaceId} />
       <ComposerBubbleRow
         attachments={attachments}
         onRemove={removeAttachment}

@@ -7,6 +7,7 @@ use crate::service::session_model::spawn_startup_model_refresh;
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::worker_loss::{busy_worker_close_warnings, BUSY_WORKER_CLOSE_REFUSAL_PREFIX};
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::Manager;
 
 #[path = "tab/lifecycle_exit.rs"]
 mod lifecycle_exit;
@@ -144,6 +145,12 @@ impl ServiceContext {
     }
 
     pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
+        if let Some(handle) = self
+            .app_handle
+            .try_state::<crate::sentinel::scheduler::Handle>()
+        {
+            handle.cancel_tab_owned_runs(tab_id);
+        }
         super::task_files::release_tab(self, tab_id);
         self.cancel_agent_startup_supervision(tab_id);
         let pad_result = self.revoke_agent_pad(tab_id);

@@ -58,6 +58,7 @@ import { ChatAskCard } from "../Notifications/ChatAskCard";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
+import { BlueprintChatCards } from "./BlueprintChatCards";
 
 interface Props {
   tabId: string;
@@ -154,6 +155,8 @@ export function TabSessionChat({
   const openPlanTarget = usePlanTargetNavigation();
   const tabSelector = useCallback((s: Parameters<typeof selectTab>[0]) => selectTab(s, tabId), [tabId]);
   const tab = useMuxSelector(tabSelector, tabFieldsEqual);
+  const workspaceSelector = useCallback((s: Parameters<typeof selectTab>[0]) => s.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? s.tabs[tabId]?.workspace_id ?? null, [tabId]);
+  const workspaceId = useMuxSelector(workspaceSelector);
   const tabTitleMap = useMuxSelector(selectTabTitleMap, tabTitleMapEqual);
   const planNav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
   const tabAgentTypes = useMuxSelector(selectTabAgentTypes, tabAgentTypesEqual);
@@ -767,6 +770,7 @@ export function TabSessionChat({
         )}
         {(reportPlacement.afterIndex.get(-1) ?? []).map(renderOutboundReport)}
         {(askPlacement.afterIndex.get(-1) ?? []).map(renderAsk)}
+        <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />
         {renderedEnrichedMessages.map(({ msg, item, origin }, messageIndex) => {
           const originProps = originPropsById.get(msg.id);
           const following = reportPlacement.afterIndex.get(messageIndex) ?? [];

@@ -14,7 +14,7 @@ export function fixtureNode(identity: AutomationIdentity, name: string): Automat
 export function fixtureGraph(): AutomationGraph {
   return {
     workspace_id: attachment.workspace_id, team_id: attachment.team_id, revision: "revision-a",
-    scenarios: [{ id: "scenario-a", name: "Sentinel scenario A", root: sentinelIdentity }],
+    scenarios: [{ id: "scenario-a", name: "Blueprint scenario A", root: sentinelIdentity }],
     nodes: [
       { ...fixtureNode(sentinelIdentity, "Watcher A"), sentinel_definition: { source: "stored_agent_definition", definition_id: sentinelIdentity.id, creator_tab_id: sentinelIdentity.owner_tab_id! }, state: "paused", cadence_ms: 15000, expires_at: 200000, outcomes: [{ bucket: "branch-a", handlers: [
         { id: "handler-a", type: "cron", target: cronIdentity, availability: "available", last_result: { status: "success", execution_id: "handler-execution-a", accepted_at: 100000 } },
@@ -79,7 +79,7 @@ export function multiScenarioGraph(): AutomationGraph {
   const definition = (target: AutomationIdentity) => ({ source: "stored_agent_definition" as const, definition_id: target.id, creator_tab_id: target.owner_tab_id! });
   return {
     ...graph,
-    scenarios: [...graph.scenarios, { id: "scenario-b", name: "Sentinel scenario B", root: secondIdentity }],
+    scenarios: [...graph.scenarios, { id: "scenario-b", name: "Blueprint scenario B", root: secondIdentity }],
     nodes: [...graph.nodes,
       { ...fixtureNode(stageIdentity, "Internal stage A"), sentinel_definition: definition(stageIdentity) },
       { ...fixtureNode(secondIdentity, "Watcher B"), sentinel_definition: definition(secondIdentity) },
@@ -91,7 +91,7 @@ export function multiScenarioGraph(): AutomationGraph {
   };
 }
 
-/** Three-stage chain shaped like the BLACKSTAR scenario: Sentinel root, internal Sentinel stage, Worker target. */
+/** Three-stage chain shaped like the BLACKSTAR scenario: Blueprint root, internal Blueprint stage, Worker target. */
 export function chainGraph(): AutomationGraph {
   const [root, stage] = ["chain-root", "chain-stage"].map((id) => identity("sentinel", id));
   const worker = identity("worker", "chain-worker");
@@ -112,7 +112,7 @@ export function chainGraph(): AutomationGraph {
   };
 }
 
-/** Decision Sentinel whose declared outcomes fan out to a real stage plus target-less command, notify and stop actions. */
+/** Decision Blueprint whose declared outcomes fan out to a real stage plus target-less command, notify and stop actions. */
 export function decisionGraph(): AutomationGraph {
   const [root, stage] = ["decision-root", "decision-stage"].map((id) => identity("sentinel", id));
   const worker = identity("worker", "decision-worker");

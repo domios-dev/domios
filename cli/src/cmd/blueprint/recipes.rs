@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-const SOURCE: &str = include_str!("../../../../prod-docs/SENTINEL-RECIPES.md");
+const SOURCE: &str = include_str!("../../../../prod-docs/BLUEPRINT-RECIPES.md");
 const REQUIRED: &[&str] = &[
     "team-watch",
     "wait-for-build",
@@ -9,6 +9,7 @@ const REQUIRED: &[&str] = &[
     "cron-run-watch",
     "launch-prompt-gate",
     "all-finished",
+    "voice-note-to-text",
 ];
 
 #[derive(Clone, Debug, Serialize)]
@@ -22,13 +23,13 @@ pub(super) struct Recipe {
 pub(super) fn recipes() -> Result<Vec<Recipe>, String> {
     let mut recipes = Vec::new();
     let mut remaining = SOURCE;
-    while let Some((_, tail)) = remaining.split_once("<!-- sentinel-recipe:") {
+    while let Some((_, tail)) = remaining.split_once("<!-- blueprint-recipe:") {
         let (header, after_header) = tail
             .split_once("-->")
             .ok_or("recipe block needs a closing marker")?;
         let name = header.trim();
         let (body, rest) = after_header
-            .split_once("<!-- /sentinel-recipe -->")
+            .split_once("<!-- /blueprint-recipe -->")
             .ok_or_else(|| format!("recipe `{name}` needs an end marker"))?;
         let summary = body
             .lines()
@@ -90,7 +91,7 @@ pub(super) fn print(json_mode: bool, name: Option<&str>) {
                     .join(", ");
                 crate::cmd::print::fail(
                     2,
-                    format!("unknown Sentinel recipe `{name}`; choose: {names}"),
+                    format!("unknown Blueprint recipe `{name}`; choose: {names}"),
                 )
             });
         if json_mode {
@@ -106,7 +107,7 @@ pub(super) fn print(json_mode: bool, name: Option<&str>) {
         for recipe in recipes {
             println!("{} — {}", recipe.name, recipe.summary);
         }
-        println!("\nPrint a ready handlers file and --dry-run command with `codeterm sentinel recipe <name>`.");
+        println!("\nPrint a ready handlers file and --dry-run command with `codeterm blueprint recipe <name>`.");
     }
 }
 
@@ -137,7 +138,7 @@ mod tests {
                 .unwrap();
             command[handlers_arg] = path.to_string_lossy().into_owned();
             assert_eq!(command.first().map(String::as_str), Some("codeterm"));
-            assert_eq!(command.get(1).map(String::as_str), Some("sentinel"));
+            assert_eq!(command.get(1).map(String::as_str), Some("blueprint"));
             assert_eq!(command.get(2).map(String::as_str), Some("create"));
             let buckets = command
                 .windows(2)
@@ -153,20 +154,20 @@ mod tests {
                 "recipe {} omitted the composition timeout",
                 recipe.name
             );
-            let crate::args::cli::Commands::Sentinel { action } = cli.command else {
-                panic!("recipe command did not parse as sentinel create")
+            let crate::args::cli::Commands::Blueprint { action } = cli.command else {
+                panic!("recipe command did not parse as blueprint create")
             };
-            let crate::args::sentinel::SentinelAction::Create { name, dry_run, .. } = &action
+            let crate::args::blueprint::BlueprintAction::Create { name, dry_run, .. } = &action
             else {
-                panic!("recipe command did not parse as sentinel create")
+                panic!("recipe command did not parse as blueprint create")
             };
             assert!(*dry_run, "recipe {} omitted --dry-run", recipe.name);
-            codeterm_types::automation_name::validate_sentinel_name(name)
+            codeterm_types::automation_name::validate_sentinel_name(name.as_deref().unwrap_or(""))
                 .unwrap_or_else(|error| panic!("recipe {}: {error}", recipe.name));
             let (method, params) =
                 super::super::request(action, Some("creator".into()), Some("nonce".into()))
                     .unwrap();
-            assert_eq!(method, "sentinel.validate.create");
+            assert_eq!(method, "blueprint.validate.create");
             assert_eq!(params["create"]["handlers"], normalized);
         }
     }

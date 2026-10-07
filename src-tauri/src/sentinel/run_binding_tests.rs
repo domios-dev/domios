@@ -69,6 +69,7 @@ fn insert_with_options(
                 name: Some("cron-run-watch".into()),
                 probe: None,
                 observe: Some(TabBinding::CronRun("cron-nightly".into())),
+                input: None,
                 question: "Which run state?".into(),
                 buckets: vec!["waiting".into()],
                 every: "10s".into(),

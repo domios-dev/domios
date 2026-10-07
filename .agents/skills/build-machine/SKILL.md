@@ -301,7 +301,7 @@ SIGKILLs `rustc`.
 ### Fixed Linux Storage foundation qualification
 
 The manual `storage-foundation-linux` scope of `tests.yml` retains its standalone foundation check;
-Sentinel-only scopes never count toward it. On `[self-hosted, linux-build]` it joins
+Blueprint-only scopes never count toward it. On `[self-hosted, linux-build]` it joins
 `expected_source_sha` to the workflow, event and checkout SHA, refuses a dirty checkout, `.env`,
 ambient target or test-command overrides and `CODETERM_*` bindings other than the embed cache, and
 refuses unless the tracked Storage facade, both test files and crate equal reviewed
@@ -320,7 +320,7 @@ gh workflow run tests.yml --repo rollacode/codeterm --ref <reviewed-published-re
 ```
 
 The combined `storage-domains-linux` scope runs Cron V2 (`storage_cron_`, 28 selected: 25 `ok` and
-three `ignored` desktop-runtime controls), Sentinel V3 (`storage_sentinel_`, 17 `ok`), then the
+three `ignored` desktop-runtime controls), Blueprint V3 (`storage_sentinel_`, 17 `ok`), then the
 accepted Storage foundation (`storage_contract_`, 23 `ok`) in exactly this foreground order:
 `TEST_CAP_SECS=600 RUST_TEST_THREADS=1 CARGO_TERM_COLOR=never ./build.sh test-one app storage_cron_`,
 then the same fixed command with `storage_sentinel_`, then with `storage_contract_`. Each selected run
@@ -330,10 +330,10 @@ not passes. Compilation command wall time and libtest-reported time are recorded
 first raw failure or inventory refusal leaves later commands `not_run`. It joins the exact expected,
 workflow, event, and checkout SHA, pins the complete combined
 domain input tree to `bae48571f3ec780816aa05b0d47c2289755cc029` (with its one Storage `assets.rs`
-change, four reviewed Sentinel probe inputs and the test-only Sentinel `handlers.rs` wrapper removal
+change, four reviewed Blueprint probe inputs and the test-only Blueprint `handlers.rs` wrapper removal
 since `3972c8bd13bbf666e4470a3fcf6a51c6d67f5447`),
 and independently compares unchanged foundation inputs to `dbc17edee5c1c9032c1498caa0f04b00eb3468ad`.
-The changed shared Storage registration/schema files and added Cron/Sentinel repository/schema files
+The changed shared Storage registration/schema files and added Cron/Blueprint repository/schema files
 are joined to the combined anchor; they cannot equal the older whole-crate foundation tree, whose
 existing check remains unchanged. Fresh `storage-domains-linux-<run>-<attempt>` evidence retains a
 bounded receipt and full raw logs. The counts are source expectations until the primary Orchestrator
@@ -490,7 +490,7 @@ Registration tokens, signing keys, package tokens, and Tauri signing passwords s
 
 Reuse can falsely report `installed_executable_differs_from_pinned_archive` when comparing a ZIP entry stream's unsupported `Length` property. Compare the entry descriptor length, then drain and compare both streams. Three in-memory compressed ZIP controls cover equality across buffer boundaries, changed bytes and changed length; never replace installed bytes to bypass refusal.
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
 
 Detached server startup passed the single-member maintenance oracle but exposed compiler windows during
 Lookout compilation: pinned sccache creates ordinary compiler children, which lack a console to inherit.
@@ -499,7 +499,7 @@ and confirms server membership with GetConsoleProcessList. Missing console or in
 refuses before task tests. No new console, attach, desktop switch, global window hiding or PTY change is used.
 Pure controls prove flags/refusal only; actual compilation and absence of new windows require native proof.
 
-Windows-only Sentinel test compilation can fail on `System::IO::ReadFile`: windows-sys0.61 declares
+Windows-only Blueprint test compilation can fail on `System::IO::ReadFile`: windows-sys0.61 declares
 `ReadFile` in `Storage::FileSystem`, with the existing IO feature for OVERLAPPED. Correct the import;
 stop downstream test gates when compilation fails, and qualify the two focused selectors after the fix.
 
@@ -507,7 +507,7 @@ ContractOnly can report `native_control_selection_count_mismatch` after adding n
 leaving its independent expected inventory stale. Match the authored group inventory (21 startup controls)
 and rerun the exact-head pure gate; never remove the count guard or count its refusal as a behavior failure.
 
-Windows Sentinel native probes can fail immediately with `probe_capture_or_completion_failed` when Job
+Windows Blueprint native probes can fail immediately with `probe_capture_or_completion_failed` when Job
 completion fields are reversed: transferred bytes carry the Job message, while OVERLAPPED carries the PID.
 ACTIVE_PROCESS_ZERO legitimately carries a null PID. Decode Job packets before rejecting null capture
 operations; failed dequeues with null OVERLAPPED still refuse. Re-run the fixed 11/4 Windows boundary.

@@ -24,6 +24,26 @@ fn agent_usage_is_null_until_wired() {
     assert_eq!(agent_usage_json(), "null");
 }
 
+#[test]
+fn event_source_plugin_without_graph_events_grant_cannot_emit() {
+    let sandbox = Arc::new(
+        PluginSandbox::restricted(vec![], vec![])
+            .with_identity_and_perms("event-probe", &PermissionsConfig::default()),
+    );
+    let vm = PluginVm::from_source_sandboxed(
+        "event-probe",
+        "module.exports.default = { emit() { return host.events.emit({subscriptionId:'sub',token:'secret',eventId:'event',payload:{}}); } };".into(),
+        None,
+        sandbox,
+    )
+    .unwrap();
+    let result: Value = call_json(&vm, "emit", &[]).unwrap();
+    assert_eq!(
+        result["error"],
+        "host.events.emit: graph_events permission required"
+    );
+}
+
 /// Answers analytics with the query it received and a missing total, and receiver
 /// targets with the plugin id it was asked for; every other host surface is inert.
 struct AnalyticsHost;
