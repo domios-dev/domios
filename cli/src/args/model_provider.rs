@@ -8,6 +8,11 @@ pub enum EndpointKind {
 
 #[derive(Debug, Subcommand)]
 pub enum ModelProviderAction {
+    /// Manage Domios-owned provider presets
+    Preset {
+        #[command(subcommand)]
+        action: ModelPresetAction,
+    },
     /// Add an endpoint; pipe the key on stdin. Omit --model to discover models.
     Add {
         #[arg(long)]
@@ -35,11 +40,99 @@ pub enum ModelProviderAction {
     },
 }
 
+#[derive(Debug, Subcommand)]
+pub enum ModelPresetAction {
+    /// Create or replace an owned model, prompt and parameter preset
+    Add {
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        model: String,
+        #[arg(long)]
+        prompt: String,
+        #[arg(long)]
+        temperature: Option<f64>,
+        #[arg(long = "top-p")]
+        top_p: Option<f64>,
+        #[arg(long)]
+        steps: Option<u32>,
+    },
+    /// Remove only a Domios-owned preset
+    Remove {
+        #[arg(long)]
+        name: String,
+    },
+    /// List Domios-owned presets
+    List,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::args::cli::{Cli, Commands};
     use clap::Parser;
+
+    #[test]
+    fn model_provider_preset_parse_params_and_spawn_selection() {
+        let parsed = Cli::try_parse_from([
+            "codeterm",
+            "model-provider",
+            "preset",
+            "add",
+            "--name",
+            "demo",
+            "--model",
+            "endpoint/model",
+            "--prompt",
+            "opaque",
+            "--temperature",
+            "0.2",
+            "--top-p",
+            "0.8",
+            "--steps",
+            "12",
+        ])
+        .unwrap();
+        let Commands::ModelProvider {
+            action:
+                ModelProviderAction::Preset {
+                    action:
+                        ModelPresetAction::Add {
+                            name,
+                            model,
+                            prompt,
+                            temperature,
+                            top_p,
+                            steps,
+                        },
+                },
+        } = parsed.command
+        else {
+            panic!("wrong command");
+        };
+        assert_eq!(
+            (name.as_str(), model.as_str(), prompt.as_str()),
+            ("demo", "endpoint/model", "opaque")
+        );
+        assert_eq!(
+            (temperature, top_p, steps),
+            (Some(0.2), Some(0.8), Some(12))
+        );
+        assert!(Cli::try_parse_from(["codeterm", "model-provider", "preset", "list"]).is_ok());
+        assert!(Cli::try_parse_from([
+            "codeterm",
+            "model-provider",
+            "preset",
+            "remove",
+            "--name",
+            "demo"
+        ])
+        .is_ok());
+        assert!(Cli::try_parse_from([
+            "codeterm", "agent", "spawn", "opencode", "--preset", "demo"
+        ])
+        .is_ok());
+    }
 
     #[test]
     fn model_provider_parse_repeatable_models_and_no_key_argument() {

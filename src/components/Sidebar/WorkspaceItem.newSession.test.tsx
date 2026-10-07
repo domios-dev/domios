@@ -101,11 +101,53 @@ async function testNewSessionOpensThePickerOnce() {
   await act(async () => root.unmount());
 }
 
+async function testDetailHeaderNavigation(countActiveJobs: boolean) {
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const opened: string[] = [];
+  const noop = () => undefined;
+  try {
+    await act(async () => root.render(
+      <WorkspaceItem
+        workspace={workspace}
+        isActive
+        isExpanded
+        detailHeader
+        showDisclosure={false}
+        countActiveJobs={countActiveJobs}
+        onClick={noop}
+        onToggleExpand={noop}
+        onClose={noop}
+        onRename={noop}
+        onNewTerminal={noop}
+        onNewSession={noop}
+        onNewAgent={noop}
+        onOpenMap={() => opened.push("map")}
+        onOpenAutomation={() => opened.push("jobs")}
+        canClose
+        status={null}
+      />,
+    ));
+    assert(host.querySelector('[role="heading"]')?.textContent === workspace.name, "detail header identifies the workspace");
+    const map = host.querySelector<HTMLButtonElement>('button[aria-label="Map"]');
+    const jobs = host.querySelector<HTMLButtonElement>('button[aria-label="Jobs"]');
+    assert(map && jobs, "detail header exposes Map and Jobs by accessible name even when job reads fail");
+    await act(async () => { map.click(); jobs.click(); });
+    assert(opened.join(",") === "map,jobs", "detail header wires each navigation handler exactly once");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+}
+
 async function main() {
   __setInvokeForTest(async () => { throw new Error("bridge unavailable in test"); });
   __setListenForTest(async () => () => {});
   await testGetStartedGateDisablesSessionCreation();
   await testNewSessionOpensThePickerOnce();
+  await testDetailHeaderNavigation(false);
+  await testDetailHeaderNavigation(true);
   __setInvokeForTest(null);
   __setListenForTest(null);
   console.log("workspace new session menu tests: passed");

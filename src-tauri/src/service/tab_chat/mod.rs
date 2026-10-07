@@ -685,7 +685,7 @@ pub fn tab_chat_snapshot(
             let provider = svc
                 .chatbackend_registry
                 .get(&plugin_id)
-                .ok_or_else(|| format!("chatBackend plugin '{plugin_id}' not registered"))?;
+                .ok_or_else(|| super::tab_transport_chat::removed_chatbackend_error(&plugin_id))?;
             chatbackend_transcript_snapshot(provider.as_ref(), &session_id, since)
         }
         crate::multiplexer::types::TabBacking::Pty => {

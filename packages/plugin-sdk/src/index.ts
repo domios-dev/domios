@@ -42,5 +42,6 @@ export type {
   ReceiverTargetRefusal,
 } from "./host";
 export * from "./capabilities";
+export type { ProviderCompatibilityManifest, ProviderCompatibilityReason } from "./providerCompatibility";
 
-export type { ModelProviderConfig, ModelProviderDefinition } from './modelProviders';
+export type { ModelProviderConfig, ModelProviderDefinition, ModelPreset } from './modelProviders';

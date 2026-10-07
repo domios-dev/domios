@@ -114,11 +114,11 @@ codeterm integration status --provider codex            # read install/trust sta
 codeterm integration install --provider codex           # records consent, installs, grants trust
 codeterm integration install --provider claude --mesh PEER   # same on a paired peer
 codeterm integration sweep-profiles --provider codex    # preview dead profiles and legacy files
-codeterm integration sweep-profiles --provider codex --confirm  # delete this instance's dead profiles
-codeterm integration sweep-profiles --provider codex --confirm --include-legacy  # also delete unmarked files
+codeterm integration sweep-profiles --provider codex --confirm  # owner deletes reclaimable marked profiles
+codeterm integration sweep-profiles --provider codex --confirm --include-legacy  # also delete eligible dead legacy profiles
 ```
 Once consent is recorded, daemon start and provider plugin reload repair a missing, stale, or untrusted Domios hook by themselves (reinstall plus trust grant). An existing Domios-owned install without a consent record is recorded as consent before reconciliation; foreign hooks are never rewritten or trusted.
-Profile cleanup is dry-run by default. `--confirm` deletes only files marked for this instance whose tab ids are not live here. `--include-legacy` with `--confirm` deletes every unmarked profile, regardless of tab liveness, so review the preview before opting in.
+Profile cleanup is dry-run by default. Only the machine-owner instance may delete. `--confirm` removes this instance's dead marked profiles and foreign marked profiles only when that registered instance's exclusive lifetime lock is held throughout cleanup. Unknown and possibly live instances are kept. `--include-legacy` includes unmarked profiles only with an exact generated-tab filename and a tab id that is not live here. Project trust is carried over before removal; each pass removes at most 200 profiles. Owner startup performs this legacy migration once, continues capped passes while removals make progress, and reports removed and retained counts once. Live tabs and user files are kept.
 
 ### Config Management
 Read/write Domios config at runtime:
@@ -135,4 +135,4 @@ Agent hierarchy and session integration: `codeterm docs AGENT-CONTROL`.
 
 For `send --every --mesh` and `delayed create/edit --every --mesh`, the peer must advertise `delayed_recurrence` in `codeterm identify` features. If it does not, the request is refused with the peer name and version; update that peer or send a one-shot explicitly.
 
-<!-- revision: 83 -->
+<!-- revision: 84 -->

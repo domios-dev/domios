@@ -927,6 +927,7 @@ pub(super) fn agent_to_api(action: &AgentAction) -> (String, String, Option<Stri
         crate::AgentAction::StartupAck => unsupported_agent_action("startup-ack"),
         crate::AgentAction::StartupHold { .. } => unsupported_agent_action("startup-hold"),
         crate::AgentAction::Ledger { .. } => unsupported_agent_action("ledger"),
+        crate::AgentAction::Turns { .. } => unsupported_agent_action("turns"),
         crate::AgentAction::Compact { .. } => unsupported_agent_action("compact"),
         crate::AgentAction::Model { .. } => unsupported_agent_action("model"),
         crate::AgentAction::Cli { .. } => unsupported(

@@ -11,7 +11,7 @@ const fixture = vi.hoisted(() => {
     workspace,
     state: { workspaces: [workspace], active_workspace_id: workspace.id },
     actions: {
-      spawnAgentTab: () => undefined,
+      spawnAgentTab: vi.fn(async () => null),
       createOrchestrationPair: () => undefined,
       selectTabByTab: () => undefined,
       addNotification: () => undefined,
@@ -29,6 +29,7 @@ const fixture = vi.hoisted(() => {
       ] as never[],
       loading: false,
     },
+    presets: { presets: [{ provider: "opencode", name: "demo", model: "live-model" }], loading: false, error: null },
   };
 });
 const workspace: Workspace = fixture.workspace;
@@ -40,6 +41,7 @@ vi.mock("../../store/multiplexer", () => ({
 vi.mock("../../hooks/useAgentProviders", () => ({
   useAgentProviders: () => fixture.providers,
 }));
+vi.mock("../../hooks/useModelPresets", () => ({ useModelPresets: () => fixture.presets }));
 vi.mock("../../lib/providerInstallStatus", () => ({
   probeProviderInstallMap: vi.fn(async () => ({})),
 }));
@@ -58,6 +60,8 @@ let host: HTMLDivElement;
 
 beforeEach(() => {
   localStorage.clear();
+  fixture.actions.spawnAgentTab.mockClear();
+  fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode", available_models: [], reasoning_efforts: [] }] as never[];
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -94,6 +98,20 @@ function buttonNamed(name: string): HTMLButtonElement | null {
 }
 
 describe("NewSessionPicker modal", () => {
+  it("spawns the selected owned preset with its model once", async () => {
+    fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode",
+      available_models: [{ id: "live-model", display_name: "Live model" }], default_model: "live-model", reasoning_efforts: [] }] as never[];
+    localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "opencode", modelId: "live-model" }));
+    await renderPicker({ fullAccess: false });
+    const preset = dialog().querySelector<HTMLSelectElement>('select[aria-label="Preset"]');
+    expect(preset).not.toBeNull();
+    await act(async () => { preset!.value = "demo"; preset!.dispatchEvent(new Event("change", { bubbles: true })); });
+    const start = Array.from(dialog().querySelectorAll("button")).find((button) => button.textContent === "Start session");
+    expect(start).toBeDefined();
+    await act(async () => start!.click());
+    expect(fixture.actions.spawnAgentTab).toHaveBeenCalledExactlyOnceWith("workspace", "opencode", "/workspace", "live-model", undefined, "demo");
+  });
+
   it("renders a labelled modal dialog portaled outside the opening surface", async () => {
     await renderPicker();
 

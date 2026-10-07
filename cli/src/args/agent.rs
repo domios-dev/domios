@@ -117,6 +117,19 @@ pub struct ReportArgs {
 
 #[derive(Subcommand, Debug)]
 pub enum AgentAction {
+    /// Read completed turns from a tool-less agent's exact bound session
+    Turns {
+        #[arg(long, value_name = "TAB")]
+        tab: String,
+        #[arg(long, default_value_t = 10, value_parser = clap::value_parser!(u16).range(1..=50))]
+        last: u16,
+        #[arg(
+            long,
+            default_value_t = 0,
+            help = "UTF-8 user-record lower bound; use next_offset to continue a bounded window"
+        )]
+        after: u64,
+    },
     /// Mark a tab as orchestrator (top-level, can spawn workers)
     SetOrchestrator {
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
@@ -300,7 +313,7 @@ pub enum AgentAction {
         /// Override the shell system prompt of a chatBackend shell; refused for PTY agents.
         #[arg(long = "system", allow_hyphen_values = true)]
         system_prompt: Option<String>,
-        /// Select a chatBackend shell preset (plugin default when omitted); refused for PTY agents.
+        /// Select a provider-owned preset supported by the target provider.
         #[arg(long)]
         preset: Option<String>,
         /// Watcher charter text.
@@ -362,6 +375,32 @@ pub enum AgentAction {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn agent_turns_parses_bounded_window_and_rejects_invalid_limits() {
+        let cli = Cli::try_parse_from([
+            "codeterm", "agent", "turns", "--tab", "worker", "--last", "2", "--after", "101",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            crate::Commands::Agent {
+                action: AgentAction::Turns {
+                    last: 2,
+                    after: 101,
+                    ..
+                }
+            }
+        ));
+        assert!(Cli::try_parse_from([
+            "codeterm", "agent", "turns", "--tab", "worker", "--last", "0"
+        ])
+        .is_err());
+        assert!(Cli::try_parse_from([
+            "codeterm", "agent", "turns", "--tab", "worker", "--last", "51"
+        ])
+        .is_err());
+    }
+
     use super::*;
     use crate::Cli;
     use clap::{CommandFactory, Parser};
@@ -588,7 +627,7 @@ mod tests {
     #[test]
     fn spawn_watcher_role_maps_to_manager_profile() {
         let cli = Cli::try_parse_from([
-            "codeterm", "agent", "spawn", "lmstudio", "--role", "Watcher",
+            "codeterm", "agent", "spawn", "fixture-backend", "--role", "Watcher",
         ])
         .expect("watcher role parses");
         match cli.command {

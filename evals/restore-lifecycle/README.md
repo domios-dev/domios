@@ -128,3 +128,24 @@ failure they are kept and the run directory
 
 The script prints `== restore lifecycle PASS` and exits 0. Any `FAIL` line exits
 non-zero and names the tab, field, and before/after values.
+
+### Controlled roleless restore authentication fixture
+
+For a shared owner DEV, use a controlled restart scheduled by the Orchestrator;
+do not invoke `run.sh`, which owns its own restart cycles. Source
+`evals/_lib/lib.sh` and use `dc` for every probe command.
+
+Create a provisioned scratch workspace and a roleless agent declaring
+`session_starts_on_first_user_turn`. Have it run `codeterm identify` and
+`codeterm workspace current`, then wait. Capture that exact tab with
+`dc tab inspect --tab <id> --lifecycle`: require an authenticated binding
+(`reported_session_binding_nonce == session_binding_nonce`, both nonempty).
+After the Orchestrator restarts DEV, inspect the same tab and session without
+sending a turn that could hide a missing restore bootstrap. Require a new,
+authenticated nonce and exactly one new restore binding turn in its transcript.
+Then ask the agent to execute the same commands and require its actual successful
+results. A restored delegated member additionally needs its Team command to
+authorize on its existing assignment. A missing binding must instead leave
+`launch_binding_unconfirmed` and a standalone recovery incident; an idle
+composer alone is not a pass. Preserve unresolved delivery records and verify
+that their payloads never appear again after restore.

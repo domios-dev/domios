@@ -1,5 +1,5 @@
 use crate::{
-    args::model_provider::{EndpointKind, ModelProviderAction},
+    args::model_provider::{EndpointKind, ModelPresetAction, ModelProviderAction},
     client::RpcClient,
 };
 use serde_json::{json, Value};
@@ -46,6 +46,35 @@ fn run(
         ));
     }
     let (method, params) = match action {
+        ModelProviderAction::Preset { action } => match action {
+            ModelPresetAction::List => ("model_provider.preset.list", json!({})),
+            ModelPresetAction::Remove { name } => {
+                ("model_provider.preset.remove", json!({"name":name}))
+            }
+            ModelPresetAction::Add {
+                name,
+                model,
+                prompt,
+                temperature,
+                top_p,
+                steps,
+            } => {
+                let mut params = json!({});
+                if let Some(value) = temperature {
+                    params["temperature"] = json!(value);
+                }
+                if let Some(value) = top_p {
+                    params["top_p"] = json!(value);
+                }
+                if let Some(value) = steps {
+                    params["steps"] = json!(value);
+                }
+                (
+                    "model_provider.preset.add",
+                    json!({"preset":{"name":name,"model":model,"prompt":prompt,"params":params}}),
+                )
+            }
+        },
         ModelProviderAction::Add {
             name,
             kind,
@@ -147,6 +176,24 @@ mod tests {
             ModelProviderAction::Test {
                 name: "demo".into(),
             },
+            ModelProviderAction::Preset {
+                action: ModelPresetAction::List,
+            },
+            ModelProviderAction::Preset {
+                action: ModelPresetAction::Remove {
+                    name: "demo".into(),
+                },
+            },
+            ModelProviderAction::Preset {
+                action: ModelPresetAction::Add {
+                    name: "demo".into(),
+                    model: "endpoint/model".into(),
+                    prompt: "opaque".into(),
+                    temperature: Some(0.2),
+                    top_p: None,
+                    steps: Some(12),
+                },
+            },
         ] {
             run(&mut client, action, Unread).unwrap();
         }
@@ -156,6 +203,15 @@ mod tests {
                 ("model_provider.list".into(), json!({})),
                 ("model_provider.remove".into(), json!({"name":"demo"})),
                 ("model_provider.test".into(), json!({"name":"demo"})),
+                ("model_provider.preset.list".into(), json!({})),
+                (
+                    "model_provider.preset.remove".into(),
+                    json!({"name":"demo"})
+                ),
+                (
+                    "model_provider.preset.add".into(),
+                    json!({"preset":{"name":"demo","model":"endpoint/model","prompt":"opaque","params":{"temperature":0.2,"steps":12}}})
+                ),
             ]
         );
     }

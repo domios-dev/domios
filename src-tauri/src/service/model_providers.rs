@@ -15,6 +15,7 @@ use std::{
 };
 
 mod connection;
+pub(crate) mod presets;
 #[cfg(test)]
 mod tests;
 
@@ -54,6 +55,13 @@ impl std::fmt::Display for ModelProviderError {
 #[derive(Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ModelProviderRequest {
+    PresetAdd {
+        preset: codeterm_plugin::model_providers::ModelPreset,
+    },
+    PresetRemove {
+        name: String,
+    },
+    PresetList,
     Add {
         provider: ModelProviderDefinition,
         #[serde(deserialize_with = "secret_from_wire")]
@@ -247,11 +255,22 @@ pub fn execute(
     let path = adapter.path().map_err(|_| ModelProviderError::Config)?;
     let _lock = config_lock(&path)?;
     let config = read_config(&path)?;
+    if matches!(
+        &request,
+        ModelProviderRequest::PresetAdd { .. }
+            | ModelProviderRequest::PresetRemove { .. }
+            | ModelProviderRequest::PresetList
+    ) {
+        return presets::execute(adapter, &path, &config, &request);
+    }
     let mut providers = adapter
         .read(&config)
         .map_err(|_| ModelProviderError::Config)?;
     match request {
-        ModelProviderRequest::AddFromSecret { .. } => unreachable!(),
+        ModelProviderRequest::AddFromSecret { .. }
+        | ModelProviderRequest::PresetAdd { .. }
+        | ModelProviderRequest::PresetRemove { .. }
+        | ModelProviderRequest::PresetList => unreachable!(),
         ModelProviderRequest::List => Ok(json!({ "providers": providers })),
         ModelProviderRequest::Test { name } => {
             let provider = providers
@@ -369,11 +388,17 @@ impl ServiceContext {
             .ok_or(ModelProviderError::Unsupported)?;
         let changes = matches!(
             &request,
-            ModelProviderRequest::Add { .. }
+            ModelProviderRequest::PresetAdd { .. }
+                | ModelProviderRequest::PresetRemove { .. }
+                | ModelProviderRequest::Add { .. }
                 | ModelProviderRequest::AddFromSecret { .. }
                 | ModelProviderRequest::Remove { .. }
         );
-        let result = execute(&self.secrets, owner.id(), &*adapter, request)?;
+        let preset_list = matches!(&request, ModelProviderRequest::PresetList);
+        let mut result = execute(&self.secrets, owner.id(), &*adapter, request)?;
+        if preset_list {
+            result["provider"] = json!(owner.id());
+        }
         if changes {
             crate::agent::model_catalog::invalidate(owner.id());
             tauri::async_runtime::spawn(async move {

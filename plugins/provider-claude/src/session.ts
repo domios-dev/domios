@@ -1,5 +1,6 @@
 import type { SessionModelTranscriptBoundary } from "@codeterm/plugin-sdk";
 import { manifest } from "./shared";
+import { effectiveReadPath } from "../../provider-shared/readHome";
 
 export interface ClaudeContentBlock { type?: string; text?: string; [k: string]: unknown }
 export interface ClaudeMessage { id?: string; content?: string | ClaudeContentBlock[]; model?: string }
@@ -73,10 +74,10 @@ export function claudeSessionFilePath(cwd: string, sessionId: string): string | 
   const m = manifest();
   const root = (m && m.sessions && m.sessions.rootDir) || "~/.claude/projects";
   const ext = (m && m.sessions && m.sessions.fileExtension) || "jsonl";
-  const expanded = host.expandHome(root);
+  const sep = host.platform() === "windows" ? "\\" : "/";
+  const expanded = effectiveReadPath(host.envGet("CLAUDE_CONFIG_DIR"), host.expandHome(root), "projects", sep);
   if (!expanded) return null;
   const encoded = encodeCwdDashed(cwd);
-  const sep = host.platform() === "windows" ? "\\" : "/";
   return expanded + sep + encoded + sep + sessionId + "." + ext;
 }
 

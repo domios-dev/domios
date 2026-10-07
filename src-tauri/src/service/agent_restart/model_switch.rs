@@ -248,6 +248,8 @@ impl ModelSwitchLaunch {
         launch.identity_instructions = system_prompt.clone();
         launch.resolved_reasoning_effort = reasoning_effort.clone();
         let params = SpawnAgentParams {
+            context_files: launch.context_files.clone(),
+            context_skills: launch.context_skills.clone(),
             agent: Some(snap.provider.clone()),
             agent_name: launch.agent_name.clone(),
             args: launch.args.clone(),

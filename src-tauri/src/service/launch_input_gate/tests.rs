@@ -973,40 +973,25 @@ fn onboarding_auto_answer_defaults_to_delegated_only() {
 }
 
 #[test]
-fn input_fallback_opens_input_when_the_provider_signal_never_fires() {
-    let started = Instant::now();
-    let fallback_ms = 5000u64;
-    assert!(
-        !input_fallback_opens(started, started, fallback_ms),
-        "the fallback must not open input at the launch instant"
+fn composer_evidence_wins_at_the_deadline_without_elapsed_success() {
+    let mut observation = input_observation();
+    observation.composer_ready = true;
+    assert_eq!(
+        decide_launch_input_at_deadline(observation, LaunchInputMode::Standard, true, true, false),
+        Ok(Some(LaunchInputEvidence::ProviderComposer))
     );
-    assert!(
-        !input_fallback_opens(
-            started,
-            started + std::time::Duration::from_millis(fallback_ms - 1),
-            fallback_ms
-        ),
-        "the fallback must not open input before its deadline"
+    let mut missing = input_observation();
+    missing.composer_ready = false;
+    assert_eq!(
+        decide_launch_input_at_deadline(missing, LaunchInputMode::Standard, true, true, false),
+        Err(LaunchInputRefusal::Deadline)
     );
-    assert!(
-        input_fallback_opens(
-            started,
-            started + std::time::Duration::from_millis(fallback_ms),
-            fallback_ms
-        ),
-        "the fallback must open input once its deadline elapses"
-    );
-    assert!(
-        input_fallback_opens(
-            started,
-            started + std::time::Duration::from_millis(fallback_ms + 250),
-            fallback_ms
-        ),
-        "the fallback stays open past its deadline"
-    );
-    assert!(
-        !input_fallback_opens(started, started, 0) == false,
-        "a zero fallback opens input immediately"
+    let mut modal = input_observation();
+    modal.pending_prompt = true;
+    modal.composer_ready = true;
+    assert_eq!(
+        decide_launch_input_at_deadline(modal, LaunchInputMode::Standard, true, true, false),
+        Err(LaunchInputRefusal::PendingPrompt)
     );
 }
 

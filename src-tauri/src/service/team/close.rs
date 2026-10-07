@@ -545,15 +545,6 @@ fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
             return Err(format!("refusing to delete non-lane branch {branch}"));
         }
     }
-    let removed_worktree = lane
-        .worktree_path
-        .as_deref()
-        .filter(|path| Path::new(path).exists())
-        .map(str::to_string);
-    if let Some(path) = &removed_worktree {
-        run_git(&lane.project_path, &["worktree", "remove", path])
-            .map_err(|error| format!("worktree {path} could not be removed: {error}"))?;
-    }
     if let Some(branch) = lane.branch.as_deref() {
         if branch_exists(lane, branch)? {
             let destination = lane.destination.as_deref().ok_or_else(|| {
@@ -570,18 +561,22 @@ fn cleanup_lane(lane: &TeamCloseLane) -> Result<(), String> {
                     git_output_error("merge-base --is-ancestor", &lane.project_path, &ancestry)
                 });
             }
-            if let Err(error) = run_git(&lane.project_path, &["branch", "-d", branch]) {
-                if let Some(path) = removed_worktree {
-                    if let Err(restore) =
-                        run_git(&lane.project_path, &["worktree", "add", &path, branch])
-                    {
-                        return Err(format!(
-                            "branch {branch} could not be deleted: {error}; worktree {path} could not be restored: {restore}"
-                        ));
-                    }
-                }
-                return Err(format!("branch {branch} could not be deleted: {error}"));
-            }
+        }
+    }
+    if let Some(path) = lane.worktree_path.as_deref() {
+        crate::service::lane_removal::remove_lane(
+            &crate::service::lane_removal::LaneRemovalRequest {
+                worktree_path: path.to_string(),
+                branch: None,
+                canonical_cwd: Some(lane.project_path.clone()),
+            },
+            &[],
+        )?;
+    }
+    if let Some(branch) = lane.branch.as_deref() {
+        if branch_exists(lane, branch)? {
+            run_git(&lane.project_path, &["branch", "-d", branch])
+                .map_err(|error| format!("branch {branch} could not be deleted: {error}"))?;
         }
     }
     Ok(())

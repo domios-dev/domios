@@ -19,6 +19,15 @@ pub(crate) enum ChatBackendInstructionDelivery {
     Blocked { code: &'static str },
 }
 
+pub(crate) fn removed_chatbackend_error(plugin_id: &str) -> String {
+    serde_json::json!({
+        "code": "chat_backend_plugin_removed",
+        "plugin_id": plugin_id,
+        "message": "Plugin removed. Open a new session with an installed provider."
+    })
+    .to_string()
+}
+
 fn has_system_prompt(config: &serde_json::Value) -> bool {
     config
         .get("systemPrompt")
@@ -365,7 +374,7 @@ impl ServiceContext {
     ) -> Result<Arc<dyn ChatBackendProvider>, String> {
         self.chatbackend_registry
             .get(plugin_id)
-            .ok_or_else(|| format!("chatBackend plugin '{plugin_id}' not registered"))
+            .ok_or_else(|| removed_chatbackend_error(plugin_id))
     }
 
     /// Open a plugin session for a tab; returns the plugin-chosen session id.
@@ -724,6 +733,42 @@ mod tests {
         assert_eq!(tab.parent_tab_id.as_deref(), Some(parent_id.as_str()));
         assert_eq!(tab.team_id.as_deref(), Some(team_id.as_str()));
         assert!(!tab.restored_from_snapshot);
+    }
+
+    #[test]
+    fn restored_missing_plugin_keeps_identity_and_session_without_cleanup() {
+        use crate::multiplexer::commands::MuxState;
+        use crate::multiplexer::state::MultiplexerState;
+        use crate::multiplexer::types::TabBacking;
+        use codeterm_util::lock_hold::TimedRwLock;
+
+        let (mut state, tab_id) = MultiplexerState::new();
+        let tab = state.get_tab_mut(&tab_id).unwrap();
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: "removed-fixture".into(),
+            session_id: "preserved-session".into(),
+        };
+        tab.restored_from_snapshot = true;
+        let before = tab.clone();
+        let mux: MuxState = Arc::new(TimedRwLock::new("removed-plugin", state));
+        let result = super::chatbackend_reopen_transition(
+            &mux,
+            &super::TabReopenGuards::default(),
+            &tab_id,
+            |plugin, _, _| Err(super::removed_chatbackend_error(plugin)),
+            |_, _| panic!("a missing plugin created no session to close"),
+            |_, _, _, _, _| panic!("a missing plugin cannot commit a reopened session"),
+        );
+        let error: serde_json::Value = serde_json::from_str(&result.unwrap_err()).unwrap();
+        assert_eq!(error["code"], "chat_backend_plugin_removed");
+        assert_eq!(error["plugin_id"], "removed-fixture");
+        let after = mux.read().get_tab(&tab_id).unwrap().clone();
+        assert_eq!(after.id, before.id);
+        assert_eq!(after.backing, before.backing);
+        assert_eq!(after.agent_session_id, before.agent_session_id);
+        assert_eq!(after.parent_tab_id, before.parent_tab_id);
+        assert_eq!(after.team_id, before.team_id);
+        assert!(after.restored_from_snapshot);
     }
 
     #[test]

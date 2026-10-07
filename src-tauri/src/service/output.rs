@@ -179,6 +179,9 @@ impl ServiceContext {
             )
         };
 
+        if let Some(tab_id) = tab_id.as_deref() {
+            super::structured_prompt::wake_for_tab(tab_id);
+        }
         self.process_shell_markers(pty_id, tab_id.as_deref(), shell_nonce, data);
 
         // An unresolvable provider has UNKNOWN chrome, so refuse to hash

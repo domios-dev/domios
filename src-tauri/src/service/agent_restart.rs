@@ -867,6 +867,7 @@ fn build_relaunch_command_with_registry(
                 crate::service::tool_less_instructions::build(
                     p,
                     &AgentLaunchParams {
+                        context_files: None,
                         tool_less_instructions_path: None,
                         agent_name: None,
                         task: None,
@@ -920,6 +921,9 @@ fn build_relaunch_command_with_registry(
                 &mut args,
             );
             let resume = crate::agent::provider::AgentResumeParams {
+                cwd: cwd.map(str::to_string),
+                context_files: None,
+                tool_less_instructions_path: None,
                 session_id: sid.to_string(),
                 skip_permissions: auto_approve,
                 agent_name: None,
@@ -928,7 +932,9 @@ fn build_relaunch_command_with_registry(
                 args,
             };
             if let Some(cmd) = registry
-                .with_provider(provider, |p| p.build_resume_command_with_context(&resume))
+                .with_provider(provider, |p| {
+                    crate::service::context_bundle::build_resume(p, &resume, None)
+                })
                 .flatten()
             {
                 return Some(cmd);
@@ -936,6 +942,7 @@ fn build_relaunch_command_with_registry(
         }
     }
     let mut params = AgentLaunchParams {
+        context_files: None,
         tool_less_instructions_path: None,
         agent_name: None,
         task: launch_task.map(str::to_string),

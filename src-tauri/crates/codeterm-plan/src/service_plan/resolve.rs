@@ -547,6 +547,7 @@ mod tests {
 
     fn legacy_task(id: &str, name: &str, handle: &str) -> Task {
         Task {
+            files: Default::default(),
             id: id.into(),
             name: name.into(),
             kind: "task".into(),

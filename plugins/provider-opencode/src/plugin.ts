@@ -1,4 +1,5 @@
 import { modelProviderExports } from "./modelProviders";
+import { decisionModel } from "./decisionModel";
 import { variantLaunch } from "./modelVariants";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
@@ -92,6 +93,7 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
 }
 
 const plugin: PluginModule = {
+  ...decisionModel,
   ...modelProviderExports,
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt({ starterPrompt: prompt });

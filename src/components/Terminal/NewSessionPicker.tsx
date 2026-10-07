@@ -3,11 +3,13 @@ import { IS_WEB } from "../../lib/webApi";
 import { launchProviderInstaller } from "../../lib/providerInstall";
 import type { AppConfig } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
+import { useModelPresets } from "../../hooks/useModelPresets";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import { setAgentSettings } from "../../lib/clientSettings";
 import {
   defaultNewSessionChoice,
   readPersistedNewSessionChoice,
+  reconcilePresetSelection,
   resolveEffort,
   resolvePersistedChoice,
   writePersistedNewSessionChoice,
@@ -43,6 +45,7 @@ export function NewSessionPicker({
   const { providers } = useAgentProviders();
   const { spawnAgentTab, createOrchestrationPair, selectTabByTab, addNotification, createWorkspace } = useMultiplexer();
   const state = useMuxState();
+  const { presets, loading: presetsLoading, error: presetsError } = useModelPresets();
   const visibleProviders = useMemo(
     () => providers.filter((provider) => agentsConfig?.[provider.id]?.visible_in_menu !== false),
     [providers, agentsConfig],
@@ -94,6 +97,10 @@ export function NewSessionPicker({
     if (!hasRestoredRef.current) return;
     writePersistedNewSessionChoice(choice);
   }, [choice]);
+
+  useEffect(() => {
+    if (!presetsLoading && !presetsError) setChoice((current) => reconcilePresetSelection(current, presets));
+  }, [presets, presetsLoading, presetsError]);
 
   useEffect(() => {
     let cancelled = false;
@@ -210,6 +217,7 @@ export function NewSessionPicker({
     providerId: string,
     modelId: string | undefined,
     effortId?: string,
+    preset?: string,
   ) => {
     if (disabledProviderIds.has(providerId)) return;
     const targetCwd = selectedWorkspace?.cwd ?? workspaceCwd ?? undefined;
@@ -220,13 +228,14 @@ export function NewSessionPicker({
         targetCwd ?? undefined,
         modelId,
         effortId,
+        preset,
       ),
     );
   }, [disabledProviderIds, finishSpawn, spawnAgentTab, selectedWorkspace, selectedWorkspaceId, workspaceCwd]);
 
   const runSingleSpawn = useCallback(async () => {
     if (choice.mode !== "single") return;
-    await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId);
+    await runProviderSpawn(choice.providerId, choice.modelId, choice.effortId, choice.preset);
   }, [choice, runProviderSpawn]);
 
   const runPairSpawn = useCallback(() => {
@@ -422,6 +431,17 @@ export function NewSessionPicker({
         </div>
 
         <div className="relative">
+          {choice.mode === "single" && presets.some((preset) => preset.provider === choice.providerId) && <label>
+            Preset<select aria-label="Preset" disabled={presetsLoading} value={choice.preset ?? ""} onChange={(event) => {
+              const preset = presets.find((preset) => preset.provider === choice.providerId && preset.name === event.target.value);
+              setChoice({ ...choice, preset: preset?.name, modelId: preset?.model ?? choice.modelId,
+                effortId: resolveEffort(visibleProviders.find((provider) => provider.id === choice.providerId), preset?.model ?? choice.modelId, choice.effortId) });
+            }}>
+              <option value="">No preset</option>
+              {presets.filter((preset) => preset.provider === choice.providerId).map((preset) => <option key={preset.name} value={preset.name}>{preset.name}</option>)}
+            </select>
+          </label>}
+          {presetsError && <p role="alert">Presets unavailable</p>}
           {choice.mode === "single" ? (
             <OrchestrationRoleRow
               label="Agent"
@@ -441,6 +461,7 @@ export function NewSessionPicker({
               }}
               onModelChange={(modelId) => setChoice({
                 ...choice,
+                preset: undefined,
                 modelId,
                 effortId: resolveEffort(
                   visibleProviders.find((provider) => provider.id === choice.providerId),
