@@ -585,6 +585,7 @@ fn record_unconfirmed_failure(
             failure.reason()
         );
     }
+    handle.notify();
 }
 
 pub(super) struct UnconfirmedRecordResult {

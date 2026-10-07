@@ -426,7 +426,19 @@ impl NotificationStore {
         {
             return DeliveryAdmission::Duplicate(id);
         }
-        let identity = NotificationIdentity::of(&provenance, &severity, &title, body.as_deref());
+        let prompt_choices = ask
+            .actions
+            .iter()
+            .flatten()
+            .filter_map(|action| match action {
+                NotificationAction::RespondPromptOption {
+                    identity, value, ..
+                } => Some(format!("{identity:?}:{value}")),
+                _ => None,
+            })
+            .collect();
+        let identity = NotificationIdentity::of(&provenance, &severity, &title, body.as_deref())
+            .with_prompt_choices(prompt_choices);
         if let Some(id) = self.deliveries.existing(&identity) {
             return DeliveryAdmission::Duplicate(id);
         }

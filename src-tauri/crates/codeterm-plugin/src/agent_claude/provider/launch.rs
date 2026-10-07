@@ -40,7 +40,11 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
         parts.push(ShellSyntax::quote(sid));
     }
 
-    let extra = super::context::launch_args(params.args.as_deref().unwrap_or_default());
+    let Some(extra) = super::context::launch_args(params.args.as_deref().unwrap_or_default())
+    else {
+        log::error!("[claude-launch] cannot compose launch settings");
+        return String::new();
+    };
     parts.extend(extra.iter().map(|arg| ShellSyntax::quote_arg(arg)));
 
     // Keep large worker prompts out of shell parsing and argv on every platform.
@@ -67,7 +71,7 @@ pub(super) fn build_launch_command(params: &AgentLaunchParams) -> String {
     parts.join(" ")
 }
 
-pub(super) fn build_resume_command(session_id: &str, skip_permissions: bool) -> Option<String> {
+fn resume_base(session_id: &str, skip_permissions: bool) -> String {
     let mut parts = vec![
         ShellSyntax::UNSET_CLAUDECODE.to_string(),
         "claude".to_string(),
@@ -77,7 +81,14 @@ pub(super) fn build_resume_command(session_id: &str, skip_permissions: bool) -> 
     }
     parts.push("--resume".to_string());
     parts.push(ShellSyntax::quote(session_id));
-    Some(parts.join(" "))
+    parts.join(" ")
+}
+
+pub(super) fn build_resume_command(session_id: &str, skip_permissions: bool) -> Option<String> {
+    Some(crate::provider::append_launch_args(
+        resume_base(session_id, skip_permissions),
+        &super::context::launch_args(&[])?,
+    ))
 }
 
 /// `--resume` starts the stored session without the launch-time
@@ -86,9 +97,9 @@ pub(super) fn build_resume_command(session_id: &str, skip_permissions: bool) -> 
 pub(super) fn build_resume_command_with_context(
     params: &crate::provider::AgentResumeParams,
 ) -> Option<String> {
-    let base = build_resume_command(&params.session_id, params.skip_permissions)?;
+    let base = resume_base(&params.session_id, params.skip_permissions);
     let mut command =
-        crate::provider::append_launch_args(base, &super::context::launch_args(&params.args));
+        crate::provider::append_launch_args(base, &super::context::launch_args(&params.args)?);
     if let Some(prompt) = params
         .system_prompt
         .as_deref()
@@ -127,13 +138,13 @@ mod tests {
         if cfg!(target_os = "windows") {
             assert!(cmd.starts_with("Remove-Item Env:CLAUDECODE"));
             assert!(cmd.contains("[System.Text.Encoding]::UTF8"));
-            assert!(cmd.ends_with(" claude --dangerously-skip-permissions"));
+            assert!(cmd.contains(" claude --dangerously-skip-permissions"));
         } else {
-            assert_eq!(
-                cmd,
-                "unset CLAUDECODE && claude --dangerously-skip-permissions"
-            );
+            assert!(cmd.starts_with("unset CLAUDECODE && claude --dangerously-skip-permissions"));
         }
+        assert!(cmd.contains(".ct-settings.json"));
+        assert!(!cmd.contains("showThinkingSummaries"));
+        assert_eq!(cmd.matches("--settings").count(), 1);
     }
 
     #[test]

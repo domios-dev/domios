@@ -20,7 +20,7 @@ impl ServiceContext {
         let result = self.agent_registry.with_provider(provider_id, |provider| {
             let supported = provider.reasoning_efforts_for_model(model);
             if supported.iter().any(|level| level.id == effort) {
-                Ok(provider.reasoning_effort_launch_args(effort))
+                Ok(provider.reasoning_effort_launch_args_for_model(model, effort))
             } else {
                 Err(supported
                     .into_iter()

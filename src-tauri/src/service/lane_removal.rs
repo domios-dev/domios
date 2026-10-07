@@ -18,6 +18,7 @@ pub(crate) struct LiveTabCwd {
 pub(crate) struct LaneRemovalRequest {
     pub(crate) worktree_path: String,
     pub(crate) branch: Option<String>,
+    pub(crate) force: bool,
     /// Canonical checkout the lane was branched from. Derived from the lane's
     /// own git common dir when the caller does not name one.
     pub(crate) canonical_cwd: Option<String>,
@@ -443,7 +444,7 @@ pub(crate) fn remove_lane(
                 "lane path '{worktree}' still exists but is not registered as a Git worktree; nothing was removed"
             ));
         }
-        remove_lane_worktree(&canonical, worktree, false)?;
+        remove_lane_worktree(&canonical, worktree, request.force)?;
     } else if registered {
         remove_stale_worktree_registration(&canonical, worktree).map_err(|error| {
             format!("stale lane registration for '{worktree}' could not be removed: {error}")
@@ -488,22 +489,27 @@ fn canonical_checkout_for(worktree_path: &str) -> Result<String, String> {
         })
 }
 
+fn git_command<'a>(cwd: &str, args: impl IntoIterator<Item = &'a str>) -> Command {
+    let mut command = Command::new("git");
+    process_util::no_window_std(&mut command);
+    command.current_dir(strip_verbatim(cwd)).args(args);
+    command
+}
+
 fn git_output<'a>(
     cwd: &str,
     args: impl IntoIterator<Item = &'a str>,
 ) -> Result<std::process::Output, String> {
-    let args: Vec<&str> = args.into_iter().collect();
-    let mut command = Command::new("git");
-    process_util::no_window_std(&mut command);
-    command
-        .current_dir(strip_verbatim(cwd))
-        .args(&args)
+    git_command(cwd, args)
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .output()
         .map_err(|error| format!("git could not be run in '{cwd}': {error}"))
 }
 
 fn run_git<'a>(cwd: &str, args: impl IntoIterator<Item = &'a str>) -> Result<(), String> {
-    let output = git_output(cwd, args)?;
+    let output = git_command(cwd, args)
+        .output()
+        .map_err(|error| format!("git could not be run in '{cwd}': {error}"))?;
     if output.status.success() {
         return Ok(());
     }

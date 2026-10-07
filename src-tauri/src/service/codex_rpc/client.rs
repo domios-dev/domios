@@ -81,9 +81,8 @@ impl Client {
                 .parse()
                 .map_err(|_| "Invalid RPC token")?,
         );
-        let config = tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
-            .max_message_size(Some(8 * 1024 * 1024))
-            .max_frame_size(Some(8 * 1024 * 1024));
+        let config = super::transport_config::websocket_config();
+
         let (socket, _) = tokio::time::timeout(
             Duration::from_secs(15),
             tokio_tungstenite::connect_async_with_config(request, Some(config), false),
@@ -131,6 +130,7 @@ impl Client {
                         },
                         Some(Ok(Message::Ping(bytes))) => { let _ = receiver.0.outgoing.lock().try_send(Message::Pong(bytes)); },
                         Some(Ok(Message::Pong(_))) => {},
+                        Some(Err(error)) => { receiver.close_epoch(epoch, &format!("RPC reader error: {error}")); break; },
                         _ => { receiver.close_epoch(epoch, "RPC reader exited"); break; }
                     }
                 }

@@ -16,6 +16,7 @@ mod onboarding;
 mod permission_prompt;
 mod permission_request;
 mod sessions;
+mod signals;
 mod usage_sources;
 
 fn pair() -> (ClaudeProvider, JsProvider) {

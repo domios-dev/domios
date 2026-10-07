@@ -36,13 +36,26 @@ fn fixture() -> (
 ) {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
-    fixture.service.agent_registry.register_provider(Box::new(
-        MockProvider::with_reasoning_efforts("tiered", &["low", "medium", "high"]),
-    ));
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(tiered_provider()));
     let path = fixture.temp.path().join("crons.json");
     let cron = Arc::new(Mutex::new(CronStore::new_with_path(path.clone())));
     let wake = Arc::new(std::sync::Condvar::new());
     (fixture, cron, wake, path)
+}
+
+// Launch preflight refuses a provider whose CLI is missing, so the fixture launches a real shell.
+fn launchable(provider: MockProvider) -> MockProvider {
+    provider.with_launch_binary(if cfg!(windows) { "cmd.exe" } else { "sh" })
+}
+
+fn tiered_provider() -> MockProvider {
+    launchable(MockProvider::with_reasoning_efforts(
+        "tiered",
+        &["low", "medium", "high"],
+    ))
 }
 
 fn create_params(name: &str, effort: Option<&str>) -> CronCreateParams {
@@ -149,9 +162,10 @@ fn cron_service_mutations_and_run_lifecycle_survive_storage_reopen() {
         .expect("owner tab")
         .session_binding_nonce = Some("storage-owner-nonce".into());
     let fixture = ServiceFixture::new(mux);
-    fixture.service.agent_registry.register_provider(Box::new(
-        MockProvider::with_reasoning_efforts("tiered", &["low", "medium", "high"]),
-    ));
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(tiered_provider()));
     let wake = Arc::new(std::sync::Condvar::new());
     let instance = fixture.temp.path().join("cron-service-storage");
     let storage = Storage::open(&instance, StorageConfig::default()).expect("open storage");
@@ -429,7 +443,7 @@ fn cron_create_validates_agent_model_cwd() {
         },
     );
     fixture.service.agent_registry.register_provider(Box::new(
-        MockProvider::new("cron-catalogue")
+        launchable(MockProvider::new("cron-catalogue"))
             .with_models(models)
             .with_authoritative_model_catalogue(),
     ));

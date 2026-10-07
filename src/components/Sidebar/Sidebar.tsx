@@ -53,7 +53,6 @@ import { teamCloseResourcesForId, teamCloseResourcesForWorkspace, type TeamClose
 import { readWorkspaceBlueprints } from "../Automation/blueprintOwner";
 import { runningBlueprintNamesForOwner } from "../Automation/blueprintOwnerModel";
 
-export { buildHierarchyTree, buildHierarchySubtree, HierarchyTree } from "./HierarchyTree";
 
 export const SIDEBAR_WORKSPACES_SECTION_EXPANDED_KEY = "codeterm.sidebar.workspaces-section-expanded";
 

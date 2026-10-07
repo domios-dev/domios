@@ -13,9 +13,10 @@ const CLI_MANIFEST: &str = include_str!("../../../generated/cli/cli-manifest.jso
 
 /// Every prompt fragment that teaches CLI grammar, with the file it is
 /// loaded from so a failure names something a human can open.
-fn cli_teaching_fragments() -> [(&'static str, &'static str); 10] {
+fn cli_teaching_fragments() -> [(&'static str, &'static str); 11] {
     [
         ("general_agent.md", GENERAL_AGENT_TEMPLATE),
+        ("mem_management.md", MEM_MANAGEMENT),
         ("codeterm_rule.md", CODETERM_RULE),
         ("codeterm_cli.md", CODETERM_CLI),
         ("interactive_child_pty.md", INTERACTIVE_CHILD_PTY_OPERATION),
@@ -765,6 +766,7 @@ fn every_prompt_md_has_a_loader() {
         "cron_skill_missing.md",
         "codeterm_rule.md",
         "bridge_mem.md",
+        "mem_management.md",
         "general_agent.md",
         "agent_codeterm_primer.md",
         "plugin_discovery_rule.md",

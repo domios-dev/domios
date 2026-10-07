@@ -113,10 +113,8 @@ pub fn start(
                 let connection = uuid::Uuid::new_v4().to_string();
                 let relay = async {
                     let expected = format!("Bearer {token}");
-                    let config =
-                        tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
-                            .max_message_size(Some(8 * 1024 * 1024))
-                            .max_frame_size(Some(8 * 1024 * 1024));
+                    let config = super::transport_config::websocket_config();
+
                     let socket = tokio::time::timeout(std::time::Duration::from_secs(15), tokio_tungstenite::accept_hdr_async_with_config(
                         stream,
                         move |request: &tokio_tungstenite::tungstenite::handshake::server::Request, response| {
@@ -152,12 +150,20 @@ pub fn start(
                     loop {
                         tokio::select! {
                             message = remote_read.next() => {
-                                let Some(Ok(message)) = message else { break };
+                                let message = match message {
+                                    Some(Ok(message)) => message,
+                                    Some(Err(error)) => return Err(format!("remote read: {error}")),
+                                    None => break,
+                                };
                                 if let Message::Text(text) = &message { evidence.request(text.as_ref(), &thread); }
                                 server_write.send(message).await.map_err(|_| "remote upstream write failed")?;
                             },
                             message = server_read.next() => {
-                                let Some(Ok(message)) = message else { break };
+                                let message = match message {
+                                    Some(Ok(message)) => message,
+                                    Some(Err(error)) => return Err(format!("upstream read: {error}")),
+                                    None => break,
+                                };
                                 let attached = matches!(&message, Message::Text(text) if evidence.response(text.as_ref(), &thread));
                                 remote_write.send(message).await.map_err(|_| "remote response write failed")?;
                                 if attached {
@@ -168,7 +174,7 @@ pub fn start(
                             }
                         }
                     }
-                    Ok::<(), &str>(())
+                    Ok::<(), String>(())
                 };
                 let result = tokio::select! {
                     _ = shutdown.changed() => Ok(()),

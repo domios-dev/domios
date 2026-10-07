@@ -710,6 +710,15 @@ pub fn mux_set_claude_session_id(
     tab_id: String,
     session_id: Option<String>,
 ) -> Result<(), String> {
+    if session_id.is_some()
+        && svc
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .is_some_and(|tab| tab.fork_source_session_id.is_some())
+    {
+        return Err("fork sessions bind only through authenticated launch evidence".into());
+    }
     svc.set_agent_session_id(&tab_id, session_id);
     Ok(())
 }

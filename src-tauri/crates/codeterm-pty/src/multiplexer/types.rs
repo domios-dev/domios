@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
+mod shell;
+pub use shell::{ShellActivity, ShellCommandState, ShellPurpose};
 mod managed_tab;
 mod model_identity;
 mod restorable_launch;
@@ -488,6 +490,10 @@ pub fn latest_prior_session(lineage: &[PriorBindingNonce]) -> Option<&str> {
 /// A tab represents one terminal, chat backend, or transient choice surface.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tab {
+    #[serde(default, skip_deserializing)]
+    pub provider_signals: codeterm_types::agent::provider_signals::ProviderSignals,
+    #[serde(default, skip_deserializing)]
+    pub fork_source_session_id: Option<String>,
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub context: Option<codeterm_types::agent::context::TurnContext>,
     pub id: String,
@@ -500,6 +506,10 @@ pub struct Tab {
     #[serde(default)]
     pub backing: TabBacking,
     pub tab_type: TabType,
+    #[serde(default)]
+    pub purpose: ShellPurpose,
+    #[serde(default, skip_deserializing)]
+    pub shell_command_state: ShellCommandState,
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub pending_delivery: Option<PendingDeliveryRecord>,
     pub title: String,
@@ -768,6 +778,14 @@ impl Default for TitleLevel {
 }
 
 impl Tab {
+    pub fn is_utility_shell(&self) -> bool {
+        self.tab_type == TabType::Terminal
+            && matches!(self.backing, TabBacking::Pty)
+            && self.agent_type.is_none()
+            && self.role.is_none()
+            && !self.roleless_tracked
+    }
+
     pub fn prompt_identity(&self) -> Option<codeterm_types::pty::PromptIdentity> {
         let (prompt, kind) = self.pending_prompt.as_ref().zip(self.pending_prompt_kind)?;
         Some(codeterm_types::pty::PromptIdentity::new(kind, prompt))

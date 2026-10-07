@@ -1,5 +1,7 @@
 # Orchestration control loop
 
+Create Team utility shells with `codeterm tab new --team <team-id> --purpose build` for builds, `--purpose dev` for servers, and `--purpose qa` for verification. The default purpose is `shell`; restart and desk restore keep it. Shell rows and headers show command-mark evidence: running, idle with the last exit, or unknown without marks.
+
 Use command `--help` for syntax; this is the Domios Orchestrator contract.
 
 ## Related documents
@@ -162,10 +164,10 @@ Owner-only `codeterm plan review authorize-capacity <plan> <task>` with
 `--class review` or `--class canonical_gate` records review-work classification;
 dispatch never needs it and it grants no authority.
 
-Use `codeterm plan review accept|bounce|hold <plan> <task> --note "…"` for
-`in_review`; generic updates, gates and removal cannot exit it. `bounce`
-continues a live Worker or returns pending when gone; `hold` preserves the
-review, assignment and lane. Every verdict uses `--note`, never `--reason`.
+Exit `in_review` only via:
+`codeterm plan review accept <plan> <task> --note-from-pad review.md` (also `bounce`/`hold`).
+Bounce resumes Workers or returns pending; hold keeps review, assignment and lane.
+Pad notes or scalar `--note`; no authored inline.
 `API-PLAN` covers credit repair, task-less evidence and Planner parent resolution.
 
 ### Quiet team heartbeat
@@ -178,6 +180,6 @@ timeout, error or exhausted cap, none is sent; elapsed silence and hard events
 never force one, and an unchanged observation is never sent twice. Every
 delivered heartbeat names a next step. Reports, owner messages, decisions and
 failure alerts still reach you through their own channels. Record deliberate
-holds with `plan review hold --note`.
+holds with `plan review hold --note-from-pad`.
 
-<!-- revision: 107 -->
+<!-- revision: 109 -->

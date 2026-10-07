@@ -13,6 +13,8 @@ use crate::service::agent_restart::{
 
 #[derive(Debug, Deserialize)]
 pub struct AgentModelBody {
+    #[serde(default)]
+    pub force: bool,
     pub model: String,
     pub reasoning_effort: Option<String>,
     pub runtime_mode: Option<crate::service::codex_rpc::model::RuntimeMode>,
@@ -36,11 +38,12 @@ pub async fn agent_model_handler(
     };
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
-        svc.agent_switch_model_with_controls(
+        svc.agent_switch_model_with_controls_and_force(
             &tab_id,
             &body.model,
             body.reasoning_effort.as_deref(),
             body.runtime_mode,
+            body.force,
         )
     })
     .await;
@@ -116,6 +119,7 @@ pub(crate) fn model_switch_success_body(outcome: &ModelSwitchOutcome) -> serde_j
 
 pub(crate) fn model_switch_error_status(error: &ModelSwitchError) -> StatusCode {
     match error {
+        ModelSwitchError::BackgroundWork { .. } => StatusCode::CONFLICT,
         ModelSwitchError::NotFound(_) => StatusCode::NOT_FOUND,
         ModelSwitchError::InvalidModel(_) => StatusCode::BAD_REQUEST,
         ModelSwitchError::Unsupported { .. } | ModelSwitchError::NotSwitchable(_) => {
@@ -133,6 +137,7 @@ pub(crate) fn model_switch_error_status(error: &ModelSwitchError) -> StatusCode 
 
 pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::Value {
     let reason = match error {
+        ModelSwitchError::BackgroundWork { .. } => "background_work_running",
         ModelSwitchError::NotFound(_) => "not_found",
         ModelSwitchError::Unsupported { .. } => "model_switch_unsupported",
         ModelSwitchError::InvalidModel(_) => "invalid_model",
@@ -151,6 +156,9 @@ pub(crate) fn model_switch_error_body(error: &ModelSwitchError) -> serde_json::V
         body["mode_used"] = "live".into();
     }
     match error {
+        ModelSwitchError::BackgroundWork { items } => {
+            body["running_items"] = serde_json::json!(items);
+        }
         ModelSwitchError::Unsupported { provider } => {
             body["provider"] = provider.clone().into();
         }

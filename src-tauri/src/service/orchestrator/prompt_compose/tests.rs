@@ -384,3 +384,15 @@ fn tool_less_capability_selects_assignment_without_cli_contract_fragments() {
     assert!(ordinary.contains(crate::prompts::AGENT_CODETERM_PRIMER.trim()));
     assert!(ordinary.contains(crate::service::plan::worker_identity::WORKER_ACK_INSTRUCTION));
 }
+
+#[test]
+fn tool_less_composition_excludes_memory_management() {
+    let rendered = super::tool_less_prompt(Some("OPAQUE_TOOL_LESS")).expect("assignment");
+    assert_eq!(rendered, "OPAQUE_TOOL_LESS");
+    assert_eq!(
+        rendered
+            .matches(crate::prompts::MEM_MANAGEMENT.trim())
+            .count(),
+        0
+    );
+}

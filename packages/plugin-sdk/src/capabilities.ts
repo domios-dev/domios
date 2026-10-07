@@ -4,6 +4,7 @@
 // ── Shared context ──
 
 import type { ModelProviderConfig } from "./modelProviders";
+import type {ProviderAuthStatus, ProviderSessionObservations} from "./providerSignals";
 import type { ChatMsg } from "./gen/ChatMsg";
 
 /** Manifest spawn.turnEvidenceNormalization; applies symmetrically to exact user-turn matching. */
@@ -257,6 +258,13 @@ export interface SettingField {
 }
 
 export interface AgentProvider {
+  authStatusProbe?(): {args: string[]; timeoutMs: number} | null;
+  tracksBackgroundWork?(): boolean;
+  parseBackgroundWork?(record: unknown): {id:string;state:"running"|"completed"|"failed"|"killed"}[];
+  reasoningEffortLaunchArgsForModel?(model: string | null, effort: string): string[];
+  modelCatalogueSeed?(): ModelInfo[];
+  parseAuthStatus?(record: unknown): ProviderAuthStatus | null;
+  parseSessionObservations?(record: unknown): ProviderSessionObservations | null;
   parseContextUsage?(record: unknown): {used_tokens: number; window_tokens: number; cost_usd: number | null; source: string} | null;
   permissionHookCapability?(): {
     protocol: string;
@@ -277,9 +285,9 @@ export interface AgentProvider {
   /** Persist provider-owned folder trust after this tab's trust dialog closes. */
   folderTrustAnswered?(tabId: string, instanceId: string): boolean;
   sweepLaunchArtifacts?(request: LaunchArtifactSweepRequest): LaunchArtifactSweepReport | null;
-  buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string;
+  buildResumeCommand?(sessionId: string, skipPermissions?: boolean): string | null;
   /** Implement only when a resumed session drops the launch-time system prompt. */
-  buildResumeCommandWithContext?(params: ResumeParams): string;
+  buildResumeCommandWithContext?(params: ResumeParams): string | null;
   buildPromptResponse?(optionIndex: number, screen?: string): string[];
   /** Directory-trust dialog on the live screen: one base64 key, `[]` to hold it, `null` when none is shown. */
   directoryTrustPromptResponse?(screen: string): string[] | null;

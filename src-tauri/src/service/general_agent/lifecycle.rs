@@ -566,12 +566,7 @@ pub fn start_general_agent(
     let mut startup_message = None;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
-        match build_general_agent_resume_command(
-            &svc.agent_registry,
-            provider_name,
-            sid,
-            permission_bypass,
-        ) {
+        match super::launch_files::resume(svc, &tab_id, provider_name, sid, permission_bypass) {
             Some(cmd) => cmd,
             None => {
                 let reason = format!(
@@ -681,6 +676,8 @@ pub fn start_general_agent(
         );
         command
     };
+
+    crate::service::task_files::retire_settings_for_launch(svc, &tab_id, &cmd);
 
     if use_resume {
         crate::service::launch_diagnostics::log_launch(
@@ -800,13 +797,25 @@ pub fn restart_general_agent(
     config: &crate::config::ConfigState,
     app: &tauri::AppHandle,
 ) {
+    restart_general_agent_with_force(svc, mux, pty, screen_state, config, app, false);
+}
+
+pub(crate) fn restart_general_agent_with_force(
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    config: &crate::config::ConfigState,
+    app: &tauri::AppHandle,
+    force: bool,
+) {
     log::info!("[general-agent] Manual restart requested");
     if let Err(error) = super::recovery_episode::store().reset_by_owner() {
         log::error!("[general-agent] Cannot reset recovery episode: {error}");
         return;
     }
 
-    restart_general_agent_inner(svc, mux, pty, screen_state, config, app);
+    restart_general_agent_inner(svc, mux, pty, screen_state, config, app, force);
 }
 
 pub(crate) fn restart_general_agent_fresh_after_exit(
@@ -818,7 +827,7 @@ pub(crate) fn restart_general_agent_fresh_after_exit(
     app: &tauri::AppHandle,
 ) -> Result<(), String> {
     state::require_fresh_session()?;
-    restart_general_agent_inner(svc, mux, pty, screen_state, config, app);
+    restart_general_agent_inner(svc, mux, pty, screen_state, config, app, false);
     Ok(())
 }
 
@@ -829,7 +838,11 @@ fn restart_general_agent_inner(
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
     app: &tauri::AppHandle,
+    force: bool,
 ) {
+    if !super::restart_guard::permit(svc, mux, force) {
+        return;
+    }
     let mut stale_pty_id = None;
     let mut general_tab_id = None;
     {
@@ -1005,19 +1018,6 @@ fn terminate_pty_before_relaunch(
     screen_state.lock().remove(pty_id);
     crate::service::stream_preview::remove(pty_id);
     Ok(())
-}
-
-fn build_general_agent_resume_command(
-    registry: &crate::agent::registry::AgentRegistry,
-    provider: &str,
-    session_id: &str,
-    permission_bypass: bool,
-) -> Option<String> {
-    registry
-        .with_provider(provider, |p| {
-            p.build_resume_command(session_id, permission_bypass)
-        })
-        .flatten()
 }
 
 fn general_agent_permission_bypass(

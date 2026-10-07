@@ -287,7 +287,7 @@ Then start dev from the main checkout and visually confirm the app:
 
 ```bash
 ./build.sh kill
-codeterm tab new --cmd "cd $(pwd) && ./build.sh dev"
+codeterm tab new --team <team-id> --purpose dev --cmd "cd $(pwd) && ./build.sh dev"
 curl -s http://127.0.0.1:7686/api/health
 ```
 
@@ -589,7 +589,7 @@ ROG-specific gotchas (still relevant if you fall back to ROG):
 
 Alternative paths (debugging tactics, not normal flow):
 - Send to an existing General Agent tab via `codeterm --mesh BLACKSTAR send --tab <general> --from-file <msg.txt>` to bypass `agent spawn` argv-split bugs.
-- Open a parallel shell tab on the builder with `codeterm tab new --workspace` for tactical interventions while the agent runs the long compile.
+- Open a parallel shell tab on the builder with `codeterm tab new --purpose build --workspace <workspace-id>` for tactical interventions while the agent runs the long compile.
 
 ### 9. Publish release + verify
 

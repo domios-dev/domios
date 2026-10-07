@@ -16,6 +16,7 @@ pub mod blocker;
 mod first_run;
 pub mod identity;
 mod instructions;
+mod launch_files;
 pub(crate) mod launch_lock;
 mod lifecycle;
 pub(crate) mod recovery;
@@ -114,3 +115,7 @@ mod tests {
         assert!(dir.ends_with("secrets"));
     }
 }
+
+pub(crate) use lifecycle::restart_general_agent_with_force;
+
+mod restart_guard;

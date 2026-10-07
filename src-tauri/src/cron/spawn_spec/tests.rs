@@ -28,6 +28,7 @@ fn expected_pty_spec() -> SpawnTabSpec {
         team_id: Some("team-1".into()),
         creator_tab_id: Some("tab-creator".into()),
         detach_from_team: false,
+        purpose: Default::default(),
         cwd: Some("/lane".into()),
         title: Some("cron:nightly".into()),
         description: None,

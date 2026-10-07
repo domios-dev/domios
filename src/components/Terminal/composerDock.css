@@ -6,6 +6,9 @@
   --ct-composer-editor-max: min(230px, 40dvh);
   --ct-composer-dock-hysteresis: 40px;
   --ct-composer-float-min-width: 30rem;
+  --ct-composer-control-size: 2.5rem;
+  --ct-composer-inner-control-size: 2rem;
+  --ct-composer-card-border: 1px;
 }
 .ct-composer-dock {
   padding: 0 var(--ct-composer-gutter-x) var(--ct-composer-gutter-b);
@@ -14,7 +17,7 @@
 }
 .ct-composer-lane { max-width: var(--ct-composer-lane-max); }
 .ct-composer-card {
-  border: 1px solid var(--ct-border);
+  border: var(--ct-composer-card-border) solid var(--ct-border);
   border-radius: var(--ct-composer-radius);
   background: var(--ct-bg-elev, var(--ct-surface));
   box-shadow: 0 8px 24px rgb(0 0 0 / 20%);
@@ -22,11 +25,18 @@
   transition: border-radius 160ms ease, box-shadow 160ms ease;
 }
 .ct-composer-card textarea { max-height: var(--ct-composer-editor-max); }
+.ct-composer-row { min-height: calc(var(--ct-composer-control-size) - 2 * var(--ct-composer-card-border)); }
+.ct-composer-inner-actions {
+  align-self: flex-end;
+  margin-block-end: calc((var(--ct-composer-control-size) - 2 * var(--ct-composer-card-border) - var(--ct-composer-inner-control-size)) / 2);
+  padding-inline-end: 0.25rem;
+}
 .ct-composer-dock[data-composer-mode="docked"] {
   padding: 0 0 var(--ct-safe-bottom, 0px);
   border-top: 1px solid var(--ct-border);
 }
 .ct-composer-dock[data-composer-mode="docked"] .ct-composer-card {
+  --ct-composer-card-border: 0px;
   border: 0;
   border-radius: 0;
   box-shadow: none;
