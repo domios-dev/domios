@@ -435,13 +435,16 @@ console.log("\n--- session id detection ---\n");
   eq(p.sessionExists("/ws", "2026-10-06 12:00:00.000"), true, "sessionExists finds a known block");
   eq(p.sessionExists("/ws", "nope"), false, "sessionExists rejects an unknown id");
   eq(p.findSession("2026-10-06 12:00:00.000"), null, "findSession returns null without a cwd to verify against");
-  const chat = p.readStructuredChat("/ws", "2026-10-06 12:00:00.000", null);
-  eq(chat.messages.length, 2, "readStructuredChat returns only the named block");
+  eq(p.sessionJsonlPath("/ws", "2026-10-06 12:00:00.000"), "/ws/.aider.chat.history.md", "sessionJsonlPath names the history file");
+  const chat = p.parseSessionDelta("#### New question\n\nNew answer\n") as {
+    messages: Array<{ type: string; content: string }>;
+  };
+  eq(chat.messages.length, 2, "parseSessionDelta returns the block's rows");
   eq(chat.messages[0].content, "New question", "block user turn parsed");
   eq(chat.messages[1].content, "New answer", "block assistant turn parsed");
-  eq(chat.cursor, "2", "cursor is the message count");
-  const again = p.readStructuredChat("/ws", "2026-10-06 12:00:00.000", chat.cursor);
-  eq(again.cursor, "2", "cursor is monotonic and stable");
+  const again = p.parseSessionDelta("#### New question\n\nNew answer\n") as {
+    messages: Array<{ type: string; content: string }>;
+  };
   eq(again.messages.length, 2, "re-read returns the same rows for host merge");
 }
 
