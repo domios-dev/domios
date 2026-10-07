@@ -814,6 +814,10 @@ mod tests {
 
         let accept =
             subcommand(&root, &["plan", "review", "accept"]).expect("plan review accept exists");
+        for verdict in ["accept", "bounce", "hold"] {
+            let command = subcommand(&root, &["plan", "review", verdict]).unwrap();
+            assert!(has_long(command, "note-from-pad"));
+        }
         assert!(has_long(accept, "note"), "review accept uses --note");
         assert!(
             !has_long(accept, "reason"),

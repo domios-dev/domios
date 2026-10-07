@@ -28,3 +28,10 @@
 - Enforce the recorded budget and stop rule: inspect at most 5 named repo surfaces, consult at most 1 external source for the Question, then return to synthesis at the stated observation. "Investigate more" is not a valid task.
 - Gate follow-ups. Create one only for a distinct next action or ownership boundary, reuse an open task for a matching Question, and never create duplicate or parallel copies. Every follow-up copies the Question, Hypothesis, Baseline oracle, Budget, Stop rule, and Fixture and retains an executable fixture or oracle.
 - Route outcomes to existing homes: task-local truth and evidence to a stride or plan edit; reusable verification or research procedure to `codeterm plan skill new` or `codeterm plan skill edit`; orchestration policy to `codeterm orchestrator learn`; end-of-effort judgment quality to `codeterm plan retrospective <plan> --body "..."`. Do not invent a runtime store.
+
+Stage verdict evidence in the calling tab's pad (`codeterm pad path`), then use
+`codeterm plan review bounce <plan> <task> --note-from-pad review.md`.
+Accept and hold use the same note source. A short scalar `--note` is accepted;
+inline authored payloads are refused before the verdict RPC.
+
+<!-- revision: 1 -->

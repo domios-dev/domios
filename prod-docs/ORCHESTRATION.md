@@ -165,7 +165,7 @@ dispatch never needs it and it grants no authority.
 Use `codeterm plan review accept|bounce|hold <plan> <task> --note "…"` for
 `in_review`; generic updates, gates and removal cannot exit it. `bounce`
 continues a live Worker or returns pending when gone; `hold` preserves the
-review, assignment and lane. Every verdict uses `--note`, never `--reason`.
+review, assignment and lane. Stage the note in the calling tab's pad. Every verdict accepts `--note-from-pad <relative path>` or a short scalar `--note`; inline authored payloads are refused.
 `API-PLAN` covers credit repair, task-less evidence and Planner parent resolution.
 
 ### Quiet team heartbeat
@@ -178,6 +178,6 @@ timeout, error or exhausted cap, none is sent; elapsed silence and hard events
 never force one, and an unchanged observation is never sent twice. Every
 delivered heartbeat names a next step. Reports, owner messages, decisions and
 failure alerts still reach you through their own channels. Record deliberate
-holds with `plan review hold --note`.
+holds with `plan review hold --note-from-pad`.
 
-<!-- revision: 107 -->
+<!-- revision: 108 -->
