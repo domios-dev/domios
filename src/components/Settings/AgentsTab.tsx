@@ -7,6 +7,7 @@ import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { SchemaRenderer } from "./SchemaRenderer";
 import { ProviderInstallCard } from "./ProviderInstallCard";
+import { ModelProvidersPanel } from "./ModelProvidersPanel";
 import { SupporterAgentCard } from "./SupporterAgentCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
@@ -46,6 +47,7 @@ export function AgentsOverview({
       </SettingsCard>
 
       <OrchestrationGroup config={config} onUpdate={onUpdate} />
+      <ModelProvidersPanel />
 
       <SettingsCardAnchor id="supporter-agent" focused={focusCard === "supporter-agent"}>
         <SupporterAgentCard

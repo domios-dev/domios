@@ -1,5 +1,17 @@
 use super::*;
 
+#[test]
+fn parity_opencode_reasoning_variant_launch_args() {
+    let native = DiscoverModelsNativeStub;
+    let js = load_js("opencode");
+    for effort in ["", "default", "high", "max"] {
+        assert_eq!(
+            native.reasoning_effort_launch_args(effort),
+            js.reasoning_effort_launch_args(effort)
+        );
+    }
+}
+
 #[tokio::test]
 async fn per_model_reasoning_efforts_native_js_parity() {
     let native = DiscoverModelsNativeStub;

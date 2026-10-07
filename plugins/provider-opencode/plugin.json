@@ -155,6 +155,10 @@
       "-m",
       "{model}"
     ],
+    "reasoningEffortLaunchArgsFormat": [
+      "--variant",
+      "{effort}"
+    ],
     "modelSwitch": "live"
   },
   "permissions": {

@@ -145,6 +145,10 @@ pub fn create_router(state: AppState) -> Router {
                 .layer(axum::extract::DefaultBodyLimit::max(64 * 1024)),
         )
         .route("/api/cli/rpc", post(super::cli_rpc_routes::dispatch))
+        .route(
+            "/api/model-providers",
+            post(super::model_provider_routes::manage),
+        )
         .route("/api/fs/list-dir", get(fs_routes::list_dir))
         .route("/api/fs/mkdir", post(fs_routes::mkdir))
         .route(

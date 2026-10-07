@@ -97,7 +97,7 @@ export function defaultNewSessionChoice(providers: ProviderDescriptor[]): NewSes
   };
 }
 
-function resolvePersistedChoice(
+export function resolvePersistedChoice(
   providers: ProviderDescriptor[],
   choice: NewSessionChoice,
 ): NewSessionChoice {
