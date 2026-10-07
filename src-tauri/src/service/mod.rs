@@ -29,6 +29,7 @@ pub(crate) mod chat_send_evidence;
 pub(crate) mod chat_send_transaction;
 mod command_port_impl;
 pub mod cron;
+pub(crate) mod codex_rpc;
 pub mod delivery_error;
 pub mod general_agent;
 pub mod health;
