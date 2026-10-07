@@ -1,15 +1,34 @@
 use super::protocol::Frame;
 use crate::agent::chat_types::ChatMsg;
 use serde_json::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
 pub struct Normalizer {
     items: HashMap<(String, String), ChatMsg>,
     sequence: i64,
+    restored: HashSet<(String, String)>,
 }
 
 impl Normalizer {
+    pub fn from_history(thread: &str, messages: Vec<ChatMsg>) -> Self {
+        Self {
+            restored: messages
+                .iter()
+                .map(|message| (thread.into(), message.id.clone()))
+                .collect(),
+            sequence: messages
+                .iter()
+                .map(|message| message.seq)
+                .max()
+                .unwrap_or(0),
+            items: messages
+                .into_iter()
+                .map(|message| ((thread.into(), message.id.clone()), message))
+                .collect(),
+        }
+    }
+
     pub fn apply(&mut self, frame: &Frame) -> Option<ChatMsg> {
         let Frame::Notification { method, params } = frame else {
             return None;
@@ -21,6 +40,10 @@ impl Normalizer {
             .or_else(|| params.get("itemId"))?
             .as_str()?;
         let key = (thread.to_owned(), id.to_owned());
+        // A snapshot has no delta cursor; only the completed item can safely replace it.
+        if self.restored.contains(&key) && method != "item/completed" {
+            return None;
+        }
         let previous = self.items.get(&key);
         let mut message = if matches!(method.as_str(), "item/started" | "item/completed") {
             from_item(item?, previous)?

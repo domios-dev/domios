@@ -1,6 +1,15 @@
 use serde_json::{json, Value};
 use std::collections::HashSet;
 
+pub(crate) const CONTRACT: &str = "## Domios control\nDomios owns this interactive terminal session. Keep all work and replies in its bound thread. Approval requests are answered through Domios or the attached terminal. Treat model, effort and permission changes as per-thread controls; never persist them as machine-global defaults.";
+
+pub fn developer_instructions(task: Option<&str>) -> String {
+    match task.filter(|task| !task.trim().is_empty()) {
+        Some(task) => format!("{CONTRACT}\n\n{task}"),
+        None => CONTRACT.into(),
+    }
+}
+
 #[derive(Default)]
 pub struct CompactionState {
     completed: HashSet<(String, String)>,
@@ -52,6 +61,14 @@ pub fn remember_context(tab: &str, context: &serde_json::Map<String, Value>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn codex_rpc_control_developer_contract_is_composed_without_task_loss() {
+        assert_eq!(developer_instructions(None), CONTRACT);
+        assert_eq!(
+            developer_instructions(Some("opaque-task")),
+            format!("{CONTRACT}\n\nopaque-task")
+        );
+    }
     #[test]
     fn codex_rpc_control_compaction_restores_contract_and_context_once_per_item() {
         let mut state = CompactionState::default();

@@ -11,6 +11,7 @@ use std::sync::{Arc, LazyLock};
 
 pub struct Sidecar {
     pub client: Client,
+    pub normalizer: Mutex<super::normalize::Normalizer>,
     pub controls: Mutex<super::model::TurnControls>,
     pub control: Mutex<super::control::ControlState>,
     pub compaction: Mutex<super::compaction::CompactionState>,
@@ -106,6 +107,9 @@ pub async fn ensure_for_spawn(
     let _permit = gate.acquire().await.map_err(|error| error.to_string())?;
     let previous = for_tab(tab);
     clear_tab(tab);
+    if let Some(tab) = svc.mux.write().get_tab_mut(tab) {
+        tab.structured_control_active = false;
+    }
     if let Some(previous) = previous {
         let mut death = previous.process.death.clone();
         if !*death.borrow() {
@@ -189,7 +193,8 @@ pub async fn ensure_for_spawn(
         } else {
             super::model::RuntimeMode::AutoAcceptEdits
         });
-    let mut params = json!({"cwd":spawn.cwd,"developerInstructions":spawn.instructions,
+    let instructions = super::compaction::developer_instructions(spawn.instructions.as_deref());
+    let mut params = json!({"cwd":spawn.cwd,"developerInstructions":instructions,
         "model":spawn.model,"config":{},
         "approvalPolicy":if spawn.full_access {"never"} else {"on-request"},
         "approvalsReviewer":"user", "sandbox":if spawn.full_access {"danger-full-access"} else {"workspace-write"}});
@@ -222,7 +227,7 @@ pub async fn ensure_for_spawn(
     let thread = response.thread.id;
     if resume.is_none() {
         client.request("thread/inject_items", json!({"threadId":thread,"items":[{
-            "type":"message","role":"developer","content":[{"type":"input_text","text":"Domios owns this interactive terminal session."}]
+            "type":"message","role":"developer","content":[{"type":"input_text","text":super::compaction::CONTRACT}]
         }]})).await.map_err(rpc_error)?;
     }
     let read = client
@@ -241,6 +246,7 @@ pub async fn ensure_for_spawn(
         .await
         .map(|response| super::auth::account_state(&response))
         .unwrap_or_default();
+    let history = super::transcript::history(&client, &thread).await?;
     if !svc
         .mux
         .read()
@@ -250,7 +256,18 @@ pub async fn ensure_for_spawn(
         client.close("Tab launch superseded");
         return Err("Tab launch superseded while sidecar was starting".into());
     }
+    let busy = history.active_turn.is_some();
+    let mut control = super::control::ControlState::default();
+    control.restore(
+        &thread,
+        history.active_turn.as_deref(),
+        &history.completed_turns,
+    );
     let sidecar = Arc::new(Sidecar {
+        normalizer: Mutex::new(super::normalize::Normalizer::from_history(
+            &thread,
+            history.messages,
+        )),
         auth: Mutex::new(auth),
         controls: Mutex::new(super::model::TurnControls {
             model: spawn.model.clone(),
@@ -259,10 +276,10 @@ pub async fn ensure_for_spawn(
                 .map(str::to_owned),
             mode: runtime_mode,
         }),
-        control: Mutex::new(super::control::ControlState::default()),
+        control: Mutex::new(control),
         compaction: Mutex::new(super::compaction::CompactionState::default()),
         turn_settled: tokio::sync::watch::channel(0).0,
-        busy: std::sync::atomic::AtomicBool::new(false),
+        busy: std::sync::atomic::AtomicBool::new(busy),
         client,
         port,
         binary,
@@ -284,7 +301,11 @@ pub async fn ensure_for_spawn(
             .and_then(|value| value.as_str().map(str::to_owned));
     }
     svc.chat_registry.shutdown_tab(tab);
-    bind(svc, tab, thread);
+    bind(svc, tab, thread.clone());
+    if busy {
+        svc.mark_agent_turn_started(tab);
+        crate::agent::state_verdict::observe_declared_event(svc, tab, &thread, "turn/started");
+    }
     super::subscriber::start(svc.clone(), tab.into(), &sidecar);
     crate::service::launch_diagnostics::log_rpc_sidecar(tab);
     artifacts.committed = true;
