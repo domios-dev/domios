@@ -16,6 +16,17 @@ use crate::service::{ServiceContext, ServiceState};
 /// Minimum confidence an actionable verdict must clear — the no-false-positive gate.
 pub const GLOBAL_THRESHOLD: f32 = 0.8;
 
+pub fn display_verdict_for_composer(
+    position: super::provider::ComposerCursorPosition,
+    structural: super::offline_state_classifier::TabVerdict,
+    classify: impl FnOnce() -> Option<TabStateClassification>,
+) -> super::offline_state_classifier::TabVerdict {
+    if position != super::provider::ComposerCursorPosition::PromptLine {
+        return structural;
+    }
+    display_verdict(structural, classify().as_ref())
+}
+
 pub fn display_verdict(
     structural: super::offline_state_classifier::TabVerdict,
     classification: Option<&TabStateClassification>,

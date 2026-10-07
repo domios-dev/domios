@@ -651,21 +651,24 @@ impl ServiceContext {
                 return;
             }
         };
-        let snapshot = crate::agent::tab_state::TabStateSnapshot {
-            tab_id: tab_id.clone(),
-            agent_type: agent_type.clone(),
-            session_id,
-            cwd,
-            screen_text: tail,
-        };
-        let classification = self
-            .agent_registry
-            .with_provider(&agent_type, |provider| {
-                provider.classify_tab_state(&snapshot)
-            })
-            .flatten();
-        let verdict =
-            crate::agent::state_reactor::display_verdict(verdict, classification.as_ref());
+        let verdict = crate::agent::state_reactor::display_verdict_for_composer(
+            composer_position,
+            verdict,
+            || {
+                let snapshot = crate::agent::tab_state::TabStateSnapshot {
+                    tab_id: tab_id.clone(),
+                    agent_type: agent_type.clone(),
+                    session_id,
+                    cwd,
+                    screen_text: tail,
+                };
+                self.agent_registry
+                    .with_provider(&agent_type, |provider| {
+                        provider.classify_tab_state(&snapshot)
+                    })
+                    .flatten()
+            },
+        );
         let became_idle =
             previous.state != TimelineState::Idle && verdict.state == TimelineState::Idle;
         let mut new_state: AgentLiveState = verdict.into();
