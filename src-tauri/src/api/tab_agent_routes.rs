@@ -65,6 +65,7 @@ pub(crate) fn mount(router: Router<AppState>) -> Router<AppState> {
             post(pty_routes::claim_resize_owner),
         )
         .route("/api/tabs/{id}/link-pty", post(tab_routes::link_pty))
+        .route("/api/agents/providers/{id}/cli", get(super::provider_cli_routes::status))
         .route(
             "/api/agents/providers/{id}/install-in-tab",
             post(agent_routes::install_provider_in_tab),

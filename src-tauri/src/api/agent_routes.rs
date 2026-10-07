@@ -25,15 +25,7 @@ pub(crate) use spawn_rejection::SpawnRejection;
 
 const CONFIGURE_DELIVERY_DEADLINE: std::time::Duration = std::time::Duration::from_secs(90);
 
-pub(crate) fn list_agent_provider_values(
-    registry: &crate::provider::ProviderRegistry,
-) -> Vec<serde_json::Value> {
-    registry
-        .describe_all()
-        .into_iter()
-        .filter_map(|descriptor| serde_json::to_value(descriptor).ok())
-        .collect()
-}
+pub(crate) use super::provider_cli_routes::list_agent_provider_values;
 
 #[derive(Deserialize)]
 pub(crate) struct SpawnAgentBody {

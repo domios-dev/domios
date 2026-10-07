@@ -152,7 +152,7 @@ pub(crate) fn provider_launch_preflight_for_platform(
     let status = super::provider_cli::observe_cli(binary.clone(), install_command, None);
     let observed = LaunchBinaryObservation {
         availability: status.availability,
-        binary: Some(status.binary),
+        binary: status.binary,
         searched: status.searched,
     };
     clearance_for(
