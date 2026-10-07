@@ -420,13 +420,14 @@ impl SentinelRepository {
         fence: BatchFence,
         target: SentinelId,
         active_limit: usize,
+        input_due_at: Option<u64>,
     ) -> Mutation {
         if let Err(error) = fence.validate() {
             return refused(error);
         }
         let cost = source.as_str().len() + fence.cost() + target.as_str().len();
         self.storage.submit_mutation(cost, move |cx| {
-            runtime::activate_target(cx, &source, &fence, &target, active_limit)
+            runtime::activate_target(cx, &source, &fence, &target, active_limit, input_due_at)
         })
     }
 }

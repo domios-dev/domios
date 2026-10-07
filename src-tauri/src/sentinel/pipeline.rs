@@ -1,6 +1,6 @@
 use std::path::Path;
 use std::sync::atomic::Ordering;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use codeterm_types::blueprint_pipeline::{
     self as blueprint_pipeline, BlueprintSpec, ResultTarget, RunStatus, RunnerState, Step,
@@ -15,6 +15,7 @@ use super::storage;
 use super::store::{Lease, Sentinel};
 use crate::service::ServiceContext;
 use codeterm_storage::BlueprintJournalWrite;
+use codeterm_types::sentinel_input::{InputRun, InputSpec, MediaKind};
 
 struct StepResult {
     outcome: StepOutcome,
@@ -51,6 +52,60 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
     let mut text = lease.event.as_ref().map_or_else(String::new, |event| {
         serde_json::to_string(&event.payload).unwrap_or_default()
     });
+    let input = match &spec.trigger {
+        codeterm_types::blueprint_pipeline::Trigger::Input { kind, source } => {
+            let mut state = InputRun::Pending;
+            let _ = state.advance(InputRun::Materializing);
+            let spec = InputSpec {
+                kind: *kind,
+                data: source.clone(),
+                convert_to: None,
+                convert_timeout_ms: None,
+            };
+            let result = super::input::prepare(
+                &crate::paths::data_dir(),
+                &lease.job.id,
+                &run_id,
+                &spec,
+                input_deadline(handle, lease),
+            );
+            Some((*kind, source.clone(), result, state))
+        }
+        _ => None,
+    };
+    let mut cleanup = input.as_ref().and_then(|_| {
+        codeterm_types::sentinel_input::run_dir(&crate::paths::data_dir(), &lease.job.id, &run_id)
+            .ok()
+            .map(super::input::Cleanup::new)
+    });
+    let input_source = input
+        .as_ref()
+        .and_then(|(_, _, result, _)| result.as_ref().ok().map(|files| files.source.clone()));
+    let mut input_failure = input
+        .as_ref()
+        .and_then(|(_, _, result, _)| result.as_ref().err().cloned());
+    let input_kind = input.as_ref().map(|(kind, _, _, _)| *kind);
+    if input_kind == Some(MediaKind::Text) {
+        if let Some(path) = input_source.as_deref() {
+            match std::fs::metadata(path) {
+                Ok(metadata)
+                    if metadata.len()
+                        <= codeterm_types::sentinel_input::MAX_CONVERTED_TEXT_BYTES as u64 =>
+                {
+                    match std::fs::read_to_string(path) {
+                        Ok(input_text) => text = input_text,
+                        Err(error) => input_failure = Some(format!("input_text_invalid: {error}")),
+                    }
+                }
+                Ok(_) => input_failure = Some("input_text_oversize".into()),
+                Err(error) => input_failure = Some(format!("input_text_read_failed: {error}")),
+            }
+        }
+    }
+    let input_display = input
+        .as_ref()
+        .map(|(_, source, _, _)| codeterm_types::sentinel_input::display_name(source));
+    let mut input_run = input.as_ref().map(|(_, _, _, state)| state.clone());
     while let Some(index) = state.current_step {
         if lease.cancelled.load(Ordering::SeqCst) {
             let now = now(handle);
@@ -71,10 +126,27 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
             return;
         }
         let step = &spec.steps[index];
+        if matches!(&step.kind, StepKind::Convert { .. }) {
+            if let Some(run) = input_run.as_mut() {
+                let _ = run.advance(InputRun::Converting);
+            }
+        }
         let started = now(handle);
         let Some(result) = effect_after_claim(
             || claim_step(handle, lease, &run_id, index as i64, &step.name, started),
-            || execute_step(handle, svc, lease, step, &text),
+            || {
+                execute_step(
+                    handle,
+                    svc,
+                    lease,
+                    step,
+                    &text,
+                    input_kind,
+                    input_source.as_deref(),
+                    input_failure.as_deref(),
+                    input_display.as_deref().unwrap_or_default(),
+                )
+            },
         ) else {
             let _ = storage::commit(&handle.store, |store| {
                 store.stage_stop(&lease.job.id, "uncertain_pipeline_claim")
@@ -82,6 +154,10 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
             handle.notify();
             return;
         };
+        if lease.cancelled.load(Ordering::SeqCst) {
+            close_run(handle, lease, &run_id, "skipped", "skip:lease_cancelled");
+            return;
+        }
         let ended = now(handle);
         if result.uncertain {
             let _ = write_journal(
@@ -102,6 +178,11 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
             });
             handle.notify();
             return;
+        }
+        if result.state == "failed" {
+            if let (Some(run), Some(reason)) = (input_run.as_mut(), result.reason.as_ref()) {
+                let _ = run.advance(InputRun::Failed(reason.clone()));
+            }
         }
         let finish = BlueprintJournalWrite::Finish {
             run_id: run_id.clone(),
@@ -185,6 +266,9 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
         bucket: outcome.into(),
         confidence: 1.0,
     };
+    if let Some(cleanup) = cleanup.as_mut() {
+        cleanup.settle();
+    }
     let body_target = super::routes::pipeline_result_owner(svc, &lease.job, spec);
     let (body_path, body_ref) = match super::routes::write_pipeline_result_body(
         svc,
@@ -316,6 +400,11 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
         }
     }
     close_run(handle, lease, &run_id, terminal_state, outcome);
+    if terminal_state == "done" {
+        if let Some(run) = input_run.as_mut() {
+            let _ = run.advance(InputRun::Delivered);
+        }
+    }
 }
 
 fn execute_step(
@@ -324,7 +413,14 @@ fn execute_step(
     lease: &Lease,
     step: &Step,
     previous: &str,
+    input_kind: Option<MediaKind>,
+    input_source: Option<&Path>,
+    input_failure: Option<&str>,
+    input_display: &str,
 ) -> StepResult {
+    if let Some(reason) = input_failure {
+        return failed_input_step(reason);
+    }
     match &step.kind {
         StepKind::Command { command } => {
             let remaining = lease
@@ -433,20 +529,72 @@ fn execute_step(
                 uncertain: false,
             },
         },
-        StepKind::Convert { .. } => StepResult {
-            outcome: StepOutcome::Failed,
-            stored_outcome: "failed".into(),
-            state: "failed",
-            summary: "conversion capability is not executable".into(),
-            reason: Some("converter_unavailable".into()),
-            next_text: previous.into(),
-            decision: Some((
-                "skip:converter_unavailable".into(),
-                Some("converter_unavailable".into()),
-            )),
-            uncertain: false,
-        },
+        StepKind::Convert { from, to } => {
+            let conversion = match (input_kind, input_source) {
+                (Some(kind), Some(path)) if kind == *from => super::input::convert(
+                    &svc.converter_registry,
+                    path,
+                    path.parent().unwrap_or_else(|| Path::new(".")),
+                    *from,
+                    *to,
+                    input_deadline(handle, lease),
+                ),
+                (Some(_), Some(_)) => Err("conversion_input_kind_mismatch".into()),
+                _ => Err("conversion_input_missing".into()),
+            };
+            match conversion {
+                Ok(output) => StepResult {
+                    outcome: StepOutcome::Done,
+                    stored_outcome: "done".into(),
+                    state: "done",
+                    summary: format!(
+                        "{} {} -> {}, {} chars",
+                        from.as_str(),
+                        input_display,
+                        to.as_str(),
+                        output.chars().count()
+                    ),
+                    reason: None,
+                    next_text: output,
+                    decision: None,
+                    uncertain: false,
+                },
+                Err(reason) => StepResult {
+                    outcome: StepOutcome::Failed,
+                    stored_outcome: "failed".into(),
+                    state: "failed",
+                    summary: format!("conversion failed: {reason}"),
+                    reason: Some(reason.clone()),
+                    next_text: format!("Input conversion failed: {reason}"),
+                    decision: None,
+                    uncertain: false,
+                },
+            }
+        }
     }
+}
+
+fn failed_input_step(reason: &str) -> StepResult {
+    StepResult {
+        outcome: StepOutcome::Failed,
+        stored_outcome: "failed".into(),
+        state: "failed",
+        summary: format!("input materialization failed: {reason}"),
+        reason: Some(reason.into()),
+        next_text: format!("Input materialization failed: {reason}"),
+        decision: None,
+        uncertain: false,
+    }
+}
+
+fn input_deadline(handle: &Handle, lease: &Lease) -> Instant {
+    let default = Instant::now()
+        + Duration::from_millis(codeterm_types::sentinel_input::DEFAULT_CONVERT_TIMEOUT_MS);
+    lease
+        .job
+        .expires_at
+        .map(|at| Instant::now() + Duration::from_millis(at.saturating_sub(now(handle))))
+        .map_or(default, |expiry| expiry.min(default))
 }
 
 fn classify_step(classification: Classification, buckets: &[String], previous: &str) -> StepResult {

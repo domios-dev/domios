@@ -154,6 +154,9 @@ pub fn start(svc: ServiceState, clock: SharedClock, storage: &crate::storage::St
         log::error!("[blueprint] subsystem unavailable: {error}");
         return;
     }
+    if let Err(error) = super::input::sweep_orphans(&crate::paths::data_dir()) {
+        log::error!("[blueprint-input] startup orphan sweep failed: {error}");
+    }
     let store = handle.store.clone();
     let pending_run_bindings = handle.pending_run_bindings.clone();
     let wake = handle.wake.clone();
