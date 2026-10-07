@@ -6,8 +6,8 @@ use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::service::session_model::spawn_startup_model_refresh;
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::worker_loss::{busy_worker_close_warnings, BUSY_WORKER_CLOSE_REFUSAL_PREFIX};
-use tauri::Manager;
 use std::time::{SystemTime, UNIX_EPOCH};
+use tauri::Manager;
 
 #[path = "tab/lifecycle_exit.rs"]
 mod lifecycle_exit;
