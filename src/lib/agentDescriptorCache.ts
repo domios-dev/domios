@@ -4,10 +4,12 @@ import type { ProviderDescriptor } from "./types";
 let cache: Record<string, ProviderDescriptor> = {};
 // (useAgentDescriptors) doesn't see a fresh array every render.
 let ordered: ProviderDescriptor[] = [];
+let refreshing = false;
 let catalogueVersions: Record<string, number> = {};
 const subscribers = new Set<() => void>();
 
-export function setAgentDescriptors(list: ProviderDescriptor[]): void {
+export function setAgentDescriptors(list: ProviderDescriptor[], loading = false): void {
+  refreshing = loading;
   const next: Record<string, ProviderDescriptor> = {};
   const nextOrdered: ProviderDescriptor[] = [];
   const nextVersions = { ...catalogueVersions };
@@ -42,6 +44,10 @@ export function acceptModelCatalogueChange(change: { provider: string; version: 
 export function getAgentDescriptor(id: string | null | undefined): ProviderDescriptor | undefined {
   if (!id) return undefined;
   return cache[id];
+}
+
+export function agentDescriptorsRefreshing(): boolean {
+  return refreshing;
 }
 
 export function listAgentDescriptors(): ProviderDescriptor[] {

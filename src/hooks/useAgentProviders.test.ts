@@ -1,6 +1,6 @@
 // Run: npx tsx src/hooks/useAgentProviders.test.ts
 
-import { acceptModelCatalogueChange, getAgentDescriptor, listAgentDescriptors, setAgentDescriptors } from "../lib/agentDescriptorCache";
+import { agentDescriptorsRefreshing, acceptModelCatalogueChange, getAgentDescriptor, listAgentDescriptors, setAgentDescriptors } from "../lib/agentDescriptorCache";
 import type { ProviderDescriptor } from "../lib/types";
 import {
   agentProvidersFromResponse,
@@ -55,9 +55,11 @@ test("sync retains the catalog during refresh and clears it on error", () => {
   setAgentDescriptors(catalogA);
   syncAgentDescriptorCache(catalogA, true, null);
   assert(getAgentDescriptor("catalog-a")?.id === "catalog-a", "refresh retains the visible catalog");
+  assert(agentDescriptorsRefreshing(), "preset consumers can observe refresh without losing provider identity");
 
   syncAgentDescriptorCache(catalogA, false, "catalog unavailable");
   assert(listAgentDescriptors().length === 0, "fetch errors cannot republish retained catalog A items");
+  assert(!agentDescriptorsRefreshing(), "settled errors end the refresh state");
 
   syncAgentDescriptorCache(catalogB, false, null);
   assert(getAgentDescriptor("catalog-b")?.id === "catalog-b", "settled catalog B reaches cache consumers");
