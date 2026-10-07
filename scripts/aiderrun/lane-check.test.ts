@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { commands, decision, quote, verdict } from './model.mjs';
+import { commands, decision, followUp, quote, verdict } from './model.mjs';
 import { completedTurn } from './turn.mjs';
 
 let count = 0;
@@ -18,6 +18,9 @@ assert.throws(() => completedTurn(text(done), 'other', 'g', 12)); count++;
 equal(decision({ active: false, claimed: [] }, first.key), 'ready');
 equal(decision({ active: false, claimed: [first.key] }, first.key), 'waiting');
 equal(decision({ active: true, claimed: [] }, first.key), 'waiting');
+equal(followUp(first.key, first.key), false);
+equal(followUp(first.key, `${first.key}-next`), true);
+equal(followUp(first.key, undefined), false);
 assert.throws(() => commands('unknown')); count++;
 for (const surface of ['config', 'defaults', 'sdk', 'shortcuts']) equal(commands(surface)[0], ['npx', 'tsc', '--noEmit']);
 equal(verdict([{ code: 0 }]), 'PASSED');
