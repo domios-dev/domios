@@ -473,7 +473,16 @@ pub(crate) fn launch_agent_in_background_with_env(
         if !launch.emit(&svc, BootStage::PtyStarting) {
             return;
         }
+        let structured_nonce = crate::service::codex_rpc::lifecycle::for_tab(&tab_id)
+            .map(|sidecar| sidecar.launch_nonce.clone());
         let set_booting = |value: bool| {
+            if !value
+                && structured_nonce.as_deref().is_some_and(|nonce| {
+                    crate::service::codex_rpc::recovery::recovering(&tab_id, nonce)
+                })
+            {
+                return;
+            }
             if let Some(p) = svc.mux.write().get_tab_mut(&tab_id) {
                 p.agent_booting = value;
             }
@@ -482,7 +491,8 @@ pub(crate) fn launch_agent_in_background_with_env(
         let pty_claim = svc.pty_ownership.acquire(&tab_id);
         let existing_pty = existing_live_pty(&svc, &tab_id);
         let fresh_pty = svc.model_provider_requires_fresh_pty(&agent_cmd)
-            || crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some();
+            || crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some()
+            || crate::service::codex_rpc::recovery::requires_fresh_pty(&tab_id);
         let reusable_pty = existing_pty.clone().filter(|_| !fresh_pty);
         let (backend_pty, reused_live_pty) = match reusable_pty {
             Some(pty_id) => match start_backend_reader(&svc, &pty_id) {
@@ -539,6 +549,7 @@ pub(crate) fn launch_agent_in_background_with_env(
             return;
         }
         let mut pty_id = selection.pty_id;
+        crate::service::codex_rpc::recovery::after_relink(&svc, &tab_id, &pty_id);
         launch.replace(pty_id.clone());
         if !launch.emit(&svc, BootStage::PtySpawned) {
             return;
@@ -854,6 +865,15 @@ pub(crate) fn launch_agent_in_background_with_env(
             );
             return;
         }
+        if !launch.await_remote_attachment(&svc) {
+            set_booting(false);
+            if let Some(tx) = ready_tx {
+                let _ = tx.send(Err(
+                    "remote TUI attachment failed; plain resume recovery started".into(),
+                ));
+            }
+            return;
+        }
         if let Some(tree) = svc.observe_provider_process_tree(&tab_id, &pty_id) {
             log::info!(
                 "[launch-readiness] observed verdict_source=launch-written tree_evidence={} tab={} pty={}",
@@ -972,6 +992,12 @@ pub(crate) fn launch_agent_in_background_with_env(
         }
         delivery_gate.mark_provider_ready();
 
+        let fallback_spec = fallback_spec.filter(|_| {
+            resume_binding::fallback_still_required(
+                binding_turn_planned,
+                launch.await_provider_ack(std::time::Duration::ZERO),
+            )
+        });
         let mut bootstrap_consumed = fallback_spec.is_none();
         if let Some(spec) = fallback_spec {
             let task_text = spec.payload.clone();
@@ -1054,7 +1080,10 @@ pub(crate) fn launch_agent_in_background_with_env(
                     .err()
                     .map(|error| error.to_string())
                 }
-                Ok(_) => None,
+                Ok(receipt) => {
+                    bootstrap_consumed = receipt.outcome == crate::service::launch_delivery::LaunchConsumptionOutcome::AlreadyConfirmed;
+                    None
+                }
                 Err(error) if error.surfaces_as_launch_failure() => Some(error.to_string()),
                 Err(error) => {
                     log::warn!(
@@ -1099,6 +1128,8 @@ pub(crate) fn launch_agent_in_background_with_env(
             startup_readiness::finish_waiting_for_first_turn(&mut launch, &readiness, &svc, origin)
         {
             if finished {
+                public_send_guard.complete();
+                launch.complete_structured_startup(&svc, bootstrap_consumed);
                 if let Some(tx) = ready_tx {
                     let _ = tx.send(Ok(()));
                 }
@@ -1127,13 +1158,7 @@ pub(crate) fn launch_agent_in_background_with_env(
         }
         LAUNCH_REGISTRY.lock().finish(&launch);
         public_send_guard.complete();
-        if let Some(nonce) = launch
-            .binding_nonce
-            .as_deref()
-            .filter(|_| bootstrap_consumed)
-        {
-            crate::service::codex_rpc::lifecycle::startup_complete(&svc, &tab_id, nonce);
-        }
+        launch.complete_structured_startup(&svc, bootstrap_consumed);
         log::info!(
             "launch_agent: agent ready in Tab {} after {}ms",
             tab_id,

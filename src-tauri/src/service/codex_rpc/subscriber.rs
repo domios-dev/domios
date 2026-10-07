@@ -170,6 +170,16 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
         if weak.upgrade().is_some_and(|sidecar| {
             super::lifecycle::for_tab(&tab).is_some_and(|current| Arc::ptr_eq(&sidecar, &current))
         }) {
+            if let Some(sidecar) = weak.upgrade() {
+                if super::recovery::try_start(
+                    &svc,
+                    &tab,
+                    &sidecar.launch_nonce,
+                    "app-server connection ended before launch completion",
+                ) {
+                    return;
+                }
+            }
             super::lifecycle::clear_tab(&tab);
             svc.push_structured_prompt(&tab, None);
             if let Some(tab) = svc.mux.write().get_tab_mut(&tab) {
