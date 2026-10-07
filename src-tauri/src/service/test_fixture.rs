@@ -226,6 +226,10 @@ impl ServiceFixture {
             } else {
                 crate::agent::kpi::KpiRecorder::disabled()
             },
+            protocol_recorder: Arc::new(crate::service::protocol_recorder::ProtocolRecorder::new(
+                temp.path().join("logs/protocol"),
+                false,
+            )),
             agent_registry: agent_registry.clone(),
             mem,
             mem_supervisor,
