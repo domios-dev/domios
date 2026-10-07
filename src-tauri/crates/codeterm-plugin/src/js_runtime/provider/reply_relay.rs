@@ -13,7 +13,7 @@ pub(super) fn read(
     }
     provider
         .try_call::<Option<ReplyRelayEvidence>>(
-            "readReplyRelayEvidence",
+            "readReplyRelayTurn",
             &[json!(cwd), json!(session), json!(after)],
         )
         .flatten()
