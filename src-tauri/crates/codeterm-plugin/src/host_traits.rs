@@ -5,6 +5,17 @@
 use crate::activity::PluginActivity;
 use crate::provider::AgentProvider;
 
+#[derive(Debug)]
+pub struct ModelProviderEnvUnavailable;
+
+impl std::fmt::Display for ModelProviderEnvUnavailable {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("model provider credentials unavailable")
+    }
+}
+
+impl std::error::Error for ModelProviderEnvUnavailable {}
+
 /// Combined host context: everything a plugin VM needs from the app side.
 /// Implemented by `ServiceContext` (and test stubs). The VM holds a
 /// `Weak<dyn PluginHostCtx>` so teardown doesn't pin the context alive.
@@ -61,7 +72,7 @@ pub trait PluginHostCtx: Send + Sync {
     fn model_provider_process_env(
         &self,
         _plugin_id: &str,
-    ) -> Result<std::collections::HashMap<String, String>, ()> {
+    ) -> Result<std::collections::HashMap<String, String>, ModelProviderEnvUnavailable> {
         Ok(std::collections::HashMap::new())
     }
 
