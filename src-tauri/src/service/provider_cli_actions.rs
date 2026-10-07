@@ -43,6 +43,54 @@ pub(crate) fn operation_command(
 pub struct CliLaunch {
     pub tab_id: String,
     pub launch_state: &'static str,
+    pub warnings: Vec<String>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum CompletionRoute {
+    AgentReport,
+    NotificationRecord,
+}
+
+fn completion_route(agent_type: Option<&str>, agent_booting: bool) -> CompletionRoute {
+    if agent_type.is_some() || agent_booting {
+        CompletionRoute::AgentReport
+    } else {
+        CompletionRoute::NotificationRecord
+    }
+}
+
+fn report_completion(svc: &ServiceContext, caller: &str, utility_tab: &str, summary: &str) {
+    let route = {
+        let mux = svc.mux.read();
+        mux.get_tab(caller)
+            .map(|tab| completion_route(tab.agent_type.as_deref(), tab.agent_booting))
+            .unwrap_or(CompletionRoute::NotificationRecord)
+    };
+    match route {
+        CompletionRoute::AgentReport => {
+            if let Err(error) = super::messenger::Messenger::deliver(
+                svc,
+                caller,
+                super::messenger::MessageEnvelope::report("ProviderCLI", utility_tab),
+                summary,
+            ) {
+                log::warn!("[provider-cli] result delivery failed: {error}");
+            }
+        }
+        CompletionRoute::NotificationRecord => {
+            svc.create_notification_ext(
+                "Provider CLI result".into(),
+                Some(summary.into()),
+                Some("info"),
+                None,
+                Some(false),
+                super::notification::NotificationOrigin::local_tab(utility_tab.into()),
+                super::notification::PushIntent::default(),
+                None,
+            );
+        }
+    }
 }
 
 pub(crate) fn launch(
@@ -68,6 +116,11 @@ pub(crate) fn launch_with_dispatch(
     let status =
         super::provider_cli::provider_cli_status(&svc.provider_registry, provider, platform)?;
     let command = operation_command(&status, operation, platform)?;
+    let prerequisites = match operation {
+        CliOperation::Install => &status.installer_prerequisites,
+        CliOperation::Update => &status.updater_prerequisites,
+    };
+    let prerequisite_hint = codeterm_plugin::provider_cli::missing_prerequisite_hint(prerequisites);
     let handle = svc.spawn_tab(SpawnTabSpec {
         creator_tab_id: caller.clone(),
         title: Some(
@@ -77,7 +130,14 @@ pub(crate) fn launch_with_dispatch(
             }
             .into(),
         ),
-        description: Some(format!("{} CLI for {provider}", operation.label())),
+        description: Some(format!(
+            "{} CLI for {provider}{}",
+            operation.label(),
+            prerequisite_hint
+                .as_ref()
+                .map(|hint| format!("; {hint}"))
+                .unwrap_or_default()
+        )),
         ..Default::default()
     })?;
     let tab_id = handle.tab_id;
@@ -120,15 +180,14 @@ pub(crate) fn launch_with_dispatch(
                 "exit_code": completion.and_then(ExecCompletion::exit_code), "status": status, "summary": summary,
             }));
             if let Some(caller) = caller {
-                if let Err(error) = super::messenger::Messenger::deliver(&service, &caller, super::messenger::MessageEnvelope::report("ProviderCLI", &monitor_tab), &summary) {
-                    log::warn!("[provider-cli] result delivery failed: {error}");
-                }
+                report_completion(&service, &caller, &monitor_tab, &summary);
             }
         }).await;
     });
     Ok(CliLaunch {
         tab_id,
         launch_state: "command_dispatched",
+        warnings: prerequisite_hint.into_iter().collect(),
     })
 }
 
@@ -151,15 +210,60 @@ fn completion_summary(
         Some(false) => "CLI still missing",
         None => "CLI availability unknown",
     };
-    format!(
+    let mut summary = format!(
         "{provider} CLI {}: {outcome}; {presence}",
         operation.label()
-    )
+    );
+    if let Some(status) = status {
+        let prerequisites = match operation {
+            CliOperation::Install => &status.installer_prerequisites,
+            CliOperation::Update => &status.updater_prerequisites,
+        };
+        if let Some(hint) = codeterm_plugin::provider_cli::missing_prerequisite_hint(prerequisites)
+        {
+            summary.push_str(&format!("; {hint}"));
+        }
+    }
+    summary
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn completion_routes_shells_to_records_and_agents_to_reports() {
+        assert_eq!(
+            completion_route(None, false),
+            CompletionRoute::NotificationRecord
+        );
+        assert_eq!(
+            completion_route(Some("fixture"), false),
+            CompletionRoute::AgentReport
+        );
+        assert_eq!(completion_route(None, true), CompletionRoute::AgentReport);
+    }
+    #[test]
+    fn failed_install_completion_keeps_missing_prerequisite_guidance() {
+        let mut status = codeterm_plugin::provider_cli::no_cli();
+        status.required = true;
+        status.installed = Some(false);
+        status.installer_prerequisites = vec![codeterm_plugin::provider_cli::CommandPrerequisite {
+            binary: "fixture-runner".into(),
+            installed: Some(false),
+            hint: "opaque setup guidance".into(),
+        }];
+        let summary = completion_summary(
+            "fixture",
+            CliOperation::Install,
+            Some(ExecCompletion::CommandFinished {
+                exit_code: Some(127),
+            }),
+            Some(&status),
+        );
+        assert!(summary.contains("fixture-runner"));
+        assert!(summary.contains("opaque setup guidance"));
+        assert!(summary.contains("exit code 127"));
+    }
     #[test]
     fn no_cli_or_unsupported_os_refuses_before_launch() {
         let mut status = codeterm_plugin::provider_cli::no_cli();

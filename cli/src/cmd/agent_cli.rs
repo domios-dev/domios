@@ -29,12 +29,19 @@ pub(super) fn run(client: &mut SocketClient, json: bool, action: ProviderCliActi
                 }
             }
         }
-        Ok(value) => println!(
-            "{} CLI {} dispatched in tab {}; completion will report back",
-            provider,
-            operation.unwrap_or_default(),
-            value.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?")
-        ),
+        Ok(value) => {
+            if let Some(warnings) = value.get("warnings").and_then(|value| value.as_array()) {
+                for warning in warnings.iter().filter_map(|value| value.as_str()) {
+                    println!("WARNING: {warning}");
+                }
+            }
+            println!(
+                "{} CLI {} dispatched in tab {}; completion will report back",
+                provider,
+                operation.unwrap_or_default(),
+                value.get("tab_id").and_then(|v| v.as_str()).unwrap_or("?")
+            );
+        }
         Err(error) => crate::cmd::print::fail(1, error.to_string()),
     }
 }
