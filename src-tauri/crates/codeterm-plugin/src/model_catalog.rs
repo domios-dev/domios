@@ -22,6 +22,8 @@
 //! See `essences/capabilities.md#agent-models`. README is auto-installed to
 //! `<data_dir>/models/README.md` on first run.
 
+mod capability_overlay;
+pub use capability_overlay::{clear as clear_capability_overlay, put as put_capability_overlay};
 use std::collections::HashMap;
 #[cfg(test)]
 use std::path::PathBuf;
@@ -340,6 +342,7 @@ pub fn register(provider_id: &str, defaults: RegisteredDefaults) {
 /// Capability lifecycles use this when the provider implementation itself was
 /// replaced, so models from the prior implementation cannot survive a refresh.
 pub fn replace(provider_id: &str, defaults: RegisteredDefaults) {
+    capability_overlay::clear(provider_id);
     seed_registry()
         .write()
         .insert(provider_id.to_string(), defaults.clone());
@@ -366,6 +369,7 @@ pub fn replace_resolved(provider_id: &str, defaults: RegisteredDefaults) -> Regi
 
 /// Remove only `provider_id` from every in-memory catalog registry.
 pub fn unregister(provider_id: &str) {
+    capability_overlay::clear(provider_id);
     let removed_models = registry().write().remove(provider_id).is_some();
     let removed_seed = seed_registry().write().remove(provider_id).is_some();
     let removed_efforts = effort_registry().write().remove(provider_id).is_some();
@@ -718,11 +722,12 @@ fn resolve_live_default(models: &[ModelInfo], seed_default: Option<String>) -> O
 ///
 /// Unregistered provider returns the override list as-is (or empty).
 pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
-    let registered = registered_models(provider_id);
-    let live = registry()
-        .read()
-        .get(provider_id)
-        .is_some_and(|snapshot| snapshot.source == Source::Live);
+    let registered = capability_overlay::merge(provider_id, registered_models(provider_id));
+    let live = capability_overlay::present(provider_id)
+        || registry()
+            .read()
+            .get(provider_id)
+            .is_some_and(|snapshot| snapshot.source == Source::Live);
     let mut models = match load_override(provider_id) {
         None => registered,
         Some(o) if live => overlay_only(&registered, &o.models),
@@ -740,17 +745,26 @@ pub fn resolve_models(provider_id: &str) -> Vec<ModelInfo> {
 }
 
 pub fn has_live_snapshot(provider_id: &str) -> bool {
-    registry()
-        .read()
-        .get(provider_id)
-        .is_some_and(|snapshot| snapshot.source == Source::Live)
+    capability_overlay::present(provider_id)
+        || registry()
+            .read()
+            .get(provider_id)
+            .is_some_and(|snapshot| snapshot.source == Source::Live)
 }
 
 pub fn resolve_live_models(provider_id: &str) -> Option<Vec<ModelInfo>> {
-    registry()
+    let live = registry()
         .read()
         .get(provider_id)
-        .and_then(|snapshot| (snapshot.source == Source::Live).then(|| snapshot.models.clone()))
+        .and_then(|snapshot| (snapshot.source == Source::Live).then(|| snapshot.models.clone()));
+    if capability_overlay::present(provider_id) {
+        Some(capability_overlay::merge(
+            provider_id,
+            live.unwrap_or_else(|| registered_models(provider_id)),
+        ))
+    } else {
+        live
+    }
 }
 
 pub fn resolve_live_default_model(provider_id: &str) -> Option<String> {

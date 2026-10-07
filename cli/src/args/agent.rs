@@ -384,6 +384,24 @@ pub enum AgentAction {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn agent_fork_and_model_force_parse() {
+        let fork = Cli::try_parse_from(["codeterm", "agent", "fork", "--tab", "fixture"]).unwrap();
+        assert!(
+            matches!(fork.command,crate::Commands::Agent{action:AgentAction::Fork{tab:Some(tab)}} if tab=="fixture")
+        );
+        let switch = Cli::try_parse_from([
+            "codeterm", "agent", "model", "--tab", "fixture", "opus", "--force",
+        ])
+        .unwrap();
+        assert!(matches!(
+            switch.command,
+            crate::Commands::Agent {
+                action: AgentAction::Model { force: true, .. }
+            }
+        ));
+    }
+
+    #[test]
     fn agent_turns_parses_bounded_window_and_rejects_invalid_limits() {
         let cli = Cli::try_parse_from([
             "codeterm", "agent", "turns", "--tab", "worker", "--last", "2", "--after", "101",

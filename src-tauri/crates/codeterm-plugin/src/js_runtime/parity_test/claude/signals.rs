@@ -37,6 +37,12 @@ fn parity_claude_background_work_and_fork_capabilities() {
     }
     let (native, js) = pair();
     assert!(native.tracks_background_work());
+    let cwd = "/background-parity-fixture";
+    let session = format!("background-parity-{}", uuid::Uuid::new_v4());
+    assert_eq!(
+        native.session_jsonl_path(cwd, &session),
+        js.session_jsonl_path(cwd, &session)
+    );
     assert_eq!(native.tracks_background_work(), js.tracks_background_work());
     assert_eq!(native.fork_session_args(), js.fork_session_args());
     assert_eq!(
@@ -77,4 +83,17 @@ fn parity_claude_transcript_observations() {
             js.parse_session_observations(&record)
         );
     }
+}
+
+#[test]
+fn parity_claude_initialize_capability_declaration() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    assert_eq!(
+        native.capability_probe(),
+        Some(crate::provider::CapabilityProbe::StreamJsonInitialize)
+    );
+    assert_eq!(native.capability_probe(), js.capability_probe());
 }

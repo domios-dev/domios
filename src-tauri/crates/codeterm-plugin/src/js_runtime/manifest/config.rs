@@ -29,6 +29,10 @@ pub struct SubprocessPermission {
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 pub struct SpawnConfig {
     #[serde(default)]
+    pub capability_probe: Option<crate::provider::CapabilityProbe>,
+    #[serde(default)]
+    pub capability_probe: Option<crate::provider::CapabilityProbe>,
+    #[serde(default)]
     pub fork_session_args: Option<Vec<String>>,
     #[serde(default)]
     pub sandboxed_linux_launch: Option<SandboxedLinuxLaunchCapability>,

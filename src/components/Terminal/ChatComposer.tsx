@@ -1,3 +1,5 @@
+import {ProviderCapabilityBadge} from "./ProviderCapabilityBadge";
+import {cachedSlashCommands} from "../../lib/providerCapabilities";
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ComposerBubbleRow } from "./ComposerBubbles";
 import { ComposerDock } from "./ComposerDock";
@@ -108,7 +110,7 @@ function SlashPicker({
             cursor: "pointer",
           }}
         >
-          <span style={{ color: "var(--ct-accent, #58a6ff)" }}>{c.name}</span>
+          <span style={{ color: "var(--ct-accent, #58a6ff)" }}>{c.name}{c.argumentHint ? ` ${c.argumentHint}` : ""}</span>
           <span className="opacity-60 truncate">{c.description}</span>
         </button>
       ))}
@@ -245,10 +247,11 @@ function ChatComposerImpl({
     },
     [showComposerError],
   );
+  const capabilities = useMuxSelector(useCallback(state => state.tabs[tabId]?.provider_signals?.capabilities, [tabId]));
   const firstLine = input.split("\n")[0] || "";
   const suggestions = useMemo(
-    () => filterSlashCommands(firstLine),
-    [firstLine],
+    () => filterSlashCommands(firstLine, cachedSlashCommands(capabilities)),
+    [firstLine, capabilities],
   );
 
   const refocusComposer = useCallback(() => {
@@ -524,6 +527,7 @@ function ChatComposerImpl({
       <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="composer" />
       <div className="mb-2 flex flex-wrap items-center gap-1 empty:hidden">
       <ComposerContextMeter tabId={tabId} />
+      <ProviderCapabilityBadge tabId={tabId} />
       <TabTaskStrip tabId={tabId} presentation="inline" />
       <ComposerJobChips tabId={tabId} workspaceId={workspaceId} />
       </div>

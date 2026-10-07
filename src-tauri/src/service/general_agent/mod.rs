@@ -114,3 +114,7 @@ mod tests {
         assert!(dir.ends_with("secrets"));
     }
 }
+
+pub(crate) use lifecycle::restart_general_agent_with_force;
+
+mod restart_guard;

@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 #[path = "process.rs"]
-mod process;
+pub(crate) mod process;
 pub(super) use process::owner_alive;
 
 pub(super) struct UpdateCommandFailure {

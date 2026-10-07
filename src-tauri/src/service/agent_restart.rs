@@ -432,13 +432,6 @@ impl ServiceContext {
             return Ok(None);
         };
         self.require_background_work_safe(&target.tab_id, force)?;
-        if force {
-            super::background_work::force_notice(
-                self,
-                &target.tab_id,
-                &super::background_work::running(self, &target.tab_id),
-            );
-        }
         if self.is_unverified_launch_shell(&target) {
             target.session_id = None;
         } else {
@@ -477,13 +470,14 @@ impl ServiceContext {
                 .clone()
         };
         std::thread::spawn(move || {
-            crate::service::general_agent::restart_general_agent(
+            crate::service::general_agent::restart_general_agent_with_force(
                 &svc,
                 &mux,
                 &pty,
                 &screen_state,
                 &config,
                 &app,
+                force,
             );
         });
         drop(restart_claim);

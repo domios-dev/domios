@@ -417,3 +417,6 @@ impl MultiplexerState {
         (state, tab_id)
     }
 }
+
+#[cfg(test)]
+mod background_work_tests;

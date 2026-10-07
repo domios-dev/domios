@@ -343,3 +343,8 @@ fn notify_owner(
 
 #[cfg(test)]
 mod tests;
+
+pub(crate) use command::process::ProcessTree;
+
+#[cfg(test)]
+pub(crate) use command::process::owner_alive as probe_fixture_owner_alive;

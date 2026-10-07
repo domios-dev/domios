@@ -23,7 +23,7 @@ impl ServiceContext {
         if let Some(ref new_sid) = session_id {
             if mux
                 .get_tab(tab_id)
-                .is_some_and(|tab| tab.fork_source_session_id.as_deref() == Some(new_sid))
+                .is_some_and(|tab| tab.fork_source_session_id.is_some())
             {
                 return;
             }
@@ -225,5 +225,27 @@ mod tests {
             after_bind,
             "an unchanged binding must not broadcast"
         );
+    }
+
+    #[test]
+    #[cfg_attr(
+        not(windows),
+        ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+    )]
+    fn agent_fork_legacy_guess_cannot_bind_a_distinct_session() {
+        let (mut mux, tab) = MultiplexerState::new();
+        mux.get_tab_mut(&tab).unwrap().fork_source_session_id = Some("source".into());
+        let fixture = ServiceFixture::new(mux);
+        fixture
+            .service
+            .set_agent_session_id(&tab, Some("guessed-distinct".into()));
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab)
+            .unwrap()
+            .agent_session_id
+            .is_none());
     }
 }

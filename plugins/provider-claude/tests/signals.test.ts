@@ -24,4 +24,12 @@ check(() => assert.deepEqual(JSON.parse(JSON.stringify(plugin.parseAuthStatus!(s
 const row = {type:"assistant",uuid:"own",permissionMode:"plan",isApiErrorMessage:true,error:"rate_limit",message:{content:[{type:"text",text:"opaque"}]}};
 const delta = plugin.parseSessionDelta!(JSON.stringify(row)) as {messages:Array<{provider_observations:unknown}>};
 check(() => assert.deepEqual(JSON.parse(JSON.stringify(delta.messages[0].provider_observations)), parseSessionObservations(row)));
+check(() => {
+  const metadata = plugin.parseSessionDelta!(JSON.stringify({type:"metadata",sessionId:"own",permissionMode:"plan"})) as {messages:Array<{provider_observations:{permission_mode:string}}>};
+  assert.equal(metadata.messages[0].provider_observations.permission_mode,"plan");
+});
+check(() => {
+  const metadata = plugin.parseSessionDelta!(JSON.stringify({type:"assistant",sessionId:"own",isApiErrorMessage:true,error:"rate_limit",message:{content:[]}})) as {messages:Array<{provider_observations:{api_error:string}}>};
+  assert.equal(metadata.messages[0].provider_observations.api_error,"rate_limit");
+});
 console.log(`${checks} passed, 0 failed`);

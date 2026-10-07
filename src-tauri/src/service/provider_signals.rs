@@ -7,13 +7,11 @@ fn enabled(svc: &ServiceContext, provider: &str) -> bool {
     svc.app_handle
         .try_state::<crate::config::ConfigState>()
         .is_some_and(|config| {
-            config
-                .lock()
-                .agents
-                .get(provider)
-                .and_then(|config| config.extra.get("structured_signals"))
-                .and_then(toml::Value::as_bool)
-                == Some(true)
+            config.lock().agents.get(provider).is_some_and(|config| {
+                ["structured_signals", "capability_probe_enabled"]
+                    .iter()
+                    .any(|key| config.extra.get(*key).and_then(toml::Value::as_bool) == Some(true))
+            })
         })
 }
 
@@ -111,6 +109,13 @@ pub(crate) fn apply(
         }
         let refresh_needed = previous.auth.as_ref().is_some_and(|auth| !auth.logged_in)
             && records.iter().any(|record| {
+                if record
+                    .provider_session_id
+                    .as_deref()
+                    .is_some_and(|id| id != session)
+                {
+                    return false;
+                }
                 record
                     .provider_observations
                     .as_ref()
@@ -170,6 +175,8 @@ pub(crate) fn warn_dispatch(svc: &ServiceContext, from_tab: &str, target_tab: &s
 }
 
 pub(crate) fn refresh_auth(svc: &ServiceContext, tab_id: &str) {
+    super::background_work_watch::ensure(svc, tab_id);
+    super::capability_probe::refresh_tab(svc, tab_id);
     let launch = {
         let mux = svc.mux.read();
         mux.get_tab(tab_id)
@@ -229,10 +236,15 @@ pub(crate) fn refresh_auth(svc: &ServiceContext, tab_id: &str) {
             {
                 return;
             }
-            tab.provider_signals.auth = enabled.then_some(auth).flatten();
+            let next_auth = enabled.then_some(auth).flatten();
+            let login_changed = tab.provider_signals.auth != next_auth;
+            tab.provider_signals.auth = next_auth;
             tab.provider_signals.auth_probe_pending = false;
             drop(mux);
             svc.emit_state_changed();
+            if login_changed {
+                super::capability_probe::invalidate_and_rebuild(&provider_id);
+            }
         })
     {
         if let Some(tab) = failed_svc.mux.write().get_tab_mut(&failed_tab) {
