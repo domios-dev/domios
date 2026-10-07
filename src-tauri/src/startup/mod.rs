@@ -22,6 +22,8 @@ mod states;
 mod storage;
 mod user_path;
 mod window;
+mod window_events;
+pub(crate) use window_events::handle_window_event;
 
 pub(crate) use background::start_background_tasks;
 pub use bridge::{spawn_telegram_bridge, start_telegram_bridge, unmark_tab_connected_service};
