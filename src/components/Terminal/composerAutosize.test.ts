@@ -1,6 +1,6 @@
 // The composer autosize must measure the textarea without letting the sibling chat viewport grow, or the browser clamps a bottom-pinned transcript off the bottom on every keystroke.
 
-import { applyComposerAutosize, COMPOSER_MIN_HEIGHT } from "./composerAutosize";
+import { measureComposerAutosize, applyComposerAutosize, COMPOSER_MIN_HEIGHT } from "./composerAutosize";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -117,3 +117,11 @@ function makeFlexColumn(opts: { contentLines: number }) {
 }
 
 console.log("composer autosize jitter checks passed");
+
+{
+  const col = makeFlexColumn({ contentLines: 20 });
+  const measured = measureComposerAutosize(col.textarea, col.shell, 120);
+  assert(measured.contentPx === 400, "raw editor content is exposed independently of the clamp");
+  assert(measured.editorPx === 120, "applied height respects the panel bound");
+  console.log("PASS raw measurement survives editor clamping");
+}
