@@ -1,3 +1,4 @@
+use super::PluginManifest;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -14,9 +15,7 @@ use crate::provider::{
 };
 use codeterm_types::pty::PendingPrompt;
 
-use super::super::{
-    call_json, manifest_settings_sections, IntegrationKind, PluginManifest, SerdeModelInfo,
-};
+use super::super::{call_json, manifest_settings_sections, IntegrationKind, SerdeModelInfo};
 use super::command_template::{launch_command_from_template, resume_command_from_template};
 use super::wire::{
     launch_params_to_json, SerdeSessionMetadata, VmUsageParser, SESSION_PARSE_CHUNK_BYTES,
@@ -24,35 +23,24 @@ use super::wire::{
 use super::{launch_artifacts, prompt_parse, JsProvider};
 
 mod delivery;
+mod session_wire;
 
-/// `usageSources` wire row: a path plus the session that scopes a shared log.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct WireUsageSource {
-    path: String,
-    #[serde(default)]
-    session_id: Option<String>,
-}
-
-impl JsProvider {
-    fn detect_session_model_wire(&self, method: &str, args: &[Value]) -> Option<String> {
-        self.try_call::<Option<String>>(method, args)
-            .flatten()
-            .map(|model| {
-                let resolved = crate::model_catalog::resolve_model(self.id(), Some(&model));
-                if resolved.fell_back {
-                    model
-                } else {
-                    resolved.id
-                }
-            })
-    }
-}
+use session_wire::WireUsageSource;
 
 #[async_trait::async_trait]
 impl AgentProvider for JsProvider {
     fn id(&self) -> &str {
         &self.manifest.id
+    }
+
+    fn model_provider_config(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::model_providers::ModelProviderConfig>> {
+        self.manifest.capabilities.model_provider_config.then(|| {
+            std::sync::Arc::new(super::super::model_providers::JsModelProviderConfig::new(
+                self.vm.clone(),
+            )) as std::sync::Arc<dyn crate::model_providers::ModelProviderConfig>
+        })
     }
 
     fn display_name(&self) -> &str {
@@ -1073,9 +1061,11 @@ impl AgentProvider for JsProvider {
     }
 
     fn model_credential_files(&self) -> Vec<PathBuf> {
-        self.manifest.model_catalogue.fingerprint_files(
-            super::host_credentials::declared_files(&self.manifest.credentials),
-        )
+        self.manifest
+            .model_catalogue
+            .fingerprint_files(super::host_credentials::declared_files(
+                &self.manifest.credentials,
+            ))
     }
 
     fn settings_schema(&self) -> Vec<SettingField> {
@@ -1097,7 +1087,6 @@ impl AgentProvider for JsProvider {
     }
 
     fn install_bridge_rule(&self, payload: &str) -> Result<(), String> {
-        // manifest.rule.path when present — keeps the contract honest for plugins that declared the path but skipped the JS.
         if let Some(r) = self.try_call_result("installBridgeRule", &[json!(payload)]) {
             return r;
         }

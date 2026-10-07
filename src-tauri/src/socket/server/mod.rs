@@ -16,6 +16,7 @@ mod error_codes;
 mod local_api;
 mod mem;
 mod model_errors;
+mod model_providers;
 mod notification;
 mod orchestration;
 mod orchestrator;

@@ -23,7 +23,6 @@ import { loadTeamDisclosureState, persistTeamDisclosureState } from "./teamDiscl
 import { refusalText } from "../../lib/refusalText";
 import { useProviderModelUsage } from "../../hooks/useProviderModelUsage";
 import { formatModelUsage, hasModelUsage, usageForModel } from "../../lib/modelGroups";
-import { invoke } from "../../lib/bridge";
 
 export interface SidebarTeamActions {
   /// `managerTabId` is null when the Team holds no member that can spawn. The

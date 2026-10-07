@@ -425,6 +425,10 @@ impl PluginVm {
         })
     }
 
+    pub(crate) fn can_access_config_path(&self, path: &str) -> bool {
+        self.sandbox.can_read(path) && self.sandbox.can_write(path)
+    }
+
     pub fn plugin_id(&self) -> &str {
         &self.plugin_id
     }

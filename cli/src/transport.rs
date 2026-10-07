@@ -85,6 +85,9 @@ const fn pre_socket_unsupported(reason: &'static str) -> Transport {
 pub(crate) fn transport_for(command: &Commands) -> Transport {
     match command {
         Commands::Identify => socket_rest(),
+        Commands::ModelProvider { .. } => socket_unsupported(
+            "model provider secrets and configuration are local-only; run on the target machine",
+        ),
         Commands::Capabilities => {
             socket_unsupported("capabilities is socket-only; run it on the target machine")
         }
