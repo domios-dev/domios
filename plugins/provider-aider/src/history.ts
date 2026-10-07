@@ -135,7 +135,7 @@ export function parseAiderHistory(
 
   return {
     messages,
-    cursor: cursor || null,
+    cursor: String(messages.length),
   };
 }
 
@@ -158,10 +158,22 @@ export function readAiderHistory(
 }
 
 function readHistoryFile(filePath: string): string | null {
-  try {
-    const value = host.fs.readFile(filePath);
-    return value === null || value === undefined ? null : String(value);
-  } catch (_) {
-    return null;
+  const fs = (host as { fs?: Record<string, unknown> }).fs;
+  if (fs && typeof fs.readFile === "function") {
+    try {
+      const value = (fs.readFile as (p: string) => unknown)(filePath);
+      return value === null || value === undefined ? null : String(value);
+    } catch (_) {
+      return null;
+    }
   }
+  if (fs && typeof fs.readTextFile === "function") {
+    try {
+      const value = (fs.readTextFile as (p: string) => unknown)(filePath);
+      return value === null || value === undefined ? null : String(value);
+    } catch (_) {
+      return null;
+    }
+  }
+  return null;
 }
