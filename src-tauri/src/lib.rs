@@ -495,31 +495,7 @@ pub fn run() {
             plugin_manager.set_registrar(agent_registry.clone());
             plugin_manager.set_event_sink(states.event_broadcaster.clone());
 
-            {
-                let mut changes = agent::model_catalog::subscribe_changes();
-                let app = app_handle.clone();
-                tauri::async_runtime::spawn(async move {
-                    loop {
-                        match changes.recv().await {
-                            Ok(change) => crate::api::events::emit_everywhere(
-                                &app,
-                                "model-catalogue-changed",
-                                change,
-                            ),
-                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                                for change in agent::model_catalog::version_snapshot() {
-                                    crate::api::events::emit_everywhere(
-                                        &app,
-                                        "model-catalogue-changed",
-                                        change,
-                                    );
-                                }
-                            }
-                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
-                        }
-                    }
-                });
-            }
+            startup::model_catalogue::forward_changes(&app_handle);
 
             // Bridge ContributionsChanged → frontend event + mem bridge rule refresh.
             {
@@ -719,19 +695,7 @@ pub fn run() {
 
             agent::model_catalog::refresh_example_files();
 
-            // Background refresh per provider off the async runtime never gates startup.
-            {
-                let providers = agent_registry.all_provider_arcs();
-                for p in &providers {
-                    agent::model_catalog::prime_from_cache(p.id());
-                    agent::model_binary_watch::install(p.clone());
-                }
-                tauri::async_runtime::spawn(async move {
-                    for provider in providers {
-                        let _ = agent::model_catalog::refresh_models(provider, false).await;
-                    }
-                });
-            }
+            startup::model_catalogue::refresh_providers(&agent_registry);
 
             let prompt_detector = Arc::new(Mutex::new(agent::prompt::PromptDetector::new()));
             let (bridge_outbound_tx, bridge_outbound_rx) = bridge::manager::create_outbound_channel();

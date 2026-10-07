@@ -3,6 +3,8 @@
 
 // ── Shared context ──
 
+import type { ModelProviderConfig } from "./modelProviders";
+
 export interface TabContext {
   cwd?: string | null;
 }
@@ -870,7 +872,8 @@ export interface PluginModule
     Partial<ChatBackend>,
     Partial<ChatPreprocessor>,
     Partial<WebhookReceiver>,
-    Partial<AgentCommandHandler> {
+    Partial<AgentCommandHandler>,
+    Partial<ModelProviderConfig> {
   statusBubble?(ctx: TabContext): StatusBubble | null;
   renderGlance?(ctx: TabContext): GlanceView;
   viewCall?: ViewCall;

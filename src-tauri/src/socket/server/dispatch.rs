@@ -51,6 +51,10 @@ pub(super) fn dispatch(
                 "notification.clear",
                 "mesh.status",
                 "mesh.peers",
+                "model_provider.add",
+                "model_provider.remove",
+                "model_provider.list",
+                "model_provider.test",
                 "agent.list",
                 "agent.hierarchy",
                 "agent.spawn",
@@ -326,6 +330,7 @@ pub(super) fn dispatch(
         "tab" | "agents" => tab::dispatch(method, &params, mux, app, svc),
         "notification" => notification::dispatch(method, &params, svc),
         "agent" => agent::dispatch(method, &params, app, svc),
+        "model_provider" => model_providers::dispatch(method, params, svc),
         "orchestration" => orchestration::dispatch(method, &params, app, svc),
         "orchestrator" => orchestrator::dispatch(method, &params, app, svc),
         "persona" => persona::dispatch(method, &params),
@@ -388,6 +393,13 @@ pub(crate) fn dispatch_mesh_rpc(
             "authenticated_mesh_peer_id".into(),
             serde_json::Value::String(peer_id.into()),
         );
+    }
+    if method.starts_with("model_provider.") {
+        return Err(JsonRpcError {
+            code: -32600,
+            message: "model provider operations are local-only".into(),
+            data: None,
+        });
     }
     dispatch_service_rpc_inner(method, params, svc)
 }
