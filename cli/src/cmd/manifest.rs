@@ -242,6 +242,7 @@ pub fn handle(write: bool, markdown: bool) {
 
 #[cfg(test)]
 mod tests {
+    mod doc_references;
     use super::*;
 
     fn normalize_newlines(s: &str) -> String {
