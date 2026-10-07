@@ -88,6 +88,18 @@ pub trait AgentProvider: Send + Sync {
         ComposerCursorPosition::default()
     }
 
+    /// Bounded input fallback: when the provider's own readiness signal never
+    /// fires, open input at this deadline instead of blocking the tab forever.
+    fn input_fallback_ms(&self) -> Option<u64> {
+        None
+    }
+
+    /// When a provider-declared startup dialog is auto-answered during launch.
+    /// Default: delegated roles only (Worker / planner Manager).
+    fn onboarding_auto_answer(&self) -> OnboardingAutoAnswer {
+        OnboardingAutoAnswer::default()
+    }
+
     fn session_starts_on_first_user_turn(&self) -> bool {
         false
     }

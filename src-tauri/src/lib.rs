@@ -445,6 +445,10 @@ pub fn run() {
             // Capability registries — populated as JS plugins load, then handed to ServiceContext.
             let secret_registry = Arc::new(crate::secrets::SecretRegistry::new());
             let transcribe_registry = Arc::new(crate::transcribe::TranscribeRegistry::new());
+            let converter_registry = Arc::new(codeterm_plugin::converter::ConverterRegistry::new());
+            let graph_node_registry = Arc::new(codeterm_plugin::graph_nodes::GraphNodeRegistry::default());
+            let event_source_registry = Arc::new(codeterm_plugin::event_source::EventSourceRegistry::default());
+            let graph_event_subscriptions = codeterm_plugin::graph_events::SubscriptionTable::new();
             let decision_model_registry = crate::api::mem_routes::decision::default_registry();
             let glance_registry: crate::glance::GlanceRegistryHandle =
                 Arc::new(crate::glance::GlanceRegistry::new());
@@ -473,6 +477,9 @@ pub fn run() {
                     crate::secrets::js_backend::AppSecretBackendRegistrar::new(secret_registry.clone())
                 )),
                 transcribe: transcribe_registry.clone(),
+                converter: converter_registry.clone(),
+                graph_nodes: graph_node_registry.clone(),
+                event_source: event_source_registry.clone(),
                 glance: glance_registry.clone(),
                 bubble: bubble_registry.clone(),
                 view: view_registry.clone(),
@@ -886,6 +893,10 @@ pub fn run() {
                 secret_registry: secret_registry.clone(),
                 secrets,
                 transcribe_registry: transcribe_registry.clone(),
+                converter_registry: converter_registry.clone(),
+                graph_node_registry: graph_node_registry.clone(),
+                event_source_registry: event_source_registry.clone(),
+                graph_event_subscriptions: graph_event_subscriptions.clone(),
                 supporter_models: decision_model_registry,
                 glance_registry: glance_registry.clone(),
                 bubble_registry: bubble_registry.clone(),

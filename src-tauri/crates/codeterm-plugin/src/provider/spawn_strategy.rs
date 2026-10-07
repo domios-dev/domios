@@ -114,6 +114,17 @@ pub enum ProviderReadinessStrategy {
     StructuralComposer { timeout: Duration },
 }
 
+/// When a provider-declared startup dialog is auto-answered during launch.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OnboardingAutoAnswer {
+    /// Only for delegated roles (Worker / planner Manager).
+    #[default]
+    DelegatedOnly,
+    /// For every launch, including owner-launched tabs.
+    Always,
+}
+
 /// Terminal cursor placement accepted as composer evidence for a lazy session.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -122,6 +133,9 @@ pub enum ComposerCursorPosition {
     BottomRegion,
     /// Visible cursor on the provider's alternate-screen TUI may be centered.
     VisibleAnywhere,
+    /// Line-mode REPL (no alternate screen): ready when the cursor is visible
+    /// and sits on the last non-blank screen row (its prompt line).
+    PromptLine,
 }
 
 impl Default for ProviderReadinessStrategy {
@@ -239,6 +253,12 @@ impl StarterPrompt {
             ("from", "system"),
             ("context", context),
         ]))
+    }
+}
+
+impl OnboardingAutoAnswer {
+    pub fn answers_for_owner_launch(self) -> bool {
+        matches!(self, Self::Always)
     }
 }
 

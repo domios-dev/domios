@@ -98,7 +98,10 @@ impl ActivityContext {
                 format!("What state is tab {} in?", scrub(title, MAX_QUERY_CHARS))
             }
             Self::Sentinel { job, .. } => {
-                format!("What state is Sentinel {} in?", scrub(job, MAX_QUERY_CHARS))
+                format!(
+                    "What state is Blueprint {} in?",
+                    scrub(job, MAX_QUERY_CHARS)
+                )
             }
         };
         let answer = match reason {
@@ -169,7 +172,10 @@ impl ActivityContext {
                         }
                     }
                     Self::Sentinel { job, buckets } => (
-                        format!("What state is Sentinel {} in?", scrub(job, MAX_QUERY_CHARS)),
+                        format!(
+                            "What state is Blueprint {} in?",
+                            scrub(job, MAX_QUERY_CHARS)
+                        ),
                         choice(answer)
                             .filter(|choice| {
                                 buckets.iter().any(|bucket| bucket.as_str() == *choice)

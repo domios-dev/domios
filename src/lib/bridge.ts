@@ -207,14 +207,14 @@ const HTTP_MAP: Record<string, Mapper> = {
   automation_graph_stop_sentinel: (a) => {
     if (typeof a.workspaceId !== "string" || !a.workspaceId) throw new Error("Automation workspace scope is required");
     if (!("teamId" in a) || (a.teamId !== null && typeof a.teamId !== "string")) throw new Error("Automation Team scope is required");
-    if (typeof a.id !== "string" || !a.id) throw new Error("Sentinel identity is required");
-    return webJson("POST", `/api/automation/sentinels/${enc(s(a, "id"))}/stop`, { workspace_id: s(a, "workspaceId"), team_id: a.teamId });
+    if (typeof a.id !== "string" || !a.id) throw new Error("Blueprint identity is required");
+    return webJson("POST", `/api/automation/blueprints/${enc(s(a, "id"))}/stop`, { workspace_id: s(a, "workspaceId"), team_id: a.teamId });
   },
   automation_graph_delete_sentinel: (a) => {
     if (typeof a.workspaceId !== "string" || !a.workspaceId) throw new Error("Automation workspace scope is required");
     if (!("teamId" in a) || (a.teamId !== null && typeof a.teamId !== "string")) throw new Error("Automation Team scope is required");
-    if (typeof a.id !== "string" || !a.id) throw new Error("Sentinel identity is required");
-    return webJson("DELETE", `/api/automation/sentinels/${enc(s(a, "id"))}`, {
+    if (typeof a.id !== "string" || !a.id) throw new Error("Blueprint identity is required");
+    return webJson("DELETE", `/api/automation/blueprints/${enc(s(a, "id"))}`, {
       workspace_id: s(a, "workspaceId"),
       team_id: a.teamId,
     });

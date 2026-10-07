@@ -191,6 +191,87 @@ Remove a tab's role. A final Orchestrator leaves its Team and Plan recoverable
 
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
+#### `codeterm blueprint`
+
+Cheap hash-gated watchers with closed-set routes
+
+#### `codeterm blueprint create`
+
+Classify a bounded probe or same-Team agent observation
+
+- `--buckets`
+- `--convert-timeout` — Bound the one-time conversion, in the --every duration syntax
+- `--convert-to` — Convert the input to another kind once: text|audio
+- `--dry-run` — Validate and print the resulting graph without creating it
+- `--escalation-timeout-ms` — Bound how long an `other` escalation may hold this stage, in milliseconds
+- `--every` — Owner-requested cadence (minimum 10s, default 20s)
+- `--handlers-file` — JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`
+- `--input` — Watch data instead of a probe or observation: text|audio|video|image
+- `--input-file` — Absolute or caller-cwd-relative path of the input data file
+- `--input-text` — Inline input text (only for --input text)
+- `--input-url` — http or https URL of the input data
+- `--match` — Deterministic fallback when no Choice adapter is connected: bucket=regex
+- `--max-actions` — Finite action-attempt budget (maximum 1024)
+- `--max-transitions` — Finite accepted transition budget (maximum 256)
+- `--name` — Short meaningful name describing what is watched and what happens
+- `--observe` — Observe a same-Team agent tab or cron run
+- `--paused` — Create a dormant downstream stage; its lifetime starts now
+- `--probe`
+- `--question`
+- `--rearm-on-change` — Route again when this bucket's output changes without changing buckets
+- `--route` — Inline routes: bucket=notify|blueprint:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
+- `--timeout` — End the blueprint after this duration
+- `--until` — Stop after this bucket's first confident transition
+
+#### `codeterm blueprint escalation`
+
+Resolve an open escalation
+
+#### `codeterm blueprint escalation resolve`
+
+Release a held stage and re-evaluate its observation
+
+- `<id>`
+- `<transition_id>`
+
+#### `codeterm blueprint history`
+
+Show immutable definition versions
+
+- `<id>`
+
+#### `codeterm blueprint list`
+
+List blueprints scoped to the calling tab and its Team
+
+#### `codeterm blueprint recipe`
+
+List built-in graph skeletons or print one ready-to-edit recipe
+
+- `<name>`
+
+#### `codeterm blueprint show`
+
+Show one blueprint
+
+- `<id>`
+
+#### `codeterm blueprint stop`
+
+Stop one blueprint
+
+- `<id>`
+
+#### `codeterm blueprint update`
+
+Replace one definition at the expected version
+
+- `--cause`
+- `--dry-run` — Validate and print the resulting graph without updating it
+- `--expect-version`
+- `--from-file`
+- `<id>`
+
 #### `codeterm bridge`
 
 Send a message to an external service (Telegram, etc.)
@@ -199,8 +280,8 @@ Send a message to an external service (Telegram, etc.)
 
 Migrate active bridge poller from this node to another mesh peer
 
-- `--announce` — Send a one-shot "now serving from <host>" message to the sentinel chat
-- `--announce-chat-id` — Sentinel chat id for --announce. Defaults to the target's first allow-listed bridge user
+- `--announce` — Send a one-shot "now serving from <host>" message to the Blueprint chat
+- `--announce-chat-id` — Blueprint chat id for --announce. Defaults to the target's first allow-listed bridge user
 - `--claim-timeout-ms` — How long target may take to claim the Telegram lock before the migration is considered failed (ms)
 - `--force` — Skip preflight target-state check (for force migrations)
 - `--no-rollback` — Skip auto-rollback if target claim fails (leave source disabled)
@@ -2723,81 +2804,6 @@ Send text to a tab (default: current tab)
 - `<text>` — Text to send (positional, or omit and use --from-file/--stdin)
 - `--to-shell` — Override the raw-shell prose guard and deliver text verbatim to a shell tab (the shell will execute it). Alias: --force
 - `--until` — Stop recurring delivery at this unix millisecond, RFC3339, or local YYYY-MM-DDTHH:MM time
-
-#### `codeterm sentinel`
-
-Cheap hash-gated watchers with closed-set routes
-
-#### `codeterm sentinel create`
-
-Classify a bounded probe or same-Team agent observation
-
-- `--buckets`
-- `--dry-run` — Validate and print the resulting graph without creating it
-- `--escalation-timeout-ms` — Bound how long an `other` escalation may hold this stage, in milliseconds
-- `--every` — Owner-requested cadence (minimum 10s)
-- `--handlers-file` — JSON bucket-to-array of {id,type,parameters} handlers, including command, respond_prompt and escalation on `other`
-- `--match` — Deterministic fallback when no Choice adapter is connected: bucket=regex
-- `--max-actions` — Finite action-attempt budget (maximum 1024)
-- `--max-transitions` — Finite accepted transition budget (maximum 256)
-- `--name` — Short meaningful name describing what is watched and what happens
-- `--observe` — Observe a same-Team agent tab or cron run
-- `--paused` — Create a dormant downstream stage; its lifetime starts now
-- `--probe`
-- `--question`
-- `--rearm-on-change` — Route again when this bucket's output changes without changing buckets
-- `--route` — Inline routes: bucket=notify|sentinel:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
-- `--timeout` — End the sentinel after this duration
-- `--until` — Stop after this bucket's first confident transition
-
-#### `codeterm sentinel escalation`
-
-Resolve an open escalation
-
-#### `codeterm sentinel escalation resolve`
-
-Release a held stage and re-evaluate its observation
-
-- `<id>`
-- `<transition_id>`
-
-#### `codeterm sentinel history`
-
-Show immutable definition versions
-
-- `<id>`
-
-#### `codeterm sentinel list`
-
-List sentinels scoped to the calling tab and its Team
-
-#### `codeterm sentinel recipe`
-
-List built-in graph skeletons or print one ready-to-edit recipe
-
-- `<name>`
-
-#### `codeterm sentinel show`
-
-Show one sentinel
-
-- `<id>`
-
-#### `codeterm sentinel stop`
-
-Stop one sentinel
-
-- `<id>`
-
-#### `codeterm sentinel update`
-
-Replace one definition at the expected version
-
-- `--cause`
-- `--dry-run` — Validate and print the resulting graph without updating it
-- `--expect-version`
-- `--from-file`
-- `<id>`
 
 #### `codeterm service`
 
