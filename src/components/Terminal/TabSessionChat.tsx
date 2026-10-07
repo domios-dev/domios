@@ -30,6 +30,8 @@ import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
+import { ManagedTabBar } from "./ManagedTabBar";
+import { managedTabPresentation } from "../../lib/managedTab";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
@@ -307,7 +309,7 @@ export function TabSessionChat({
     void invoke("write_pty_string", { ptyId: currentPtyId, data: command + "\r", raw: false }).catch(
       (e) => showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [currentPtyId, showComposerError]);
+  }, [currentPtyId, showComposerError, tab?.id, tab?.managed]);
 
   const handleJumpToShellCommand = useCallback(() => {
     onOpenTerminalFallback?.();
@@ -327,10 +329,10 @@ export function TabSessionChat({
       return;
     }
     lastStopAtRef.current = now;
-    void invoke("interrupt_agent", { ptyId: currentPtyId }).catch((e) =>
+    void invoke("interrupt_agent", { ptyId: currentPtyId, ...(tab?.managed && !tab.managed.manager_closed ? { tabId: tab.id } : {}) }).catch((e) =>
       showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [currentPtyId, showComposerError]);
+  }, [currentPtyId, showComposerError, tab?.id, tab?.managed]);
 
   const handleStopReminder = useCallback(async (id: string) => {
     try {
@@ -866,7 +868,8 @@ export function TabSessionChat({
           />
         )}
       </div>
-      <ChatComposer
+      {tab?.managed && <ManagedTabBar managed={tab.managed} onStop={handleStopAgent} />}
+      {!managedTabPresentation(tab?.managed).locked && <ChatComposer
         tabId={tabId}
         tabProvider={tabProvider}
         currentPtyId={currentPtyId}
@@ -885,7 +888,7 @@ export function TabSessionChat({
         showComposerError={showComposerError}
         onOpenTerminalFallback={effectiveChatBackend ? undefined : onOpenTerminalFallback}
         modelBubble={composerModelBubble}
-      />
+      />}
       </>
       )}
     </div>

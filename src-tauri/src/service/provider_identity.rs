@@ -184,7 +184,17 @@ impl ServiceContext {
         origin: AgentTypeWriteOrigin,
         caller_tab_id: Option<&str>,
     ) {
-        self.write_tab_agent_type_with_origin(tab_id, agent_type, true, origin, caller_tab_id);
+        let provider = agent_type.clone();
+        let outcome =
+            self.write_tab_agent_type_with_origin(tab_id, agent_type, true, origin, caller_tab_id);
+        if matches!(origin, AgentTypeWriteOrigin::Spawn)
+            && matches!(
+                outcome,
+                Some(AgentTypeWriteOutcome::Applied { .. } | AgentTypeWriteOutcome::Kept { .. })
+            )
+        {
+            self.initialize_managed_tab(tab_id, &provider, caller_tab_id);
+        }
     }
 
     pub(crate) fn write_tab_agent_type_with_origin(

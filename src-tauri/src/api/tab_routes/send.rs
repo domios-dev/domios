@@ -19,6 +19,13 @@ pub async fn chat_send_text(
 ) -> Result<Json<crate::service::agent_pad::ChatSendResult>, SendRejection> {
     check_auth(&state, &headers).map_err(SendRejection::from)?;
     let tab_id = resolve_tab(&state, &id).map_err(SendRejection::from)?;
+    state
+        .svc
+        .require_managed_send_allowed(&tab_id, None)
+        .map_err(|detail| DeliveryError::TabBusyRefused {
+            tab: tab_id.clone(),
+            detail,
+        })?;
     let has_agent_identity = state.svc.tab_has_agent_identity(&tab_id);
     if let Some(error) = chat_send_target_refusal(
         &tab_id,
@@ -384,6 +391,14 @@ pub async fn send_text(
     let tab_id =
         resolve_tab(&state, &raw_tab_id).map_err(|_| DeliveryError::TabNotReachableOnPeer {
             tab: raw_tab_id.clone(),
+        })?;
+
+    state
+        .svc
+        .require_managed_send_allowed(&tab_id, body.source_tab.as_deref())
+        .map_err(|detail| DeliveryError::TabBusyRefused {
+            tab: tab_id.clone(),
+            detail,
         })?;
 
     // Refuse over-bound programmatic payloads (16MB bound) before any delivery

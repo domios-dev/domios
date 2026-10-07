@@ -1,4 +1,4 @@
-use crate::agent::provider::ReplyRelayTurn;
+use crate::agent::provider::{ReplyRelayEvidence, ReplyRelayTurn};
 use std::collections::{HashSet, VecDeque};
 
 pub const DEFAULT_REPLY_RELAY_MAX_HOPS: u8 = 8;
@@ -29,11 +29,40 @@ pub enum ReplyRelayDecision {
     Wait,
     DropClosedSender,
     DropHopLimit,
+    Notice {
+        text: String,
+        user_turn_id: Option<String>,
+    },
     Send {
         answer: String,
         hops: u8,
         user_turn_id: String,
     },
+}
+
+#[derive(Clone, Copy)]
+pub struct ReplyRelayRoute<'a> {
+    pub sender: &'a str,
+    pub target: &'a str,
+    pub tool_less: bool,
+    pub supported: bool,
+    pub sender_is_agent: bool,
+    pub has_reply_hint: bool,
+    pub remote: bool,
+    pub notice: bool,
+    pub spawn_brief: bool,
+}
+
+pub fn reply_relay_target(route: ReplyRelayRoute<'_>) -> Option<&str> {
+    (route.tool_less
+        && route.supported
+        && route.sender_is_agent
+        && !route.sender.is_empty()
+        && route.sender != route.target
+        && !route.remote
+        && !route.notice
+        && (route.spawn_brief || route.has_reply_hint))
+        .then_some(route.sender)
 }
 
 pub fn reply_relay_eligible(
@@ -60,28 +89,21 @@ pub fn decide_reply_relay(
     if pending.hops >= max_hops {
         return ReplyRelayDecision::DropHopLimit;
     }
-    if source.provider_id.is_empty()
-        || source.session_id.is_empty()
-        || source.binding_nonce.is_empty()
-        || pending.delivery_id.is_empty()
-        || pending.sender_tab.is_empty()
-        || source.provider_id != pending.provider_id
-        || source.session_id != pending.session_id
-        || source.binding_nonce != pending.binding_nonce
-        || turn_already_relayed
-    {
+    if !matches_source(pending, source) || turn_already_relayed {
         return ReplyRelayDecision::Wait;
     }
     let Some(turn) = turn else {
         return ReplyRelayDecision::Wait;
     };
     if !turn.complete
-        || turn.user_record_start < pending.after_offset
-        || turn.user_turn_id.is_empty()
         || turn.assistant_turn_id.is_empty()
         || turn.answer.trim().is_empty()
-        || normalize(&pending.user_text, pending).is_empty()
-        || normalize(&turn.user_text, pending) != normalize(&pending.user_text, pending)
+        || !matches_user_turn(
+            pending,
+            &turn.user_turn_id,
+            turn.user_record_start,
+            &turn.user_text,
+        )
     {
         return ReplyRelayDecision::Wait;
     }
@@ -92,23 +114,114 @@ pub fn decide_reply_relay(
     }
 }
 
+pub fn decide_reply_relay_evidence(
+    pending: &PendingReplyRelay,
+    source: RelaySource<'_>,
+    evidence: Option<&ReplyRelayEvidence>,
+    sender_open: bool,
+    max_hops: u8,
+    turn_already_relayed: bool,
+) -> ReplyRelayDecision {
+    let evidence = evidence.filter(|evidence| evidence.is_valid());
+    let common = decide_reply_relay(
+        pending,
+        source,
+        None,
+        sender_open,
+        max_hops,
+        turn_already_relayed,
+    );
+    if !matches!(common, ReplyRelayDecision::Wait) {
+        return common;
+    }
+    if !matches_source(pending, source) || turn_already_relayed {
+        return ReplyRelayDecision::Wait;
+    }
+    match evidence {
+        Some(ReplyRelayEvidence::Answered(turn)) => {
+            decide_reply_relay(pending, source, Some(turn), sender_open, max_hops, false)
+        }
+        Some(ReplyRelayEvidence::Ended(turn))
+            if matches_user_turn(
+                pending,
+                &turn.user_turn_id,
+                turn.user_record_start,
+                &turn.user_text,
+            ) =>
+        {
+            ReplyRelayDecision::Notice {
+                text: format!("turn ended: {}", turn.outcome.as_str()),
+                user_turn_id: Some(turn.user_turn_id.clone()),
+            }
+        }
+        Some(ReplyRelayEvidence::Unavailable(state)) => ReplyRelayDecision::Notice {
+            text: format!(
+                "Reply relay is not active for this session: {}",
+                state.reason
+            ),
+            user_turn_id: None,
+        },
+        _ => ReplyRelayDecision::Wait,
+    }
+}
+
+fn matches_source(pending: &PendingReplyRelay, source: RelaySource<'_>) -> bool {
+    !source.provider_id.is_empty()
+        && !source.session_id.is_empty()
+        && !source.binding_nonce.is_empty()
+        && !pending.delivery_id.is_empty()
+        && !pending.sender_tab.is_empty()
+        && source.provider_id == pending.provider_id
+        && source.session_id == pending.session_id
+        && source.binding_nonce == pending.binding_nonce
+}
+
+fn matches_user_turn(pending: &PendingReplyRelay, id: &str, start: u64, text: &str) -> bool {
+    !id.is_empty()
+        && start >= pending.after_offset
+        && !normalize(&pending.user_text, pending).is_empty()
+        && normalize(text, pending) == normalize(&pending.user_text, pending)
+}
+
 #[derive(Default)]
 pub struct ReplyRelayModel {
     pending: VecDeque<PendingReplyRelay>,
     delivery_ids: HashSet<String>,
-    relayed_turns: HashSet<(String, String, String, String)>,
+    delivery_order: VecDeque<String>,
+    relayed_through: Option<u64>,
+    unavailable_reason: Option<String>,
 }
 
 impl ReplyRelayModel {
     pub fn record(&mut self, pending: PendingReplyRelay) -> bool {
-        if self.delivery_ids.len() >= MAX_TRACKED_RELAY_DELIVERIES
+        if self.unavailable_reason.is_some()
+            || self.pending.len() >= MAX_TRACKED_RELAY_DELIVERIES
             || pending.delivery_id.is_empty()
             || !self.delivery_ids.insert(pending.delivery_id.clone())
         {
             return false;
         }
+        self.delivery_order.push_back(pending.delivery_id.clone());
+        while self.delivery_order.len() > MAX_TRACKED_RELAY_DELIVERIES {
+            if let Some(oldest) = self.delivery_order.pop_front() {
+                self.delivery_ids.remove(&oldest);
+            }
+        }
         self.pending.push_back(pending);
         true
+    }
+
+    pub fn pending(&self) -> Vec<PendingReplyRelay> {
+        self.pending.iter().cloned().collect()
+    }
+
+    pub fn cancel(&mut self, delivery_id: &str) {
+        self.pending
+            .retain(|pending| pending.delivery_id != delivery_id);
+    }
+
+    pub fn unavailable_reason(&self) -> Option<&str> {
+        self.unavailable_reason.as_deref()
     }
 
     pub fn observe(
@@ -118,33 +231,67 @@ impl ReplyRelayModel {
         sender_open: impl Fn(&str) -> bool,
         max_hops: u8,
     ) -> Vec<(PendingReplyRelay, ReplyRelayDecision)> {
+        self.observe_evidence(
+            source,
+            turn.cloned().map(ReplyRelayEvidence::Answered).as_ref(),
+            sender_open,
+            max_hops,
+        )
+    }
+
+    pub fn observe_evidence(
+        &mut self,
+        source: RelaySource<'_>,
+        evidence: Option<&ReplyRelayEvidence>,
+        sender_open: impl Fn(&str) -> bool,
+        max_hops: u8,
+    ) -> Vec<(PendingReplyRelay, ReplyRelayDecision)> {
+        let user_record_start = match evidence {
+            Some(ReplyRelayEvidence::Answered(turn)) => Some(turn.user_record_start),
+            Some(ReplyRelayEvidence::Ended(turn)) => Some(turn.user_record_start),
+            _ => None,
+        };
         let mut actions = Vec::new();
         let mut remaining = VecDeque::new();
         while let Some(pending) = self.pending.pop_front() {
-            let key = turn.map(|turn| {
-                (
-                    source.provider_id.to_string(),
-                    source.session_id.to_string(),
-                    source.binding_nonce.to_string(),
-                    turn.user_turn_id.clone(),
-                )
-            });
-            let decision = decide_reply_relay(
+            let decision = decide_reply_relay_evidence(
                 &pending,
                 source,
-                turn,
+                evidence,
                 sender_open(&pending.sender_tab),
                 max_hops,
-                key.as_ref()
-                    .is_some_and(|key| self.relayed_turns.contains(key)),
+                user_record_start
+                    .zip(self.relayed_through)
+                    .is_some_and(|(start, through)| start <= through),
             );
             if matches!(decision, ReplyRelayDecision::Wait) {
                 remaining.push_back(pending);
                 continue;
             }
-            if matches!(decision, ReplyRelayDecision::Send { .. }) {
-                if let Some(key) = key {
-                    self.relayed_turns.insert(key);
+            if matches!(
+                decision,
+                ReplyRelayDecision::Send { .. }
+                    | ReplyRelayDecision::Notice {
+                        user_turn_id: Some(_),
+                        ..
+                    }
+            ) {
+                if let Some(start) = user_record_start {
+                    self.relayed_through = Some(
+                        self.relayed_through
+                            .map_or(start, |through| through.max(start)),
+                    );
+                }
+            }
+            if matches!(
+                decision,
+                ReplyRelayDecision::Notice {
+                    user_turn_id: None,
+                    ..
+                }
+            ) {
+                if let Some(ReplyRelayEvidence::Unavailable(state)) = evidence {
+                    self.unavailable_reason = Some(state.reason.clone());
                 }
             }
             actions.push((pending, decision));

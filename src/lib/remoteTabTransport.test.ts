@@ -2,6 +2,11 @@ import { describe, expect, finish, it } from "../test/standaloneTest";
 import { classifyTabTarget, hasCompositeTabArgument, parseCompositeTabId, remoteTransportCall } from "./remoteTabTransport";
 
 describe("remote tab transport adapter", () => {
+  it("uses provider stop for managed calls and preserves legacy PTY interrupts", () => {
+    expect(remoteTransportCall("interrupt_agent", { tabId: "mesh:peer/tab", ptyId: "mesh:peer/pty" })?.suffix).toBe("/stop");
+    expect(remoteTransportCall("interrupt_agent", { ptyId: "mesh:peer/pty" })?.suffix).toBe("/pty/write");
+  });
+
   it("routes every local-component action to the composite owner", () => {
     for (const command of [
       "mux_close_tab", "mux_rename_tab", "mux_set_focused_tab", "get_tab_text",

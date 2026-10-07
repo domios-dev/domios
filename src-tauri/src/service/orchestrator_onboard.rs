@@ -285,6 +285,7 @@ mod tests {
             lifecycle_operation_id: None,
             task_binding: None,
             roleless_tracked: false,
+            managed: None,
             role: None,
             role_profile: None,
             team_id: None,

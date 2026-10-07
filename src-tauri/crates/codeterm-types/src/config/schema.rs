@@ -543,6 +543,7 @@ impl Default for SocketConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AgentConfig {
+    pub reply_relay_max_hops: u8,
     pub poll_interval_ms: u32,
     pub idle_timeout_s: u32,
     pub resume_sessions: bool,
@@ -554,6 +555,7 @@ pub struct AgentConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
+            reply_relay_max_hops: 8,
             poll_interval_ms: 500,
             idle_timeout_s: 2,
             resume_sessions: true,

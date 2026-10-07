@@ -19,6 +19,7 @@ impl LaunchGeneration {
             }
             None => svc.rotate_session_binding_nonce(&self.tab_id),
         };
+        svc.arm_spawn_reply_relay(&self.tab_id, &nonce);
         self.binding_nonce = Some(nonce.clone());
         LAUNCH_REGISTRY.lock().bind_provider_session(self, nonce);
         // A relaunched Worker keeps its persisted task binding, but its dispatch

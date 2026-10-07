@@ -1,5 +1,8 @@
 pub mod reply_relay;
-pub use reply_relay::ReplyRelayTurn;
+pub use reply_relay::{
+    ReplyRelayEndedTurn, ReplyRelayEvidence, ReplyRelayOutcome, ReplyRelayTurn,
+    ReplyRelayUnavailable,
+};
 pub(crate) mod update_prompt;
 
 use std::path::PathBuf;

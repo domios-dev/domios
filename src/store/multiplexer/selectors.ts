@@ -36,7 +36,7 @@ export function tabFieldsEqual(a: Tab | undefined, b: Tab | undefined): boolean 
     const av = a[key];
     const bv = b[key];
     if (av === bv) continue;
-    if (key === "agent_state") {
+    if (key === "managed" || key === "agent_state") {
       if (!shallowRecordEqual(av as Record<string, unknown> | null | undefined, bv as Record<string, unknown> | null | undefined)) {
         return false;
       }

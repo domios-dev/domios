@@ -840,6 +840,7 @@ pub fn run() {
                 chat_send_ledger: Arc::new(
                     crate::service::chat_send_transaction::ChatSendLedger::default(),
                 ),
+                reply_relays: Arc::new(Default::default()),
                 deferred_session_bindings: Arc::new(Default::default()),
                 agent_registry,
                 mem,

@@ -21,6 +21,7 @@ import { SidebarModelBadge } from "./SidebarModelBadge";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { RoleBadge } from "./RoleBadge";
 import { managedByLabel, remoteIdentity } from "./remoteOwnership";
+import { managedTabPresentation } from "../../lib/managedTab";
 import { roleShieldLabel } from "./orchestrationSections";
 import { ActiveTabPill } from "./ActiveTabPill";
 import type { TabTabActivity } from "../Canvas/tabTabActivity";
@@ -232,7 +233,7 @@ function TabItemInner({
   const roleShield = restoreFailure.showIdentityBadges
     ? (isGeneralAgent ? "General Agent" : roleShieldLabel(tab))
     : null;
-  const managedBy = managedByLabel(tab);
+  const managedBy = managedTabPresentation(tab.managed).label ?? managedByLabel(tab);
   const localSubtitle = tab.remote_peer_id ? null : roleShield;
   const isSubTab =
     !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);

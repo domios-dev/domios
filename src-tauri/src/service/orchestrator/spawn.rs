@@ -1065,20 +1065,25 @@ impl ServiceContext {
 
     /// Origin frame for a spawned agent's first task, derived from its recorded spawner.
     pub(crate) fn spawn_task_message(&self, target_tab: &str, body: &str) -> Option<String> {
-        let mux = self.mux.write();
-        let target = mux.get_tab(target_tab)?;
-        let src = target
-            .spawned_by_tab_id
-            .clone()
-            .or_else(|| target.parent_tab_id.clone())?;
-        if src.is_empty() {
-            return None;
-        }
-        let label = mux.display_label_for_tab(&src);
-        let source = mux.get_tab(&src);
-        let model = source.and_then(|tab| tab.agent_session_model.clone());
-        let from_agent = source.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting);
-        crate::service::messenger::delivery_message(
+        let (src, label, model, from_agent) = {
+            let mux = self.mux.read();
+            let target = mux.get_tab(target_tab)?;
+            let src = target
+                .spawned_by_tab_id
+                .clone()
+                .or_else(|| target.parent_tab_id.clone())?;
+            if src.is_empty() {
+                return None;
+            }
+            let source = mux.get_tab(&src);
+            (
+                src.clone(),
+                mux.display_label_for_tab(&src),
+                source.and_then(|tab| tab.agent_session_model.clone()),
+                source.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting),
+            )
+        };
+        let text = crate::service::messenger::delivery_message(
             true,
             &src,
             target_tab,
@@ -1087,7 +1092,11 @@ impl ServiceContext {
             None,
             from_agent,
             body,
-        )
+        )?;
+        if from_agent {
+            self.stage_spawn_reply_relay(target_tab, &src, &text);
+        }
+        Some(text)
     }
 }
 
