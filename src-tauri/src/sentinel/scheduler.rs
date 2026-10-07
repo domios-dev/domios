@@ -853,7 +853,7 @@ pub(super) fn advance(
     };
     let committed = if let Some(bucket) = transition_bucket {
         storage::commit(store, |current| {
-            current.stage_accept_transition(&job, bucket, &outcome.evidence.evaluation_id)
+            current.stage_accept_decision(&job, bucket, &outcome.evidence)
         })
     } else {
         storage::commit(store, |current| current.stage_finish(&job))

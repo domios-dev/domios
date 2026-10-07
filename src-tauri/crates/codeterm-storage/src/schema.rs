@@ -25,6 +25,7 @@ const MIGRATIONS: &[&str] = &[
     // The source pair lands in one rebuild; later source kinds need no schema change.
     sentinel::SOURCE_SCHEMA,
     sentinel::PIPELINE_SCHEMA,
+    "ALTER TABLE sentinel_transitions ADD COLUMN decision_json TEXT CHECK (decision_json IS NULL OR length(decision_json) <= 4096);",
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 
