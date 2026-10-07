@@ -3,7 +3,6 @@ import type { ChatAttachment } from "./ChatAttachment";
 import type { ChatSessionIntent } from "./ChatSessionIntent";
 import type { ChatTimelineMarker } from "./ChatTimelineMarker";
 import type { InteractiveElement } from "./InteractiveElement";
-import type { JsonValue } from "./serde_json/JsonValue";
 
 /**
  * A single chat message shaped like the frontend `ChatMessage`
@@ -20,7 +19,7 @@ export type ChatMsg = { id: string, type: string, content: string, timestamp?: s
  * position). The client's stable transcript-sort tiebreaker when timestamps
  * are coarse (codex floors to seconds) or absent (cursor emits none).
  */
-seq: number, toolKind?: string | null, toolSummary?: string | null, toolDetail?: string | null, toolEdits?: JsonValue | null, 
+seq: number, toolKind?: string | null, toolSummary?: string | null, toolDetail?: string | null, toolEdits?: unknown, 
 /**
  * Human description supplied by the tool call source; never inferred.
  */
@@ -52,11 +51,11 @@ toolExitCode?: number | null, toolDurationMs?: number | null, toolInterrupted?: 
 /**
  * Per-file diffs with the exact hunks the provider's own edit record supplied.
  */
-fileDiffs?: JsonValue | null, 
+fileDiffs?: unknown, 
 /**
  * Provider-neutral web or image result metadata (query, result count, local path), passed through verbatim.
  */
-toolRichResult?: JsonValue | null, toolName?: string | null, 
+toolRichResult?: unknown, toolName?: string | null, 
 /**
  * Short, human-readable summary of the tool input (file path, command, …).
  */
@@ -64,7 +63,7 @@ toolArgs?: string | null,
 /**
  * Raw tool input (provider-shaped) so the chat can render diffs/args.
  */
-toolInput?: JsonValue | null, toolId?: string | null, toolResult?: string | null, toolError?: boolean | null, 
+toolInput?: unknown, toolId?: string | null, toolResult?: string | null, toolError?: boolean | null, 
 /**
  * Images attached to a user message.
  */
