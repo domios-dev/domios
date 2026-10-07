@@ -242,6 +242,10 @@ console.log("\n--- detect delegation ---\n");
 assert(plugin.detect({ bytes: "", title: "claude" }), "plugin.detect delegates to detect.ts");
 
 const hostPlugin = loadHostPlugin();
+const permissionHook = hostPlugin.permissionHookCapability();
+eq(permissionHook.protocol, "claude-permission-request", "permission hook declares its protocol");
+eq(permissionHook.options.map((option: { value: string }) => option.value), ["allow", "deny"],
+  "permission hook declares both explicit decisions");
 
 {
   const screen = fs.readFileSync(

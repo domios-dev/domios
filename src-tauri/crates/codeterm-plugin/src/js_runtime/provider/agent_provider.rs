@@ -1134,6 +1134,10 @@ impl AgentProvider for JsProvider {
             .map_or(IntegrationKind::None, |integration| integration.kind)
     }
 
+    fn permission_hook_capability(&self) -> Option<provider::PermissionHookCapability> {
+        self.try_call("permissionHookCapability", &[])
+    }
+
     fn install_integration(
         &self,
         api_port: u16,

@@ -13,6 +13,7 @@ mod interactive;
 mod launch;
 pub(crate) mod launch_session;
 mod onboarding;
+mod permission_hook;
 mod permission_prompt;
 mod schemas;
 mod sessions;
@@ -57,6 +58,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn supports_chat_ui(&self) -> bool {
         true
+    }
+
+    fn permission_hook_capability(&self) -> Option<crate::provider::PermissionHookCapability> {
+        Some(permission_hook::capability())
     }
 
     fn supports_structured_prompts(&self) -> bool {

@@ -697,15 +697,25 @@ impl ServiceContext {
                 return Ok(RespondPromptOutcome::StalePrompt);
             }
         }
-        let Some(option_index) = value
-            .parse::<usize>()
-            .ok()
-            .and_then(|index| index.checked_sub(1))
+        let structured_prompt = crate::service::structured_prompt::pending_for_tab(tab_id);
+        if tab.pending_prompt_kind == Some(codeterm_types::pty::PromptKind::Structured)
+            && structured_prompt.is_none()
+        {
+            return Ok(RespondPromptOutcome::StalePrompt);
+        }
+        let Some(option_index) = structured_prompt
+            .as_ref()
+            .and_then(|prompt| {
+                prompt
+                    .options
+                    .iter()
+                    .position(|option| option.value == value)
+            })
+            .or_else(|| value.parse::<usize>().ok()?.checked_sub(1))
         else {
             return Ok(RespondPromptOutcome::InvalidOption);
         };
 
-        let structured_prompt = crate::service::structured_prompt::pending_for_tab(tab_id);
         if let Some(expected) = expected_identity {
             if expected.kind == codeterm_types::pty::PromptKind::Structured {
                 let current_identity = structured_prompt.as_ref().map(|prompt| {
@@ -837,6 +847,7 @@ impl ServiceContext {
         let resolved_pty = tab.pending_prompt.as_ref().and(tab.pty_id.clone());
         let identity = crate::service::prompt_resolution::clear_tab_prompt(Some(tab));
         drop(mux);
+        crate::api::hook_routes::permission_decision::clear_tab(tab_id);
         if let Some(pty_id) = resolved_pty {
             self.release_prompt_waiting(tab_id, &pty_id);
         }

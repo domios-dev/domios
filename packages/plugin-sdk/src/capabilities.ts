@@ -229,6 +229,10 @@ export interface SettingField {
 }
 
 export interface AgentProvider {
+  permissionHookCapability?(): {
+    protocol: string;
+    options: Array<{ label: string; value: string }>;
+  } | null;
   starterPromptText?(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined;
   detectFromTitle?(title: string): boolean;
   detectFromOutput?(text: string): boolean;

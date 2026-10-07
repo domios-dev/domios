@@ -98,6 +98,9 @@ fn endpoint_for_tab(tab_id: &str) -> Option<(String, String)> {
 /// The live structured prompt for a tab, if one is pending. Cheap in-memory
 /// read on the hot path.
 pub fn pending_for_tab(tab_id: &str) -> Option<PendingPrompt> {
+    if let Some(prompt) = crate::api::hook_routes::permission_decision::pending_for_tab(tab_id) {
+        return Some(prompt);
+    }
     ACTIVE.lock().get(tab_id).map(|a| a.prompt.clone())
 }
 
@@ -107,6 +110,7 @@ fn route_for_tab(tab_id: &str) -> Option<ResponseRoute> {
 
 /// Drop all structured-prompt state for a tab (tab closed / agent exited).
 pub fn clear_tab(tab_id: &str) {
+    crate::api::hook_routes::permission_decision::clear_tab(tab_id);
     ENDPOINTS.lock().remove(tab_id);
     ACTIVE.lock().remove(tab_id);
     SUBSCRIBED.lock().remove(tab_id);
@@ -174,6 +178,10 @@ pub fn ensure_for_spawn(
 /// tab has a structured route (the PTY send-back must then be skipped), or
 /// `None` when there is no structured handle (caller falls back to PTY).
 pub fn respond(_svc: &ServiceContext, tab_id: &str, value: &str) -> Option<Result<(), String>> {
+    if let Some(result) = crate::api::hook_routes::permission_decision::respond(_svc, tab_id, value)
+    {
+        return Some(result);
+    }
     let route = route_for_tab(tab_id)?;
     let base_url = ENDPOINTS.lock().get(tab_id).map(|e| e.base_url.clone())?;
     let result = send_reply(&base_url, &route, value);
