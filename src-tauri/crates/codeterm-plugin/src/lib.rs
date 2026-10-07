@@ -28,6 +28,7 @@ pub mod plugin_manager;
 pub mod prompt;
 pub mod prompts;
 pub mod provider;
+pub mod provider_cli;
 pub mod rich_to_chat;
 pub mod session_evidence;
 pub mod structured_prompt;

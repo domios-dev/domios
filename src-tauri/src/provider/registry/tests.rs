@@ -188,3 +188,15 @@ fn readiness_gate_unknown_provider() {
         crate::agent::registry::ProviderStartupStatus::Ready
     ));
 }
+
+#[test]
+fn chat_backend_cli_status_requires_no_binary_or_installer() {
+    let (registry, _, _) = registry();
+    let status = registry.cli_status("shell", "windows").unwrap();
+    assert!(!status.required);
+    assert_eq!(status.binary, None);
+    assert_eq!(status.installed, None);
+    assert_eq!(status.installer, None);
+    assert_eq!(status.updater, None);
+    assert!(registry.cli_status("missing", "linux").is_err());
+}

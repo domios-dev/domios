@@ -1,75 +1,19 @@
-use std::path::PathBuf;
-
-use crate::agent::provider::ProviderAvailability;
-use crate::agent::registry::AgentRegistry;
-use codeterm_plugin::js_runtime::{probe_bin, BinProbe, BinResolution};
-
-#[derive(Debug, Clone, serde::Serialize)]
-pub(crate) struct ProviderCliStatus {
-    pub installed: Option<bool>,
-    pub binary: String,
-    pub resolved_path: Option<PathBuf>,
-    pub availability: ProviderAvailability,
-    pub searched: Vec<PathBuf>,
-    pub installer: Option<String>,
-    pub updater: Option<String>,
-}
-
+pub(crate) use codeterm_plugin::provider_cli::{observe_cli, ProviderCliStatus};
 pub(crate) fn provider_cli_status(
-    registry: &AgentRegistry,
+    registry: &crate::provider::ProviderRegistry,
     provider_id: &str,
     platform: &str,
 ) -> Result<ProviderCliStatus, String> {
-    let (binary, installer, updater) = registry
-        .with_provider(provider_id, |provider| {
-            (
-                provider
-                    .cli_binary()
-                    .unwrap_or(provider.binary_name())
-                    .to_owned(),
-                provider.install_command(platform),
-                provider.update_command(platform),
-            )
-        })
-        .ok_or_else(|| format!("Unknown provider: {provider_id}"))?;
-    Ok(observe_cli(binary, installer, updater))
-}
-
-pub(crate) fn observe_cli(
-    binary: String,
-    installer: Option<String>,
-    updater: Option<String>,
-) -> ProviderCliStatus {
-    let probe = probe_bin(&binary);
-    status_from_probe(binary, probe, installer, updater)
-}
-
-fn status_from_probe(
-    binary: String,
-    probe: BinProbe,
-    installer: Option<String>,
-    updater: Option<String>,
-) -> ProviderCliStatus {
-    let availability = ProviderAvailability::from_resolution(&probe.resolution);
-    let (installed, resolved_path) = match probe.resolution {
-        BinResolution::Found(path) => (Some(true), Some(path)),
-        BinResolution::Missing => (Some(false), None),
-        BinResolution::Unknown => (None, None),
-    };
-    ProviderCliStatus {
-        installed,
-        binary,
-        resolved_path,
-        availability,
-        searched: probe.searched,
-        installer: installer.filter(|command| !command.trim().is_empty()),
-        updater: updater.filter(|command| !command.trim().is_empty()),
-    }
+    registry.cli_status(provider_id, platform)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::provider::ProviderAvailability;
+    use codeterm_plugin::js_runtime::{BinProbe, BinResolution};
+    use codeterm_plugin::provider_cli::status_from_probe;
+    use std::path::PathBuf;
 
     #[test]
     fn resolved_cli_preserves_path_and_exact_commands() {

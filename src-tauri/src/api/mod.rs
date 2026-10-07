@@ -8,6 +8,7 @@ pub mod agent_done_routes;
 pub mod agent_model_catalog_routes;
 pub mod agent_model_routes;
 pub mod agent_routes;
+pub(crate) mod provider_cli_routes;
 pub mod ai_helper_routes;
 pub mod bridge_routes;
 pub(crate) mod cli_rpc_routes;

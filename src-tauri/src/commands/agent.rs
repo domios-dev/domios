@@ -29,7 +29,7 @@ fn install_provider_in_tab_with_dispatch(
 ) -> Result<InstallTabResult, String> {
     let platform = crate::agent::provider::current_platform_tag();
     let install_cmd = crate::service::provider_cli::provider_cli_status(
-        &svc.agent_registry,
+        &svc.provider_registry,
         &provider_id,
         platform,
     )?
@@ -221,6 +221,23 @@ pub async fn check_cli_installed(binary: String) -> Result<bool, String> {
     tokio::task::spawn_blocking(move || crate::service::spawn::cli_binary_on_path(&binary))
         .await
         .map_err(|error| format!("cli probe worker failed: {error}"))
+}
+
+#[tauri::command]
+pub async fn provider_cli_status(
+    svc: State<'_, ServiceState>,
+    provider_id: String,
+) -> Result<codeterm_plugin::provider_cli::ProviderCliStatus, String> {
+    let svc = (*svc).clone();
+    tokio::task::spawn_blocking(move || {
+        crate::service::provider_cli::provider_cli_status(
+            &svc.provider_registry,
+            &provider_id,
+            crate::agent::provider::current_platform_tag(),
+        )
+    })
+    .await
+    .map_err(|error| format!("CLI status worker failed: {error}"))?
 }
 
 #[cfg(test)]
