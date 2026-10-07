@@ -2,110 +2,116 @@
 
 ## Verdict
 
-**Windows: NO-GO. macOS: NO-GO (NOT OBSERVED; external QA leg pending). Lane A stays blocked.**
+**Windows: NO-GO for the complete checklist. macOS: NOT OBSERVED (NO-GO for release until verified). Lane A remains blocked.**
 
-Windows checklist item 2 fails with Codex 0.160.0: a freshly minted, explicitly non-ephemeral thread cannot be resumed by the TUI. Keeping the minting connection open does not fix it. The TUI exits 1 with RPC -32600, `no rollout found`. This is an executed result, not a claim that all remote TUI configurations fail.
+The initial empty-thread resume failure is solved by materializing history. The recommended, verified Windows binding order is `thread/start -> thread/inject_items (short developer marker) -> TUI --remote ... resume <id>`. The marker is hidden in the TUI and the first TUI turn streams to a subscribed probe. A seed model turn also works; TUI-created threads can be joined after their first turn. These successful flows replace the initial binding-failure verdict.
 
-Binding option tested: sidecar `thread/start`, then the real TUI `--remote ... resume <threadId>` using the same absolute binary. A possible alternative is materializing a first turn before attaching the TUI; that is an **untested hypothesis**, not a repair or a GO. No product code was authored.
+Remaining concrete Windows failure: item 11, full backfill. Two declined/canceled approval commandExecution items observed live are absent from paginated thread/items/list. The returned IDs are stable across repeated reads, but full-history inclusion is false. Also, after probe interrupt reported interrupted/idle, the TUI still refused /fork as task in progress. Several required manual checks remain NOT OBSERVED. No GO is claimed.
 
-Design inputs were read completely, read-only from canonical because they are gitignored:
-`D:/Developer/codeterm/references/_reference-app-design/DESIGN.md` and `ADDENDUM-install.md`.
+Design inputs were read completely, read-only from canonical (gitignored): `D:/Developer/codeterm/references/_reference-app-design/DESIGN.md` and `ADDENDUM-install.md`. No product code was authored.
 
-## Windows execution evidence
+## Windows setup and exact commands
 
-Date: 2026-10-07. Machine: BLACKSTAR. Codex: `codex-cli 0.160.0`.
-Native binary used for both processes:
-`C:/Users/dev/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe`.
-Owner DEV reported CLI version 1.12.4, SHA `54cd23ad35c7570229b19243b1649ca188893723`.
+Machine BLACKSTAR, 2026-10-07. Native binary: `C:/Users/dev/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe`, `codex-cli 0.160.0`. Both server and TUI use this same absolute binary. Owner DEV CLI reported 1.12.4, SHA `54cd23ad35c7570229b19243b1649ca188893723`.
 
-The Orchestrator authorized dedicated DEV workspace `LaneSpike` (`e5c0d7ba`) and a standalone utility shell because our PROD Team does not exist in DEV. Utility tab: `4a62b52c`. No JobsDemo/AiderRun Team was used. Every DEV CLI operation used the bench library's `dc` wrapper; no build or restart of Domios occurred.
+Our PROD Team does not exist in DEV. The Orchestrator explicitly authorized dedicated DEV workspace LaneSpike `e5c0d7ba` and a standalone utility shell with --no-team. No JobsDemo/AiderRun Team was used. All DEV CLI operations used the bench library's dc wrapper. No Domios build/restart occurred.
 
-Executed shell creation (the first temporary host preceded the committed launcher):
+Initial utility tab `4a62b52c` tested the empty-thread flow and was closed. Subsequent tab `bc042710` tested the three adapted flows sequentially and was closed. Example exact creation command for flow (a):
 
 ```bash
 source evals/_lib/lib.sh
 dc tab new --workspace e5c0d7ba --no-team --title Spike \
-  --cwd C:/Users/dev/AppData/Local/Temp/codex-remote-spike-3881ece143dc4f7c96553e0e40e4089c \
-  --cmd "node C:/Users/dev/AppData/Local/Temp/codex-remote-spike-3881ece143dc4f7c96553e0e40e4089c/host.mjs C:/Users/dev/AppData/Local/Temp/codex-remote-spike-3881ece143dc4f7c96553e0e40e4089c"
+  --cwd C:/Users/dev/AppData/Local/Temp \
+  --cmd "node D:/Developer/codeterm-worktrees/pl-a0rcq7-scout/evals/codex-remote-spike/launch.mjs --binary C:/Users/dev/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe --port 18471 --dir C:/Users/dev/AppData/Local/Temp/codex-remote-spike-seed-20261007 --flow seed"
 ```
 
-Final reproduction with the committed launcher:
+Flow (b) used `dc tab restart --tab bc042710 --cmd "..."`, with the same launcher command except `--dir C:/Users/dev/AppData/Local/Temp/codex-remote-spike-tui-20261007 --flow tui`.
+Recommended injection flow used the same restart with `--dir C:/Users/dev/AppData/Local/Temp/codex-remote-spike-inject-20261007 --flow inject`.
+The default `--flow empty` preserves the original failing reproduction.
 
-```bash
-source evals/_lib/lib.sh
-dc tab restart --tab 4a62b52c --cmd "node D:/Developer/codeterm-worktrees/pl-a0rcq7-scout/evals/codex-remote-spike/launch.mjs --binary C:/Users/dev/AppData/Local/Programs/OpenAI/Codex/bin/codex.exe --port 18471 --dir C:/Users/dev/AppData/Local/Temp/codex-remote-spike-final-20261007"
-```
-
-The CLI transport command exited 0; its nested `exec.exit_code` was **1**. The terminal transcript, also saved in [windows-screen.txt](evidence/windows-screen.txt):
+Launcher spawns:
 
 ```text
-codex app-server (WebSockets)
-  listening on: ws://127.0.0.1:18471
-MINTED_THREAD 01a1160f-67a7-77d1-b809-a112d0b3ddeb
-Error: Failed to resume session from C:\Users\dev\.codex\sessions\2026\10\07\rollout-2026-10-07T14-11-10-01a1160f-67a7-77d1-b809-a112d0b3ddeb.jsonl: thread/resume failed during TUI bootstrap: thread/resume failed: no rollout found for thread id 01a1160f-67a7-77d1-b809-a112d0b3ddeb (code -32600)
-TUI_EXIT 1
-SERVER_EXIT null
+<ABS_BINARY> app-server --listen ws://127.0.0.1:18471 --ws-auth capability-token --ws-token-file <TEMP>/token
+<ABS_BINARY> -c check_for_update_on_startup=false --remote ws://127.0.0.1:18471 --remote-auth-token-env CODETERM_CODEX_RPC_TOKEN resume <ID>
 ```
 
-Wire captures:
+Flow tui omits resume. All processes inherit the utility tab's composed environment; only CODETERM_CODEX_RPC_TOKEN is added. CODEX_HOME is never overridden. Token is generated under temp, absent from argv/transcripts, and removed during teardown. No config-writing RPC was called.
 
-- [windows-first-mint.ndjson](evidence/windows-first-mint.ndjson): initialize, thread/start `{ephemeral:false}`, response with ID, immediate same-client resume error -32600.
-- [windows-held-mint.ndjson](evidence/windows-held-mint.ndjson): minting client held open; TUI resume still fails.
-- [windows-final-mint.ndjson](evidence/windows-final-mint.ndjson): reproduction with the committed launcher. `thread/started` is broadcast after the mint response. `parentThreadId:null`, `threadSource:null`, `source:"vscode"`, no turns.
-- [windows-launch.json](evidence/windows-launch.json): composed utility-tab identity and nonce inherited by app-server and TUI; CODEX_HOME was not overridden. This proves process launch environment only, not tool/hook inheritance.
+An independent probe was attached before PTY input in seed and inject flows. Example:
 
-## Checklist
+```powershell
+New-Item -ItemType File C:/Users/dev/AppData/Local/Temp/codex-remote-spike-inject-20261007/control.ndjson
+node evals/codex-remote-spike/probe.mjs --port 18471 --token-file C:/Users/dev/AppData/Local/Temp/codex-remote-spike-inject-20261007/token --thread 01a11616-07f5-73b1-a880-95c3c4df55cf --control-file C:/Users/dev/AppData/Local/Temp/codex-remote-spike-inject-20261007/control.ndjson --out C:/Users/dev/AppData/Local/Temp/codex-remote-spike-inject-20261007/observer.ndjson
+```
 
-`NOT OBSERVED` never counts as PASS. The failure at item 2 prevented downstream live checks; no unrelated existing Codex thread was used to bypass it.
+The control file is append-only, newline-delimited JSON. fs.watch is event-driven; no polling or sleeps. `--interactive` accepts the same JSON on stdin in an interactive QA shell. The probe uses separate client ID space, classifies server requests before response IDs, captures frames before response matching, and never auto-approves.
+
+## Observed flow results and transcripts
+
+| Flow | Result | Evidence |
+|---|---|---|
+| Empty mint, immediate resume | FAIL -32600 no rollout found, TUI exits 1; mint connection held open does not help | windows-first-mint.ndjson, windows-held-mint.ndjson, windows-final-mint.ndjson, windows-screen.txt |
+| (a) Mint, short probe model turn, then resume | PASS attachment; TUI displays SEED_READY, PTY-entered TUI_TYPED_DELTA, and live SIDECAR_VISIBLE from probe | windows-seed-mint.ndjson, windows-seed-observer.ndjson, windows-seed-screen.txt |
+| (b) TUI creates thread, broadcast discovery, probe joins | Immediate resume fails before first turn; explicit resume after first TUI turn succeeds; subsequent TUI deltas and live sidecar turn observed | windows-tui-created-discovery.ndjson, windows-tui-created-observer.ndjson, windows-tui-created-screen.txt |
+| Inject developer marker before TUI resume | PASS attachment with no inference spent to materialize; marker hidden; first TUI turn streams to probe subscribed before that turn | windows-inject-mint.ndjson, windows-inject-observer.ndjson, windows-inject-first-screen.txt |
+
+All evidence files are under [evidence/](evidence/). Captured screens are plain terminal text, not screenshots. Input was programmatically entered through Domios's PTY send path; no human typing or resize is claimed. Early unbound TUI input needed a separate submit key after the observed composer contained the payload. A probe harness EOF/output-close race was fixed by ending its transcript only after socket close; that harness error is not a provider failure.
+
+Selected executed results:
+
+- Seed and injection TUI: visible prompt and usable conversation. Sidecar userMessage clientId echoes `spike-sidecar-visible` and `inject-model-next` respectively. Both clients receive streaming deltas and completed turns.
+- Model turn: turn/start requested catalogue-listed gpt-6.1-sol; thread/settings/updated reported it and the TUI footer changed to GPT-6.1-Sol. That turn completed with MODEL_NEXT_TURN.
+- Approval request 0: TUI displayed command/justification; probe replied decline; both captures received serverRequest/resolved requestId 0. TUI conversation continued with denial. Plain text capture contains residual drawing fragments, so perfectly clean visual dismissal is NOT OBSERVED.
+- Approval request 1: provider-declared numbered prompt was inspected; `dc tab respond 3 --tab bc042710` returned ok true. Probe received serverRequest/resolved requestId 1 without responding itself.
+- Interrupt: active turn `01a11619-4c77-7cd2-bc1c-e05550edff7c` received turn/interrupt; response {}, turn/completed status interrupted, thread status idle. TUI later repeatedly refused /fork as task in progress. See windows-inject-final-screen.txt; slash switching remains incomplete.
+- Tool env: command output prints CODETERM_TAB_ID=bc042710 and nonce 489d5168-7fda-46d5-a2a5-a861617095f9, matching windows-inject-launch.json. Its bash/lib dc identify invocation failed exit 1 with DEV resolution unavailable under readOnly sandbox. This is partial env proof, not a passed codeterm-call oracle.
+- Global hooks/list reports both CodeTerm sessionStart/stop entries enabled and trusted; hook/started and hook/completed from ~/.codex/hooks.json are captured. No hook config/trust was changed. Per-server selective disabling is NOT OBSERVED.
+- Seed-only history backfill: stable=true, allObservedItemsPresent=true. Full injection-flow history: stable=true, allObservedItemsPresent=false twice. Missing live completed items: `exec-e83a34b8-e168-48b0-8b74-ad9c721e0d1f` and `exec-3dba96f2-d7c5-4cda-b4cf-27334746e8d7` (the declined/canceled approval command rows). The executed environment command row is present with its original ID. This fails full-history item 11.
+
+## Checklist stride per OS
 
 | Item | Windows | macOS |
 |---|---|---|
-| 1: render, input, resize | NOT OBSERVED: update picker rendered in ConPTY on intermediate attempt; final TUI bootstrap failed before conversation/input/resize | NOT OBSERVED |
-| 2: deterministic mint/resume, slash switches, subagents | FAIL: minted empty thread cannot resume; slash switches and live subagent discriminator NOT OBSERVED | NOT OBSERVED |
-| 3: second client receives TUI-typed streaming | NOT OBSERVED | NOT OBSERVED |
-| 4: probe turn visible in TUI, clientId echo | NOT OBSERVED | NOT OBSERVED |
-| 5: approval dismissal in both directions | NOT OBSERVED | NOT OBSERVED |
-| 6: interrupt ends with interrupted | NOT OBSERVED | NOT OBSERVED |
-| 7: next-turn model change | NOT OBSERVED | NOT OBSERVED |
-| 8: developer instructions, sandbox/approval, hook-trust flag side | NOT OBSERVED end-to-end; mint response reflects thread params readOnly/on-request/user | NOT OBSERVED |
-| 9: app-server env in tools/hooks and agent codeterm call | NOT OBSERVED | NOT OBSERVED |
-| 10: remote excludes shared daemon | NOT OBSERVED: explicit remote argv alone is insufficient proof | NOT OBSERVED |
-| 11: paginated backfill, stable ids | NOT OBSERVED | NOT OBSERVED |
-| 12: no orphans | Server/TUI PIDs absent and dedicated listener absent; full descendant audit NOT OBSERVED | NOT OBSERVED |
-| 13: global hooks fire, argv can disable owned entries | NOT OBSERVED | NOT OBSERVED |
+| 1 render/input/resize | Render and PTY input PASS; resize NOT OBSERVED | NOT OBSERVED |
+| 2 deterministic identity/slashes/subagent discriminator | Inject binding PASS; /fork refused after remote interrupt; /new /clear /resume and live discriminator NOT OBSERVED | NOT OBSERVED |
+| 3 second client/TUI streaming | PASS for seed, TUI-created-after-first-turn, inject; raw deltas captured | NOT OBSERVED |
+| 4 sidecar turn live/clientId | PASS | NOT OBSERVED |
+| 5 approvals both ways/visible dismissal | Both RPC resolution directions PASS; clean terminal repaint NOT OBSERVED (stale fragments) | NOT OBSERVED |
+| 6 interrupt | Protocol status interrupted PASS; TUI busy discrepancy observed afterward | NOT OBSERVED |
+| 7 next-turn model | PASS | NOT OBSERVED |
+| 8 flag-side findings | Thread sandbox/approval params applied; developer instruction precedence and hook-trust bypass NOT OBSERVED | NOT OBSERVED |
+| 9 env in tools/hooks/codeterm call | Tab/nonce in tool output PASS; nested dc call failed sandbox DEV resolution; hook env beyond binding NOT OBSERVED | NOT OBSERVED |
+| 10 remote avoids shared daemon | NOT OBSERVED; explicit remote argv alone is insufficient process proof | NOT OBSERVED |
+| 11 complete history/stable IDs | FAIL: stable returned IDs, two denied command items missing from full backfill | NOT OBSERVED |
+| 12 no orphans | Owned server/TUI PIDs and listener absent; full descendant audit NOT OBSERVED | NOT OBSERVED |
+| 13 global hooks/selective disable | Global hooks fired PASS; selective per-server argv disabling NOT OBSERVED | NOT OBSERVED |
 
-Flag-side findings: `app-server --help` accepts `-c` and feature switches, but does not list the TUI's `--dangerously-bypass-hook-trust` or sandbox/approval convenience flags. This help observation does not establish equivalent config behavior. Thread/start response reflected the explicit sandbox/approval params. Developer instruction effectiveness was not tested. TUI-only `-c check_for_update_on_startup=false` suppressed the intermediate update picker; this does not establish instruction forwarding.
+Flag-side findings: app-server --help lists -c and feature switches but does not list the TUI's hook-trust/sandbox/approval convenience flags. This help observation does not establish equivalent config behavior. Thread/start and turn/start responses/settings reflect explicit sandbox/approval params. TUI-only `-c check_for_update_on_startup=false` suppresses the update picker without persisting a preference. Developer instruction effectiveness/precedence is untested.
 
-Traps recorded:
+Traps: native .exe avoided the npm .cmd shim (launcher rejects .cmd/.bat); CODEX_HOME was unset and initialize resolved the real ~/.codex; idle unload NOT OBSERVED. startedAt:null IS OBSERVED in turn/start responses, including the next-model turn, and turn/started supplies the real start later. The TUI-created flow queues a sidecar turn while another turn is active. Notification-before-response IS OBSERVED for remoteControl/status/changed around initialize; do not infer turn/start ordering from that. Initial TUI update picker offered 0.160.1; no update or persisted Skip preference was selected. Empty rollout materialization is required; thread/name/set was not used to materialize history.
 
-| Trap | Observation |
-|---|---|
-| npm .cmd shim | Not encountered: native absolute .exe used; launcher rejects .cmd/.bat rather than inventing shell escaping |
-| CODEX_HOME | Unset in tested launch; initialize resolved `C:\Users\dev\.codex`; never overridden |
-| idle unload | NOT OBSERVED; failure was immediate, before idle unload could explain it |
-| startedAt:null | NOT OBSERVED; no turn/start executed |
-| notification-before-response | NOT OBSERVED for turn/start; initialized broadcast interleaved with request traffic |
-| empty-thread persistence | OBSERVED: non-ephemeral start returns a rollout path that resume cannot load, including with mint connection held open |
-| update picker | OBSERVED: default TUI launch offered 0.160.1; no update or persisted Skip preference was selected |
+## Teardown and threads
 
-Created thread IDs (including unsuccessful attempts):
+Every utility tab was closed through dc. Exact owned server/TUI PIDs absent at teardown: final empty 69872/65264, seed 54784/53260, TUI-created 38136/52728, injection 55236/69184. Intermediate update picker 46504/5348 was explicitly stopped after checking native paths. Port 18471 had no listener. Seed/TUI/injection token files absent; initial experimental token removed explicitly. Existing unrelated Codex processes were left alone. Full descendant process audit is not claimed. No owner configuration, hooks, ~/.codex configuration or PROD API was edited; ordinary Codex thread creation used the real shared home.
+
+Minted roots:
 
 ```text
 01a1160d-18ae-7221-9424-2d4e94967dba
 01a1160d-dec1-7040-ba16-6a6d3fa64b66
 01a1160e-7fea-70c0-b31a-5bc4d0ffb3be
 01a1160f-67a7-77d1-b809-a112d0b3ddeb
+01a11612-4537-7801-8b1e-1b583533596c
+01a11614-2d5b-7b81-aaec-8e8554af8478
+01a11616-07f5-73b1-a880-95c3c4df55cf
 ```
 
-Teardown: failed TUI caused the launcher to terminate its owned server and mint client. Final server PID 69872 and TUI PID 65264 were absent; preceding server PID 53764 and TUI PID 67784 were absent. Intermediate update-picker TUI PID 46504 and server PID 5348 were explicitly stopped after verifying their native executable paths. No listener remained on 18471. Final launcher's token file was deleted. `dc tab close --tab 4a62b52c` returned `ok true`. Existing unrelated Codex processes were left alone; global `tasklist | grep codex` emptiness would be an invalid oracle on this agent machine. Temporary evidence files from initial experimental hosts remain under the named temp directory; their token file was removed and no auth token is committed.
-
-No config-writing RPC was called. No owner config, hooks or Codex configuration file was edited. Normal thread creation used the real shared Codex home as required. No PROD API operation or product code change was performed.
+Additional thread IDs seen only in status notifications: 01a11613-9d95-7a83-a57c-acf74e018ec4, 01a11615-20ef-7ad2-9436-3679d4d2ed25, 01a11617-5864-71b0-af59-d8f26d8c15ba. Their purpose/parentage is NOT OBSERVED; do not rebind to status-only IDs. The probe's --follow is a first-thread discovery experiment, not a production subagent discriminator.
 
 ## macOS handoff: Orchestrator forwards to Fulton on eight
 
-**NOT EXECUTED.** The Worker does not contact Fulton directly. Orchestrator supplies these files after a real merge (or an explicitly authorized artifact transfer), and authorizes the DEV workspace/Team on eight. Do not target PROD or edit global config/hooks. macOS uses a native PTY, not Windows ConPTY.
-
-From canonical on eight, choose a fresh temp directory and the native Codex binary. Use the same absolute binary for both sides (the launcher enforces this):
+NOT EXECUTED. Worker does not contact Fulton directly. Orchestrator forwards these files after real integration or an authorized artifact transfer and supplies actual DEV authorization IDs. macOS uses native PTY, not Windows ConPTY. From the receiving checkout on eight:
 
 ```bash
 source evals/_lib/lib.sh
@@ -115,12 +121,12 @@ spike_dir="$(mktemp -d /tmp/codex-remote-spike.XXXXXX)"
 repo="$(git rev-parse --show-toplevel)"
 dc tab new --workspace <AUTHORIZED_DEV_WORKSPACE> --team <AUTHORIZED_DEV_TEAM> \
   --title Spike --cwd "$spike_dir" \
-  --cmd "node '$repo/evals/codex-remote-spike/launch.mjs' --binary '$binary' --port 18471 --dir '$spike_dir'"
+  --cmd "node '$repo/evals/codex-remote-spike/launch.mjs' --binary '$binary' --port 18471 --dir '$spike_dir' --flow inject"
 ```
 
-Replace the two authorization placeholders with actual IDs before execution. An explicitly authorized standalone shell can use `--no-team` instead. Save the returned tab ID, `dc tab get-text --tab <TAB>`, and mint.ndjson. Oracle: a minted ID followed by a usable remote conversation is required; `TUI_EXIT 1`/`no rollout found` is FAIL item 2. Do not claim GO from a visible picker or listening socket. If bootstrap fails, record its exact transcript and NO-GO, tear down and report.
+Replace placeholders before execution; an explicitly authorized standalone shell may use --no-team. command -v must resolve to an absolute native executable; both processes use it. Save returned tab ID; capture `dc tab get-text --tab <TAB>`, launch.json and mint.ndjson. Oracle: minted ID attaches in real TUI with marker hidden, usable conversation, resizing, and first PTY turn reaches a probe subscribed before it. Any picker/socket response alone is insufficient.
 
-If bootstrap succeeds, keep the launcher and minter alive. Attach a separate client in a QA shell:
+Attach the second probe from a QA shell before TUI input:
 
 ```bash
 node evals/codex-remote-spike/probe.mjs --port 18471 \
@@ -128,27 +134,26 @@ node evals/codex-remote-spike/probe.mjs --port 18471 \
   --interactive --checklist all --out "$spike_dir/observer.ndjson"
 ```
 
-The probe accepts one JSON object per stdin line, uses distinct client request IDs, captures all received frames before matching responses, and never auto-approves. Commands:
+One JSON command per stdin line (replace IDs from real frames):
 
 ```json
 {"method":"model/list","params":{}}
-{"method":"turn/start","params":{"threadId":"REPLACE_ID","clientUserMessageId":"spike-sidecar-1","input":[{"type":"text","text":"Reply with SIDECAR_VISIBLE only."}],"approvalsReviewer":"user"}}
+{"method":"hooks/list","params":{}}
+{"method":"turn/start","params":{"threadId":"REPLACE_ID","clientUserMessageId":"spike-sidecar-1","input":[{"type":"text","text":"Reply with SIDECAR_VISIBLE only. Do not use tools."}],"approvalsReviewer":"user"}}
 {"replyTo":0,"result":{"decision":"decline"}}
 {"method":"turn/interrupt","params":{"threadId":"REPLACE_ID","turnId":"REPLACE_ACTIVE_TURN_ID"}}
 {"action":"backfill"}
 {"action":"quit"}
 ```
 
-Use actual approval/request/turn IDs from frames. For a model switch, pick a second supported model from model/list and include `model` in the next turn/start; capture settings and the completed turn. Backfill fetches all cursor pages twice and records stable IDs plus inclusion of observed completed items; it does not prove unobserved history automatically.
+Use two harmless explicit escalation requests (print only), inspect TUI approval, decline one from probe and one with dc tab respond using the provider-declared choice. Capture serverRequest/resolved and fresh TUI text both times. Pick next-turn model from model/list, capture settings/model footer. For interrupt, observe turn/started before interrupting and inspect idle TUI afterward. Backfill all cursor pages and compare live completed IDs, including denied commands. Exercise /new /clear /fork /resume and a real subagent discriminator; never bind on a bare status notification. Verify app-server environment inside tool/hook calls without exposing API tokens. Test instruction/sandbox/approval/hook-trust precedence independently via argv/thread params, without config-writing RPC or global edits. Verify selective hook disabling only if a real per-process control exists; otherwise record NOT OBSERVED. Verify remote/shared-daemon process isolation without mutating the shared daemon.
 
-Record visible TUI input and deltas in observer.ndjson, sidecar turn rendering, approval rendering and dismissal in each direction, slash commands `/new`, `/clear`, `/fork`, `/resume`, and a live subagent's source/parent linkage. Record actual resizing and resulting TUI rendering. Exercise developer instructions independently on TUI argv, app-server `-c`, and thread params with distinct response markers. Exercise sandbox/approval and hook trust independently without modifying global files. Capture hooks/list and hook/started/completed, then verify whether a per-process config override can disable only owned entries; never mutate hook trust/config with RPC. Have a safe agent tool command invoke `codeterm identify` under the DEV-composed environment and print tab ID/nonce, never API tokens. Verify remote behavior against shared-daemon process evidence without killing or changing that daemon.
+To reproduce both alternative flows, rerun launcher in fresh directories with --flow seed and --flow tui. In tui flow, discovery immediately tries resume and records the expected early failure; after the first TUI turn, attach a fresh probe explicitly to the broadcast ID. No timed retry or newest-thread heuristic is used. Seed flow spends one model turn solely for the test; use a real first task instead in any product design.
 
-The summary intentionally prints NOT OBSERVED for items 2–13 until a reviewer pairs protocol frames with these independent visible/environment/lifecycle oracles. It cannot automatically certify the full manual checklist.
-
-After exit, verify the saved server/TUI PIDs and descendant processes are absent, port 18471 has no listener, close the exact utility tab with dc, and list every minted/switched/subagent thread ID. Send transcripts and per-item verdicts back through the Orchestrator. GO requires every item PASS on both physical machines.
+After teardown, verify exact saved PIDs and descendants absent, no dedicated listener, close the exact utility tab through dc, and list all created/discovered threads. Send transcripts and item-by-item results through Orchestrator. GO requires every item PASS on both physical machines.
 
 ## Validation and pending gates
 
-Executed: `node --check evals/codex-remote-spike/probe.mjs` and `node --check evals/codex-remote-spike/launch.mjs`, exit 0 each. Live committed launcher: TUI/launcher exit 1, zero conversation tests passed. No project tests ran.
+Executed Node syntax checks for probe.mjs and launch.mjs: exit 0 each. Live empty launcher/TUI: exit 1. Seed, TUI-create and injection flows render/accept input; their long-running launch CLI receipts report timeout while the interactive TUI remains alive, not test success. Approval response CLI: exit 0, ok true. Nested environment-tool command: exit 1. No project build/tests ran.
 
-The later source-only Worker rule reserves gateway checks for canonical after a real merge. Requested canonical command: `.\build.ps1 check-tests --wait-build` (report raw exit and compiled targets). There is no Rust selector owned by this eval-only change. Focused verification is the two Node syntax commands and the exact live reproduction above; a successful syntax check is not a passed provider lane.
+The later source-only Worker rule reserves gateway verification for canonical after a real merge. Requested canonical command: `.\build.ps1 check-tests --wait-build`, report raw exit/compiled target counts. No Rust selector is owned by this eval-only change. Focused commands are the two Node syntax checks and exact live launcher/second-client oracles above. Syntax alone never passes the provider gate.

@@ -60,8 +60,10 @@ for (const stream of [server.stdout, server.stderr]) {
     console.log(line);
     if (mint || !line.includes(`listening on: ws://127.0.0.1:${port}`)) return;
     const probe = fileURLToPath(new URL('./probe.mjs', import.meta.url));
+    const flow = options.flow ?? 'empty';
+    const flowArgs = flow === 'tui' ? ['--follow'] : ['--mint', ...(flow === 'seed' ? ['--seed'] : flow === 'inject' ? ['--inject'] : [])];
     mint = child(process.execPath, [probe, '--port', String(port), '--token-file', tokenFile,
-      '--mint', '--interactive', '--cwd', dir, '--thread-file', path.join(dir, 'thread'),
+      ...flowArgs, '--interactive', '--cwd', dir, '--thread-file', path.join(dir, 'thread'),
       '--out', path.join(dir, 'mint.ndjson')], ['pipe', 'pipe', 'inherit']);
     mint.on('exit', code => { if (!stopping) stop(code || 1); });
     readline.createInterface({ input: mint.stdout }).on('line', message => {
@@ -70,7 +72,7 @@ for (const stream of [server.stdout, server.stderr]) {
       launched = true;
       console.log('MINTED_THREAD', ready.threadId);
       const tui = child(binary, ['-c', 'check_for_update_on_startup=false', '--remote', `ws://127.0.0.1:${port}`,
-        '--remote-auth-token-env', 'CODETERM_CODEX_RPC_TOKEN', 'resume', ready.threadId], 'inherit');
+        '--remote-auth-token-env', 'CODETERM_CODEX_RPC_TOKEN', ...(flow === 'tui' ? [] : ['resume', ready.threadId])], 'inherit');
       fs.writeFileSync(path.join(dir, 'tui-pid'), String(tui.pid));
       tui.on('exit', code => { console.log('TUI_EXIT', code); stop(code ?? 1); });
     });

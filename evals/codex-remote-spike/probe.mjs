@@ -104,9 +104,17 @@ const wire = new Wire();
 const pending = new Map();
 const received = [];
 let nextId = 1000;
+let threadId = args.thread;
 wire.on('message', value => {
   record('receive', value);
   received.push(value);
+  if (args.follow && !threadId && value.method === 'thread/started' && !value.params.thread.parentThreadId) {
+    threadId = value.params.thread.id;
+    rpc('thread/resume', { threadId, excludeTurns: true }).then(
+      result => record('joined', { threadId, result }),
+      error => record('joinError', { threadId, error: error.message }),
+    );
+  }
   if (value.method) return;
   const callback = pending.get(value.id);
   if (callback) { pending.delete(value.id); callback(value); }
@@ -133,7 +141,6 @@ async function rpc(method, params = {}) {
 }
 await rpc('initialize', { clientInfo: { name: 'domios_remote_spike', version: '1.0.0' }, capabilities: { experimentalApi: true } });
 wire.send({ method: 'initialized' });
-let threadId = args.thread;
 if (args.mint) {
   const result = await rpc('thread/start', {
     cwd: required('cwd'), ephemeral: false, approvalPolicy: 'on-request', approvalsReviewer: 'user',
@@ -142,6 +149,26 @@ if (args.mint) {
   threadId = result.thread.id;
   if (args['thread-file']) fs.writeFileSync(args['thread-file'], `${threadId}\n`, { flag: 'wx' });
   record('minted', { threadId });
+}
+if (args.inject) {
+  await rpc('thread/inject_items', { threadId, items: [{ type: 'message', role: 'developer',
+    content: [{ type: 'input_text', text: 'Domios spike binding marker.' }] }] });
+  record('materialized', { threadId, method: 'thread/inject_items' });
+}
+if (args.seed) {
+  const turn = await rpc('turn/start', { threadId, clientUserMessageId: 'spike-seed',
+    input: [{ type: 'text', text: 'Reply with SEED_READY only. Do not use tools.' }], approvalsReviewer: 'user' });
+  const matches = frame => frame.method === 'turn/completed' && frame.params.threadId === threadId && frame.params.turn.id === turn.turn.id;
+  let completed = received.find(matches);
+  if (!completed) {
+    completed = await new Promise((resolve, reject) => {
+      const signal = AbortSignal.timeout(120000);
+      const listener = frame => { if (matches(frame)) { wire.off('message', listener); resolve(frame); } };
+      signal.addEventListener('abort', () => { wire.off('message', listener); reject(new Error('Seed turn deadline')); }, { once: true });
+      wire.on('message', listener);
+    });
+  }
+  record('seedCompleted', completed.params);
 }
 if (threadId && !args.mint) await rpc('thread/resume', { threadId, excludeTurns: true });
 record('ready', { threadId, commands: 'One JSON object per stdin line: {method,params}; {replyTo,result}; {action:"backfill"}; {action:"quit"}' });
@@ -169,20 +196,34 @@ async function backfill() {
   const liveIds = received.filter(frame => frame.method === 'item/completed' && frame.params.threadId === threadId).map(frame => frame.params.item.id);
   record('backfill', { turns, items, stable, allObservedItemsPresent: liveIds.every(id => ids.includes(id)) });
 }
-if (args.interactive) {
-  const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
-  for await (const line of input) {
-    if (!line.trim()) continue;
+async function commandLine(line) {
+    if (!line.trim()) return;
     try {
       const command = JSON.parse(line);
-      if (command.action === 'quit') break;
-      if (command.action === 'backfill') { await backfill(); continue; }
-      if ('replyTo' in command) { wire.send({ id: command.replyTo, result: command.result }); continue; }
+      if (command.action === 'quit') return 'quit';
+      if (command.action === 'backfill') { await backfill(); return; }
+      if ('replyTo' in command) { wire.send({ id: command.replyTo, result: command.result }); return; }
       const result = await rpc(command.method, command.params ?? {});
       if (command.method === 'thread/resume') threadId = command.params.threadId;
       record('commandResult', { method: command.method, result });
     } catch (error) { record('commandError', error.message); }
-  }
+}
+if (args['control-file']) {
+  await new Promise(resolve => {
+    let consumed = 0;
+    let queue = Promise.resolve();
+    const watcher = fs.watch(args['control-file'], () => {
+      queue = queue.then(async () => {
+        const lines = fs.readFileSync(args['control-file'], 'utf8').split('\n');
+        while (consumed < lines.length - 1) {
+          if (await commandLine(lines[consumed++]) === 'quit') { watcher.close(); resolve(); return; }
+        }
+      });
+    });
+  });
+} else if (args.interactive) {
+  const input = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
+  for await (const line of input) if (await commandLine(line) === 'quit') break;
 }
 if (args.checklist) {
   // Protocol captures alone cannot prove a visible TUI or the two physical-machine gate.
@@ -190,4 +231,5 @@ if (args.checklist) {
 }
 wire.frame(Buffer.alloc(0), 8);
 wire.socket.end();
+await once(wire, 'close');
 if (output !== process.stdout) output.end();
