@@ -746,11 +746,11 @@ impl super::ServiceContext {
             if !store.eligible(&head) {
                 return Ok(self.pending_user_send(&head, "owner_head_not_eligible"));
             }
-            if head.held_before_readiness
-                && self
-                    .chat_send_ledger
-                    .has_written_user_send_before(&head.authority, head.ledger_sequence)
-            {
+            if self.chat_send_ledger.has_written_user_send_before(
+                &head.authority,
+                head.ledger_sequence,
+                head.held_before_readiness,
+            ) {
                 return Ok(self.pending_user_send(&head, "earlier_parked_send_written"));
             }
             let text = store.prepared(&head)?;

@@ -49,11 +49,13 @@ impl ChatSendLedger {
         &self,
         authority: &UserSendAuthority,
         sequence: u64,
+        held: bool,
     ) -> bool {
         let state = self.state.lock();
         state.owned.iter().any(|(id, (prior, _))| {
             state.by_id.get(id).is_some_and(|status| {
                 parked_order::blocks_later(
+                    held,
                     prior.tab_id == authority.tab_id
                         && prior.pty_id == authority.pty_id
                         && prior.binding_nonce == authority.binding_nonce
