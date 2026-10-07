@@ -884,7 +884,14 @@ impl ServiceContext {
         proof: &LaunchExitProof,
     ) -> Option<LaunchExitFailure> {
         let (attempt, exit_code, proof, origin) = claim_exit(tab_id, pty_id, exit_code, proof)?;
-        self.launch_exit_verdict(&attempt, exit_code, &proof, origin)
+        let failure = self.launch_exit_verdict(&attempt, exit_code, &proof, origin)?;
+        super::launch_diagnostics::log_failure_screen(
+            self,
+            tab_id,
+            &attempt.pty_id,
+            &failure.reason,
+        );
+        Some(failure)
     }
 
     fn launch_exit_verdict(

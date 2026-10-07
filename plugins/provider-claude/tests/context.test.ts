@@ -78,7 +78,7 @@ const readonlyHost = {
   shell: {quoteFor: (value: string) => value},
   fs: {fileExists: () => true, readFileHead: () => original,
     writeTempFile: (body: string, suffix: string) => {
-      const path = `/fixture/runtime/task-files/launch-${launchFiles.size}${suffix}`;
+      const path = `/fixture/runtime/task files/launch-${launchFiles.size}${suffix}`;
       launchFiles.set(path, body);
       return path;
     },
