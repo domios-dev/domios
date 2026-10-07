@@ -12,7 +12,9 @@ use super::user_sends::{
 };
 
 const MAX_INDEX_BYTES: u64 = 256 * 1024;
-const MAX_DIRECTORY_ENTRIES: usize = MAX_UNSETTLED * 2 + 2;
+const MAX_DIRECTORY_ENTRIES: usize = MAX_UNSETTLED * 2 + 4;
+const MAX_RECEIPT_BYTES: u64 = MAX_PREPARED_BYTES as u64 * 2 + 16 * 1024;
+const MAX_PENDING_RECEIPTS: usize = 1024;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -30,6 +32,38 @@ pub(crate) struct AgentDeliveryRecord {
     owner_epoch: String,
     digest: String,
     bytes: usize,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct AgentDeliveryRecovery {
+    pub(crate) payload_kind: String,
+    pub(crate) worker_brief: bool,
+    pub(crate) report: bool,
+    pub(crate) observer: Option<super::super::messenger::DeliveryWriteObserver>,
+    pub(crate) exact_text: String,
+    pub(crate) anchor: Option<super::super::chat_send_transaction::SendEvidenceAnchor>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum AgentDeliveryReceiptStatus {
+    Delivered,
+    SubmitUnconfirmed,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct AgentDeliveryReceipt {
+    pub(crate) id: String,
+    pub(crate) sequence: u64,
+    pub(crate) tab_id: String,
+    pub(crate) payload_kind: String,
+    pub(crate) worker_brief: bool,
+    pub(crate) report: bool,
+    pub(crate) observer: Option<super::super::messenger::DeliveryWriteObserver>,
+    pub(crate) exact_text: String,
+    pub(crate) anchor: Option<super::super::chat_send_transaction::SendEvidenceAnchor>,
+    pub(crate) status: Option<AgentDeliveryReceiptStatus>,
+    pub(crate) settlement_notified: bool,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -50,6 +84,7 @@ impl Default for AgentDeliveryIndex {
 }
 
 struct AgentDeliveryTab {
+    tab_id: String,
     dir: PathBuf,
     index: Mutex<Option<AgentDeliveryIndex>>,
     running: AtomicBool,
@@ -160,13 +195,60 @@ impl AgentDeliveryStore {
     }
 
     pub(crate) fn claim(&self, tab_id: &str, record_id: &str) -> Result<bool, String> {
-        self.update(tab_id, record_id, |record| {
-            if record.state != AgentDeliveryState::Pending || record.owner_epoch != self.epoch {
-                return Ok(false);
-            }
-            record.state = AgentDeliveryState::Claimed;
-            Ok(true)
-        })
+        self.claim_with_recovery(
+            tab_id,
+            record_id,
+            AgentDeliveryRecovery {
+                payload_kind: "unknown".into(),
+                worker_brief: false,
+                report: false,
+                observer: None,
+                exact_text: String::new(),
+                anchor: None,
+            },
+        )
+    }
+
+    pub(crate) fn claim_with_recovery(
+        &self,
+        tab_id: &str,
+        record_id: &str,
+        recovery: AgentDeliveryRecovery,
+    ) -> Result<bool, String> {
+        let tab = self.tab(tab_id);
+        let mut loaded = tab.index.lock();
+        let index = self.load(&tab, &mut loaded)?;
+        let Some(position) = index
+            .records
+            .iter()
+            .position(|record| record.id == record_id)
+        else {
+            return Ok(false);
+        };
+        let record = &index.records[position];
+        if record.state != AgentDeliveryState::Pending || record.owner_epoch != self.epoch {
+            return Ok(false);
+        }
+        let mut next = index.clone();
+        next.records[position].state = AgentDeliveryState::Claimed;
+        let recovery_path = claim_recovery_path(&tab, record_id)?;
+        let recovery_dir = recovery_path
+            .parent()
+            .ok_or("agent delivery recovery directory missing")?;
+        owner_directory(recovery_dir)?;
+        let bytes = serde_json::to_vec(&recovery)
+            .map_err(|_| "agent delivery recovery serialization failed")?;
+        if bytes.len() as u64 > MAX_RECEIPT_BYTES {
+            return Err("agent delivery recovery size bound exceeded".into());
+        }
+        write_new(&recovery_path, &bytes)?;
+        sync_directory(recovery_dir)?;
+        if let Err(error) = self.persist(&tab, &next) {
+            *loaded = Some(next);
+            return Err(error);
+        }
+        *loaded = Some(next);
+        Ok(true)
     }
 
     pub(crate) fn release_zero_write(&self, tab_id: &str, record_id: &str) -> Result<(), String> {
@@ -177,7 +259,79 @@ impl AgentDeliveryStore {
             record.state = AgentDeliveryState::Pending;
             Ok(true)
         })?;
+        remove_if_present(&claim_recovery_path(&self.tab(tab_id), record_id)?)?;
         Ok(())
+    }
+
+    pub(crate) fn pending_receipts(
+        &self,
+        tab_id: &str,
+    ) -> Result<Vec<AgentDeliveryReceipt>, String> {
+        let tab = self.tab(tab_id);
+        let mut loaded = tab.index.lock();
+        self.load(&tab, &mut loaded)?;
+        drop(loaded);
+        let dir = pending_receipts_dir(&tab);
+        owner_directory(dir.parent().ok_or("agent delivery receipt root missing")?)?;
+        owner_directory(&dir)?;
+        let entries = fs::read_dir(&dir)
+            .map_err(|error| format!("agent delivery persistence: {error}"))?
+            .take(MAX_PENDING_RECEIPTS + 1)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| format!("agent delivery persistence: {error}"))?;
+        if entries.len() > MAX_PENDING_RECEIPTS {
+            return Err("agent delivery receipt work bound exceeded".into());
+        }
+        let mut receipts = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
+                continue;
+            };
+            let Some(id) = name.strip_suffix(".json") else {
+                continue;
+            };
+            if uuid::Uuid::parse_str(id).is_err() {
+                continue;
+            }
+            let receipt = serde_json::from_slice(&read_bounded(&entry.path(), MAX_RECEIPT_BYTES)?)
+                .map_err(|_| "agent delivery receipt is invalid")?;
+            receipts.push(receipt);
+        }
+        receipts.sort_by(|left: &AgentDeliveryReceipt, right| left.id.cmp(&right.id));
+        Ok(receipts)
+    }
+
+    pub(crate) fn save_pending_receipt(
+        &self,
+        receipt: &AgentDeliveryReceipt,
+    ) -> Result<(), String> {
+        if uuid::Uuid::parse_str(&receipt.id).is_err() {
+            return Err("invalid agent delivery identity".into());
+        }
+        let tab = self.tab(&receipt.tab_id);
+        let mut loaded = tab.index.lock();
+        self.load(&tab, &mut loaded)?;
+        drop(loaded);
+        persist_receipt(&pending_receipt_path(&tab, &receipt.id)?, receipt)
+    }
+
+    pub(crate) fn complete_receipt(
+        &self,
+        receipt: &mut AgentDeliveryReceipt,
+    ) -> Result<(), String> {
+        if uuid::Uuid::parse_str(&receipt.id).is_err() {
+            return Err("invalid agent delivery identity".into());
+        }
+        let tab = self.tab(&receipt.tab_id);
+        let mut loaded = tab.index.lock();
+        self.load(&tab, &mut loaded)?;
+        drop(loaded);
+        receipt.exact_text.clear();
+        receipt.anchor = None;
+        persist_receipt(&settled_receipt_path(&tab, &receipt.id)?, receipt)?;
+        remove_if_present(&pending_receipt_path(&tab, &receipt.id)?)?;
+        sync_directory(&settled_receipts_dir(&tab))?;
+        sync_directory(&pending_receipts_dir(&tab))
     }
 
     pub(crate) fn complete_written(&self, tab_id: &str, record_id: &str) -> Result<bool, String> {
@@ -218,6 +372,9 @@ impl AgentDeliveryStore {
             Ok(()) => sync_directory(&tab.dir)?,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => log::warn!("[agent-delivery] completed payload cleanup failed: {error}"),
+        }
+        if let Err(error) = remove_if_present(&claim_recovery_path(&tab, record_id)?) {
+            log::warn!("[agent-delivery] claim evidence cleanup failed: {error}");
         }
         Ok(true)
     }
@@ -296,6 +453,7 @@ impl AgentDeliveryStore {
             .entry(tab_id.to_string())
             .or_insert_with(|| {
                 Arc::new(AgentDeliveryTab {
+                    tab_id: tab_id.to_string(),
                     dir: self.root.join(digest(tab_id.as_bytes())),
                     index: Mutex::new(None),
                     running: AtomicBool::new(false),
@@ -334,12 +492,15 @@ impl AgentDeliveryStore {
                 .records
                 .iter()
                 .filter(|record| record.state == AgentDeliveryState::Claimed)
-                .map(|record| record.id.clone())
+                .cloned()
                 .collect::<Vec<_>>();
             let pending_rebind = index.records.iter().any(|record| {
                 record.state == AgentDeliveryState::Pending && record.owner_epoch != self.epoch
             });
             if !retired.is_empty() || pending_rebind {
+                for record in &retired {
+                    persist_retired_receipt(tab, record)?;
+                }
                 index
                     .records
                     .retain(|record| record.state == AgentDeliveryState::Pending);
@@ -347,12 +508,9 @@ impl AgentDeliveryStore {
                     record.owner_epoch = self.epoch.clone();
                 }
                 self.persist(tab, &index)?;
-                for id in retired {
-                    match fs::remove_file(payload_path(tab, &id)?) {
-                        Ok(()) => {}
-                        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-                        Err(error) => return Err(format!("agent delivery persistence: {error}")),
-                    }
+                for record in retired {
+                    remove_if_present(&payload_path(tab, &record.id)?)?;
+                    remove_if_present(&claim_recovery_path(tab, &record.id)?)?;
                 }
             }
             *loaded = Some(index);
@@ -440,6 +598,7 @@ impl AgentDeliveryStore {
                     .map_err(|error| format!("agent delivery persistence: {error}"))?;
             }
         }
+        collect_claim_recovery_orphans(tab, index)?;
         Ok(())
     }
 
@@ -461,8 +620,188 @@ fn payload_path(tab: &AgentDeliveryTab, id: &str) -> Result<PathBuf, String> {
     Ok(tab.dir.join(format!("{id}.payload")))
 }
 
+fn claim_recovery_path(tab: &AgentDeliveryTab, id: &str) -> Result<PathBuf, String> {
+    if uuid::Uuid::parse_str(id).is_err() {
+        return Err("invalid agent delivery identity".into());
+    }
+    Ok(tab.dir.join("claim-evidence").join(format!("{id}.json")))
+}
+
+fn pending_receipts_dir(tab: &AgentDeliveryTab) -> PathBuf {
+    tab.dir.join("receipts").join("pending")
+}
+
+fn settled_receipts_dir(tab: &AgentDeliveryTab) -> PathBuf {
+    tab.dir.join("receipts").join("settled")
+}
+
+fn pending_receipt_path(tab: &AgentDeliveryTab, id: &str) -> Result<PathBuf, String> {
+    if uuid::Uuid::parse_str(id).is_err() {
+        return Err("invalid agent delivery identity".into());
+    }
+    Ok(pending_receipts_dir(tab).join(format!("{id}.json")))
+}
+
+fn settled_receipt_path(tab: &AgentDeliveryTab, id: &str) -> Result<PathBuf, String> {
+    if uuid::Uuid::parse_str(id).is_err() {
+        return Err("invalid agent delivery identity".into());
+    }
+    Ok(settled_receipts_dir(tab).join(format!("{id}.json")))
+}
+
+fn persist_retired_receipt(
+    tab: &AgentDeliveryTab,
+    record: &AgentDeliveryRecord,
+) -> Result<(), String> {
+    let path = pending_receipt_path(tab, &record.id)?;
+    if path.exists() {
+        let existing: AgentDeliveryReceipt =
+            serde_json::from_slice(&read_bounded(&path, MAX_RECEIPT_BYTES)?)
+                .map_err(|_| "agent delivery receipt is invalid")?;
+        if existing.id != record.id || existing.tab_id != tab.tab_id {
+            return Err("agent delivery receipt identity is invalid".into());
+        }
+        return Ok(());
+    }
+    let recovery = read_recovery_or_unknown(tab, record);
+    let receipt = AgentDeliveryReceipt {
+        id: record.id.clone(),
+        sequence: record.sequence,
+        tab_id: tab.tab_id.clone(),
+        payload_kind: recovery.payload_kind,
+        worker_brief: recovery.worker_brief,
+        report: recovery.report,
+        observer: recovery.observer,
+        exact_text: recovery.exact_text,
+        anchor: recovery.anchor,
+        status: None,
+        settlement_notified: false,
+    };
+    persist_receipt(&path, &receipt)
+}
+
+fn read_recovery_or_unknown(
+    tab: &AgentDeliveryTab,
+    record: &AgentDeliveryRecord,
+) -> AgentDeliveryRecovery {
+    let recovery = claim_recovery_path(tab, &record.id)
+        .ok()
+        .and_then(|path| read_bounded(&path, MAX_RECEIPT_BYTES).ok())
+        .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    if let Some(recovery) = recovery {
+        return recovery;
+    }
+    let payload = payload_path(tab, &record.id)
+        .ok()
+        .and_then(|path| read_bounded(&path, MAX_PREPARED_BYTES as u64).ok())
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok());
+    let observer_value = payload
+        .as_ref()
+        .and_then(|payload| payload.get("observer"))
+        .cloned();
+    let observer_kind = observer_value
+        .as_ref()
+        .and_then(|observer| observer.get("kind"))
+        .and_then(serde_json::Value::as_str)
+        .map(str::to_string);
+    let observer = observer_value.and_then(|value| serde_json::from_value(value).ok());
+    let payload_kind = match observer_kind.as_deref() {
+        Some("report") => "report",
+        Some("plan_role") => "plan_role",
+        Some("plan_reminder") => "reminder",
+        _ => "agent_message",
+    };
+    AgentDeliveryRecovery {
+        payload_kind: payload_kind.into(),
+        worker_brief: false,
+        report: observer_kind.as_deref() == Some("report"),
+        observer,
+        exact_text: String::new(),
+        anchor: None,
+    }
+}
+
+fn persist_receipt(path: &Path, receipt: &AgentDeliveryReceipt) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or("agent delivery receipt directory missing")?;
+    owner_directory(
+        parent
+            .parent()
+            .ok_or("agent delivery receipt root missing")?,
+    )?;
+    owner_directory(parent)?;
+    let bytes =
+        serde_json::to_vec(receipt).map_err(|_| "agent delivery receipt serialization failed")?;
+    if bytes.len() as u64 > MAX_RECEIPT_BYTES {
+        return Err("agent delivery receipt size bound exceeded".into());
+    }
+    let temporary = path.with_extension("next.json");
+    write_replace(&temporary, &bytes)?;
+    atomic_replace(&temporary, path)?;
+    sync_directory(parent)
+}
+
+fn remove_if_present(path: &Path) -> Result<(), String> {
+    match fs::remove_file(path) {
+        Ok(()) => {
+            if let Some(parent) = path.parent() {
+                sync_directory(parent)?;
+            }
+            Ok(())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("agent delivery persistence: {error}")),
+    }
+}
+
+fn collect_claim_recovery_orphans(
+    tab: &AgentDeliveryTab,
+    index: &AgentDeliveryIndex,
+) -> Result<(), String> {
+    let dir = tab.dir.join("claim-evidence");
+    match fs::symlink_metadata(&dir) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => return Err(format!("agent delivery persistence: {error}")),
+        Ok(_) => owner_directory(&dir)?,
+    }
+    let entries = fs::read_dir(&dir)
+        .map_err(|error| format!("agent delivery persistence: {error}"))?
+        .take(MAX_UNSETTLED * 2 + 1)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| format!("agent delivery persistence: {error}"))?;
+    if entries.len() > MAX_UNSETTLED * 2 {
+        return Err("agent delivery claim evidence work bound exceeded".into());
+    }
+    let live = index
+        .records
+        .iter()
+        .filter(|record| record.state == AgentDeliveryState::Claimed)
+        .map(|record| format!("{}.json", record.id))
+        .collect::<HashSet<_>>();
+    for entry in entries {
+        let name = entry.file_name();
+        if name.to_str().is_some_and(|name| live.contains(name)) {
+            continue;
+        }
+        if entry
+            .file_type()
+            .map_err(|error| format!("agent delivery persistence: {error}"))?
+            .is_file()
+        {
+            fs::remove_file(entry.path())
+                .map_err(|error| format!("agent delivery persistence: {error}"))?;
+        }
+    }
+    sync_directory(&dir)
+}
+
 fn next_sequence(sequence: u64) -> Result<u64, String> {
     sequence
         .checked_add(1)
         .ok_or_else(|| "agent delivery sequence exhausted".into())
 }
+
+#[cfg(test)]
+#[path = "agent_deliveries/tests.rs"]
+mod tests;
