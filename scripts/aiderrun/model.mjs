@@ -5,6 +5,11 @@ export function decision(state, key, hash) {
   return 'ready';
 }
 
+// A turn that completes while a check holds the lock is skipped by the launcher; the finishing run re-offers it.
+export function followUp(checkedKey, observedKey) {
+  return Boolean(observedKey) && observedKey !== checkedKey;
+}
+
 export function commands(surface) {
   const common = [['npx', 'tsc', '--noEmit']];
   if (surface === 'config' || surface === 'defaults') return [...common, ['node', 'scripts/run-ts-unit-tests.mjs', 'src/hooks/useConfig.test.ts']];

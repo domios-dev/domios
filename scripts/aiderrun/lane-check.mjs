@@ -1,18 +1,20 @@
 import { openSync, closeSync, unlinkSync, existsSync } from 'node:fs';
 import path from 'node:path';
-import { commands, verdict, missingTarget, decision } from './model.mjs';
-import { options, cli, fingerprint, storage, readJson, save } from './runtime.mjs';
+import { commands, verdict, missingTarget, decision, followUp } from './model.mjs';
+import { spawnSync } from 'node:child_process';
+import { options, cli, fingerprint, storage, readJson, save, harness } from './runtime.mjs';
 import { observed } from './turn.mjs';
 import { run } from './process.mjs';
 import { deliver, diagnosticResults } from './verdict.mjs';
 
 const binding = options(process.argv.slice(2));
 const binary = cli(), root = storage(binding), lock = path.join(root, 'active.lock');
-let fd, release = true, deliveryAttempted = false;
+let fd, release = true, deliveryAttempted = false, checkedKey = null;
 try { fd = openSync(lock, 'wx'); } catch (error) { if (error.code === 'EEXIST') process.exit(0); throw error; }
 try {
   const turn = observed(binding, root);
   if (!turn) throw new Error('no verified completed turn; checks were not started');
+  checkedKey = turn.key;
   const hash = fingerprint(binding.lane), stateFile = path.join(root, 'state.json');
   const state = readJson(stateFile, { claimed: [] });
   if (decision({ ...state, active: false }, turn.key, hash) === 'ready') {
@@ -46,6 +48,11 @@ try {
   catch (routingError) { process.stderr.write(`routing unconfirmed: ${routingError}\n`); }
   process.exitCode = 1;
 } finally { closeSync(fd); if (release) unlinkSync(lock); }
+if (release) {
+  let next = null;
+  try { next = observed(binding, root)?.key; } catch { next = null; }
+  if (followUp(checkedKey, next)) spawnSync(process.execPath, [path.join(harness, 'launch.mjs'), ...process.argv.slice(2)], { stdio: 'inherit', windowsHide: true });
+}
 
 
 

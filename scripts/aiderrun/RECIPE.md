@@ -32,7 +32,7 @@ Prepare handlers.json, replacing every placeholder. Quote shell arguments with t
 Mozart runs this first with --dry-run, reviews the normalized definition, then removes only --dry-run:
 
 ```powershell
-codeterm blueprint create --name lane-check-<AIDER_TAB> --probe "node '<HARNESS>/scripts/aiderrun/probe.mjs' --lane '<LANE>' --worker '<AIDER_TAB>' --orchestrator b3a2c8ff --surface '<SURFACE>'" --question exact-adapter-completion --buckets waiting,completed,failed --match 'waiting=(?m)^waiting$' --match 'completed=(?m)^completed ' --match 'failed=(?m)^failed ' --rearm-on-change completed --handlers-file '<HANDLERS_ABSOLUTE_PATH>' --every 10s --timeout 4h --max-transitions 64 --max-actions 64 --dry-run
+codeterm blueprint create --name lane-check-<AIDER_TAB> --probe "node '<HARNESS>/scripts/aiderrun/probe.mjs' --lane '<LANE>' --worker '<AIDER_TAB>' --orchestrator b3a2c8ff --surface '<SURFACE>'" --question exact-adapter-completion --buckets waiting,completed,failed --match 'waiting=(?m)^waiting$' --match 'completed=(?m)^completed ' --match 'failed=(?m)^failed ' --rearm-on-change completed --handlers-file '<HANDLERS_ABSOLUTE_PATH>' --every 10s --timeout 4h --max-transitions 256 --max-actions 256 --dry-run
 ```
 
 Record graph id with exact worker/lane/surface/session/generation. Mozart owns all accepted graphs; stop them when their task ends. The disposable proof uses 20m/8/8. No tsc or tests run inside a Blueprint probe/action: the fixed command only creates a Team utility and returns.
