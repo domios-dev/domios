@@ -987,11 +987,14 @@ fn composer_evidence_wins_at_the_deadline_without_elapsed_success() {
         Err(LaunchInputRefusal::Deadline)
     );
     let mut modal = input_observation();
-    modal.pending_prompt = true;
+    modal.classification = launch_classification(TabState::ClarifyingQuestion);
+    modal.active_interactive_prompt = true;
     modal.composer_ready = true;
     assert_eq!(
         decide_launch_input_at_deadline(modal, LaunchInputMode::Standard, true, true, false),
-        Err(LaunchInputRefusal::PendingPrompt)
+        Err(LaunchInputRefusal::ProviderDialog(
+            TabState::ClarifyingQuestion
+        ))
     );
 }
 
