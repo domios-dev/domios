@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Clock3, Network, Radar, Square, Trash2, Workflow } from "lucide-react";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
 import { sentinelJobs } from "../Automation/scenarios";
@@ -60,6 +60,28 @@ export function ComposerJobChips({ tabId, workspaceId, adapter = hostAutomationA
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [stopping, setStopping] = useState<string | null>(null);
+  const [overflowOpen, setOverflowOpen] = useState(false);
+  const overflowRef = useRef<HTMLDivElement>(null);
+  const overflowPopoverId = `composer-more-jobs-${useId().replace(/:/g, "")}`;
+
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const closeOnOutside = (event: PointerEvent) => {
+      const target = event.target;
+      if (target instanceof Node && !overflowRef.current?.contains(target) && !(target instanceof Element && target.closest('[role="menu"]'))) {
+        setOverflowOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !document.querySelector('[role="menu"]')) setOverflowOpen(false);
+    };
+    document.addEventListener("pointerdown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [overflowOpen]);
 
   useLayoutEffect(() => {
     if (confirming || !returnFocus.current) return;
@@ -98,39 +120,37 @@ export function ComposerJobChips({ tabId, workspaceId, adapter = hostAutomationA
   const visible = chips.slice(0, VISIBLE_JOBS);
   const hidden = chips.slice(VISIBLE_JOBS);
   const copy = confirming ? deleteJobConfirmation(confirming) : null;
+  const renderChip = (chip: TabJob, inOverflow = false) => {
+    const key = tabJobKey(chip);
+    const job = byKey.get(key);
+    if (!job) return null;
+    const actionsLabel = `Actions for ${chip.title}`;
+    const items = [
+      ...(canStopJob(job) ? [{ label: "Stop", icon: <Square size={12} aria-hidden="true" />, disabled: stopping === key, onClick: () => void stop(key, job) }] : []),
+      { label: "Delete", icon: <Trash2 size={12} aria-hidden="true" />, danger: true, onClick: () => { returnFocus.current = triggers.current.get(key) ?? null; setError(null); setConfirming(job); } },
+    ];
+    return <div key={key} data-job-key={key} className={`ct-composer-activity-chip h-7 min-w-0 max-w-[16rem]${inOverflow ? " w-full" : ""}`}>
+      <button type="button" aria-label={tabJobAccessibleName(chip)} title={`${chip.title}, ${chip.state}`} className="ct-composer-activity-chip__open" onMouseDown={(event) => event.preventDefault()} onClick={() => openJob(job)}>
+        <JobIcon job={job} />
+        <span className="ct-composer-activity-chip__primary">{chip.title}</span>
+        <span className={`shrink-0 ${stateTone(chip)}`}>{chip.state}</span>
+      </button>
+      <DropdownMenu
+        menuLabel={actionsLabel}
+        items={items}
+        className="flex shrink-0 items-center"
+        trigger={<RowMenuButton ref={(element) => { if (element) triggers.current.set(key, element); else triggers.current.delete(key); }} label={actionsLabel} />}
+      />
+    </div>;
+  };
   return <div role="group" aria-label="Jobs for this tab" className="contents">
-    {visible.map((chip) => {
-      const key = tabJobKey(chip);
-      const job = byKey.get(key);
-      if (!job) return null;
-      const actionsLabel = `Actions for ${chip.title}`;
-      const items = [
-        ...(canStopJob(job) ? [{ label: "Stop", icon: <Square size={12} aria-hidden="true" />, disabled: stopping === key, onClick: () => void stop(key, job) }] : []),
-        { label: "Delete", icon: <Trash2 size={12} aria-hidden="true" />, danger: true, onClick: () => { returnFocus.current = triggers.current.get(key) ?? null; setError(null); setConfirming(job); } },
-      ];
-      return <div key={key} data-job-key={key} className="ct-composer-activity-chip h-7 min-w-0 max-w-[16rem]">
-        <button type="button" aria-label={tabJobAccessibleName(chip)} title={`${chip.title}, ${chip.state}`} className="ct-composer-activity-chip__open" onMouseDown={(event) => event.preventDefault()} onClick={() => openJob(job)}>
-          <JobIcon job={job} />
-          <span className="ct-composer-activity-chip__primary">{chip.title}</span>
-          <span className={`shrink-0 ${stateTone(chip)}`}>{chip.state}</span>
-        </button>
-        <DropdownMenu
-          menuLabel={actionsLabel}
-          items={items}
-          className="flex shrink-0 items-center"
-          trigger={<RowMenuButton ref={(element) => { if (element) triggers.current.set(key, element); else triggers.current.delete(key); }} label={actionsLabel} />}
-        />
-      </div>;
-    })}
-    {hidden.length > 0 && <DropdownMenu
-      menuLabel="More jobs for this tab"
-      items={hidden.flatMap((chip) => {
-        const job = byKey.get(tabJobKey(chip));
-        return job ? [{ label: chip.title, description: chip.state, onClick: () => openJob(job) }] : [];
-      })}
-      className="flex shrink-0 items-center"
-      trigger={<button type="button" aria-label={`${hidden.length} more jobs`} aria-haspopup="menu" className="ct-composer-activity-chip h-7 tabular-nums text-[var(--ct-muted-fg)]">+{hidden.length}</button>}
-    />}
+    {visible.map((chip) => renderChip(chip))}
+    {hidden.length > 0 && <div ref={overflowRef} className="relative">
+      <button type="button" aria-label={`${hidden.length} more jobs`} aria-expanded={overflowOpen} aria-controls={overflowPopoverId} className="ct-composer-activity-chip h-7 tabular-nums text-[var(--ct-muted-fg)]" onClick={() => setOverflowOpen((open) => !open)}>+{hidden.length}</button>
+      {overflowOpen && <div id={overflowPopoverId} role="group" aria-label="More jobs for this tab" className="absolute bottom-full right-0 z-50 mb-1 flex max-h-64 min-w-64 flex-col gap-1 overflow-y-auto rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg-elev,var(--ct-surface))] p-2 shadow-xl">
+        {hidden.map((chip) => renderChip(chip, true))}
+      </div>}
+    </div>}
     {blueprints.map(({ workspaceId, blueprint, pipeline }) => <button
       key={`blueprint:${blueprint.id}`}
       type="button"

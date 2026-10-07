@@ -25,8 +25,9 @@ async function main() {
     oneshot: false, max_history: 10, created_at: 1, next_run: null, jitter_max_ms: null,
     last_run: { run_id: "run-1", started_at: 1, finished_at: null, status: "Running", tab_id: "run-tab" },
   };
+  const jobs = [job, ...[2, 3, 4, 5].map((index) => ({ ...job, id: `cron-${index}`, name: `hidden-run-${index}` }))];
   __setInvokeForTest(async <T,>(command: string): Promise<T> => {
-    if (command === "cron_list") return [job] as T;
+    if (command === "cron_list") return jobs as T;
     throw new Error(`unexpected invoke: ${command}`);
   });
   __setListenForTest(async () => () => undefined);
@@ -62,6 +63,13 @@ async function main() {
     { workspaceId: "workspace-a", target: { teamId: null, cronId: "cron-rss" } },
     { workspaceId: "workspace-a", target: { teamId: null, blueprintId: "blueprint-echo" } },
   ], "clicking opens the exact Blueprint in Jobs");
+
+  const moreJobs = host.querySelector<HTMLButtonElement>('button[aria-label="2 more jobs"]');
+  assert.ok(moreJobs, "overflow button reports the hidden job count");
+  await act(async () => { moreJobs.click(); });
+  const hiddenJob = host.querySelector<HTMLButtonElement>('button[aria-label="Job hidden-run-4, running"]');
+  assert.ok(hiddenJob?.closest(".ct-composer-activity-chip"), "overflow entries use the visible chip capsule");
+  assert.ok(host.querySelector('button[aria-label="Actions for hidden-run-4"]'), "overflow entries retain their actions menu");
 
   await act(async () => { root.render(<ComposerJobChips tabId="tab-b" workspaceId="workspace-a" adapter={adapter} />); });
   assert.equal(host.querySelector('[aria-label^="Job "]'), null, "an unbound tab shows no job chip");
