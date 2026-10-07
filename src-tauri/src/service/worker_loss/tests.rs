@@ -1,12 +1,20 @@
+use std::cell::{Cell, RefCell};
 use std::path::Path;
 use std::process::Command;
 
+use super::pending::{
+    pending_worker_losses, replay_losses, route_loss, LossRoute, PendingWorkerLosses,
+    WITHHELD_NO_AGENT,
+};
 use super::*;
 use crate::api::events::SystemEvent;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;
 use crate::plan::{OrchestratorRef, TaskExecutionAttempt};
+use crate::service::message_gateway::{DeliverySeam, KeyStroke, MessageGateway};
+use crate::service::messenger::Delivery;
 use crate::service::plan::NewTask;
+use crate::service::pty_io::SendBatchItem;
 use crate::service::test_fixture::ServiceFixture;
 
 struct BusyWorker {
@@ -133,7 +141,7 @@ fn worker_tab_death_pushes_orchestrator_event() {
     assert_eq!(event["lane"]["state"], "dirty");
     assert_eq!(event["lane"]["changes"], 1);
     assert_eq!(event["cause"], "tab_gone");
-    assert_eq!(event["delivery"], "delivered");
+    assert_eq!(event["delivery"], WITHHELD_NO_AGENT);
     assert_eq!(
         event["recovery"],
         recovery_command(&busy.plan_id, &busy.task_id, Some("attempt_lost")).as_str()
@@ -146,6 +154,37 @@ fn worker_tab_death_pushes_orchestrator_event() {
         .unwrap()
         .task;
     assert_eq!(task.assigned_tab_id, None);
+    let held = pending_worker_losses()
+        .lock()
+        .pending_for(&busy.orchestrator);
+    assert_eq!(
+        held.len(),
+        1,
+        "the agentless Orchestrator's notice is withheld"
+    );
+    assert!(
+        !reported_losses()
+            .lock()
+            .unwrap()
+            .contains(&held[0].dedupe_key()),
+        "a withheld loss keeps no report claim"
+    );
+    let alerts = busy
+        .fx
+        .service
+        .notif
+        .lock()
+        .list(false)
+        .into_iter()
+        .filter(|notification| notification.tab_id.as_deref() == Some(busy.orchestrator.as_str()))
+        .filter(|notification| {
+            notification
+                .body
+                .as_deref()
+                .is_some_and(|body| body.contains(&busy.task_id))
+        })
+        .count();
+    assert_eq!(alerts, 1, "one owner alert names the withheld task");
 }
 
 #[test]
@@ -282,4 +321,98 @@ fn lane_state_distinguishes_missing_and_unrecorded_lanes() {
         probe_lane_state(Some(missing.to_str().unwrap())),
         LaneState::Missing
     );
+}
+
+#[derive(Default)]
+struct NoticeSeam {
+    refuse: Cell<bool>,
+    delivered: RefCell<Vec<String>>,
+}
+
+impl DeliverySeam for NoticeSeam {
+    fn deliver_enveloped(
+        &self,
+        to_tab: &str,
+        _envelope: MessageEnvelope,
+        body: &str,
+    ) -> Result<Delivery, String> {
+        self.delivered.borrow_mut().push(to_tab.to_string());
+        Ok(Delivery::Pty {
+            text: body.to_string(),
+        })
+    }
+
+    fn deliver_text(&self, _tab: &str, _text: &str) -> Result<(), String> {
+        panic!("worker loss must use enveloped delivery")
+    }
+
+    fn deliver_batch(&self, _tab: &str, _batch: Vec<SendBatchItem>) -> Result<(), String> {
+        panic!("worker loss must use enveloped delivery")
+    }
+
+    fn deliver_keys(&self, _tab: &str, _text: &str, _strokes: &[KeyStroke]) -> Result<(), String> {
+        panic!("worker loss must use enveloped delivery")
+    }
+
+    fn accepts_system_notice(&self, _target: &str) -> bool {
+        !self.refuse.get()
+    }
+}
+
+fn claimed(loss: &WorkerLoss) -> bool {
+    reported_losses()
+        .lock()
+        .unwrap()
+        .contains(&loss.dedupe_key())
+}
+
+#[test]
+fn agentless_orchestrator_withholds_losses_and_replays_each_once() {
+    let (first_plan, _) = plan_with_task(TaskStatus::InProgress, "orch-tab", "worker-a");
+    let (second_plan, _) = plan_with_task(TaskStatus::InProgress, "orch-tab", "worker-b");
+    let first = in_progress_losses(&[first_plan], "worker-a", WorkerLossCause::TabGone).remove(0);
+    let second =
+        in_progress_losses(&[second_plan], "worker-b", WorkerLossCause::ProcessExited).remove(0);
+    let gateway = MessageGateway::new();
+    let seam = NoticeSeam::default();
+    let pending = parking_lot::Mutex::new(PendingWorkerLosses::default());
+    seam.refuse.set(true);
+
+    assert!(claim_report(&first));
+    let first_route = route_loss(&gateway, &seam, &pending, "orch-tab", &first);
+    assert!(claim_report(&second));
+    let second_route = route_loss(&gateway, &seam, &pending, "orch-tab", &second);
+
+    assert_eq!(first_route, LossRoute::Withheld { first: true });
+    assert_eq!(second_route, LossRoute::Withheld { first: false });
+    assert!(
+        seam.delivered.borrow().is_empty(),
+        "nothing written to the shell"
+    );
+    assert!(!claimed(&first) && !claimed(&second), "claims released");
+    assert_eq!(pending.lock().pending_for("orch-tab").len(), 2);
+    assert!(pending.lock().alert_open("orch-tab"));
+
+    assert!(replay_losses(&gateway, &seam, &pending, "orch-tab").is_empty());
+    assert_eq!(pending.lock().pending_for("orch-tab").len(), 2);
+
+    seam.refuse.set(false);
+    let replayed = replay_losses(&gateway, &seam, &pending, "orch-tab");
+    let again = replay_losses(&gateway, &seam, &pending, "orch-tab");
+
+    assert_eq!(replayed.len(), 2);
+    assert!(replayed
+        .iter()
+        .all(|(_, route)| *route == LossRoute::Delivered));
+    assert!(again.is_empty());
+    assert_eq!(
+        *seam.delivered.borrow(),
+        vec!["orch-tab".to_string(), "orch-tab".to_string()]
+    );
+    assert!(pending.lock().pending_for("orch-tab").is_empty());
+    assert!(
+        !pending.lock().alert_open("orch-tab"),
+        "drained episode closes its alert"
+    );
+    assert!(claimed(&first) && claimed(&second));
 }
