@@ -120,7 +120,7 @@ export function parseAiderHistory(
       const userText = line.slice(5).trim();
       // A blank `#### ` line is not a user turn; skip it entirely so it
       // never becomes an empty user row in Chat.
-      if (!userText) {
+      if (!userText || userText === "<blank>") {
         currentRole = null;
         continue;
       }
@@ -269,7 +269,7 @@ export function parseAiderHistoryDelta(chunk: string): {
     if (line.startsWith("#### ")) {
       flush();
       const userText = line.slice(5).trim();
-      if (!userText) {
+      if (!userText || userText === "<blank>") {
         currentRole = null;
         continue;
       }
