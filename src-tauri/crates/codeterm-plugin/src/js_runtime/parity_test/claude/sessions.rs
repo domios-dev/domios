@@ -443,8 +443,8 @@ fn rich_flatten_parity_block_derivable_kinds() {
         think[0].content
     );
     assert!(
-        think[0].content.ends_with("...") && think[0].content.len() <= 205,
-        "thinking must be truncated with ellipsis: len={}",
+        !think[0].content.ends_with("...") && think[0].content.len() > 205,
+        "collapsed thinking keeps its full text: len={}",
         think[0].content.len()
     );
 
