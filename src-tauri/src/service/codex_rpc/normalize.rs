@@ -29,6 +29,17 @@ impl Normalizer {
         }
     }
 
+    pub fn snapshot(&self, thread: &str) -> Vec<ChatMsg> {
+        let mut messages: Vec<_> = self
+            .items
+            .iter()
+            .filter(|((owner, _), _)| owner == thread)
+            .map(|(_, message)| message.clone())
+            .collect();
+        messages.sort_by_key(|message| message.seq);
+        messages
+    }
+
     pub fn apply(&mut self, frame: &Frame) -> Option<ChatMsg> {
         let Frame::Notification { method, params } = frame else {
             return None;
