@@ -97,6 +97,9 @@ pub enum PlanAction {
         /// Lane branch to delete after worktree removal, if merged into project HEAD
         #[arg(long, value_name = "BRANCH")]
         branch: Option<String>,
+        /// Force removal, discarding uncommitted and untracked lane content
+        #[arg(long)]
+        force: bool,
         /// Canonical checkout (needed for a missing worktree unless its task identifies the project)
         #[arg(long, value_name = "PATH")]
         project: Option<String>,
