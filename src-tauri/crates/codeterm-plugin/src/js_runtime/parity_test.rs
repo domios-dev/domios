@@ -33,6 +33,8 @@ mod model_providers;
 mod model_switch;
 #[path = "parity_test/provider_compat.rs"]
 mod provider_compat;
+#[path = "parity_test/sqlite_fixture.rs"]
+mod sqlite_fixture;
 #[path = "parity_test/unbound_submit_recovery.rs"]
 mod unbound_submit_recovery;
 #[path = "parity_test/update_prompt.rs"]
