@@ -39,6 +39,10 @@ fn parity_provider_compat_bundled_declarations_are_strict_and_honest() {
                 manifest.evaluate(Some("1.18.33")).verdict,
                 CompatibilityVerdict::Unknown
             );
+            assert_eq!(
+                manifest.evaluate(Some("3.0.0")).verdict,
+                CompatibilityVerdict::Unknown
+            );
         }
     }
 }
