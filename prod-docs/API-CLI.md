@@ -31,8 +31,10 @@ Status returns `required`, `installed` (true/false/null for unknown), `binary`,
 `resolved_path`, `availability`, `searched`, `installer`, and `updater`. Install
 and update refuse if that OS has no manifest command. They open a visible utility
 tab in the caller's workspace and Team and return `tab_id` with
-`launch_state: "command_dispatched"`. Shell completion or exit produces a report
-back to the caller, a retained result in the tab description, and a
+`launch_state: "command_dispatched"`. Shell completion or exit produces a routed
+report for an agent caller or a kept notification record for a shell caller.
+Completion prose is never sent as shell input. It also retains the result in the
+utility tab description and emits a
 `provider-cli-completed` event with a fresh status. A completion deadline reports
 uncertainty; dispatch alone never means installation succeeded. Settings > Agents
 and provider plugin views use the same status and Install action.
@@ -253,4 +255,4 @@ Overlay files add leaf kinds only. Declaring capability, claiming an anchoring o
 Team-authority base, overriding a builtin kind, or asking to own a contract
 without the coordination core is refused with a named reason and skipped.
 
-<!-- revision: 27 -->
+<!-- revision: 28 -->
