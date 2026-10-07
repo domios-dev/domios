@@ -27,6 +27,7 @@ fn startup_notice_exposes_inspect_respond_and_hold_without_task_resend() {
 }
 
 #[test]
+#[cfg_attr(not(windows), ignore = "requires a desktop runtime")]
 fn startup_overdue_notice_is_suppressed_after_binding_is_observed() {
     let (fixture, parent_tab_id, child_tab_id) = lifecycle_fixture(true);
     let authority = StartupAuthority::new(&parent_tab_id, &child_tab_id, "launch-a")
