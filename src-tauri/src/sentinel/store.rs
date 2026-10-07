@@ -173,6 +173,21 @@ pub(super) enum ScheduleChange {
 }
 
 impl Store {
+    pub(crate) fn cancel_tab_owned_runs(&mut self, tab_id: &str) -> usize {
+        let active = self
+            .jobs
+            .iter()
+            .filter(|job| job.creator_tab_id == tab_id && job.team_id.is_none())
+            .filter_map(|job| self.active.get(&job.id))
+            .cloned()
+            .collect::<Vec<_>>();
+        let count = active.len();
+        for cancellation in active {
+            cancellation.cancel();
+        }
+        count
+    }
+
     pub(crate) fn stage_event_lease(
         &mut self,
         event: codeterm_plugin::graph_events::EventEnvelope,

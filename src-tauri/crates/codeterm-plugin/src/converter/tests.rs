@@ -50,6 +50,7 @@ fn request(from: &str, to: &str) -> ConvertRequest {
         output_dir: PathBuf::from("out"),
         language: None,
         deadline: Instant::now() + Duration::from_secs(30),
+        cancellation: Default::default(),
     }
 }
 

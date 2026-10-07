@@ -3,14 +3,68 @@
 //! hardcoded provider match: core turns a file of one media kind into another
 //! without knowing which plugin does it.
 
+use parking_lot::{Condvar, Mutex};
 use std::collections::VecDeque;
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 use codeterm_types::sentinel_input::MediaKind;
 
 use crate::transcribe::{TranscribeError, Transcriber};
+use futures_util::FutureExt;
+
+#[derive(Default)]
+struct ConversionCancellationState {
+    cancelled: AtomicBool,
+    generation: Mutex<u64>,
+    changed: Condvar,
+    notify: tokio::sync::Notify,
+}
+
+#[derive(Clone, Default)]
+pub struct ConversionCancellation(Arc<ConversionCancellationState>);
+
+impl ConversionCancellation {
+    pub fn cancel(&self) {
+        self.0.cancelled.store(true, Ordering::SeqCst);
+        self.notify_change();
+        self.0.notify.notify_one();
+    }
+
+    pub fn is_cancelled(&self) -> bool {
+        self.0.cancelled.load(Ordering::SeqCst)
+    }
+
+    pub fn generation(&self) -> u64 {
+        *self.0.generation.lock()
+    }
+
+    pub fn notify_change(&self) {
+        let mut generation = self.0.generation.lock();
+        *generation = generation.wrapping_add(1);
+        self.0.changed.notify_all();
+    }
+
+    pub fn wait_for_change(&self, generation: u64, timeout: std::time::Duration) {
+        let mut current = self.0.generation.lock();
+        if *current == generation {
+            self.0.changed.wait_for(&mut current, timeout);
+        }
+    }
+
+    async fn cancelled(&self) {
+        loop {
+            let notified = self.0.notify.notified();
+            tokio::pin!(notified);
+            if self.is_cancelled() {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
 
 /// Longest chain of declared edges the planner will walk.
 pub const MAX_CONVERSION_STEPS: usize = 3;
@@ -38,6 +92,7 @@ pub struct ConvertRequest {
     pub language: Option<String>,
     /// Point after which the conversion must give up.
     pub deadline: Instant,
+    pub cancellation: ConversionCancellation,
 }
 
 /// A finished conversion: the text itself, or a file inside `output_dir`.
@@ -60,6 +115,7 @@ pub enum ConvertError {
     NoOutput,
     /// The deadline passed before the conversion completed.
     DeadlineExceeded,
+    Cancelled,
 }
 
 impl std::fmt::Display for ConvertError {
@@ -76,6 +132,7 @@ impl std::fmt::Display for ConvertError {
             }
             Self::NoOutput => write!(f, "empty conversion result"),
             Self::DeadlineExceeded => write!(f, "convert deadline exceeded"),
+            Self::Cancelled => write!(f, "convert cancelled"),
         }
     }
 }
@@ -376,9 +433,21 @@ impl Converter for TranscriberConverter {
         if Instant::now() >= req.deadline {
             return Err(ConvertError::DeadlineExceeded);
         }
+        if req.cancellation.is_cancelled() {
+            return Err(ConvertError::Cancelled);
+        }
         let language = req.language.as_deref().unwrap_or("");
-        let transcript =
-            futures_executor::block_on(self.inner.transcribe(&req.input_path, language))?;
+        let transcript = futures_executor::block_on(async {
+            let transcribe = self.inner.transcribe(&req.input_path, language).fuse();
+            let cancelled = req.cancellation.cancelled().fuse();
+            futures_util::pin_mut!(transcribe, cancelled);
+            match futures_util::future::select(transcribe, cancelled).await {
+                futures_util::future::Either::Left((result, _)) => {
+                    result.map_err(ConvertError::from)
+                }
+                futures_util::future::Either::Right(_) => Err(ConvertError::Cancelled),
+            }
+        })?;
         Ok(ConvertOutput::Text(transcript.text))
     }
 }

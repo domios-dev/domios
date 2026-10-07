@@ -73,10 +73,11 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
         }
         _ => None,
     };
-    let mut cleanup = input.as_ref().and_then(|_| {
+    let cleanup = input.as_ref().and_then(|_| {
         codeterm_types::sentinel_input::run_dir(&crate::paths::data_dir(), &lease.job.id, &run_id)
             .ok()
             .map(super::input::Cleanup::new)
+            .map(std::sync::Arc::new)
     });
     let input_source = input
         .as_ref()
@@ -145,6 +146,7 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
                     input_source.as_deref(),
                     input_failure.as_deref(),
                     input_display.as_deref().unwrap_or_default(),
+                    cleanup.clone(),
                 )
             },
         ) else {
@@ -155,7 +157,25 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
             return;
         };
         if lease.cancelled.load(Ordering::SeqCst) {
-            close_run(handle, lease, &run_id, "skipped", "skip:lease_cancelled");
+            if matches!(&step.kind, StepKind::Convert { .. }) {
+                let reason = result.reason.as_deref().unwrap_or("conversion_cancelled");
+                let _ = write_journal(
+                    handle,
+                    &lease.job,
+                    BlueprintJournalWrite::Finish {
+                        run_id: run_id.clone(),
+                        step_index: index as i64,
+                        state: "failed".into(),
+                        outcome: "failed".into(),
+                        ended_at_ms: now(handle),
+                        result_summary: Some(format!("conversion failed: {reason}")),
+                        reason: Some(reason.into()),
+                    },
+                );
+                close_run(handle, lease, &run_id, "failed", reason);
+            } else {
+                close_run(handle, lease, &run_id, "skipped", "skip:lease_cancelled");
+            }
             return;
         }
         let ended = now(handle);
@@ -266,7 +286,7 @@ pub(super) fn tick(handle: &Handle, svc: &ServiceContext, lease: &Lease) {
         bucket: outcome.into(),
         confidence: 1.0,
     };
-    if let Some(cleanup) = cleanup.as_mut() {
+    if let Some(cleanup) = cleanup.as_ref() {
         cleanup.settle();
     }
     let body_target = super::routes::pipeline_result_owner(svc, &lease.job, spec);
@@ -417,6 +437,7 @@ fn execute_step(
     input_source: Option<&Path>,
     input_failure: Option<&str>,
     input_display: &str,
+    cleanup: Option<std::sync::Arc<super::input::Cleanup>>,
 ) -> StepResult {
     if let Some(reason) = input_failure {
         return failed_input_step(reason);
@@ -538,6 +559,9 @@ fn execute_step(
                     *from,
                     *to,
                     input_deadline(handle, lease),
+                    lease.cancelled.conversion_token(),
+                    cleanup,
+                    Instant::now,
                 ),
                 (Some(_), Some(_)) => Err("conversion_input_kind_mismatch".into()),
                 _ => Err("conversion_input_missing".into()),
