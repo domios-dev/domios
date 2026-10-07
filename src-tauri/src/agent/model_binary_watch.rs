@@ -148,13 +148,22 @@ pub fn refresh_after_settings_change(
     provider_ids: impl IntoIterator<Item = String>,
 ) {
     for provider_id in provider_ids {
-        crate::service::capability_probe::invalidate_and_rebuild(&provider_id);
-        if chat_backends.get(&provider_id).is_some() {
-            model_catalog::invalidate(&provider_id);
-            let _ = chat_backends.refresh_provider(&provider_id);
-        } else if let Some(provider) = agents.provider_arc(&provider_id) {
-            model_catalog::invalidate(&provider_id);
-            refresh_agent_provider(provider, true);
+        if chat_backends.contains(&provider_id) {
+            crate::service::capability_probe::invalidate_and_rebuild(&provider_id);
+            chat_backends.refresh_after_input_change(&provider_id);
+        } else {
+            refresh_agent_after_settings_change(agents, &provider_id);
         }
+    }
+}
+
+pub fn refresh_agent_after_settings_change(
+    agents: &crate::agent::registry::AgentRegistry,
+    provider_id: &str,
+) {
+    crate::service::capability_probe::invalidate_and_rebuild(provider_id);
+    if let Some(provider) = agents.provider_arc(provider_id) {
+        model_catalog::invalidate(provider_id);
+        refresh_agent_provider(provider, true);
     }
 }

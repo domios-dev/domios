@@ -296,7 +296,9 @@ machine-wide gateway only serializes heavy app work.
 
 Gateway-backed commands fail fast when another job owns the machine slot, so
 an agent turn never blocks silently behind a long-lived dev process. Add
-`--wait-build` only when synchronous queueing is intentional.
+`--wait-build` only when synchronous queueing is intentional. `check-tests`
+never enters the gateway, so it refuses `--wait-build` with exit 2 instead of
+dropping the flag.
 
 ### Gateway recovery when an owner never runs its EXIT trap
 
@@ -465,6 +467,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | Linux semantic search gets `Permission denied` or `Exec format error` for `codeterm-embed` | Clippy replaced the built runtime sidecar's mode or bytes. | Preserve the verified ELF before clippy, then restore its bytes and executable mode before tests. |
 | `check-tests` emits allocation failures, rustc `0xc0000409`, then missing-rlib cascades while another app build is active | Concurrent app compilation exhausted available host memory; the later rlib errors are secondary until proven otherwise. | Preserve the first allocation failure and raw exits. Defer the app checks to the owner's canonical batch with dev stopped; use `CARGO_BUILD_JOBS=1` for the named operation if memory pressure persists. Never kill production or clean shared targets from a Worker lane. |
 | Windows PowerShell QA capture throws `NativeCommandError` on ordinary Cargo progress and records no exit | Caller-level `*>` redirection turns native stderr into PowerShell errors under `build.ps1` strict error handling. | Run a child `powershell -NoProfile -File .\build.ps1 ...` with OS-level `cmd /d /c` redirection (`> run.log 2>&1`), then record the child exit code. Do not classify the progress line as a compiler failure. |
+| `check-tests --wait-build` exits 2 with `check-tests does not use the build gateway` before any Cargo output | `check-tests` compiles in its isolated target outside the gateway by policy, so the flag cannot queue anything; it used to be dropped silently | Rerun `./build.sh check-tests` (or `.uild.ps1 check-tests`) without the flag. Serialize it against other app builds by ownership, not by the gateway. |
 | `check-tests` fails at catalogue watcher `targets.sort()` / `dedup()` | The watcher parameter was immutable. | Declare `mut targets` in `ProviderBinaryWatchers::watch`; rerun the authorized `check-tests` and focused catalogue gates. |
 | A release-time test fails in `#[cfg(test)]` code while `check` was green | `check` compiles the production profile only, so test-only code is never type-checked | Run `./build.ps1 check-tests`, which compiles `--all-targets` for both workspaces without the build gateway. A stale generated map or a document over its reading boundary is a different cause: use the matching row above. |
 

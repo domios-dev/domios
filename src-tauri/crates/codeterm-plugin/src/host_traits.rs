@@ -93,6 +93,9 @@ pub trait PluginProviderRegistrar: Send + Sync {
     /// A provider plugin finished installing or upgrading and is registered.
     /// The host decides what that warrants; this crate owns no consent record.
     fn provider_reloaded(&self, _id: &str) {}
+    /// A plugin's settings changed and are already live in its VM; the host refreshes
+    /// what it derived from them (model catalog, capability probes) without a reload.
+    fn provider_settings_changed(&self, _id: &str) {}
 }
 
 /// Event sink for `PluginManager` — fires `ContributionsChanged` when the

@@ -383,6 +383,14 @@ pub(super) fn run_dispatch(
         params["workspace_id"] = json!(workspace);
     }
     if let Some(cwd) = cwd {
+        // A peer resolves its own paths; only a local daemon needs the caller's directory.
+        let cwd = match mesh_peer {
+            Some(_) => cwd,
+            None => crate::cmd::agent::caller_resolved_spawn_cwd(
+                &cwd,
+                std::env::current_dir().ok().as_deref(),
+            ),
+        };
         params["cwd"] = json!(cwd);
     }
     if let Some(peer) = mesh_peer {
