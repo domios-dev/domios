@@ -128,8 +128,52 @@ fn bundled_providers_advertise_only_efforts_they_can_launch() {
 
     let opencode = load_js("opencode");
     assert!(opencode.reasoning_efforts().is_empty());
-    assert!(opencode.reasoning_effort_launch_args("high").is_empty());
-    assert!(opencode.validate_reasoning_effort(Some("high")).is_err());
+    let mut manifest = opencode.manifest().clone();
+    manifest.id = "opencode-per-model-effort-contract".into();
+    let fixture = JsProvider::new(
+        manifest,
+        std::sync::Arc::new(
+            PluginVm::from_source(
+                "opencode-per-model-effort-contract",
+                "module.exports.default = {};".into(),
+            )
+            .unwrap(),
+        ),
+    );
+    crate::model_catalog::replace(
+        fixture.id(),
+        crate::model_catalog::RegisteredDefaults {
+            models: vec![ModelInfo {
+                id: "fixture/model".into(),
+                display_name: "Fixture".into(),
+                reasoning_efforts: Some(vec![ReasoningEffortInfo {
+                    id: "high".into(),
+                    display_name: "High".into(),
+                    ..Default::default()
+                }]),
+                ..Default::default()
+            }],
+            default: Some("fixture/model".into()),
+        },
+    );
+    let efforts = fixture.reasoning_efforts_for_model(Some("fixture/model"));
+    assert_eq!(
+        efforts
+            .iter()
+            .map(|effort| effort.id.as_str())
+            .collect::<Vec<_>>(),
+        ["high"]
+    );
+    for effort in efforts {
+        assert!(fixture.supports_reasoning_effort_for_model(Some("fixture/model"), &effort.id));
+        assert_eq!(
+            fixture.reasoning_effort_launch_args(&effort.id),
+            ["--variant", effort.id.as_str()]
+        );
+    }
+    assert!(!fixture.supports_reasoning_effort_for_model(Some("fixture/model"), "undeclared"));
+    assert!(!fixture.supports_reasoning_effort_for_model(Some("fixture/unknown"), "high"));
+    crate::model_catalog::unregister(fixture.id());
 }
 
 #[test]
