@@ -203,7 +203,7 @@ export interface SettingField {
 }
 
 export interface AgentProvider {
-  starterPromptText?(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap"): string | undefined;
+  starterPromptText?(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined;
   detectFromTitle?(title: string): boolean;
   detectFromOutput?(text: string): boolean;
   screenHasTui?(screen: string): boolean;
@@ -622,7 +622,7 @@ export interface NormalizedChatMessage {
   fromTab?: string;
   fromModel?: string;
   fromMesh?: string;
-  inboundKind?: "tab" | "report" | "reminder" | "mesh" | "telegram" | "pebble" | "plugin";
+  inboundKind?: "tab" | "report" | "reminder" | "system" | "mesh" | "telegram" | "pebble" | "plugin";
   fromPlugin?: string;
   pluginIconSvg?: string | null;
   timelineMarker?: ChatTimelineMarker;
