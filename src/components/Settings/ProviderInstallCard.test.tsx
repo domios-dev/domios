@@ -24,6 +24,11 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 describe("provider CLI controls", () => {
+  it("renders the model's missing prerequisite guidance in a status", async () => {
+    status = { ...missing, installer_prerequisites: [{ binary: "runner", installed: false, hint: "opaque setup guidance" }] };
+    await act(async () => root.render(<ProviderCliControls providerId="fixture" />));
+    expect([...host.querySelectorAll('[role="status"]')].some(element => element.textContent?.includes("opaque setup guidance"))).toBe(true);
+  });
   it("dispatches the named install control once and shows the completion model", async () => {
     await act(async () => root.render(<ProviderCliControls providerId="fixture" />));
     const button = host.querySelector<HTMLButtonElement>('button[aria-label="Install CLI for fixture"]');
