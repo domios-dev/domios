@@ -327,7 +327,14 @@ console.log("\n--- history file reader fallbacks ---\n");
   const readVia = (host: any) => {
     const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
     const source = fs.readFileSync(pluginPath, "utf8");
-    const context = { host, console, module: { exports: {} as any }, exports: {} };
+    const context = {
+      host,
+      console,
+      module: { exports: {} as any },
+      exports: {},
+      require,
+      process,
+    };
     new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
     return context.module.exports.default;
   };

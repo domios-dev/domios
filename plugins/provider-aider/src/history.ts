@@ -169,10 +169,33 @@ function readHistoryFile(filePath: string): string | null {
     }
   }
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const nodeFs = require("fs");
+    const nodeRequire = resolveNodeRequire();
+    if (!nodeRequire) return null;
+    const nodeFs = nodeRequire("fs");
     return nodeFs.readFileSync(filePath, "utf8");
   } catch (_) {
     return null;
   }
+}
+
+/**
+ * Resolve Node's `require` from whichever scope the plugin runs in. The
+ * plugin is bundled and evaluated in a sandbox where a bare `require` is not
+ * in scope, so the lookup walks the usual module/global carriers before
+ * giving up.
+ */
+function resolveNodeRequire(): ((id: string) => any) | null {
+  const g = globalThis as any;
+  const carriers = [g, g.module, g.process, g.__non_webpack_require__];
+  for (const carrier of carriers) {
+    if (carrier && typeof carrier.require === "function") return carrier.require;
+    if (carrier && typeof carrier.createRequire === "function") {
+      try {
+        return carrier.createRequire(process.cwd() + "/");
+      } catch (_) {
+        /* keep looking */
+      }
+    }
+  }
+  return null;
 }
