@@ -5,7 +5,11 @@ import type {
   PluginModule,
   ResumeParams,
 } from "@codeterm/plugin-sdk";
-import { parseAiderHistory, readAiderHistory } from "./history";
+import {
+  listAiderHistoryBlocks,
+  parseAiderHistory,
+  readAiderHistory,
+} from "./history";
 
 const TITLE_RE = /aider/i;
 const OUTPUT_MARKERS = ["aider", "Aider", "Aider Chat"];
@@ -106,6 +110,26 @@ function starterPrompt(params: LaunchParams): string | undefined {
   if (params.starterPrompt === "idle_wakeup") return IDLE_WAKEUP_START_PROMPT;
   if (params.starterPrompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return ASSIGNED_TASK_START_PROMPT;
+}
+
+function historyBlocks(cwd: string): { id: string; startMs: number; content: string }[] {
+  const historyPath = `${cwd}/.aider.chat.history.md`;
+  const content = readAiderHistory(historyPath, 0);
+  if (!content) return [];
+  return listAiderHistoryBlocks(readHistoryText(historyPath));
+}
+
+function readHistoryText(filePath: string): string {
+  const fs = (host as { fs?: Record<string, unknown> }).fs;
+  if (fs && typeof fs.readFile === "function") {
+    try {
+      const value = (fs.readFile as (p: string) => unknown)(filePath);
+      return value === null || value === undefined ? "" : String(value);
+    } catch (_) {
+      return "";
+    }
+  }
+  return "";
 }
 
 function lastNonEmptyLine(text: string): string {
@@ -313,7 +337,18 @@ const plugin: PluginModule = {
     return delivered === text ? null : { text: delivered };
   },
 
-  detectSessionId(_cwd: string, _exclude?: string[] | string, _maxAgeMs?: number): string | null {
+  detectSessionId(cwd: string, exclude?: string[] | string, maxAgeMs?: number): string | null {
+    const blocks = historyBlocks(cwd);
+    if (blocks.length === 0) return null;
+    const excluded = Array.isArray(exclude) ? exclude : exclude ? [exclude] : [];
+    const limit = typeof maxAgeMs === "number" && maxAgeMs > 0 ? maxAgeMs : 300000;
+    const now = Date.now();
+    for (let i = blocks.length - 1; i >= 0; i--) {
+      const block = blocks[i];
+      if (excluded.indexOf(block.id) !== -1) continue;
+      if (now - block.startMs > limit) continue;
+      return block.id;
+    }
     return null;
   },
 
@@ -321,12 +356,13 @@ const plugin: PluginModule = {
     return [];
   },
 
-  findSession(_sessionId: string): unknown | null {
-    return null;
+  findSession(sessionId: string): unknown | null {
+    return sessionId ? { sessionId } : null;
   },
 
-  sessionExists(_cwd: string, _sessionId: string): boolean {
-    return false;
+  sessionExists(cwd: string, sessionId: string): boolean {
+    if (!sessionId) return false;
+    return historyBlocks(cwd).some((block) => block.id === sessionId);
   },
 
   sessionCreatedMs(_cwd: string, _sessionId: string): number | null {
@@ -349,13 +385,17 @@ const plugin: PluginModule = {
     return true;
   },
 
-  readStructuredChat(cwd: string, _sessionId: string, cursor?: string | null): unknown {
+  readStructuredChat(cwd: string, sessionId: string, cursor?: string | null): unknown {
     const historyPath = `${cwd}/.aider.chat.history.md`;
-    const result = readAiderHistory(historyPath, 0, cursor);
-    if (!result) return { messages: [], cursor: cursor || null };
+    const blocks = historyBlocks(cwd);
+    const block = sessionId
+      ? blocks.filter((b) => b.id === sessionId).pop()
+      : blocks[blocks.length - 1];
+    if (!block) return { messages: [], cursor: cursor || null };
+    const result = parseAiderHistory(block.content, 0, cursor);
     return {
       messages: result.messages.map((m, i) => ({
-        id: `hist_${i}`,
+        id: `${block.id}_${i}`,
         type: m.role,
         content: m.text,
         seq: i,

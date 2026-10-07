@@ -18,6 +18,13 @@ export interface HistoryParseResult {
   cursor: string | null;
 }
 
+export interface HistoryBlock {
+  /** Stable id: the header's own timestamp string. */
+  id: string;
+  startMs: number;
+  content: string;
+}
+
 const SESSION_HEADER_RE = /^# aider chat started at (.+)$/;
 const THINKING_BLOCK_RE = /<thinking-content-[^>]*>[\s\S]*?<\/thinking-content-[^>]*>/g;
 
@@ -140,6 +147,47 @@ export function parseAiderHistory(
 }
 
 /**
+ * Split history content into session blocks. Each block starts at a
+ * `# aider chat started at <ts>` header; content before the first header is
+ * dropped. The block id is the header's own timestamp string — stable across
+ * reads of the same file.
+ */
+export function listAiderHistoryBlocks(content: string): HistoryBlock[] {
+  const text = String(content || "");
+  const lines = text.split(/\r?\n/);
+  const blocks: HistoryBlock[] = [];
+  let current: { id: string; startMs: number; lines: string[] } | null = null;
+
+  function flush() {
+    if (!current) return;
+    blocks.push({
+      id: current.id,
+      startMs: current.startMs,
+      content: current.lines.join("\n"),
+    });
+    current = null;
+  }
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const sessionStartMs = parseSessionStartMs(line);
+    if (sessionStartMs !== null) {
+      flush();
+      const match = line.match(SESSION_HEADER_RE);
+      current = {
+        id: match ? match[1].trim() : String(sessionStartMs),
+        startMs: sessionStartMs,
+        lines: [],
+      };
+      continue;
+    }
+    if (current) current.lines.push(line);
+  }
+  flush();
+  return blocks;
+}
+
+/**
  * Read and parse Aider history from a file path.
  * Returns null if the file cannot be read.
  */
@@ -162,14 +210,6 @@ function readHistoryFile(filePath: string): string | null {
   if (fs && typeof fs.readFile === "function") {
     try {
       const value = (fs.readFile as (p: string) => unknown)(filePath);
-      return value === null || value === undefined ? null : String(value);
-    } catch (_) {
-      return null;
-    }
-  }
-  if (fs && typeof fs.readTextFile === "function") {
-    try {
-      const value = (fs.readTextFile as (p: string) => unknown)(filePath);
       return value === null || value === undefined ? null : String(value);
     } catch (_) {
       return null;

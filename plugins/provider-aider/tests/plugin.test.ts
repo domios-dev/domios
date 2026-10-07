@@ -398,6 +398,53 @@ console.log("\n--- history cursor advances ---\n");
   eq(second.cursor, "4", "cursor stays stable at the message count");
 }
 
+console.log("\n--- session id detection ---\n");
+{
+  const twoBlocks = [
+    "# aider chat started at 2026-10-06 10:00:00.000",
+    "",
+    "#### Old question",
+    "",
+    "Old answer",
+    "",
+    "# aider chat started at 2026-10-06 12:00:00.000",
+    "",
+    "#### New question",
+    "",
+    "New answer",
+  ].join("\n");
+  const readVia = (host: any) => {
+    const pluginPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "plugin.js");
+    const source = fs.readFileSync(pluginPath, "utf8");
+    const context = { host, console, module: { exports: {} as any }, exports: {} };
+    new vm.Script(source, { filename: pluginPath }).runInNewContext(context);
+    return context.module.exports.default;
+  };
+  const historyPath = "/ws/.aider.chat.history.md";
+  const hostWith = (content: string) => ({
+    platform: () => "linux",
+    shell: { quoteFor: (v: any) => `'${v}'` },
+    fs: { readFile: (p: string) => (p === historyPath ? content : null) },
+    log: () => {},
+  });
+  const p = readVia(hostWith(twoBlocks));
+  const newest = p.detectSessionId("/ws", [], 0);
+  eq(newest, "2026-10-06 12:00:00.000", "detectSessionId returns the newest block id");
+  eq(p.detectSessionId("/ws", [newest!], 0), "2026-10-06 10:00:00.000", "exclude list skips the named block");
+  eq(p.detectSessionId("/ws", [], 1), null, "maxAgeMs excludes blocks older than the window");
+  eq(p.sessionExists("/ws", "2026-10-06 12:00:00.000"), true, "sessionExists finds a known block");
+  eq(p.sessionExists("/ws", "nope"), false, "sessionExists rejects an unknown id");
+  eq(p.findSession("2026-10-06 12:00:00.000"), { sessionId: "2026-10-06 12:00:00.000" }, "findSession echoes the id");
+  const chat = p.readStructuredChat("/ws", "2026-10-06 12:00:00.000", null);
+  eq(chat.messages.length, 2, "readStructuredChat returns only the named block");
+  eq(chat.messages[0].content, "New question", "block user turn parsed");
+  eq(chat.messages[1].content, "New answer", "block assistant turn parsed");
+  eq(chat.cursor, "2", "cursor is the message count");
+  const again = p.readStructuredChat("/ws", "2026-10-06 12:00:00.000", chat.cursor);
+  eq(again.cursor, "2", "cursor is monotonic and stable");
+  eq(again.messages.length, 2, "re-read returns the same rows for host merge");
+}
+
 console.log("\n--- thinking blocks stripped from assistant text ---\n");
 {
   const withThinking = [
