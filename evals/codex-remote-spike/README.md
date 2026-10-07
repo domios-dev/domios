@@ -1,5 +1,40 @@
 # Codex remote TUI gate
 
+## Final Windows verdict: NO-GO for thread/started-only rebinding
+
+All remaining Windows surfaces were exercised on Codex 0.160.0. Resize passed; real subagent source/parent discrimination passed; normal utility-tab teardown left no observed descendant survivors. `/fork`, `/clear`, `/new` and `/resume <id>` all changed the visible TUI as intended. However, **item 2 fails its broadcast binding oracle for hot resume**: returning to the still-loaded original thread emitted no new `thread/started` to either connected probe. The TUI restored SEED_READY history, while the most recent broadcast user thread remained the `/new` thread. A sidecar rebinding only on `thread/started` would therefore send to the wrong thread before any subsequent TUI input. Only `thread/goal/cleared` for the original thread was observed around this resume; it is not an established selection contract.
+
+This is a separate finding from the accepted backfill gap, provider interrupt UI defect and P1 flag/isolation risks. Those accepted risks stay carried; they do not waive this new deterministic binding failure. Lane A requires a verified selection/rebind adaptation or an explicit Orchestrator decision to carry this additional risk. No product repair was written and no cross-OS GO is claimed. Fulton's macOS evidence remains referenced below.
+
+### Final Windows slash and teardown evidence
+
+Utility tab `906c2347`, temp directory `C:/Users/dev/AppData/Local/Temp/codex-remote-spike-slashes-20261007`, same native absolute binary for server/TUI, port 18471. A seed turn materialized the original thread; this final run tests slash selection, while the earlier injection run proves the recommended startup binding order. The stale restored tab `9d68c34c` was closed before continuing.
+
+| Action | Visible outcome | Broadcast/identity outcome |
+|---|---|---|
+| /fork | Fork created; seed history retained | `thread/started`, ID `01a11651-4d80-70b0-be92-991f2d05573e`, threadSource user, forkedFromId original |
+| /clear | Empty fresh conversation | `thread/started`, ID `01a11651-dfe8-7233-80ec-6f8b30e30bca`, threadSource user |
+| /new | Empty fresh conversation | `thread/started`, ID `01a11652-11cd-78b3-9dc5-478bc0121e0e`, threadSource user |
+| /resume original ID | Restored SEED_READY history | No new `thread/started`; original `01a1164f-f8ac-7102-9785-6f9a7c2c7ad3` remained loaded/subscribed |
+
+Raw frames: [windows-slash-mint.ndjson](evidence/windows-slash-mint.ndjson), [windows-slash-observer.ndjson](evidence/windows-slash-observer.ndjson). Screens: windows-slash-{fork,clear,new,resume}-screen.txt. Resume's explicit ID avoids any newest-thread heuristic or picker ambiguity. The observer independently read the earlier real child `01a1164a-9049-7490-ab67-7ed8f6e71069`: `threadSource:"subagent"`, parentThreadId and forkedFromId equal `01a11649-8af5-73e3-b620-f575ebc7c1fb`; `source.subAgent.thread_spawn` carries parent_thread_id, depth 1, agent_path `/root/oracle_child` and nickname Descartes. This confirms the source discriminator in addition to the live subAgentActivity linkage.
+
+Commands used the canonical bench lib as requested:
+
+```bash
+source D:/Developer/codeterm/evals/_lib/lib.sh
+export MSYS2_ARG_CONV_EXCL='*'
+dc send --tab 906c2347 --actions '/,f,o,r,k,enter'
+dc tab get-text --tab 906c2347
+dc send --tab 906c2347 --actions enter
+```
+
+The first Enter completed the slash command in the composer; a separate inspected submit executed it. `/clear` and `/new` used the corresponding literal keys and the same inspected submit. `/resume 01a1164f-f8ac-7102-9785-6f9a7c2c7ad3` was written from the AgentPad with `dc send --from-pad - --actions enter`. Git Bash's default slash-argument path conversion caused the initial key-only attempt to be refused before input; `MSYS2_ARG_CONV_EXCL='*'` prevents that bench-shell trap. No delay, payload replay, blind prompt choice or newest-session selection was used.
+
+Teardown: launcher PID 50200, server PID 15004, TUI PID 20492, minter/MCP/conhost descendants were recorded by native parent closure. `dc tab close --tab 906c2347` returned ok true; [windows-slash-audit.json](evidence/windows-slash-audit.json) records zero survivors and pass true. No port 18471 listener remained; residual temp token removed explicitly. Both spike utility tabs are closed. An audit harness precision bug was corrected: converting a JSON-parsed DateTime back through text lost fractional ticks and falsely classified live PIDs as reused. A same-live-identity regression now retains two live processes with zero exclusions; post-teardown verification returns zero. This was an evidence-tool fix, not product code or a changed provider result.
+
+Validation: both Node syntax checks exit 0; native audit live-identity and PID-reuse checks pass; final descendant verify exit 0, seven previously observed processes and zero survivors. Project gateway verification remains deferred to canonical under the source-only Worker rule. This final NO-GO names item 2's missing hot-resume selection broadcast, not the previously carried item 11 gap.
+
 ## Resumed verification and accepted risks
 
 The Orchestrator subsequently accepted the denied-command backfill gap as non-blocking for lane A: P1/P2 must persist approval outcomes from the live stream. The TUI busy-after-interrupt discrepancy is a recorded provider UI defect. Argv-versus-thread instruction/hook-trust precedence, selective hook disabling and exhaustive shared-daemon isolation carry into P1's live oracle. The original full-checklist verdict below records the earlier state; a final Windows verdict follows the remaining resize, thread-switch/discriminator and descendant checks.
