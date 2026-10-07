@@ -240,6 +240,7 @@ console.log("\n--- discoverModels: manifest flag and version gate are independen
   // plugin.json once hardcoded fable unavailable while the CLI gate was already
   // satisfied, so a manifest veto must not mask a satisfied version gate.
   const staleManifest = {
+    ...manifestSeed,
     models: [
       { id: "fable", displayName: "Claude Fable", description: "desc", available: false },
     ],
@@ -261,6 +262,7 @@ console.log("\n--- discoverModels: manifest flag and version gate are independen
   // Conversely, a manifest that never mentions `available` at all (the
   // permissive/default shape) must not mask a failing version gate.
   const permissiveManifest = {
+    ...manifestSeed,
     models: [
       { id: "fable", displayName: "Claude Fable", description: "desc" },
     ],

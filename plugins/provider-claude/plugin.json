@@ -62,7 +62,11 @@
   "sessions": {
     "rootDir": "~/.claude/projects",
     "cwdEncoding": "dash_encoded",
-    "fileExtension": "jsonl"
+    "fileExtension": "jsonl",
+    "rootEnvironment": {
+      "variable": "CLAUDE_CONFIG_DIR",
+      "subdir": "projects"
+    }
   },
   "rule": {
     "path": "~/.claude/rules/codeterm.md"

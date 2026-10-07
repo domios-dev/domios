@@ -14,6 +14,7 @@ mod launch;
 pub(crate) mod launch_session;
 mod onboarding;
 mod permission_prompt;
+mod read_home;
 mod schemas;
 mod sessions;
 mod subagents;

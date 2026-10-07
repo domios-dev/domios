@@ -13,6 +13,7 @@ mod capabilities;
 mod config;
 mod graph_nodes;
 mod methods;
+mod read_root;
 mod tab_menu;
 
 use std::path::PathBuf;
@@ -37,6 +38,7 @@ pub use graph_nodes::{
     NodeScalarType, NodeSchema, SchemaError,
 };
 pub use methods::manifest_settings_sections;
+pub use read_root::ReadRootEnvironment;
 pub use tab_menu::{TabMenuAction, TabMenuItem, MAX_TAB_MENU_ITEMS};
 
 /// Top-level `plugin.json` document.

@@ -45,15 +45,21 @@ function updatePromptSafeChoice(prompt) {
   return value;
 }
 
+// plugins/provider-shared/readHome.ts
+function effectiveReadPath(inheritedHome, fallback, subpath, separator) {
+  if (!inheritedHome) return fallback;
+  if (!subpath) return inheritedHome;
+  return inheritedHome + (/[\\/]$/.test(inheritedHome) ? "" : separator) + subpath;
+}
+
 // plugins/provider-codex/src/models.ts
 function discoverCodexModels() {
   return discoverCodexModelsFromCache();
 }
 function codexModelsCachePath() {
   const home = host.homeDir();
-  if (!home) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
-  return home + sep + ".codex" + sep + "models_cache.json";
+  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" + sep + "models_cache.json" : null, "models_cache.json", sep);
 }
 function discoverCodexModelsFromCache() {
   const path = codexModelsCachePath();
@@ -311,7 +317,7 @@ function codexSessionsRoot(sep) {
   const override = host.envGet(sessionStoreOverrides.root);
   if (override) return trimTrailingSeparators(override);
   const home = host.homeDir();
-  return home ? home + sep + ".codex" : null;
+  return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" : null, "", sep);
 }
 function readSessionIndex(path) {
   if (!host.fs.fileExists(path)) return [];
