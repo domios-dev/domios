@@ -1,5 +1,6 @@
 pub mod atomic_write;
 pub mod child_slot;
+pub mod headless_cli;
 pub mod lock_hold;
 pub mod network_host;
 pub mod persisted_state;
