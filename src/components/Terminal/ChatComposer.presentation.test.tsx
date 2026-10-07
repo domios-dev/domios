@@ -1,7 +1,7 @@
 import "./ChatComposer.composition.harness";
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { act, type ReactNode } from "react";
+import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
@@ -12,7 +12,6 @@ import { ChatComposer } from "./ChatComposer";
 async function withComposer(
   attachments: string[],
   check: (host: HTMLDivElement, removed: string[]) => void | Promise<void>,
-  modelBubble?: ReactNode,
 ) {
   const unexpected: string[] = [];
   const removed: string[] = [];
@@ -42,7 +41,6 @@ async function withComposer(
             currentPtyId={null}
             pendingPrompt={null}
             attachments={attachments}
-            modelBubble={modelBubble}
             addAttachments={reject}
             removeAttachment={(path) => removed.push(path)}
             clearAttachments={reject}
@@ -78,12 +76,12 @@ test("composer keeps one editor in an accessible card with a separate side actio
   });
 });
 
-test("attachments and the model chip remain accessible within the composer card", async () => {
+test("attachments remain accessible without composer model controls", async () => {
   await withComposer(["/fixture/one.png", "/fixture/two.jpg"], (host) => {
     const card = host.querySelector('[role="group"][aria-label="Message composer"]')!;
     assert.equal(card.querySelectorAll('[data-testid="attachment-chip"]').length, 2);
-    assert(card.querySelector('[data-testid="supplied-model"]'));
-  }, <button data-testid="supplied-model">Fixture model</button>);
+    assert.equal(card.querySelector('[aria-label="Model and traits"]'), null);
+  });
 });
 
 test("attachments retain accessible removal and the exact original path", async () => {
