@@ -45,6 +45,53 @@ pub struct CliLaunch {
     pub launch_state: &'static str,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum CompletionRoute {
+    AgentReport,
+    NotificationRecord,
+}
+
+fn completion_route(agent_type: Option<&str>, agent_booting: bool) -> CompletionRoute {
+    if agent_type.is_some() || agent_booting {
+        CompletionRoute::AgentReport
+    } else {
+        CompletionRoute::NotificationRecord
+    }
+}
+
+fn report_completion(svc: &ServiceContext, caller: &str, utility_tab: &str, summary: &str) {
+    let route = {
+        let mux = svc.mux.read();
+        mux.get_tab(caller)
+            .map(|tab| completion_route(tab.agent_type.as_deref(), tab.agent_booting))
+            .unwrap_or(CompletionRoute::NotificationRecord)
+    };
+    match route {
+        CompletionRoute::AgentReport => {
+            if let Err(error) = super::messenger::Messenger::deliver(
+                svc,
+                caller,
+                super::messenger::MessageEnvelope::report("ProviderCLI", utility_tab),
+                summary,
+            ) {
+                log::warn!("[provider-cli] result delivery failed: {error}");
+            }
+        }
+        CompletionRoute::NotificationRecord => {
+            svc.create_notification_ext(
+                "Provider CLI result".into(),
+                Some(summary.into()),
+                Some("info"),
+                None,
+                Some(false),
+                super::notification::NotificationOrigin::local_tab(utility_tab.into()),
+                super::notification::PushIntent::default(),
+                None,
+            );
+        }
+    }
+}
+
 pub(crate) fn launch(
     svc: &ServiceContext,
     provider: &str,
@@ -120,9 +167,7 @@ pub(crate) fn launch_with_dispatch(
                 "exit_code": completion.and_then(ExecCompletion::exit_code), "status": status, "summary": summary,
             }));
             if let Some(caller) = caller {
-                if let Err(error) = super::messenger::Messenger::deliver(&service, &caller, super::messenger::MessageEnvelope::report("ProviderCLI", &monitor_tab), &summary) {
-                    log::warn!("[provider-cli] result delivery failed: {error}");
-                }
+                report_completion(&service, &caller, &monitor_tab, &summary);
             }
         }).await;
     });
@@ -160,6 +205,18 @@ fn completion_summary(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn completion_routes_shells_to_records_and_agents_to_reports() {
+        assert_eq!(
+            completion_route(None, false),
+            CompletionRoute::NotificationRecord
+        );
+        assert_eq!(
+            completion_route(Some("fixture"), false),
+            CompletionRoute::AgentReport
+        );
+        assert_eq!(completion_route(None, true), CompletionRoute::AgentReport);
+    }
     #[test]
     fn no_cli_or_unsupported_os_refuses_before_launch() {
         let mut status = codeterm_plugin::provider_cli::no_cli();
