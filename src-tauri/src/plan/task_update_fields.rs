@@ -170,7 +170,6 @@ pub(crate) fn valid_task_update_payloads(
         ),
         (
             "external_refs",
-            "files",
             serde_json::json!({ "external_refs": ["rollacode/codeterm-releases#18"] }),
         ),
         (

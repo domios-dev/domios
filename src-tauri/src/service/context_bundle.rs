@@ -1,6 +1,6 @@
 use crate::agent::provider::{AgentLaunchParams, AgentProvider, ContextAttach};
 use crate::plan::TaskFiles;
-use crate::service::{orchestrator::types::SpawnAgentParams, ServiceContext};
+use crate::service::{ServiceContext, SpawnAgentParams};
 use sha2::{Digest, Sha256};
 use std::path::{Component, Path, PathBuf};
 
