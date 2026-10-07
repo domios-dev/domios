@@ -140,6 +140,7 @@ fn read_rich_tail(
             })
             .collect();
         let mut msg = RichMessage {
+            context_usage: super::context::parse(&v),
             role: role.to_string(),
             blocks,
             ..Default::default()

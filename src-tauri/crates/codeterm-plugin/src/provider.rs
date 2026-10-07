@@ -35,6 +35,12 @@ pub enum IntegrationKind {
     None,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PermissionHookCapability {
+    pub protocol: String,
+    pub options: Vec<codeterm_types::pty::PromptOption>,
+}
+
 pub use crate::directory_trust::DirectoryTrustPromptResponse;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

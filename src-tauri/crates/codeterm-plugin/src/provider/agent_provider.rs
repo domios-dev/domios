@@ -747,6 +747,17 @@ pub trait AgentProvider: Send + Sync {
         IntegrationKind::None
     }
 
+    fn permission_hook_capability(&self) -> Option<PermissionHookCapability> {
+        None
+    }
+
+    fn parse_context_usage(
+        &self,
+        _record: &serde_json::Value,
+    ) -> Option<codeterm_types::agent::context::TurnContext> {
+        None
+    }
+
     /// Startup repair is capability-gated so core never identifies providers.
     fn has_installable_integration(&self) -> bool {
         self.integration_kind() != IntegrationKind::None

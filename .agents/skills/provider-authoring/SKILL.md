@@ -282,6 +282,8 @@ instead.
 | `launchOnboardingResponse(screen)` | live clean screen text | `{frameKey, step}` for the next declared safe key (`step` is base64), or `null` | `null` — owner-facing prompts stay with the owner. Core checks delegated Worker/Planner screen changes off the PTY output path, deduplicates each focus frame, and re-observes after each key. |
 | `launchOnboardingSafeChoice(screen)` | the same live screen | exact provider-parsed safe option value, or `null` | `null` — model-bound onboarding is unsupported without a declared option. |
 | `permissionPromptResponse(toolName, prompt, screen)` | hook-reported tool name, PendingPrompt, screen | `{optionIndex, rule, steps}` (base64 steps) or `null`. Only for a single-choice tool approval; return `null` for questions, plan decisions, trust gates and anything without an explicit decline option. | `null` — per-tab auto-confirm never answers this provider's prompts. |
+| `permissionHookCapability()` | — | `{protocol, options: [{label, value}]}` or `null`. `claude-permission-request` requires distinct `allow` and `deny` options, a declared hook roster entry and explicit per-provider `permission_hook_decisions = true`. This declares response data, not automatic answering authority. | `null` — retain the interactive permission flow. |
+| `parseContextUsage(record)` | Provider-owned statusline or transcript record | `{used_tokens, window_tokens, cost_usd, source}` or `null`; numeric counts, USD or null, bounded source identifier. Never include raw payload or identifiers. Zero window means unknown, not a guessed denominator. Host ingestion additionally requires the per-provider `context_feed` boolean and exact session/nonce binding. | `null` — no context observation. |
 
 ### Session discovery
 
