@@ -94,6 +94,7 @@ fn lane_removal_links_preserves_canonical_marker_and_removes_lane() {
             worktree_path: lane.cwd.clone(),
             branch: Some(lane.branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[],
     )
@@ -116,6 +117,7 @@ fn lane_removal_links_refuses_a_lane_with_leftover_content() {
             worktree_path: lane.cwd.clone(),
             branch: Some(lane.branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[],
     )
@@ -128,6 +130,46 @@ fn lane_removal_links_refuses_a_lane_with_leftover_content() {
         "retain this lane content"
     );
     assert!(Path::new(&lane.cwd).is_dir());
+}
+
+#[test]
+fn lane_removal_links_force_cleans_internal_node_modules_junctions() {
+    let root = tempfile::tempdir().unwrap();
+    let project = fixture_project(root.path());
+    let outside_marker = project.join("outside-marker");
+    std::fs::create_dir(&outside_marker).unwrap();
+    let marker_file = outside_marker.join("proof.bin");
+    let marker_bytes = [9, 0, 37, 128, 255];
+    std::fs::write(&marker_file, marker_bytes).unwrap();
+
+    let lane = provision_lane_for_test(project.to_str().unwrap(), "node-modules-links").unwrap();
+    let modules = Path::new(&lane.cwd).join("node_modules");
+    let packages = modules.join(".pnpm");
+    let internal_target = packages.join("internal-target");
+    std::fs::create_dir_all(&internal_target).unwrap();
+    std::fs::write(internal_target.join("package.bin"), [4, 5, 6]).unwrap();
+    for index in 0..4 {
+        link_dir(
+            &packages.join(format!("package-link-{index}")),
+            &internal_target,
+        );
+    }
+    link_dir(&modules.join("outside-marker-link"), &outside_marker);
+    std::fs::write(modules.join("untracked-package.bin"), [1, 2, 3]).unwrap();
+
+    remove_lane(
+        &LaneRemovalRequest {
+            worktree_path: lane.cwd.clone(),
+            branch: Some(lane.branch.clone()),
+            canonical_cwd: Some(project.display().to_string()),
+            force: true,
+        },
+        &[],
+    )
+    .expect("forced lane removal unlinks internal and external junctions first");
+
+    assert!(!Path::new(&lane.cwd).exists());
+    assert_eq!(std::fs::read(marker_file).unwrap(), marker_bytes);
 }
 
 fn task_store(root: &Path, project: &Path) -> (PlanStore, String, String) {
@@ -204,6 +246,7 @@ fn lane_removal_refuses_when_tab_holds_worktree() {
             worktree_path: lane.cwd.clone(),
             branch: Some(lane.branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[elsewhere, holder],
     )
@@ -252,6 +295,7 @@ fn lane_removal_succeeds_when_worktree_unheld() {
             worktree_path: lane_cwd.clone(),
             branch: Some(branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &live_tabs,
     )
@@ -276,6 +320,7 @@ fn lane_removal_refuses_unmerged_branch_before_deleting_worktree() {
             worktree_path: lane.cwd.clone(),
             branch: Some(lane.branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[],
     )
@@ -298,6 +343,7 @@ fn canonical_checkout_is_refused_as_a_lane() {
             worktree_path: project.display().to_string(),
             branch: None,
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[],
     )
@@ -343,6 +389,7 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
             worktree_path: lane_path.clone(),
             branch: Some(branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[],
     )
@@ -409,6 +456,7 @@ fn lane_remove_prunes_a_registration_for_an_already_missing_worktree() {
             worktree_path: lane_path.clone(),
             branch: Some(branch.clone()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[],
     )
@@ -447,6 +495,7 @@ fn lane_remove_reports_a_missing_branch_as_already_removed() {
             worktree_path: worktree.display().to_string(),
             branch: Some("lane/already-gone".into()),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[],
     )
