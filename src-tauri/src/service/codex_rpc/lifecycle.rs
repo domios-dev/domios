@@ -14,6 +14,13 @@ pub fn delivery_state(tab: &str) -> DeliveryState {
     super::delivery::state(tab)
 }
 
+pub fn startup_attachment_ready(tab: &str) -> bool {
+    for_tab(tab).is_some_and(|sidecar| {
+        sidecar.verified.load(std::sync::atomic::Ordering::Acquire)
+            && super::delivery::attached_for_launch(tab, &sidecar.launch_nonce)
+    })
+}
+
 pub fn startup_complete(svc: &ServiceContext, tab: &str, nonce: &str) {
     super::delivery::startup_complete(svc, tab, nonce);
 }
