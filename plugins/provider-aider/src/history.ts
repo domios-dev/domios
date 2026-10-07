@@ -19,6 +19,7 @@ export interface HistoryParseResult {
 }
 
 const SESSION_HEADER_RE = /^# aider chat started at (.+)$/;
+const THINKING_BLOCK_RE = /<thinking-content-[^>]*>[\s\S]*?<\/thinking-content-[^>]*>/g;
 
 /**
  * Aider writes the session header in LOCAL wall-clock time with no zone
@@ -71,7 +72,10 @@ export function parseAiderHistory(
 
   function flush() {
     if (blockAccepted && currentRole && currentText.length > 0) {
-      const body = currentText.join("\n").trim();
+      let body = currentText.join("\n").trim();
+      if (currentRole === "assistant") {
+        body = body.replace(THINKING_BLOCK_RE, "").trim();
+      }
       if (body) {
         messages.push({
           role: currentRole,
@@ -100,7 +104,6 @@ export function parseAiderHistory(
     // User turn marker
     if (line.startsWith("#### ")) {
       flush();
-      currentRole = "user";
       const userText = line.slice(5).trim();
       // A blank `#### ` line is not a user turn; skip it entirely so it
       // never becomes an empty user row in Chat.
@@ -108,6 +111,7 @@ export function parseAiderHistory(
         currentRole = null;
         continue;
       }
+      currentRole = "user";
       currentText.push(userText);
       continue;
     }
