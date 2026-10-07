@@ -15,7 +15,6 @@ fn attempt(_task_id: &str, id: &str, tab_id: &str, checkout: &str) -> TaskExecut
         assigned_at: Some(4),
         ..Default::default()
     }
-    lane_turn_stats: Vec::new(),
 }
 
 fn setup() -> (tempfile::TempDir, PlanStore, String, String, String) {

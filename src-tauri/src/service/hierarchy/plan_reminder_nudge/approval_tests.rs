@@ -320,7 +320,6 @@ fn attempt(id: &str, tab: &str) -> TaskExecutionAttempt {
         session_binding_nonce: Some("worker-nonce".into()),
         ..Default::default()
     }
-    lane_turn_stats: Vec::new(),
 }
 
 fn kind_plan(kind: ReminderKind, id: &str, owner: &str, worker: &str) -> Plan {

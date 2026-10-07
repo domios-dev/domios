@@ -42,9 +42,11 @@ pub(super) fn build_relaunch(
             history,
         ));
     }
-    build_relaunch_command(svc, snap, provider, session_present, task.as_deref()).map(|command| Relaunch {
-        command: crate::agent::stub_launch::apply(provider, command),
-        task,
+    build_relaunch_command(svc, snap, provider, session_present, task.as_deref()).map(|command| {
+        Relaunch {
+            command: crate::agent::stub_launch::apply(provider, command),
+            task,
+        }
     })
 }
 

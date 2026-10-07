@@ -497,10 +497,9 @@ fn remove_lane_and_clear_task_references(
         .flat_map(|plan| plan.tasks)
         .flat_map(|task| task.execution_attempts)
         .filter(|attempt| {
-            attempt
-                .worktree_path
-                .as_deref()
-                .is_some_and(|path| comparable_path(path) == comparable_path(&request.worktree_path))
+            attempt.worktree_path.as_deref().is_some_and(|path| {
+                comparable_path(path) == comparable_path(&request.worktree_path)
+            })
         })
         .map(|attempt| attempt.id)
         .collect();

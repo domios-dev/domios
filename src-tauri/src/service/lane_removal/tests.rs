@@ -14,7 +14,9 @@ impl crate::repowatch::RepoEventSink for NullRepoEvents {
 }
 
 fn repo_watch() -> crate::repowatch::RepoWatchRegistryHandle {
-    Arc::new(crate::repowatch::RepoWatchRegistry::new(Arc::new(NullRepoEvents)))
+    Arc::new(crate::repowatch::RepoWatchRegistry::new(Arc::new(
+        NullRepoEvents,
+    )))
 }
 
 fn git(dir: &Path, args: &[&str]) {
@@ -336,7 +338,11 @@ fn lane_checkpoint_refs_are_deleted_when_lane_is_removed() {
 
     let refs = Command::new("git")
         .current_dir(&project)
-        .args(["for-each-ref", "--format=%(refname)", "refs/domios/checkpoints"])
+        .args([
+            "for-each-ref",
+            "--format=%(refname)",
+            "refs/domios/checkpoints",
+        ])
         .output()
         .unwrap();
     assert!(refs.status.success());
