@@ -575,7 +575,7 @@ console.log("\n--- parseSessionDelta (file-tail chat route) ---\n");
   const delta = parseAiderHistoryDelta(chunk) as {
     messages: Array<{ id: string; type: string; content: string; recordIndex: number }>;
   };
-  eq(delta.messages.length, 3, "delta yields user + assistant + user + assistant minus blank");
+  eq(delta.messages.length, 4, "delta yields user + assistant + user + assistant");
   eq(delta.messages[0].type, "user", "first delta row is user");
   eq(delta.messages[0].content, "Hello, what can you do?", "first delta user text");
   eq(delta.messages[1].type, "assistant", "second delta row is assistant");
