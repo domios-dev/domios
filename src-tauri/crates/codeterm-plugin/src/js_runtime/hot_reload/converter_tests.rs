@@ -8,7 +8,7 @@ use codeterm_types::sentinel_input::MediaKind;
 
 use super::tests::{test_caps, TestRegistrar};
 use super::*;
-use crate::converter::{ConvertOutput, ConvertRequest, Converter, Step};
+use crate::converter::{ConvertOutput, ConvertRequest, Step};
 use crate::js_runtime::PluginVm;
 
 fn write(path: &std::path::Path, contents: &str) {
