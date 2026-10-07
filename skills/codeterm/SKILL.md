@@ -66,8 +66,10 @@ Full references live in `codeterm docs <NAME>`; the `references/` files only poi
 - `essences/capabilities.md` (in the Domios repo) — stable agent model catalog contract: provider-owned catalogs, user overrides, availability, and grouping
 - `prod-docs/ESSENCE-MAP.md` (read with `codeterm docs ESSENCE-MAP`) — source-backed map generation, validation, and decision records
 
+Local models use the bundled OpenCode provider: `codeterm model-provider add|remove|list|test` manages owned connections. The optional OpenCode decision adapter is selected through `codeterm supporter`; TypeSafe Jev remains the default.
+
 ## Memory protocol (always-on)
 
 The always-on protocol (English-in-mem, search-before-answering, "remember" → save now, no fabrication, no guessed ids) lives in `~/.claude/rules/codeterm.md` and fires regardless of which skill is loaded. Don't replay it here.
 
-<!-- revision: 75 -->
+<!-- revision: 76 -->
