@@ -531,42 +531,48 @@ impl ServiceContext {
         entry: super::submit_transaction::PtySubmitEntry,
         verify_submit: bool,
     ) -> Result<(), String> {
-        let strategy = self
-            .agent_registry
-            .with_provider(&delivery.provider_id, |provider| {
-                provider.verify_submit_strategy()
-            })
-            .ok_or_else(|| "agent_unavailable: unknown planner provider".to_string())?;
-        let track_exact_session_turn = !text.is_empty()
-            && matches!(
-                &strategy,
-                crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
-            );
-        let require_provider_turn = verify_submit && track_exact_session_turn;
-        let typed_follow_up = verify_submit
-            .then(|| self.typed_follow_up_for_agent(Some(&delivery.provider_id), text))
-            .flatten();
-        super::submit_transaction::submit_entry(entry, text, |text| {
-            self.send_text_verified_guarded(
-                &delivery.pty_id,
-                text,
-                typed_follow_up.as_deref(),
-                true,
-                strategy,
-                delivery.permit.clone(),
-                crate::service::inject_verify::VerifyOpts {
-                    require_prompt_first: false,
-                    verify_echo: false,
-                    verify_submit,
-                    ..Default::default()
-                },
-                track_exact_session_turn,
-            )
-            .and_then(|result| require_submission_result(result, require_provider_turn))
-            .map_err(|error| {
-                DeliveryError::from_injection(&delivery.pty_id, error).ledger_message()
-            })
-        })
+        crate::service::codex_rpc::send::route_or_pty(
+            crate::service::codex_rpc::send::try_send_to_pty(self, &delivery.pty_id, text)
+                .map(|result| result.map_err(|error| error.ledger_message())),
+            || {
+                let strategy = self
+                    .agent_registry
+                    .with_provider(&delivery.provider_id, |provider| {
+                        provider.verify_submit_strategy()
+                    })
+                    .ok_or_else(|| "agent_unavailable: unknown planner provider".to_string())?;
+                let track_exact_session_turn = !text.is_empty()
+                    && matches!(
+                        &strategy,
+                        crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
+                    );
+                let require_provider_turn = verify_submit && track_exact_session_turn;
+                let typed_follow_up = verify_submit
+                    .then(|| self.typed_follow_up_for_agent(Some(&delivery.provider_id), text))
+                    .flatten();
+                super::submit_transaction::submit_entry(entry, text, |text| {
+                    self.send_text_verified_guarded(
+                        &delivery.pty_id,
+                        text,
+                        typed_follow_up.as_deref(),
+                        true,
+                        strategy,
+                        delivery.permit.clone(),
+                        crate::service::inject_verify::VerifyOpts {
+                            require_prompt_first: false,
+                            verify_echo: false,
+                            verify_submit,
+                            ..Default::default()
+                        },
+                        track_exact_session_turn,
+                    )
+                    .and_then(|result| require_submission_result(result, require_provider_turn))
+                    .map_err(|error| {
+                        DeliveryError::from_injection(&delivery.pty_id, error).ledger_message()
+                    })
+                })
+            },
+        )
     }
 
     fn send_authenticated_delivery_with_routed_frame(
@@ -574,41 +580,53 @@ impl ServiceContext {
         delivery: AuthenticatedPtyDelivery,
         frame: codeterm_types::domios::DomiosFrame,
     ) -> Result<(), String> {
-        let strategy = self
-            .agent_registry
-            .with_provider(&delivery.provider_id, |provider| {
-                provider.verify_submit_strategy()
-            })
-            .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
-        let suffix = self.routed_frame_suffix(&delivery.provider_id, &frame.suffix)?;
-        let body = sanitize_agent_prompt_input(&frame.body);
-        let track_exact_session_turn = !body.is_empty()
-            && matches!(
-                &strategy,
-                crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
-            );
-        let claim = super::submit_transaction::claim_submit_cycle(&delivery.pty_id);
-        super::submit_transaction::submit_text_with_key_claimed_and_frame(
-            self,
-            &delivery.pty_id,
-            &body,
-            Some(&frame.opening_tag),
-            Some(&suffix),
-            true,
-            b"\r",
-            strategy,
-            crate::service::inject_verify::VerifyOpts {
-                require_prompt_first: false,
-                verify_echo: false,
-                verify_submit: true,
-                ..Default::default()
+        crate::service::codex_rpc::send::route_or_pty(
+            crate::service::codex_rpc::send::try_send_to_pty(
+                self,
+                &delivery.pty_id,
+                &frame.to_message(),
+            )
+            .map(|result| result.map_err(|error| error.ledger_message())),
+            || {
+                let strategy = self
+                    .agent_registry
+                    .with_provider(&delivery.provider_id, |provider| {
+                        provider.verify_submit_strategy()
+                    })
+                    .ok_or_else(|| "agent_unavailable: unknown routed provider".to_string())?;
+                let suffix = self.routed_frame_suffix(&delivery.provider_id, &frame.suffix)?;
+                let body = sanitize_agent_prompt_input(&frame.body);
+                let track_exact_session_turn = !body.is_empty()
+                    && matches!(
+                        &strategy,
+                        crate::agent::provider::VerifySubmitStrategy::TuiInputDrained { .. }
+                    );
+                let claim = super::submit_transaction::claim_submit_cycle(&delivery.pty_id);
+                super::submit_transaction::submit_text_with_key_claimed_and_frame(
+                    self,
+                    &delivery.pty_id,
+                    &body,
+                    Some(&frame.opening_tag),
+                    Some(&suffix),
+                    true,
+                    b"\r",
+                    strategy,
+                    crate::service::inject_verify::VerifyOpts {
+                        require_prompt_first: false,
+                        verify_echo: false,
+                        verify_submit: true,
+                        ..Default::default()
+                    },
+                    Some(delivery.permit),
+                    track_exact_session_turn,
+                    claim,
+                )
+                .and_then(|result| require_submission_result(result, track_exact_session_turn))
+                .map_err(|error| {
+                    DeliveryError::from_injection(&delivery.pty_id, error).ledger_message()
+                })
             },
-            Some(delivery.permit),
-            track_exact_session_turn,
-            claim,
         )
-        .and_then(|result| require_submission_result(result, track_exact_session_turn))
-        .map_err(|error| DeliveryError::from_injection(&delivery.pty_id, error).ledger_message())
     }
 
     /// Send text to a tab (chatBackend or PTY). Agent PTYs complete only after
@@ -705,6 +723,21 @@ impl ServiceContext {
     }
 
     fn deliver_pty_input_claimed(
+        &self,
+        pty_id: &str,
+        text: &str,
+        submit: bool,
+        claim: super::submit_transaction::SubmitCycleClaim,
+    ) -> Result<(), DeliveryError> {
+        let rpc = submit
+            .then(|| crate::service::codex_rpc::send::try_send_to_pty(self, pty_id, text))
+            .flatten();
+        crate::service::codex_rpc::send::route_or_pty(rpc, || {
+            self.deliver_plain_pty_input_claimed(pty_id, text, submit, claim)
+        })
+    }
+
+    fn deliver_plain_pty_input_claimed(
         &self,
         pty_id: &str,
         text: &str,
