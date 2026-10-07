@@ -205,11 +205,21 @@ export function readAiderHistory(
   }
 }
 
+export { readHistoryFile };
+
 function readHistoryFile(filePath: string): string | null {
   const fs = (host as { fs?: Record<string, unknown> }).fs;
   if (fs && typeof fs.readFile === "function") {
     try {
       const value = (fs.readFile as (p: string) => unknown)(filePath);
+      return value === null || value === undefined ? null : String(value);
+    } catch (_) {
+      return null;
+    }
+  }
+  if (fs && typeof fs.readTextFile === "function") {
+    try {
+      const value = (fs.readTextFile as (p: string) => unknown)(filePath);
       return value === null || value === undefined ? null : String(value);
     } catch (_) {
       return null;
