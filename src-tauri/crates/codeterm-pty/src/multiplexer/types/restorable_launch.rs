@@ -27,6 +27,8 @@ impl ReasoningEffortIdentity {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RestorableLaunchParameters {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured_runtime_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_files: Option<codeterm_types::plan::TaskFiles>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub context_skills: Option<String>,
@@ -54,7 +56,8 @@ pub struct RestorableLaunchParameters {
 
 impl RestorableLaunchParameters {
     pub fn is_empty(&self) -> bool {
-        self.context_files.is_none()
+        self.structured_runtime_mode.is_none()
+            && self.context_files.is_none()
             && self.context_skills.is_none()
             && self.worker_restart.is_none()
             && !self.captured

@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Weak};
 
 mod live_evidence;
+mod rpc_evidence;
 mod service_context;
 mod turn_matching;
 mod turn_reconciliation;
@@ -113,6 +114,7 @@ struct ChatSendLedgerState {
     /// emitted status, never read by evidence/confirm/retry logic.
     token_by_id: HashMap<String, String>,
     anchor_by_id: HashMap<String, SendEvidenceAnchor>,
+    rpc_by_id: HashMap<String, SendLiveBinding>,
     live_binding_by_id: HashMap<String, SendLiveBinding>,
     latest_by_tab: HashMap<String, String>,
     latest_failure_by_tab: HashMap<String, String>,
@@ -140,6 +142,7 @@ impl Default for ChatSendLedgerState {
             turn_normalization_by_id: HashMap::new(),
             token_by_id: HashMap::new(),
             anchor_by_id: HashMap::new(),
+            rpc_by_id: HashMap::new(),
             live_binding_by_id: HashMap::new(),
             latest_by_tab: HashMap::new(),
             latest_failure_by_tab: HashMap::new(),
@@ -640,6 +643,12 @@ impl ChatSendLedger {
         let mut state = self.state.lock();
         let user_owned = state.owned.contains_key(send_id);
         let terminal_failure = state.terminal_failures.contains(send_id);
+        let rpc_accepted = state.rpc_by_id.contains_key(send_id)
+            && state
+                .by_id
+                .get(send_id)
+                .is_some_and(|status| status.state == ChatSendState::Written)
+            && result.is_ok();
         let result = if user_owned { Ok(()) } else { result };
         let failed_tab = {
             let status = state.by_id.get_mut(send_id)?;
@@ -651,6 +660,7 @@ impl ChatSendLedger {
                     None
                 }
                 _ if terminal_failure => None,
+                _ if rpc_accepted => None,
                 _ if user_owned
                     && matches!(
                         status.state,
@@ -1011,6 +1021,7 @@ impl ChatSendLedger {
             state.turn_normalization_by_id.remove(&expired);
             state.token_by_id.remove(&expired);
             state.anchor_by_id.remove(&expired);
+            state.rpc_by_id.remove(&expired);
             state.live_binding_by_id.remove(&expired);
             state.absence_witness_by_id.remove(&expired);
             state.sessionless_first_turn_by_id.remove(&expired);

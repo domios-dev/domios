@@ -452,6 +452,42 @@ pub(crate) fn marked_launch_command_for_tab(
     cwd: &str,
     params: &mut crate::agent::provider::AgentLaunchParams,
 ) -> Option<String> {
+    let structured_requested = super::codex_rpc::launch::requested(svc, provider_id);
+    let extra_args = params.args.as_ref().is_some_and(|args| !args.is_empty());
+    if structured_requested && extra_args {
+        super::codex_rpc::diagnostics::fallback(
+            svc,
+            tab_id,
+            provider_id,
+            "unsupported extra terminal arguments",
+        );
+    }
+    if structured_requested && !extra_args {
+        let instructions = svc
+            .agent_registry
+            .with_provider(provider_id, |provider| {
+                super::launch_delivery::command_task(provider, params.task.as_deref()).system_prompt
+            })
+            .flatten();
+        let spawn = super::codex_rpc::lifecycle::Spawn {
+            provider: provider_id.into(),
+            cwd: cwd.into(),
+            instructions,
+            resume: None,
+            model: None,
+            effort: None,
+            full_access: params.skip_permissions,
+        };
+        match tauri::async_runtime::block_on(super::codex_rpc::lifecycle::ensure_for_spawn(
+            svc, tab_id, spawn,
+        )) {
+            Ok(sidecar) => return Some(super::codex_rpc::launch::remote_command(&sidecar)),
+            Err(error) => {
+                log::error!("[codex-rpc] hidden launch tab={tab_id} fallback: {error}");
+                super::codex_rpc::diagnostics::fallback(svc, tab_id, provider_id, &error);
+            }
+        }
+    }
     if let Err(error) = svc.ensure_agent_pad(tab_id) {
         log::warn!("[sandbox-agent-pad] tab={tab_id} has no AgentPad before launch: {error}");
     }

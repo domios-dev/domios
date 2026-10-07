@@ -214,6 +214,7 @@ fn default_entry() -> String {
 /// shipped before capabilities existed).
 fn default_capabilities() -> Capabilities {
     Capabilities {
+        structured_control: None,
         agent_provider: true,
         reply_relay: false,
         tool_less: false,

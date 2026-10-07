@@ -20,6 +20,9 @@ pub(crate) async fn hook_provider_event(
     Json(body): Json<ProviderEventBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "provider_event")?;
+    if let Some(response) = super::hook_authority::telemetry_response(&tab_id, "provider_event") {
+        return Ok(response);
+    }
     let provider = header_str(&headers, "x-codeterm-agent-provider").ok_or((
         StatusCode::UNAUTHORIZED,
         "provider identity missing".to_string(),

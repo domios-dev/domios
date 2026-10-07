@@ -16,7 +16,10 @@ pub(crate) struct LaunchRegistry {
     next_generation: u64,
     tabs: std::collections::HashMap<String, RegisteredLaunch>,
 }
+#[path = "launch/backend_reader.rs"]
+mod backend_reader;
 mod command;
+use backend_reader::start_backend_reader;
 #[path = "launch/cwd_guard.rs"]
 mod cwd_guard;
 #[path = "launch/exit_recovery_shell.rs"]
@@ -214,49 +217,6 @@ fn existing_live_pty(svc: &ServiceContext, tab_id: &str) -> Option<String> {
         .get_session(&pty_id)
         .is_some()
         .then_some(pty_id)
-}
-
-fn start_backend_reader(
-    svc: &ServiceContext,
-    pty_id: &str,
-) -> Result<ReaderReadiness, LaunchFailure> {
-    let svc_arc = std::sync::Arc::new(svc.clone());
-    let prepared = crate::service::pty_lifecycle::prepare_backend_reader(&svc_arc, pty_id)
-        .map_err(LaunchFailure::ReaderSetup)?;
-
-    let Some(prepared) = prepared else {
-        return Ok(ReaderReadiness::Ready);
-    };
-    let reader_pty_id = pty_id.to_string();
-    let (ready_tx, ready_rx) = std::sync::mpsc::sync_channel(1);
-    let (closed_tx, closed_rx) = std::sync::mpsc::sync_channel(1);
-    std::thread::spawn(move || {
-        let runtime = match tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-        {
-            Ok(runtime) => runtime,
-            Err(error) => {
-                let _ = ready_tx.send(Err(LaunchFailure::ReaderRuntime(error.to_string())));
-                return;
-            }
-        };
-        runtime.block_on(async {
-            let reader = crate::service::pty_lifecycle::spawn_prepared_backend_reader(
-                &svc_arc,
-                &reader_pty_id,
-                prepared,
-                true,
-            );
-            let _ = ready_tx.send(Ok(()));
-            let _ = reader.await;
-            let _ = closed_tx.send(());
-        });
-    });
-    Ok(ReaderReadiness::Pending {
-        startup: ready_rx,
-        closed: closed_rx,
-    })
 }
 
 fn spawn_backend_pty(
@@ -505,6 +465,8 @@ pub(crate) fn launch_agent_in_background_with_env(
     mark_tab_agent_launch_started(&svc.mux, &tab_id);
     crate::service::boot_wait::notify_boot_changed();
     std::thread::spawn(move || {
+        let launch_cmd =
+            crate::service::codex_rpc::launch::prepare(&svc, &tab_id, &agent_cmd, launch_cmd);
         let public_send_guard = public_send::guard(&svc, &tab_id, public_send_key);
         let mut delivery_gate = crate::service::launch_delivery::LaunchDeliveryGate::new();
         let mut launch = LaunchGeneration::begin(&tab_id, "pending".into());
@@ -519,7 +481,8 @@ pub(crate) fn launch_agent_in_background_with_env(
         };
         let pty_claim = svc.pty_ownership.acquire(&tab_id);
         let existing_pty = existing_live_pty(&svc, &tab_id);
-        let fresh_pty = svc.model_provider_requires_fresh_pty(&agent_cmd);
+        let fresh_pty = svc.model_provider_requires_fresh_pty(&agent_cmd)
+            || crate::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some();
         let reusable_pty = existing_pty.clone().filter(|_| !fresh_pty);
         let (backend_pty, reused_live_pty) = match reusable_pty {
             Some(pty_id) => match start_backend_reader(&svc, &pty_id) {

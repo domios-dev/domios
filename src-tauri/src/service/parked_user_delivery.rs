@@ -897,6 +897,15 @@ impl super::ServiceContext {
                 detail: "user owner readiness changed before guarded input".into(),
             });
         }
+        if let Some(result) = super::codex_rpc::send::try_send(
+            self,
+            tab_id,
+            text,
+            super::codex_rpc::send::Origin::User,
+            Some(&record.send_id),
+        ) {
+            return result;
+        }
         let pty_id = authority
             .pty_id
             .as_deref()

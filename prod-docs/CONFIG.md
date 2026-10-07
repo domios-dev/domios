@@ -75,6 +75,9 @@ resume_sessions = true
 continue_after_restart = true  # false disables it (codeterm docs TAB-LIFECYCLE)
 full_access = true
 
+[agents.codex]
+structured_control_enabled = true # Default; false selects plain PTY
+
 [supporter]
 adapter = "typesafe-jev"
 deadline_ms = 3000
@@ -238,3 +241,9 @@ Provisioning creates an isolated git worktree and launches the agent there; it i
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
 
 <!-- revision: 95 -->
+
+## Codex structured control
+
+Codex structured control is enabled by default in 1.12.4. The provider declares the `codex-app-server` capability with minimum version `0.160.0`; `[agents.codex] structured_control_enabled = false` explicitly selects the plain PTY lane. Each structured tab owns its app-server, port and authentication token. The server owns session binding, thread identity and busy/idle state; provider hooks are telemetry only for those tabs. PTY fallback tabs retain ordinary hook behavior.
+
+Unsupported versions, failed readiness, unknown extra terminal arguments and Windows `.cmd`/`.bat` wrappers automatically select the plain PTY fallback. Launch diagnostics record the reason. No token value appears in launch arguments or diagnostics.

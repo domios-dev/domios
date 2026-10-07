@@ -1031,6 +1031,7 @@ fn restorable_launch_parameters_round_trip_in_snapshot() {
         agent_name: Some("agent-label".into()),
         identity_instructions: Some("opaque-instruction-fragment".into()),
         permission_bypass_requested: true,
+        structured_runtime_mode: Some("auto".into()),
     };
     state.get_tab_mut(&tab_id).unwrap().restorable_launch = launch.clone();
 

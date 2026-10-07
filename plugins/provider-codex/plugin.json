@@ -6,6 +6,10 @@
   "displayName": "Codex",
   "binaryName": "codex",
   "cliBinary": "codex",
+  "capabilities": {
+    "agentProvider": true,
+    "structuredControl": {"protocol": "codex-app-server", "minVersion": "0.160.0"}
+  },
   "iconColor": "var(--ct-fg)",
   "entry": "plugin.js",
   "sessions": {
@@ -94,7 +98,10 @@
       {
         "event": "Stop",
         "route": "stop"
-      }
+      },
+      {"event":"turn/started","route":"session_state","verdict":"working"},
+      {"event":"turn/completed","route":"session_state","verdict":"idle"},
+      {"event":"serverRequest/pending","route":"session_state","verdict":"waiting"}
     ],
     "usageProbeCommand": "/status"
   },
@@ -201,7 +208,7 @@
       "-m",
       "{model}"
     ],
-    "modelSwitch": "restart_resume",
+    "modelSwitch": "next_turn",
     "reasoningEffortLaunchArgsFormat": [
       "-c",
       "model_reasoning_effort=\"{effort}\""
