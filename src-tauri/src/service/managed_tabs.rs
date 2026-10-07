@@ -106,7 +106,11 @@ impl super::ServiceContext {
 
     pub(crate) fn release_managed_tabs(&self, manager_id: &str) {
         let mut mux = self.mux.write();
-        for tab in mux.tabs.values_mut() {
+        let ids = mux.all_tabs().map(|tab| tab.id.clone()).collect::<Vec<_>>();
+        for id in ids {
+            let Some(tab) = mux.get_tab_mut(&id) else {
+                continue;
+            };
             if let Some(managed) = &mut tab.managed {
                 if managed.manager_tab_id == manager_id {
                     reconcile_manager(managed, false);
