@@ -18,13 +18,15 @@
 
 mod live_model_switch;
 pub mod opencode_sse;
+mod reconcile;
+mod recovery;
+mod subscriber;
 #[cfg(test)]
 mod tests;
 
 pub(crate) use live_model_switch::{live_switch_for_tab, same_model_id, LiveModelSwitchResult};
 
 use std::collections::{HashMap, HashSet};
-use std::io::{BufRead, BufReader};
 use std::sync::LazyLock;
 use std::time::Duration;
 
@@ -54,6 +56,7 @@ struct ChatStreamState {
     messages: HashMap<String, MessageMeta>,
     part_text: HashMap<String, String>,
     part_kind: HashMap<String, String>,
+    recovered_parts: HashSet<String>,
 }
 
 struct ChatBinding {
@@ -65,7 +68,8 @@ static ENDPOINTS: LazyLock<Mutex<HashMap<String, Endpoint>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static ACTIVE: LazyLock<Mutex<HashMap<String, Active>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-static SUBSCRIBED: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(|| Mutex::new(HashSet::new()));
+static SUBSCRIBED: LazyLock<Mutex<HashMap<String, tokio::sync::watch::Sender<u64>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Allocate a free loopback port for a provider's structured-prompt server by
 /// binding `127.0.0.1:0`, reading the assigned port, then releasing it so the
@@ -132,18 +136,16 @@ pub fn maybe_start_subscriber(svc: &ServiceContext, tab_id: &str) {
         Some(ep) => (ep.base_url.clone(), ep.cwd.clone()),
         None => return,
     };
-    {
-        let mut subscribed = SUBSCRIBED.lock();
-        if !subscribed.insert(tab_id.to_string()) {
-            return; // already running
-        }
+    let mut subscribed = SUBSCRIBED.lock();
+    if let Some(signal) = subscribed.get(tab_id) {
+        signal.send_modify(|revision| *revision = revision.wrapping_add(1));
+        return;
     }
+    let (signal, receiver) = tokio::sync::watch::channel(0);
+    subscribed.insert(tab_id.to_string(), signal);
     let svc = svc.clone();
     let tab_id = tab_id.to_string();
-    std::thread::Builder::new()
-        .name(format!("oc-sse-{}", &tab_id[..tab_id.len().min(8)]))
-        .spawn(move || run_subscriber(svc, tab_id, base_url, cwd))
-        .ok();
+    tauri::async_runtime::spawn(subscriber::run(svc, tab_id, base_url, cwd, receiver));
 }
 
 /// One shared capability-gated chokepoint for EVERY agent spawn path (REST
@@ -242,101 +244,62 @@ fn send_reply(base_url: &str, route: &ResponseRoute, value: &str) -> Result<(), 
     }
 }
 
-fn run_subscriber(svc: ServiceContext, tab_id: String, base_url: String, cwd: String) {
-    let mut chat_state = ChatStreamState::default();
-    for attempt in 0..30u32 {
-        if tab_gone(&svc, &tab_id) {
-            break;
-        }
-        if connect_and_stream(&svc, &tab_id, &base_url, &cwd, &mut chat_state) {
-            break; // tab closed mid-stream
-        }
-        std::thread::sleep(Duration::from_millis(500 + (attempt.min(10) as u64) * 200));
+pub(crate) fn wake_for_tab(tab_id: &str) {
+    if let Some(signal) = SUBSCRIBED.lock().get(tab_id) {
+        signal.send_modify(|revision| *revision = revision.wrapping_add(1));
     }
-    SUBSCRIBED.lock().remove(&tab_id);
 }
 
-/// Connect once and stream until the connection drops or the tab closes.
-/// Returns true if the tab is gone (stop reconnecting), false to retry.
-fn connect_and_stream(
+fn handle_event(
     svc: &ServiceContext,
     tab_id: &str,
-    base_url: &str,
-    cwd: &str,
+    value: &serde_json::Value,
     chat_state: &mut ChatStreamState,
-) -> bool {
-    let client = match reqwest::blocking::Client::builder().build() {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    let resp = match client
-        .get(format!("{base_url}/event"))
-        .query(&[("directory", cwd)])
-        .header("Accept", "text/event-stream")
-        .send()
-    {
-        Ok(r) if r.status().is_success() => r,
-        _ => return false,
-    };
-    let reader = BufReader::new(resp);
-    for line in reader.lines() {
-        if tab_gone(svc, tab_id) {
-            return true;
+) {
+    match parse_event(value) {
+        ParsedEvent::MessageUpdated { message } => {
+            if chat_binding(svc, tab_id, &message.session_id).is_some() {
+                chat_state.record_message(message);
+            }
         }
-        let Ok(line) = line else {
-            return false; // stream error → reconnect
-        };
-        let Some(payload) = line.strip_prefix("data:") else {
-            continue;
-        };
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(payload.trim()) else {
-            continue;
-        };
-        match parse_event(&value) {
-            ParsedEvent::MessageUpdated { message } => {
-                if chat_binding(svc, tab_id, &message.session_id).is_some() {
-                    chat_state.record_message(message);
-                }
+        ParsedEvent::PartUpdated { update } => {
+            emit_chat_part(svc, tab_id, &update, chat_state);
+        }
+        ParsedEvent::Prompt { prompt, route } => {
+            if !owns_session(svc, tab_id, &route.session_id) {
+                return;
             }
-            ParsedEvent::PartUpdated { update } => {
-                emit_chat_part(svc, tab_id, &update, chat_state);
+            ACTIVE.lock().insert(
+                tab_id.to_string(),
+                Active {
+                    prompt: prompt.clone(),
+                    route,
+                },
+            );
+            svc.push_structured_prompt(tab_id, Some(prompt));
+        }
+        ParsedEvent::Replied { request_id } => {
+            let cleared = clear_request(&mut ACTIVE.lock(), tab_id, &request_id);
+            if cleared {
+                svc.push_structured_prompt(tab_id, None);
             }
-            ParsedEvent::Prompt { prompt, route } => {
-                ACTIVE.lock().insert(
-                    tab_id.to_string(),
-                    Active {
-                        prompt: prompt.clone(),
-                        route,
-                    },
+        }
+        // The bus already carries the provider's own turn state; what it
+        // declares in its roster is a verdict, not another ignored event.
+        ParsedEvent::Ignored => {
+            let event = value.get("type").and_then(|t| t.as_str());
+            let session_id = value
+                .get("properties")
+                .and_then(|properties| properties.get("sessionID"))
+                .and_then(|session_id| session_id.as_str());
+            if let (Some(event), Some(session_id)) = (event, session_id) {
+                crate::agent::state_verdict::observe_declared_event(svc, tab_id, session_id, event);
+                crate::service::public_send_readiness::observe_bootstrap_turn_idle(
+                    svc, tab_id, event, session_id,
                 );
-                svc.push_structured_prompt(tab_id, Some(prompt));
-            }
-            ParsedEvent::Replied { request_id } => {
-                let cleared = clear_request(&mut ACTIVE.lock(), tab_id, &request_id);
-                if cleared {
-                    svc.push_structured_prompt(tab_id, None);
-                }
-            }
-            // The bus already carries the provider's own turn state; what it
-            // declares in its roster is a verdict, not another ignored event.
-            ParsedEvent::Ignored => {
-                let event = value.get("type").and_then(|t| t.as_str());
-                let session_id = value
-                    .get("properties")
-                    .and_then(|properties| properties.get("sessionID"))
-                    .and_then(|session_id| session_id.as_str());
-                if let (Some(event), Some(session_id)) = (event, session_id) {
-                    crate::agent::state_verdict::observe_declared_event(
-                        svc, tab_id, session_id, event,
-                    );
-                    crate::service::public_send_readiness::observe_bootstrap_turn_idle(
-                        svc, tab_id, event, session_id,
-                    );
-                }
             }
         }
     }
-    false
 }
 
 impl ChatStreamState {
@@ -361,6 +324,7 @@ impl ChatStreamState {
     fn clear_part_state(&mut self) {
         self.part_text.clear();
         self.part_kind.clear();
+        self.recovered_parts.clear();
     }
 
     fn clear_part_state_if_full(&mut self, part_id: &str, needs_text: bool, needs_kind: bool) {
@@ -495,4 +459,11 @@ fn emit_chat_part(
 
 fn tab_gone(svc: &ServiceContext, tab_id: &str) -> bool {
     svc.mux.read().get_tab(tab_id).is_none()
+}
+
+fn owns_session(svc: &ServiceContext, tab_id: &str, session_id: &str) -> bool {
+    svc.mux
+        .read()
+        .get_tab(tab_id)
+        .is_some_and(|tab| tab.agent_session_id.as_deref() == Some(session_id))
 }
