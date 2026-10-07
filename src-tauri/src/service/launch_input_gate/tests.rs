@@ -2,7 +2,6 @@ use super::*;
 use crate::agent::provider::{AgentProvider, ComposerCursorPosition};
 use crate::agent::test_provider::MockProvider;
 
-#[test]
 fn trust_frame_is_never_composer_evidence() {
     let input = codeterm_pty::pty::screen_state::ComposerInputState {
         alternate_screen: true,
@@ -909,8 +908,8 @@ fn provider_declared_onboarding_dialog_is_answered_for_every_launch() {
     );
 }
 
+#[test]
 fn structured_chat_serves_rows_without_a_session_id() {
->>>>>>> parent of 573efd5a1 (test: prove structured chat serves rows without session id)
     use codeterm_plugin::provider::AgentProvider;
     use codeterm_types::agent::chat_types::StructuredChat;
 
@@ -1356,3 +1355,5 @@ fn diagnostic_onboarding_deadline_records_unknown_unevaluated_predicates() {
         .unwrap()
         .contains(screen.trim()));
 }
+>>>>>>> parent of 573efd5a1 (test: prove structured chat serves rows without session id)
+fn onboarding_auto_answer_defaults_to_delegated_only() {
