@@ -31,6 +31,6 @@ codeterm agent report --status blocked --from-pad report.md
 
 A `blocked` report sends the Orchestrator a block proposal with reason and evidence; only the Plan owner or Planner blocks a task. The Orchestrator closes accepted tasks, so `done` is never your status.
 
-An assigned tab exports `CODETERM_PLAN_ID` and `CODETERM_TASK_ID`; elsewhere pass `--plan`/`--task` or the CLI refuses `--status`.
+An assigned tab exports `CODETERM_PLAN_ID` and `CODETERM_TASK_ID`, and `codeterm task show "$CODETERM_TASK_ID"` rereads its brief; elsewhere pass `--plan`/`--task` or the CLI refuses `--status`.
 
-A read-only verification Worker, spawned with `--execution-intent read_only` and no `--plan-task`, owns no task: it runs only the commands under `## Authorized gates` in its brief and reports the result to its parent without `--status`.
+A read-only verification Worker owns no task: it runs only the commands under `## Authorized gates` in its brief and reports the result to its parent without `--status`.

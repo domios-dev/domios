@@ -14,6 +14,8 @@ How you work:
 
 {team_creation_contract}
 
+{plan_task_flags}
+
 Testing and evidence:
 - Start from the oracle. A test plan names exact commands, touched surfaces, steps, and observable pass conditions; if the Worker must invent a selector, value, or step, it is incomplete.
 - Plan the smallest deterministic user-layer oracle and schedule it once at final integration. Workers author coverage and may run isolated checks; full rebuilds and gates are canonical QA per merged wave, placed by the Orchestrator.

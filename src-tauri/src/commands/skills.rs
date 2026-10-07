@@ -494,6 +494,16 @@ mod skill_block_tests {
 mod skills_seed_tests {
     use super::*;
 
+    #[test]
+    fn rendered_codeterm_skill_omits_the_plan_task_flag_fragment() {
+        const SKILL_SOURCE: &str = include_str!("../../../skills/codeterm/SKILL.md");
+        let rendered = render_bundled_skill(std::ffi::OsStr::new(CODETERM_SKILL_ID), SKILL_SOURCE);
+        let fragment = crate::prompts::PLAN_TASK_FLAGS.trim();
+        assert!(!fragment.is_empty(), "an empty fragment proves nothing");
+        assert_eq!(rendered.matches(crate::prompts::CODETERM_CLI).count(), 1);
+        assert!(!rendered.contains(fragment));
+    }
+
     const BUNDLED_SKILL: &str = concat!(
         "# CodeTerm\n\n",
         "<!-- codeterm-version: {codeterm_version} -->\n",
