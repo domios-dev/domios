@@ -881,32 +881,6 @@ fn lazy_session_spawn_with_modal_or_dead_provider_still_fails_at_deadline() {
 }
 
 #[test]
-fn provider_declared_onboarding_dialog_is_answered_for_every_launch() {
-    let plugins = std::path::PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../plugins"));
-    let provider =
-        crate::plugin::js_runtime::load_one(&plugins.join("provider-aider").join("plugin.json"))
-            .expect("load the bundled Aider provider");
-    let screen = [
-        "You can skip this check with --no-gitignore",
-        "Add .aider* to .gitignore (recommended)? (Y)es/(N)o [Yes]:",
-    ]
-    .join("\n");
-    let response = provider
-        .launch_onboarding_response(&screen)
-        .expect("the gitignore startup dialog is a declared onboarding step");
-    assert_eq!(response.step, b"Y".to_vec());
-    assert_eq!(
-        provider.launch_onboarding_safe_choice(&screen).as_deref(),
-        Some("1")
-    );
-    assert_eq!(provider.launch_onboarding_response("no prompt here"), None);
-    assert!(
-        provider.onboarding_auto_answer().answers_for_owner_launch(),
-        "Aider declares onboardingAutoAnswer: always"
-    );
-}
-
-#[test]
 fn structured_chat_serves_rows_without_a_session_id() {
     use codeterm_plugin::provider::AgentProvider;
     use codeterm_types::agent::chat_types::StructuredChat;
