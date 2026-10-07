@@ -145,6 +145,8 @@ impl SpawnTabSpec {
         let starter_prompt =
             starter_prompt_for_creation(agent.role.as_deref(), agent.task.as_deref());
         Ok(SpawnAgentParams {
+            context_files: None,
+            context_skills: None,
             agent: Some(agent.provider.clone()),
             agent_name: agent.agent_name.clone(),
             args: if args.is_empty() { None } else { Some(args) },
@@ -450,6 +452,8 @@ mod tests {
     #[test]
     fn worker_launch_has_no_manager_bootstrap() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            context_files: None,
+            context_skills: None,
             agent: Some("worker-provider".into()),
             role: Some("Worker".into()),
             task: Some("worker task fixture".into()),
@@ -478,6 +482,8 @@ mod tests {
     #[test]
     fn tab_name_contract_spawn_name_paths_keep_name_and_description_separate() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            context_files: None,
+            context_skills: None,
             agent: Some("codex".into()),
             title: Some("Ada".into()),
             description: Some("Worker · rust-backend-dev · pending".into()),
@@ -501,6 +507,8 @@ mod tests {
     #[test]
     fn assigned_worker_task_authority_reaches_pty_spec() {
         let mut params = SpawnAgentParams {
+            context_files: None,
+            context_skills: None,
             agent: Some("worker-provider".into()),
             role: Some("Worker".into()),
             plan_id: Some("assigned-plan".into()),
@@ -671,6 +679,8 @@ mod tests {
     #[test]
     fn team_attach_fields_round_trip_through_the_tab_spec() {
         let spec = SpawnTabSpec::from_agent_params(SpawnAgentParams {
+            context_files: None,
+            context_skills: None,
             agent: Some("claude".into()),
             team_id: Some("team_alpha".into()),
             creator_tab_id: Some("tab_manager".into()),

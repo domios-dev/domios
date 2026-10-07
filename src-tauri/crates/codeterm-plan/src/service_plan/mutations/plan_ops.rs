@@ -880,7 +880,7 @@ mod planning_state_tests {
             3,
         )
         .unwrap();
-        // Same state again â€” no new log entry.
+        // Same state again — no new log entry.
         s.set_planning_state(
             &pid,
             PlanningState::StructureReady,

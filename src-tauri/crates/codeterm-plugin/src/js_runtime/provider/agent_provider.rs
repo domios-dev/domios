@@ -519,6 +519,10 @@ impl AgentProvider for JsProvider {
         self.manifest.spawn.session_id_injection.into()
     }
 
+    fn context_attach(&self) -> Option<crate::provider::ContextAttach> {
+        self.manifest.capabilities.context_attach
+    }
+
     fn is_tool_less(&self) -> bool {
         self.manifest.capabilities.tool_less
     }
