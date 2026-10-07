@@ -289,7 +289,7 @@ fn lane_remove_is_idempotent_for_an_already_removed_worktree() {
 }
 
 #[test]
-fn lane_remove_deletes_checkpoint_refs_for_its_attempts() {
+fn lane_checkpoint_refs_are_deleted_when_lane_is_removed() {
     let root = tempfile::tempdir().unwrap();
     let project = fixture_project(root.path());
     let lane = provision_lane_for_test(project.to_str().unwrap(), "checkpoint-cleanup").unwrap();

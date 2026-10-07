@@ -203,11 +203,13 @@ impl ServiceContext {
             tab_id: tab_id.to_string(),
             pty_id: shell.pty_id,
             provider,
+            target_provider: None,
             session_id,
             cwd: shell.cwd,
             auto_approve,
             role: shell.role,
             role_profile: shell.role_profile,
+            handoff_history: None,
         };
         if snap.session_id.is_none() && fresh_provider.is_some() {
             return self.recover_general_agent_fresh(&snap, force);
