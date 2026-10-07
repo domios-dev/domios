@@ -483,6 +483,7 @@ binary, so when only the PDB survives read `--scan` rather than the frame order.
 | Source-size gate counts downloaded SDK declarations in `target-check/` | The traversal included ignored generated benchmark artifacts. | Prune that root output tree only when Git confirms ignored/untracked ownership; all authored source stays guarded. Use a scalar prune path: Bash3.2 with `set -u` rejects empty array expansion inside the traversal. Preserve fixture bytes; rerun the guard controls and size gate. |
 | Windows plan-index reports `queue did not drain` | An inner deadline raced background work. | Wait on the queue condition and rely on the test process exit. |
 | Linux semantic search gets `Permission denied` or `Exec format error` for `codeterm-embed` | Clippy replaced the built runtime sidecar's mode or bytes. | Preserve the verified ELF before clippy, then restore its bytes and executable mode before tests. |
+| `check-tests` fails at catalogue watcher `targets.sort()` / `dedup()` | The watcher parameter was immutable. | Declare `mut targets` in `ProviderBinaryWatchers::watch`; rerun the authorized `check-tests` and focused catalogue gates. |
 | A release-time test fails in `#[cfg(test)]` code while `check` was green | `check` compiles the production profile only, so test-only code is never type-checked | Run `./build.ps1 check-tests`, which compiles `--all-targets` for both workspaces without the build gateway. A stale generated map or a document over its reading boundary is a different cause: use the matching row above. |
 
 ## Related documents
@@ -503,4 +504,4 @@ update that owning test to the advisory contract and retain separate real-failur
 rollback coverage. Run `build.ps1 test-one app spawn_plan_task`, then `verify`;
 do not restore a hard gate merely to preserve an obsolete assertion.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->

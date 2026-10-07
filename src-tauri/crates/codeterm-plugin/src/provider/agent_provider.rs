@@ -9,6 +9,12 @@ pub trait AgentProvider: Send + Sync {
     /// Unique identifier for this provider (e.g. "claude").
     fn id(&self) -> &str;
 
+    fn model_provider_config(
+        &self,
+    ) -> Option<std::sync::Arc<dyn crate::model_providers::ModelProviderConfig>> {
+        None
+    }
+
     /// Human-readable name (e.g. "Claude Code").
     fn display_name(&self) -> &str;
 

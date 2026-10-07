@@ -67,6 +67,12 @@ pub enum Commands {
     /// Show Domios version and system info
     Identify,
 
+    /// Configure model endpoints through the installed provider capability
+    ModelProvider {
+        #[command(subcommand)]
+        action: super::model_provider::ModelProviderAction,
+    },
+
     /// List CLI commands and clearly marked RPC-only/internal methods
     Capabilities,
 

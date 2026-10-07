@@ -1,3 +1,4 @@
+import { modelProviderExports } from "./modelProviders";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
@@ -88,6 +89,7 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
 }
 
 const plugin: PluginModule = {
+  ...modelProviderExports,
   starterPromptText(prompt: "no_starter" | "assigned_task" | "idle_wakeup" | "team_bootstrap" | "startup_handshake"): string | undefined {
     return prompt === "team_bootstrap" ? undefined : starterPrompt({ starterPrompt: prompt });
   },
