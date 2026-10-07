@@ -57,4 +57,4 @@ pub use update::*;
 pub use usage::*;
 
 mod capability_probe;
-pub use capability_probe::refresh_provider_capabilities;
+pub use capability_probe::*;
