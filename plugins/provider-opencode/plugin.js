@@ -102,6 +102,64 @@ function providerKeyEnvName(id) {
   return `DOMIOS_PROVIDER_${snake}_KEY`;
 }
 
+// plugins/provider-opencode/src/modelVariants.ts
+function variantLaunch(args) {
+  const retained = [];
+  let variant;
+  let agent;
+  for (let index = 0; index < args.length; index++) {
+    const arg = String(args[index]);
+    if (arg === "--variant") {
+      variant = String(args[++index] ?? "");
+      continue;
+    }
+    if (arg.startsWith("--variant=")) {
+      variant = arg.slice(10);
+      continue;
+    }
+    if (arg === "--agent") agent = String(args[index + 1] ?? "");
+    if (arg.startsWith("--agent=")) agent = arg.slice(8);
+    retained.push(arg);
+  }
+  if (!variant) return { args: retained, config: {} };
+  if (!agent) {
+    agent = "build";
+    retained.push("--agent", agent);
+  }
+  return { args: retained, config: { agent: { [agent]: { variant } } } };
+}
+function parseModelVariants(stdout) {
+  const result = /* @__PURE__ */ new Map();
+  let id = null;
+  let lines = [];
+  function finish() {
+    if (!id || lines.length === 0) return;
+    try {
+      const model = JSON.parse(lines.join("\n"));
+      if (!model || typeof model !== "object") return;
+      const variants = model.variants;
+      if (!variants || typeof variants !== "object" || Array.isArray(variants)) {
+        result.set(id, []);
+        return;
+      }
+      const efforts = Object.entries(variants).filter(
+        ([name, value]) => name !== "default" && /^[a-zA-Z0-9_.-]+$/.test(name) && value !== null && typeof value === "object" && !value.disabled
+      ).map(([name]) => ({ id: name, displayName: name[0].toUpperCase() + name.slice(1) }));
+      result.set(id, efforts.length ? [{ id: "default", displayName: "Default" }, ...efforts] : []);
+    } catch {
+    }
+  }
+  for (const line of stdout.split("\n")) {
+    if (/^[a-z0-9][a-z0-9_.-]*\/[a-z0-9][a-z0-9_.-]*$/i.test(line.trim())) {
+      finish();
+      id = line.trim();
+      lines = [];
+    } else if (id) lines.push(line);
+  }
+  finish();
+  return result;
+}
+
 // plugins/provider-opencode/src/helpers.ts
 var CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v4";
 var CODETERM_OPENCODE_PLUGIN_OWNERSHIP_PREFIX = "codeterm-opencode-session-binding-v";
@@ -286,18 +344,25 @@ function isQuestionMenuFooter(line) {
 function discoverOpencodeModels() {
   const raw = host.exec(JSON.stringify({
     bin: "opencode",
-    args: ["models"],
+    args: ["models", "--verbose"],
     timeoutMs: 3e3
   }));
   const result = safeJson(raw);
   if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
   const lines = result.stdout.split("\n");
+  const variants = parseModelVariants(result.stdout);
   const models = [];
   for (let i = 0; i < lines.length; i++) {
     const id = lines[i].trim();
     if (!isModelId(id)) continue;
     if (isNonChatModel(id)) continue;
-    models.push({ id, displayName: displayNameFromId(id), group: groupFromModelId(id) });
+    const efforts = variants.get(id);
+    models.push({
+      id,
+      displayName: displayNameFromId(id),
+      group: groupFromModelId(id),
+      ...efforts ? { reasoningEfforts: efforts, ...efforts.length ? { defaultReasoningEffort: "default" } : {} } : {}
+    });
   }
   return models.length ? models : null;
 }
@@ -927,9 +992,10 @@ function starterPrompt(params) {
   if (params.starterPrompt === "team_bootstrap") throw new Error("team_bootstrap requires host starterPromptText");
   return ASSIGNED_TASK_START_PROMPT;
 }
-function withPadPermissionConfig(command, instructions, cleanup) {
+function withPadPermissionConfig(command, instructions, cleanup, launchConfig = {}) {
   const platform = host.platform();
   const config = {
+    ...launchConfig,
     permission: { external_directory: { "*": "ask" } },
     ...instructions ? { instructions } : {}
   };
@@ -939,7 +1005,8 @@ function withPadPermissionConfig(command, instructions, cleanup) {
   }
   const permissionJson = JSON.stringify({ permission: config.permission });
   const prefix = permissionJson.slice(0, -3);
-  const suffix = `}}${instructions ? `,"instructions":${JSON.stringify(instructions)}` : ""}}`;
+  const extra = JSON.stringify({ ...launchConfig, ...instructions ? { instructions } : {} });
+  const suffix = `}}${extra === "{}" ? "" : `,${extra.slice(1, -1)}`}}`;
   const q = (value) => host.shell.quoteFor(value, platform);
   const finish = cleanup ? `; ct_status=$?; unset OPENCODE_CONFIG_CONTENT; ${cleanup}; exit $ct_status` : `; unset OPENCODE_CONFIG_CONTENT`;
   return `ct_pad_dir=$(printf '%s' "${"${CODETERM_PAD_DIR:-}"}" | tr '\\\\' '/' | sed 's/"/\\\\\\"/g'); OPENCODE_CONFIG_CONTENT=${q(prefix)}; if [ -n "$ct_pad_dir" ]; then OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT,\\"$ct_pad_dir/*\\":\\"allow\\""; fi; OPENCODE_CONFIG_CONTENT="$OPENCODE_CONFIG_CONTENT"$(printf '%s' ${q(suffix)}); export OPENCODE_CONFIG_CONTENT; ${command}${finish}`;
@@ -1045,6 +1112,7 @@ var plugin = {
   },
   buildLaunchCommand(params) {
     const p = params || {};
+    const launch = variantLaunch(p.args ?? []);
     const parts = [];
     let taskPath = null;
     if (p.task) {
@@ -1062,14 +1130,14 @@ var plugin = {
     if (p.sessionId) {
       parts.push("--session", host.shell.quoteFor(String(p.sessionId), host.platform()));
     }
-    if (p.args && p.args.length > 0) {
-      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+    if (launch.args.length > 0) {
+      for (const arg of launch.args) parts.push(host.shell.quoteFor(arg, host.platform()));
     }
     const prompt = starterPrompt(p);
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : void 0, void 0, launch.config);
   },
   buildResumeCommand(sessionId, skipPermissions) {
     return withPadPermissionConfig(resumeLaunch(sessionId, skipPermissions).parts.join(" "));
@@ -1081,7 +1149,8 @@ var plugin = {
     const platform = host.platform();
     const launch = resumeLaunch(p.sessionId, p.skipPermissions);
     const parts = launch.parts;
-    const args = p.args ? resumeLaunchArgs(p.args, p.sessionId) : [];
+    const variant = variantLaunch(p.args ? resumeLaunchArgs(p.args, p.sessionId) : []);
+    const args = variant.args;
     for (let i = 0; i < args.length; i++) {
       const arg = String(args[i]);
       if (arg === "-m" || arg === "--model") {
@@ -1092,12 +1161,12 @@ var plugin = {
       }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "));
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config);
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return withPadPermissionConfig(parts.join(" "));
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "), void 0, void 0, variant.config);
     const project = launch.directory ? host.shell.quoteFor(launch.directory, platform) : null;
     const prologue = project ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&` : "";
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath]);
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], void 0, variant.config);
   },
   // absent from opencode's env, or event field structure changed in a new release).
   // agent_session_id.is_some() short-circuits the Rust call-site before this runs.
@@ -1321,6 +1390,9 @@ function resumeLaunchArgs(args, sessionId) {
   const db = opencodeDbPath();
   const model = db && host.fs.fileExists(db) ? scanMessagesForQualifiedModel(db, sessionId) : null;
   if (!model) return args.map(String);
+  const modelIndex = args.findIndex((arg) => arg === "-m" || arg === "--model");
+  const requested = modelIndex >= 0 ? args[modelIndex + 1] : args.find((arg) => arg.startsWith("-m=") || arg.startsWith("--model="))?.split("=").slice(1).join("=");
+  if (requested?.includes("/") || requested && requested !== model.split("/").slice(1).join("/")) return args.map(String);
   const retained = [];
   for (let i = 0; i < args.length; i++) {
     const arg = String(args[i]);

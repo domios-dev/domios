@@ -50,13 +50,17 @@ pub(crate) fn model_switch_route_available(document: &Value) -> bool {
         })
 }
 
-pub(crate) fn model_switch_body(model: &ModelId) -> Value {
-    json!({
+pub(crate) fn model_switch_body(model: &ModelId, effort: Option<&str>) -> Value {
+    let mut body = json!({
         "model": {
             "id": model.model_id.clone(),
             "providerID": model.provider_id.clone(),
         }
-    })
+    });
+    if let Some(effort) = effort {
+        body["model"]["variant"] = json!(effort);
+    }
+    body
 }
 
 pub(crate) fn parse_session_model(session_id: &str, document: &Value) -> Option<String> {
@@ -82,6 +86,7 @@ pub(crate) fn live_switch_for_tab(
     tab_id: &str,
     session_id: &str,
     requested_model: &str,
+    effort: Option<&str>,
 ) -> Result<LiveModelSwitchResult, String> {
     let Some((base_url, cwd)) = super::endpoint_for_tab(tab_id) else {
         return Ok(LiveModelSwitchResult::Unsupported {
@@ -150,7 +155,7 @@ pub(crate) fn live_switch_for_tab(
     )?;
     let response = client
         .post(switch_url)
-        .json(&model_switch_body(&model))
+        .json(&model_switch_body(&model, effort))
         .send()
         .map_err(|error| format!("live model switch request failed: {error}"))?;
     if !response.status().is_success() {
@@ -164,13 +169,23 @@ pub(crate) fn live_switch_for_tab(
     match client.get(session_url).send() {
         Ok(response) if response.status().is_success() => match response.json::<Value>() {
             Ok(session) => {
-                let observed_model = parse_session_model(session_id, &session);
+                let mut observed_model = parse_session_model(session_id, &session);
+                let variant_matches = effort.is_none_or(|effort| {
+                    session
+                        .pointer("/model/variant")
+                        .and_then(Value::as_str)
+                        .unwrap_or("default")
+                        == effort
+                });
+                if !variant_matches {
+                    observed_model = None;
+                }
                 let confirmation_detail = match observed_model.as_deref() {
                     Some(observed) if same_model_id(requested_model, observed) => None,
                     Some(observed) => Some(format!(
                         "the bound session still reports {observed} after the live switch request"
                     )),
-                    None => Some("the bound session record did not include a model".into()),
+                    None => Some("the bound session record has not confirmed the requested model and variant".into()),
                 };
                 Ok(LiveModelSwitchResult::Applied {
                     observed_model,

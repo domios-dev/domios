@@ -1,4 +1,5 @@
 import { modelProviderExports } from "./modelProviders";
+import { variantLaunch } from "./modelVariants";
 import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
 // OpenCode (sst/opencode) provider plugin (runtime logic, capability: agentProvider).
 // ProviderPlugin contract is the separate src/index.ts artifact the app imports.
@@ -68,9 +69,10 @@ function starterPrompt(params: LaunchParams): string | undefined {
   return ASSIGNED_TASK_START_PROMPT;
 }
 
-function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string): string {
+function withPadPermissionConfig(command: string, instructions?: string[], cleanup?: string, launchConfig: Record<string, unknown> = {}): string {
   const platform = host.platform();
   const config = {
+    ...launchConfig,
     permission: { external_directory: { "*": "ask" } },
     ...(instructions ? { instructions } : {}),
   };
@@ -80,7 +82,8 @@ function withPadPermissionConfig(command: string, instructions?: string[], clean
   }
   const permissionJson = JSON.stringify({ permission: config.permission });
   const prefix = permissionJson.slice(0, -3);
-  const suffix = `}}${instructions ? `,"instructions":${JSON.stringify(instructions)}` : ""}}`;
+  const extra = JSON.stringify({ ...launchConfig, ...(instructions ? { instructions } : {}) });
+  const suffix = `}}${extra === "{}" ? "" : `,${extra.slice(1, -1)}`}}`;
   const q = (value: string) => host.shell.quoteFor(value, platform);
   const finish = cleanup
     ? `; ct_status=$?; unset OPENCODE_CONFIG_CONTENT; ${cleanup}; exit $ct_status`
@@ -215,6 +218,7 @@ const plugin: PluginModule = {
 
   buildLaunchCommand(params: LaunchParams): string {
     const p = params || {};
+    const launch = variantLaunch(p.args ?? []);
     const parts: string[] = [];
     let taskPath: string | null = null;
     if (p.task) {
@@ -233,15 +237,15 @@ const plugin: PluginModule = {
     if (p.sessionId) {
       parts.push("--session", host.shell.quoteFor(String(p.sessionId), host.platform()));
     }
-    if (p.args && p.args.length > 0) {
+    if (launch.args.length > 0) {
       // Quote each arg — caller-supplied via the spawn API; prevents shell injection.
-      for (let i = 0; i < p.args.length; i++) parts.push(host.shell.quoteFor(String(p.args[i]), host.platform()));
+      for (const arg of launch.args) parts.push(host.shell.quoteFor(arg, host.platform()));
     }
     const prompt = starterPrompt(p);
     if (p.task && prompt) {
       parts.push("--prompt", host.shell.quoteFor(prompt, host.platform()));
     }
-    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : undefined);
+    return withPadPermissionConfig(parts.join(" "), taskPath ? [taskPath] : undefined, undefined, launch.config);
   },
 
   buildResumeCommand(sessionId: string, skipPermissions?: boolean): string {
@@ -255,7 +259,8 @@ const plugin: PluginModule = {
     const platform = host.platform();
     const launch = resumeLaunch(p.sessionId, p.skipPermissions);
     const parts = launch.parts;
-    const args = p.args ? resumeLaunchArgs(p.args, p.sessionId) : [];
+    const variant = variantLaunch(p.args ? resumeLaunchArgs(p.args, p.sessionId) : []);
+    const args = variant.args;
     for (let i = 0; i < args.length; i++) {
       const arg = String(args[i]);
       if (arg === "-m" || arg === "--model") {
@@ -266,16 +271,16 @@ const plugin: PluginModule = {
       }
     }
     const systemPrompt = p.systemPrompt;
-    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "));
+    if (!systemPrompt || !systemPrompt.trim()) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config);
     const taskPath = host.fs.writeTempFile(systemPrompt, ".ct-task.md");
-    if (!taskPath) return withPadPermissionConfig(parts.join(" "));
+    if (!taskPath) return withPadPermissionConfig(parts.join(" "), undefined, undefined, variant.config);
     const project = launch.directory
       ? host.shell.quoteFor(launch.directory, platform)
       : null;
     const prologue = project
       ? platform === "windows" ? `Set-Location -LiteralPath ${project} -ErrorAction Stop;` : `cd -- ${project} &&`
       : "";
-    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath]);
+    return withPadPermissionConfig(`${prologue} ${parts.join(" ")}`, [taskPath], undefined, variant.config);
   },
 
   // absent from opencode's env, or event field structure changed in a new release).
@@ -546,6 +551,9 @@ function resumeLaunchArgs(args: string[], sessionId: string): string[] {
     ? scanMessagesForQualifiedModel(db, sessionId)
     : null;
   if (!model) return args.map(String);
+  const modelIndex = args.findIndex((arg) => arg === "-m" || arg === "--model");
+  const requested = modelIndex >= 0 ? args[modelIndex + 1] : args.find((arg) => arg.startsWith("-m=") || arg.startsWith("--model="))?.split("=").slice(1).join("=");
+  if (requested?.includes("/") || (requested && requested !== model.split("/").slice(1).join("/"))) return args.map(String);
   const retained: string[] = [];
   for (let i = 0; i < args.length; i++) {
     const arg = String(args[i]);

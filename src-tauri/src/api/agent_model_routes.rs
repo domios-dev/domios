@@ -14,6 +14,7 @@ use crate::service::agent_restart::{
 #[derive(Debug, Deserialize)]
 pub struct AgentModelBody {
     pub model: String,
+    pub reasoning_effort: Option<String>,
 }
 
 pub async fn agent_model_handler(
@@ -33,8 +34,14 @@ pub async fn agent_model_handler(
         }
     };
     let svc = state.svc.clone();
-    let result =
-        tokio::task::spawn_blocking(move || svc.agent_switch_model(&tab_id, &body.model)).await;
+    let result = tokio::task::spawn_blocking(move || {
+        svc.agent_switch_model_with_reasoning(
+            &tab_id,
+            &body.model,
+            body.reasoning_effort.as_deref(),
+        )
+    })
+    .await;
     let result = match result {
         Ok(result) => result,
         Err(error) => {

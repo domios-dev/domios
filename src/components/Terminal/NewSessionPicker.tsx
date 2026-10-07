@@ -9,6 +9,7 @@ import {
   defaultNewSessionChoice,
   readPersistedNewSessionChoice,
   resolveEffort,
+  resolvePersistedChoice,
   writePersistedNewSessionChoice,
   type NewSessionChoice,
   type NewSessionMode,
@@ -70,6 +71,10 @@ export function NewSessionPicker({
 
   useEffect(() => {
     if (visibleProviders.length === 0) return;
+    if (hasRestoredRef.current) {
+      setChoice((current) => resolvePersistedChoice(visibleProviders, current));
+      return;
+    }
     const restored = readPersistedNewSessionChoice(visibleProviders);
     if (initialProviderId && visibleProviders.some((provider) => provider.id === initialProviderId)) {
       const provider = visibleProviders.find((candidate) => candidate.id === initialProviderId);

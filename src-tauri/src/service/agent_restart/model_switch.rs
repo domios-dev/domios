@@ -348,6 +348,15 @@ impl ServiceContext {
         tab_id: &str,
         requested: &str,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+        self.agent_switch_model_with_reasoning(tab_id, requested, None)
+    }
+
+    pub(crate) fn agent_switch_model_with_reasoning(
+        &self,
+        tab_id: &str,
+        requested: &str,
+        requested_effort: Option<&str>,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
         let requested = requested.trim();
         let (resolved_tab, provider) = {
             let mux = self.mux.read();
@@ -385,6 +394,29 @@ impl ServiceContext {
         .map_err(ModelSwitchError::InvalidModel)?;
         let snap = self.snapshot_tab_for_restart(&resolved_tab)?;
         let session_id = self.verified_resumable_session(&snap)?;
+        let effort = requested_effort.map(str::to_owned).or_else(|| {
+            let saved = self
+                .mux
+                .read()
+                .get_tab(&snap.tab_id)
+                .and_then(|tab| recorded_launch_parameters(tab).resolved_reasoning_effort);
+            saved.filter(|effort| {
+                crate::service::spawn::validate_agent_reasoning_effort(
+                    &self.agent_registry,
+                    &provider,
+                    Some(requested),
+                    Some(effort),
+                )
+                .is_ok()
+            })
+        });
+        crate::service::spawn::validate_agent_reasoning_effort(
+            &self.agent_registry,
+            &provider,
+            Some(requested),
+            effort.as_deref(),
+        )
+        .map_err(ModelSwitchError::NotSwitchable)?;
         let previous_model = {
             let mux = self.mux.read();
             mux.get_tab(&snap.tab_id).and_then(|tab| {
@@ -399,6 +431,7 @@ impl ServiceContext {
                     &snap.tab_id,
                     &session_id,
                     requested,
+                    effort.as_deref(),
                 )
                 .map_err(ModelSwitchError::LiveSwitchFailed)?,
             )
@@ -412,7 +445,13 @@ impl ServiceContext {
             confirmation_detail,
         }) = live_result
         {
-            self.record_live_model_request(&snap.tab_id, &provider, &session_id, requested)?;
+            self.record_live_model_request(
+                &snap.tab_id,
+                &provider,
+                &session_id,
+                requested,
+                effort.as_deref(),
+            )?;
             let confirmed = observed_model.as_deref().is_some_and(|observed| {
                 crate::service::structured_prompt::same_model_id(requested, observed)
                     && self.record_live_model_confirmation(
@@ -464,7 +503,10 @@ impl ServiceContext {
                 "the agent is mid-turn or waiting on a prompt; RestartResume requires an idle tab.{suffix}"
             )));
         }
-        let launch = ModelSwitchLaunch::prepare(self, &snap, &session_id, requested)?;
+        let mut launch = ModelSwitchLaunch::prepare(self, &snap, &session_id, requested)?;
+        launch.params.reasoning_effort = effort.clone();
+        launch.launch.requested_reasoning_effort = effort.clone();
+        launch.launch.resolved_reasoning_effort = effort;
         let launched_model = launch.launched_model().to_string();
         log::info!(
             "[agent-model] tab={} provider={} session={} {:?} -> {}",
@@ -524,6 +566,7 @@ impl ServiceContext {
         provider: &str,
         session_id: &str,
         requested_model: &str,
+        effort: Option<&str>,
     ) -> Result<(), ModelSwitchError> {
         let updated = {
             let mut mux = self.mux.write();
@@ -547,6 +590,9 @@ impl ServiceContext {
             tab.restorable_launch.captured = true;
             tab.restorable_launch.requested_model = Some(requested_model.to_string());
             tab.restorable_launch.model = Some(requested_model.to_string());
+            tab.restorable_launch.requested_reasoning_effort = effort.map(str::to_owned);
+            tab.restorable_launch.resolved_reasoning_effort = effort.map(str::to_owned);
+            crate::service::reasoning_effort::persist_launch_identity(tab, effort, effort);
             true
         };
         if updated {

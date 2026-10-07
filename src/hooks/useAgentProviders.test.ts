@@ -48,13 +48,13 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-test("sync hides the previous catalog throughout loading and error before publishing the next catalog", () => {
+test("sync retains the catalog during refresh and clears it on error", () => {
   const catalogA = [provider("catalog-a")];
   const catalogB = [provider("catalog-b")];
 
   setAgentDescriptors(catalogA);
   syncAgentDescriptorCache(catalogA, true, null);
-  assert(listAgentDescriptors().length === 0, "loading clears catalog A from cache consumers");
+  assert(getAgentDescriptor("catalog-a")?.id === "catalog-a", "refresh retains the visible catalog");
 
   syncAgentDescriptorCache(catalogA, false, "catalog unavailable");
   assert(listAgentDescriptors().length === 0, "fetch errors cannot republish retained catalog A items");
@@ -79,13 +79,13 @@ test("catalogue version changes refresh provider descriptors", () => {
   assert(!shouldRefreshAgentProviders("tab-focused"), "irrelevant events must not refresh");
 });
 
-test("loading or failed catalogs expose no stale provider entries", () => {
+test("refresh preserves catalog identity while failures clear entries", () => {
   const stale = [provider("stale-provider")];
-  assert(visibleAgentProviders(stale, true, null).length === 0, "loading hides stale entries");
+  assert(visibleAgentProviders(stale, true, null) === stale, "refresh preserves visible entries");
   assert(visibleAgentProviders(stale, false, "catalog unavailable").length === 0, "errors hide stale entries");
   assert(
-    visibleAgentProviders(stale, true, null) === visibleAgentProviders([], true, null),
-    "hidden catalogs keep stable identity across consumer renders",
+    visibleAgentProviders(stale, true, "failed") === visibleAgentProviders([], true, "failed"),
+    "failed catalogs keep stable identity across consumer renders",
   );
   assert(visibleAgentProviders(stale, false, null) === stale, "settled catalog preserves identity");
 });
@@ -120,6 +120,21 @@ test("catalogue listener refetches a newer provider version while mounted", () =
   assert(refetches === 1, "listener should refetch while active");
 });
 
+test("catalogue events reach every mounted consumer and deduplicate per consumer", () => {
+  setAgentDescriptors([provider("shared-catalogue")]);
+  const handlers: Array<(event: {payload: {provider: string; version: number}}) => void> = [];
+  const counts = [0, 0];
+  const listen = async <T>(_event: string, handler: (event: {payload: T}) => void) => {
+    handlers.push(handler as typeof handlers[number]);
+    return () => {};
+  };
+  const cleanups = counts.map((_, index) => attachModelCatalogueChangedRefresh(() => counts[index]++, listen));
+  for (const version of [1, 1, 2, 1]) {
+    for (const handler of handlers) handler({payload: {provider: "shared-catalogue", version}});
+  }
+  assert(counts[0] === 2 && counts[1] === 2, "each consumer observes both newer versions once");
+  cleanups.forEach((cleanup) => cleanup());
+});
 test("catalogue listener releases a late registration after cleanup", async () => {
   let refetches = 0;
   let unlistenCalls = 0;
@@ -194,12 +209,12 @@ test("provider cache does not roll back after a newer catalogue event", () => {
 });
 
 test("listAgentDescriptors preserves registry order and identity", () => {
-  const list = [provider("claude"), provider("codex")];
+  const list = [provider("order-first"), provider("order-second")];
   setAgentDescriptors(list);
   const a = listAgentDescriptors();
   const b = listAgentDescriptors();
   assert(a === b, "stable identity between calls");
-  assert(a.map((p) => p.id).join(",") === "claude,codex", "preserves order");
+  assert(a.map((p) => p.id).join(",") === "order-first,order-second", "preserves order");
 });
 
 (async () => {

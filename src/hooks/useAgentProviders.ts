@@ -12,7 +12,7 @@ import { useCallback, useEffect, useLayoutEffect } from "react";
 import { invoke, listen, type UnlistenFn } from "../lib/bridge";
 
 import type { ModelCatalogueChanged, ProviderDescriptor } from "../lib/types";
-import { acceptModelCatalogueChange, setAgentDescriptors } from "../lib/agentDescriptorCache";
+import { acceptModelCatalogueChange, listAgentDescriptors, setAgentDescriptors } from "../lib/agentDescriptorCache";
 import { useContributions } from "./useContributions";
 
 const EMPTY_AGENT_PROVIDERS: ProviderDescriptor[] = [];
@@ -23,10 +23,10 @@ export function shouldRefreshAgentProviders(eventType: string): boolean {
 
 export function visibleAgentProviders(
   items: ProviderDescriptor[],
-  loading: boolean,
+  _loading: boolean,
   error: string | null,
 ): ProviderDescriptor[] {
-  return loading || error ? EMPTY_AGENT_PROVIDERS : items;
+  return error ? EMPTY_AGENT_PROVIDERS : items;
 }
 
 export function agentProvidersFromResponse(result: unknown): ProviderDescriptor[] {
@@ -51,10 +51,14 @@ export function attachModelCatalogueChangedRefresh(
   listenImpl: typeof listen = listen,
 ): () => void {
   let active = true;
+  const observed = new Map(listAgentDescriptors().map((provider) => [provider.id, provider.catalogue_version ?? 0]));
   let unlisten: UnlistenFn | undefined;
 
   void listenImpl<ModelCatalogueChanged>("model-catalogue-changed", (event) => {
-    if (active && acceptModelCatalogueChange(event.payload)) refetch();
+    if (!active || event.payload.version <= (observed.get(event.payload.provider) ?? 0)) return;
+    observed.set(event.payload.provider, event.payload.version);
+    acceptModelCatalogueChange(event.payload);
+    refetch();
   }).then((fn) => {
     if (active) {
       unlisten = fn;

@@ -513,6 +513,10 @@ console.log("\n--- restored full-TUI command keeps the saved project, session, a
   const configuredConfig = JSON.parse(configured.match(/\$ct_config = Q\(windows:(.*?)\) \| ConvertFrom-Json/)?.[1] || "{}") as { instructions?: string[] };
   eq(configuredConfig.instructions, ["C:\\Temp\\restored-context.md"], "resume config references the host context file directly");
   assert(!configured.includes("--prompt"), "resume restores session instructions without submitting a new launch turn");
+  const switched = p.buildResumeCommandWithContext({ sessionId: savedSession, args: ["-m", "other/model", "--variant", "high"] });
+  assert(switched.includes("-m Q(windows:other/model)") && !switched.includes("--variant"), "explicit model switch survives resume without an unsupported TUI flag");
+  const switchConfig = JSON.parse(switched.match(/\$ct_config = Q\(windows:(.*?)\) \| ConvertFrom-Json/)?.[1] || "{}");
+  eq(switchConfig.agent, { build: { variant: "high" } }, "resume carries the reasoning variant in the process-local agent config");
 }
 
 console.log("\n--- captured full-TUI resume screen matches provider readiness fingerprints ---\n");

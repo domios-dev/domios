@@ -28,6 +28,7 @@ pub mod mem_routes;
 pub mod mesh_attachment;
 pub mod mesh_inventory;
 pub mod mesh_routes;
+pub(crate) mod model_provider_routes;
 pub mod network_routes;
 pub mod notification_routes;
 pub(crate) mod optional_json;
