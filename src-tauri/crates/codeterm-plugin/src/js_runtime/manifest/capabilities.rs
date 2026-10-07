@@ -345,6 +345,8 @@ pub struct WebhookReceiverCap {
 #[serde(rename_all = "camelCase")]
 pub struct Capabilities {
     #[serde(default)]
+    pub structured_control: Option<crate::provider::StructuredControl>,
+    #[serde(default)]
     pub context_attach: Option<crate::provider::ContextAttach>,
     #[serde(default)]
     pub agent_provider: bool,

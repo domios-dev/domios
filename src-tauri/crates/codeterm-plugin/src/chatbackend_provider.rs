@@ -228,6 +228,7 @@ pub trait ChatBackendProvider: Send + Sync {
             supports_stop: false,
             supports_chat_ui: true,
             supports_structured_prompts: false,
+            structured_control: None,
             supports_permission_auto_confirm: false,
             supports_watcher: self.watcher_capable(),
             paste_limit_bytes: None,
