@@ -35,7 +35,7 @@ pub fn defer(
         return None;
     }
     if params.args.as_ref().is_some_and(|args| !args.is_empty()) {
-        svc.notify_model_resolution_warning(tab, provider, "Structured control cannot translate these extra terminal arguments; using the plain terminal.");
+        super::diagnostics::fallback(svc, tab, provider, "unsupported extra terminal arguments");
         return None;
     }
     PLANS.lock().insert(
@@ -77,11 +77,7 @@ pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String)
         Err(error) => {
             super::lifecycle::clear_tab(tab);
             log::error!("[codex-rpc] tab={tab} sidecar unavailable, plain PTY fallback: {error}");
-            svc.notify_model_resolution_warning(
-                tab,
-                provider,
-                &format!("Structured control unavailable; using the plain terminal: {error}"),
-            );
+            super::diagnostics::fallback(svc, tab, provider, &error);
             crate::service::orchestrator::build_agent_command(
                 provider,
                 &plan.params,

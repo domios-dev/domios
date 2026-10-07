@@ -9,7 +9,7 @@ pub fn enabled(
             .extra
             .get("structured_control_enabled")
             .and_then(toml::Value::as_bool)
-            == Some(true)
+            .unwrap_or(true)
 }
 
 pub fn version_supported(user_agent: &str, minimum: &str) -> bool {
@@ -33,12 +33,17 @@ pub fn version_supported(user_agent: &str, minimum: &str) -> bool {
 mod tests {
     use super::*;
     #[test]
-    fn codex_rpc_capability_defaults_off_and_checks_protocol() {
+    fn codex_rpc_capability_defaults_on_and_checks_protocol() {
         let cap = StructuredControl {
             protocol: "codex-app-server".into(),
             min_version: "0.160.0".into(),
         };
         let mut config = crate::config::schema::ProviderConfig::default();
+        assert!(enabled(Some(&cap), &config));
+        config.extra.insert(
+            "structured_control_enabled".into(),
+            toml::Value::Boolean(false),
+        );
         assert!(!enabled(Some(&cap), &config));
         config.extra.insert(
             "structured_control_enabled".into(),
