@@ -781,10 +781,11 @@ fn launch_composer_input_ready_for_frame(
         return input.alternate_screen && input.cursor_visible;
     }
     if cursor_position == crate::agent::provider::ComposerCursorPosition::PromptLine {
-        return input.cursor_visible
-            && input
-                .last_nonblank_row
-                .is_some_and(|row| row == input.cursor_row);
+        return crate::agent::offline_state_classifier::prompt_line_cursor_ready(
+            input.cursor_visible,
+            input.cursor_row,
+            input.last_nonblank_row,
+        );
     }
     if let Some(screen_rows) = screen_rows {
         return crate::agent::offline_state_classifier::prompt_glyph_cursor_ready_for_frame(

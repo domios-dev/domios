@@ -17,6 +17,8 @@ import { onResync } from "../../lib/resync";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
 import {
   canAdoptTranscriptAuthority,
+  attachmentActivity,
+  attachmentStateForSnapshot,
   type ChatAttachmentState,
   type ChatBackfillResult,
   type ChatMsgEvent,
@@ -489,11 +491,12 @@ export function useChatSession({
         });
         setError(null);
         setLoading(false);
-        if (res.pending) {
+        const snapshotState = attachmentStateForSnapshot(res);
+        attachmentStateRef.current = snapshotState;
+        setAttachmentState(snapshotState);
+        if (snapshotState === "awaiting_store") {
           // The store has no transcript yet; the first live event completes the
           // attach. Nothing here waits on elapsed time.
-          attachmentStateRef.current = "awaiting_store";
-          setAttachmentState("awaiting_store");
           if (res.source_missing === true) setTranscriptUnavailable("no_transcript_source");
           replaceOnNextLiveEventRef.current = true;
           const pending = pendingLiveEventsRef.current.splice(0);
@@ -613,10 +616,7 @@ export function useChatSession({
   }, [committedRows, emitDiagnostic, tabId, transcript]);
 
   return {
-    loading,
-    /** Waiting on history we once had; a first attach is not a recovery. */
-    recovering: hadBoundSessionRef.current
-      && (attachmentState === "awaiting_store" || attachmentState === "awaiting_session"),
+    ...attachmentActivity(attachmentState, loading, hadBoundSessionRef.current),
     error,
     attachmentState,
     /** Set = the wait is over and it failed; the view reports it rather than
