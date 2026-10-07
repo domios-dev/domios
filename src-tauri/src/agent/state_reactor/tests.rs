@@ -7,6 +7,34 @@ use crate::agent::test_provider::MockProvider;
 use codeterm_types::pty::{PendingPrompt, PromptOption};
 
 #[test]
+fn non_prompt_line_composers_never_consult_display_hook() {
+    use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
+    use crate::agent::provider::ComposerCursorPosition;
+    let idle = TabVerdict {
+        state: TimelineState::Idle,
+        subtype: None,
+    };
+    for position in [
+        ComposerCursorPosition::BottomRegion,
+        ComposerCursorPosition::VisibleAnywhere,
+    ] {
+        assert_eq!(
+            display_verdict_for_composer(position, idle, || {
+                panic!("non-prompt-line display must not consult the provider hook")
+            }),
+            idle
+        );
+    }
+    let mut calls = 0;
+    let verdict = display_verdict_for_composer(ComposerCursorPosition::PromptLine, idle, || {
+        calls += 1;
+        Some(classification(TabState::Working, 1.0, None))
+    });
+    assert_eq!(calls, 1);
+    assert_eq!(verdict.state, TimelineState::Working);
+}
+
+#[test]
 fn plugin_working_verdict_updates_display_without_action() {
     use crate::agent::offline_state_classifier::{TabVerdict, TimelineState};
     let idle = TabVerdict {
