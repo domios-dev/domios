@@ -1,4 +1,5 @@
 import type { Host, ModelInfo, ParsedPrompt } from "@codeterm/plugin-sdk";
+import { parseModelVariants } from "./modelVariants";
 
 // Constants and regexes
 export const CODETERM_OPENCODE_PLUGIN_MARKER = "codeterm-opencode-session-binding-v4";
@@ -276,18 +277,22 @@ declare const host: Host;
 export function discoverOpencodeModels(): ModelInfo[] | null {
   const raw = host.exec(JSON.stringify({
     bin: "opencode",
-    args: ["models"],
+    args: ["models", "--verbose"],
     timeoutMs: 3000,
   }));
   const result = safeJson(raw) as { code?: number; stdout?: string } | null;
   if (!result || result.code !== 0 || typeof result.stdout !== "string") return null;
   const lines = result.stdout.split("\n");
+  const variants = parseModelVariants(result.stdout);
   const models: ModelInfo[] = [];
   for (let i = 0; i < lines.length; i++) {
     const id = lines[i].trim();
     if (!isModelId(id)) continue;
     if (isNonChatModel(id)) continue;
-    models.push({ id: id, displayName: displayNameFromId(id), group: groupFromModelId(id) });
+    const efforts = variants.get(id);
+    models.push({ id: id, displayName: displayNameFromId(id), group: groupFromModelId(id),
+      ...(efforts ? { reasoningEfforts: efforts, ...(efforts.length ? { defaultReasoningEffort: "default" } : {}) } : {}),
+    });
   }
   return models.length ? models : null;
 }

@@ -193,6 +193,7 @@ pub fn run() {
             commands::session_binding_state,
             commands::shell_command_snapshot,
             commands::list_agent_providers,
+            commands::model_provider_manage,
             commands::get_remote_workers,
             commands::wait_shell_ready,
             commands::read_session_jsonl,

@@ -5,6 +5,7 @@ import { isDuplicateSend } from "./chatSendGuard";
 import { invoke, listen } from "../../lib/bridge";
 import { supportsLiveModelSwitch } from "../../lib/modelSwitch";
 import { getTabModelApi } from "../Sidebar/tabModelApi";
+import { PtyModelChip } from "./PtyModelChip";
 import { isModelSelectable, modelAvailability } from "../../lib/modelAvailability";
 import { usePersistentDraft } from "../../lib/usePersistentDraft";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -859,7 +860,7 @@ function ChatComposerImpl({
         onRemove={removeAttachment}
         queuedCount={queuedCount}
         failedCount={failedCount}
-        modelBubble={modelBubble}
+        modelBubble={modelBubble ?? (!chatBackend ? <PtyModelChip tabId={tabId} provider={providerDescriptor} onError={flagComposerError} /> : undefined)}
         onOpenDelayedQueue={() => {
           setDelayedQueueOpen((v) => !v);
           setScheduleOpen(false);

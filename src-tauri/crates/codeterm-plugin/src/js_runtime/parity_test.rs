@@ -166,6 +166,13 @@ struct DiscoverModelsNativeStub;
 
 #[async_trait::async_trait]
 impl AgentProvider for DiscoverModelsNativeStub {
+    fn reasoning_effort_launch_args(&self, effort: &str) -> Vec<String> {
+        if effort.is_empty() {
+            Vec::new()
+        } else {
+            vec!["--variant".into(), effort.into()]
+        }
+    }
     fn id(&self) -> &str {
         "discover-fixture"
     }

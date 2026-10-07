@@ -37,12 +37,23 @@ fn openapi_probe_requires_the_session_switch_post_route() {
 fn session_switch_request_uses_v2_model_reference_shape() {
     let model = parse_model_id("provider/model-next").unwrap();
     assert_eq!(
-        model_switch_body(&model),
+        model_switch_body(&model, None),
         json!({
             "model": {
                 "id": "model-next",
                 "providerID": "provider"
             }
+        })
+    );
+}
+
+#[test]
+fn live_model_switch_variant_is_inside_the_model_reference() {
+    let model = parse_model_id("fixture/model").unwrap();
+    assert_eq!(
+        model_switch_body(&model, Some("high")),
+        json!({
+            "model": { "providerID": "fixture", "id": "model", "variant": "high" }
         })
     );
 }

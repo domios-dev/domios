@@ -202,13 +202,16 @@ pub async fn switch_agent_model(
     svc: State<'_, ServiceState>,
     tab_id: String,
     model: String,
+    reasoning_effort: Option<String>,
 ) -> Result<serde_json::Value, String> {
     let svc = (*svc).clone();
-    tokio::task::spawn_blocking(move || svc.agent_switch_model(&tab_id, &model))
-        .await
-        .map_err(|error| format!("model switch worker failed: {error}"))?
-        .map(|outcome| crate::api::agent_model_routes::model_switch_success_body(&outcome))
-        .map_err(|error| error.to_string())
+    tokio::task::spawn_blocking(move || {
+        svc.agent_switch_model_with_reasoning(&tab_id, &model, reasoning_effort.as_deref())
+    })
+    .await
+    .map_err(|error| format!("model switch worker failed: {error}"))?
+    .map(|outcome| crate::api::agent_model_routes::model_switch_success_body(&outcome))
+    .map_err(|error| error.to_string())
 }
 
 /// Re-probe one CLI binary through the shared resolver, dropping its memo first
