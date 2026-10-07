@@ -25,6 +25,7 @@ mod list;
 mod state;
 mod types;
 mod update;
+mod user_config;
 mod util;
 mod version;
 
@@ -38,6 +39,7 @@ use list::*;
 use state::*;
 use types::*;
 use update::*;
+use user_config::*;
 use util::*;
 use version::*;
 
