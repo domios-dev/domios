@@ -72,6 +72,8 @@ pub async fn spawn(
     marker_file: &Path,
 ) -> Result<Process, String> {
     let mut command = tokio::process::Command::new(binary);
+    #[cfg(windows)]
+    crate::process_util::no_window_tokio_suspended(&mut command);
     for key in codeterm_pty::pty::manager::INHERITED_ORCHESTRATION_ENV {
         command.env_remove(key);
     }
@@ -127,8 +129,6 @@ pub async fn spawn(
         .kill_on_drop(true);
     #[cfg(unix)]
     command.process_group(0);
-    #[cfg(windows)]
-    command.creation_flags(0x08000000 | 0x00000004);
     let mut child = command.spawn().map_err(|error| error.to_string())?;
     let pid = child.id().ok_or("Sidecar has no process id")?;
     #[cfg(windows)]
