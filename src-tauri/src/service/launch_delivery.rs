@@ -1143,3 +1143,9 @@ mod tests {
         assert_eq!(sink.0.lock().as_slice(), ["agent_launching"]);
     }
 }
+
+pub(crate) fn launch_input_frame_prefix(
+    composer: crate::agent::provider::ComposerCursorPosition,
+) -> Option<&'static str> {
+    (composer == crate::agent::provider::ComposerCursorPosition::PromptLine).then_some("")
+}

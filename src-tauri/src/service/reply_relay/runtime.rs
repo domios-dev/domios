@@ -306,6 +306,39 @@ impl ServiceContext {
         self.reply_relays.wake(target);
     }
 
+    pub(crate) fn reconcile_tool_less_worker_ack(&self, target: &str) {
+        let entry = self.reply_relays.entries.lock().get(target).cloned();
+        let Some(entry) = entry else { return };
+        let pending = entry.worker.lock().pending();
+        for pending in pending {
+            self.observe_tool_less_worker_ack(target, &entry.binding, &pending, &entry.worker);
+            if !entry
+                .worker
+                .lock()
+                .needs_ack(&pending, entry.binding.source(), true)
+            {
+                continue;
+            }
+            let evidence = self
+                .agent_registry
+                .with_provider(&entry.binding.provider, |provider| {
+                    provider.read_reply_relay_turn(
+                        &entry.binding.cwd,
+                        &entry.binding.session,
+                        pending.after_offset,
+                    )
+                })
+                .flatten();
+            self.observe_tool_less_worker_answer_ack(
+                target,
+                &entry.binding,
+                &pending,
+                &entry.worker,
+                evidence.as_ref(),
+            );
+        }
+    }
+
     pub(super) fn current_reply_relay_binding(&self, target: &str) -> Option<RelayBinding> {
         let (provider, session, nonce, cwd) = {
             let mux = self.mux.read();
@@ -365,6 +398,12 @@ impl ServiceContext {
             );
             return Ok(());
         }
+        log::info!(
+            "[reply-relay] target={target} register delivery={} session={} after_offset={}",
+            pending.delivery_id,
+            pending.session_id,
+            pending.after_offset
+        );
         {
             let mut model = entry.model.lock();
             let mut worker = entry.worker.lock();

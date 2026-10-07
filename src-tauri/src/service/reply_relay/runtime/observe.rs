@@ -37,6 +37,20 @@ impl ServiceContext {
             if self.current_reply_relay_binding(target).as_ref() != Some(&entry.binding) {
                 return;
             }
+            if let Some(evidence) = evidence.as_ref() {
+                log::debug!("[reply-relay] target={target} observed delivery={} after_offset={} evidence={}", pending.delivery_id, after_offset, match evidence {
+                    crate::agent::provider::ReplyRelayEvidence::Answered(_) => "answered",
+                    crate::agent::provider::ReplyRelayEvidence::Ended(_) => "ended",
+                    crate::agent::provider::ReplyRelayEvidence::Unavailable(_) => "unavailable",
+                });
+            }
+            self.observe_tool_less_worker_answer_ack(
+                target,
+                &entry.binding,
+                &pending,
+                &entry.worker,
+                evidence.as_ref(),
+            );
             let advanced = entry.model.lock().advance_past_unrelated_turn(
                 &pending,
                 entry.binding.source(),
