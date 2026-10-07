@@ -14,6 +14,10 @@ use std::path::Path;
 use std::process::Command;
 
 mod audit;
+mod availability;
+mod update_status;
+pub use availability::{update_availability, UpdateAvailability, UpdateOffer, UpdateSource};
+use update_status::*;
 mod channel;
 mod config;
 mod install;

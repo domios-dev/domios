@@ -14,6 +14,10 @@ fn compat_check_blocks_only_when_app_older_than_min() {
     // Fail-open: unknown running version never blocks.
     std::env::remove_var("CODETERM_VERSION");
     assert!(compat_check(Some("99.0.0")).is_ok());
+    std::env::set_var("CODETERM_VERSION", "1.0.0-rc.1");
+    assert!(compat_check(Some("1.0.0")).is_err());
+    assert!(compat_check(Some("1.0.0-beta.9")).is_ok());
+    assert!(compat_check(Some("invalid")).is_err());
     // No declared minimum never blocks.
     std::env::set_var("CODETERM_VERSION", "1.0.0");
     assert!(compat_check(None).is_ok());

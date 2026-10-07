@@ -1340,6 +1340,7 @@ dependencies = [
  "chrono",
  "codeterm-util",
  "dirs 5.0.1",
+ "semver",
  "serde",
  "serde_json",
  "serde_yaml",

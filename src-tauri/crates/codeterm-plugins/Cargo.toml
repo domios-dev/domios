@@ -7,6 +7,7 @@ edition = "2021"
 codeterm-util = { path = "../codeterm-util" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+semver = "1"
 serde_yaml = "0.9"
 sha2 = "0.10"
 chrono = "0.4"
