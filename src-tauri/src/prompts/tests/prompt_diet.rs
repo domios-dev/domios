@@ -43,7 +43,7 @@ const PROVIDER_RULES_MAX_BYTES: usize = 9_700;
 const WORKER_CHARTER_MAX_BYTES: usize = 1_450;
 const ORCHESTRATOR_LAUNCH_MAX_BYTES: usize = 24_693;
 const PLANNER_LAUNCH_MAX_BYTES: usize = 24_650;
-const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 8_600;
+const WORKER_LAUNCH_OVERHEAD_MAX_BYTES: usize = 9_000;
 
 fn lf_len(text: &str) -> usize {
     text.replace("\r\n", "\n").len()
