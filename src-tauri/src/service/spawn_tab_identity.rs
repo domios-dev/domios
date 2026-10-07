@@ -56,4 +56,5 @@ mod tests {
 }
 
 #[cfg(test)]
+#[path = "spawn_tab_identity/purpose_tests.rs"]
 mod purpose_tests;

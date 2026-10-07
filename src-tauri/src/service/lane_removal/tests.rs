@@ -469,6 +469,7 @@ fn lane_checkpoint_refs_are_deleted_when_lane_is_removed() {
             worktree_path: lane_path,
             branch: Some(branch),
             canonical_cwd: Some(project.display().to_string()),
+            force: false,
         },
         &[],
     )
