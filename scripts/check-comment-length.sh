@@ -75,7 +75,8 @@ swept_candidates() {
     find "$ROOT" \( -type d \( \
         -name target -o -name node_modules -o -name dist -o -name build -o \
         -name gen -o -name references -o -name vendor -o -name pty-fork -o \
-        -name .git -o -name .claude -o -path "$ROOT/refs" \
+        -name .git -o -name .claude -o -path "$ROOT/refs" -o \
+        -path "$ROOT/src-tauri/src/service/codex_rpc/schema" \
     \) -prune \) -o \( -type f \( \
         -name '*.rs' -o \
         -name '*.ts' -o \
@@ -105,6 +106,7 @@ scoped_candidates() {
             [A-Za-z]:/*|[A-Za-z]:\\*) abs="$path" ;;
             *) abs="$ROOT/$path" ;;
         esac
+        case "$abs" in "$ROOT/src-tauri/src/service/codex_rpc/schema/"*) continue ;; esac
         [ -f "$abs" ] || continue
         case "$seen" in *"|$abs|"*) continue ;; esac
         seen="$seen|$abs|"
