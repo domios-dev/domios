@@ -65,6 +65,28 @@ Toggle whether a tab can spawn children
 - `--enable` — Enable or disable spawning
 - `--tab` — Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
 
+#### `codeterm agent cli`
+
+Inspect or manage a provider's CLI using its manifest commands
+
+#### `codeterm agent cli install`
+
+Run the manifest installer in a visible utility tab and report its result
+
+- `<provider>`
+
+#### `codeterm agent cli status`
+
+Show installed state, resolved binary, and commands for this OS
+
+- `<provider>`
+
+#### `codeterm agent cli update`
+
+Run the manifest updater in a visible utility tab and report its result
+
+- `<provider>`
+
 #### `codeterm agent compact`
 
 Compact agent context (sends /compact to Claude)
@@ -215,11 +237,15 @@ Classify a bounded probe or same-Team agent observation
 - `--max-transitions` — Finite accepted transition budget (maximum 256)
 - `--name` — Short meaningful name describing what is watched and what happens
 - `--observe` — Observe a same-Team agent tab or cron run
+- `--owner` — Assign the pipeline to its creator tab or Team
 - `--paused` — Create a dormant downstream stage; its lifetime starts now
 - `--probe`
 - `--question`
 - `--rearm-on-change` — Route again when this bucket's output changes without changing buckets
+- `--recipe` — Create from a named pipeline recipe
 - `--route` — Inline routes: bucket=notify|blueprint:<exact-id>|send:<tab>|cron:<name>|stop|none; use --handlers-file for command, respond_prompt and escalation handlers
+- `--set` — Replace recipe placeholders with key=value pairs
+- `--spec` — JSON or YAML pipeline specification, or `-` to read standard input
 - `--timeout` — End the blueprint after this duration
 - `--until` — Stop after this bucket's first confident transition
 
@@ -243,6 +269,17 @@ Show immutable definition versions
 #### `codeterm blueprint list`
 
 List blueprints scoped to the calling tab and its Team
+
+#### `codeterm blueprint log`
+
+List bounded run journal entries, newest first
+
+- `<id>`
+- `--limit`
+
+#### `codeterm blueprint nodes`
+
+List trigger, step, converter and event-source capabilities
 
 #### `codeterm blueprint recipe`
 
