@@ -1,25 +1,9 @@
-//! Host-side structured prompt handles (PUSH model).
-//!
-//! Some providers expose pending prompts as a structured PUSH stream rather
-//! than ephemeral PTY UI. OpenCode runs a local HTTP server with an SSE event
-//! bus (`/event`) carrying chat-part and prompt events, and accepts replies on
-//! documented endpoints. This module owns:
-//!
-//! - a per-tab endpoint registry (`base_url` + `cwd`), populated at spawn;
-//! - a background subscriber thread per tab that pushes normalized chat parts
-//!   and turns prompt events into `tab.pending_prompt`;
-//! - the active-prompt store the hot path reads ([`pending_for_tab`]);
-//! - the HTTP reply round-trip ([`respond`]), wired through the same
-//!   option-index contract the PTY send-back uses.
-//!
-//! Subscription is capability-gated; chat additionally requires the provider's
-//! `uses_structured_chat` capability and the tab's own bound session. The
-//! OpenCode-specific event shapes are isolated in [`opencode_sse`].
-
 mod live_model_switch;
 pub mod opencode_sse;
+mod questions;
 mod reconcile;
 mod recovery;
+mod session_events;
 mod subscriber;
 #[cfg(test)]
 mod tests;
@@ -27,14 +11,14 @@ mod tests;
 pub(crate) use live_model_switch::{live_switch_for_tab, same_model_id, LiveModelSwitchResult};
 
 use std::collections::{HashMap, HashSet};
-use std::sync::LazyLock;
+use std::sync::{Arc, LazyLock};
 use std::time::Duration;
 
 use parking_lot::Mutex;
 
 use opencode_sse::{
-    normalize_chat_part, parse_event, reply_body, reply_endpoint, ChatPartEvent, ChatPartUpdate,
-    MessageMeta, ParsedEvent, ResponseRoute,
+    normalize_chat_part, parse_event, reply_endpoint, ChatPartEvent, ChatPartUpdate, MessageMeta,
+    ParsedEvent, ResponseRoute,
 };
 
 use crate::multiplexer::types::PendingPrompt;
@@ -45,9 +29,11 @@ struct Endpoint {
     cwd: String,
 }
 
+#[derive(Clone)]
 struct Active {
     prompt: PendingPrompt,
     route: ResponseRoute,
+    in_flight: bool,
 }
 
 #[derive(Default)]
@@ -68,7 +54,14 @@ static ENDPOINTS: LazyLock<Mutex<HashMap<String, Endpoint>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 static ACTIVE: LazyLock<Mutex<HashMap<String, Active>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
-static SUBSCRIBED: LazyLock<Mutex<HashMap<String, tokio::sync::watch::Sender<u64>>>> =
+static QUEUED: LazyLock<Mutex<HashMap<String, Vec<Active>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+struct Subscriber {
+    signal: tokio::sync::watch::Sender<subscriber::Wake>,
+    live: Arc<Mutex<bool>>,
+}
+
+static SUBSCRIBED: LazyLock<Mutex<HashMap<String, Subscriber>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Allocate a free loopback port for a provider's structured-prompt server by
@@ -123,9 +116,13 @@ fn clear_request(active: &mut HashMap<String, Active>, tab_id: &str, request_id:
 
 /// Drop all structured-prompt state for a tab (tab closed / agent exited).
 pub fn clear_tab(tab_id: &str) {
+    let subscriber = SUBSCRIBED.lock().remove(tab_id);
+    if let Some(subscriber) = subscriber {
+        *subscriber.live.lock() = false;
+    }
     ENDPOINTS.lock().remove(tab_id);
     ACTIVE.lock().remove(tab_id);
-    SUBSCRIBED.lock().remove(tab_id);
+    QUEUED.lock().remove(tab_id);
 }
 
 /// Start the SSE subscriber for a tab if it has a registered endpoint and none
@@ -138,32 +135,26 @@ pub fn maybe_start_subscriber(svc: &ServiceContext, tab_id: &str) {
     };
     let mut subscribed = SUBSCRIBED.lock();
     if let Some(signal) = subscribed.get(tab_id) {
-        signal.send_modify(|revision| *revision = revision.wrapping_add(1));
+        signal
+            .signal
+            .send_modify(|wake| wake.output = wake.output.wrapping_add(1));
         return;
     }
-    let (signal, receiver) = tokio::sync::watch::channel(0);
-    subscribed.insert(tab_id.to_string(), signal);
+    let (signal, receiver) = tokio::sync::watch::channel(subscriber::Wake::default());
+    let live = Arc::new(Mutex::new(true));
+    subscribed.insert(
+        tab_id.to_string(),
+        Subscriber {
+            signal,
+            live: live.clone(),
+        },
+    );
     let svc = svc.clone();
     let tab_id = tab_id.to_string();
-    tauri::async_runtime::spawn(subscriber::run(svc, tab_id, base_url, cwd, receiver));
+    tauri::async_runtime::spawn(subscriber::run(svc, tab_id, base_url, cwd, receiver, live));
 }
 
-/// One shared capability-gated chokepoint for EVERY agent spawn path (REST
-/// `spawn_agent`, desktop/CLI `spawn_tab_atomic`, restart). For a provider whose
-/// `needs_structured_prompt_server()` capability is true it, in this exact order:
-/// capability gate → allocate a loopback port → register the tab endpoint →
-/// start the SSE subscriber → return the server to thread into the launch command
-/// (so the agent binds its bus there). The subscriber MUST start here, not just
-/// the endpoint (C2). Returns `None` when the provider doesn't need a server OR
-/// allocation failed — an HONEST degraded result: the caller proceeds PTY-only and
-/// never fakes server mode. No provider-id branch — capability is the only gate.
-///
-/// Stale/orphan safety (C5/C6): per-tab state is dropped by [`clear_tab`] on
-/// tab close (`service::tab`) and agent exit (`service::output`), so a restart
-/// (same tab_id) re-allocates a FRESH port here rather than reusing a dead one.
-/// If allocation succeeds but no launch follows, the registered endpoint is inert
-/// (the subscriber just retries then gives up) and is reaped by the next
-/// `clear_tab`; no live resource leaks (the port listener is released immediately).
+/// Allocate and subscribe to the tab's server when the provider declares that capability.
 pub fn ensure_for_spawn(
     svc: &ServiceContext,
     agent_cmd: &str,
@@ -187,14 +178,70 @@ pub fn ensure_for_spawn(
 /// Answer a pending structured prompt over HTTP. Returns `Some(result)` when the
 /// tab has a structured route (the PTY send-back must then be skipped), or
 /// `None` when there is no structured handle (caller falls back to PTY).
-pub fn respond(_svc: &ServiceContext, tab_id: &str, value: &str) -> Option<Result<(), String>> {
-    let route = route_for_tab(tab_id)?;
-    let base_url = ENDPOINTS.lock().get(tab_id).map(|e| e.base_url.clone())?;
-    let result = send_reply(&base_url, &route, value);
-    if result.is_ok() {
-        ACTIVE.lock().remove(tab_id);
+pub(crate) enum StructuredResponse {
+    Advanced,
+    Answered { option_index: usize },
+}
+
+pub(crate) fn respond(
+    svc: &ServiceContext,
+    tab_id: &str,
+    value: &str,
+) -> Option<Result<StructuredResponse, String>> {
+    let mut active = ACTIVE.lock();
+    let entry = active.get_mut(tab_id)?;
+    if entry.in_flight {
+        return Some(Err("structured reply already in flight".into()));
     }
-    Some(result)
+    let decision = match questions::answer(&entry.route, value) {
+        Some(decision) => decision,
+        None => return Some(Err("invalid structured answer".into())),
+    };
+    let (body, option_index) = match decision {
+        questions::Answer::Next { route, prompt } => {
+            entry.route = route;
+            entry.prompt = prompt.clone();
+            drop(active);
+            svc.push_structured_prompt(tab_id, Some(prompt));
+            return Some(Ok(StructuredResponse::Advanced));
+        }
+        questions::Answer::Complete { body, option_index } => (body, option_index),
+    };
+    let route = entry.route.clone();
+    entry.in_flight = true;
+    drop(active);
+    let Some((base_url, cwd)) = endpoint_for_tab(tab_id) else {
+        if let Some(entry) = ACTIVE.lock().get_mut(tab_id) {
+            entry.in_flight = false;
+        }
+        return Some(Err("structured endpoint disappeared".into()));
+    };
+    let result = send_reply(&base_url, &cwd, &route, &body);
+    let mut active = ACTIVE.lock();
+    let unchanged = active.get(tab_id).is_some_and(|entry| entry.route == route);
+    if unchanged {
+        if result.is_ok() {
+            active.remove(tab_id);
+        } else if let Some(entry) = active.get_mut(tab_id) {
+            entry.in_flight = false;
+        }
+    }
+    drop(active);
+    if unchanged && result.is_ok() {
+        svc.push_structured_prompt(tab_id, promote_prompt(tab_id));
+    }
+    if result.is_ok() {
+        request_reconcile(tab_id);
+    }
+    Some(result.map(|()| StructuredResponse::Answered { option_index }))
+}
+
+fn request_reconcile(tab_id: &str) {
+    if let Some(signal) = SUBSCRIBED.lock().get(tab_id) {
+        signal
+            .signal
+            .send_modify(|wake| wake.snapshot = wake.snapshot.wrapping_add(1));
+    }
 }
 
 pub fn abort_session(
@@ -225,8 +272,12 @@ fn abort_session_request(url: &str) -> Result<(), String> {
     }
 }
 
-fn send_reply(base_url: &str, route: &ResponseRoute, value: &str) -> Result<(), String> {
-    let body = reply_body(route, value).ok_or_else(|| "option index out of range".to_string())?;
+fn send_reply(
+    base_url: &str,
+    cwd: &str,
+    route: &ResponseRoute,
+    body: &serde_json::Value,
+) -> Result<(), String> {
     let url = format!("{base_url}{}", reply_endpoint(route));
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -234,7 +285,8 @@ fn send_reply(base_url: &str, route: &ResponseRoute, value: &str) -> Result<(), 
         .map_err(|e| e.to_string())?;
     let resp = client
         .post(&url)
-        .json(&body)
+        .query(&[("directory", cwd)])
+        .json(body)
         .send()
         .map_err(|e| e.to_string())?;
     if resp.status().is_success() {
@@ -246,7 +298,9 @@ fn send_reply(base_url: &str, route: &ResponseRoute, value: &str) -> Result<(), 
 
 pub(crate) fn wake_for_tab(tab_id: &str) {
     if let Some(signal) = SUBSCRIBED.lock().get(tab_id) {
-        signal.send_modify(|revision| *revision = revision.wrapping_add(1));
+        signal
+            .signal
+            .send_modify(|wake| wake.output = wake.output.wrapping_add(1));
     }
 }
 
@@ -257,6 +311,38 @@ fn handle_event(
     chat_state: &mut ChatStreamState,
 ) {
     match parse_event(value) {
+        ParsedEvent::SessionUpdate { session_id, kind } => {
+            if !owns_session(svc, tab_id, &session_id) {
+                return;
+            }
+            let nonce = svc
+                .mux
+                .read()
+                .get_tab(tab_id)
+                .and_then(|tab| tab.session_binding_nonce.clone());
+            crate::service::tab_chat::structured_sink::emit_chat_msgs(
+                &svc.app_handle,
+                tab_id,
+                &[session_events::message(&session_id, &kind)],
+                None,
+                Some(&session_id),
+                nonce.as_deref(),
+            );
+            match kind {
+                opencode_sse::SessionUpdate::Compacted => request_reconcile(tab_id),
+                opencode_sse::SessionUpdate::Error { .. } => {
+                    crate::agent::state_verdict::observe_declared_event(
+                        svc,
+                        tab_id,
+                        &session_id,
+                        "session.error",
+                    );
+                    svc.on_agent_turn_settled(tab_id);
+                    request_reconcile(tab_id);
+                }
+                opencode_sse::SessionUpdate::Todos { .. } => {}
+            }
+        }
         ParsedEvent::MessageUpdated { message } => {
             if chat_binding(svc, tab_id, &message.session_id).is_some() {
                 chat_state.record_message(message);
@@ -269,19 +355,41 @@ fn handle_event(
             if !owns_session(svc, tab_id, &route.session_id) {
                 return;
             }
-            ACTIVE.lock().insert(
-                tab_id.to_string(),
-                Active {
-                    prompt: prompt.clone(),
-                    route,
-                },
-            );
+            let mut active = ACTIVE.lock();
+            let mut queued = QUEUED.lock();
+            let duplicate = active
+                .get(tab_id)
+                .is_some_and(|entry| entry.route.request_id == route.request_id)
+                || queued.get(tab_id).is_some_and(|entries| {
+                    entries
+                        .iter()
+                        .any(|entry| entry.route.request_id == route.request_id)
+                });
+            if duplicate {
+                return;
+            }
+            let entry = Active {
+                prompt: prompt.clone(),
+                route,
+                in_flight: false,
+            };
+            if active.contains_key(tab_id) {
+                queued.entry(tab_id.into()).or_default().push(entry);
+                return;
+            }
+            active.insert(tab_id.into(), entry);
+            drop(queued);
+            drop(active);
             svc.push_structured_prompt(tab_id, Some(prompt));
         }
         ParsedEvent::Replied { request_id } => {
             let cleared = clear_request(&mut ACTIVE.lock(), tab_id, &request_id);
+            if let Some(queued) = QUEUED.lock().get_mut(tab_id) {
+                queued.retain(|entry| entry.route.request_id != request_id);
+            }
             if cleared {
-                svc.push_structured_prompt(tab_id, None);
+                svc.push_structured_prompt(tab_id, promote_prompt(tab_id));
+                request_reconcile(tab_id);
             }
         }
         // The bus already carries the provider's own turn state; what it
@@ -466,4 +574,20 @@ fn owns_session(svc: &ServiceContext, tab_id: &str, session_id: &str) -> bool {
         .read()
         .get_tab(tab_id)
         .is_some_and(|tab| tab.agent_session_id.as_deref() == Some(session_id))
+}
+
+fn promote_prompt(tab_id: &str) -> Option<PendingPrompt> {
+    let mut active = ACTIVE.lock();
+    if let Some(entry) = active.get(tab_id) {
+        return Some(entry.prompt.clone());
+    }
+    let mut queued = QUEUED.lock();
+    let entries = queued.get_mut(tab_id)?;
+    if entries.is_empty() {
+        return None;
+    }
+    let next = entries.remove(0);
+    let prompt = next.prompt.clone();
+    active.insert(tab_id.into(), next);
+    Some(prompt)
 }

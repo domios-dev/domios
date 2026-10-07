@@ -24,6 +24,7 @@ import {
   tabAsksEqual,
 } from "../../store/multiplexer/selectors";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
+import { getAgentDescriptor } from "../../lib/agentDescriptorCache";
 import { formatModelBadge } from "../../lib/formatModelBadge";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { usePlanTargetNavigation } from "../Canvas/teamViewNavigation";
@@ -184,6 +185,7 @@ export function TabSessionChat({
   const watcherSpec = tab?.watcher ?? null;
   const isWatcherTab = watcherSpec != null;
   const pendingPrompt: PendingPrompt | null = tab?.pending_prompt ?? null;
+  const structuredPrompts = getAgentDescriptor(tabProvider)?.supports_structured_prompts === true;
   const autoConfirmations = autoConfirmationsForSession(tab?.permission_auto_confirmations, agentSessionId);
   const isActive = isVisible;
   const resolvePeerName = useMeshPeerNameResolver(isActive);
@@ -285,20 +287,24 @@ export function TabSessionChat({
   useEffect(() => {
     if (!sessionBindingSurface.showRecoveryAction) setBindingRecoveryOpen(false);
   }, [sessionBindingSurface.showRecoveryAction]);
-  const activePrompt = pendingPrompt && pendingPrompt.question !== answeredPromptQuestion ? pendingPrompt : null;
-  const inlinePrompt = effectiveChatBackend ? activePrompt : null;
+  const activePrompt = pendingPrompt && (structuredPrompts || pendingPrompt.question !== answeredPromptQuestion) ? pendingPrompt : null;
+  const inlinePrompt = effectiveChatBackend || structuredPrompts ? activePrompt : null;
 
   useEffect(() => {
     if (!pendingPrompt) setAnsweredPromptQuestion(null);
   }, [pendingPrompt]);
 
+  const promptResponseInFlight = useRef(false);
   const handleRespondPrompt = useCallback(
     (value: string) => {
-      if (pendingPrompt) setAnsweredPromptQuestion(pendingPrompt.question);
+      if (promptResponseInFlight.current) return;
+      promptResponseInFlight.current = true;
+      if (pendingPrompt && !structuredPrompts) setAnsweredPromptQuestion(pendingPrompt.question);
       void invoke("mux_respond_prompt", { tabId, value })
-        .catch((e) => showComposerError(e instanceof Error ? e.message : String(e)));
+        .catch((e) => showComposerError(e instanceof Error ? e.message : String(e)))
+        .finally(() => { promptResponseInFlight.current = false; });
     },
-    [pendingPrompt, tabId, showComposerError],
+    [pendingPrompt, structuredPrompts, tabId, showComposerError],
   );
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useCallback((command: string) => {
