@@ -629,6 +629,47 @@ mod tests {
     }
 
     #[test]
+    fn latched_composer_evidence_submits_one_payload_without_another_observer() {
+        let (mut state, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+        let spec = FallbackDeliverySpec {
+            channel: PendingDeliveryChannel::InteractiveInput,
+            payload: "opaque-whole-worker-brief".into(),
+        };
+        state.get_tab_mut(&tab_id).unwrap().pending_delivery = Some(pending_record_for_spec(spec));
+        let mux = Arc::new(TimedRwLock::new("latched-composer", state));
+        let sink = RecordingSink::default();
+        let mut gate = LaunchDeliveryGate::new();
+        gate.mark_provider_ready();
+        let mut writes = 0;
+        for expected in [
+            LaunchConsumptionOutcome::Confirmed,
+            LaunchConsumptionOutcome::AlreadyConfirmed,
+        ] {
+            let receipt = gate
+                .consume_injection_with_readiness(
+                    &mux,
+                    &tab_id,
+                    &sink,
+                    Some(LaunchInputEvidence::ProviderComposer),
+                    || {
+                        writes += 1;
+                        Ok(InjectionResult {
+                            bytes_written: 24,
+                            echo_observed: true,
+                            submit_observed: true,
+                            submit_anomaly: false,
+                            submit_key_writes: 1,
+                            elapsed: Duration::ZERO,
+                        })
+                    },
+                )
+                .unwrap();
+            assert_eq!(receipt.outcome, expected);
+        }
+        assert_eq!(writes, 1);
+    }
+
+    #[test]
     fn delivery_prefers_system_prompt_when_declared() {
         assert_eq!(
             mode_for_descriptor(&SystemPromptDelivery::CliFlag("--system".into())),

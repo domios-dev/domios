@@ -963,7 +963,6 @@ pub(crate) fn launch_agent_in_background_with_env(
                 &agent_cmd,
                 &readiness_attempt,
                 session_starts_on_first_turn,
-                startup_binding_deadline,
                 input_readiness_timeout,
                 provider_readiness,
                 composer_cursor_position,
@@ -1033,27 +1032,26 @@ pub(crate) fn launch_agent_in_background_with_env(
                     )
                 })
                 .flatten();
-            let launch_input_readiness = match svc.await_launch_input_readiness(
-                &readiness_attempt,
-                &agent_cmd,
-                std::time::Duration::ZERO,
-            ) {
-                Ok(readiness) => readiness,
-                Err(refusal) => {
-                    let failure = LaunchFailure::ProviderInputNotReady(refusal.reason());
-                    launch.fail(&svc, failure.clone());
-                    set_booting(false);
-                    if let Some(tx) = ready_tx {
-                        let _ = tx.send(Err(failure.reason()));
-                    }
-                    return;
+            if crate::service::launch_readiness::LaunchAttempt::current(&svc.mux, &tab_id, &pty_id)
+                .as_ref()
+                != Some(&readiness_attempt)
+            {
+                let failure = LaunchFailure::ProviderInputNotReady(
+                    crate::service::launch_input_gate::LaunchInputRefusal::AttemptSuperseded
+                        .reason(),
+                );
+                launch.fail(&svc, failure.clone());
+                set_booting(false);
+                if let Some(tx) = ready_tx {
+                    let _ = tx.send(Err(failure.reason()));
                 }
-            };
+                return;
+            }
             let consumption = delivery_gate.consume_injection_with_readiness(
                 &svc.mux,
                 &tab_id,
                 &svc,
-                Some(launch_input_readiness),
+                launch_input_readiness,
                 || {
                     crate::service::pty_io::submit_transaction::submit_text_with_key_claimed_and_frame(
                         &svc,
