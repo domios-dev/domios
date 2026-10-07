@@ -81,22 +81,6 @@ function withLaunchEnv(command: string, p: LaunchParams): string {
   return `${exports.join(" ")} ${command}`;
 }
 
-/**
- * Resolve the API key through the host secret store and inject it into the
- * launch environment. The value never appears in the command text, argv, logs
- * or scrollback — it is only present in the spawned process's environment.
- */
-function resolveApiKeyEnv(p: LaunchParams): Record<string, string> {
-  const apiKeySecret = typeof p.apiKeySecret === "string" && p.apiKeySecret ? p.apiKeySecret : null;
-  if (!apiKeySecret) return {};
-  try {
-    const value = host.secretGet(apiKeySecret);
-    return value ? { OPENAI_API_KEY: String(value) } : {};
-  } catch (_) {
-    return {};
-  }
-}
-
 
 function starterPrompt(params: LaunchParams): string | undefined {
   if (params.starterPromptText) return params.starterPromptText;
@@ -273,10 +257,6 @@ const plugin: PluginModule = {
       parts.push("--message", host.shell.quoteFor(prompt, host.platform()));
     }
     return withLaunchEnv(parts.join(" "), p);
-  },
-
-  launchEnv(params: LaunchParams): Record<string, string> {
-    return resolveApiKeyEnv(params || {});
   },
 
 
