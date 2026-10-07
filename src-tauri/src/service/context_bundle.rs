@@ -130,7 +130,10 @@ pub(crate) fn prepare(
     if detail.plan_id != authority.plan_id {
         return Err("task context plan does not match attempt".into());
     }
-    let manifest = params.plan_skill_manifest.as_deref().unwrap_or_default();
+    let manifest = params
+        .plan_skill_manifest
+        .as_deref()
+        .ok_or("task context requires the captured attempt skill manifest")?;
     validate_support(&detail.task.files, !manifest.is_empty(), capability)?;
     let files = resolve_files(
         Path::new(
