@@ -48,9 +48,13 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
                     let read = sidecar.client.request("thread/read", json!({"threadId":candidate,"includeTurns":false})).await;
                     if let Ok(read) = read {
                         if verified_user_thread(&candidate, &read) {
-                            let resumed = sidecar.client.request("thread/resume", json!({"threadId":candidate,"excludeTurns":true})).await;
+                            let mut settings = sidecar.thread_settings.clone();
+                            settings["threadId"] = json!(candidate);
+                            settings["excludeTurns"] = json!(true);
+                            let resumed = sidecar.client.request("thread/resume", settings).await;
                             if resumed.is_ok() {
                                 *sidecar.thread.lock() = candidate.clone();
+                                sidecar.busy.store(method == "turn/started", Ordering::Release);
                                 super::lifecycle::bind(&svc, &tab, candidate.clone());
                                 sidecar.client.release_thread(&candidate);
                                 sidecar.verified.store(true, Ordering::Release);

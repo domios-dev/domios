@@ -19,6 +19,7 @@ pub struct Sidecar {
     pub busy: std::sync::atomic::AtomicBool,
     pub auth: Mutex<super::auth::AuthState>,
     token: String,
+    pub thread_settings: Value,
     pub process: Process,
 }
 
@@ -98,7 +99,17 @@ pub async fn ensure_for_spawn(
         .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(1)))
         .clone();
     let _permit = gate.acquire().await.map_err(|error| error.to_string())?;
+    let previous = for_tab(tab);
     clear_tab(tab);
+    if let Some(previous) = previous {
+        let mut death = previous.process.death.clone();
+        if !*death.borrow() {
+            tokio::time::timeout(std::time::Duration::from_secs(5), death.changed())
+                .await
+                .map_err(|_| "Previous sidecar termination deadline")?
+                .map_err(|_| "Previous sidecar termination channel closed")?;
+        }
+    }
     let (cap, binary) = svc
         .agent_registry
         .with_provider(&spawn.provider, |provider| {
@@ -133,7 +144,13 @@ pub async fn ensure_for_spawn(
     let marker_file = root.join(format!("{generation}.json"));
     let token = token_for_tab(tab);
     write_token(&token_file, &token)?;
+    let mut artifacts = Artifacts {
+        token: token_file.clone(),
+        marker: marker_file.clone(),
+        committed: false,
+    };
     let mut env = svc.tab_env(tab);
+    let launch_nonce = env.get("CODETERM_SESSION_BINDING_NONCE").cloned();
     env.extend(
         svc.model_provider_launch_env(&spawn.provider)
             .map_err(|error| error.to_string())?,
@@ -200,6 +217,15 @@ pub async fn ensure_for_spawn(
         .await
         .map(|response| super::auth::account_state(&response))
         .unwrap_or_default();
+    if !svc
+        .mux
+        .read()
+        .get_tab(tab)
+        .is_some_and(|tab| tab.session_binding_nonce == launch_nonce)
+    {
+        client.close("Tab launch superseded");
+        return Err("Tab launch superseded while sidecar was starting".into());
+    }
     let sidecar = Arc::new(Sidecar {
         auth: Mutex::new(auth),
         busy: std::sync::atomic::AtomicBool::new(false),
@@ -210,6 +236,7 @@ pub async fn ensure_for_spawn(
         thread: Mutex::new(thread.clone()),
         verified: std::sync::atomic::AtomicBool::new(true),
         token,
+        thread_settings: params,
         process,
     });
     crate::service::structured_endpoint::register(
@@ -219,7 +246,22 @@ pub async fn ensure_for_spawn(
     bind(svc, tab, thread);
     super::subscriber::start(svc.clone(), tab.into(), &sidecar);
     crate::service::launch_diagnostics::log_rpc_sidecar(tab);
+    artifacts.committed = true;
     Ok(sidecar)
+}
+
+struct Artifacts {
+    token: std::path::PathBuf,
+    marker: std::path::PathBuf,
+    committed: bool,
+}
+impl Drop for Artifacts {
+    fn drop(&mut self) {
+        if !self.committed {
+            let _ = std::fs::remove_file(&self.token);
+            let _ = std::fs::remove_file(&self.marker);
+        }
+    }
 }
 
 pub fn bind(svc: &ServiceContext, tab_id: &str, thread: String) {
@@ -296,6 +338,21 @@ mod tests {
         write_token(&file, &a).unwrap();
         assert!(write_token(&file, "replacement").is_err());
         assert_eq!(std::fs::read_to_string(file).unwrap(), a);
+    }
+    #[test]
+    fn codex_rpc_lifecycle_failed_start_removes_private_artifacts() {
+        let dir = tempfile::tempdir().unwrap();
+        let token = dir.path().join("owned.token");
+        let marker = dir.path().join("owned.json");
+        std::fs::write(&token, "opaque").unwrap();
+        std::fs::write(&marker, "{}").unwrap();
+        drop(Artifacts {
+            token: token.clone(),
+            marker: marker.clone(),
+            committed: false,
+        });
+        assert!(!token.exists());
+        assert!(!marker.exists());
     }
     #[test]
     fn codex_rpc_restore_unarchive_matches_only_archived_errors() {

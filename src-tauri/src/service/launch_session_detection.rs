@@ -452,7 +452,9 @@ pub(crate) fn marked_launch_command_for_tab(
     cwd: &str,
     params: &mut crate::agent::provider::AgentLaunchParams,
 ) -> Option<String> {
-    if super::codex_rpc::launch::requested(svc, provider_id) {
+    if super::codex_rpc::launch::requested(svc, provider_id)
+        && params.args.as_ref().is_none_or(|args| args.is_empty())
+    {
         let instructions = svc
             .agent_registry
             .with_provider(provider_id, |provider| {
