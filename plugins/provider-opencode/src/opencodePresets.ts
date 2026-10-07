@@ -17,6 +17,21 @@ function isOwned(value: unknown): boolean {
   return isRecord(value) && value["x-domios"] === true;
 }
 
+export function readDomiosPresets(config: unknown): DomiosPreset[] {
+  if (!isRecord(config) || (config.agent !== undefined && !isRecord(config.agent))) throw new Error("Invalid agent config");
+  return Object.entries(config.agent ?? {}).flatMap(([name, entry]) => {
+    if (!isRecord(entry) || !isOwned(entry)) return [];
+    if (typeof entry.model !== "string" || typeof entry.prompt !== "string") throw new Error("Invalid owned preset");
+    if (["temperature", "top_p", "steps"].some((key) => entry[key] !== undefined &&
+      (typeof entry[key] !== "number" || !Number.isFinite(entry[key])))) throw new Error("Invalid owned preset params");
+    return [{ name, model: entry.model, prompt: entry.prompt, params: {
+      ...(typeof entry.temperature === "number" ? { temperature: entry.temperature } : {}),
+      ...(typeof entry.top_p === "number" ? { top_p: entry.top_p } : {}),
+      ...(typeof entry.steps === "number" ? { steps: entry.steps } : {}),
+    } }];
+  });
+}
+
 export function applyDomiosPresets(
   config: unknown,
   presets: DomiosPreset[],

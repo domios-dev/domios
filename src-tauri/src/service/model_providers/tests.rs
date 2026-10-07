@@ -9,6 +9,22 @@ struct Adapter {
 }
 
 impl ModelProviderConfig for Adapter {
+    fn read_presets(
+        &self,
+        config: &Value,
+    ) -> Result<Vec<codeterm_plugin::model_providers::ModelPreset>, String> {
+        self.inner.read_presets(config)
+    }
+    fn apply_presets(
+        &self,
+        config: &Value,
+        presets: &[codeterm_plugin::model_providers::ModelPreset],
+    ) -> Result<ConfigUpdate, String> {
+        self.inner.apply_presets(config, presets)
+    }
+    fn preset_launch_args(&self, name: &str) -> Result<Vec<String>, String> {
+        self.inner.preset_launch_args(name)
+    }
     fn path(&self) -> Result<PathBuf, String> {
         Ok(self.path.clone())
     }
@@ -24,6 +40,137 @@ impl ModelProviderConfig for Adapter {
     }
     fn key_env_name(&self, id: &str) -> Result<String, String> {
         self.inner.key_env_name(id)
+    }
+}
+
+#[test]
+fn model_provider_preset_owned_roundtrip_foreign_entries_and_launch_resolution() {
+    use codeterm_plugin::model_providers::{ModelPreset, PresetParams};
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = adapter(dir.path().join("config.json"));
+    let store = store();
+    let foreign = json!({"agent":{"foreign":{"model":"foreign/model","prompt":"opaque"}},"provider":{"foreign":{"npm":"foreign"}}});
+    std::fs::write(&adapter.path, serde_json::to_vec(&foreign).unwrap()).unwrap();
+    let preset = ModelPreset {
+        name: "demo".into(),
+        model: "endpoint/model".into(),
+        prompt: "opaque-prompt".into(),
+        params: PresetParams {
+            temperature: Some(0.2),
+            top_p: Some(0.8),
+            steps: Some(12),
+        },
+    };
+    execute(
+        &store,
+        "fixture",
+        &adapter,
+        ModelProviderRequest::PresetAdd {
+            preset: preset.clone(),
+        },
+    )
+    .unwrap();
+    let listed = execute(
+        &store,
+        "fixture",
+        &adapter,
+        ModelProviderRequest::PresetList,
+    )
+    .unwrap();
+    assert_eq!(listed["presets"], json!([preset]));
+    assert_eq!(
+        read_config(&adapter.path).unwrap()["provider"],
+        foreign["provider"]
+    );
+    assert_eq!(
+        presets::resolve(&adapter, "demo", None, &[]).unwrap(),
+        (
+            "endpoint/model".into(),
+            vec!["--agent".into(), "demo".into()]
+        )
+    );
+    assert_eq!(
+        presets::resolve(&adapter, "demo", Some("other/model"), &[]).unwrap_err(),
+        ModelProviderError::Conflict
+    );
+    assert_eq!(
+        presets::resolve(&adapter, "demo", None, &["--agent=foreign".into()]).unwrap_err(),
+        ModelProviderError::Conflict
+    );
+    let bytes = std::fs::read(&adapter.path).unwrap();
+    let mut collision = preset.clone();
+    collision.name = "foreign".into();
+    assert_eq!(
+        execute(
+            &store,
+            "fixture",
+            &adapter,
+            ModelProviderRequest::PresetAdd { preset: collision }
+        )
+        .unwrap_err(),
+        ModelProviderError::Conflict
+    );
+    assert_eq!(
+        execute(
+            &store,
+            "fixture",
+            &adapter,
+            ModelProviderRequest::PresetRemove {
+                name: "foreign".into()
+            }
+        )
+        .unwrap_err(),
+        ModelProviderError::NotFound
+    );
+    assert_eq!(std::fs::read(&adapter.path).unwrap(), bytes);
+    execute(
+        &store,
+        "fixture",
+        &adapter,
+        ModelProviderRequest::PresetRemove {
+            name: "demo".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(read_config(&adapter.path).unwrap(), foreign);
+}
+
+#[test]
+fn model_provider_preset_invalid_params_do_not_write_config() {
+    use codeterm_plugin::model_providers::{ModelPreset, PresetParams};
+    let dir = tempfile::tempdir().unwrap();
+    let adapter = adapter(dir.path().join("config.json"));
+    for params in [
+        PresetParams {
+            temperature: Some(f64::NAN),
+            ..Default::default()
+        },
+        PresetParams {
+            top_p: Some(2.0),
+            ..Default::default()
+        },
+        PresetParams {
+            steps: Some(0),
+            ..Default::default()
+        },
+    ] {
+        let preset = ModelPreset {
+            name: "demo".into(),
+            model: "endpoint/model".into(),
+            prompt: "opaque".into(),
+            params,
+        };
+        assert_eq!(
+            execute(
+                &store(),
+                "fixture",
+                &adapter,
+                ModelProviderRequest::PresetAdd { preset }
+            )
+            .unwrap_err(),
+            ModelProviderError::InvalidRequest
+        );
+        assert!(!adapter.path.exists());
     }
 }
 

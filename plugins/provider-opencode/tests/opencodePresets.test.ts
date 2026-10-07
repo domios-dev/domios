@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { applyDomiosPresets, type DomiosPreset } from "../src/opencodePresets";
+import { applyDomiosPresets, readDomiosPresets, type DomiosPreset } from "../src/opencodePresets";
 
 const preset: DomiosPreset = {
   name: "demo",
@@ -51,4 +51,9 @@ const agents = (prototypeName.config as { agent: Record<string, unknown> }).agen
 assert.equal(Object.prototype.hasOwnProperty.call(agents, "__proto__"), true);
 assert.equal(Object.getPrototypeOf(agents), Object.prototype);
 assert.equal(applyDomiosPresets({}, []).changed, false);
-console.log("10 preset writer checks passed");
+assert.deepEqual(readDomiosPresets(added.config), [preset]);
+assert.deepEqual(readDomiosPresets(initial), []);
+assert.throws(() => readDomiosPresets({ agent: [] }));
+assert.throws(() => readDomiosPresets({ agent: { demo: { "x-domios": true, model: "m" } } }));
+assert.throws(() => readDomiosPresets({ agent: { demo: { "x-domios": true, model: "m", prompt: "p", steps: "12" } } }));
+console.log("15 preset writer checks passed");
