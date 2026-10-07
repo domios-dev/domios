@@ -18,6 +18,7 @@ Two shapes, and picking the wrong one is what costs hours.
 A per-task Rust test-profile change uses `.\build.ps1 check-tests`, which
 compiles all test targets in both the app and CLI workspaces without running
 them. A following `test-one app` or `test-one cli` reuses those artifacts.
+It runs outside the build gateway and refuses `--wait-build`.
 `.\build.ps1 check` does not compile `#[cfg(test)]` code, so a green `check`
 alone does not cover test-only Rust changes.
 
