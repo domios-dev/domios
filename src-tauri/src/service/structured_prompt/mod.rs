@@ -86,7 +86,8 @@ fn endpoint_for_tab(tab_id: &str) -> Option<(String, String)> {
 /// The live structured prompt for a tab, if one is pending. Cheap in-memory
 /// read on the hot path.
 pub fn pending_for_tab(tab_id: &str) -> Option<PendingPrompt> {
-    ACTIVE.lock().get(tab_id).map(|a| a.prompt.clone())
+    crate::service::codex_rpc::approvals::pending(tab_id)
+        .or_else(|| ACTIVE.lock().get(tab_id).map(|a| a.prompt.clone()))
 }
 
 fn route_for_tab(tab_id: &str) -> Option<ResponseRoute> {
@@ -181,6 +182,9 @@ pub(crate) fn respond(
     tab_id: &str,
     value: &str,
 ) -> Option<Result<StructuredResponse, String>> {
+    if let Some(result) = crate::service::codex_rpc::approvals::respond(svc, tab_id, value) {
+        return Some(result);
+    }
     let mut active = ACTIVE.lock();
     let entry = active.get_mut(tab_id)?;
     if entry.in_flight {

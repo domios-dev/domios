@@ -9,6 +9,8 @@ pub struct Diagnostics {
     pub thread_id: String,
     pub selection_verified: bool,
     pub active_turn: bool,
+    pub transcript_source: &'static str,
+    pub jsonl_tailer: bool,
     pub auth: super::auth::AuthState,
 }
 
@@ -23,6 +25,8 @@ pub fn for_tab(tab: &str) -> Option<Diagnostics> {
         thread_id,
         selection_verified: sidecar.verified.load(Ordering::Acquire),
         active_turn: sidecar.busy.load(Ordering::Acquire),
+        transcript_source: "app-server",
+        jsonl_tailer: false,
         auth,
     })
 }
