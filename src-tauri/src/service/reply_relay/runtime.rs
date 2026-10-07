@@ -284,6 +284,9 @@ impl ServiceContext {
     pub(crate) fn activate_bound_reply_relays(&self, target: &str) {
         let binding = self.current_reply_relay_binding(target);
         let Some(binding) = binding else { return };
+        if let Err(error) = self.reply_relays.ensure(self, target, binding.clone()) {
+            log::warn!("[reply-relay] target={target} binding observer failed: {error}");
+        }
         let pending = self
             .reply_relays
             .staged

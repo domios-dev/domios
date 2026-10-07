@@ -757,6 +757,20 @@ impl ServiceContext {
         tab_id: &str,
         attempt_id: &str,
     ) -> Result<(), String> {
+        let provider = self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .and_then(|tab| tab.agent_type.clone());
+        if provider
+            .and_then(|provider| {
+                self.agent_registry
+                    .with_provider(&provider, |provider| provider.is_tool_less())
+            })
+            .unwrap_or(false)
+        {
+            return Ok(());
+        }
         self.gateway
             .submit(self, worker_ack_reminder_message(tab_id, attempt_id))
             .map(|_| ())

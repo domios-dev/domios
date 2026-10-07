@@ -23,6 +23,15 @@ pub fn validate_worker_lifecycle_capabilities(
     }
 }
 
+pub(super) fn host_startup_ack_eligible(
+    tool_less: bool,
+    supported: bool,
+    fresh_session: bool,
+    exact_first_user: bool,
+) -> bool {
+    tool_less && supported && fresh_session && exact_first_user
+}
+
 pub fn worker_ack_evidence_eligible(
     tool_less: bool,
     pending: &PendingReplyRelay,
@@ -95,15 +104,27 @@ impl WorkerTurnState {
         source: RelaySource<'_>,
         evidence: Option<&ReplyRelayEvidence>,
     ) -> Option<WorkerTurnReport> {
+        let (evidence, status) =
+            super::report_marker::prepare_completed_reply(pending, source, evidence);
+        self.observe_prepared_completion(pending, source, evidence.as_ref(), status)
+    }
+
+    pub(super) fn observe_prepared_completion(
+        &mut self,
+        pending: &PendingReplyRelay,
+        source: RelaySource<'_>,
+        evidence: Option<&ReplyRelayEvidence>,
+        report_status: Option<ReportStatus>,
+    ) -> Option<WorkerTurnReport> {
         let task = pending.task.as_ref()?;
         if !matches_source(pending, source) || self.unavailable {
             return None;
         }
         let evidence = evidence.filter(|evidence| evidence.is_valid())?;
         let (start, text, id, report) = match evidence {
-            ReplyRelayEvidence::Answered(turn) => (Some(turn.user_record_start), Some(turn.user_text.as_str()), Some(turn.user_turn_id.as_str()), WorkerTurnReport {status: ReportStatus::InReview, body: turn.answer.clone(), incident: false}),
-            ReplyRelayEvidence::Ended(turn) => (Some(turn.user_record_start), Some(turn.user_text.as_str()), Some(turn.user_turn_id.as_str()), WorkerTurnReport {status: ReportStatus::Blocked, body: format!("Worker turn ended: {}", turn.outcome.as_str()), incident: false}),
-            ReplyRelayEvidence::Unavailable(state) => (None, None, None, WorkerTurnReport {status: ReportStatus::Blocked, body: format!("Coordination incident: reply relay is unavailable for this Worker session: {}", state.reason), incident: true}),
+            ReplyRelayEvidence::Answered(turn) => (Some(turn.user_record_start), Some(turn.user_text.as_str()), Some(turn.user_turn_id.as_str()), report_status.map(|status| WorkerTurnReport {status, body: turn.answer.clone(), incident: false})),
+            ReplyRelayEvidence::Ended(turn) => (Some(turn.user_record_start), Some(turn.user_text.as_str()), Some(turn.user_turn_id.as_str()), Some(WorkerTurnReport {status: ReportStatus::Blocked, body: format!("Worker turn ended: {}", turn.outcome.as_str()), incident: false})),
+            ReplyRelayEvidence::Unavailable(state) => (None, None, None, Some(WorkerTurnReport {status: ReportStatus::Blocked, body: format!("Coordination incident: reply relay is unavailable for this Worker session: {}", state.reason), incident: true})),
         };
         if let Some(start) = start {
             if !matches_user_turn(pending, id?, start, text?)
@@ -123,7 +144,7 @@ impl WorkerTurnState {
         if self.unavailable {
             self.pending.clear();
         }
-        Some(report)
+        report
     }
 }
 
