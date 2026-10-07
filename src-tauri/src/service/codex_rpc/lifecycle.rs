@@ -173,12 +173,54 @@ pub struct Spawn {
     pub full_access: bool,
 }
 
+fn reuse_error(
+    live: bool,
+    requested_thread: Option<&str>,
+    bound_thread: &str,
+) -> Option<&'static str> {
+    if !live {
+        return Some("Existing sidecar exited; explicit restart required");
+    }
+    if requested_thread.is_some_and(|thread| thread != bound_thread) {
+        return Some("Existing sidecar owns another thread; explicit restart required");
+    }
+    None
+}
+
+fn reusable_sidecar(sidecar: Arc<Sidecar>, spawn: &Spawn) -> Result<Arc<Sidecar>, String> {
+    let error = reuse_error(
+        !*sidecar.process.death.borrow(),
+        spawn.resume.as_deref(),
+        &sidecar.thread.lock(),
+    );
+    if let Some(error) = error {
+        return Err(error.into());
+    }
+    Ok(sidecar)
+}
+
+#[cfg(test)]
+mod reuse_tests {
+    use super::reuse_error;
+
+    #[test]
+    fn codex_rpc_control_concurrent_recovery_reuses_live_server_without_replacement() {
+        assert_eq!(reuse_error(true, None, "own"), None);
+        assert_eq!(reuse_error(true, Some("own"), "own"), None);
+        assert!(reuse_error(true, Some("other"), "own").is_some());
+        assert!(reuse_error(false, Some("own"), "own").is_some());
+    }
+}
+
 pub async fn ensure_for_spawn(
     svc: &ServiceContext,
     tab: &str,
     spawn: Spawn,
 ) -> Result<Arc<Sidecar>, String> {
     let original_spawn = spawn.clone();
+    if let Some(existing) = for_tab(tab) {
+        return reusable_sidecar(existing, &spawn);
+    }
     super::delivery::begin(tab, &svc.ensure_session_binding_nonce(tab));
     let gate = STARTING
         .lock()
@@ -186,20 +228,11 @@ pub async fn ensure_for_spawn(
         .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(1)))
         .clone();
     let _permit = gate.acquire().await.map_err(|error| error.to_string())?;
-    let previous = for_tab(tab);
-    stop_tab(tab);
-    super::delivery::begin(tab, &svc.ensure_session_binding_nonce(tab));
+    if let Some(existing) = for_tab(tab) {
+        return reusable_sidecar(existing, &spawn);
+    }
     if let Some(tab) = svc.mux.write().get_tab_mut(tab) {
         tab.structured_control_active = false;
-    }
-    if let Some(previous) = previous {
-        let mut death = previous.process.death.clone();
-        if !*death.borrow() {
-            tokio::time::timeout(std::time::Duration::from_secs(5), death.changed())
-                .await
-                .map_err(|_| "Previous sidecar termination deadline")?
-                .map_err(|_| "Previous sidecar termination channel closed")?;
-        }
     }
     let (cap, binary) = svc
         .agent_registry
