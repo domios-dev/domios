@@ -298,7 +298,7 @@ fn hidden_summary_names_each_hidden_status_and_all_flag() {
 }
 
 /// ct#384: a plan outside the requested project is a refusal, not an empty
-/// result — rendering it at exit 0 is exactly how a mis-rooted plan looked
+/// result â€” rendering it at exit 0 is exactly how a mis-rooted plan looked
 /// healthy through an entire drafting pass. `run_task` must surface it as an
 /// `Err` (which the CLI's `handle_plan` turns into a non-zero exit) naming the
 /// machine-readable reason code, still built from the daemon's own report.
@@ -331,7 +331,7 @@ fn filter_miss_never_renders_as_a_project_mismatch() {
 }
 
 /// These reason kinds mean "nothing matched", not "the request was refused":
-/// the plan was found, in scope, and listable — exit 0 with a human hint
+/// the plan was found, in scope, and listable â€” exit 0 with a human hint
 /// stays correct for all of them.
 #[test]
 fn empty_scope_and_filter_reasons_render_a_message_and_exit_zero() {
@@ -355,7 +355,7 @@ fn empty_scope_and_filter_reasons_render_a_message_and_exit_zero() {
 /// ct#384 + the exit-0 sweep: `plan_not_found`, `plan_archived`, and
 /// `plan_outside_project` name a plan the caller explicitly asked for that
 /// cannot be listed as requested. Each must refuse (non-zero exit) and name
-/// its own reason code — never collapse into a friendly empty list.
+/// its own reason code â€” never collapse into a friendly empty list.
 #[test]
 fn plan_scoped_refusal_reasons_error_and_name_their_code() {
     for reason in [
@@ -572,4 +572,25 @@ fn attempt_detail_labels_dispatched_and_session_models() {
         "{rendered}"
     );
     assert!(rendered.contains("model_identity_mismatch: {\"actual_model\":\"other-model\",\"provider_resolved_model\":\"gpt-6-luna\",\"reason\":\"runtime_session_model_mismatch\",\"requested_model\":\"gpt-6-luna\"}\n"), "{rendered}");
+}
+
+#[test]
+fn structured_task_files_use_authorized_update_and_preserve_paths() {
+    let mut client = FakeRpc::default();
+    run_task(
+        &mut client,
+        true,
+        PlanTaskAction::Files {
+            plan_id: "pl_1".into(),
+            task_id: "task_1".into(),
+            edit: vec!["new file.rs".into()],
+            read: vec!["context.md".into()],
+        },
+    )
+    .unwrap();
+    assert_eq!(client.calls[0].0, "plan.task.update");
+    assert_eq!(
+        client.calls[0].1.as_ref().unwrap()["files"],
+        json!({"edit":["new file.rs"],"read":["context.md"]})
+    );
 }

@@ -460,6 +460,7 @@ mod tests {
 
     fn task(id: &str, status: TaskStatus) -> Task {
         Task {
+            files: Default::default(),
             id: id.into(),
             name: id.into(),
             kind: "implement".into(),

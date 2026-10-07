@@ -190,6 +190,7 @@ export interface ExternalRef {
 }
 
 export interface Task {
+  files?: { edit: string[]; read: string[] };
   id: string;
   name: string;
   type: string; // open string: implement | research | review | ...
@@ -216,7 +217,7 @@ export interface Task {
   acceptance_criteria?: string[];
   external_refs?: ExternalRef[];
   test_plan?: string;
-  /** Correctness vector — what "done right" means (rendered in the READ detail). */
+  /** Correctness vector â€” what "done right" means (rendered in the READ detail). */
   correctness?: string;
   /** Task-level reference links (rendered in the READ detail). */
   links?: string[];
