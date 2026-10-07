@@ -22,6 +22,17 @@ check(() => assert.equal(parseContextUsage({context_window:{context_window_size:
 check(() => assert.deepEqual(parseContextUsage({type:"assistant",message:{usage:{input_tokens:7}}}), {
   used_tokens:7,window_tokens:0,cost_usd:null,source:"claude-jsonl",
 }));
+const compact = {type:"system", subtype:"compact_boundary", uuid:"compact-own",
+  compactMetadata:{preTokens:170000,postTokens:25000}};
+const compactContext = {used_tokens:25000,window_tokens:0,cost_usd:null,source:"claude-jsonl-compaction"};
+check(() => assert.deepEqual(parseContextUsage(compact), compactContext));
+check(() => assert.equal(parseContextUsage({...compact,subtype:"other"}), null));
+check(() => assert.equal(parseContextUsage({...compact,type:"user"}), null));
+check(() => assert.equal(parseContextUsage({...compact,compactMetadata:{preTokens:170000}}), null));
+for (const postTokens of [null,-1,0.5,"25000",10_000_001]) {
+  check(() => assert.equal(parseContextUsage({...compact,compactMetadata:{postTokens}}), null));
+}
+check(() => assert.equal(parseContextUsage({...compact,compactMetadata:{postTokens:0}})?.used_tokens, 0));
 const user = {statusLine:{type:"command",command:"cat",padding:2},hooks:{opaque:[]}};
 const original = JSON.stringify(user);
 const settings = JSON.parse(statuslineSettings(user)!);
@@ -66,4 +77,8 @@ const plugin = sandbox.module.exports.default;
 check(() => assert.deepEqual(JSON.parse(JSON.stringify(plugin.parseContextUsage(record))), parseContextUsage(record)));
 const delta = plugin.parseSessionDelta(JSON.stringify({type:"assistant",uuid:"own",message:{content:[{type:"text",text:"opaque"}],usage:{input_tokens:9,cache_read_input_tokens:2}}}));
 check(() => assert.equal(delta.messages[0].context_usage.used_tokens, 11));
+const compactDelta = plugin.parseSessionDelta(JSON.stringify(compact));
+check(() => assert.equal(compactDelta.messages.length, 1));
+check(() => assert.deepEqual(JSON.parse(JSON.stringify(compactDelta.messages[0].context_usage)), compactContext));
+check(() => assert.equal(compactDelta.messages[0].timelineMarker.kind, "context_compaction"));
 console.log(`${checks} passed, 0 failed`);

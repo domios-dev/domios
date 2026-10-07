@@ -12,6 +12,12 @@ function count(value: unknown): number | null {
 
 export function parseContextUsage(record: any): TurnContext | null {
   if (!record || typeof record !== "object") return null;
+  if (record.type === "system" && record.subtype === "compact_boundary") {
+    const tokens = count(record.compactMetadata?.postTokens);
+    return tokens === null ? null : {
+      used_tokens: tokens, window_tokens: 0, cost_usd: null, source: "claude-jsonl-compaction",
+    };
+  }
   const statusline = record.context_window;
   const hasStatusline = Object.prototype.hasOwnProperty.call(record, "context_window");
   const usage = hasStatusline ? statusline?.current_usage : record.type === "assistant" ? record.message?.usage : null;

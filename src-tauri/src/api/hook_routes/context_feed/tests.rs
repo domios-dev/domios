@@ -28,6 +28,31 @@ fn claude_context_feed_merges_authoritative_window_without_adding_turn_totals() 
 }
 
 #[test]
+fn claude_signals_compaction_resets_context_and_preserves_known_window_and_cost() {
+    use codeterm_plugin::agent_claude::provider::ClaudeProvider;
+    use codeterm_plugin::provider::AgentProvider;
+
+    let previous = TurnContext {
+        used_tokens: 170000,
+        window_tokens: 1000000,
+        cost_usd: Some(1.5),
+        source: "claude-statusline".into(),
+    };
+    let provider = ClaudeProvider::new();
+    let incoming = provider
+        .parse_context_usage(&json!({
+            "type":"system","subtype":"compact_boundary",
+            "compactMetadata":{"preTokens":170000,"postTokens":25000}
+        }))
+        .unwrap();
+    let merged = merge(Some(&previous), incoming, None).unwrap();
+    assert_eq!(merged.used_tokens, 25000);
+    assert_eq!(merged.window_tokens, 1000000);
+    assert_eq!(merged.cost_usd, Some(1.5));
+    assert_eq!(merged.source, "claude-jsonl-compaction");
+}
+
+#[test]
 #[cfg_attr(not(windows), ignore = "requires the desktop ServiceContext fixture")]
 fn claude_context_feed_is_off_by_default_and_rejects_foreign_session() {
     use crate::multiplexer::state::MultiplexerState;

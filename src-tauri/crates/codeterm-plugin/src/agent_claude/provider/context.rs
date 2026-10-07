@@ -5,6 +5,21 @@ pub(super) const FLAG: &str = "--codeterm-statusline";
 const FORWARD: &str = r#"payload=$(cat); if [ -n "${CODETERM_API_URL:-}" ] && [ -n "${CODETERM_API_TOKEN:-}" ] && [ -n "${CODETERM_TAB_ID:-}" ]; then printf '%s' "$payload" | curl -s --max-time 2 -o /dev/null -X POST "$CODETERM_API_URL/api/tabs/$CODETERM_TAB_ID/hook/context" -H 'Content-Type: application/json' -H "Authorization: Bearer $CODETERM_API_TOKEN" -H "X-CodeTerm-Binding-Nonce: ${CODETERM_SESSION_BINDING_NONCE:-}" --data-binary @- || true; fi"#;
 
 pub(super) fn parse(record: &Value) -> Option<TurnContext> {
+    if record.get("type").and_then(Value::as_str) == Some("system")
+        && record.get("subtype").and_then(Value::as_str) == Some("compact_boundary")
+    {
+        let used_tokens = record
+            .pointer("/compactMetadata/postTokens")?
+            .as_f64()
+            .filter(|tokens| (0.0..=10_000_000.0).contains(tokens) && tokens.fract() == 0.0)?
+            as u64;
+        return Some(TurnContext {
+            used_tokens,
+            window_tokens: 0,
+            cost_usd: None,
+            source: "claude-jsonl-compaction".into(),
+        });
+    }
     let statusline = record.get("context_window");
     let usage = if let Some(statusline) = statusline {
         statusline.get("current_usage")?
