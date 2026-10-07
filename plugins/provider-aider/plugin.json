@@ -63,6 +63,12 @@
   ],
   "models": [
     {
+      "id": "openai/mimo-v2.6-pro",
+      "displayName": "MiMo v2.6 Pro",
+      "description": "Xiaomi MiMo through an OpenAI-compatible endpoint (set apiBase and apiKeySecret).",
+      "group": "OpenAI"
+    },
+    {
       "id": "openai/gpt-5.4-mini",
       "displayName": "GPT-5.4 Mini",
       "description": "OpenAI GPT model via Aider.",
