@@ -97,6 +97,7 @@ pub(crate) mod receiver_target;
 pub mod remote_tabs;
 pub mod remote_workers;
 pub mod reply_relay;
+pub mod managed_tabs;
 pub(crate) mod restore_exited_member;
 mod restored_binding;
 mod role_identity;
