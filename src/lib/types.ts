@@ -601,6 +601,7 @@ export interface SocketConfigSettings {
 }
 
 export interface AgentConfig {
+  reply_relay_max_hops?: number;
   poll_interval_ms: number;
   idle_timeout_s: number;
   resume_sessions: boolean;

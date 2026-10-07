@@ -578,3 +578,14 @@ fn inbound_context_has_sender_with_canonical_marker() {
     assert_eq!(parsed.attr("mesh"), Some("BLACKSTAR"));
     assert_eq!(parsed.body, "hello");
 }
+
+#[test]
+fn relay_metadata_preserves_sender_and_hop_count() {
+    let mut envelope = MessageEnvelope::tab("relay", "own-tab");
+    envelope.relay_hops = 3;
+    let marked = Messenger::from(envelope).wrap("opaque answer");
+    let parsed = codeterm_types::domios::parse_message(&marked).unwrap();
+    assert_eq!(parsed.attr("tab"), Some("own-tab"));
+    assert_eq!(parsed.attr("relay_hops"), Some("3"));
+    assert_eq!(parsed.body, "opaque answer");
+}

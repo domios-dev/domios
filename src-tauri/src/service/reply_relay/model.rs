@@ -40,6 +40,31 @@ pub enum ReplyRelayDecision {
     },
 }
 
+#[derive(Clone, Copy)]
+pub struct ReplyRelayRoute<'a> {
+    pub sender: &'a str,
+    pub target: &'a str,
+    pub tool_less: bool,
+    pub supported: bool,
+    pub sender_is_agent: bool,
+    pub has_reply_hint: bool,
+    pub remote: bool,
+    pub notice: bool,
+    pub spawn_brief: bool,
+}
+
+pub fn reply_relay_target(route: ReplyRelayRoute<'_>) -> Option<&str> {
+    (route.tool_less
+        && route.supported
+        && route.sender_is_agent
+        && !route.sender.is_empty()
+        && route.sender != route.target
+        && !route.remote
+        && !route.notice
+        && (route.spawn_brief || route.has_reply_hint))
+        .then_some(route.sender)
+}
+
 pub fn reply_relay_eligible(
     capability: bool,
     routed_tab_message: bool,
@@ -162,21 +187,37 @@ fn matches_user_turn(pending: &PendingReplyRelay, id: &str, start: u64, text: &s
 pub struct ReplyRelayModel {
     pending: VecDeque<PendingReplyRelay>,
     delivery_ids: HashSet<String>,
-    relayed_turns: HashSet<(String, String, String, String)>,
+    delivery_order: VecDeque<String>,
+    relayed_through: Option<u64>,
     unavailable_reason: Option<String>,
 }
 
 impl ReplyRelayModel {
     pub fn record(&mut self, pending: PendingReplyRelay) -> bool {
         if self.unavailable_reason.is_some()
-            || self.delivery_ids.len() >= MAX_TRACKED_RELAY_DELIVERIES
+            || self.pending.len() >= MAX_TRACKED_RELAY_DELIVERIES
             || pending.delivery_id.is_empty()
             || !self.delivery_ids.insert(pending.delivery_id.clone())
         {
             return false;
         }
+        self.delivery_order.push_back(pending.delivery_id.clone());
+        while self.delivery_order.len() > MAX_TRACKED_RELAY_DELIVERIES {
+            if let Some(oldest) = self.delivery_order.pop_front() {
+                self.delivery_ids.remove(&oldest);
+            }
+        }
         self.pending.push_back(pending);
         true
+    }
+
+    pub fn pending(&self) -> Vec<PendingReplyRelay> {
+        self.pending.iter().cloned().collect()
+    }
+
+    pub fn cancel(&mut self, delivery_id: &str) {
+        self.pending
+            .retain(|pending| pending.delivery_id != delivery_id);
     }
 
     pub fn unavailable_reason(&self) -> Option<&str> {
@@ -205,30 +246,23 @@ impl ReplyRelayModel {
         sender_open: impl Fn(&str) -> bool,
         max_hops: u8,
     ) -> Vec<(PendingReplyRelay, ReplyRelayDecision)> {
-        let user_turn_id = match evidence {
-            Some(ReplyRelayEvidence::Answered(turn)) => Some(turn.user_turn_id.as_str()),
-            Some(ReplyRelayEvidence::Ended(turn)) => Some(turn.user_turn_id.as_str()),
+        let user_record_start = match evidence {
+            Some(ReplyRelayEvidence::Answered(turn)) => Some(turn.user_record_start),
+            Some(ReplyRelayEvidence::Ended(turn)) => Some(turn.user_record_start),
             _ => None,
         };
         let mut actions = Vec::new();
         let mut remaining = VecDeque::new();
         while let Some(pending) = self.pending.pop_front() {
-            let key = user_turn_id.map(|user_turn_id| {
-                (
-                    source.provider_id.to_string(),
-                    source.session_id.to_string(),
-                    source.binding_nonce.to_string(),
-                    user_turn_id.to_string(),
-                )
-            });
             let decision = decide_reply_relay_evidence(
                 &pending,
                 source,
                 evidence,
                 sender_open(&pending.sender_tab),
                 max_hops,
-                key.as_ref()
-                    .is_some_and(|key| self.relayed_turns.contains(key)),
+                user_record_start
+                    .zip(self.relayed_through)
+                    .is_some_and(|(start, through)| start <= through),
             );
             if matches!(decision, ReplyRelayDecision::Wait) {
                 remaining.push_back(pending);
@@ -242,8 +276,11 @@ impl ReplyRelayModel {
                         ..
                     }
             ) {
-                if let Some(key) = key {
-                    self.relayed_turns.insert(key);
+                if let Some(start) = user_record_start {
+                    self.relayed_through = Some(
+                        self.relayed_through
+                            .map_or(start, |through| through.max(start)),
+                    );
                 }
             }
             if matches!(
