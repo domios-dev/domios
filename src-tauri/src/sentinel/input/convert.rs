@@ -7,7 +7,7 @@ use codeterm_plugin::converter::{
 };
 use codeterm_types::sentinel_input::{MediaKind, MAX_CONVERTED_TEXT_BYTES};
 
-pub(super) fn convert(
+pub(in crate::sentinel) fn convert(
     registry: &codeterm_plugin::converter::ConverterRegistry,
     input: &Path,
     output_dir: &Path,
@@ -35,7 +35,7 @@ pub(super) fn convert(
         }
         let output = key
             .convert(&ConvertRequest {
-                input_path: current,
+                input_path: current.clone(),
                 from: conversion.from,
                 to: conversion.to,
                 output_dir: output_dir.to_path_buf(),

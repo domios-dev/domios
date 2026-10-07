@@ -9,7 +9,7 @@ use super::InputFiles;
 
 const FETCH_DEADLINE: Duration = Duration::from_secs(30);
 
-pub(super) fn materialize(
+pub(in crate::sentinel) fn materialize(
     data_dir: &Path,
     blueprint_id: &str,
     run_id: &str,
@@ -136,7 +136,7 @@ fn sanitize_filename(name: &str) -> String {
         .collect()
 }
 
-pub(super) fn sweep_orphans(data_dir: &Path) -> Result<usize, String> {
+pub(in crate::sentinel) fn sweep_orphans(data_dir: &Path) -> Result<usize, String> {
     let root = data_dir.join("assets").join("blueprint-runs");
     let entries = match fs::read_dir(&root) {
         Ok(entries) => entries,
