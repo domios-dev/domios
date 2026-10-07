@@ -40,7 +40,7 @@ pub(super) fn build_relaunch(
 
 /// The restore seam: model, effort, args and identity instructions come from
 /// the tab's recorded spawn. `None` when the spawn recorded nothing or the
-/// provider resumes through a structured prompt server of its own.
+/// provider resumes through a structured prompt server without model config.
 fn recorded_launch_relaunch(
     svc: &ServiceContext,
     snap: &TabRestartSnapshot,
@@ -60,7 +60,13 @@ fn recorded_launch_relaunch(
             tab.agent_provider_resolved_model.clone(),
         )
     };
-    if structured_prompt_server || !launch_parameters.captured {
+    let model_config_capable = svc
+        .agent_registry
+        .with_provider(&snap.provider, |provider| {
+            provider.model_provider_config().is_some()
+        })
+        .unwrap_or(false);
+    if (structured_prompt_server && !model_config_capable) || !launch_parameters.captured {
         return None;
     }
     let permission_bypass_authorization = match restore_permission_bypass_authorization(
@@ -79,7 +85,7 @@ fn recorded_launch_relaunch(
             return None;
         }
     };
-    let input = restored_fresh_launch_input(
+    let mut input = restored_fresh_launch_input(
         &svc.agent_registry,
         crate::service::SpawnAgentParams {
             agent: Some(snap.provider.clone()),
@@ -94,7 +100,31 @@ fn recorded_launch_relaunch(
         },
         launch_parameters,
     );
-    let command = input.command(svc, &snap.tab_id)?;
+    let command = if structured_prompt_server {
+        input.params.structured_prompt_server = crate::service::structured_prompt::ensure_for_spawn(
+            svc,
+            &snap.provider,
+            &snap.tab_id,
+            snap.cwd.as_deref().unwrap_or_default(),
+        );
+        if let Some(session_id) = input.params.resume_session_id.as_deref() {
+            let mut params = input.params.clone();
+            params.resume_session_id = None;
+            crate::service::build_agent_command_for_service(
+                svc,
+                &snap.tab_id,
+                &snap.provider,
+                &params,
+                input.launch_task.as_deref(),
+                Some(session_id),
+                &svc.agent_registry,
+            )
+        } else {
+            input.command(svc, &snap.tab_id)?
+        }
+    } else {
+        input.command(svc, &snap.tab_id)?
+    };
     // The fresh builder already wrapped its command in the dev stub.
     let command = if input.params.resume_session_id.is_some() {
         crate::agent::stub_launch::apply(&snap.provider, command)
