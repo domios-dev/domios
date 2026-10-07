@@ -316,7 +316,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     return;
                 }
                 for p in arr {
-                    let kind = p.get("kind").and_then(|v| v.as_str()).unwrap_or("agent");
+                    let kind = p.get("transport").and_then(|v| v.as_str()).unwrap_or("pty");
                     let id = p.get("id").and_then(|v| v.as_str()).unwrap_or("?");
                     let name = p.get("display_name").and_then(|v| v.as_str()).unwrap_or(id);
                     let default_model = p

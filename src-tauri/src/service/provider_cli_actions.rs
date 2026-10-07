@@ -51,6 +51,19 @@ pub(crate) fn launch(
     operation: CliOperation,
     caller: Option<String>,
 ) -> Result<CliLaunch, String> {
+    launch_with_dispatch(svc, provider, operation, caller, |svc, tab_id, command| {
+        let pty = svc.resolve_pty_id(tab_id)?;
+        svc.send_shell_spawn_after_ready(&pty, command)
+    })
+}
+
+pub(crate) fn launch_with_dispatch(
+    svc: &ServiceContext,
+    provider: &str,
+    operation: CliOperation,
+    caller: Option<String>,
+    dispatch: impl FnOnce(&ServiceContext, &str, &str) -> Result<(), String>,
+) -> Result<CliLaunch, String> {
     let platform = crate::agent::provider::current_platform_tag();
     let status =
         super::provider_cli::provider_cli_status(&svc.provider_registry, provider, platform)?;
@@ -79,7 +92,7 @@ pub(crate) fn launch(
             return Err("Provider CLI utility shell did not become ready".into());
         }
         let waiter = ExecWaiter::register(&pty);
-        svc.send_shell_spawn_after_ready(&pty, &command)?;
+        dispatch(svc, &tab_id, &command)?;
         Ok::<_, String>(waiter)
     })();
     let waiter = match dispatched {
