@@ -44,6 +44,7 @@ pub(super) struct ActiveRelay {
 pub(crate) struct ReplyRelayRegistry {
     entries: Mutex<HashMap<String, Arc<ActiveRelay>>>,
     staged: Mutex<HashMap<String, Vec<PendingReplyRelay>>>,
+    pub(super) restored: Mutex<HashMap<String, (String, u64)>>,
 }
 
 impl ReplyRelayRegistry {
@@ -98,6 +99,7 @@ impl ReplyRelayRegistry {
     pub(crate) fn close(&self, tab: &str) {
         self.entries.lock().remove(tab);
         self.staged.lock().remove(tab);
+        self.restored.lock().remove(tab);
         for entry in self.entries.lock().values() {
             let _ = entry.signal.try_send(());
         }
@@ -271,6 +273,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn arm_spawn_reply_relay(&self, target: &str, nonce: &str) {
+        self.stage_worker_restart(target);
         self.reply_relays.entries.lock().remove(target);
         if let Some(staged) = self.reply_relays.staged.lock().get_mut(target) {
             for pending in staged {
@@ -278,6 +281,15 @@ impl ServiceContext {
                     pending.binding_nonce = nonce.into();
                 }
             }
+        }
+        let first = self
+            .reply_relays
+            .staged
+            .lock()
+            .get(target)
+            .and_then(|turns| turns.first().cloned());
+        if let Some(first) = first {
+            self.retain_spawn_worker_brief(target, &first.sender_tab, &first.user_text);
         }
     }
 
@@ -303,6 +315,7 @@ impl ServiceContext {
                 log::warn!("[reply-relay] target={target} activation failed: {error}");
             }
         }
+        self.restore_worker_after_binding(target);
         self.reply_relays.wake(target);
     }
 
@@ -370,7 +383,7 @@ impl ServiceContext {
         })
     }
 
-    fn record_bound_reply_relay(
+    pub(super) fn record_bound_reply_relay(
         &self,
         target: &str,
         pending: PendingReplyRelay,
@@ -384,6 +397,7 @@ impl ServiceContext {
         {
             return Err("relay binding changed".into());
         }
+        self.remember_worker_turn(target, &pending)?;
         let entry = self.reply_relays.ensure(self, target, binding)?;
         let unavailable = { entry.model.lock().unavailable_reason().map(str::to_string) };
         if let Some(reason) = unavailable {

@@ -215,6 +215,13 @@ All fields optional.
 | `settingsPath` | string | Where the integration is stored (e.g. `~/.claude/settings.json`). |
 | `trust_grant` (alias `trustGrant`) | object? | One field, `managedKeys` (string[]): managed hook keys core passes to `grantIntegrationTrust` per install. |
 
+`spawn.restoresConversationHistoryOnResume` declares that a resume restores the
+existing conversation. Absent/false is non-restoring. A task-bound tool-less
+Worker then receives one host-restored brief after authenticated rebinding,
+subject to exact current-session evidence and a persisted launch claim. Resume
+context includes `cwd`, `contextFiles`, and `toolLessInstructionsPath`; mandatory
+attachments are revalidated and shared instructions are materialized again.
+
 ### `permissions`
 
 Provider-relevant subset (full contract in [PLUGINS.md](../PLUGINS.md)):
