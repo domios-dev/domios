@@ -10,6 +10,7 @@ pub mod process;
 pub mod protocol;
 pub mod routing;
 pub mod schema;
+pub mod send;
 mod subscriber;
 #[cfg(windows)]
 mod windows_job;
