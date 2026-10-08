@@ -21,7 +21,7 @@ const PADDING = 24;
 const LOOP_DROP = 48;
 const LOOP_LANE = 18;
 /** Smallest camera scale at which 11px pin labels stay legible. */
-export const READABLE_SCALE = 0.72;
+export const READABLE_SCALE = 0.85;
 export const FIT_PADDING = 28;
 
 export interface PinRow { top: number; height: number; left: BlueprintPin | null; right: BlueprintPin | null }

@@ -123,7 +123,7 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
     onBack();
   }}>
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--ct-border)] py-2.5 pl-4 pr-3">
-      <Heading className="min-w-0 flex-1 truncate text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{title}</Heading>
+      <Heading className="min-w-0 flex-[1_1_12rem] truncate text-[length:var(--ct-font-size-md)] font-semibold text-[var(--ct-fg)]">{title}</Heading>
       {state_ && <span className="flex items-center gap-1.5 text-xs text-[var(--ct-muted-fg)]"><span className={`h-1.5 w-1.5 rounded-full ${stateTone(state_)}`} aria-hidden="true" />{state_}{cadence ? ` · ${cadence}` : ""}</span>}
       {root && <button type="button" className={AUTOMATION_TOOL} disabled={!root.stop.allowed || state.failed || state.stopping !== null} onClick={() => void state.stop(root.identity)}>{state.stopping ? "Stopping…" : "Stop Blueprint"}</button>}
       <button type="button" className={AUTOMATION_TOOL} aria-expanded={runsOpen} aria-controls="blueprint-run-log" onClick={() => setRunsOpen(!runsOpen)}><List size={14} aria-hidden="true" />Runs</button>
