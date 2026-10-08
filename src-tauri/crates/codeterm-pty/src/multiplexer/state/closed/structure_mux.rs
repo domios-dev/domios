@@ -136,7 +136,7 @@ impl MultiplexerState {
                     if existing.agent_type != tab.agent_type
                         || existing.agent_session_id != tab.agent_session_id
                         || existing.team_id != tab.team_id
-                        || existing.cwd != tab.cwd
+                        || (existing.cwd.is_some() && existing.cwd != tab.cwd)
                     {
                         return Err(format!("Tab identity {} is already in use", tab.id));
                     }

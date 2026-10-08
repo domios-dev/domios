@@ -9,9 +9,6 @@ mod tests;
 const PROJECT_PROBE_PARALLELISM: usize = 8;
 
 pub(crate) fn restore(service: &ServiceContext) {
-    if let Err(error) = service.recover_close_inventories() {
-        log::error!("[closed-history] interrupted close recovery failed: {error}");
-    }
     service.kick_off_pollers_for_existing_agents();
 
     let mut workspace_cwds = workspace_cwds(&service.mux);
@@ -29,6 +26,9 @@ pub(crate) fn restore(service: &ServiceContext) {
         }
     }
 
+    if let Err(error) = service.recover_close_inventories() {
+        log::error!("[closed-history] interrupted close recovery failed: {error}");
+    }
     let live_team_ids = service.live_team_ids();
     if let Err(error) = service.reconcile_dangling_team_plan_bindings(
         &live_team_ids,
