@@ -19,6 +19,9 @@ pub mod scrollback_capture {
 pub mod shell_integration {
     pub use codeterm_pty::pty::shell_integration::*;
 }
+pub mod shell_profiles {
+    pub use codeterm_pty::pty::shell_profiles::*;
+}
 pub mod write_queue {
     pub use codeterm_pty::pty::write_queue::*;
 }
