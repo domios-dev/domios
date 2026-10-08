@@ -22,6 +22,7 @@ export interface JobActionContext {
 }
 
 export function jobWorkspace(job: MergedJob): string {
+  if (job.kind === "blueprint") return job.blueprint.identity.workspace_id;
   return job.kind === "cron" ? job.cron.workspace_id : job.sentinel.scenario.root.workspace_id;
 }
 
@@ -29,7 +30,7 @@ export async function deleteMergedJob(job: MergedJob, context: JobActionContext)
   if (job.kind === "cron") return context.jobActions.deleteCron(job.cron);
   const graph = context.graphFor(jobWorkspace(job));
   if (!graph) throw new Error("Sentinel workspace is not attached");
-  return context.adapter.delete(graph.attachment, job.sentinel.scenario.root);
+  return context.adapter.delete(graph.attachment, job.kind === "blueprint" ? job.blueprint.identity : job.sentinel.scenario.root);
 }
 
 export async function stopMergedJob(job: MergedJob, context: JobActionContext): Promise<void> {
@@ -38,10 +39,10 @@ export async function stopMergedJob(job: MergedJob, context: JobActionContext): 
     await context.refreshCrons();
     return;
   }
-  const root = job.sentinel.root;
+  const identity = job.kind === "blueprint" ? job.blueprint.identity : job.sentinel.root?.identity;
   const graph = context.graphFor(jobWorkspace(job));
-  if (!root || !graph) return;
-  await context.adapter.stop(graph.attachment, root.identity);
+  if (!identity || !graph) return;
+  await context.adapter.stop(graph.attachment, identity);
   await graph.refresh();
 }
 

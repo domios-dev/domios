@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { CronJob, Team } from "../../lib/types";
 import { attachment, fixtureGraph, fixtureNode, FixtureTransport, identity } from "../Automation/fixtures.testdata";
-import type { AutomationGraph } from "../Automation/types";
+import type { AutomationGraph, BlueprintSnapshot } from "../Automation/types";
 
 export function installDom() {
   const win = new Window({ url: "http://localhost/" });
@@ -45,6 +45,9 @@ export const graphB: AutomationGraph = {
   nodes: [{ ...fixtureNode(rootB, "Watcher B"), sentinel_definition: { source: "stored_agent_definition", definition_id: rootB.id, creator_tab_id: rootB.owner_tab_id! } }],
   edges: [],
 };
+export function pipelineFixture(id: string, ownerTeamId: string | null): BlueprintSnapshot {
+  return { id, name: `Pipeline ${id}`, owner: { kind: ownerTeamId ? "team" : "tab", tab_id: "owner-a", team_id: ownerTeamId }, state: "stopped", run_id: null, current_step: null, last_event_at_ms: null };
+}
 export const scenarioA = `scenario:${graphA.scenarios[0].id}`;
 export const scenarioB = `scenario:${graphB.scenarios[0].id}`;
 
