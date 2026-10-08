@@ -267,6 +267,7 @@ pub fn run() {
             commands::mux_commands::mux_reorder_child,
             commands::mux_commands::mux_reorder_workspace,
             commands::mux_commands::mux_create_tab,
+            commands::mux_commands::shell_profiles,
             commands::mux_commands::mux_close_tab,
             commands::mux_commands::mux_set_active_tab,
             commands::mux_commands::mux_set_active_tab_and_workspace,

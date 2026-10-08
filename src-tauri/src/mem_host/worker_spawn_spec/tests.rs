@@ -39,6 +39,7 @@ fn worker_cwd() -> std::path::PathBuf {
 /// The spec `spawn_headless_worker` hand-built before the routing seam existed.
 fn legacy_pty_spec() -> SpawnTabSpec {
     SpawnTabSpec {
+        shell: None,
         cwd: Some(worker_cwd().to_string_lossy().into_owned()),
         visibility: TabVisibility::Hidden,
         audience: TabAudience::Automation,

@@ -43,6 +43,7 @@ const workspace: Workspace = {
 async function openWorkspaceMenu(
   newSessionDisabled: boolean,
   onNewSession: () => void,
+  onNewTerminal: (shell?: string) => void = () => {},
 ): Promise<{ root: Root; menuItem: (label: string) => HTMLButtonElement | undefined }> {
   const host = document.createElement("div");
   document.body.appendChild(host);
@@ -58,7 +59,7 @@ async function openWorkspaceMenu(
         onToggleExpand={noop}
         onClose={noop}
         onRename={noop}
-        onNewTerminal={noop}
+        onNewTerminal={onNewTerminal}
         onNewSession={onNewSession}
         newSessionDisabled={newSessionDisabled}
         onNewAgent={noop}
@@ -141,6 +142,24 @@ async function testDetailHeaderNavigation(countActiveJobs: boolean) {
   }
 }
 
+async function testShellProfileMenuSelection() {
+  __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+    if (command !== "shell_profiles") throw new Error("unavailable in test");
+    return [{ id: "wsl:Ubuntu", name: "WSL: Ubuntu", executable: "wsl.exe", args: [], wsl_distro: "Ubuntu" }] as T;
+  });
+  const selected: (string | undefined)[] = [];
+  const { root, menuItem } = await openWorkspaceMenu(false, () => {}, (shell) => selected.push(shell));
+  try {
+    const terminal = menuItem("New Terminal");
+    assert(terminal, "terminal submenu is reachable");
+    await act(async () => terminal.click());
+    const profile = Array.from(document.querySelectorAll<HTMLButtonElement>('button[role="menuitem"]')).find((button) => button.textContent?.includes("WSL: Ubuntu"));
+    assert(profile, "detected shell is offered");
+    await act(async () => profile.click());
+    assert(selected.length === 1 && selected[0] === "wsl:Ubuntu", "profile selection fires once with the profile id");
+  } finally { await act(async () => root.unmount()); }
+}
+
 async function main() {
   __setInvokeForTest(async () => { throw new Error("bridge unavailable in test"); });
   __setListenForTest(async () => () => {});
@@ -148,6 +167,7 @@ async function main() {
   await testNewSessionOpensThePickerOnce();
   await testDetailHeaderNavigation(false);
   await testDetailHeaderNavigation(true);
+  await testShellProfileMenuSelection();
   __setInvokeForTest(null);
   __setListenForTest(null);
   console.log("workspace new session menu tests: passed");

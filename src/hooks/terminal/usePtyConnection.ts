@@ -85,6 +85,9 @@ export function usePtyConnection({
     (s) => s.tabs[tabId]?.cwd ?? null,
     (a, b) => a === b,
   );
+  const wslDistro = useMuxSelector((s) => s.tabs[tabId]?.shell_profile?.wsl_distro ?? null);
+  const wslDistroRef = useRef(wslDistro);
+  wslDistroRef.current = wslDistro;
   const tabCwdRef = useRef(tabCwd);
   const hiddenViewportRef = useRef<TerminalViewport>({ followOutput: true, line: 0 });
   const cancelVisibleReplayRef = useRef<(() => void) | null>(null);
@@ -390,7 +393,7 @@ export function usePtyConnection({
         }
         onPtySpawned?.(tabId, spawnedId);
 
-        if (!cwd) {
+        if (!cwd && !wslDistroRef.current) {
           const defaultCwd = await invoke<string>("get_default_cwd").catch(() => null);
           if (defaultCwd) {
             invoke("mux_update_tab_cwd", { tabId, cwd: defaultCwd }).catch(() => {});

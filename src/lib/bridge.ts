@@ -283,9 +283,12 @@ const HTTP_MAP: Record<string, Mapper> = {
       },
       a.callerTabId,
     ),
+  shell_profiles: (a) => webJson("GET", `/api/shells?refresh=${a.refresh === true}`),
   mux_create_tab: (a) =>
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs`, {
       eager: a.eager === true,
+      shell: a.shell,
+      cwd: a.cwd,
       purpose: a.purpose,
       description: a.description,
       icon: a.icon,

@@ -11,6 +11,7 @@ pub fn windows_to_wsl(path: &str, distro: &str) -> Result<String, String> {
     if !valid_distro(distro) || path.contains('\0') {
         return Err("Invalid WSL distribution or working directory".into());
     }
+    let path = codeterm_paths::strip_verbatim_prefix(path);
     let normalized = path.replace('\\', "/");
     if normalized.starts_with("//") {
         for host in ["wsl.localhost", "wsl$"] {

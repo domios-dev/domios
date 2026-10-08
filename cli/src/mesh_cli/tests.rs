@@ -573,6 +573,8 @@ fn tab_new_relays_cmd_field() {
     use crate::TabAction;
     let cmd = Commands::Tab {
         action: TabAction::New {
+            shell: None,
+            list_shells: false,
             purpose: "shell".into(),
             description: None,
             icon: None,

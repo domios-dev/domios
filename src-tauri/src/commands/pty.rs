@@ -118,10 +118,24 @@ pub async fn spawn_pty_core(
             .await
             .map_err(|error| format!("spawn_pty env join error: {error}"))?;
 
+    let profile = tab_id.as_deref().and_then(|id| {
+        let mux = mux_state.read();
+        mux.get_tab(id)
+            .filter(|tab| tab.agent_type.is_none())
+            .and_then(|tab| tab.shell_profile.clone())
+    });
     let t0 = std::time::Instant::now();
     let spawn_gate = state.lock().spawn_gate();
     let built = tokio::task::spawn_blocking(move || {
-        crate::pty::manager::build_session(spawn_gate, command, cwd, cols, rows, env_vars)
+        crate::pty::manager::build_session_with_profile(
+            spawn_gate,
+            command,
+            cwd,
+            cols,
+            rows,
+            env_vars,
+            profile.as_ref(),
+        )
     })
     .await
     .map_err(|e| format!("spawn_pty join error: {}", e))??;

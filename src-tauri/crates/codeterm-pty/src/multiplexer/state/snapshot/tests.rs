@@ -8,11 +8,13 @@ mod permission_auto_confirm;
 mod restore_verbatim_cwd;
 mod restored_agent_boot_stage;
 mod role_restore;
+mod shell_profiles;
 
 fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
         icon: None,
+        shell_profile: None,
         utility_created_at: 0,
         tab_id: tab_id.into(),
         cwd: None,
@@ -398,6 +400,7 @@ fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
     let leaf = SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
         icon: None,
+        shell_profile: None,
         utility_created_at: 0,
         tab_id: "p2".into(),
         cwd: None,
@@ -490,6 +493,7 @@ fn tab_description_round_trips_through_snapshot() {
     let leaf = SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
         icon: None,
+        shell_profile: None,
         utility_created_at: 0,
         tab_id: "p-desc".into(),
         cwd: None,
@@ -556,6 +560,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
     let leaf = SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
         icon: None,
+        shell_profile: None,
         utility_created_at: 0,
         tab_id: "worker-1".into(),
         cwd: None,
@@ -611,6 +616,7 @@ fn legacy_tab_title_seeds_default_provider_tab_title() {
     let leaf = SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
         icon: None,
+        shell_profile: None,
         utility_created_at: 0,
         tab_id: "legacy-worker".into(),
         cwd: None,
@@ -936,6 +942,7 @@ fn spawned_by_round_trips_through_snapshot() {
     let leaf = SplitNodeSnapshot::Leaf {
         purpose: Default::default(),
         icon: None,
+        shell_profile: None,
         utility_created_at: 0,
         tab_id: "w".into(),
         cwd: None,

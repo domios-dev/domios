@@ -234,6 +234,7 @@ pub async fn inspect_tabs(
 
 #[derive(Default, Deserialize)]
 pub struct CreateShellTabBody {
+    pub shell: Option<String>,
     #[serde(default)]
     pub purpose: crate::multiplexer::types::ShellPurpose,
     pub icon: Option<String>,
@@ -281,6 +282,12 @@ pub async fn create_shell_tab(
         body.creator_tab_id = caller_tab_header(&headers);
     }
     use crate::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
+    if body.shell.is_some() && body.chat_backend.is_some() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "shell profiles require PTY backing".into(),
+        ));
+    }
     if body.purpose != crate::multiplexer::types::ShellPurpose::Shell && body.chat_backend.is_some()
     {
         return Err((
@@ -328,6 +335,7 @@ pub async fn create_shell_tab(
         None => TabCommand::Shell,
     };
     let spec = SpawnTabSpec {
+        shell: body.shell,
         purpose: body.purpose,
         icon: body.icon,
         cmd: body.cmd,
@@ -948,3 +956,26 @@ mod tests_create_tab;
 
 #[cfg(test)]
 mod tests_close_error;
+
+#[derive(Default, Deserialize)]
+pub struct ShellProfilesQuery {
+    #[serde(default)]
+    pub refresh: bool,
+}
+
+pub async fn list_shell_profiles(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<ShellProfilesQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_owned()))?;
+    let result = crate::dispatch::dispatch_blocking(
+        crate::dispatch::Command::ShellProfiles {
+            refresh: query.refresh,
+        },
+        state.svc.clone(),
+    )
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    Ok(Json(result.into_json()))
+}

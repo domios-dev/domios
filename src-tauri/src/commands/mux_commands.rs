@@ -500,6 +500,8 @@ pub async fn mux_create_tab(
     svc: State<'_, ServiceState>,
     workspace_id: String,
     eager: Option<bool>,
+    shell: Option<String>,
+    cwd: Option<String>,
     purpose: Option<crate::multiplexer::types::ShellPurpose>,
     description: Option<String>,
     icon: Option<String>,
@@ -510,6 +512,8 @@ pub async fn mux_create_tab(
     let svc = svc.inner().clone();
     tokio::task::spawn_blocking(move || {
         let handle = svc.spawn_tab(crate::service::spawn::SpawnTabSpec {
+            shell,
+            cwd,
             workspace_id: Some(workspace_id),
             eager: eager.unwrap_or(false),
             purpose: purpose.unwrap_or_default(),
@@ -893,4 +897,19 @@ pub async fn mux_batch(
     commands: Vec<BatchOp>,
 ) -> Result<Vec<serde_json::Value>, String> {
     Ok(svc.batch(commands).await)
+}
+
+#[tauri::command]
+pub async fn shell_profiles(
+    svc: State<'_, ServiceState>,
+    refresh: Option<bool>,
+) -> Result<serde_json::Value, String> {
+    crate::dispatch::dispatch_blocking(
+        crate::dispatch::Command::ShellProfiles {
+            refresh: refresh.unwrap_or(false),
+        },
+        svc.inner().clone(),
+    )
+    .await
+    .map(|result| result.into_json())
 }

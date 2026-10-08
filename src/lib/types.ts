@@ -151,6 +151,7 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
+  shell_profile?: ShellProfile | null;
   purpose?: import("./shellCommandState").ShellPurpose;
   icon?: string | null;
   shell_command_state?: import("./shellCommandState").ShellCommandState;
@@ -547,7 +548,16 @@ export interface FontConfig {
   ligatures: boolean;
 }
 
+export interface ShellProfile {
+  id: string;
+  name: string;
+  executable: string;
+  args: string[];
+  wsl_distro: string | null;
+}
+
 export interface TerminalConfigSettings {
+  default_shell?: string | null;
   cursor_style: string;
   cursor_blink: boolean;
   scrollback: number;

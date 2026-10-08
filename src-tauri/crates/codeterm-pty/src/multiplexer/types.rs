@@ -512,6 +512,8 @@ pub struct Tab {
     pub icon: Option<String>,
     #[serde(default)]
     pub utility_created_at: u64,
+    #[serde(default)]
+    pub shell_profile: Option<crate::pty::shell_profiles::ShellProfile>,
     #[serde(skip)]
     pub utility_command_pending: bool,
     #[serde(default, skip_deserializing)]

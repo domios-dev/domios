@@ -13,6 +13,7 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 | `tab_type` | `string` | `"Terminal"` or `"Choice"` |
 | `title` | `string` | The tab's single-word name, at most 64 characters, without whitespace or control characters; the sole name field in tab payloads. |
 | `description` | `string?` | One-line activity summary, max 200 chars, without control characters; shown in the sidebar tooltip/subtitle and persisted in session snapshots. |
+| `shell_profile` | `object?` | Shell profile retained across restore; see `/api/shells`. |
 | `cwd` | `string?` | Current working directory (updated via OSC 7) |
 | `agent_type` | `string?` | Agent running in tab, e.g. `"claude"` |
 | `claude_session_id` | `string?` | Linked Claude Code session ID for resume |
@@ -21,6 +22,8 @@ Full fields returned by `GET /api/tabs/inspect` for each selected tab:
 | `can_spawn` | `bool` | Whether this tab can spawn children. Orchestrator: true (default). Worker: always false. |
 | `connected_services` | `string[]` | External services connected to this tab (e.g. `["telegram"]`), shown as sidebar icons. |
 | `depth` | `number` | Hierarchy depth: 0 (no role), 1 (Orchestrator), 2 (Worker under Orchestrator) |
+
+Tab creation accepts `shell` (profile id). `GET /api/shells?refresh=true` refreshes detection; otherwise cached. Socket: `tab.new` (`shell`), `tab.shells` (`refresh`). Unknown ids refuse creation. Shells alone accept profiles; agents remain native.
 
 ### Text input routes: `/send` vs `/chat-send`
 
@@ -219,4 +222,4 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 Memory item, graph, calibration, and worker endpoints: `codeterm docs API-MEMORY`.
 
-<!-- revision: 53 -->
+<!-- revision: 54 -->
