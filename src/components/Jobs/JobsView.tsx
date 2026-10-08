@@ -142,9 +142,12 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
     dialogOpen.current = false;
     const target = dialogFocus.current;
     dialogFocus.current = null;
-    if (target?.isConnected) target.focus();
-    else list.current?.querySelector<HTMLButtonElement>("button[data-job-key]")?.focus();
-  }, [confirmation, jobs]);
+    if (target?.isConnected && !(target instanceof HTMLButtonElement && target.disabled)) target.focus();
+    else {
+      const fallback = list.current?.querySelector<HTMLButtonElement>("button[data-job-key]") ?? clearStoppedButtonRef.current?.closest<HTMLElement>('[aria-label="Jobs"]');
+      fallback?.focus();
+    }
+  }, [confirmation, jobs, clearStoppedButtonRef]);
 
   const actionContext = useMemo<JobActionContext>(() => ({ adapter, jobActions: jobActionAdapter, graphFor, refreshCrons: crons.refresh }), [adapter, jobActionAdapter, graphFor, crons.refresh]);
   const deleteJob = useCallback((job: MergedJob) => deleteMergedJob(job, actionContext), [actionContext]);
@@ -286,7 +289,7 @@ export function JobsView({ workspaces, teams, initialFilter = NO_JOBS_FILTER, in
   const sourcesKey = JSON.stringify(layout.sources);
   const sources = useMemo<string[]>(() => JSON.parse(sourcesKey), [sourcesKey]);
   const connectionId = `host:${context.ready ? context.generation : "detached"}`;
-  return <section aria-label="Jobs" className="flex h-full min-h-0 flex-col bg-[var(--ct-bg)] text-[var(--ct-fg)]">
+  return <section aria-label="Jobs" tabIndex={-1} className="flex h-full min-h-0 flex-col bg-[var(--ct-bg)] text-[var(--ct-fg)]">
     <header className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--ct-border)] bg-[color-mix(in_srgb,var(--ct-titlebar-bg)_82%,transparent)] px-4 py-3 backdrop-blur-md sm:px-6">
       <Workflow size={18} className="shrink-0 text-[var(--ct-accent)]" aria-hidden="true" />
       <h2 className="text-[length:var(--ct-font-size-md)] font-semibold">Jobs</h2>

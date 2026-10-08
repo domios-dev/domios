@@ -281,7 +281,7 @@ async function main() {
       assert.deepEqual(cronJobCalls.filter((call) => call.startsWith("delete:")), [`delete:${stoppedCron.id}`]);
       assert.deepEqual(transport.deletes.map((identity) => identity.id), [graph.scenarios[0].root.id]);
       assert.equal(clear.disabled, true, "the header action reflects the refreshed filter");
-      assert.equal(document.activeElement, clear, "the bulk action restores header focus");
+      assert.ok(document.activeElement === view.host.querySelector('section[aria-label="Jobs"]'), "empty Jobs receives focus when the refreshed bulk action is disabled");
     } finally {
       await view.close();
       cronList = async () => [teamCron, unteamedCron, otherTeamCron];

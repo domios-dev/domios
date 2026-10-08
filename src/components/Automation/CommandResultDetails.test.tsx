@@ -6,6 +6,7 @@ import { CommandResultFacts, commandOutcome, resultHandler, shownAsLastAccepted 
 import { fixtureGraph } from "./fixtures.testdata";
 import type { CommandResultMetadata } from "./types";
 
+async function main() {
 const window = new Window();
 for (const key of ["window", "document", "HTMLElement", "navigator"]) Object.defineProperty(globalThis, key, { configurable: true, value: (window as unknown as Record<string, unknown>)[key] });
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -39,3 +40,6 @@ try {
   host.remove();
 }
 console.log("Command result facts passed");
+
+}
+void main().catch((error: unknown) => { console.error(error); process.exitCode = 1; });
