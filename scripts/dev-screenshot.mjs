@@ -34,7 +34,7 @@ await new Promise((resolve) => { ws.onopen = resolve; });
 let clip;
 if (selector) {
   const { result } = await call("Runtime.evaluate", {
-    expression: `(() => { const r = document.querySelector(${JSON.stringify(selector)})?.getBoundingClientRect(); return r && r.width && r.height ? [r.x, r.y, r.width, r.height] : null; })()`,
+    expression: `(() => { const el = document.querySelector(${JSON.stringify(selector)}); el?.scrollIntoView({ block: "nearest" }); const r = el?.getBoundingClientRect(); return r && r.width && r.height ? [r.x, r.y, r.width, r.height] : null; })()`,
     returnByValue: true,
   });
   if (!result?.value) throw new Error(`selector not visible: ${selector}`);
