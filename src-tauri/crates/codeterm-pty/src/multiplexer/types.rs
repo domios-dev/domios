@@ -826,6 +826,11 @@ impl Tab {
         matches!(self.backing, TabBacking::ChatBackend { .. })
     }
 
+    /// A surface lives inside its owner, so it closes with it; other children are orphaned.
+    pub fn closes_with_owner(&self) -> bool {
+        matches!(self.backing, TabBacking::Surface(_))
+    }
+
     pub fn surface(&self) -> Option<&SurfaceBacking> {
         match &self.backing {
             TabBacking::Surface(surface) => Some(surface),
