@@ -599,6 +599,7 @@ export function DropdownSelect({
   placeholder,
   leading,
   prefix,
+  "aria-label": ariaLabel,
   menuMaxHeight,
   className,
   "data-testid": testId,
@@ -613,6 +614,7 @@ export function DropdownSelect({
   /** Static label shown before the value so the control names itself, e.g.
    *  "Effort" → "Effort Medium". */
   prefix?: string;
+  "aria-label"?: string;
   /** Pixel cap on the open menu; longer lists scroll internally. */
   menuMaxHeight?: number;
   className?: string;
@@ -645,7 +647,7 @@ export function DropdownSelect({
       data-value={value}
       disabled={disabled}
       aria-haspopup="listbox"
-      aria-label={prefix ? `${prefix}: ${label}` : undefined}
+      aria-label={ariaLabel ?? (prefix ? `${prefix}: ${label}` : undefined)}
       className={`flex items-center gap-1.5 w-full min-w-0 px-2 py-1.5 rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40 ${className ?? ""}`}
     >
       {leading}
