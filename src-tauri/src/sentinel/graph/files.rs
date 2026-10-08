@@ -30,7 +30,7 @@ fn literals(source: &str) -> Vec<String> {
         } else if quote.is_none() && matches!(character, '\'' | '"') {
             quote = Some(character);
         } else if quote.is_none()
-            && (character.is_whitespace() || ";|&><(){}[]".contains(character))
+            && (character.is_whitespace() || ",;|&><(){}[]".contains(character))
         {
             if !value.is_empty() {
                 values.push(std::mem::take(&mut value));
@@ -65,9 +65,7 @@ fn normalize(path: &Path) -> PathBuf {
     for component in path.components() {
         match component {
             Component::CurDir => {}
-            Component::ParentDir => {
-                result.pop();
-            }
+            Component::ParentDir => result.push(".."),
             other => result.push(other.as_os_str()),
         }
     }
