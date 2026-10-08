@@ -54,6 +54,17 @@ fn early_send_nonce_survives_initial_launch_registration() {
         assert!(fixture
             .service
             .agent_delivery_binding_matches(&tab_id, &payload));
+        if session.is_none() {
+            assert!(launch.emit_first_turn_input_ready(&fixture.service));
+            let mux = fixture.service.mux.read();
+            let tab = mux.get_tab(&tab_id).unwrap();
+            assert_eq!(
+                tab.boot_stage,
+                Some(crate::service::boot_stage::BootStage::AgentReady)
+            );
+            assert_eq!(tab.session_binding_nonce.as_deref(), Some(nonce.as_str()));
+            assert!(tab.agent_session_id.is_none());
+        }
         assert!(LAUNCH_REGISTRY.lock().finish(&launch));
     }
 }

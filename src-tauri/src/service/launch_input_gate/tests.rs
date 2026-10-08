@@ -2,6 +2,9 @@ use super::*;
 use crate::agent::provider::{AgentProvider, ComposerCursorPosition};
 use crate::agent::test_provider::MockProvider;
 
+#[path = "tests/reserved_nonce.rs"]
+mod reserved_nonce;
+
 #[test]
 fn trust_frame_is_never_composer_evidence() {
     let input = codeterm_pty::pty::screen_state::ComposerInputState {
