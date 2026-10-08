@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendComposerBlock, applyComposerInsertions, composerInsertionStore } from "../composerInsertion";
+import { composerInsertionStore, contextFileName } from "../composerInsertion";
 import { lineSuffix, locateSelection, quotedSelection } from "./selectionReference";
 import { initialTabPanelState, resolveDetail, tabPanelNavigationStore, tabPanelReducer } from "./tabPanelNavigation";
 
@@ -23,16 +23,15 @@ assert.equal(tabPanelNavigationStore.get("two").documents.detail, null);
 tabPanelNavigationStore.clear();
 assert.equal(tabPanelNavigationStore.get("one"), initialTabPanelState);
 
-assert.equal(appendComposerBlock("", "block"), "block\n");
-assert.equal(appendComposerBlock("draft  \n", "block\n\n"), "draft\n\nblock\n");
-assert.equal(appendComposerBlock("draft", "  "), "draft");
-const applied = applyComposerInsertions("hi", [{ attachments: ["/a.md"] }, { text: "one" }, { attachments: ["/a.md", "/b.md"], text: "two" }]);
-assert.deepEqual(applied, { draft: "hi\n\none\n\ntwo\n", attachments: ["/a.md", "/b.md"] });
-composerInsertionStore.insert("tab", { text: "x" });
-composerInsertionStore.insert("other", { text: "y" });
-assert.deepEqual(composerInsertionStore.take("tab"), [{ text: "x" }]);
+composerInsertionStore.insert("tab", [{ kind: "quote", content: "x" }]);
+composerInsertionStore.insert("other", [{ kind: "document", path: "/y.md" }]);
+composerInsertionStore.insert("tab", [{ kind: "diff", content: "z" }]);
+assert.deepEqual(composerInsertionStore.take("tab"), [{ kind: "quote", content: "x" }, { kind: "diff", content: "z" }]);
 assert.deepEqual(composerInsertionStore.take("tab"), []);
-assert.deepEqual(composerInsertionStore.take("other"), [{ text: "y" }]);
+assert.deepEqual(composerInsertionStore.take("other"), [{ kind: "document", path: "/y.md" }]);
+assert.equal(contextFileName({ kind: "quote", detail: "Domios After.md:42" }), "quote-domios-after.md-42.md");
+assert.equal(contextFileName({ kind: "diff", label: "diff · A.tsx +2 −1" }), "diff-diff-a.tsx-2-1.diff");
+assert.equal(contextFileName({ kind: "message", fileName: "given.md" }), "given.md");
 
 const source = "# Title\n\nIntro with **bold** text.\n\n- item one\n- item two\n";
 assert.deepEqual(locateSelection(source, "Intro with bold text."), { start: 3, end: 3 });

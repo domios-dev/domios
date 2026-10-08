@@ -1,6 +1,8 @@
 import type { LocalArtifactKind } from "./localArtifactDirective";
 
-export const ATTACHMENT_KINDS = ["image", "file", "text", "folder"] as const;
+export const ATTACHMENT_KINDS = ["image", "file", "text", "folder", "quote", "message", "diff", "document"] as const;
+/** Context a capsule carries as text the agent reads by path: quoted passages, chat messages, diffs. */
+export const CONTEXT_TEXT_KINDS = ["text", "quote", "message", "diff"] as const;
 /** Clipboard flavour carrying text with attachment tags, so a composer paste rebuilds the capsules. */
 export const DOMIOS_TEXT_MIME = "application/x-domios-text";
 export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
@@ -60,7 +62,7 @@ export function attachmentPreviewKind(attachment: AttachmentMarker): LocalArtifa
   const ext = extension(attachment.path);
   if (attachment.kind === "image") return ext in IMAGE_MIME ? "image" : null;
   if (attachment.kind === "folder") return null;
-  if (attachment.kind === "text") return "document";
+  if ((CONTEXT_TEXT_KINDS as readonly string[]).includes(attachment.kind)) return "document";
   if (ext === "html" || ext === "htm") return "page";
   return DOCUMENT_EXTENSIONS.has(ext) ? "document" : null;
 }

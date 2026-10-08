@@ -1,4 +1,4 @@
-import type { FileDiff, FileDiffHunk, ToolEvent } from "@codeterm/chat-core";
+import { hunkHeader, type FileDiff, type FileDiffHunk, type ToolEvent } from "@codeterm/chat-core";
 import { ChevronRight } from "lucide-react";
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
@@ -26,10 +26,6 @@ const MARKER_COLOR: Record<LineTone, string> = {
 function lineTone(line: string): LineTone {
   const marker = line.charAt(0);
   return marker === "+" ? "add" : marker === "-" ? "del" : "context";
-}
-
-function hunkHeader(hunk: FileDiffHunk): string {
-  return `@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`;
 }
 
 function hunkLabel(count: number): string {

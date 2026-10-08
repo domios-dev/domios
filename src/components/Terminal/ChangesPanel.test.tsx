@@ -97,16 +97,20 @@ it("opens a file's diff, jumps to its turn, runs file actions and goes back with
   expect(turnSelect().value).toBe("source1");
 });
 
-it("adds a file and a hunk to the composer as context and copies the diff without sending", async () => {
+it("adds a change and a hunk to the composer as diff capsules and copies the diff without sending", async () => {
   const writeText = vi.fn(async () => {});
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
   chatChangesStore.set("tab", messages);
   await render(panel());
   await act(async () => button("Show changes for src/a.ts").click());
   await act(async () => button("Ask about the change to src/a.ts").click());
-  expect(composerInsertionStore.take("tab")).toEqual([{ attachments: ["/repo/src/a.ts"], text: "Recorded change in `src/a.ts` (modified, +1 -1; @@ -1,1 +1,1 @@)" }]);
+  expect(composerInsertionStore.take("tab")).toEqual([{
+    kind: "diff",
+    label: "diff · a.ts +1 −1",
+    content: "Recorded change in `src/a.ts` (modified, +1 -1; @@ -1,1 +1,1 @@)\n\nCurrent file: `/repo/src/a.ts`\n\n```diff\n--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,1 +1,1 @@\n-x\n+y\n```",
+  }]);
   await act(async () => button("Add hunk @@ -1,1 +1,1 @@ to chat").click());
-  expect(composerInsertionStore.take("tab")).toEqual([{ text: "Recorded change in `src/a.ts:1`:\n```diff\n@@ -1,1 +1,1 @@\n-x\n+y\n```" }]);
+  expect(composerInsertionStore.take("tab")).toEqual([{ kind: "diff", label: "diff · a.ts +1 −1", content: "Recorded change in `src/a.ts:1`:\n```diff\n@@ -1,1 +1,1 @@\n-x\n+y\n```" }]);
   await act(async () => button("Copy diff").click());
   expect(writeText).toHaveBeenCalledWith("--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,1 +1,1 @@\n-x\n+y");
   expect(invoke).not.toHaveBeenCalledWith(expect.stringMatching(/send/), expect.anything());
@@ -135,7 +139,7 @@ it("keeps failed file actions visible and disables opening deleted files", async
   expect(button("Open file").disabled).toBe(true);
   expect(button("Show in Explorer/Finder").disabled).toBe(true);
   await act(async () => button("Ask about the change to gone.ts").click());
-  expect(composerInsertionStore.take("tab")[0]?.attachments).toEqual([]);
+  expect(composerInsertionStore.take("tab")[0]?.content).not.toContain("Current file");
   button("Jump to turn");
 });
 

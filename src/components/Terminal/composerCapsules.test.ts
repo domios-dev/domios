@@ -148,4 +148,27 @@ assert.equal(isLongPaste(Array.from({ length: 40 }, (_, i) => `line ${i}`).join(
   assert.deepEqual(decodeCapsuleRegistry('[{"label":"x","kind":"bogus","path":"/p"}]'), {});
 }
 
+// context capsules: quotes number per draft, given labels stay and repeat with a suffix, all serialize as one tag family
+{
+  const { registry, text } = capsulesForPaths(EMPTY_CAPSULES, [
+    { path: "/t/q1.md", kind: "quote", detail: "domios-after.md:42" },
+    { path: "/t/q2.md", kind: "quote", detail: "Fermi 14:05" },
+    { path: "/t/m1.md", kind: "message", label: "msg · Fermi 14:05" },
+    { path: "/t/m2.md", kind: "message", label: "msg · Fermi 14:05" },
+    { path: "/t/d.diff", kind: "diff", label: "diff · ChangesPanel.tsx +26 −4" },
+    { path: "/repo/notes.md", kind: "document" },
+  ]);
+  assert.deepEqual(capsuleSpans(text).map((span) => span.label), [
+    "quote1 · domios-after.md:42", "quote2 · Fermi 14:05", "msg · Fermi 14:05", "msg · Fermi 14:05 (2)", "diff · ChangesPanel.tsx +26 −4", "notes.md",
+  ]);
+  const sent = serializeCapsuleDraft(text, registry);
+  assert.deepEqual(parseAttachmentMarkers(sent).attachments.map(({ kind, label }) => `${kind}:${label}`), [
+    "quote:quote1 · domios-after.md:42", "quote:quote2 · Fermi 14:05", "message:msg · Fermi 14:05", "message:msg · Fermi 14:05 (2)",
+    "diff:diff · ChangesPanel.tsx +26 −4", "document:notes.md",
+  ]);
+  assert.deepEqual(decodeCapsuleRegistry(encodeCapsuleRegistry(registry)), registry, "new kinds survive draft persistence");
+  const pasted = absorbAttachmentTags(formatAttachmentMarker("/t/q9.md", "quote", "quote1 · domios-after.md:42"), registry);
+  assert.equal(capsuleSpans(pasted.text)[0].label, "quote3 · domios-after.md:42", "a pasted quote renumbers and keeps its detail");
+}
+
 console.log("composerCapsules tests passed");

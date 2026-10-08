@@ -73,7 +73,7 @@ function PluginCard({ plugin, host, source }: { plugin: PluginBlockInfo; host: P
       )}
       actions={actions}
       fullPage={{ label: "Open in Plugins", open: () => host.openInPlugins(plugin.id) }}
-      askText={`About the ${plugin.name} plugin (\`${source}\`): `}
+      askText={`About the ${plugin.name} plugin (\`${source}\`)`}
     />
   );
 }
