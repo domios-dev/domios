@@ -1,6 +1,6 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { File as FileIcon, X } from "lucide-react";
-import { CAPSULE_DETAIL_STYLE, CAPSULE_ICONS, CAPSULE_TONE, CapsulePreview, LocalArtifactScope, capsuleLabelParts } from "@codeterm/chat-ui";
+import { useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { X } from "lucide-react";
+import { CapsuleDecor, CapsulePreview, LocalArtifactScope, capsuleLabelParts } from "@codeterm/chat-ui";
 import {
   CAPSULE_LEAD,
   CAPSULE_TRAIL,
@@ -11,12 +11,6 @@ import {
   type ComposerCapsule,
 } from "./composerCapsules";
 
-const UNKNOWN_TONE: CSSProperties = {
-  boxShadow: "inset 0 0 0 1px color-mix(in srgb, var(--ct-muted-fg, #8b949e) 45%, transparent)",
-  color: "var(--ct-muted-fg, #8b949e)",
-  borderRadius: "0.45em",
-};
-
 interface Hover {
   span: CapsuleSpan;
   capsule: ComposerCapsule;
@@ -24,19 +18,14 @@ interface Hover {
   bottom: number;
 }
 
-function PaintedCapsule({ span, capsule }: { span: CapsuleSpan; capsule: ComposerCapsule | null }) {
-  const Icon = capsule ? CAPSULE_ICONS[capsule.kind] : FileIcon;
+function PaintedCapsule({ span, capsule, hovered }: { span: CapsuleSpan; capsule: ComposerCapsule | null; hovered: boolean }) {
   const { name, detail } = capsuleLabelParts(span.label);
   return (
-    <span
-      data-capsule-start={span.start}
-      className="relative"
-      style={{ ...(capsule ? CAPSULE_TONE : UNKNOWN_TONE), paddingBlock: 1 }}
-    >
+    <span data-capsule-start={span.start} data-unknown={capsule ? undefined : ""} data-hovered={hovered || undefined} className="ct-capsule">
       {CAPSULE_LEAD}
-      <Icon size={11} aria-hidden className="absolute left-[3px] top-1/2 -translate-y-1/2 opacity-80" />
+      <CapsuleDecor kind={capsule?.kind ?? null} />
       {labelChars(name)}
-      {detail && <span style={CAPSULE_DETAIL_STYLE}>{labelChars(detail)}</span>}
+      {detail && <span className="ct-capsule__detail">{labelChars(detail)}</span>}
       {CAPSULE_TRAIL}
     </span>
   );
@@ -109,7 +98,7 @@ export function ComposerCapsuleField({ tabId, value, registry, active, textareaR
         >
           {segments.map((segment) => ("text" in segment
             ? segment.text
-            : <PaintedCapsule key={segment.span.start} span={segment.span} capsule={segment.capsule} />))}
+            : <PaintedCapsule key={segment.span.start} span={segment.span} capsule={segment.capsule} hovered={hover?.span.start === segment.span.start} />))}
           {value.endsWith("\n") ? " " : null}
         </div>
       )}

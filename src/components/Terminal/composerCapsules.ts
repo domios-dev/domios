@@ -26,14 +26,14 @@ export const EMPTY_CAPSULES: CapsuleRegistry = Object.freeze({});
 export const LONG_PASTE_CHARS = 2000;
 export const LONG_PASTE_LINES = 40;
 
-// A token is a bidi isolate around the label: zero-width ends nobody types, and non-breaking
-// figure/no-break spaces reserve the icon slot and padding so the painted capsule matches the text width.
+// A token is a bidi isolate around the label: zero-width ends nobody types, and non-breaking spaces
+// reserve the icon slot (two figure + one no-break) and the trailing pad, so the painted capsule matches the text width.
 const OPEN = "\u2068";
 const CLOSE = "\u2069";
 const PAD = "\u2007";
-export const CAPSULE_LEAD = `${OPEN}${PAD}${PAD}`;
+export const CAPSULE_LEAD = `${OPEN}${PAD}${PAD} `;
 export const CAPSULE_TRAIL = `\u00A0${CLOSE}`;
-const TOKEN = /\u2068\u2007\u2007([^\u2068\u2069\n]+?)\u00A0\u2069/g;
+const TOKEN = /\u2068\u2007\u2007\u00A0([^\u2068\u2069\n]+?)\u00A0\u2069/g;
 const LABEL_MAX = 32;
 
 /** A label as the token spells it: spaces become no-break spaces so a capsule never wraps. */

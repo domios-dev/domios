@@ -1,6 +1,7 @@
-import { useCallback, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
 import { File as FileIcon, Folder, Image as ImageIcon, ScrollText, type LucideIcon } from "lucide-react";
-import type { AttachmentKind, AttachmentMarker, AttachmentSegment } from "@codeterm/chat-core";
+import { DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, type AttachmentSegment } from "@codeterm/chat-core";
+import { capsuleSelectionText } from "./capsuleClipboard";
 import { PRE_WRAP_CLASS } from "./CodeBlock";
 import { ImageFullscreen, REVEAL_UNAVAILABLE, revealLocalFile, type FullscreenImage } from "./ImageFullscreen";
 import { localArtifactOpeningAvailable } from "./localArtifactLoader";
@@ -15,15 +16,18 @@ export const CAPSULE_ICONS: Record<AttachmentKind, LucideIcon> = {
 
 const KIND_NAMES: Record<AttachmentKind, string> = { image: "Image", text: "Pasted text", file: "File", folder: "Folder" };
 
-/** Fill and ring only: a capsule painted over composer text must never change its width. */
-export const CAPSULE_TONE: CSSProperties = {
-  background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 15%, transparent)",
-  boxShadow: "inset 0 0 0 1px color-mix(in srgb, var(--ct-accent, #58a6ff) 42%, transparent)",
-  color: "color-mix(in srgb, var(--ct-accent, #58a6ff) 55%, var(--ct-fg, #e6edf3))",
-  borderRadius: "0.45em",
-};
-
 export const CAPSULE_DETAIL_STYLE: CSSProperties = { color: "var(--ct-muted-fg, #8b949e)" };
+
+/** Plate and icon of a `.ct-capsule`: painted out of flow, so only the label's glyphs take width. */
+export function CapsuleDecor({ kind }: { kind: AttachmentKind | null }) {
+  const Icon = kind ? CAPSULE_ICONS[kind] : FileIcon;
+  return (
+    <>
+      <span aria-hidden className="ct-capsule__plate" />
+      <Icon aria-hidden className="ct-capsule__icon" />
+    </>
+  );
+}
 
 /** "text1 · 312 lines" → name "text1", detail " · 312 lines"; the detail renders quieter. */
 export function capsuleLabelParts(label: string): { name: string; detail: string } {
@@ -70,7 +74,6 @@ export function AttachmentCapsule({ attachment }: { attachment: AttachmentMarker
   const { kind, path } = attachment;
   const label = attachment.label ?? fileName(path);
   const { name, detail } = capsuleLabelParts(label);
-  const Icon = CAPSULE_ICONS[kind];
   const image = useLocalImage(kind === "image" ? path : undefined);
   const [open, setOpen] = useState<FullscreenImage | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -80,11 +83,14 @@ export function AttachmentCapsule({ attachment }: { attachment: AttachmentMarker
   const opensImage = kind === "image" && Boolean(image.src);
   const disabled = !opensImage && (kind === "image" || !canReveal);
   return (
-    <span ref={anchorRef} className="relative inline-block align-baseline" onMouseEnter={() => setPreviewing(true)} onMouseLeave={() => setPreviewing(false)}>
+    <span ref={anchorRef} className="relative" onMouseEnter={() => setPreviewing(true)} onMouseLeave={() => setPreviewing(false)}>
       <button
         type="button"
         data-testid="chat-inline-attachment"
         data-kind={kind}
+        data-attachment-kind={kind}
+        data-attachment-path={path}
+        data-attachment-label={label}
         aria-label={kind === "image" ? `Open image ${label}` : `Reveal ${KIND_NAMES[kind].toLowerCase()} ${label}`}
         title={disabled && kind !== "image" ? `${path} (${REVEAL_UNAVAILABLE})` : path}
         disabled={disabled}
@@ -94,14 +100,15 @@ export function AttachmentCapsule({ attachment }: { attachment: AttachmentMarker
           if (opensImage && image.src) setOpen({ name: fileName(path), src: image.src, path });
           else revealLocalFile(path);
         }}
-        className="ct-liquid-interactive mx-px inline-flex max-w-[18rem] items-center gap-1 px-1.5 align-baseline font-[inherit] leading-[1.35] disabled:cursor-default focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[var(--ct-accent)]"
-        style={CAPSULE_TONE}
+        className="ct-capsule-button"
       >
-        <Icon size={12} aria-hidden className="shrink-0 opacity-75" />
-        <span className="min-w-0 truncate">{name}<span style={CAPSULE_DETAIL_STYLE}>{detail}</span></span>
+        <span className="ct-capsule ct-capsule--padded">
+          <CapsuleDecor kind={kind} />
+          {name}{detail && <span className="ct-capsule__detail">{detail}</span>}
+        </span>
       </button>
       {previewing && !open && (
-        <span role="presentation" className="pointer-events-none absolute bottom-full left-0 z-20 block pb-1.5">
+        <span role="presentation" data-copy-skip className="pointer-events-none absolute bottom-full left-0 z-20 block select-none pb-1.5">
           <CapsulePreview kind={kind} path={path} label={label} />
         </span>
       )}
@@ -110,10 +117,21 @@ export function AttachmentCapsule({ attachment }: { attachment: AttachmentMarker
   );
 }
 
-/** User text with its capsules rendered where they were typed. */
+/** User text with its capsules rendered where they were typed; a copy keeps capsules as tags for a composer. */
 export function InlineAttachmentText({ segments }: { segments: AttachmentSegment[] }) {
+  const copy = (event: ClipboardEvent<HTMLPreElement>) => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount !== 1 || selection.isCollapsed) return;
+    const range = selection.getRangeAt(0);
+    if (!event.currentTarget.contains(range.commonAncestorContainer)) return;
+    const { plain, portable } = capsuleSelectionText(range.cloneContents());
+    if (plain === portable) return;
+    event.preventDefault();
+    event.clipboardData.setData("text/plain", plain);
+    event.clipboardData.setData(DOMIOS_TEXT_MIME, portable);
+  };
   return (
-    <pre data-testid="chat-inline-attachment-text" className={`${PRE_WRAP_CLASS} m-0 select-text font-[inherit]`}>
+    <pre data-testid="chat-inline-attachment-text" className={`${PRE_WRAP_CLASS} m-0 select-text font-[inherit]`} onCopy={copy}>
       {segments.map((segment, index) => ("text" in segment
         ? segment.text
         : <AttachmentCapsule key={`${index}:${segment.attachment.path}`} attachment={segment.attachment} />))}
