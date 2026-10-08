@@ -1141,6 +1141,7 @@ pub(crate) fn mark_tab_agent_launch_started(
     if let Some(tab) = mux.write().get_tab_mut(tab_id) {
         tab.restored_from_snapshot = false;
         tab.agent_booting = true;
+        tab.restorable_launch.failed_provider = None;
     }
 }
 
