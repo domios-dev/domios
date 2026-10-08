@@ -894,6 +894,7 @@ pub fn run() {
                 webhook_registry: webhook_registry.clone(),
                 tab_menu_registry: tab_menu_registry.clone(),
                 surface_registry,
+                surface_runtimes: crate::service::surface::builtin_runtimes(),
                 receiver_targets: Arc::new(crate::service::receiver_target::ReceiverTargetStore::open(
                     crate::service::receiver_target::ReceiverTargetStore::default_path(),
                 )),

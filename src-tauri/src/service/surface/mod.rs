@@ -1,10 +1,16 @@
 //! Plugin surface tabs: a core-owned tab frame whose content a plugin view renders.
 
+mod agent_call;
+mod browser;
 mod model;
 mod ops;
+pub(crate) mod runtime;
+mod stream_ops;
 mod transport;
 
 pub(crate) use model::{SurfaceError, SurfaceOpenRequest};
+pub(crate) use runtime::SurfaceRuntimeRegistry;
+pub(crate) use stream_ops::{call_surface, open_surface_stream, SurfaceCallFailure};
 pub(crate) use transport::SurfaceTransport;
 
 use super::ServiceContext;
@@ -16,6 +22,12 @@ pub(crate) const SURFACE_NO_TEXT: &str = "surface_no_text";
 /// The typed refusal every text path returns for a surface tab; `None` for any other backing.
 pub(crate) fn surface_input_refusal(backing: &TabBacking) -> Option<String> {
     matches!(backing, TabBacking::Surface(_)).then(transport::no_input)
+}
+
+pub(crate) fn builtin_runtimes() -> std::sync::Arc<SurfaceRuntimeRegistry> {
+    std::sync::Arc::new(SurfaceRuntimeRegistry::with_builtin_runtimes(
+        &crate::paths::data_dir(),
+    ))
 }
 
 impl ServiceContext {
