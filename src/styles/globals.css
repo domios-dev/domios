@@ -3482,6 +3482,66 @@ button,
 .ct-composer-activity-capsule { min-width: 0; max-width: 100%; }
 .ct-composer-activity-chip__open { display: inline-flex; align-items: center; flex: 0 1 auto; min-width: 0; gap: 0.25rem; border: 0; border-radius: 0; padding: 0; background: transparent; color: inherit; text-align: left; }
 .ct-composer-attachment-capsule { display: inline-flex; flex: 0 0 auto; max-width: 9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0.15rem 0.4rem; border: 1px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent); border-radius: 9999px; color: var(--ct-fg, #c9d1d9); background: color-mix(in srgb, var(--ct-accent, #58a6ff) 8%, transparent); font-size: 0.68rem; line-height: 1.1; }
+/* Inline attachment capsule: plate and icon sit out of flow inside the line box, so a capsule painted over composer text keeps its exact width. */
+.ct-capsule { position: relative; z-index: 0; }
+.ct-capsule--padded { padding-inline: 1.35em 0.27em; }
+.ct-capsule__plate {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  z-index: -1;
+  height: 1.2em;
+  border-radius: 9999px;
+  background: color-mix(in srgb, var(--ct-fg, #c9d1d9) 7%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-muted-fg, #8b949e) 30%, transparent);
+  pointer-events: none;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+.ct-capsule__icon {
+  position: absolute;
+  left: 0.32em;
+  bottom: 0.6em;
+  width: 0.8em;
+  height: 0.8em;
+  transform: translateY(50%);
+  color: var(--ct-muted-fg, #8b949e);
+  pointer-events: none;
+  transition: color 120ms ease;
+}
+.ct-capsule__detail { color: var(--ct-muted-fg, #8b949e); }
+.ct-capsule[data-hovered="true"] > .ct-capsule__plate,
+.ct-capsule-button:not(:disabled):hover .ct-capsule__plate {
+  background: color-mix(in srgb, var(--ct-fg, #c9d1d9) 11%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ct-accent, #58a6ff) 45%, transparent);
+}
+.ct-capsule[data-hovered="true"] > .ct-capsule__icon,
+.ct-capsule-button:not(:disabled):hover .ct-capsule__icon { color: var(--ct-accent, #58a6ff); }
+.ct-capsule[data-unknown] { color: var(--ct-muted-fg, #8b949e); }
+.ct-capsule[data-unknown] > .ct-capsule__plate { background: transparent; }
+/* vertical-align: top keeps baselines level: an overflow-clipped inline-block would otherwise sit on its bottom edge. */
+.ct-capsule-button {
+  display: inline-block;
+  max-width: 100%;
+  margin-inline: 1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  vertical-align: top;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: start;
+  font: inherit;
+  line-height: inherit;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.ct-capsule-button:disabled { cursor: default; }
+.ct-capsule-button:focus-visible { outline: none; }
+.ct-capsule-button:focus-visible .ct-capsule__plate { box-shadow: inset 0 0 0 1.5px var(--ct-accent, #58a6ff); }
+@media (prefers-reduced-motion: reduce) {
+  .ct-capsule__plate, .ct-capsule__icon { transition: none; }
+}
 .ct-composer-activity-chip__expand { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; border: 0; padding: 0 0.2rem; color: var(--ct-muted-fg, #8b949e); background: transparent; }
 .ct-composer-activity-chip__expand svg { transition: transform 120ms ease; }
 .ct-composer-activity-capsule[data-expanded="true"] .ct-composer-activity-chip__expand svg { transform: rotate(180deg); }

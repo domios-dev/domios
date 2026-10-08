@@ -54,6 +54,7 @@ export {
 } from "./userAttachments";
 export {
   ATTACHMENT_KINDS,
+  DOMIOS_TEXT_MIME,
   attachmentKindForPath,
   attachmentMarkerSegments,
   hasAttachmentMarkers,
