@@ -32,7 +32,7 @@ assert.equal(replayFrame(["first", "second"], 1700, false).active, null);
 assert.deepEqual(replayFrame(["first", "second"], 450, true), { highlighted: ["first", "second"], active: null, progress: 0 });
 const node = graph.nodes[0];
 const inspector = nodeInspector(node, null);
-assert.deepEqual(inspector.properties.map(([key]) => key), ["Kind", "Routes"]);
+assert.deepEqual(inspector.properties.map(([key]) => key), ["Type", "Decides with"]);
 assert.equal(inspector.code, null);
 const handler = { id: "build", type: "command", target: null, availability: "available" as const, label: "Build", timeout_ms: 1000, last_result: null };
 const coded = { ...node, outcomes: [{ bucket: "ready", handlers: [handler] }], detail: { definition: { probe: "printf ready", commands: [{ bucket: "ready", handler_id: "build", label: "Build", command: "make", command_truncated: false, timeout_ms: 1000 }] } } };

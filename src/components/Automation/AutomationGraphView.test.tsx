@@ -152,7 +152,7 @@ test("one named Sentinel entry opens its internal stages while shared execution 
   } finally { await view.close(); }
 });
 
-test("measured graph fits once, then keeps the user's camera and exact selection across refresh, resize and Runs toggle", async () => {
+test("opening a panel refits the graph, then keeps the user's camera and exact selection across refresh, resize and Runs toggle", async () => {
   const view = await mount();
   try {
     assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 800, 480), "initial frame uses the measured viewport");
@@ -164,12 +164,15 @@ test("measured graph fits once, then keeps the user's camera and exact selection
     const region = view.host.querySelector('[aria-label="Automation graph"]');
     await click(button(view.host, "Watcher A"));
     const camera = cameraLayer(view.host).style.transform;
-    assert.equal(camera, beforeDrawer, "opening the drawer leaves the camera untouched");
+    assert.notEqual(camera, beforeDrawer, "opening the drawer refits the graph");
+    assert.equal(camera, fitted(view.transport.graph, 800, 480, true), "opening a panel frames the whole visible graph");
+    await click(zoomIn);
+    const movedCamera = cameraLayer(view.host).style.transform;
     assert.equal(view.host.querySelector('[aria-label="Automation graph"]'), region, "the graph stays mounted behind the drawer");
     view.transport.graph = { ...fixtureGraph(), revision: "revision-b", nodes: [...fixtureGraph().nodes].reverse().map((node) => ({ ...node, state: "active" })) };
     await act(async () => { view.transport.changed!(); });
-    assert.equal(cameraLayer(view.host).style.transform, camera, "data-only refresh and node reorder keep the camera");
-    assert.equal(view.host.querySelector(`[aria-label^="blueprint: Watcher A"]`)?.getAttribute("aria-pressed"), "true", "selection follows the exact identity");
+    assert.equal(cameraLayer(view.host).style.transform, movedCamera, "data-only refresh and node reorder keep the camera");
+    assert.equal(view.host.querySelector(`[aria-label^="Logic node: Watcher A"]`)?.getAttribute("aria-pressed"), "true", "selection follows the exact identity");
     assert.equal(details(view.host).getAttribute("aria-label"), "Details: Watcher A");
     const center = centered(view.host, 800, 480);
     await resize(640, 420);
@@ -281,7 +284,7 @@ test("node details open as one right overlay drawer that switches in place and r
     assert.equal(drawer.getAttribute("aria-label"), "Details: Watcher A");
     assert.equal(drawer.getAttribute("aria-modal"), null, "the drawer is not modal; the graph behind stays usable");
     assert.equal(document.activeElement, drawer);
-    await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="cron: Schedule A"]')!);
+    await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="Schedule node: Schedule A"]')!);
     assert.equal(details(view.host), drawer, "selecting another graph node updates the same drawer");
     assert.equal(drawer.getAttribute("aria-label"), "Details: Schedule A");
     await click(button(view.host, "Worker A"));
@@ -344,9 +347,9 @@ test("the observed seven-card fanout opens readable at 500x782 and Fit always re
     await click(button(view.host, "Runs"));
     await click(button(view.host, "Runs"));
     assert.equal(cameraLayer(view.host).style.transform, fitted(transport.graph, 500, 600), "list toggle keeps the readable frame");
-    await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="blueprint: Model child"]')!);
+    await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="Logic node: Model child"]')!);
     await act(async () => { details(view.host).dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })); });
-    await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="blueprint: Model child"]')!);
+    await click(view.host.querySelector<HTMLButtonElement>('[aria-label="Automation graph"] button[aria-label^="Logic node: Model child"]')!);
     await press(view.host, "ArrowUp", 12);
     await click(button(view.host, "Fit graph"));
     readable(projectedCards(view.host, ["Model child"]), 500, 600);
@@ -384,6 +387,18 @@ test("Runs toggles the log without replacing the graph and Blueprint stop stays 
     assert.ok(view.host.querySelector('[role="alert"]'));
     assert.ok(!view.host.textContent?.includes("private-error"));
   } finally { await view.close(); }
+});
+
+test("an open node panel refits into the remaining measured canvas width", async () => {
+  const view = await mount();
+  try {
+    await press(view.host, "Minus", 3);
+    await click(button(view.host, "Watcher A"));
+    await resize(440, 480);
+    assert.equal(cameraLayer(view.host).style.transform, fitted(view.transport.graph, 440, 480, true));
+    const cards = allCards(view.host);
+    assert.ok(cards.length > 0);
+  } finally { await resize(800, 480); await view.close(); }
 });
 
 let finished = false;

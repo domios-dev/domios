@@ -74,6 +74,8 @@ export interface AutomationNode {
     definition?: {
       unavailable?: string;
       language?: string;
+      question?: string;
+      buckets?: readonly { name: string; pattern: string | null }[];
       probe?: string | null;
       probe_truncated?: boolean;
       commands?: readonly { bucket: string; handler_id: string; label: string; command: string; command_truncated: boolean; timeout_ms: number }[];
@@ -116,6 +118,11 @@ export interface AutomationRun {
 }
 
 export interface AutomationTransition {
+  decided_by?: "adapter" | "pattern" | null;
+  adapter_id?: string | null;
+  model?: string | null;
+  confidence?: number | null;
+  reason?: string | null;
   causal_run?: CausalRunContext | null;
   routes_current?: boolean;
   id: string;
@@ -142,6 +149,7 @@ export interface AutomationScenario {
 }
 
 export interface AutomationGraph extends AutomationScope {
+  configured_fallback?: { adapter_id: string; model: string | null } | null;
   all_teams?: boolean;
   truncated?: boolean;
   scenarios: readonly AutomationScenario[];
@@ -216,5 +224,5 @@ export function sameScope(a: AutomationScope, b: AutomationScope): boolean {
 }
 
 export function automationKindLabel(kind: string): string {
-  return kind === "sentinel" ? "blueprint" : kind;
+  return kind === "sentinel" ? "node" : kind;
 }
