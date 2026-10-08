@@ -114,6 +114,13 @@ pub(super) fn capture_command(
     };
     #[cfg(test)]
     let before_cleanup = child.try_wait();
+    #[cfg(all(test, windows, debug_assertions))]
+    if result.is_err() {
+        eprintln!(
+            "probe child before cleanup: {}",
+            codeterm_util::process_util::diagnostics::snapshot(&child)
+        );
+    }
     drop(child.stdin.take());
     if tree.terminate(&mut child).is_err()
         && !tree.observe_event().is_ok_and(|event| event.confirmed())
