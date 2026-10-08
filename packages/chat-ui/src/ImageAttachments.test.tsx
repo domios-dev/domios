@@ -1,3 +1,4 @@
+import { LocalArtifactScope } from "./LocalArtifactScope";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,7 +41,7 @@ async function render(message: NormalizedChatMessage): Promise<HTMLElement> {
   document.body.append(host);
   const root = createRoot(host);
   mounted.push({ root, host });
-  await act(async () => root.render(<MessageBubble message={message} />));
+  await act(async () => root.render(<LocalArtifactScope tabId="attachment-owner"><MessageBubble message={message} /></LocalArtifactScope>));
   await flush();
   return host;
 }
@@ -63,7 +64,7 @@ describe("user image attachments", () => {
     expect(button).toBeTruthy();
     expect(button!.disabled).toBe(false);
     expect(button!.querySelector("img")?.getAttribute("src")).toBe(PNG);
-    expect(loader).toHaveBeenCalledWith(PATH, "image");
+    expect(loader).toHaveBeenCalledWith(PATH, "image", "attachment-owner");
     expect(host.textContent).not.toContain("[1 image]");
     expect(host.textContent).not.toContain("<image");
   });
