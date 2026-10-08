@@ -59,3 +59,4 @@ export { parsePluginId, pluginPrimaryAction, pluginStatus } from "./blocks/plugi
 export type { PluginBlockInfo, PluginBlockState, PluginLifecycleKind } from "./blocks/pluginBlockModel";
 export { PluginNameProvider } from "./codeterm/PluginNames";
 export type { PluginNameResolver } from "./codeterm/pluginAction";
+export type { DsTasksBlockComponent } from "./MessageBubble";

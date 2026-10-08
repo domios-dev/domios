@@ -46,12 +46,16 @@ import { hasPlanRefs } from "./codeterm/planRefs";
 import { recognize } from "./codeterm/recognize";
 import { isSend } from "./codeterm/templates";
 import { parseCoordinationReport } from "./codeterm/coordinationReport";
+import { parseDsTasksMessage, type DsTasksBlock } from "./codeterm/dsTasksBlock";
 import { normalizedTimelineMarker, TimelineMarkerRow } from "./timelineMarkers";
 import {
   hasMeaningfulToolResult,
   isRenderableMessage,
   structuredInboundFromMessage,
 } from "./MessageBubble.helpers";
+
+/** Host-owned renderer for a `<ds-tasks>` block; it subscribes to live plan data itself. */
+export type DsTasksBlockComponent = React.ComponentType<{ block: DsTasksBlock }>;
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -84,9 +88,12 @@ interface MessageBubbleProps {
   /** `shell_command` decoration — surface the command's terminal output. */
   onJumpToShellCommand?: (message: ChatMessage) => void;
   onStopReminder?: (id: string) => void;
+  /** Must be referentially stable: it is a memo prop of every bubble. */
+  dsTasksBlock?: DsTasksBlockComponent;
 }
 
 const INTERACTIVE_QUESTIONS_ENABLED = false;
+const BLOCK_GAP = "\n\n";
 const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
 
 function hasVisibleEdit(item: TimelineItem | undefined): boolean {
@@ -127,7 +134,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, showTimestamp = false, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, showTimestamp = false, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, dsTasksBlock: DsTasksBlockView }: MessageBubbleProps) {
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
@@ -372,7 +379,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
       );
     })() : null;
 
-    const userAttachments = userMessageAttachments(message.content, attachments);
+    const dsTasks = DsTasksBlockView && !effectiveOrigin ? parseDsTasksMessage(message.content) : null;
+    const userContent = dsTasks ? [dsTasks.before, dsTasks.after].filter(Boolean).join(BLOCK_GAP) : message.content;
+    const userAttachments = userMessageAttachments(userContent, attachments);
     const visibleUserContent = userAttachments.text;
     const formattedUserContent = effectiveOrigin?.kind === "command" ? (
           <CommandBody commands={effectiveOrigin.commands} body={message.content} />
@@ -394,6 +403,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
     );
 
     const showUserTime = showTimestamp && !effectiveOrigin && !message.inboundKind;
+    const showUserBubble = !dsTasks || visibleUserContent.trim().length > 0 || Boolean(attachments?.length);
 
     return (
       <div className="ct-chat-message-row ct-chat-message-row--user mb-3 w-full min-w-0">
@@ -402,7 +412,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
             <div className="relative min-w-0 max-w-[75%] sm:max-w-[75%]">
               {showUserTime && <MessageTime timestamp={message.timestamp} side="right" />}
               {originHeader}
-              <div
+              {showUserBubble && <div
                 className={`min-w-0 rounded-2xl rounded-br-sm px-4 py-2 ${userText} select-text cursor-text border ${TEXT_WRAP_CLASS}`}
                 style={{
                   background: effectiveOrigin
@@ -415,9 +425,14 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
                 }}
               >
                 {userBubbleInner}
-              </div>
+              </div>}
             </div>
           </div>
+          {dsTasks && DsTasksBlockView && (
+            <div className="mt-1.5 flex w-full min-w-0 justify-end">
+              <DsTasksBlockView block={dsTasks.block} />
+            </div>
+          )}
         </div>
       </div>
     );
