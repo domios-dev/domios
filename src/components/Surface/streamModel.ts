@@ -135,7 +135,7 @@ export function canvasToPage(
   drawRect: Rect,
   frameMeta: FrameMetadata | null,
 ): PagePoint | null {
-  if (drawRect.width <= 0 || drawRect.height <= 0) return null;
+  if (drawRect.width <= 0 || drawRect.height <= 0 || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
   const localX = clientX - canvasRect.left - drawRect.x;
   const localY = clientY - canvasRect.top - drawRect.y;
   if (localX < 0 || localY < 0 || localX > drawRect.width || localY > drawRect.height) return null;

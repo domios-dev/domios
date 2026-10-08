@@ -61,6 +61,7 @@ const mappingCases: Array<[string, number, number, ReturnType<typeof letterboxRe
   ["offsetTop is removed", 10, 170, { x: 0, y: 0, width: 400, height: 300 }, { ...meta, offsetTop: 80 }, { x: 0, y: 400 }],
   ["page scale divides", 210, 170, { x: 0, y: 0, width: 400, height: 300 }, { ...meta, pageScaleFactor: 2 }, { x: 320, y: 240 }],
   ["missing metadata maps 1:1", 110, 70, { x: 0, y: 0, width: 400, height: 300 }, null, { x: 100, y: 50 }],
+  ["a non-finite pointer yields nothing", Number.NaN, 70, { x: 0, y: 0, width: 400, height: 300 }, meta, null],
   ["zero draw rect yields nothing", 110, 70, { x: 0, y: 0, width: 0, height: 0 }, meta, null],
 ];
 for (const [name, x, y, drawRect, frameMeta, expected] of mappingCases) {
