@@ -149,3 +149,25 @@ authorize on its existing assignment. A missing binding must instead leave
 `launch_binding_unconfirmed` and a standalone recovery incident; an idle
 composer alone is not a pass. Preserve unresolved delivery records and verify
 that their payloads never appear again after restore.
+
+## Close/Undo release regression fixture
+
+Run these cases on the rebuilt DEV release SHA after the restart bench, using
+`source evals/_lib/lib.sh` and `dc` for every probe and mutation. Record the CLI
+compatibility verdict, lifecycle inspection, exact session id, visible history,
+and model/effort before close and after Undo/Recently Closed restore.
+
+| Case | Trigger | Observable pass condition |
+|------|---------|---------------------------|
+| Fresh OpenCode | Route a pad-backed send before any UI composer turn | Send is accepted or held; exactly one own-session user turn and contextual answer appear. |
+| OpenCode 1.18.35 | Close, then Undo | Compatibility is supported; the original session id, prior messages and contextual answer remain. |
+| Aider | Close, then Recently Closed restore; route input at reader_ready | Input is held until exact saved history-marker binding, then written once; original history and contextual answer appear. |
+| Grok | Close, then Recently Closed restore; route input before binding | Input is held until current-PTY PID-registry binding, then written once; original session history and contextual answer appear. |
+| Codex | Confirm low effort, close, then Undo | Original session and model remain; confirmed effort is still low. |
+| Unresumable session | Restore a saved session unavailable to its provider | UI shows a restore failure with a reason; no replacement session starts. |
+
+Use a unique opaque token in the first turn and require the post-restore answer
+to recall it. An accepted send or reader_ready alone is not a pass. Send one
+additional routed turn after readiness; check both turns appear exactly once.
+Unknown OpenCode versions remain blocked for direct SQLite reads; do not mark
+such a run supported merely because the database columns look familiar.

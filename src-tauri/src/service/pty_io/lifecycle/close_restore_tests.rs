@@ -76,3 +76,44 @@ fn history_restore_claims_only_its_own_session_once() {
     .unwrap()
     .is_none());
 }
+
+#[test]
+fn unresumable_restore_command_is_refused_before_launch() {
+    use super::{
+        require_restored_launch_command, restored_snapshot_launch_command,
+        restored_snapshot_launch_input, RestoredLaunch,
+    };
+    let registry = crate::agent::registry::AgentRegistry::new();
+    let input = restored_snapshot_launch_input(
+        &registry,
+        RestoredLaunch {
+            provider_id: "unavailable-provider".into(),
+            session_id: Some("saved-own-session".into()),
+            cwd: Some("/fixture".into()),
+            model: None,
+            launch_parameters: Default::default(),
+            role: None,
+            role_profile: None,
+        },
+        None,
+        None,
+    );
+    let command =
+        restored_snapshot_launch_command(&registry, "restored-tab", "unavailable-provider", &input);
+    assert!(command.is_empty());
+    let error =
+        require_restored_launch_command(&command, input.params.resume_session_id.as_deref())
+            .unwrap_err();
+    assert!(error.starts_with("restored_session_unavailable:"));
+    assert_eq!(
+        input.params.resume_session_id.as_deref(),
+        Some("saved-own-session")
+    );
+    assert_eq!(
+        super::reattach_boot_stage(
+            Some(crate::service::boot_stage::BootStage::SpawnFailed),
+            Some(&error)
+        ),
+        None
+    );
+}

@@ -24,6 +24,10 @@ impl LaunchGeneration {
         } else {
             match resume_session_id.filter(|_| !fork) {
                 Some(session_id) => {
+                    crate::service::launch_session_detection::register_resume_launch_marker(
+                        &self.tab_id,
+                        session_id,
+                    );
                     svc.rotate_session_binding_nonce_for_resume(&self.tab_id, session_id)
                 }
                 None => svc.rotate_session_binding_nonce(&self.tab_id),
