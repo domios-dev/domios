@@ -135,6 +135,15 @@ impl SpawnTabSpec {
         }
     }
 
+    pub(crate) fn to_agent_launch_params(
+        &self,
+        resolved_cwd: Option<String>,
+    ) -> Result<SpawnAgentParams, String> {
+        let mut params = self.to_agent_params()?;
+        params.cwd = resolved_cwd;
+        Ok(params)
+    }
+
     pub(crate) fn to_agent_params(&self) -> Result<SpawnAgentParams, String> {
         let agent = match &self.command {
             TabCommand::Agent(a) => a,
