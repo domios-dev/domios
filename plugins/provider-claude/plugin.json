@@ -172,7 +172,7 @@
     "freshContext": "/new",
     "exit": "/exit",
     "stopKey": "\u001b",
-    "modelSwitch": "live_command",
+    "modelSwitch": "restart_resume",
     "modelSwitchCommands": {
       "transcript": {
         "recordType": "user",
