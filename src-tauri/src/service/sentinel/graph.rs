@@ -309,6 +309,7 @@ impl ServiceContext {
                 team.as_deref().unwrap_or_default(),
                 snapshot.revision
             ));
+            combined.runs.extend(snapshot.runs);
             combined.truncated |= snapshot.truncated;
             let scenario_room = graph::MAX_NODES.saturating_sub(combined.scenarios.len());
             if snapshot.scenarios.len() > scenario_room {
@@ -933,6 +934,7 @@ mod tests {
             edges: Vec::new(),
             truncated: false,
             configured_fallback: Value::Null,
+            runs: vec![],
         };
         project_pipeline_contract(
             &mut snapshot,

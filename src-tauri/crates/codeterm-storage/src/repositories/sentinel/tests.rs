@@ -73,6 +73,7 @@ fn identity(id: &str) -> SentinelIdentity {
 
 fn runtime() -> StageRuntime {
     StageRuntime {
+        causal_run_json: None,
         generation: 0,
         next_run: 1_000,
         expires_at: None,

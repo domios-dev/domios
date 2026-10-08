@@ -2,9 +2,8 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, List } from "lucide-react";
 import { AutomationCanvas } from "./AutomationCanvas";
 import { RunLog } from "./RunLog";
-import { replayEdges } from "./runLogModel";
+import { graphRuns, replayEdges } from "./runLogModel";
 import { projectAutomationGraph, type ActionLeaf } from "./projection";
-import type { ReplaySelection } from "./useRunReplay";
 import { AutomationDetails } from "./AutomationDetails";
 import { usePresence, type PresenceMotion } from "../Canvas/usePresence";
 import { automationState, scopedAutomationGraph } from "./model";
@@ -31,7 +30,7 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
   backLabel: string; onBack: () => void; headingLevel?: 2 | 3; fill?: boolean; children?: ReactNode;
 }) {
   const [runsOpen, setRunsOpen] = useState(false);
-  const [replay, setReplay] = useState<ReplaySelection | null>(null);
+  const [selectedRun, setSelectedRun] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const body = useRef<HTMLDivElement>(null);
@@ -43,6 +42,10 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
     const source = state.graph.all_teams ? { ...state.graph, all_teams: false, team_id: scenarioTeam } : state.graph;
     return scopedAutomationGraph({ ...source, scenarios: [scenario] }, { workspace_id, team_id: scenarioTeam });
   }, [state.graph, scenario, workspace_id, team_id]);
+  const replay = useMemo(() => {
+    const run = graph && graphRuns(graph).find((run) => run.key === selectedRun);
+    return run ? { key: run.key, edges: replayEdges(run) } : null;
+  }, [graph, selectedRun]);
   const title = sentinelTitle(scenario, graph?.nodes.find((entry) => automationKey(entry.identity) === automationKey(scenario.root)) ?? null);
   const shown = drawer.item;
   const action = graph ? projectAutomationGraph(graph).nodes.find((candidate) => candidate.key === shown)?.action ?? null : null;
@@ -75,7 +78,7 @@ export function ScenarioPanel({ state, scope, scenario, camera, backLabel, onBac
     {graph && <div ref={body} className={`relative flex min-w-0 flex-col ${fill ? "min-h-0 flex-1" : drawer.state ? "min-h-[28rem]" : ""}`}>
       {graph.nodes.length === 0 && <p role="alert" className="px-4 py-3">The Blueprint root is unavailable.</p>}
       <AutomationCanvas graph={graph} selected={selected} camera={camera} fill={fill} onSelect={select} onSelectAction={selectAction} replay={replay} />
-      {runsOpen && <RunLog graph={graph} selected={replay?.key ?? null} onReplay={(run) => setReplay({ key: run.key, edges: replayEdges(run) })} />}
+      {runsOpen && <RunLog graph={graph} selected={replay?.key ?? null} onReplay={(run) => setSelectedRun(run.key)} />}
       {drawer.state && shown !== null && <div className="plan-side-panel-layer">
         <AutomationDetails node={node} action={action} nodes={graph.nodes} onClose={closeDetails} panelRef={drawer.ref} presence={drawer.state} />
       </div>}

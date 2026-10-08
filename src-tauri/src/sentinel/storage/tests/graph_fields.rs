@@ -277,6 +277,7 @@ fn sentinel_schema_v4_update_definition_appends_lineage_and_advances_generation_
     assert_eq!(
         record.runtime,
         StageRuntime {
+            causal_run_json: None,
             generation: base.runtime.generation + head - 1,
             ..base.runtime.clone()
         },
