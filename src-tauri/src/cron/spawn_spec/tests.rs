@@ -23,6 +23,7 @@ fn inputs(agent: &str) -> CronSpawnInputs {
 
 fn expected_pty_spec() -> SpawnTabSpec {
     SpawnTabSpec {
+        shell: None,
         workspace_id: Some("ws-1".into()),
         parent_tab_id: None,
         team_id: Some("team-1".into()),

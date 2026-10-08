@@ -247,6 +247,7 @@ pub fn create_router(state: AppState) -> Router {
             "/api/tabs",
             get(tab_routes::list_tabs).post(tab_routes::create_shell_tab),
         )
+        .route("/api/shells", get(tab_routes::list_shell_profiles))
         .route("/api/tabs/inspect", get(tab_routes::inspect_tabs))
         .route(
             "/api/plans",

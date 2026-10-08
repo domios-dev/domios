@@ -95,6 +95,8 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             handle_tab_inspect(client, json, tabs, tab, lifecycle);
         }
         TabAction::New {
+            shell,
+            list_shells,
             purpose,
             description,
             icon,
@@ -108,6 +110,25 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
             chat_backend,
             config,
         } => {
+            if list_shells {
+                match client.call("tab.shells", None) {
+                    Ok(profiles) => {
+                        if json {
+                            crate::cmd::print::print_json(&profiles);
+                        } else if let Some(profiles) = profiles.as_array() {
+                            for profile in profiles {
+                                println!(
+                                    "{}\t{}",
+                                    profile["id"].as_str().unwrap_or_default(),
+                                    profile["name"].as_str().unwrap_or_default()
+                                );
+                            }
+                        }
+                    }
+                    Err(error) => crate::cmd::print::fail(1, error.to_string()),
+                }
+                return;
+            }
             let (base, _) = read_api_config();
             let api = match build_local_api() {
                 Ok(c) => c,
@@ -115,8 +136,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     crate::cmd::print::fail(1, format!("failed to connect to local API: {}", e));
                 }
             };
-            let mut body =
-                serde_json::json!({ "purpose": purpose, "description": description, "icon": icon });
+            let mut body = serde_json::json!({ "purpose": purpose, "description": description, "icon": icon, "shell": shell });
             if let Some(w) = workspace {
                 body["workspace_id"] = serde_json::Value::String(w);
             }

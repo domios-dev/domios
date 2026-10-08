@@ -1,8 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, OnceLock};
 
+mod command;
 mod detection;
+mod integration;
 mod paths;
+pub use integration::apply_profile;
 pub use paths::{windows_to_wsl, wsl_to_windows};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -64,12 +67,12 @@ impl ShellProfileCatalog {
                 return Ok(profiles);
             }
         }
-        tokio::task::spawn_blocking(move || self.load(refresh))
+        tokio::task::spawn_blocking(move || self.load_blocking(refresh))
             .await
             .map_err(|error| format!("Shell detection failed: {error}"))
     }
 
-    fn load(&self, refresh: bool) -> Arc<Vec<ShellProfile>> {
+    pub fn load_blocking(&self, refresh: bool) -> Arc<Vec<ShellProfile>> {
         self.load_with(refresh, detection::detect)
     }
 
@@ -93,6 +96,26 @@ impl ShellProfileCatalog {
 pub fn catalog() -> &'static ShellProfileCatalog {
     static CATALOG: OnceLock<ShellProfileCatalog> = OnceLock::new();
     CATALOG.get_or_init(ShellProfileCatalog::default)
+}
+
+pub fn select(
+    profiles: &[ShellProfile],
+    requested: Option<&str>,
+    default: Option<&str>,
+) -> Result<Option<ShellProfile>, String> {
+    let Some(id) = requested.or(default).filter(|id| !id.is_empty()) else {
+        return Ok(None);
+    };
+    profiles
+        .iter()
+        .find(|profile| profile.id == id)
+        .cloned()
+        .map(Some)
+        .ok_or_else(|| {
+            format!(
+                "Unknown or unavailable shell profile: {id}. Run codeterm tab new --list-shells"
+            )
+        })
 }
 
 #[cfg(test)]

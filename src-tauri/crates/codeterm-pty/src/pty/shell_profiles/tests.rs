@@ -58,6 +58,10 @@ fn windows_drive_mapping_preserves_spaces_and_unicode() {
 #[test]
 fn wsl_native_paths_map_to_distribution_unc() {
     assert_eq!(
+        windows_to_wsl(r"\\?\C:\repo", "Ubuntu").unwrap(),
+        "/mnt/c/repo"
+    );
+    assert_eq!(
         wsl_to_windows("/home/me/repo", "Ubuntu").unwrap(),
         r"\\wsl.localhost\Ubuntu\home\me\repo"
     );
@@ -171,4 +175,19 @@ fn detection_never_holds_the_snapshot_lock() {
         );
         Vec::new()
     });
+}
+
+#[test]
+fn selection_preserves_automatic_and_prefers_requested_profile() {
+    let profiles = vec![wsl()];
+    assert_eq!(select(&profiles, None, None).unwrap(), None);
+    assert_eq!(
+        select(&profiles, None, Some("wsl:Ubuntu")).unwrap(),
+        Some(wsl())
+    );
+    assert_eq!(
+        select(&profiles, Some("wsl:Ubuntu"), Some("unavailable")).unwrap(),
+        Some(wsl())
+    );
+    assert!(select(&profiles, Some("unavailable"), None).is_err());
 }

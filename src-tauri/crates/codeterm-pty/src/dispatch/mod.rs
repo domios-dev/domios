@@ -70,6 +70,9 @@ pub trait CommandPort: Send + Sync {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "cmd", rename_all = "snake_case")]
 pub enum Command {
+    ShellProfiles {
+        refresh: bool,
+    },
     /// Health check / system identify
     Health,
 
@@ -96,7 +99,10 @@ pub enum Command {
     },
 
     /// Send text to a tab's PTY
-    SendText { tab_id: String, text: String },
+    SendText {
+        tab_id: String,
+        text: String,
+    },
 
     /// Get tab output (terminal buffer)
     GetOutput {
@@ -133,13 +139,21 @@ pub enum Command {
     },
 
     /// Focus a tab (move keyboard focus).
-    TabFocus { tab_id: String },
+    TabFocus {
+        tab_id: String,
+    },
 
     /// Rename a tab's title (pinned until the user clears it).
-    TabRename { tab_id: String, title: String },
+    TabRename {
+        tab_id: String,
+        title: String,
+    },
 
     /// Set or clear a tab's short description.
-    TabDescribe { tab_id: String, description: String },
+    TabDescribe {
+        tab_id: String,
+        description: String,
+    },
 
     /// List all registered agent providers as `ProviderDescriptor`s.
     /// First dispatch command for the plugin self-presentation system (Chunk B.3).
@@ -158,7 +172,10 @@ pub enum Command {
     },
 
     /// Rename an existing workspace.
-    WorkspaceRename { workspace_id: String, name: String },
+    WorkspaceRename {
+        workspace_id: String,
+        name: String,
+    },
 
     /// Close a workspace and kill all of its PTYs. `caller_tab_id` refuses a
     /// coordinator closing the workspace it runs in; `force` acknowledges any agent tabs.
@@ -174,7 +191,9 @@ pub enum Command {
     WorkspaceList,
 
     /// List a workspace's recently-closed tabs (newest first).
-    WorkspaceRecentlyClosed { workspace_id: String },
+    WorkspaceRecentlyClosed {
+        workspace_id: String,
+    },
 
     /// Reopen a recently-closed tab (browser-style). `index` selects the ring
     /// entry (newest = 0, default).
@@ -185,7 +204,9 @@ pub enum Command {
     },
 
     /// Reopen a whole closed group (single / cascade subtree / workspace) by id.
-    WorkspaceReopenClosedGroup { group_id: String },
+    WorkspaceReopenClosedGroup {
+        group_id: String,
+    },
 
     /// Resize the PTY backing a tab.
     PtyResize {
@@ -196,7 +217,9 @@ pub enum Command {
 
     /// Kill the PTY process for a tab without removing the tab from the mux.
     /// Compare to `TabClose`, which both stops the process and drops the tab.
-    PtyKill { tab_id: String },
+    PtyKill {
+        tab_id: String,
+    },
 }
 
 /// Unified result type for all commands.
@@ -290,6 +313,10 @@ pub fn dispatch(cmd: &Command, ctx: &dyn CommandPort) -> Result<CommandResult, S
         ctx.mark_user_activity();
     }
     match cmd {
+        Command::ShellProfiles { refresh } => Ok(CommandResult::Json(
+            serde_json::to_value(&*crate::pty::shell_profiles::catalog().load_blocking(*refresh))
+                .map_err(|error| error.to_string())?,
+        )),
         Command::Health => cmd_health(),
         Command::TabList => cmd_tab_list(ctx),
         Command::TabSummary {
@@ -610,6 +637,7 @@ pub fn build_tab_summary_json(
                 "title": tab.title,
                 "description": tab.description,
                 "purpose": tab.purpose,
+                "shell_profile": tab.shell_profile,
                 "icon": tab.icon,
                 "shell_command_state": tab.shell_command_state,
                 "workspace_id": workspace_id,

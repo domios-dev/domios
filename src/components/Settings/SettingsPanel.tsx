@@ -22,6 +22,7 @@ import { KeybindGroup } from "./KeybindGroup";
 import { UpdateSection } from "./UpdateSection";
 import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
+import { ShellProfilesCard } from "./ShellProfilesCard";
 import { GeneralAgentCard } from "./GeneralAgentCard";
 import { NotificationsOverview } from "./NotificationsTab";
 import { MessengersCard } from "./MessengersCard";
@@ -257,6 +258,7 @@ export function SettingsPanel({
               >
                 <ShellDiagnosticsBanner onDismissSettings={onClose} />
 
+                <ShellProfilesCard config={localConfig} onUpdate={update} />
                 <GeneralAgentCard config={localConfig} onUpdate={update} />
 
                 <SettingsCardAnchor id="telegram-bridge" focused={top.card === "telegram-bridge"}>

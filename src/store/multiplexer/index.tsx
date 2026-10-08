@@ -568,13 +568,13 @@ export function MultiplexerProvider({ children }: { children: ReactNode }) {
       .catch((err) => console.warn("Failed to load notification history:", err));
   }, []);
 
-  const createTab = useCallback(async (workspaceId: string, cwd?: string) => {
+  const createTab = useCallback(async (workspaceId: string, cwd?: string, shell?: string) => {
     try {
       guardedInvoke("mux_set_active_workspace", { workspaceId }).catch(() => {});
       dispatch({ type: "SET_ACTIVE_WORKSPACE", id: workspaceId });
-      const tabInfo = await guardedInvoke<{ id: string; title: string }>("mux_create_tab", { workspaceId, activate: true });
       const ws = stateRef.current.workspaces.find((w) => w.id === workspaceId);
       const effectiveCwd = cwd || ws?.cwd || undefined;
+      const tabInfo = await guardedInvoke<{ id: string; title: string }>("mux_create_tab", { workspaceId, activate: true, shell, cwd: effectiveCwd });
       if (effectiveCwd) {
         setPendingCwd(tabInfo.id, effectiveCwd);
         await guardedInvoke("mux_update_tab_cwd", { tabId: tabInfo.id, cwd: effectiveCwd });
