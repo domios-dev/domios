@@ -123,6 +123,20 @@ fn render_history(history: &Value) {
     }
 }
 
+fn deleted_message(result: &Value) -> String {
+    let deleted: Vec<&str> = result["deleted"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .collect();
+    if deleted.is_empty() {
+        "No blueprints deleted.".into()
+    } else {
+        format!("Deleted {}.", deleted.join(", "))
+    }
+}
+
 fn escalation_resolved_message(transition_id: Option<&str>, result: &Value) -> String {
     format!(
         "Resolved escalation {} for {}.",
@@ -132,11 +146,19 @@ fn escalation_resolved_message(transition_id: Option<&str>, result: &Value) -> S
 }
 
 fn render_nodes(nodes: &Value) {
-    if let Some(nodes) = nodes.as_array() {
-        for node in nodes {
+    let Some(nodes) = nodes.as_array() else {
+        return;
+    };
+    for role in [
+        "trigger", "source", "agent", "logic", "action", "mode", "step",
+    ] {
+        for node in nodes
+            .iter()
+            .filter(|node| node["role"].as_str().unwrap_or("step") == role)
+        {
             println!(
-                "{}: {}",
-                node["kind"].as_str().unwrap_or("?"),
+                "{role} {}: {}",
+                node["type"].as_str().unwrap_or("?"),
                 node["title"].as_str().unwrap_or("?")
             );
             if let Some(schema) = node.get("params_schema") {
@@ -297,6 +319,10 @@ pub fn handle_blueprint(client: &mut SocketClient, json_mode: bool, action: Blue
     }
     if method == "blueprint.history" {
         render_history(&result);
+        return;
+    }
+    if method == "blueprint.delete" {
+        println!("{}", deleted_message(&result));
         return;
     }
     if method == "blueprint.input" {
@@ -496,6 +522,12 @@ fn request(
         BlueprintAction::Stop { id } => {
             params["id"] = json!(id);
             "blueprint.stop"
+        }
+        BlueprintAction::Delete { id, stopped, stop } => {
+            params["id"] = json!(id);
+            params["stopped"] = json!(stopped);
+            params["stop"] = json!(stop);
+            "blueprint.delete"
         }
         BlueprintAction::Update {
             id,
