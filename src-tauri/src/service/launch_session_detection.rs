@@ -50,6 +50,12 @@ fn mint_launch_marker(tab_id: &str) -> String {
     marker
 }
 
+pub(crate) fn register_resume_launch_marker(tab_id: &str, session_id: &str) {
+    LAUNCH_MARKERS
+        .lock()
+        .insert(tab_id.to_string(), session_id.to_string());
+}
+
 pub(crate) fn clear_launch_marker(tab_id: &str) {
     LAUNCH_MARKERS.lock().remove(tab_id);
 }

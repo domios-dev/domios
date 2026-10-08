@@ -204,6 +204,18 @@ fn restored_snapshot_launch_command_inner(
     }
 }
 
+fn require_restored_launch_command(command: &str, session_id: Option<&str>) -> Result<(), String> {
+    if !command.trim().is_empty() {
+        return Ok(());
+    }
+    Err(match session_id {
+        Some(session) => format!(
+            "restored_session_unavailable: The provider cannot resume saved session {session}"
+        ),
+        None => "restored_session_unavailable: The provider cannot build a launch command".into(),
+    })
+}
+
 pub(crate) fn claim_restored_pty_boot(
     mux: &MuxState,
     tab_id: &str,
@@ -315,6 +327,7 @@ pub(crate) fn reattach_boot_stage(
     let restore_failure = failure_reason.is_some_and(|reason| {
         reason.starts_with("restored_provider_unresolved:")
             || reason.starts_with("restored_role_without_provider:")
+            || reason.starts_with("restored_session_unavailable:")
     });
     (current == Some(BootStage::SpawnFailed) && !restore_failure)
         .then_some(BootStage::PtyReattached)
@@ -610,7 +623,9 @@ impl ServiceContext {
             })
             .unwrap_or(false);
         if exact_session && !session_valid {
-            return Err(format!("The exact saved session for Tab {tab_id} is unavailable; restore will not launch another session"));
+            let reason = format!("restored_session_unavailable: The exact saved session for Tab {tab_id} is unavailable; restore will not launch another session");
+            self.refuse_restored_launch(tab_id, &reason);
+            return Err(reason);
         }
         let _workspace_id = self.restored_tab_context(tab_id).ok_or_else(|| {
             format!(
@@ -626,6 +641,7 @@ impl ServiceContext {
                 &provider_id,
                 &launch_parameters,
             )?;
+        let mut command_error = None;
         let scheduled = restore_materialization_core(
             &self.mux,
             tab_id,
@@ -669,24 +685,48 @@ impl ServiceContext {
                     &provider_id,
                     &input,
                 );
-                crate::service::orchestrator::launch_agent_in_background(
+                if let Err(reason) = require_restored_launch_command(
+                    &launch_cmd,
+                    input.params.resume_session_id.as_deref(),
+                ) {
+                    self.refuse_restored_launch(tab_id, &reason);
+                    command_error = Some(reason);
+                    return;
+                }
+                crate::service::orchestrator::launch_agent_in_background_with_env(
                     self.clone(),
                     tab_id.to_string(),
                     launch_cmd,
                     provider_id,
                     input.origin,
+                    false,
+                    None,
                     input.launch_task,
                     input.fallback_spec,
+                    Default::default(),
                     None,
                     None,
+                    input.params.resume_session_id,
                 );
             },
         );
+        if let Some(error) = command_error {
+            return Err(error);
+        }
         if scheduled?.is_none() {
             return Ok(());
         }
         self.emit_state_changed();
         Ok(())
+    }
+
+    fn refuse_restored_launch(&self, tab_id: &str, reason: &str) {
+        self.void_launch_session_proof(tab_id);
+        if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
+            tab.agent_booting = false;
+        }
+        self.emit_boot_stage(tab_id, BootStage::SpawnFailed, Some(reason));
+        self.emit_state_changed();
     }
 
     pub fn resize_tab(&self, tab_id: &str, cols: u16, rows: u16) -> Result<(), String> {

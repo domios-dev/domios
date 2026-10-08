@@ -40,6 +40,14 @@ fn parity_provider_compat_bundled_declarations_are_strict_and_honest() {
                 CompatibilityVerdict::Unknown
             );
             assert_eq!(
+                manifest.evaluate(Some("1.18.35")).verdict,
+                CompatibilityVerdict::Supported
+            );
+            assert_eq!(
+                manifest.evaluate(Some("1.18.36")).verdict,
+                CompatibilityVerdict::Unknown
+            );
+            assert_eq!(
                 manifest.evaluate(Some("3.0.0")).verdict,
                 CompatibilityVerdict::Unknown
             );

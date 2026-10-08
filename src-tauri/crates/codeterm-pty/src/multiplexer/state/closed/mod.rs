@@ -378,6 +378,12 @@ impl MultiplexerState {
             tab.role_profile = record.role_profile.clone();
             tab.worker_id = record.worker_id.clone();
             tab.agent_session_model = record.model.clone();
+            tab.restorable_launch = record.restorable_launch.clone();
+            tab.close_restore = Some(crate::multiplexer::types::CloseRestoreTabState {
+                exact_session: record.agent_type.is_some(),
+                session_cwd: record.cwd.clone(),
+                ..Default::default()
+            });
             tab.restored_from_snapshot = true;
             tab.chat_view =
                 matches!(record.backing, TabBacking::ChatBackend { .. }) || record.chat_view;
