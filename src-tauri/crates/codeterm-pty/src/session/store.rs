@@ -130,6 +130,8 @@ pub enum SplitNodeSnapshot {
         icon: Option<String>,
         #[serde(default)]
         utility_created_at: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        close_restore: Option<crate::multiplexer::types::CloseRestoreTabState>,
         #[serde(default)]
         shell_profile: Option<crate::pty::shell_profiles::ShellProfile>,
         tab_id: String,

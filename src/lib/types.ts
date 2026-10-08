@@ -51,6 +51,21 @@ export interface ClosedTabView extends ClosedTab {
   group_kind: "single" | "cascade" | "workspace";
 }
 
+export interface ClosedStructureView {
+  id: string;
+  state: "closed" | "restoring" | "restored";
+  kind: "team" | "workspace";
+  label: string;
+  closed_at: number;
+  undo_until: number;
+  member_count: number;
+  team_count: number;
+  shell_count: number;
+  agent_count: number;
+  cron_count: number;
+  blueprint_count: number;
+}
+
 export type AgentRole = "Manager" | "Worker";
 
 export interface PromptOption {
@@ -151,6 +166,7 @@ export interface TabBootStageEvent {
 }
 
 export interface Tab {
+  close_restore?: { command: string | null; stopped: boolean; record_id: string | null; exact_session: boolean } | null;
   shell_profile?: ShellProfile | null;
   purpose?: import("./shellCommandState").ShellPurpose;
   icon?: string | null;
@@ -259,6 +275,7 @@ export interface MultiplexerState {
    *  Each entry carries its per-workspace reopen `index`, an `orphaned` flag,
    *  and group metadata. */
   recently_closed?: ClosedTabView[];
+  closed_structures?: ClosedStructureView[];
   /** Aggregate Idle/Working/Waiting/Error/Dead per PTY-backed tab, mirrored from the
    *  backend's live status tracker so the tab rail hydrates correctly on
    *  reload instead of staying blank until the next status event. */

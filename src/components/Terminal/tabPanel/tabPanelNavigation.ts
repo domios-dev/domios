@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { readTabPanel, writeTabPanel } from "../../../lib/tabPanelPersistence";
 import type { ChangesScope } from "../changesViewModel";
 
 export type TabPanelView = "documents" | "changes";
@@ -34,16 +35,37 @@ export function resolveDetail(detail: string | null, ids: readonly string[]): st
 const states = new Map<string, TabPanelState>();
 const listeners = new Set<() => void>();
 
+function validState(value: unknown): value is TabPanelState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as TabPanelState;
+  const detail = (item: unknown) => item === null || typeof item === "string";
+  return !!state.documents && !!state.changes && detail(state.documents.detail)
+    && detail(state.changes.detail) && (state.changes.scope === "all"
+      || (typeof state.changes.scope === "object" && state.changes.scope !== null
+        && typeof state.changes.scope.turnId === "string"));
+}
+
 export const tabPanelNavigationStore = {
-  get(tabId: string): TabPanelState { return states.get(tabId) ?? initialTabPanelState; },
+  get(tabId: string): TabPanelState {
+    const cached = states.get(tabId);
+    if (cached) return cached;
+    const saved = readTabPanel("navigation", tabId, validState) ?? initialTabPanelState;
+    states.set(tabId, saved);
+    return saved;
+  },
   dispatch(tabId: string, action: TabPanelAction) {
     const current = this.get(tabId);
     const next = tabPanelReducer(current, action);
     if (next === current) return;
     states.set(tabId, next);
+    writeTabPanel("navigation", tabId, next);
     for (const listener of listeners) listener();
   },
-  clear() { states.clear(); for (const listener of listeners) listener(); },
+  clear() {
+    for (const id of states.keys()) writeTabPanel("navigation", id, null);
+    this.resetCache();
+  },
+  resetCache() { states.clear(); for (const listener of listeners) listener(); },
   subscribe(listener: () => void) { listeners.add(listener); return () => { listeners.delete(listener); }; },
 };
 
