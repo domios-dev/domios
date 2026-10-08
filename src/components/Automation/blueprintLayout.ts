@@ -5,9 +5,9 @@ import type { BlueprintModel, BlueprintNode, BlueprintNodeType, BlueprintPin, Bl
 export const NODE_WIDTH: Record<BlueprintNodeType, number> = { trigger: 196, source: 248, agent: 288, logic: 264, action: 232 };
 export const HEADER_HEIGHT = 42;
 export const ROW_HEIGHT = 24;
-export const DETAIL_ROW_HEIGHT = 38;
 export const BODY_LINE_HEIGHT = 16;
 export const BODY_PAD = 10;
+export const PROMPT_CAPTION_HEIGHT = 18;
 const BODY_LINES = { code: 6, prompt: 5, text: 4 } as const;
 const BODY_CHAR_WIDTH = 6.4;
 const NODE_PAD_BOTTOM = 8;
@@ -62,20 +62,16 @@ export function bodyLines(node: BlueprintNode): number {
   return Math.min(BODY_LINES[node.body.kind], lines);
 }
 
-function pinHeight(pin: BlueprintPin | undefined) {
-  return pin?.detail ? DETAIL_ROW_HEIGHT : ROW_HEIGHT;
-}
-
 /** Node geometry the renderer reuses verbatim, so pins sit exactly where wires end. */
 export function measureNode(node: BlueprintNode) {
   const lines = bodyLines(node);
-  const bodyHeight = lines ? lines * BODY_LINE_HEIGHT + BODY_PAD * 2 : 0;
+  const bodyHeight = lines ? lines * BODY_LINE_HEIGHT + BODY_PAD * 2 + (node.body?.kind === "prompt" ? PROMPT_CAPTION_HEIGHT : 0) : 0;
   const rows: PinRow[] = [];
   let top = HEADER_HEIGHT + bodyHeight;
   for (let index = 0; index < Math.max(node.inputs.length, node.outputs.length); index++) {
     const left = node.inputs[index];
     const right = node.outputs[index];
-    const height = Math.max(left ? pinHeight(left) : 0, right ? pinHeight(right) : 0);
+    const height = ROW_HEIGHT;
     rows.push({ top, height, left: left ?? null, right: right ?? null });
     top += height;
   }
