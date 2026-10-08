@@ -115,6 +115,15 @@ impl super::ServiceContext {
         caller: &super::sentinel::SentinelCaller,
         spec: BlueprintSpec,
     ) -> Result<Value, String> {
+        self.blueprint_pipeline_create_stopped(caller, spec, false)
+    }
+
+    pub(crate) fn blueprint_pipeline_create_stopped(
+        &self,
+        caller: &super::sentinel::SentinelCaller,
+        spec: BlueprintSpec,
+        stopped: bool,
+    ) -> Result<Value, String> {
         self.validate_pipeline(&spec)?;
         self.validate_event_trigger(&spec)?;
         ensure_trigger_available(&spec.trigger)
@@ -152,6 +161,7 @@ impl super::ServiceContext {
             let tab = mux.get_tab(&caller.tab).ok_or("blueprint creator gone")?;
             job.agent_authored = tab.agent_type.is_some() && tab.session_binding_nonce.is_some();
         }
+        job.machine.stopped = stopped;
         let staged = handle.store.lock().stage_insert(job.clone());
         staged.settle(&handle.store)?;
         handle.notify();
