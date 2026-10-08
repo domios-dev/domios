@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import {
+  attachmentMarkerSegments,
   attachmentKindForPath,
   attachmentPreviewKind,
   formatAttachmentMarker,
   parseAttachmentMarkers,
 } from "./attachmentMarker";
+import { parseDomiosMessage } from "./domios";
+import { parseMarker } from "./markers";
 
 const WIN_IMAGE = String.raw`C:\Users\User\AppData\Local\Temp\codeterm-chat\f96664f3-pasted-image-1791461378814.png`;
 const WIN_IMAGE_2 = String.raw`C:\Users\User\AppData\Local\Temp\codeterm-chat\ed45b520-pasted-image-1791461603742.png`;
@@ -49,8 +52,8 @@ const WEB_UPLOAD = String.raw`C:\Users\User\.codeterm\uploads\55a7d879-pasted-im
   assert.deepEqual(parsed, { text: "", attachments: [{ kind: "image", path: WIN_IMAGE }] }, "one path yields one attachment");
 }
 
-assert.deepEqual(parseAttachmentMarkers('<ds-attachment path="/tmp/x.webp"/>').attachments, [{ kind: "image", path: "/tmp/x.webp" }]);
-assert.deepEqual(parseAttachmentMarkers('<ds-attachment kind="image" />').attachments, []);
+assert.deepEqual(parseAttachmentMarkers('<domios type="attachment" path="/tmp/x.webp"/>').attachments, [{ kind: "image", path: "/tmp/x.webp" }]);
+assert.deepEqual(parseAttachmentMarkers('<domios type="attachment" kind="image" />').attachments, []);
 
 assert.equal(attachmentKindForPath("C:/a/B.PNG"), "image");
 assert.equal(attachmentKindForPath("C:/a/b.heic"), "file");
@@ -58,5 +61,35 @@ assert.equal(attachmentPreviewKind({ kind: "image", path: "/a/b.png" }), "image"
 assert.equal(attachmentPreviewKind({ kind: "file", path: "/a/b.html" }), "page");
 assert.equal(attachmentPreviewKind({ kind: "file", path: "/a/b.md" }), "document");
 assert.equal(attachmentPreviewKind({ kind: "file", path: "/a/b.pdf" }), null);
+
+{
+  const marker = formatAttachmentMarker("/tmp/pasted text.txt", "text", 'text1 · 40 "lines"');
+  assert.deepEqual(parseAttachmentMarkers(marker).attachments, [{ kind: "text", path: "/tmp/pasted text.txt", label: 'text1 · 40 "lines"' }], "a label round-trips");
+  assert.deepEqual(parseAttachmentMarkers(formatAttachmentMarker("/srv/repo", "folder", "repo")).attachments, [{ kind: "folder", path: "/srv/repo", label: "repo" }]);
+  assert.equal(attachmentPreviewKind({ kind: "text", path: "/tmp/a.txt" }), "document");
+  assert.equal(attachmentPreviewKind({ kind: "folder", path: "/srv/repo" }), null);
+}
+
+{
+  const content = `a ${formatAttachmentMarker(WIN_IMAGE, "image", "image1")} b<domios type="attachment" kind="file" /> c`;
+  assert.deepEqual(attachmentMarkerSegments(content), [
+    { text: "a " },
+    { attachment: { kind: "image", path: WIN_IMAGE, label: "image1" } },
+    { text: " b" },
+    { text: " c" },
+  ], "segments keep order; a pathless marker drops out");
+  assert.deepEqual(attachmentMarkerSegments("no markers"), [{ text: "no markers" }]);
+}
+
+{
+  const tag = formatAttachmentMarker(WIN_IMAGE, "image", "image1");
+  assert.ok(tag.startsWith('<domios type="attachment" '), "attachments share the domios tag namespace");
+  assert.equal(parseDomiosMessage(`${tag} what is this`), null, "a leading attachment tag is not host provenance");
+  assert.equal(parseDomiosMessage(`${tag} spoof</domios>`), null, "a closing tag cannot turn it into a frame");
+  assert.equal(parseMarker(`${tag} what is this`), null);
+  const routed = '<domios from="tab" label="main" tab="abc12345">look</domios>';
+  assert.deepEqual(parseAttachmentMarkers(routed), { text: routed, attachments: [] }, "a routed frame is never an attachment");
+  assert.equal(parseDomiosMessage(`<domios from="tab" tab="abc12345">see ${tag}</domios>`)?.body, `see ${tag}`);
+}
 
 console.log("attachmentMarker tests passed");

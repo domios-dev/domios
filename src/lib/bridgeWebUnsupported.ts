@@ -14,6 +14,8 @@ export const WEB_UNSUPPORTED: Record<string, string> = {
     "Native xterm reads seeded backend history on remount; web output stream replays the backend buffer",
   materialize_dropped_files:
     "Native Tauri webview file-drop paths must be materialized on the host",
+  attachment_path_kinds:
+    "Folder detection stats native drop paths; browser uploads are always files",
   read_clipboard_files:
     "OS clipboard file paths; web uses navigator.clipboard.read()",
   read_clipboard_text:

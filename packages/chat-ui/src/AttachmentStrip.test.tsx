@@ -129,7 +129,7 @@ describe("attachment markers in the user bubble", () => {
     expect(loader).toHaveBeenCalledWith(PATH, "image", "attachment-owner");
     expect(strip!.querySelector<HTMLButtonElement>('button[aria-label="Reveal file q3 summary.pdf"]')?.disabled).toBe(true);
     expect(host.textContent).toContain("check these");
-    expect(host.textContent).not.toContain("ds-attachment");
+    expect(host.textContent).not.toContain("<domios");
     expect(host.textContent).not.toContain(PATH);
   });
 

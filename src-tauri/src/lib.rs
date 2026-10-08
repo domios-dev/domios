@@ -235,6 +235,7 @@ pub fn run() {
             commands::save_clipboard_image,
             commands::save_clipboard_file,
             commands::materialize_dropped_files,
+            commands::attachment_path_kinds,
             clipboard_files::read_clipboard_files,
             clipboard_files::read_clipboard_text,
             commands::save_temp_file,

@@ -55,6 +55,8 @@ export {
 export {
   ATTACHMENT_KINDS,
   attachmentKindForPath,
+  attachmentMarkerSegments,
+  hasAttachmentMarkers,
   attachmentPreviewKind,
   formatAttachmentMarker,
   imageMimeType,
@@ -62,6 +64,7 @@ export {
   parseAttachmentMarkers,
   type AttachmentKind,
   type AttachmentMarker,
+  type AttachmentSegment,
   type ParsedAttachmentMarkers,
 } from "./attachmentMarker";
 export { ECHO_SKEW_MS, matchedOptimisticEchoes, collapseDuplicateUserMessages, type OptimisticEcho } from "./dedupe";
