@@ -8,3 +8,5 @@ pub use supporter::{
     MemoryRerankConfig, RerankRequestMode, SupporterConfig, SupporterConnection, SupporterSources,
     DEFAULT_SUPPORTER_CALLS_PER_HOUR,
 };
+
+pub mod utility_tabs;

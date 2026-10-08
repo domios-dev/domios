@@ -508,6 +508,12 @@ pub struct Tab {
     pub tab_type: TabType,
     #[serde(default)]
     pub purpose: ShellPurpose,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default)]
+    pub utility_created_at: u64,
+    #[serde(skip)]
+    pub utility_command_pending: bool,
     #[serde(default, skip_deserializing)]
     pub shell_command_state: ShellCommandState,
     #[serde(skip_serializing_if = "Option::is_none", default)]

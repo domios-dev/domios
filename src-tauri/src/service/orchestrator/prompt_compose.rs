@@ -94,6 +94,7 @@ pub(crate) fn provider_launch_task(
 pub(crate) fn agent_system_prompt(assignment: Option<&str>) -> String {
     let mut sections = vec![
         crate::prompts::AGENT_CODETERM_PRIMER.trim().to_string(),
+        crate::prompts::UTILITY_TAB_GUIDANCE.trim().to_string(),
         crate::prompts::AGENT_PAD_RULE.trim().to_string(),
         crate::prompts::RICH_RENDERING_GUIDANCE.trim().to_string(),
     ];

@@ -273,6 +273,12 @@ const HTTP_MAP: Record<string, Mapper> = {
   mux_create_tab: (a) =>
     webJson("POST", `/api/workspaces/${enc(s(a, "workspaceId"))}/tabs`, {
       eager: a.eager === true,
+      purpose: a.purpose,
+      description: a.description,
+      icon: a.icon,
+      team_id: a.teamId,
+      creator_tab_id: a.creatorTabId,
+      cmd: a.cmd,
     }),
   mux_set_active_tab: (a) =>
     webJson(

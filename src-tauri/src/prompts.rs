@@ -162,6 +162,8 @@ pub const AGENT_CODETERM_PRIMER: &str = concat!(
     include_str!("../prompts/plugin_discovery_rule.md"),
 );
 
+pub const UTILITY_TAB_GUIDANCE: &str = include_str!("../prompts/utility_tab_guidance.md");
+
 /// Capability-based pointer from an external-service action to installed plugin verbs.
 pub const PLUGIN_DISCOVERY_RULE: &str = include_str!("../prompts/plugin_discovery_rule.md");
 

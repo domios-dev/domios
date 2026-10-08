@@ -146,3 +146,37 @@ fn shell_command_state_isolated_from_agent_status_and_foreign_pty() {
         ShellCommandState::default()
     ));
 }
+
+#[test]
+fn shell_command_state_pending_utility_command_ignores_initial_prompt() {
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    mux.link_pty(&id, "own".into());
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.utility_command_pending = true;
+    let idle = ShellCommandState {
+        activity: ShellActivity::Idle,
+        last_exit_code: None,
+    };
+    assert!(!apply_shell_command_state(tab, "own", idle));
+    assert!(tab.utility_command_pending);
+    assert!(apply_shell_command_state(
+        tab,
+        "own",
+        ShellCommandState {
+            activity: ShellActivity::Running,
+            last_exit_code: None
+        }
+    ));
+    assert!(!tab.utility_command_pending);
+    assert!(apply_shell_command_state(tab, "own", idle));
+    tab.utility_command_pending = true;
+    assert!(apply_shell_command_state(
+        tab,
+        "own",
+        ShellCommandState {
+            activity: ShellActivity::Idle,
+            last_exit_code: Some(0)
+        }
+    ));
+    assert!(!tab.utility_command_pending);
+}

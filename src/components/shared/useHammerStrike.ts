@@ -1,6 +1,6 @@
 import { useEffect, type RefObject } from "react";
 
-export function useHammerStrike(iconRef: RefObject<SVGSVGElement | null>, active: boolean) {
+export function useHammerStrike(iconRef: RefObject<SVGSVGElement | null>, active: boolean, purpose = "build") {
   useEffect(() => {
     const icon = iconRef.current;
     if (!active || !icon) return;
@@ -8,12 +8,17 @@ export function useHammerStrike(iconRef: RefObject<SVGSVGElement | null>, active
     let animation: Animation | undefined;
     const updateMotion = () => {
       animation?.cancel();
-      animation = motion.matches ? undefined : icon.animate([
+      const frames = purpose === "qa" ? [
+        { transform: "rotate(-5deg)" },
+        { transform: "rotate(5deg)" },
+        { transform: "rotate(-5deg)" },
+      ] : [
         { transform: "rotate(0deg)", transformOrigin: "75% 75%", offset: 0 },
         { transform: "rotate(-18deg)", transformOrigin: "75% 75%", offset: 0.4 },
         { transform: "rotate(8deg)", transformOrigin: "75% 75%", offset: 0.55 },
         { transform: "rotate(0deg)", transformOrigin: "75% 75%", offset: 1 },
-      ], { duration: 850, iterations: Infinity, easing: "ease-in-out" });
+      ];
+      animation = motion.matches ? undefined : icon.animate(frames, { duration: purpose === "qa" ? 1200 : 850, iterations: Infinity, easing: "ease-in-out" });
     };
     updateMotion();
     motion.addEventListener("change", updateMotion);
@@ -21,5 +26,5 @@ export function useHammerStrike(iconRef: RefObject<SVGSVGElement | null>, active
       animation?.cancel();
       motion.removeEventListener("change", updateMotion);
     };
-  }, [active, iconRef]);
+  }, [active, iconRef, purpose]);
 }

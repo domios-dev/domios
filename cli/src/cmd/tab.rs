@@ -96,6 +96,8 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
         }
         TabAction::New {
             purpose,
+            description,
+            icon,
             workspace,
             cwd,
             title,
@@ -113,7 +115,8 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     crate::cmd::print::fail(1, format!("failed to connect to local API: {}", e));
                 }
             };
-            let mut body = serde_json::json!({ "purpose": purpose });
+            let mut body =
+                serde_json::json!({ "purpose": purpose, "description": description, "icon": icon });
             if let Some(w) = workspace {
                 body["workspace_id"] = serde_json::Value::String(w);
             }
@@ -160,6 +163,9 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     }
                 }
             }
+            if let Some(command) = cmd {
+                body["cmd"] = serde_json::Value::String(command);
+            }
             let create_result = api
                 .post(format!("{}/api/tabs", base))
                 .json(&body)
@@ -175,36 +181,7 @@ pub fn handle_tab(client: &mut SocketClient, json: bool, action: TabAction) {
                     }
                 });
 
-            let final_result = match (create_result, cmd) {
-                (Ok(resp), Some(cmd_text)) => {
-                    let tab_id = resp
-                        .get("tab_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    if tab_id.is_empty() {
-                        Ok(resp)
-                    } else {
-                        let exec_url = format!("{}/api/tabs/{}/exec", base, tab_id);
-                        let exec_body = serde_json::json!({"command": cmd_text});
-                        match api.post(&exec_url).json(&exec_body).send() {
-                            Ok(r) if r.status().is_success() => Ok(resp),
-                            Ok(r) => Err(format!(
-                                "tab created (id={}) but --cmd failed: HTTP {}: {}",
-                                tab_id,
-                                r.status().as_u16(),
-                                r.text().unwrap_or_default()
-                            )),
-                            Err(e) => Err(format!(
-                                "tab created (id={}) but --cmd failed: {}",
-                                tab_id, e
-                            )),
-                        }
-                    }
-                }
-                (other, _) => other,
-            };
-            team_utility::handle_create_result(json, team.as_deref(), final_result);
+            team_utility::handle_create_result(json, team.as_deref(), create_result);
         }
         TabAction::Current { last } => {
             // The env var is the tab this RUNS IN; focus is whatever the human
