@@ -68,3 +68,6 @@ export { decodeTasksBlockKey } from "./blocks/tasksBlockModel";
 export type { TasksBlockGroup, TasksBlockRow, TasksBlockSpec, TasksBlockState } from "./blocks/tasksBlockModel";
 export { PluginNameProvider } from "./codeterm/PluginNames";
 export type { PluginNameResolver } from "./codeterm/pluginAction";
+
+export { FullscreenOverlay, useFullscreenKeyboard } from "./FullscreenOverlay";
+export { knownLanguageFromPath } from "./codeLanguage";
