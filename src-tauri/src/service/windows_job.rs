@@ -3,9 +3,18 @@ use windows_sys::Win32::{
     System::{JobObjects::*, Threading::*},
 };
 
+/// A kill-on-close job: closing its last handle (even by process death) kills every member.
 pub struct Job(usize);
 impl Job {
+    /// Contains a child spawned suspended, then resumes it.
     pub fn attach(child: &tokio::process::Child) -> Result<Self, String> {
+        let job = Self::contain(child)?;
+        resume(child)?;
+        Ok(job)
+    }
+
+    /// Contains a child spawned suspended; the caller resumes it, so its first descendant is already inside.
+    pub fn contain(child: &tokio::process::Child) -> Result<Self, String> {
         let handle = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         if handle.is_null() {
             return Err(std::io::Error::last_os_error().to_string());
@@ -13,7 +22,7 @@ impl Job {
         let job = Self(handle as usize);
         let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
         limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-        let process = child.raw_handle().ok_or("Missing sidecar process handle")? as HANDLE;
+        let process = child.raw_handle().ok_or("Missing child process handle")? as HANDLE;
         if unsafe {
             SetInformationJobObject(
                 handle,
@@ -26,13 +35,6 @@ impl Job {
         {
             return Err(std::io::Error::last_os_error().to_string());
         }
-        #[link(name = "ntdll")]
-        unsafe extern "system" {
-            fn NtResumeProcess(process: HANDLE) -> i32;
-        }
-        if unsafe { NtResumeProcess(process) } < 0 {
-            return Err("Could not resume sidecar in owned job".into());
-        }
         Ok(job)
     }
     pub fn terminate(&self) {
@@ -41,6 +43,18 @@ impl Job {
         }
     }
 }
+pub fn resume(child: &tokio::process::Child) -> Result<(), String> {
+    #[link(name = "ntdll")]
+    unsafe extern "system" {
+        fn NtResumeProcess(process: HANDLE) -> i32;
+    }
+    let process = child.raw_handle().ok_or("Missing child process handle")? as HANDLE;
+    if unsafe { NtResumeProcess(process) } < 0 {
+        return Err("Could not resume the suspended child".into());
+    }
+    Ok(())
+}
+
 impl Drop for Job {
     fn drop(&mut self) {
         unsafe {

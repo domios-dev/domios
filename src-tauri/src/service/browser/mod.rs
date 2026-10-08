@@ -150,6 +150,20 @@ impl BrowserHost {
         }
     }
 
+    /// Daemon exit: like `shutdown`, but Chromium gets only `graceful` to flush before the kill.
+    pub async fn shutdown_within(&self, graceful: Duration) -> Option<CloseOutcome> {
+        let outcome = {
+            let _lifecycle = self.lifecycle.lock().await;
+            let previous = self.runtime.lock().take();
+            match previous {
+                Some(runtime) => runtime::stop_within(runtime, graceful).await,
+                None => None,
+            }
+        };
+        self.frames.close();
+        outcome
+    }
+
     async fn launch(&self, profile: ProfileKind) -> Result<Arc<Runtime>, String> {
         let viewport = self.viewport.lock().current();
         self.frames.set_params(ScreencastParams::new(viewport));

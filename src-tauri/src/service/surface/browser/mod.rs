@@ -24,6 +24,7 @@ use super::runtime::{
     SurfaceCallCtx, SurfaceCallOutcome, SurfaceEvents, SurfaceNotice, SurfaceResume,
     SurfaceRuntime, SurfaceRuntimeFactory, SurfaceState,
 };
+use crate::service::browser::process::CloseOutcome;
 use crate::service::browser::profile::{sanitize_profile_name, ProfileLayout};
 use crate::service::browser::viewport::ViewportRequest;
 use crate::service::browser::{BrowserHost, BrowserHostConfig, OpenOptions, PageChannel};
@@ -371,5 +372,13 @@ impl SurfaceRuntime for BrowserRuntime {
     async fn dispose(&self) {
         self.shared.unbind();
         self.host.shutdown().await;
+    }
+
+    async fn shutdown(&self, graceful: Duration) -> bool {
+        self.shared.unbind();
+        !matches!(
+            self.host.shutdown_within(graceful).await,
+            Some(CloseOutcome::Killed(_))
+        )
     }
 }

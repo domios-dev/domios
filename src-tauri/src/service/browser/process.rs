@@ -24,13 +24,23 @@ pub enum CloseOutcome {
 }
 
 /// An owned Chromium child. Dropping it kills the whole process tree.
-#[derive(Debug)]
 pub struct BrowserProcess {
     pid: u32,
     endpoint: String,
     ready_after: Duration,
     exit: watch::Receiver<Option<ProcessExit>>,
     kill: watch::Sender<bool>,
+    #[cfg(windows)]
+    _job: Option<crate::service::windows_job::Job>,
+}
+
+impl std::fmt::Debug for BrowserProcess {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BrowserProcess")
+            .field("pid", &self.pid)
+            .field("endpoint", &self.endpoint)
+            .finish_non_exhaustive()
+    }
 }
 
 impl BrowserProcess {
@@ -46,6 +56,9 @@ impl BrowserProcess {
         stdin: Stdio,
     ) -> Result<Self, String> {
         let mut command = tokio::process::Command::new(binary);
+        #[cfg(windows)]
+        crate::process_util::no_window_tokio_suspended(&mut command);
+        #[cfg(not(windows))]
         crate::process_util::no_window_tokio(&mut command);
         command
             .args(args)
@@ -67,6 +80,8 @@ impl BrowserProcess {
         let mut child = command
             .spawn()
             .map_err(|error| format!("browser spawn failed ({}): {error}", binary.display()))?;
+        #[cfg(windows)]
+        let job = contain(&child)?;
         let pid = child.id().ok_or("browser process has no pid")?;
         let stderr = child.stderr.take().ok_or("browser stderr is not piped")?;
         let (ready_tx, ready_rx) = oneshot::channel();
@@ -80,6 +95,8 @@ impl BrowserProcess {
             ready_after: Duration::ZERO,
             exit: exit_rx,
             kill: kill_tx,
+            #[cfg(windows)]
+            _job: job,
         };
         let mut exit = process.exit.clone();
         let readiness = tokio::time::timeout(deadline, async {
@@ -159,6 +176,18 @@ impl Drop for BrowserProcess {
     fn drop(&mut self) {
         self.kill.send_replace(true);
     }
+}
+
+/// Every Chromium process descends from the suspended root, so all of them die with the daemon.
+#[cfg(windows)]
+fn contain(
+    child: &tokio::process::Child,
+) -> Result<Option<crate::service::windows_job::Job>, String> {
+    let job = crate::service::windows_job::Job::contain(child)
+        .inspect_err(|error| log::warn!("[browser-process] no kill-on-close job: {error}"))
+        .ok();
+    crate::service::windows_job::resume(child)?;
+    Ok(job)
 }
 
 async fn drain_stderr(

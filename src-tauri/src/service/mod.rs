@@ -203,6 +203,8 @@ pub mod tokens;
 pub mod transport;
 pub mod watcher;
 pub mod web_access;
+#[cfg(windows)]
+pub(crate) mod windows_job;
 pub(crate) mod worker_ack;
 mod worker_identity;
 pub(crate) mod worker_interruption;

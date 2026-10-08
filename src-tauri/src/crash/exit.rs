@@ -188,12 +188,24 @@ pub fn declare_clean_exit(app: &tauri::AppHandle) {
     log::info!("[shutdown] clean-exit declaration completed");
 }
 
+/// Starts closing surface browsers so they flush profiles and die with the daemon, not after it.
+fn begin_surface_shutdown(
+    app: &tauri::AppHandle,
+) -> Option<crate::service::surface::SurfaceShutdown> {
+    app.try_state::<crate::service::ServiceState>()
+        .map(|svc| crate::service::surface::begin_surface_shutdown(svc.inner()))
+}
+
 /// Signal-driven graceful exit. Tray Quit and the macOS terminate hook reach
 /// `handle_run_exit` instead, so only the unix signal handlers need this.
 #[cfg(unix)]
 pub fn graceful_exit_cleanup(app: &tauri::AppHandle) {
+    let surfaces = begin_surface_shutdown(app);
     declare_clean_exit(app);
     persist_state(app);
+    if let Some(surfaces) = surfaces {
+        surfaces.wait();
+    }
 }
 
 /// `RunEvent::Exit` entry point: always persist, declare only on a genuine quit.
@@ -208,6 +220,10 @@ pub fn handle_run_exit(app: &tauri::AppHandle) {
             "[shutdown] unrequested macOS RunEvent::Exit; persisting state without clean-exit declaration"
         );
     }
+    let surfaces = begin_surface_shutdown(app);
     execute_exit_plan(plan, || declare_clean_exit(app), || persist_state(app));
+    if let Some(surfaces) = surfaces {
+        surfaces.wait();
+    }
     log::info!("[shutdown] RunEvent::Exit handler completed");
 }
