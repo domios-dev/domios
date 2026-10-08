@@ -228,8 +228,7 @@ export function HtmlPreviewBlock({ text }: { text: string }) {
       return;
     }
     void reloadFile();
-    window.addEventListener("focus", reloadFile);
-    return () => window.removeEventListener("focus", reloadFile);
+    return () => { requestGeneration.current += 1; };
   }, [filePath, reloadFile]);
 
   const copySource = useCallback(async (event: React.MouseEvent) => {
