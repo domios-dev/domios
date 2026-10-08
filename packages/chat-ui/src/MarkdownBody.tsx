@@ -9,7 +9,7 @@ import rehypeSanitize from "rehype-sanitize";
 import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, normalizeMultilineHtmlBlocks, rehypeScrubInlineStyles } from "./htmlSanitize";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
-import { GuideDirective, parseGuideDirective } from "./GuideDirective";
+import { parseChatBlocks } from "./blocks/registry";
 import { rehypeSourceOffsets } from "./sourceOffsets";
 import { rehypeMarkdownLineBreaks } from "./markdownLineBreaks";
 import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
@@ -222,12 +222,10 @@ export function RichMarkdown({
           const directiveSource = textChild === null
             ? null
             : sourceForNode(renderedText, node) ?? textChild;
-          const guideSource = textChild === null ? null : sourceForStandaloneLine(renderedText, node);
-          const guideSection = localArtifacts && guideSource
-            ? parseGuideDirective(guideSource)
-            : null;
-          if (guideSection !== null) {
-            return <GuideDirective sectionId={guideSection} />;
+          const blockSource = localArtifacts ? sourceForStandaloneLine(renderedText, node) : null;
+          const blocks = blockSource ? parseChatBlocks(blockSource) : null;
+          if (blocks) {
+            return <>{blocks.map((block, index) => <React.Fragment key={`${index}:${block.source}`}>{block.render()}</React.Fragment>)}</>;
           }
           const directive = localArtifacts && directiveSource
             ? parseLocalArtifactDirective(directiveSource)

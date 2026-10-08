@@ -6,9 +6,15 @@ import {
   ProviderIntegrationHealthCard,
   providersWithIntegrationHealth,
 } from "./ProviderIntegrationHealthCard";
+import { SettingsCardAnchor } from "./SettingsCardAnchor";
+import type { SettingsCardAnchorId } from "./sections";
 import { SettingsCard, SettingsPill, Toggle } from "./shared";
 
-export function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void }) {
+export function IntegrationsTab({ config, onUpdate, focusCard }: {
+  config: AppConfig;
+  onUpdate: <K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) => void;
+  focusCard?: SettingsCardAnchorId;
+}) {
   const [allowedUsersText, setAllowedUsersText] = useState(
     (config.integrations?.telegram_allowed_users ?? []).join(", ")
   );
@@ -21,6 +27,7 @@ export function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpd
         <ProviderIntegrationHealthCard key={provider.id} provider={provider} />
       ))}
 
+      <SettingsCardAnchor id="telegram-bridge" focused={focusCard === "telegram-bridge"}>
       <SettingsCard
         icon={<Send size={16} />}
         title="Telegram"
@@ -62,6 +69,7 @@ export function IntegrationsTab({ config, onUpdate }: { config: AppConfig; onUpd
           </>
         )}
       </SettingsCard>
+      </SettingsCardAnchor>
 
       <SettingsCard
         icon={<MessageSquare size={16} />}

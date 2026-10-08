@@ -42,3 +42,14 @@ export {
   shortSha,
 } from "./codeterm/reportOutcome";
 export type { ReportOutcomeClass, ReportTaskOutcome } from "./codeterm/reportOutcome";
+export { ChatBlockFrame } from "./blocks/ChatBlockFrame";
+export type { ChatBlockAction, ChatBlockFrameProps, ChatBlockStatus, ChatBlockTone } from "./blocks/ChatBlockFrame";
+export { ChatBlockHostProvider, useChatBlockHost } from "./blocks/ChatBlockHost";
+export type { ChatBlockHost, PluginBlockHost } from "./blocks/ChatBlockHost";
+export { useLiveBinding } from "./blocks/liveBinding";
+export type { LiveBindingSource } from "./blocks/liveBinding";
+export { CHAT_BLOCKS, parseChatBlock, parseChatBlocks } from "./blocks/registry";
+export type { ChatBlockDefinition, ParsedChatBlock } from "./blocks/registry";
+export { PluginBlock } from "./blocks/PluginBlock";
+export { parsePluginId, pluginPrimaryAction, pluginStatus } from "./blocks/pluginBlockModel";
+export type { PluginBlockInfo, PluginBlockState, PluginLifecycleKind } from "./blocks/pluginBlockModel";

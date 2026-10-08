@@ -35,6 +35,7 @@ export interface CatalogEntry {
   effectiveNetworkAllow?: string[] | null;
   settingsSchema?: SettingField[] | null;
   description?: string | null;
+  pitch?: string | null;
   /** Opt-in agent-facing instructions. Absent means AI configuration is unsupported. */
   configHelp?: string | null;
   homepage?: string | null;
@@ -104,6 +105,7 @@ function entryFromInstalled(p: InstalledPlugin): CatalogEntry {
     effectiveNetworkAllow: p.effective_network_allow ?? [],
     settingsSchema: p.settings_schema ?? null,
     description: p.description ?? null,
+    pitch: p.pitch ?? null,
     configHelp: p.config_help ?? null,
     homepage: p.homepage ?? null,
     readmeMarkdown: p.readme_markdown ?? null,
@@ -143,6 +145,7 @@ function mergeMarketplace(base: CatalogEntry | undefined, m: MarketplaceRow): Ca
     effectiveNetworkAllow: base?.effectiveNetworkAllow ?? m.effective_network_allow ?? [],
     settingsSchema: base?.settingsSchema ?? null,
     description: base?.description ?? m.description ?? null,
+    pitch: base?.pitch ?? m.pitch ?? null,
     configHelp: base?.configHelp ?? m.config_help ?? null,
     homepage: base?.homepage ?? m.homepage ?? null,
     readmeMarkdown: base?.readmeMarkdown ?? m.readme_markdown ?? null,
