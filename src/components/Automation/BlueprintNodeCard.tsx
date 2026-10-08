@@ -31,7 +31,6 @@ function PinLabel({ pin }: { pin: BlueprintPin }) {
   if (!pin.label) return null;
   return <span className="bp-pin-label" data-side={pin.side} title={pin.detail ? `${pin.label}: ${pin.detail}` : undefined}>
     <span className={pin.kind === "exec" ? "bp-pin-label__name" : undefined}>{pin.label}</span>
-    {pin.detail && <span className="bp-pin-label__detail">{pin.detail}</span>}
   </span>;
 }
 
@@ -56,6 +55,7 @@ export function BlueprintNodeCard({ laid }: { laid: LaidOutBlueprintNode }) {
       {status && <span className={`bp-node__status ${stateTone(status)}`} title={status} aria-hidden="true" />}
     </span>
     {node.body && <span className="bp-node__body" data-kind={node.body.kind} style={{ height: bodyHeight }}>
+      {node.body.kind === "prompt" && <span className="bp-node__caption">Instruction · what each output means</span>}
       <span className="bp-node__clamp" style={{ WebkitLineClamp: bodyLines }}>{node.body.text}</span>
     </span>}
     {rows.map((row, index) => <span key={index} className="bp-row" style={{ top: row.top, height: row.height }}>
