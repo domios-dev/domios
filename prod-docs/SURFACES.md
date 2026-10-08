@@ -6,8 +6,10 @@ is inside. Surface tabs sit in the sidebar next to terminals and chats, nested
 under the tab that owns them, and render the same way in the desktop app and
 the web mirror.
 
-Today a surface renders the plugin's sandboxed view (`ui/index.html`), the same
-page the plugin shows as a panel.
+A surface renders in one of two ways. A `view` surface shows the plugin's
+sandboxed view (`ui/index.html`), the same page the plugin shows as a panel. A
+`stream` surface shows live frames from a core surface runtime, such as the
+browser, and the viewer's clicks and keys go back to that runtime.
 
 ## Declaring a surface
 
@@ -26,12 +28,18 @@ A plugin declares its surfaces in `plugin.json`:
 |---|---|
 | `id` | 1-32 lowercase letters, digits or `-`, unique within the plugin |
 | `title` | One word without whitespace; it becomes the tab title |
-| `renderer` | `view`; the plugin must also declare `capabilities.view` |
+| `renderer` | `view` (the plugin must also declare `capabilities.view`) or `stream` |
+| `runtime` | Required for `stream`, refused for `view`: the core surface runtime that renders it. Only `browser` exists |
+| `chrome` | Optional, `stream` only: a toolbar spec object core passes to the frontend untouched |
 | `agentBound` | Optional. The tab is labelled after its owner, e.g. `Jev's Board` |
 | `restore` | Optional: `relaunch` (default), `placeholder` or `none` |
 
 A plugin declares at most 8 surfaces. A manifest that breaks a rule fails to
 load, so the plugin never registers a surface it cannot render.
+
+A stream surface needs no view: core branches on the declared `runtime`, never
+on the plugin id, and a runtime core does not have refuses the open with
+`surface_runtime_unavailable`.
 
 Every `restore` value currently re-renders the view when the desk is restored,
 because a view keeps no live state of its own. `placeholder` and `none` are
@@ -54,8 +62,8 @@ codeterm surface close --tab <TAB>
 - `surface list` shows the surfaces enabled plugins declare and the surface
   tabs that are open, with their owners. `--json` returns `declared` and `open`.
 - `surface open <plugin_id>:<surface_id>` checks that the plugin is installed,
-  enabled, declares that surface and has a registered view, then creates the
-  tab and prints its id.
+  enabled, declares that surface and can render it (a registered view, or the
+  declared stream runtime), then creates the tab and prints its id.
 - The owner is `--owner`, otherwise the calling tab when it is an agent tab.
   A plain shell caller opens an ownerless surface. A surface cannot own another
   surface.
@@ -90,6 +98,34 @@ installed plugins; each plugin documents its own verbs).
   children of the owner are detached as before.
 - When the plugin is disabled or uninstalled, the tab stays but its view can
   no longer reach the plugin; close it or re-enable the plugin.
+- A stream surface's runtime starts on first use (a viewer connecting or an
+  agent verb) and is disposed when the tab closes by any path: `surface close`,
+  the owner closing, the workspace closing or the Team closing. The browser
+  runtime then closes its Chromium.
+
+## Stream surfaces
+
+A viewer and the agent who owns the surface drive the same runtime instance.
+The viewer uses the two routes below; the owner agent uses its plugin's verbs.
+
+### The browser
+
+The `browser` plugin declares `browser:browser`, a stream surface on the
+`browser` runtime. Its owner agent drives it with
+`codeterm plugin browser <verb>`; `codeterm plugin browser help` prints the
+full guide. The verbs act only on the calling agent's own browser, and
+`open` creates it when the agent has none. When the user points at an element
+and sends a question, change or bug, the owner agent receives it as a Domios
+notice; a bare shell owner is refused, and `inbox` returns what was not
+delivered or read.
+
+### Plugin access
+
+A plugin reaches its stream surface only through `host.surface.call(verb,
+argsJson)`, which returns the JSON text `{ result }` or `{ error }`. It works
+only inside `onAgentCommand`, acts on the calling agent's own surface of the
+plugin's first stream declaration, and needs the `surfaces` permission, which
+the user can revoke like `agentCommands`.
 
 ## REST
 
@@ -99,8 +135,31 @@ installed plugins; each plugin documents its own verbs).
 | POST | `/api/surfaces/open` | `{ target, owner_tab_id?, caller_tab_id?, workspace_id?, title_from_owner? }` | The opened tab row |
 | POST | `/api/surfaces/close` | `{ tab_id, caller_tab_id? }` | `{ tab_id, warnings }` |
 
+| GET | `/api/surfaces/{tab_id}/stream?w=&h=&dpr=` | — | SSE stream of a stream surface |
+| POST | `/api/surfaces/{tab_id}/call` | `{ method, args }` | `{ result }` or `{ error }` |
+
 `target` is `<plugin_id>:<surface_id>`. With an owner, `workspace_id` must be
-the owner's workspace. Refusals carry `{ ok: false, error: { code, message } }`:
+the owner's workspace. Declared rows carry `runtime` and `chrome` for stream
+surfaces.
+
+`stream` takes the viewer's CSS size and DPR and applies it before the first
+frame. It sends `state` (`{ owner, title, url, activity, needsHuman, profile,
+profiles }`) on connect and on every change, `frame` (`{ data, metadata }`,
+`data` a base64 JPEG, latest-wins and paced by core; the client never acks)
+and `notice` (`{ text, tone? }`). The stream counts as a viewer while it is
+open; the last viewer leaving stops the frames. Authenticate with the
+`Authorization` header, as with every other route.
+
+`call` methods: `resize { width, height, dpr }`, `input { kind: click | wheel
+| text | key, x?, y?, deltaY?, text?, key?, shift?, ctrl?, alt?, meta? }`,
+`nav { action: goto | back | forward | reload, target? }`, `screenshot { full? }`
+→ `{ base64, path }` (a PNG saved in the owner's pad, or the data dir without
+one), `profiles.list` and `profiles.use { name }` (`""` or `clean` is the clean
+profile) → `{ current, profiles }`, `grab.hover { x, y }`, `grab.cancel`,
+`grab.select { x, y }` → `{ id, label, target }` and `grab.send { id, comment,
+intent: question | change | bug }` → `{ markdown, delivered }`.
+
+Refusals carry `{ ok: false, error: { code, message } }`:
 
 | Code | Meaning |
 |---|---|
@@ -112,5 +171,7 @@ the owner's workspace. Refusals carry `{ ok: false, error: { code, message } }`:
 | `surface_owner_is_surface` | The owner is itself a surface tab |
 | `surface_workspace_mismatch` | `workspace_id` differs from the owner's workspace |
 | `not_a_surface` | `surface close` named a tab that is not a surface |
+| `not_a_stream_surface` | `stream` or `call` named a tab that is not a stream surface (HTTP 409) |
+| `surface_runtime_unavailable` | The declared stream runtime is not registered in core (HTTP 409) |
 
-<!-- revision: 2 -->
+<!-- revision: 3 -->
