@@ -240,7 +240,9 @@ pub(super) fn directory_link(target: &Path, link: &Path) {
     std::os::unix::fs::symlink(target, link).unwrap();
     #[cfg(windows)]
     {
-        let result = std::process::Command::new("cmd")
+        let mut command = std::process::Command::new("cmd");
+        crate::process_util::no_window_std(&mut command);
+        let result = command
             .args(["/D", "/C", "mklink", "/J"])
             .arg(link)
             .arg(target)
