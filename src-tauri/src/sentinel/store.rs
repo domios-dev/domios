@@ -264,6 +264,9 @@ impl Store {
         if let Err(error) = self.ensure_available() {
             return Staged::ready(Err(error));
         }
+        if let Err(error) = escalation::validate(&job) {
+            return Staged::ready(Err(error));
+        }
         if let Some(capability) = job.pending_capability() {
             return Staged::ready(Err(format!(
                 "sentinel_capability_unavailable: {capability} is not executable yet"
