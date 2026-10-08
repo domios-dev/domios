@@ -719,6 +719,10 @@ pub trait AgentProvider: Send + Sync {
         ModelSwitchMode::Unsupported
     }
 
+    fn model_switch_commands(&self) -> Option<ModelSwitchCommands> {
+        None
+    }
+
     /// In-agent command that exits the REPL cleanly, if supported.
     fn exit_command(&self) -> Option<&str> {
         None

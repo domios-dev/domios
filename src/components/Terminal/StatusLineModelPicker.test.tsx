@@ -83,6 +83,47 @@ test("choosing a model switches the tab once and closes the picker", async () =>
   }
 });
 
+test("live commands switch immediately without restart confirmation", async () => {
+  const calls = recordSwitches();
+  const view = await mount(descriptor("live_command"));
+  try {
+    await act(async () => view.trigger()!.click());
+    await act(async () => view.option("Fast").click());
+    assert.deepEqual(calls, [["tab", "fast", undefined]]);
+    assert.equal(document.body.querySelector('[aria-label="Confirm restart"]'), null);
+    assert.equal(view.picker(), null);
+  } finally {
+    await view.unmount();
+    __setTabModelApiForTest(null);
+  }
+});
+
+test("a failed live command offers a separately confirmed restart fallback", async () => {
+  const fallback: unknown[][] = [];
+  __setTabModelApiForTest({
+    switchModel: async () => { throw new Error("opaque failure"); },
+    restartAndSwitchModel: async (...args) => { fallback.push(args); },
+  });
+  const view = await mount(descriptor("live_command"));
+  try {
+    await act(async () => view.trigger()!.click());
+    await act(async () => view.option("Fast").click());
+    assert.ok(document.body.querySelector('[role="alert"]'));
+    assert.deepEqual(fallback, []);
+    const button = Array.from(document.body.querySelectorAll<HTMLButtonElement>('button'))
+      .find((entry) => entry.textContent === "Restart and resume instead")!;
+    await act(async () => button.click());
+    assert.deepEqual(fallback, []);
+    const confirm = Array.from(document.body.querySelectorAll<HTMLButtonElement>('[aria-label="Confirm restart"] button'))
+      .find((entry) => entry.textContent === "Restart and switch")!;
+    await act(async () => confirm.click());
+    assert.deepEqual(fallback, [["tab", "fast", undefined]]);
+  } finally {
+    await view.unmount();
+    __setTabModelApiForTest(null);
+  }
+});
+
 test("restarting providers confirm first and the effort list follows the staged model", async () => {
   const calls = recordSwitches();
   const view = await mount(descriptor("restart_resume"));

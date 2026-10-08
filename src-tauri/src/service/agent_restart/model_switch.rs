@@ -12,6 +12,8 @@ use crate::agent::provider::ModelSwitchMode;
 use crate::multiplexer::types::RestorableLaunchParameters;
 use crate::service::{ServiceContext, SpawnAgentParams};
 
+mod live_command;
+
 /// Deadline for the relaunched session to report its model before returning pending.
 pub(crate) const MODEL_OBSERVE_TIMEOUT_SECS: u64 = 20;
 
@@ -60,6 +62,7 @@ fn effective_model_switch_mode(
             Some(crate::service::structured_prompt::LiveModelSwitchResult::Unsupported { reason }),
         ) => (ModelSwitchMode::RestartResume, Some(reason.clone())),
         (ModelSwitchMode::NextTurn, _) => (ModelSwitchMode::NextTurn, None),
+        (ModelSwitchMode::LiveCommand, _) => (ModelSwitchMode::LiveCommand, None),
         (ModelSwitchMode::RestartResume, _) => (ModelSwitchMode::RestartResume, None),
         (ModelSwitchMode::Unsupported, _) => (ModelSwitchMode::Unsupported, None),
         (ModelSwitchMode::Live, None) => (
@@ -100,6 +103,7 @@ pub(crate) enum ModelSwitchError {
         observed_model: String,
     },
     LiveSwitchFailed(String),
+    LiveCommandFailed(String),
 }
 
 impl std::fmt::Display for ModelSwitchError {
@@ -127,7 +131,7 @@ impl std::fmt::Display for ModelSwitchError {
                 formatter,
                 "relaunched with {launched_model}, but the current session reported {observed}"
             ),
-            Self::LiveSwitchFailed(reason) => {
+            Self::LiveSwitchFailed(reason) | Self::LiveCommandFailed(reason) => {
                 write!(formatter, "live model switch failed: {reason}")
             }
         }
@@ -350,6 +354,21 @@ fn recorded_launch_parameters(tab: &crate::multiplexer::types::Tab) -> Restorabl
     launch
 }
 
+fn record_live_request_identity(
+    tab: &mut crate::multiplexer::types::Tab,
+    model: &str,
+    effort: Option<&str>,
+) {
+    tab.agent_requested_model = Some(model.to_owned());
+    tab.agent_provider_resolved_model = Some(model.to_owned());
+    tab.restorable_launch.captured = true;
+    tab.restorable_launch.requested_model = Some(model.to_owned());
+    tab.restorable_launch.model = Some(model.to_owned());
+    tab.restorable_launch.requested_reasoning_effort = effort.map(str::to_owned);
+    tab.restorable_launch.resolved_reasoning_effort = effort.map(str::to_owned);
+    crate::service::reasoning_effort::persist_launch_identity(tab, effort, effort);
+}
+
 impl ServiceContext {
     #[cfg(test)]
     pub(crate) fn agent_switch_model(
@@ -376,6 +395,17 @@ impl ServiceContext {
         requested: &str,
         requested_effort: Option<&str>,
         force: bool,
+    ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
+        self.agent_switch_model_with_fallback(tab_id, requested, requested_effort, force, false)
+    }
+
+    pub(crate) fn agent_switch_model_with_fallback(
+        &self,
+        tab_id: &str,
+        requested: &str,
+        requested_effort: Option<&str>,
+        force: bool,
+        restart_fallback: bool,
     ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
         let requested = requested.trim();
         let (resolved_tab, provider) = {
@@ -423,7 +453,9 @@ impl ServiceContext {
                 requested_effort,
             );
         }
-        let declared_mode = if declared_mode == ModelSwitchMode::NextTurn {
+        let declared_mode = if declared_mode == ModelSwitchMode::NextTurn
+            || (declared_mode == ModelSwitchMode::LiveCommand && restart_fallback)
+        {
             ModelSwitchMode::RestartResume
         } else {
             declared_mode
@@ -461,6 +493,15 @@ impl ServiceContext {
                     .or_else(|| tab.agent_provider_resolved_model.clone())
             })
         };
+        if declared_mode == ModelSwitchMode::LiveCommand {
+            return self.switch_model_by_command(
+                &snap,
+                &session_id,
+                requested,
+                effort.as_deref(),
+                previous_model,
+            );
+        }
         let live_result = if declared_mode == ModelSwitchMode::Live {
             Some(
                 crate::service::structured_prompt::live_switch_for_tab(
@@ -622,14 +663,7 @@ impl ServiceContext {
                         .into(),
                 ));
             }
-            tab.agent_requested_model = Some(requested_model.to_string());
-            tab.agent_provider_resolved_model = Some(requested_model.to_string());
-            tab.restorable_launch.captured = true;
-            tab.restorable_launch.requested_model = Some(requested_model.to_string());
-            tab.restorable_launch.model = Some(requested_model.to_string());
-            tab.restorable_launch.requested_reasoning_effort = effort.map(str::to_owned);
-            tab.restorable_launch.resolved_reasoning_effort = effort.map(str::to_owned);
-            crate::service::reasoning_effort::persist_launch_identity(tab, effort, effort);
+            record_live_request_identity(tab, requested_model, effort);
             true
         };
         if updated {
