@@ -88,10 +88,9 @@ pub(super) fn reconcile_subscriptions(svc: &ServiceContext, handle: &Handle) {
             owner_state,
             provider_state,
         ) == codeterm_types::blueprint_pipeline::SubscriptionAction::Unsubscribe
+            && subscriptions.unsubscribe(&binding.subscription_id)
         {
-            if subscriptions.unsubscribe(&binding.subscription_id) {
-                changed.insert(binding.pipeline_id.clone());
-            }
+            changed.insert(binding.pipeline_id.clone());
         }
         if job.is_none() {
             subscriptions.clear_pipeline(&binding.pipeline_id);

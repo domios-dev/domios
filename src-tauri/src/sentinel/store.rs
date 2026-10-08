@@ -827,18 +827,20 @@ impl Store {
                         codeterm_types::blueprint_pipeline::Trigger::Input { .. }
                     ) && job.next_run == codeterm_types::sentinel_input::INPUT_DORMANT_DEADLINE_MS
                 });
-                let next =
-                    if event_trigger || (input_waiting && !self.wake_pending.contains(&job.id)) {
-                        None
-                    } else if job.machine.paused || active || waiting_for_run {
-                        None
-                    } else if job.machine.held.is_some() {
-                        super::escalation::expiry_at(job)
-                    } else if self.wake_pending.contains(&job.id) {
-                        Some(now)
-                    } else {
-                        Some(job.next_run)
-                    };
+                let next = if event_trigger
+                    || (input_waiting && !self.wake_pending.contains(&job.id))
+                    || job.machine.paused
+                    || active
+                    || waiting_for_run
+                {
+                    None
+                } else if job.machine.held.is_some() {
+                    super::escalation::expiry_at(job)
+                } else if self.wake_pending.contains(&job.id) {
+                    Some(now)
+                } else {
+                    Some(job.next_run)
+                };
                 next.into_iter().chain(job.expires_at)
             })
             .min()

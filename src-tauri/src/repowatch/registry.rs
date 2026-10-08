@@ -143,11 +143,14 @@ impl RepoWatchRegistry {
         }
         let subscription = self.subscribe(canonical_path)?;
         let mut lane_tokens = self.lane_tokens.lock();
-        if lane_tokens.contains_key(&key) {
-            drop(lane_tokens);
-            self.release(&subscription.token);
-        } else {
-            lane_tokens.insert(key, subscription.token);
+        match lane_tokens.entry(key) {
+            std::collections::hash_map::Entry::Occupied(_) => {
+                drop(lane_tokens);
+                self.release(&subscription.token);
+            }
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                entry.insert(subscription.token);
+            }
         }
         Ok(())
     }

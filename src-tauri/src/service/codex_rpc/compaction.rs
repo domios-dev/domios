@@ -48,16 +48,6 @@ impl CompactionState {
     }
 }
 
-pub fn remember_context(tab: &str, context: &serde_json::Map<String, Value>) {
-    if let Some(sidecar) = super::lifecycle::for_tab(tab) {
-        sidecar
-            .compaction
-            .lock()
-            .additional_context
-            .extend(context.clone());
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

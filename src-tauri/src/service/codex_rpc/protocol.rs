@@ -15,6 +15,7 @@ pub struct RpcError {
     pub data: Option<Value>,
 }
 
+#[cfg(test)]
 impl RpcError {
     pub fn unavailable(&self) -> bool {
         self.code == -32601

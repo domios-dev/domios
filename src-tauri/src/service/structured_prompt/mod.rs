@@ -93,6 +93,7 @@ pub fn pending_for_tab(tab_id: &str) -> Option<PendingPrompt> {
         .or_else(|| ACTIVE.lock().get(tab_id).map(|a| a.prompt.clone()))
 }
 
+#[cfg(test)]
 fn route_for_tab(tab_id: &str) -> Option<ResponseRoute> {
     ACTIVE.lock().get(tab_id).map(|a| a.route.clone())
 }

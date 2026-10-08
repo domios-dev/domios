@@ -10,9 +10,10 @@ use crate::api::routes::{check_auth, resolve_tab, AppState};
 use crate::multiplexer::types::AgentRole;
 use codeterm_types::agent::role_kind::builtins::PLANNER;
 
-pub(crate) use crate::api::agent_restart_routes::{
-    agent_restart_failure_response, agent_restart_handler, agent_restart_response, AgentRestartBody,
-};
+pub(crate) use crate::api::agent_restart_routes::{agent_restart_handler, agent_restart_response};
+
+#[cfg(test)]
+use crate::api::agent_restart_routes::agent_restart_failure_response;
 
 mod model_error;
 mod pair_headers;
