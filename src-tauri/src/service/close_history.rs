@@ -212,6 +212,11 @@ impl ServiceContext {
         for item in &mut record.tabs {
             if item.tab.role == Some(crate::multiplexer::types::AgentRole::Worker) {
                 if let Some(binding) = &item.tab.task_binding {
+                    let origin = item.tab.cwd.clone();
+                    let restore = item.tab.close_restore.get_or_insert_with(Default::default);
+                    if restore.session_cwd.is_none() {
+                        restore.session_cwd = origin;
+                    }
                     let lane = binding
                         .plan_id
                         .as_deref()

@@ -568,7 +568,7 @@ impl ServiceContext {
 
     pub(crate) fn materialize_restored_agent_for_send(&self, tab_id: &str) -> Result<(), String> {
         self.recover_missing_restored_provider(tab_id)?;
-        let (provider_id, session_id, cwd, launch_parameters, exact_session) = {
+        let (provider_id, session_id, cwd, launch_parameters, exact_session, session_cwd) = {
             let mux = self.mux.read();
             let tab = mux
                 .get_tab(tab_id)
@@ -583,6 +583,10 @@ impl ServiceContext {
                         .close_restore
                         .as_ref()
                         .is_some_and(|state| state.exact_session),
+                tab.close_restore
+                    .as_ref()
+                    .and_then(|state| state.session_cwd.clone())
+                    .or_else(|| tab.cwd.clone()),
             )
         };
         let Some(provider_id) = provider_id else {
@@ -594,7 +598,11 @@ impl ServiceContext {
             session_id.as_deref(),
         );
         let session_valid = resume_session_id
-            .zip(cwd.as_deref())
+            .zip(if exact_session {
+                session_cwd.as_deref()
+            } else {
+                cwd.as_deref()
+            })
             .map(|(sid, dir)| {
                 self.agent_registry
                     .with_provider(&provider_id, |p| p.session_exists(dir, sid))

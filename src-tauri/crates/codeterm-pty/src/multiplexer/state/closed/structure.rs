@@ -109,6 +109,13 @@ impl ClosedStructure {
             .iter()
             .map(|item| {
                 let mut tab = item.tab.clone();
+                if tab.cwd.is_none() {
+                    tab.cwd = self
+                        .workspaces
+                        .iter()
+                        .find(|workspace| workspace.tabs.contains(&tab.id))
+                        .and_then(|workspace| workspace.cwd.clone());
+                }
                 tab.pty_id = None;
                 tab.pending_delivery = None;
                 tab.pending_prompt = None;
@@ -133,6 +140,9 @@ impl ClosedStructure {
                 restore.record_id = Some(self.id.clone());
                 restore.stopped = shell;
                 restore.exact_session = tab.agent_type.is_some();
+                if restore.session_cwd.is_none() {
+                    restore.session_cwd = tab.cwd.clone();
+                }
                 restore.paired_planner_tab_id = item.paired_planner_tab_id.clone();
                 if tab.role == Some(AgentRole::Worker)
                     && (tab.task_binding.is_some() || tab.worker_id.is_some())

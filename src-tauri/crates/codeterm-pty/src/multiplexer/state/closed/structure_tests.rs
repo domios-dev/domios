@@ -241,6 +241,11 @@ fn structure_plan_detaches_finalized_worker_assignment_without_replaying_brief()
         ..Default::default()
     });
     worker.launch.identity_instructions = Some("old-assignment".into());
+    worker.tab.cwd = Some("/canonical".into());
+    worker.tab.close_restore = Some(CloseRestoreTabState {
+        session_cwd: Some("/removed-lane".into()),
+        ..Default::default()
+    });
     let tabs = record.restore_tabs().unwrap();
     let worker = &tabs[2];
     assert_eq!(worker.agent_session_id.as_deref(), Some("own-worker"));
@@ -248,6 +253,16 @@ fn structure_plan_detaches_finalized_worker_assignment_without_replaying_brief()
     assert!(worker.role.is_none());
     assert!(worker.worker_id.is_none());
     assert!(worker.restorable_launch.identity_instructions.is_none());
+    assert_eq!(worker.cwd.as_deref(), Some("/canonical"));
+    assert_eq!(
+        worker
+            .close_restore
+            .as_ref()
+            .unwrap()
+            .session_cwd
+            .as_deref(),
+        Some("/removed-lane")
+    );
 }
 
 #[test]
