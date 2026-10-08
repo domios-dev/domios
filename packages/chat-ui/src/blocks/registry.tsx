@@ -2,6 +2,16 @@ import React from "react";
 import { GuideDirective, parseGuideDirective } from "../GuideDirective";
 import { PluginBlock } from "./PluginBlock";
 import { parsePluginId } from "./pluginBlockModel";
+import { AgentBlock } from "./AgentBlock";
+import { parseTabRef } from "./agentBlockModel";
+import { ChecklistBlock } from "./ChecklistBlock";
+import { parseChecklistId } from "./checklistBlockModel";
+import { ChoiceBlock } from "./ChoiceBlock";
+import { parseChoiceOptions } from "./choiceBlockModel";
+import { JobBlock } from "./JobBlock";
+import { parseJobRef } from "./jobBlockModel";
+import { TasksBlock } from "./TasksBlock";
+import { parseTasksArgument, type TasksBlockSpec } from "./tasksBlockModel";
 
 /** One `@ds-<name> <argument>` chat block: a parser that validates the argument and a renderer for it. */
 export interface ChatBlockDefinition<P> {
@@ -32,7 +42,36 @@ export const CHAT_BLOCKS: readonly ChatBlockDefinition<unknown>[] = [
     parse: (argument) => parsePluginId(argument),
     render: (pluginId, source) => <PluginBlock pluginId={pluginId} source={source} />,
   }),
+  defineChatBlock<string[]>({
+    name: "choice",
+    parse: (argument) => parseChoiceOptions(argument),
+    render: (options, source) => <ChoiceBlock options={options} source={source} />,
+  }),
+  defineChatBlock<string>({
+    name: "agent",
+    parse: (argument) => parseTabRef(argument),
+    render: (tabRef, source) => <AgentBlock tabRef={tabRef} source={source} />,
+  }),
+  defineChatBlock<string>({
+    name: "job",
+    parse: (argument) => parseJobRef(argument),
+    render: (jobRef, source) => <JobBlock jobRef={jobRef} source={source} />,
+  }),
+  defineChatBlock<string>({
+    name: "checklist",
+    parse: (argument) => parseChecklistId(argument),
+    render: (checklistId, source) => <ChecklistBlock checklistId={checklistId} source={source} renderBlock={renderNestedBlock} />,
+  }),
+  defineChatBlock<TasksBlockSpec>({
+    name: "tasks",
+    parse: (argument) => parseTasksArgument(argument),
+    render: (spec, source) => <TasksBlock spec={spec} source={source} />,
+  }),
 ];
+
+function renderNestedBlock(source: string): React.ReactNode {
+  return parseChatBlock(source)?.render() ?? null;
+}
 
 const BLOCK_LINE = /^[\t ]*@ds-([a-z][a-z0-9-]*)[\t ]+(\S(?:.*\S)?)[\t ]*$/;
 

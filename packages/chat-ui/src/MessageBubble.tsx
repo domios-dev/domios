@@ -46,16 +46,16 @@ import { hasPlanRefs } from "./codeterm/planRefs";
 import { recognize } from "./codeterm/recognize";
 import { isSend } from "./codeterm/templates";
 import { parseCoordinationReport } from "./codeterm/coordinationReport";
-import { parseDsTasksMessage, type DsTasksBlock } from "./codeterm/dsTasksBlock";
+import { parseDsTasksMessage } from "./codeterm/dsTasksBlock";
+import { ChatBlockMessageProvider } from "./blocks/ChatBlockHost";
+import { TasksBlock } from "./blocks/TasksBlock";
+import { tasksBlockSource, tasksSpecFromBlock } from "./blocks/tasksBlockModel";
 import { normalizedTimelineMarker, TimelineMarkerRow } from "./timelineMarkers";
 import {
   hasMeaningfulToolResult,
   isRenderableMessage,
   structuredInboundFromMessage,
 } from "./MessageBubble.helpers";
-
-/** Host-owned renderer for a `<ds-tasks>` block; it subscribes to live plan data itself. */
-export type DsTasksBlockComponent = React.ComponentType<{ block: DsTasksBlock }>;
 
 interface MessageBubbleProps {
   message: ChatMessage;
@@ -88,8 +88,6 @@ interface MessageBubbleProps {
   /** `shell_command` decoration — surface the command's terminal output. */
   onJumpToShellCommand?: (message: ChatMessage) => void;
   onStopReminder?: (id: string) => void;
-  /** Must be referentially stable: it is a memo prop of every bubble. */
-  dsTasksBlock?: DsTasksBlockComponent;
 }
 
 const INTERACTIVE_QUESTIONS_ENABLED = false;
@@ -134,7 +132,7 @@ function recordBubbleRender(id: string): void {
   counts[id] = (counts[id] ?? 0) + 1;
 }
 
-export const MessageBubble = React.memo(function MessageBubble({ message, showTimestamp = false, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder, dsTasksBlock: DsTasksBlockView }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, showTimestamp = false, item, origin, originAvatar, onOriginClick, resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, resolvePlanRef, onAnswerInteractive, answeredInteractiveIds, fontScale, onRerunShellCommand, onJumpToShellCommand, onStopReminder }: MessageBubbleProps) {
   recordBubbleRender(message.id);
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
@@ -153,7 +151,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
     if (message.type === "assistant") {
       return (
         <>
-          <RichMarkdown text={message.content} fontScale={fontScale} />
+          <ChatBlockMessageProvider messageId={message.id}>
+            <RichMarkdown text={message.content} fontScale={fontScale} />
+          </ChatBlockMessageProvider>
           <PlanRefCards text={message.content} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         </>
       );
@@ -379,7 +379,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
       );
     })() : null;
 
-    const dsTasks = DsTasksBlockView && !effectiveOrigin ? parseDsTasksMessage(message.content) : null;
+    const dsTasks = effectiveOrigin ? null : parseDsTasksMessage(message.content);
+    const tasksSpec = dsTasks ? tasksSpecFromBlock(dsTasks.block) : null;
     const userContent = dsTasks ? [dsTasks.before, dsTasks.after].filter(Boolean).join(BLOCK_GAP) : message.content;
     const userAttachments = userMessageAttachments(userContent, attachments);
     const visibleUserContent = userAttachments.text;
@@ -428,9 +429,9 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
               </div>}
             </div>
           </div>
-          {dsTasks && DsTasksBlockView && (
-            <div className="mt-1.5 flex w-full min-w-0 justify-end">
-              <DsTasksBlockView block={dsTasks.block} />
+          {tasksSpec && (
+            <div className="flex w-full min-w-0 justify-end">
+              <TasksBlock spec={tasksSpec} source={tasksBlockSource(tasksSpec)} />
             </div>
           )}
         </div>
