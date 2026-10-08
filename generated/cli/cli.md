@@ -3318,7 +3318,9 @@ Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab 
 - `--cmd` — Spawn a shell that runs this command on start (e.g. `"cd /repo && ./build.sh dev"`). Delivery waits for the PTY to be ready, so the command runs reliably even on a freshly-created tab
 - `--config` — JSON config object passed to the chat-backend plugin's `openSession` (only with `--chat-backend`). E.g. `'{"model":"llama-3.1-8b"}'`
 - `--cwd` — Working directory for the new tab
+- `--description` — Activity summary shown below the tab title
 - `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
+- `--icon` — Lucide icon name (for example bug or flask-conical)
 - `--no-team` — Keep the new shell outside the calling tab's Team
 - `--purpose` — Utility shell purpose shown in the sidebar
 - `--team` — Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team

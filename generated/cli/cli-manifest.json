@@ -15554,6 +15554,16 @@
               "aliases": []
             },
             {
+              "name": "description",
+              "positional": false,
+              "required": false,
+              "value_name": "DESCRIPTION",
+              "possible_values": [],
+              "default": null,
+              "help": "Activity summary shown below the tab title",
+              "aliases": []
+            },
+            {
               "name": "eager",
               "positional": false,
               "required": false,
@@ -15561,6 +15571,16 @@
               "possible_values": [],
               "default": null,
               "help": "Spawn the shell PTY immediately on the daemon for headless/API use",
+              "aliases": []
+            },
+            {
+              "name": "icon",
+              "positional": false,
+              "required": false,
+              "value_name": "ICON",
+              "possible_values": [],
+              "default": null,
+              "help": "Lucide icon name (for example bug or flask-conical)",
               "aliases": []
             },
             {
