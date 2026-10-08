@@ -12,6 +12,8 @@ pub(crate) use source::UnledgeredObservation;
 pub(crate) use source::{link_rpc, PtyFlow, SourceCursor};
 pub(crate) use watch::cancel as cancel_tab;
 pub(crate) use watch::ensure as watch_pty;
+#[cfg(test)]
+pub(crate) use watch::{capture_window, register_source};
 
 pub(crate) fn enabled() -> bool {
     #[cfg(test)]
