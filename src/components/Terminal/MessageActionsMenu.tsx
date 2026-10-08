@@ -102,11 +102,18 @@ export function MessageActionsDot({ clip, touch = false, whole = false, hasParts
   useEffect(() => {
     if (!open) return;
     const onPress = (event: Event) => {
+      if (touch && event.type === "mousedown") return;
       if (!wrapRef.current?.contains(event.target as Node) && !menuRef.current?.contains(event.target as Node)) hide();
+    };
+    const onKey = (event: globalThis.KeyboardEvent) => {
+      if (!touch || event.code !== "Escape" || event.defaultPrevented) return;
+      event.preventDefault();
+      hide(true);
     };
     document.addEventListener("mousedown", onPress);
     document.addEventListener("pointerdown", onPress);
-    return () => { document.removeEventListener("mousedown", onPress); document.removeEventListener("pointerdown", onPress); };
+    document.addEventListener("keydown", onKey);
+    return () => { document.removeEventListener("mousedown", onPress); document.removeEventListener("pointerdown", onPress); document.removeEventListener("keydown", onKey); };
   });
 
   const copy = (kind: "copy" | "markdown") => {
@@ -173,6 +180,7 @@ export function MessageActionsDot({ clip, touch = false, whole = false, hasParts
       onPointerEnter={(event) => { if (event.pointerType === "mouse") show("hover"); }}
       onPointerLeave={(event) => { if (event.pointerType === "mouse" && openedBy.current === "hover") hide(); }}
       onBlur={(event) => {
+        if (touch) return;
         if (openedBy.current !== "hover" && !wrapRef.current?.contains(event.relatedTarget as Node | null) && !menuRef.current?.contains(event.relatedTarget as Node | null)) hide();
       }}
     >

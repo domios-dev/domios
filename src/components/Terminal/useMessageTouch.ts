@@ -18,6 +18,28 @@ export function useMessageTouch(row: RefObject<HTMLElement | null>, options: {
     let targetId: string | null = null;
     let press: { id: number; x: number; y: number; gutter: boolean; dragging: boolean; selecting: boolean } | null = null;
     let suppressClick = false;
+    let clearOpeningRelease: (() => void) | null = null;
+    const guardOpeningRelease = () => {
+      clearOpeningRelease?.();
+      const mouse = (event: MouseEvent) => {
+        if (event.type === "click" && event.detail === 0) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        if (event.type === "click") clear();
+      };
+      const clear = () => {
+        document.removeEventListener("mousedown", mouse, true);
+        document.removeEventListener("mouseup", mouse, true);
+        document.removeEventListener("click", mouse, true);
+        document.removeEventListener("pointerdown", clear, true);
+        clearOpeningRelease = null;
+      };
+      document.addEventListener("mousedown", mouse, true);
+      document.addEventListener("mouseup", mouse, true);
+      document.addEventListener("click", mouse, true);
+      document.addEventListener("pointerdown", clear, true);
+      clearOpeningRelease = clear;
+    };
     const identify = (target: EventTarget | null, y: number) => {
       if (!(target instanceof Element)) return null;
       const part = target.closest<HTMLElement>("[data-message-part-id]") ?? Array.from(element.querySelectorAll<HTMLElement>("[data-message-part-id]")).find((part) => {
@@ -30,7 +52,7 @@ export function useMessageTouch(row: RefObject<HTMLElement | null>, options: {
       schedule: (callback, delay) => window.setTimeout(callback, delay),
       cancel: (handle) => window.clearTimeout(handle as number),
       owned: (owned) => element.toggleAttribute("data-touch-owned", owned),
-      open: () => { suppressClick = true; live.current.open(targetId); navigator.vibrate?.(10); },
+      open: () => { suppressClick = true; guardOpeningRelease(); live.current.open(targetId); navigator.vibrate?.(10); },
     });
     const stop = () => {
       controller.cancel();
@@ -93,6 +115,7 @@ export function useMessageTouch(row: RefObject<HTMLElement | null>, options: {
     element.addEventListener("contextmenu", context);
     return () => {
       stop();
+      clearOpeningRelease?.();
       element.removeEventListener("pointerdown", down);
       element.removeEventListener("click", click, true);
       element.removeEventListener("mousedown", mouseDown, true);
