@@ -7,6 +7,7 @@
 @import "@xterm/xterm/css/xterm.css";
 @import "./agent-state.css";
 @import "../components/Terminal/composerDock.css";
+@import "../components/Terminal/statusLinePicker.css";
 @import "../components/Canvas/missionControl/missionControl.css";
 @import "../components/Terminal/tabPanel/tabPanel.css";
 

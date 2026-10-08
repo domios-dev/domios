@@ -36,3 +36,7 @@ pub(crate) fn refresh_providers(registry: &agent::registry::AgentRegistry) {
         }
     });
 }
+
+pub(crate) fn reconcile_defaults(service: &crate::service::ServiceState) {
+    crate::service::model_defaults::start(service.clone());
+}
