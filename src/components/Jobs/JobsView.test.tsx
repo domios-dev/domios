@@ -122,11 +122,11 @@ async function main() {
     const view = await mount(jobsView(transport));
     try {
       await settle(() => view.host.querySelectorAll('ul[aria-label="Jobs"] > li').length === 3);
-      const [first, second] = transport.graph.scenarios;
+      const [first] = transport.graph.scenarios;
       assert.ok(entry(view.host, `cron:${teamCron.id}`), "the scope's Cron is listed");
       assert.equal(entry(view.host, `cron:${unteamedCron.id}`), null, "a Cron of another Team scope stays out");
-      assert.ok(entry(view.host, `scenario:${first.id}`)?.textContent?.includes("Blueprint graph"), "multi-stage scenario is one Blueprint graph entry");
-      assert.ok(!entry(view.host, `scenario:${second.id}`)?.textContent?.includes("Blueprint graph"), "single observer stays a Blueprint");
+      assert.ok(entry(view.host, `scenario:${first.id}`)?.textContent?.includes("Blueprint"), "multi-stage scenario is one Blueprint entry");
+      assert.ok(!view.host.textContent?.includes("Blueprint graph"), "every Blueprint is a graph; no separate graph type");
       assert.ok(!view.host.textContent?.includes("Internal stage A"), "internal stage is not a top-level job");
     } finally { await view.close(); }
   });

@@ -1,4 +1,4 @@
-import { Network, Radar, Workflow } from "lucide-react";
+import { Network, Workflow } from "lucide-react";
 import { usePlanPeerContext } from "../Canvas/usePlanPeerContext";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";
 import { sentinelJobs, sentinelTitle } from "../Automation/scenarios";
@@ -18,12 +18,12 @@ function TeamUnitWithSentinels({ scope, generation, onOpenSentinel, adapter, ...
   const state = useAutomationGraph(adapter, { ...scope, connection_id: `host:${generation}` });
   const jobs = state.graph ? sentinelJobs(state.graph, scope) : [];
   const rows = jobs.map((job) => {
-    const Icon = job.type === "Blueprint graph" ? Network : Radar;
+    const Icon = Network;
     return <div key={`scenario:${job.scenario.id}`} className="sidebar-team-cron-row">
       <button type="button" className="sidebar-team-cron-main" data-testid="sidebar-sentinel-job" aria-label={`${sentinelTitle(job.scenario, job.root)}, ${job.type}, ${jobStateLabel(job.state)}`} title={job.root?.purpose ?? job.type} onClick={() => onOpenSentinel(job.scenario.id)}>
         <Icon size={11} aria-hidden="true" />
         <span className="sidebar-team-cron-name">{sentinelTitle(job.scenario, job.root)}</span>
-        <span className="sidebar-team-cron-state">{job.type === "Blueprint graph" ? "graph · " : ""}{jobStateLabel(job.state)}</span>
+        <span className="sidebar-team-cron-state">{jobStateLabel(job.state)}</span>
       </button>
       <span className="w-7 shrink-0" aria-hidden="true" />
     </div>;
@@ -39,7 +39,7 @@ function TeamUnitWithSentinels({ scope, generation, onOpenSentinel, adapter, ...
       <span className="w-7 shrink-0" aria-hidden="true" />
     </div>);
   }
-  if (state.failed && !state.graph) rows.push(<div key="sentinels-unavailable" className="sidebar-team-cron-row"><span className="sidebar-team-cron-main cursor-default" data-testid="sidebar-sentinels-unavailable"><Radar size={11} aria-hidden="true" /><span className="sidebar-team-cron-name">Blueprints unavailable</span></span></div>);
+  if (state.failed && !state.graph) rows.push(<div key="sentinels-unavailable" className="sidebar-team-cron-row"><span className="sidebar-team-cron-main cursor-default" data-testid="sidebar-sentinels-unavailable"><Network size={11} aria-hidden="true" /><span className="sidebar-team-cron-name">Blueprints unavailable</span></span></div>);
   return <TeamUnit {...props} crons={<>{props.crons}{rows}</>} cronCount={(props.cronCount ?? 0) + rows.length} />;
 }
 

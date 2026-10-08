@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject } from "react";
-import { Clock3, Network, Radar, Square, Trash2, Workflow, X } from "lucide-react";
+import { Clock3, Network, Square, Trash2, Workflow, X } from "lucide-react";
 import type { Tab, Team } from "../../lib/types";
 import { usePlanPeerContext } from "../Canvas/usePlanPeerContext";
 import { CronWorkspaceView } from "../Cron/CronWorkspaceView";
@@ -239,10 +239,10 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
           { label: "Delete", icon: <Trash2 size={12} aria-hidden="true" />, danger: true, onClick: () => beginDelete(job) },
         ];
         const onTriggerRef = (element: HTMLButtonElement | null) => { if (element) menuTriggers.current.set(key, element); else menuTriggers.current.delete(key); };
-        if (job.kind === "blueprint") return <JobRow key={key} jobKey={key} icon={<Radar size={15} aria-hidden="true" />} name={job.title} meta={job.blueprint.pipeline.nodes[0]?.summary ?? ""} type="Blueprint" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "blueprint", id: job.blueprint.pipeline.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
+        if (job.kind === "blueprint") return <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} meta={job.blueprint.pipeline.nodes[0]?.summary ?? ""} type="Blueprint" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "blueprint", id: job.blueprint.pipeline.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
         return job.kind === "cron"
           ? <JobRow key={key} jobKey={key} icon={<Clock3 size={15} aria-hidden="true" />} name={job.title} meta={cronMeta(job.cron)} type="Cron" state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "cron", id: job.cron.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />
-          : <JobRow key={key} jobKey={key} icon={job.sentinel.type === "Blueprint graph" ? <Network size={15} aria-hidden="true" /> : <Radar size={15} aria-hidden="true" />} name={job.title} meta={sentinelMeta(job.sentinel)} detail={unnamedGraphId(job.sentinel, job.title)} type={job.sentinel.type} state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
+          : <JobRow key={key} jobKey={key} icon={<Network size={15} aria-hidden="true" />} name={job.title} meta={sentinelMeta(job.sentinel)} detail={unnamedGraphId(job.sentinel, job.title)} type={job.sentinel.type} state={jobStateLabel(job.state)} actionItems={actionItems} onOpen={() => setSelection({ kind: "scenario", id: job.sentinel.scenario.id })} onTriggerRef={onTriggerRef} error={actionErrors[key] || null} />;
       })}
     </ul>}
     {confirmation && <JobConfirmationDialog
