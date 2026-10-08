@@ -231,6 +231,9 @@ pub enum SplitNodeSnapshot {
         chatbackend_plugin_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         chatbackend_session_id: Option<String>,
+        /// Plugin surface backing; `None` for PTY and chatBackend tabs.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        surface: Option<crate::multiplexer::types::SurfaceBacking>,
         /// Watcher-mode machine state for chatBackend tabs.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         watcher: Option<crate::multiplexer::types::WatcherSpec>,

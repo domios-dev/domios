@@ -193,6 +193,7 @@ impl MultiplexerState {
                 model_identity_mismatch: tab.and_then(|p| p.model_identity_mismatch.clone()),
                 chatbackend_plugin_id,
                 chatbackend_session_id,
+                surface: tab.and_then(|p| p.surface().cloned()),
                 watcher: tab.and_then(|p| p.watcher.clone()),
                 pending_delivery: tab.and_then(|p| p.pending_delivery.clone()),
             }
@@ -430,6 +431,24 @@ pub struct SnapshotMergeReport {
     pub tabs_already_present: usize,
 }
 
+/// Every surface restore policy re-renders the view today, so the backing restores as persisted.
+fn restored_leaf_backing(
+    chatbackend_plugin_id: Option<&str>,
+    chatbackend_session_id: Option<&str>,
+    surface: Option<&crate::multiplexer::types::SurfaceBacking>,
+) -> TabBacking {
+    if let Some(surface) = surface {
+        return TabBacking::Surface(surface.clone());
+    }
+    match (chatbackend_plugin_id, chatbackend_session_id) {
+        (Some(plugin_id), Some(session_id)) => TabBacking::ChatBackend {
+            plugin_id: plugin_id.to_string(),
+            session_id: session_id.to_string(),
+        },
+        _ => TabBacking::default(),
+    }
+}
+
 /// Walk an old SplitNodeSnapshot looking for the first Leaf. Anything
 /// past the first leaf in a Split branch is discarded — those tabs
 /// will come back as a single-tab after restore.
@@ -484,6 +503,7 @@ fn install_leaf(
         model_identity_mismatch,
         chatbackend_plugin_id,
         chatbackend_session_id,
+        surface,
         watcher,
         pending_delivery,
     } = leaf
@@ -491,13 +511,11 @@ fn install_leaf(
         return None;
     };
 
-    let restored_backing = match (chatbackend_plugin_id, chatbackend_session_id) {
-        (Some(plugin_id), Some(session_id)) => TabBacking::ChatBackend {
-            plugin_id: plugin_id.clone(),
-            session_id: session_id.clone(),
-        },
-        _ => TabBacking::default(),
-    };
+    let restored_backing = restored_leaf_backing(
+        chatbackend_plugin_id.as_deref(),
+        chatbackend_session_id.as_deref(),
+        surface.as_ref(),
+    );
 
     // Literal legacy migration: `Orchestrator`/`Conductor` rows carried
     // no profile, so their anchoring kind is re-materialized here.

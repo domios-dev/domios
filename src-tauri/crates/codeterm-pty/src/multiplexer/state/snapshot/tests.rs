@@ -8,6 +8,7 @@ mod permission_auto_confirm;
 mod restore_verbatim_cwd;
 mod restored_agent_boot_stage;
 mod role_restore;
+mod surface_restore;
 
 fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNodeSnapshot {
     SplitNodeSnapshot::Leaf {
@@ -45,6 +46,7 @@ fn chatbackend_leaf(tab_id: &str, plugin_id: &str, session_id: &str) -> SplitNod
         model_identity_mismatch: None,
         chatbackend_plugin_id: Some(plugin_id.into()),
         chatbackend_session_id: Some(session_id.into()),
+        surface: None,
         watcher: None,
         pending_delivery: None,
     }
@@ -430,6 +432,7 @@ fn stale_legacy_pty_snapshot_restores_sandboxed_without_chatbackend_fields() {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     };
@@ -522,6 +525,7 @@ fn tab_description_round_trips_through_snapshot() {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     };
@@ -588,6 +592,7 @@ fn spawned_by_and_report_target_restore_intact_not_none() {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     };
@@ -643,6 +648,7 @@ fn legacy_tab_title_seeds_default_provider_tab_title() {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     };
@@ -968,6 +974,7 @@ fn spawned_by_round_trips_through_snapshot() {
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     };

@@ -485,6 +485,9 @@ impl Messenger {
         envelope: MessageEnvelope,
         body: &str,
     ) -> Result<(Delivery, Option<std::path::PathBuf>), String> {
+        if let Some(refusal) = svc.tab_surface_input_refusal(to_tab) {
+            return Err(refusal);
+        }
         if svc.tab_chat_backing(to_tab).is_some() {
             svc.chatbackend_reopen_if_restored(to_tab)?;
             let (plugin_id, session_id) = svc

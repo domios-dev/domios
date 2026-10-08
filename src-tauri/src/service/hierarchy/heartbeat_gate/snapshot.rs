@@ -347,6 +347,7 @@ pub(super) fn session_key(tab: &Tab) -> Option<String> {
             tab.agent_session_id.as_deref() == Some(session_id)
         }
         TabBacking::Pty => true,
+        TabBacking::Surface(_) => false,
     };
     (own_backend && crate::service::plan_reconcile::tab_has_live_agent(tab))
         .then(|| {
@@ -462,6 +463,7 @@ fn collect_worker(
                 _ => "absent",
             })
             .unwrap_or("unknown"),
+        TabBacking::Surface(_) => "absent",
     }
     .into();
     if worker.session_key.is_none() {
@@ -552,6 +554,7 @@ fn own_session_turns(
                 Err(_) => (Vec::new(), cursor.map(str::to_string), true),
             }
         }
+        TabBacking::Surface(_) => (Vec::new(), None, true),
         TabBacking::Pty => {
             let Some(provider) = tab.agent_type.as_deref() else {
                 return (Vec::new(), None, true);

@@ -364,7 +364,7 @@ where
                 plugin_id,
                 session_id,
             } => Some((plugin_id, session_id)),
-            TabBacking::Pty => None,
+            TabBacking::Pty | TabBacking::Surface(_) => None,
         })
         .collect();
     let mut transaction = mux.begin_team_close_transaction();

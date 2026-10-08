@@ -230,9 +230,9 @@ pub struct WatcherSpec {
 }
 
 /// What backs a tab's I/O. A `Pty` tab runs a terminal; a `ChatBackend` tab is
-/// driven by a plugin's `chatBackend` capability and keeps `pty_id: None`
-/// permanently (no backend reader, no screen state). The single discriminator the
-/// `TabTransport` seam dispatches on.
+/// driven by a plugin's `chatBackend` capability and a `Surface` tab renders a
+/// plugin-declared app; both keep `pty_id: None` permanently (no backend reader,
+/// no screen state). The single discriminator the `TabTransport` seam dispatches on.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TabBacking {
@@ -242,6 +242,28 @@ pub enum TabBacking {
         plugin_id: String,
         session_id: String,
     },
+    Surface(SurfaceBacking),
+}
+
+impl TabBacking {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Pty => "pty",
+            Self::ChatBackend { .. } => "chat_backend",
+            Self::Surface(_) => "surface",
+        }
+    }
+}
+
+/// Which plugin surface a tab renders. It has no text input and no agent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SurfaceBacking {
+    pub plugin_id: String,
+    pub surface_id: String,
+    pub instance_id: String,
+    /// The UI labels the tab after its owner (`parent_tab_id`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub owner_label: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -802,6 +824,13 @@ impl Tab {
     /// `pty_id`.
     pub fn is_chat_backend(&self) -> bool {
         matches!(self.backing, TabBacking::ChatBackend { .. })
+    }
+
+    pub fn surface(&self) -> Option<&SurfaceBacking> {
+        match &self.backing {
+            TabBacking::Surface(surface) => Some(surface),
+            TabBacking::Pty | TabBacking::ChatBackend { .. } => None,
+        }
     }
 
     /// Role kind resolved from this tab's own `(role, role_profile)` pair.

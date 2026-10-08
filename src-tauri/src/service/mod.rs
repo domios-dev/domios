@@ -159,6 +159,7 @@ pub mod structured_prompt;
 pub(crate) mod supporter;
 pub(crate) mod supporter_notify;
 pub(crate) mod supporter_tab_state;
+pub(crate) mod surface;
 pub mod sync_watcher;
 pub(crate) mod tab;
 pub(crate) mod tab_adopt;
