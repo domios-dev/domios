@@ -8,7 +8,7 @@ const longCommand = Array.from({ length: 100 }, (_, index) => `echo command-${in
 const commandHost = await render(<CommandCard event={event({ kind: "command", detail: fullCommand, result: "command result", status: "success" })} expanded onToggle={() => {}} />);
 if (commandHost.querySelector('[data-testid="message-raw-content"]')) throw new Error("command_card_reveal formatted mode must hide the full command");
 if (commandHost.querySelector('[aria-label="Hide full command"]')?.getAttribute("aria-expanded") !== "true") throw new Error("command_card_reveal expanded command must expose a meaningful disclosure name");
-const rawButton = Array.from(commandHost.querySelectorAll("button")).find((button) => button.textContent === "Show raw command");
+const rawButton = Array.from(commandHost.querySelectorAll("button")).find((button) => button.textContent === "Raw command");
 await act(async () => rawButton?.click());
 if (commandHost.querySelector('[data-testid="message-raw-content"]')?.textContent !== fullCommand) throw new Error("command_card_reveal raw mode must render the full command");
 if (!commandHost.textContent?.includes("command result")) throw new Error("command_card_reveal raw mode must preserve the result");
@@ -18,7 +18,7 @@ if (codetermHost.querySelector('[data-testid="message-raw-content"]')) throw new
 if (!codetermHost.querySelector('[aria-label="Hide full command"]')) throw new Error("command_card_reveal CodeTerm command must expose a meaningful disclosure name");
 
 const longHost = await render(<CommandCard event={event({ kind: "command", detail: longCommand })} expanded onToggle={() => {}} />);
-const longRawButton = Array.from(longHost.querySelectorAll("button")).find((button) => button.textContent === "Show raw command");
+const longRawButton = Array.from(longHost.querySelectorAll("button")).find((button) => button.textContent === "Raw command");
 await act(async () => longRawButton?.click());
 const longRaw = longHost.querySelector<HTMLElement>('[data-testid="message-raw-content"]');
 if (!longRaw?.classList.contains("overflow-auto") || longRaw.textContent !== longCommand) throw new Error("command_card_reveal raw command must stay bounded and complete");

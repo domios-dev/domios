@@ -137,7 +137,7 @@ describe("Claude tool activity", () => {
     const card = stream.querySelector<HTMLElement>('[data-testid="chat-tool-call"]');
     expect(card?.querySelector('[data-testid="toolcard-summary"]')?.textContent).toBe("Lint sources");
     expect(card?.querySelector('[data-testid="toolcard-result"]')?.textContent).toContain("no warnings");
-    await click([...(card?.querySelectorAll("button") ?? [])].find((button) => button.textContent?.includes("Show raw command")));
+    await click([...(card?.querySelectorAll("button") ?? [])].find((button) => button.textContent?.includes("Raw command")));
     expect(card?.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe("npm run lint");
 
     const member = streamEvent(messages).stream?.members[1];
@@ -437,11 +437,7 @@ describe("chained commands inside a stream", () => {
     expect(group?.querySelectorAll('[data-testid="chat-command-tree-detail"]')).toHaveLength(1);
     expect(lines[1].querySelector('[data-testid="chat-command-tree-detail"]')).not.toBeNull();
     expect(group?.querySelector('[data-testid="chat-command-group-title"]')?.textContent).not.toBe(PLAN_CHAIN);
-    expect(group?.querySelector('[data-testid="message-raw-content"]')).toBeNull();
-    const rawToggle = group?.querySelector('[data-testid="raw-command-disclosure"] > button');
-    expect(rawToggle?.getAttribute("aria-expanded")).toBe("false");
-    await click(rawToggle);
-    expect(group?.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe(PLAN_CHAIN);
+    expect(group?.querySelector('[data-testid="raw-command-disclosure"]')).toBeNull();
     expect(lines[1].querySelector('[data-testid="chat-command-tree-detail"]')).not.toBeNull();
   });
 
