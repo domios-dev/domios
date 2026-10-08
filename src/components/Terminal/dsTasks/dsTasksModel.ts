@@ -1,4 +1,11 @@
-import { formatDsTasksBlock, type DsTasksBlock } from "@codeterm/chat-ui/dsTasksBlock";
+import {
+  DS_PLAN_ID_RE,
+  DS_TASK_GROUP_ALIASES,
+  formatDsTasksBlock,
+  isDsTaskRef,
+  type DsTaskGroupKey,
+  type DsTasksBlock,
+} from "@codeterm/chat-ui/dsTasksBlock";
 import type { Team, Workspace } from "../../../lib/types";
 import { planBelongsToWorkspace } from "../../Canvas/planTabMatch";
 import { attemptTabTitle } from "../../Canvas/taskExecutorHistory";
@@ -7,7 +14,7 @@ import type { Plan, Task, TaskExecutionAttempt } from "../../Canvas/types";
 
 export const DS_TASKS_MENTION = "@ds-tasks";
 
-export type DsTaskGroupKey = "in_progress" | "in_review" | "blocked" | "todo" | "done" | "cancelled";
+export type { DsTaskGroupKey };
 
 export const DS_TASK_GROUP_ORDER: readonly DsTaskGroupKey[] = [
   "in_progress",
@@ -29,21 +36,6 @@ const GROUP_LABELS: Record<DsTaskGroupKey, string> = {
 
 const COLLAPSED_GROUPS = new Set<DsTaskGroupKey>(["done", "cancelled"]);
 
-const GROUP_ALIASES: Record<string, DsTaskGroupKey> = {
-  in_progress: "in_progress",
-  "in-progress": "in_progress",
-  in_review: "in_review",
-  "in-review": "in_review",
-  blocked: "blocked",
-  todo: "todo",
-  pending: "todo",
-  paused: "todo",
-  done: "done",
-};
-
-const PLAN_ID_RE = /^pl_[A-Za-z0-9_-]+$/;
-const TASK_ID_RE = /^task_[A-Za-z0-9_-]+$/;
-const TASK_KEY_RE = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
 const MENTION_RE = /(^|\s)@ds-tasks(?=\s|$)/;
 
 export interface DsTasksArgs {
@@ -80,9 +72,9 @@ export function parseDsTasksMention(text: string): DsTasksMention | null {
   tokenRe.lastIndex = end;
   for (let token = tokenRe.exec(text); token; token = tokenRe.exec(text)) {
     const word = token[1];
-    const group = GROUP_ALIASES[word.toLowerCase()];
-    if (PLAN_ID_RE.test(word) && !args.planId) args.planId = word;
-    else if (TASK_ID_RE.test(word) || TASK_KEY_RE.test(word)) args.taskRefs.push(word);
+    const group = DS_TASK_GROUP_ALIASES[word.toLowerCase()];
+    if (DS_PLAN_ID_RE.test(word) && !args.planId) args.planId = word;
+    else if (isDsTaskRef(word)) args.taskRefs.push(word);
     else if (group) {
       if (!args.groups.includes(group)) args.groups.push(group);
     } else break;
@@ -274,4 +266,30 @@ export function dsTaskProgressLabel(row: Pick<DsTaskRow, "strides" | "criteria">
   const strides = `${row.strides} ${row.strides === 1 ? "stride" : "strides"}`;
   if (row.criteria === 0) return strides;
   return `${strides}, ${row.criteria} ${row.criteria === 1 ? "criterion" : "criteria"}`;
+}
+
+export interface DsTasksSpec {
+  planId: string;
+  refs: readonly string[];
+  groups: readonly DsTaskGroupKey[];
+  items: DsTasksBlock["items"] | null;
+}
+
+function detachedRow(ref: string): DsTaskRow {
+  return { id: ref, key: ref, name: "", status: "unknown", executor: null, model: null, strides: 0, criteria: 0, detached: true };
+}
+
+/** A carried task set keeps its rows; otherwise refs and groups select live, and a ref the plan lost stays as a detached row. */
+export function dsTaskRowsForSpec(spec: DsTasksSpec, plan: Plan): DsTaskRow[] {
+  if (spec.items) return dsTaskRowsForBlock({ planId: spec.planId, planTitle: plan.title, filter: [...spec.groups], items: spec.items }, plan);
+  const rows = new Map<string, DsTaskRow>();
+  for (const ref of spec.refs) {
+    const task = findTaskByReference(plan.tasks, ref);
+    rows.set(task?.id ?? ref, task ? dsTaskRow(task) : detachedRow(ref));
+  }
+  if (spec.refs.length === 0 || spec.groups.length > 0) {
+    const selection = selectDsTasks(plan, { taskRefs: [], groups: [...spec.groups] });
+    if (selection.ok) for (const task of selection.tasks) rows.set(task.id, dsTaskRow(task));
+  }
+  return [...rows.values()];
 }

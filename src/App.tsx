@@ -11,6 +11,7 @@ import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import type { SectionId } from "./components/Settings/sections";
 import { ChatBlockHostProvider, GuideNavigationProvider } from "@codeterm/chat-ui";
 import { appChatBlockHost } from "./lib/chatBlocks/appChatBlockHost";
+import { AppChatBlockServices } from "./lib/chatBlocks/AppChatBlockServices";
 import { GUIDE_SECTIONS, guideRequest, type GuideRequest } from "./help/guideNavigation";
 import type { AgentLevelChoice } from "./lib/types";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
@@ -291,8 +292,8 @@ function AppInner() {
         setPluginViewId(panel.slice("view:".length));
       } else if (panel === "extensions") {
         setExtensionsOpen(true);
-      } else if (panel === "memory" && import.meta.env.DEV && import.meta.env.VITE_CODETERM_TEST === "1") {
-        setMemoryInitial(detail?.memoryState);
+      } else if (panel === "memory") {
+        if (import.meta.env.DEV && import.meta.env.VITE_CODETERM_TEST === "1") setMemoryInitial(detail?.memoryState);
         setMemoryOpen(true);
       }
     };
@@ -629,6 +630,7 @@ function AppInner() {
         onNavigateToast={navigateToNotificationTab}
       />
       <PlansProvider api={stableApiConfig} enabled={!configLoading}>
+      <AppChatBlockServices api={stableApiConfig}>
       <div
         data-testid="app-shell-body"
         data-shell-viewport={phoneViewport ? "phone" : "desktop"}
@@ -872,6 +874,7 @@ function AppInner() {
         </main>
         </div>
       </div>
+      </AppChatBlockServices>
       </PlansProvider>
 
       <CommandPalette commands={paletteCommands} />

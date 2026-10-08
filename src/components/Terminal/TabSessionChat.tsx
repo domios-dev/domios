@@ -71,7 +71,8 @@ import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
 import { BlueprintChatCards } from "./BlueprintChatCards";
 import { useTabChatBlockHost } from "./pinnedBlocks";
-import { DsTasksChatBlock } from "./dsTasks/DsTasksChatBlock";
+import { interruptAgentArgs } from "../../lib/agentInterrupt";
+import { useTabChoiceHost } from "./useTabChoiceHost";
 
 interface Props {
   tabId: string;
@@ -160,7 +161,7 @@ export function TabSessionChat({
   }
 
   const touchMode = useTouchOptimizedUi();
-  const chatBlockHost = useTabChatBlockHost(tabId);
+  const tabBlockHost = useTabChatBlockHost(tabId);
   const lastStopAtRef = useRef(0);
   const chatRootRef = useRef<HTMLDivElement>(null);
   const chatFollowTailRef = useRef(true);
@@ -301,6 +302,8 @@ export function TabSessionChat({
     showLatest();
     rawFollowSentMessage();
   }, [showLatest, rawFollowSentMessage]);
+  const choiceHost = useTabChoiceHost(tabId, { messages: allMessages, addOptimistic, followSentMessage, observeChatSendStatus });
+  const chatBlockHost = useMemo(() => ({ ...tabBlockHost, choice: choiceHost }), [tabBlockHost, choiceHost]);
 
   const [answeredInteractiveIds, setAnsweredInteractiveIds] = useState<Set<string>>(new Set());
   const [bindingRecoveryOpen, setBindingRecoveryOpen] = useState(false);
@@ -341,7 +344,7 @@ export function TabSessionChat({
     void invoke("write_pty_string", { ptyId: currentPtyId, data: command + "\r", raw: false }).catch(
       (e) => showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [currentPtyId, showComposerError, tab?.id, tab?.managed]);
+  }, [currentPtyId, showComposerError, tabId, tab?.managed]);
 
   const handleJumpToShellCommand = useCallback(() => {
     onOpenTerminalFallback?.();
@@ -352,7 +355,8 @@ export function TabSessionChat({
   }, []);
 
   const handleStopAgent = useCallback(() => {
-    if (!currentPtyId) {
+    const args = interruptAgentArgs({ id: tabId, pty_id: currentPtyId, managed: tab?.managed });
+    if (!args) {
       showComposerError("Tab has no PTY");
       return;
     }
@@ -361,10 +365,10 @@ export function TabSessionChat({
       return;
     }
     lastStopAtRef.current = now;
-    void invoke("interrupt_agent", { ptyId: currentPtyId, ...(tab?.managed && !tab.managed.manager_closed ? { tabId: tab.id } : {}) }).catch((e) =>
+    void invoke("interrupt_agent", args).catch((e) =>
       showComposerError(e instanceof Error ? e.message : String(e)),
     );
-  }, [currentPtyId, showComposerError, tab?.id, tab?.managed]);
+  }, [currentPtyId, showComposerError, tabId, tab?.managed]);
 
   const handleStopReminder = useCallback(async (id: string) => {
     try {
@@ -835,7 +839,6 @@ export function TabSessionChat({
                 originAvatar={originProps?.originAvatar}
                 onOriginClick={originProps?.onOriginClick}
                 onFocusTab={resolveFocusTab}
-                dsTasksBlock={DsTasksChatBlock}
               />
             </div>
               {following.map(renderOutboundReport)}

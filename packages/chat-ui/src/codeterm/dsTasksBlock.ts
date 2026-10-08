@@ -12,6 +12,28 @@ export interface DsTasksBlock {
   items: DsTasksBlockItem[];
 }
 
+export type DsTaskGroupKey = "in_progress" | "in_review" | "blocked" | "todo" | "done" | "cancelled";
+
+export const DS_TASK_GROUP_ALIASES: Readonly<Record<string, DsTaskGroupKey>> = {
+  in_progress: "in_progress",
+  "in-progress": "in_progress",
+  in_review: "in_review",
+  "in-review": "in_review",
+  blocked: "blocked",
+  todo: "todo",
+  pending: "todo",
+  paused: "todo",
+  done: "done",
+};
+
+export const DS_PLAN_ID_RE = /^pl_[A-Za-z0-9_-]+$/;
+export const DS_TASK_ID_RE = /^task_[A-Za-z0-9_-]+$/;
+export const DS_TASK_KEY_RE = /^[A-Za-z][A-Za-z0-9]*-\d+$/;
+
+export function isDsTaskRef(word: string): boolean {
+  return DS_TASK_ID_RE.test(word) || DS_TASK_KEY_RE.test(word);
+}
+
 export interface ParsedDsTasksMessage {
   before: string;
   block: DsTasksBlock;
