@@ -51,7 +51,6 @@ pub struct Sidecar {
     token: String,
     pub thread_settings: Value,
     pub process: Process,
-    pub spawn: Spawn,
     pub launch_nonce: String,
 }
 
@@ -157,12 +156,6 @@ pub async fn reconnect(tab: &str, sidecar: &Arc<Sidecar>) -> Result<(), String> 
     Ok(())
 }
 
-pub fn extend_env(tab: &str, env: &mut HashMap<String, String>) {
-    if let Some(sidecar) = for_tab(tab) {
-        env.insert("CODETERM_CODEX_RPC_TOKEN".into(), sidecar.token.clone());
-    }
-}
-
 #[derive(Clone)]
 pub struct Spawn {
     pub provider: String,
@@ -218,7 +211,6 @@ pub async fn ensure_for_spawn(
     tab: &str,
     spawn: Spawn,
 ) -> Result<Arc<Sidecar>, String> {
-    let original_spawn = spawn.clone();
     if let Some(existing) = for_tab(tab) {
         return reusable_sidecar(existing, &spawn);
     }
@@ -378,7 +370,6 @@ pub async fn ensure_for_spawn(
         token,
         thread_settings: params,
         process,
-        spawn: original_spawn,
         launch_nonce: attach_nonce.clone(),
     });
     crate::service::structured_endpoint::register(

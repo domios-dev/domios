@@ -194,6 +194,7 @@ impl AgentDeliveryStore {
         String::from_utf8(bytes).map_err(|_| "agent delivery payload is not UTF-8".into())
     }
 
+    #[cfg(test)]
     pub(crate) fn claim(&self, tab_id: &str, record_id: &str) -> Result<bool, String> {
         self.claim_with_recovery(
             tab_id,

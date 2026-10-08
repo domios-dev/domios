@@ -199,23 +199,6 @@ pub(crate) fn clear_tab(tab_id: &str) {
     BROKER.lock().requests.remove(tab_id);
 }
 
-pub(crate) fn respond(
-    svc: &ServiceContext,
-    tab_id: &str,
-    value: &str,
-) -> Option<Result<(), String>> {
-    let binding = svc.mux.read().get_tab(tab_id).map(|tab| {
-        (
-            tab.agent_session_id.clone(),
-            tab.session_binding_nonce.clone(),
-        )
-    });
-    let (session, nonce) = binding.unwrap_or_default();
-    BROKER
-        .lock()
-        .answer(tab_id, session.as_deref(), nonce.as_deref(), value)
-}
-
 fn notify(
     svc: &ServiceContext,
     tab_id: &str,

@@ -4,7 +4,7 @@ mod materialize;
 use std::path::PathBuf;
 use std::time::Instant;
 
-use codeterm_types::sentinel_input::{DataRef, InputSpec};
+use codeterm_types::sentinel_input::InputSpec;
 
 pub(super) use convert::convert;
 pub(super) use materialize::{materialize, sweep_orphans};
