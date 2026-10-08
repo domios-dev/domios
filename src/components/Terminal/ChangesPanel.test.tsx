@@ -228,11 +228,14 @@ it.each(["diff", "file"])("opens one fullscreen dialog for %s and closes without
   await render(panel());
   await act(async () => button("Show changes for src/a.ts").click());
   await act(async () => changeView(view).click());
-  await act(async () => button("Fullscreen").click());
+  const opener = button("Fullscreen");
+  opener.focus();
+  await act(async () => opener.click());
   expect(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).toHaveLength(1);
   const close = document.querySelector<HTMLButtonElement>('button[aria-label="Close fullscreen"]')!;
   await act(async () => close.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true, cancelable: true })));
-  expect(document.querySelector('[role="dialog"]')).toBeNull();
+  expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
+  expect(document.activeElement).toBe(opener);
   expect(changeView(view).getAttribute("aria-selected")).toBe("true");
 });
 
@@ -265,7 +268,7 @@ it.each(["Unable to resolve preview file: os error 2", "Binary file: text previe
 
 it("does not read a recorded deletion as a current file", async () => {
   const loader = vi.fn(); configureLocalArtifactLoader(loader);
-  chatChangesStore.set("tab", [{ id: "deleted", type: "tool_result", content: "", fileDiffs: [{ path: "gone.ts", kind: "delete", additions: 0, deletions: 1, hunks: [] }] }]);
+  chatChangesStore.set("tab", [{ id: "deleted", type: "tool_result", content: "", fileDiffs: [{ path: "gone.ts", kind: "delete", additions: 0, deletions: 1, hunks: [{ oldStart: 1, oldLines: 1, newStart: 0, newLines: 0, lines: ["-gone"] }] }] }]);
   await render(panel());
   await act(async () => button("Show changes for gone.ts").click());
   await act(async () => changeView("file").click());
