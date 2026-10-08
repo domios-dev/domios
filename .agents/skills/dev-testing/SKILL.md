@@ -32,6 +32,18 @@ API="http://127.0.0.1:7686"
 H="Authorization: Bearer $TOKEN"
 ```
 
+## Look at the UI (screenshot)
+
+The dev window exposes Chrome DevTools Protocol; the port comes from `/api/health` (`instance.cdp_port`, 9223 by default). One command, no Playwright:
+
+```bash
+node scripts/dev-screenshot.mjs /tmp/dev.png                       # whole window
+node scripts/dev-screenshot.mjs /tmp/sidebar.png '[data-testid=general-section]'  # one element
+node scripts/dev-screenshot.mjs /tmp/prod.png '' --api-port 7685   # another instance
+```
+
+It prints the file path and the running build SHA; open the PNG with your file-read/image tool to see it. Check the build SHA before judging a change: the screenshot shows what is running, not what is merged. For state the picture cannot show (counts, attributes), evaluate DOM over the same port (`Runtime.evaluate`) instead of guessing from pixels.
+
 ## Find GA tab
 
 The GA tab is protected. Find it by the protected flag:
