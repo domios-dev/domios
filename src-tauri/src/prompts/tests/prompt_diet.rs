@@ -30,8 +30,8 @@ const CHARTER_TASK_TOKEN: &str = "task_opaque_6f3b2";
 /// the surface 25 bytes over the previous 17_900. Raised to the new measurement
 /// rather than trimming another author's contract blind; the next addition pays
 /// the same cost of re-measuring deliberately.
-// Re-measured with the plan/task flag fragment both surfaces carry.
-const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 21_293;
+// Re-measured at 21_687 for the owner-approved Planner lifecycle, owner-feedback and revert-and-bounce rules.
+const ORCHESTRATOR_CONTRACT_MAX_BYTES: usize = 21_700;
 const PLANNER_CONTRACT_MAX_BYTES: usize = 20_916;
 // Worker suffix and launch overhead re-measured at 4_667 and 8_105 for the
 // provider-native subagent rule (9d4ae23d1).
