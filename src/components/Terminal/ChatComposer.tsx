@@ -208,7 +208,7 @@ function ChatComposerImpl({
   removeAttachment: (path: string) => void;
   clearAttachments: () => void;
   handlePasteEvent: (event: ClipboardEvent) => void | Promise<void>;
-  onWillSendMessage: () => void;
+  onWillSendMessage: (text: string) => void;
   addOptimistic: (content: string) => string;
   updateOptimistic: (id: string, content: string) => void;
   observeChatSendStatus: (status: ChatSendStatus) => void;
@@ -406,7 +406,7 @@ function ChatComposerImpl({
       updateOptimistic(placeholderId, composed);
       optimisticId = placeholderId;
     } else {
-      onWillSendMessage();
+      onWillSendMessage(composed);
       optimisticId = addOptimistic(composed);
     }
     setComposerInvalid(false);
