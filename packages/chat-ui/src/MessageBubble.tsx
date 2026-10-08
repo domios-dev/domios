@@ -16,6 +16,7 @@ import {
 import { ToolCallBubble } from "./ToolCallBubble";
 import { toolCommandShape } from "./codeterm/commandShape";
 import { AttachmentStrip } from "./AttachmentStrip";
+import { InlineAttachmentText } from "./AttachmentCapsule";
 import { ThoughtLine } from "./toolcard/ThoughtLine";
 import { ShellCommandItem } from "./ShellCommandItem";
 import { ReminderCard } from "./codeterm/ReminderCard";
@@ -375,6 +376,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
     const visibleUserContent = userAttachments.text;
     const formattedUserContent = effectiveOrigin?.kind === "command" ? (
           <CommandBody commands={effectiveOrigin.commands} body={message.content} />
+        ) : userAttachments.inline ? (
+          <InlineAttachmentText segments={userAttachments.inline} />
         ) : hasPlanRefs(visibleUserContent) ? (
           <LinkedText text={visibleUserContent} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
         ) : (
@@ -384,7 +387,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
     const userBubbleInner = (
       <>
         {(userAttachments.images.length > 0 || userAttachments.files.length > 0) && (
-          <AttachmentStrip images={userAttachments.images} files={userAttachments.files} captioned={visibleUserContent.trim().length > 0} />
+          <AttachmentStrip images={userAttachments.images} files={userAttachments.files} captioned={visibleUserContent.trim().length > 0 || userAttachments.inline !== null} />
         )}
         {formattedUserContent}
       </>

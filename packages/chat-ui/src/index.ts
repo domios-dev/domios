@@ -43,6 +43,7 @@ export {
 } from "./codeterm/reportOutcome";
 export type { ReportOutcomeClass, ReportTaskOutcome } from "./codeterm/reportOutcome";
 export { LocalArtifactScope } from "./LocalArtifactScope";
+export { AttachmentCapsule, CAPSULE_DETAIL_STYLE, CAPSULE_ICONS, CAPSULE_TONE, CapsulePreview, capsuleLabelParts } from "./AttachmentCapsule";
 export { localArtifactOpeningAvailable } from "./localArtifactLoader";
 export { ChatBlockFrame } from "./blocks/ChatBlockFrame";
 export type { ChatBlockAction, ChatBlockFrameProps, ChatBlockStatus, ChatBlockTone } from "./blocks/ChatBlockFrame";

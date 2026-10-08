@@ -80,5 +80,7 @@
   "src/components/Terminal/DocumentsPanel.test.tsx",
   "src/components/Terminal/ChangesPanel.test.tsx",
   "src/components/Terminal/ChatComposer.insertion.test.tsx",
-  "src/components/Terminal/useChatMessageReveal.test.tsx"
+  "src/components/Terminal/useChatMessageReveal.test.tsx",
+  "packages/chat-ui/src/AttachmentCapsule.test.tsx",
+  "src/components/Terminal/ChatComposer.capsules.test.tsx"
 ]
