@@ -1,6 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { ClosedStructureView } from "../../lib/types";
-import { undoableClose } from "../../lib/closeHistoryModel";
+import { closedLabel, undoableClose } from "../../lib/closeHistoryModel";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 
 export function CloseUndoAction({ records, restore, now = Date.now }: {
@@ -34,8 +34,8 @@ export function CloseUndoAction({ records, restore, now = Date.now }: {
     finally { pending.current = false; setBusy(false); }
   };
   return <div role="status" className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-4 rounded-lg border border-[var(--ct-border)] bg-[var(--ct-surface)] p-3 text-[var(--ct-fg)] shadow-lg">
-    <span>Closed {record.label}</span>
-    <button type="button" disabled={busy} onClick={() => { void undo(); }}>Undo</button>
+    <span>Closed {closedLabel(record).toLowerCase() === "team" ? "a Team" : closedLabel(record)}</span>
+    <button type="button" disabled={busy} className="rounded-md px-2 py-0.5 font-medium text-[var(--ct-accent)] hover:bg-[var(--ct-surface-hover,var(--ct-bg))] disabled:opacity-50" onClick={() => { void undo(); }}>Undo</button>
     {error && <span role="alert">{error}</span>}
   </div>;
 }
