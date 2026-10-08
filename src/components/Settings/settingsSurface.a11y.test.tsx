@@ -40,7 +40,7 @@ describe("settings page and card accessibility surface", () => {
   });
 
   it("keeps the settings page addressable as a named region", () => {
-    const html = page("Integrations");
+    const html = page("Logs");
     expect(html).toContain('role="region"');
     expect(html).toContain('data-testid="settings-page"');
   });

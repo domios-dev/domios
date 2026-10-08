@@ -1073,6 +1073,8 @@ export interface ProviderDescriptor {
   notifications_schema: SettingField[];
   supports_lazy_skills: boolean;
   has_hooks: boolean;
+  /** Provider writes custom model endpoints into its own config. */
+  supports_model_endpoints?: boolean;
   supports_permission_bypass?: boolean;
   /// Provider can render a tab as chat (JSONL sessions or structured/DB-backed
   /// chat). Gates the chat/terminal toggle — replaces the old hardcoded set.

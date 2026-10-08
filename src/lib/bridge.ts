@@ -28,6 +28,7 @@ import {
 import { webListen } from "./webEvents";
 import { WEB_SPECIAL, WEB_UNSUPPORTED } from "./bridgeWebUnsupported";
 import { setClientTabUiMode } from "./clientTabUiMode";
+import { ipcLogArgs } from "./ipcLogArgs";
 import { checkBuildMismatch } from "./buildMismatchGuard";
 import type { TabInfo } from "./types";
 import { classifyTabTarget, hasCompositeTabArgument, remoteTransportCall } from "./remoteTabTransport";
@@ -667,7 +668,11 @@ const HTTP_MAP: Record<string, Mapper> = {
       `/api/essence-source?project=${enc(s(a, "projectPath"))}&path=${enc(s(a, "sourcePath"))}`,
     ),
   list_agent_providers: () => webJson("GET", "/api/agents/providers"),
-  model_provider_manage: (a) => localJson("POST", "/api/model-providers", a.request),
+  model_provider_manage: (a) => localJson(
+    "POST",
+    a.providerId ? `/api/model-providers?provider=${encodeURIComponent(String(a.providerId))}` : "/api/model-providers",
+    a.request,
+  ),
   get_remote_workers: () => webJson("GET", "/api/remote-workers"),
   save_session: () => webJson("POST", "/api/session/save"),
   restart_general_agent: () => webJson("POST", "/api/agents/general/restart"),
@@ -822,7 +827,7 @@ async function invokeRaw<T>(cmd: string, args?: Args): Promise<T> {
     throw new WebUnsupportedError(cmd);
   }
   const msg = `[web] command not available in browser mode: ${cmd}`;
-  console.warn(msg, args);
+  console.warn(msg, ipcLogArgs(args));
   throw new Error(msg);
 }
 
@@ -897,7 +902,7 @@ export async function invoke<T>(cmd: string, args?: Args): Promise<T> {
       const ms = performance.now() - t0;
       if (ms >= IPC_SLOW_MS) {
         // eslint-disable-next-line no-console
-        console.warn(`[SLOW-IPC] ${cmd} ${ms.toFixed(0)}ms`, args);
+        console.warn(`[SLOW-IPC] ${cmd} ${ms.toFixed(0)}ms`, ipcLogArgs(args));
         const w = window as unknown as { __ctPerf?: IpcSample[] };
         (w.__ctPerf ??= []).push({ cmd, ms, at: Date.now() });
         if (w.__ctPerf.length > 200) w.__ctPerf.shift();
