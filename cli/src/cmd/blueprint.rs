@@ -169,19 +169,28 @@ fn render_nodes(nodes: &Value) {
 }
 
 fn render_log(entries: &Value) {
-    if let Some(entries) = entries.as_array() {
-        for entry in entries {
-            println!(
-                "{} {} {} outcome={} result={} reason={}",
+    println!("{}", log_text(entries));
+}
+
+fn log_text(entries: &Value) -> String {
+    entries
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|entry| {
+            format!(
+                "{} {} {} {} outcome={} result={} reason={}",
                 entry["started_at_ms"].as_u64().unwrap_or_default(),
-                entry["step_index"].as_u64().unwrap_or_default(),
+                entry["step_index"].as_i64().unwrap_or_default(),
+                entry["step_name"].as_str().unwrap_or("?"),
                 entry["state"].as_str().unwrap_or("?"),
                 entry["outcome"].as_str().unwrap_or("-"),
                 entry["result_summary"].as_str().unwrap_or("-"),
                 entry["reason"].as_str().unwrap_or("-")
-            );
-        }
-    }
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn pipeline_preview_summary(value: &Value) -> String {

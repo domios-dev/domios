@@ -208,7 +208,7 @@ escalation handler when it needs attention. With an existing same-Team cron and 
 codeterm blueprint create --name ci-result-review-watch --probe "gh run view 456 --json status,conclusion" --question "passed for completed successful CI; failed for completed unsuccessful CI; other while running" --buckets passed,failed --route passed=cron:review_pr --route failed=send:repair_worker --timeout 1h
 ```
 
-<!-- revision: 5 -->
+
 
 ## Terminal adapter
 
@@ -235,3 +235,5 @@ Verify the far end: the harness must report the result of the request, not merel
 codeterm blueprint stop <INPUT_GRAPH_ID>
 codeterm blueprint stop <OUTPUT_GRAPH_ID>
 ```
+
+<!-- revision: 6 -->

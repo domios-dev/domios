@@ -192,7 +192,19 @@ export interface BlueprintResult {
   body_ref: string | null;
 }
 
+export interface BlueprintRunSnapshot {
+  id: string;
+  state: "idle" | "running" | "completed" | "failed" | "held";
+  closed: boolean;
+  started_at_ms: number;
+  last_event_at_ms: number | null;
+  current_step: number | null;
+  steps: readonly BlueprintStep[];
+  result: BlueprintResult;
+}
+
 export interface BlueprintSnapshot {
+  runs?: readonly BlueprintRunSnapshot[];
   id: string;
   name: string;
   owner?: BlueprintOwner;

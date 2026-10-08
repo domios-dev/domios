@@ -1,5 +1,6 @@
 // Run: node scripts/run-ts-unit-tests.mjs src/components/Jobs/JobsView.test.tsx
 import assert from "node:assert/strict";
+import { pipelineContractGolden } from "../Automation/blueprintContract.testdata";
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -361,6 +362,25 @@ async function main() {
     try {
       await settle(() => view.host.querySelector('[aria-label="Blueprint runs"] button[aria-pressed="true"]') !== null);
       assert.ok(view.host.querySelector('[aria-controls="blueprint-run-log"][aria-expanded="true"]'));
+    } finally { await view.close(); }
+  });
+
+  test("the Rust pipeline contract opens its real steps and retained run in the canvas", async () => {
+    const golden = pipelineContractGolden();
+    const transport = workspaceTransport(golden);
+    const view = await mount(<JobsView workspaces={[{ id: golden.workspace_id, name: "Contract workspace" }]} teams={[]} adapter={transport} />);
+    try {
+      await settle(() => entry(view.host, "blueprint:blueprint-echo") !== null);
+      await act(async () => entry(view.host, "blueprint:blueprint-echo")!.click());
+      const canvas = view.host.querySelector('[role="group"][aria-label="Echo pipeline pipeline"]');
+      assert.ok(canvas);
+      assert.deepEqual(Array.from(canvas.querySelectorAll("article h4")).map((node) => node.textContent), ["Trigger", "command: emit", "filter: match", "Result"]);
+      await act(async () => buttonWith(view.host, "Runs (").click());
+      const run = view.host.querySelector<HTMLButtonElement>('[aria-label="Run run-echo"]');
+      assert.ok(run);
+      await act(async () => run.click());
+      assert.equal(run.getAttribute("aria-pressed"), "true");
+      assert.equal(view.host.querySelector('[aria-current="step"]'), null);
     } finally { await view.close(); }
   });
 

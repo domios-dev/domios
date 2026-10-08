@@ -223,7 +223,7 @@ function JobsSurface({ adapter, connectionId, sources, cronWorkspace, filter, em
     return <section className="min-w-0 p-4" aria-label="Blueprint view">
       <button type="button" className={AUTOMATION_TOOL} onClick={() => back(`${blueprints.some(({ pipeline }) => pipeline.id === selection.id) ? "blueprint" : "scenario"}:${selection.id}`)}>← All jobs</button>
       {openedBlueprint
-        ? <div className="mt-3 space-y-3"><h3 className="text-[length:var(--ct-font-size-md)] font-semibold">{openedBlueprint.pipeline.name}</h3><BlueprintPipelineCanvas pipeline={openedBlueprint.pipeline} /></div>
+        ? <div className="mt-3 space-y-3"><h3 className="text-[length:var(--ct-font-size-md)] font-semibold">{openedBlueprint.pipeline.name}</h3><BlueprintPipelineCanvas pipeline={openedBlueprint.pipeline} initialRunId={initialRunId} /></div>
         : graphsRead ? <p role="alert" className="mt-3">The selected Blueprint is unavailable.</p> : <p role="status" className="mt-3">Reading Blueprint…</p>}
     </section>;
   }
