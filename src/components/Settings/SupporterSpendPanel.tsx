@@ -1,3 +1,4 @@
+import { formatCompact, formatExact } from "../../lib/formatCompact";
 import type { SupporterSpend, SupporterSpendTotals, SupporterStatus } from "./useDecisionToken";
 
 export function supporterIsPriced(price: SupporterStatus["pricing"]): boolean {
@@ -17,8 +18,11 @@ function usd(value: SupporterSpendTotals) {
     : `$${value.estimated_usd.toFixed(4)}`;
 }
 
-export function supporterTokenTotals(label: string, value: SupporterSpendTotals) {
-  return `${label}: ${value.input_tokens.toLocaleString()} in · ${value.output_tokens.toLocaleString()} out tokens`;
+export function supporterActivity(callsLastHour: number, callsLastDay: number): { text: string; title: string } {
+  return {
+    text: `${formatCompact(callsLastHour)} req/hr · ${formatCompact(callsLastDay)} req/day`,
+    title: `${formatExact(callsLastHour)} requests in the last hour, ${formatExact(callsLastDay)} in the last day`,
+  };
 }
 
 export function SupporterSpendLine({ spend }: { spend: SupporterSpend }) {
