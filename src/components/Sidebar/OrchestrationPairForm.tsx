@@ -87,6 +87,7 @@ export function OrchestrationRoleRow({
       <div className="flex items-center gap-2">
         <div className="flex-1 min-w-0">
           <DropdownSelect
+            aria-label={`${label} provider`}
             data-testid={providerTestId}
             options={providerOptions}
             value={providerId}
@@ -100,7 +101,7 @@ export function OrchestrationRoleRow({
             options={modelOptions}
             value={modelId}
             onChange={onModelChange}
-            prefix="Model"
+            aria-label={`${label} model`}
             disabled={models.length === 0 || providerDisabled}
             menuMaxHeight={MODEL_MENU_MAX_HEIGHT}
           />
@@ -114,7 +115,7 @@ export function OrchestrationRoleRow({
             value={effortId ?? ""}
             onChange={onEffortChange}
             placeholder="Default"
-            prefix="Effort"
+            aria-label={`${label} effort`}
             disabled={providerDisabled}
           />
         </div>

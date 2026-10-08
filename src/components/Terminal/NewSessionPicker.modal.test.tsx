@@ -12,8 +12,8 @@ const fixture = vi.hoisted(() => {
     state: { workspaces: [workspace], active_workspace_id: workspace.id },
     actions: {
       spawnAgentTab: vi.fn(async () => null),
-      createOrchestrationPair: () => undefined,
-      selectTabByTab: () => undefined,
+      createOrchestrationPair: vi.fn(async () => ({ orchestrator_tab_id: "lead-tab" })),
+      selectTabByTab: vi.fn(async () => undefined),
       addNotification: () => undefined,
       createWorkspace: () => undefined,
     },
@@ -60,7 +60,11 @@ let host: HTMLDivElement;
 
 beforeEach(() => {
   localStorage.clear();
+  localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "single", providerId: "opencode" }));
   fixture.actions.spawnAgentTab.mockClear();
+  fixture.actions.createOrchestrationPair.mockClear();
+  fixture.actions.selectTabByTab.mockClear();
+  fixture.state.workspaces = [fixture.workspace];
   fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode", available_models: [], reasoning_efforts: [] }] as never[];
   host = document.createElement("div");
   document.body.append(host);
@@ -97,7 +101,86 @@ function buttonNamed(name: string): HTMLButtonElement | null {
     .find((button) => button.getAttribute("aria-label") === name) ?? null;
 }
 
+async function choose(control: string, option: string) {
+  const button = buttonNamed(control);
+  expect(button).not.toBeNull();
+  await act(async () => button!.click());
+  const item = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'))
+    .find((element) => element.textContent?.trim() === option);
+  expect(item).toBeDefined();
+  await act(async () => item!.click());
+}
+
 describe("NewSessionPicker modal", () => {
+  it("keeps workspace and role controls labelled without the removed explanatory rows", async () => {
+    fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode",
+      available_models: [{ id: "model", display_name: "Model value" }], default_model: "model",
+      reasoning_efforts: [{ id: "high", display_name: "High" }] }] as never[];
+    await renderPicker({ fullAccess: false });
+    expect(buttonNamed("Workspace")).not.toBeNull();
+    expect(buttonNamed("Agent provider")).not.toBeNull();
+    expect(buttonNamed("Agent model")).not.toBeNull();
+    const content = dialog().textContent ?? "";
+    expect(content).not.toContain("Choose a single agent or an Orchestrator + Planner pair.");
+    expect(content).not.toContain("Your last choice is remembered.");
+    expect(content).not.toContain("Creates in:");
+    expect(content).not.toContain("will open");
+    expect(dialog().querySelector('[data-testid="workspace-help"]')).toBeNull();
+    await act(async () => buttonNamed("Team")!.click());
+    expect(buttonNamed("Orchestrator model")).not.toBeNull();
+    expect(buttonNamed("Planner model")).not.toBeNull();
+    expect(buttonNamed("Orchestrator effort")).not.toBeNull();
+    expect(buttonNamed("Planner effort")).not.toBeNull();
+    expect(buttonNamed("Orchestrator model")?.textContent?.trim()).toBe("Model value");
+    expect(buttonNamed("Planner effort")?.textContent?.trim()).toBe("High");
+    expect(dialog().textContent).not.toContain("MODEL");
+    expect(dialog().textContent).not.toContain("EFFORT");
+  });
+
+  it("switches modes and starts a team with the selected destination and both role settings", async () => {
+    fixture.state.workspaces = [fixture.workspace, { ...fixture.workspace, id: "other", name: "Other", cwd: "/other" }];
+    fixture.providers.providers = [
+      { id: "opencode", display_name: "OpenCode", available_models: [{ id: "lead", display_name: "Lead" }],
+        default_model: "lead", reasoning_efforts: [{ id: "high", display_name: "High" }] },
+      { id: "peer", display_name: "Peer", available_models: [{ id: "plan", display_name: "Plan" }],
+        default_model: "plan", reasoning_efforts: [{ id: "low", display_name: "Low" }] },
+    ] as never[];
+    localStorage.setItem("codeterm:new-session-choice", JSON.stringify({ mode: "pair",
+      orchestratorProviderId: "opencode", orchestratorModelId: "lead", orchestratorEffortId: "high",
+      plannerProviderId: "peer", plannerModelId: "plan", plannerEffortId: "low" }));
+    await renderPicker({ fullAccess: false });
+    expect(buttonNamed("Team")?.getAttribute("aria-pressed")).toBe("true");
+    expect(buttonNamed("Orchestrator model")).not.toBeNull();
+    expect(buttonNamed("Planner effort")).not.toBeNull();
+    await act(async () => buttonNamed("Single agent")!.click());
+    expect(buttonNamed("Single agent")?.getAttribute("aria-pressed")).toBe("true");
+    expect(buttonNamed("Agent model")?.getAttribute("data-value")).toBe("lead");
+    await act(async () => buttonNamed("Team")!.click());
+    await choose("Planner provider", "Peer");
+    await choose("Workspace", "Other");
+    await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
+    expect(fixture.actions.createOrchestrationPair).toHaveBeenCalledExactlyOnceWith({
+      orchestratorAgent: "opencode", orchestratorModel: "lead", orchestratorReasoningEffort: "high",
+      plannerAgent: "peer", plannerModel: "plan", plannerReasoningEffort: "low", workspaceId: "other",
+    });
+    expect(fixture.actions.selectTabByTab).toHaveBeenCalledExactlyOnceWith("other", "lead-tab");
+    expect(fixture.actions.spawnAgentTab).not.toHaveBeenCalled();
+  });
+
+  it("starts a single agent with the chosen workspace, provider, model and effort", async () => {
+    fixture.state.workspaces = [fixture.workspace, { ...fixture.workspace, id: "other", name: "Other", cwd: "/other" }];
+    fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode",
+      available_models: [{ id: "first", display_name: "First" }, { id: "chosen", display_name: "Chosen" }],
+      default_model: "first", reasoning_efforts: [{ id: "low", display_name: "Low" }, { id: "high", display_name: "High" }] }] as never[];
+    await renderPicker({ fullAccess: false });
+    await choose("Workspace", "Other");
+    await choose("Agent model", "Chosen");
+    await choose("Agent effort", "High");
+    await act(async () => dialog().querySelector<HTMLButtonElement>('[data-testid="picker-confirm"]')!.click());
+    expect(fixture.actions.spawnAgentTab).toHaveBeenCalledExactlyOnceWith("other", "opencode", "/other", "chosen", "high", undefined);
+    expect(fixture.actions.createOrchestrationPair).not.toHaveBeenCalled();
+  });
+
   it("spawns the selected owned preset with its model once", async () => {
     fixture.providers.providers = [{ id: "opencode", display_name: "OpenCode",
       available_models: [{ id: "live-model", display_name: "Live model" }], default_model: "live-model", reasoning_efforts: [] }] as never[];
@@ -150,7 +233,7 @@ describe("NewSessionPicker modal", () => {
 
   it("renders model changes from the shared provider catalogue", async () => {
     await renderPicker();
-    expect(buttonNamed("Model: No models published")).not.toBeNull();
+    expect(buttonNamed("Agent model")).not.toBeNull();
 
     fixture.providers.providers = [{
       id: "opencode",
@@ -162,6 +245,6 @@ describe("NewSessionPicker modal", () => {
     }] as never[];
     await renderPicker();
 
-    expect(buttonNamed("Model: Live model")).not.toBeNull();
+    expect(buttonNamed("Agent model")?.getAttribute("data-value")).toBe("live-model");
   });
 });
