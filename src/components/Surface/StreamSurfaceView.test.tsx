@@ -1,21 +1,31 @@
 // Run: npx tsx src/components/Surface/StreamSurfaceView.test.tsx
 
+import "./surfaceDomGlobals.testdata";
 import assert from "node:assert/strict";
 import { act } from "react";
 import { BROWSER_SURFACE_CHROME, BROWSER_SURFACE_TITLE } from "./browserChrome";
 import { createFakeStreamTransport } from "./fakeStreamTransport.testdata";
 import type { FrameDecoder } from "./frameFeed";
 import { StreamSurfaceView } from "./StreamSurfaceView";
-import { capsuleModel, grabSendArgs, screenshotSavedNotice, surfaceLabel, type GrabSelection, type SurfaceState } from "./surfaceChromeModel";
+import {
+  capsuleModel,
+  grabSendArgs,
+  NEW_PROFILE_OPTION,
+  profileSwitchedNotice,
+  screenshotSavedNotice,
+  surfaceLabel,
+  type GrabSelection,
+  type SurfaceState,
+} from "./surfaceChromeModel";
 import { resizeArgs, SURFACE_METHOD, type ScreenshotResult } from "./surfaceStreamTransport";
-import { flushAsync, getByRole, queryByRole, render, resizeStages, testSuite } from "./surfaceTestDom.testdata";
+import { changeValue, flushAsync, getByRole, queryByRole, render, resizeStages, testSuite } from "./surfaceTestDom.testdata";
 
 const suite = testSuite("StreamSurfaceView");
 const decode: FrameDecoder = async () => ({ width: 800, height: 600, image: {} as CanvasImageSource, close: () => undefined });
 const state: SurfaceState = { owner: "Jev", title: "Login", url: "https://a.test/", activity: "typing", profile: "clean", profiles: [] };
 const label = surfaceLabel(state.owner, BROWSER_SURFACE_TITLE);
 
-async function mount(saved: ScreenshotResult[] = []) {
+async function mount(saved: ScreenshotResult[] = [], ownerName?: string) {
   const fake = createFakeStreamTransport();
   const view = await render(
     <StreamSurfaceView
@@ -23,6 +33,7 @@ async function mount(saved: ScreenshotResult[] = []) {
       chrome={BROWSER_SURFACE_CHROME}
       surfaceTitle={BROWSER_SURFACE_TITLE}
       initialState={{ owner: state.owner }}
+      ownerName={ownerName}
       decode={decode}
       saveScreenshot={(shot) => saved.push(shot)}
     />,
@@ -94,6 +105,47 @@ suite.test("point and ask selects, sends the annotation and closes", async () =>
   assert.deepEqual(fake.callsTo(SURFACE_METHOD.grabSend).map((call) => call.args), [grabSendArgs(selection, "rename this", "question")]);
   assert.equal(fake.callsTo(SURFACE_METHOD.grabCancel).length, 1, "sending ends the pick on the host");
   assert.equal(queryByRole(host, "dialog"), null);
+  await unmount();
+});
+
+suite.test("+ New profile opens a dialog whose name switches the profile", async () => {
+  const { fake, region, unmount } = await mount();
+  fake.respond("profiles.use", (args) => ({ current: args.name, profiles: [args.name] }));
+  await resizeStages(640, 480);
+  await act(async () => fake.emitState(state));
+  const profile = getByRole(region(), "combobox", "Browser profile") as HTMLSelectElement;
+  await changeValue(profile, NEW_PROFILE_OPTION, "change");
+  assert.equal(fake.callsTo("profiles.use").length, 0, "choosing + New asks for a name first");
+  const dialog = getByRole(document.body, "dialog", "New profile");
+  await changeValue(getByRole(dialog, "textbox", "Profile name") as HTMLInputElement, "Work", "input");
+  await act(async () => getByRole(dialog, "button", "Create").click());
+  await flushAsync();
+  assert.deepEqual(fake.callsTo("profiles.use").map((call) => call.args), [{ name: "Work" }]);
+  assert.equal(queryByRole(document.body, "dialog", "New profile"), null, "the dialog closes on submit");
+  assert.ok(getByRole(region(), "status", profileSwitchedNotice("Work")));
+  await unmount();
+});
+
+suite.test("cancelling the new-profile dialog switches nothing; Clean sends the empty name", async () => {
+  const { fake, region, unmount } = await mount();
+  fake.respond("profiles.use", () => ({ current: "clean", profiles: [] }));
+  await resizeStages(640, 480);
+  await act(async () => fake.emitState({ ...state, profile: "Work", profiles: ["Work"] }));
+  const profile = getByRole(region(), "combobox", "Browser profile") as HTMLSelectElement;
+  await changeValue(profile, NEW_PROFILE_OPTION, "change");
+  await act(async () => getByRole(getByRole(document.body, "dialog", "New profile"), "button", "Cancel").click());
+  assert.equal(queryByRole(document.body, "dialog", "New profile"), null);
+  await changeValue(profile, "clean", "change");
+  await flushAsync();
+  assert.deepEqual(fake.callsTo("profiles.use").map((call) => call.args), [{ name: "" }]);
+  await unmount();
+});
+
+suite.test("the owner tab's name labels the surface over the pushed owner", async () => {
+  const { fake, host, unmount } = await mount([], "Mira");
+  await resizeStages(640, 480);
+  await act(async () => fake.emitState(state));
+  assert.ok(getByRole(host, "region", surfaceLabel("Mira", BROWSER_SURFACE_TITLE)));
   await unmount();
 });
 
