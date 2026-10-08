@@ -378,3 +378,34 @@ fn codex_rpc_normalize_ignores_unknown_events_and_isolates_threads() {
         })
         .is_none());
 }
+
+#[test]
+fn codex_rpc_command_batch_identity_matches_live_and_history() {
+    let mut live = Normalizer::default();
+    let mut history = Normalizer::default();
+    for id in ["one", "two", "three"] {
+        let item = json!({"id":id,"type":"commandExecution","command":"pwsh -Command 'Get-Location'","commandActions":[{"type":"unknown","command":"Get-Location"}],"status":"completed","exitCode":0,"aggregatedOutput":id});
+        let mut started = item.clone();
+        started["status"] = json!("inProgress");
+        started["exitCode"] = Value::Null;
+        live.apply(&Frame::Notification {
+            method: "item/started".into(),
+            params: json!({"threadId":"thread","turnId":"batch","item":started}),
+        })
+        .unwrap();
+        let entry = json!({"turnId":"batch","item":item});
+        super::super::transcript::normalize_entry(&mut live, "thread", &entry).unwrap();
+        super::super::transcript::normalize_entry(&mut history, "thread", &entry).unwrap();
+    }
+    assert_eq!(live.snapshot("thread"), history.snapshot("thread"));
+    for message in live.snapshot("thread") {
+        let input = message.tool_input.unwrap();
+        assert_eq!(input["commandBatchId"], "batch");
+        assert_eq!(input["commandActions"][0]["command"], "Get-Location");
+        assert_eq!(
+            message.tool_detail.as_deref(),
+            Some("pwsh -Command 'Get-Location'")
+        );
+        assert_eq!(message.tool_result.as_deref(), Some(message.id.as_str()));
+    }
+}

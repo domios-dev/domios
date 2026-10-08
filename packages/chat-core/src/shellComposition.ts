@@ -84,7 +84,8 @@ export function commandArgvStart(argv: readonly string[]): number {
 }
 
 function launcherCommand(argv: readonly string[]): UnwrappedShellCommand | null {
-  const start = commandArgvStart(argv);
+  let start = commandArgvStart(argv);
+  if (argv[start] === "command") start++;
   const launcher = argv[start] == null ? "" : commandBasename(argv[start]);
   if (launcher === "pwsh" || launcher === "powershell") {
     for (let i = start + 1; i < argv.length; i++) {
@@ -276,4 +277,15 @@ export function toolCommand(event: Pick<ToolEvent, "detail" | "summary" | "resul
   return Array.isArray(argv) && argv.length > 0 && argv.every((value) => typeof value === "string")
     ? { command, argv: argv as string[] }
     : { command };
+}
+
+export function toolCommandLabel(event: Pick<ToolEvent, "detail" | "summary" | "result" | "message">): string {
+  const actions = event.message.toolInput?.commandActions;
+  const commands = Array.isArray(actions) ? actions.flatMap((action: unknown) => {
+    if (!action || typeof action !== "object" || !("command" in action) || typeof action.command !== "string" || !action.command.trim()) return [];
+    return [unwrapShellLauncher(action.command).command];
+  }) : [];
+  if (commands.length) return [...new Set(commands)].join("; ");
+  const { command, argv } = toolCommand(event);
+  return unwrapShellLauncher(command, argv).command;
 }
