@@ -2,15 +2,14 @@
 //! composed into a single section every agent receives. Pure — the host owns
 //! the registry snapshot and where the section lands.
 
-use crate::provider::ProviderTrust;
-
 pub const MAX_AGENT_PROMPT_LINE_CHARS: usize = 240;
 pub const BUILT_IN_PLUGINS_HEADING: &str = "Built-in plugins:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PluginPromptLine {
     pub id: String,
-    pub trust: ProviderTrust,
+    /// Verified core, or a bundled system id in a dev run; decided by the loader.
+    pub core: bool,
     pub enabled: bool,
     pub line: Option<String>,
 }
@@ -30,12 +29,12 @@ pub fn validate_agent_prompt_line(raw: &str) -> Result<String, &'static str> {
     Ok(line.to_string())
 }
 
-/// Only enabled, hash-verified core plugins contribute; third-party text never
-/// reaches every agent's prompt. `None` when nothing contributes.
+/// Only enabled core plugins contribute; third-party text never reaches every
+/// agent's prompt. `None` when nothing contributes.
 pub fn compose_built_in_plugins_section(plugins: &[PluginPromptLine]) -> Option<String> {
     let mut lines: Vec<(&str, String)> = plugins
         .iter()
-        .filter(|plugin| plugin.enabled && plugin.trust == ProviderTrust::System)
+        .filter(|plugin| plugin.enabled && plugin.core)
         .filter_map(|plugin| {
             let line = validate_agent_prompt_line(plugin.line.as_deref()?).ok()?;
             Some((plugin.id.as_str(), line))
@@ -58,10 +57,10 @@ pub fn compose_built_in_plugins_section(plugins: &[PluginPromptLine]) -> Option<
 mod tests {
     use super::*;
 
-    fn plugin(id: &str, trust: ProviderTrust, enabled: bool, line: &str) -> PluginPromptLine {
+    fn plugin(id: &str, core: bool, enabled: bool, line: &str) -> PluginPromptLine {
         PluginPromptLine {
             id: id.to_string(),
-            trust,
+            core,
             enabled,
             line: Some(line.to_string()),
         }
@@ -72,7 +71,7 @@ mod tests {
         assert_eq!(compose_built_in_plugins_section(&[]), None);
         let silent = PluginPromptLine {
             id: "core-q7".into(),
-            trust: ProviderTrust::System,
+            core: true,
             enabled: true,
             line: None,
         };
@@ -80,23 +79,11 @@ mod tests {
     }
 
     #[test]
-    fn only_enabled_system_plugins_contribute() {
+    fn only_enabled_core_plugins_contribute() {
         let plugins = [
-            plugin("core-q7", ProviderTrust::System, true, "CORE_LINE_Q7"),
-            plugin("third-q7", ProviderTrust::ThirdParty, true, "THIRD_LINE_Q7"),
-            plugin(
-                "tampered-q7",
-                ProviderTrust::Unverified,
-                true,
-                "UNVERIFIED_LINE_Q7",
-            ),
-            plugin(
-                "unknown-q7",
-                ProviderTrust::Unknown,
-                true,
-                "UNKNOWN_LINE_Q7",
-            ),
-            plugin("off-q7", ProviderTrust::System, false, "DISABLED_LINE_Q7"),
+            plugin("core-q7", true, true, "CORE_LINE_Q7"),
+            plugin("third-q7", false, true, "THIRD_LINE_Q7"),
+            plugin("off-q7", true, false, "DISABLED_LINE_Q7"),
         ];
         assert_eq!(
             compose_built_in_plugins_section(&plugins).as_deref(),
@@ -107,9 +94,9 @@ mod tests {
     #[test]
     fn lines_are_ordered_by_plugin_id_one_bullet_each() {
         let plugins = [
-            plugin("zeta-q7", ProviderTrust::System, true, "ZETA_LINE"),
-            plugin("alpha-q7", ProviderTrust::System, true, "  ALPHA_LINE  "),
-            plugin("alpha-q7", ProviderTrust::System, true, "ALPHA_DUPLICATE"),
+            plugin("zeta-q7", true, true, "ZETA_LINE"),
+            plugin("alpha-q7", true, true, "  ALPHA_LINE  "),
+            plugin("alpha-q7", true, true, "ALPHA_DUPLICATE"),
         ];
         assert_eq!(
             compose_built_in_plugins_section(&plugins).as_deref(),
@@ -131,7 +118,7 @@ mod tests {
             "   ".to_string(),
         ] {
             assert!(validate_agent_prompt_line(&refused).is_err(), "{refused:?}");
-            let plugins = [plugin("core-q7", ProviderTrust::System, true, &refused)];
+            let plugins = [plugin("core-q7", true, true, &refused)];
             assert_eq!(compose_built_in_plugins_section(&plugins), None);
         }
     }

@@ -54,14 +54,14 @@ pub struct CapabilityRegistries {
 
 impl CapabilityRegistries {
     pub fn register_plugin(&self, manifest: &PluginManifest, vm: &Arc<super::PluginVm>) {
-        self.register_plugin_with_trust(manifest, vm, crate::provider::ProviderTrust::Unknown);
+        self.register_plugin_with_core(manifest, vm, false);
     }
 
-    pub fn register_plugin_with_trust(
+    pub fn register_plugin_with_core(
         &self,
         manifest: &PluginManifest,
         vm: &Arc<super::PluginVm>,
-        trust: crate::provider::ProviderTrust,
+        core: bool,
     ) {
         let id = &manifest.id;
         let caps = &manifest.capabilities;
@@ -186,7 +186,7 @@ impl CapabilityRegistries {
                 id.clone(),
                 Arc::new(
                     super::JsAgentCommandHandler::new(vm.clone(), id.clone(), true)
-                        .with_catalog(super::catalog_from_manifest(manifest, trust)),
+                        .with_catalog(super::catalog_from_manifest(manifest, core)),
                 ),
             );
         }
@@ -721,11 +721,9 @@ impl HotReloadRegistry {
                 }
                 let had_tab_menu = self.caps.tab_menu.contains(&id);
                 let had_agent_commands = self.caps.agent_command.contains(&id);
-                self.caps.register_plugin_with_trust(
-                    provider.manifest(),
-                    provider.vm(),
-                    provider.trust(),
-                );
+                let core = super::loader::is_core_plugin(provider.manifest(), provider.trust());
+                self.caps
+                    .register_plugin_with_core(provider.manifest(), provider.vm(), core);
                 self.notify_event_sources_changed();
                 if had_tab_menu || self.caps.tab_menu.contains(&id) {
                     self.emit_tab_menu_changed();

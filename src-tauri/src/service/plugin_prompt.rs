@@ -26,7 +26,7 @@ fn prompt_lines(registry: &AgentCommandRegistry) -> Vec<PluginPromptLine> {
             let catalog = handler.catalog()?;
             Some(PluginPromptLine {
                 id: catalog.id,
-                trust: catalog.trust,
+                core: catalog.core,
                 enabled: handler.granted(),
                 line: catalog.prompt_line,
             })
@@ -57,7 +57,6 @@ mod tests {
     use std::sync::Arc;
 
     use codeterm_plugin::agent_verbs::AgentVerbCatalog;
-    use codeterm_plugin::provider::ProviderTrust;
 
     use super::*;
     use crate::agent_commands::{AgentCommandProvider, AgentCommandResult};
@@ -87,12 +86,12 @@ mod tests {
         }
     }
 
-    fn registry(plugins: &[(&str, ProviderTrust, bool)]) -> AgentCommandRegistry {
+    fn registry(plugins: &[(&str, bool, bool)]) -> AgentCommandRegistry {
         let registry = AgentCommandRegistry::new();
-        for (id, trust, granted) in plugins {
+        for (id, core, granted) in plugins {
             let catalog = AgentVerbCatalog::compose(id, "Opaque", None, &[], None, &[])
                 .with_guide(Some(format!("GUIDE_{id}")))
-                .with_prompt_line(*trust, Some(format!("LINE_{id}")));
+                .with_prompt_line(*core, Some(format!("LINE_{id}")));
             registry.register(
                 id.to_string(),
                 Arc::new(Fake {
@@ -107,11 +106,10 @@ mod tests {
     #[test]
     fn only_granted_core_plugins_reach_the_section_and_the_guides() {
         let registry = registry(&[
-            ("zcore-q7", ProviderTrust::System, true),
-            ("acore-q7", ProviderTrust::System, true),
-            ("third-q7", ProviderTrust::ThirdParty, true),
-            ("tampered-q7", ProviderTrust::Unverified, true),
-            ("off-q7", ProviderTrust::System, false),
+            ("zcore-q7", true, true),
+            ("acore-q7", true, true),
+            ("third-q7", false, true),
+            ("off-q7", true, false),
         ]);
         assert_eq!(
             compose_built_in_plugins_section(&prompt_lines(&registry)).as_deref(),
