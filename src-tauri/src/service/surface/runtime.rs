@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use futures_core::Stream;
 use parking_lot::Mutex;
@@ -144,6 +145,37 @@ pub(crate) trait SurfaceRuntime: Send + Sync {
         None
     }
     async fn dispose(&self);
+    /// Daemon exit: dispose with only `graceful` before a kill; false when something was killed.
+    async fn shutdown(&self, graceful: Duration) -> bool {
+        let _ = graceful;
+        self.dispose().await;
+        true
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ShutdownReport {
+    pub graceful: usize,
+    pub killed: usize,
+}
+
+/// Closes every runtime at once; one still running at `limit` counts as killed, its job reaps it.
+pub(crate) async fn shutdown_all(
+    runtimes: Vec<Arc<dyn SurfaceRuntime>>,
+    graceful: Duration,
+    limit: Duration,
+) -> ShutdownReport {
+    let closing = runtimes.into_iter().map(|runtime| async move {
+        tokio::time::timeout(limit, runtime.shutdown(graceful))
+            .await
+            .unwrap_or(false)
+    });
+    let closed = futures_util::future::join_all(closing).await;
+    let graceful = closed.iter().filter(|closed| **closed).count();
+    ShutdownReport {
+        graceful,
+        killed: closed.len() - graceful,
+    }
 }
 
 /// The SSE event name and JSON `data` line for one stream event.
@@ -232,6 +264,15 @@ impl SurfaceRuntimeRegistry {
             },
         );
         Ok((runtime, true))
+    }
+
+    /// Removes every instance; the caller disposes what it gets back.
+    pub(crate) fn take_all(&self) -> Vec<Arc<dyn SurfaceRuntime>> {
+        self.instances
+            .lock()
+            .drain()
+            .map(|(_, instance)| instance.runtime)
+            .collect()
     }
 
     /// Removes every instance whose tab is gone; the caller disposes what it gets back.

@@ -198,3 +198,106 @@ fn surface_sse_payload_names_events_and_base64s_frames() {
     let (name, _) = sse_payload(&SurfaceEvent::State(SurfaceState::default()));
     assert_eq!(name, "state");
 }
+
+enum Teardown {
+    Graceful(std::time::Duration),
+    KilledAfterGrace,
+    Hangs,
+}
+
+struct ClosingRuntime(Teardown);
+
+#[async_trait::async_trait]
+impl SurfaceRuntime for ClosingRuntime {
+    fn set_owner_name(&self, _name: &str) {}
+
+    fn state(&self) -> SurfaceState {
+        SurfaceState::default()
+    }
+
+    async fn connect(self: Arc<Self>, _viewport: Option<ViewportRequest>) -> SurfaceEvents {
+        Box::pin(futures_util::stream::empty())
+    }
+
+    async fn call(
+        &self,
+        _ctx: &SurfaceCallCtx,
+        _method: &str,
+        _args: Value,
+    ) -> Result<SurfaceCallOutcome, String> {
+        Ok(SurfaceCallOutcome::value(Value::Null))
+    }
+
+    async fn agent_verb(
+        &self,
+        _ctx: &SurfaceCallCtx,
+        _verb: &str,
+        _args: &[String],
+    ) -> Result<String, String> {
+        Ok(String::new())
+    }
+
+    fn annotation_delivered(&self, _id: &str) {}
+
+    async fn dispose(&self) {}
+
+    async fn shutdown(&self, graceful: std::time::Duration) -> bool {
+        match self.0 {
+            Teardown::Graceful(takes) => {
+                tokio::time::sleep(takes).await;
+                true
+            }
+            Teardown::KilledAfterGrace => {
+                tokio::time::sleep(graceful).await;
+                false
+            }
+            Teardown::Hangs => std::future::pending().await,
+        }
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn surface_shutdown_all_is_parallel_and_bounded() {
+    use std::time::Duration;
+    let runtimes: Vec<Arc<dyn SurfaceRuntime>> = vec![
+        Arc::new(ClosingRuntime(Teardown::Graceful(Duration::from_millis(
+            1500,
+        )))),
+        Arc::new(ClosingRuntime(Teardown::KilledAfterGrace)),
+        Arc::new(ClosingRuntime(Teardown::Hangs)),
+    ];
+    let started = tokio::time::Instant::now();
+    let report = shutdown_all(runtimes, Duration::from_secs(2), Duration::from_secs(4)).await;
+    assert_eq!(
+        report,
+        ShutdownReport {
+            graceful: 1,
+            killed: 2
+        }
+    );
+    assert_eq!(started.elapsed(), Duration::from_secs(4));
+}
+
+#[tokio::test(start_paused = true)]
+async fn surface_shutdown_all_without_runtimes_returns_at_once() {
+    let started = tokio::time::Instant::now();
+    let report = shutdown_all(
+        Vec::new(),
+        std::time::Duration::from_secs(2),
+        std::time::Duration::from_secs(4),
+    )
+    .await;
+    assert_eq!(report, ShutdownReport::default());
+    assert_eq!(started.elapsed(), std::time::Duration::ZERO);
+}
+
+#[test]
+fn surface_runtime_registry_take_all_drains_every_instance() {
+    let registry = registry();
+    registry.get_or_create("t1", "fake", "Jev", None).unwrap();
+    registry.get_or_create("t2", "fake", "Ann", None).unwrap();
+    assert_eq!(registry.take_all().len(), 2);
+    assert!(registry.take_all().is_empty());
+    let (_, created) = registry.get_or_create("t1", "fake", "Jev", None).unwrap();
+    assert!(created);
+}

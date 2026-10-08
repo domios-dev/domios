@@ -139,7 +139,7 @@ pub async fn spawn(
     })?;
     let pid = child.id().ok_or("Sidecar has no process id")?;
     #[cfg(windows)]
-    let job = super::windows_job::Job::attach(&child)?;
+    let job = crate::service::windows_job::Job::attach(&child)?;
     let identity = crate::service::process_tree::launch_processes(pid)
         .into_iter()
         .find(|process| process.pid == pid)
@@ -262,7 +262,8 @@ pub fn sweep(root: &Path, instance: &str) -> Vec<String> {
                     && libc::kill(-(marker.pid as i32), libc::SIGKILL) == 0
             };
             #[cfg(windows)]
-            let killed = super::windows_job::terminate_orphan(marker.pid, &marker.start_token);
+            let killed =
+                crate::service::windows_job::terminate_orphan(marker.pid, &marker.start_token);
             if !killed {
                 errors.push(format!("Could not terminate owned sidecar {}", marker.tab));
                 continue;

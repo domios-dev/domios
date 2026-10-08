@@ -10,6 +10,7 @@ use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::time::Instant;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -277,13 +278,18 @@ pub(super) async fn current_url(runtime: &Runtime) -> Option<String> {
 
 /// Graceful close flushes cookies into a named profile; attach mode only disconnects.
 pub(super) async fn stop(runtime: Arc<Runtime>) -> Option<CloseOutcome> {
+    stop_within(runtime, CLOSE_DEADLINE).await
+}
+
+/// `stop` with the graceful window bounded by `deadline` before the tree is killed.
+pub(super) async fn stop_within(runtime: Arc<Runtime>, deadline: Duration) -> Option<CloseOutcome> {
     let outcome = match runtime.process.as_ref() {
         Some(process) => {
             let client = runtime.client.clone();
             let request_close = async move {
                 let _ = client.send("Browser.close", json!({})).await;
             };
-            Some(process.close_with(request_close, CLOSE_DEADLINE).await)
+            Some(process.close_with(request_close, deadline).await)
         }
         None => None,
     };

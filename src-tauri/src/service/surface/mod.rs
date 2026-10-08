@@ -2,6 +2,7 @@
 
 mod agent_call;
 mod browser;
+mod exit;
 mod model;
 mod ops;
 pub(crate) mod resume;
@@ -9,6 +10,7 @@ pub(crate) mod runtime;
 mod stream_ops;
 mod transport;
 
+pub(crate) use exit::{begin_surface_shutdown, SurfaceShutdown};
 pub(crate) use model::{SurfaceError, SurfaceOpenRequest};
 pub(crate) use runtime::SurfaceRuntimeRegistry;
 pub(crate) use stream_ops::{call_surface, open_surface_stream, SurfaceCallFailure};
