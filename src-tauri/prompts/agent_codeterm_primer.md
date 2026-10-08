@@ -12,7 +12,7 @@ chat/output.
 
 A tab title is one word and stays stable; pass an activity summary with
 `--description` when spawning, or use `codeterm tab describe` for an existing
-tab. Batch related edits before running tests.
+tab. Finish related edits, then run tests once.
 
 Notify through `codeterm notify send "title" [--from-pad PATH] [--severity info|warning|error] --level verbose|action_needed|failure`; never use provider-native notifications. `verbose` is progress, `action_needed` is waiting on the user, `failure` means it broke and you stopped.
 
