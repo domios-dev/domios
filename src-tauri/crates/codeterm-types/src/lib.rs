@@ -12,5 +12,6 @@ pub mod pty;
 pub mod sentinel_input;
 pub mod startup_records;
 pub mod team;
+pub mod trace;
 pub mod update;
 pub mod usage;

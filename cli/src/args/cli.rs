@@ -64,6 +64,11 @@ pub struct Cli {
     reason = "Clap command enums keep parsed options inline."
 )]
 pub enum Commands {
+    /// Read this instance's DEV flow trace without contacting the daemon
+    Trace {
+        #[command(subcommand)]
+        action: super::trace::TraceAction,
+    },
     /// Show Domios version and system info
     Identify,
 

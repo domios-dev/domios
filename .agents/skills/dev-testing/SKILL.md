@@ -46,6 +46,10 @@ It prints the file path and the running build SHA; open the PNG with your file-r
 
 ## Find GA tab
 
+DEV flow tracing writes bounded, rotated `~/.codeterm-dev/logs/trace.jsonl`; production writes no trace events.
+From a DEV-bound shell, use `codeterm trace recent --limit 20`, then `codeterm trace show <trace_id|tab_id> --since 1h` to see ordered stages and gaps in the retained window.
+Linked delivery, attempt and report IDs are preserved; a missing stage is diagnostic evidence, not a delivery verdict.
+
 The GA tab is protected. Find it by the protected flag:
 ```bash
 GA=$(curl -s "$API/api/tabs" -H "$H" | python3 -c "
