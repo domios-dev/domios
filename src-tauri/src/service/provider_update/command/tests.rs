@@ -220,6 +220,9 @@ fn provider_update_command_confined_resolution_executes_exact_argv_cwd_and_envir
         "courier-updater"
     };
     let executable = selected.join(name);
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(std::env::current_exe().unwrap(), &executable).unwrap();
+    #[cfg(windows)]
     std::fs::copy(std::env::current_exe().unwrap(), &executable).unwrap();
     let decoy_path = decoy.join(name);
     std::fs::write(&decoy_path, "opaque-untouched-decoy").unwrap();
@@ -236,7 +239,12 @@ fn provider_update_command_confined_resolution_executes_exact_argv_cwd_and_envir
         .iter()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
-    assert!(run_invocation(invocation).is_ok());
+    if let Err(failure) = run_invocation(invocation) {
+        panic!(
+            "{}; child_stopped={}",
+            failure.reason, failure.child_stopped
+        );
+    }
     let receipt: serde_json::Value =
         serde_json::from_slice(&std::fs::read(root.path().join("receipt.json")).unwrap()).unwrap();
     assert_eq!(
