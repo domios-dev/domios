@@ -126,16 +126,19 @@ describe("compound command group", () => {
     expect(body?.querySelector(".token")).not.toBeNull();
   });
 
-  it("opens the whole call's output and exact raw command and lets the user collapse it", async () => {
+  it("shows the whole call's output while the exact raw command starts collapsed", async () => {
     const host = await render(<ToolCallBubble event={singleEvent(codexRollout())} expanded onToggle={() => {}} />);
     const disclosure = host.querySelector('[data-testid="chat-command-group"] > [role="region"] [data-testid="raw-command-disclosure"] > button');
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector('[data-testid="message-raw-content"]')).toBeNull();
+    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(1);
+    await click(disclosure);
     expect(disclosure?.getAttribute("aria-expanded")).toBe("true");
     expect(host.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe(CODEX_PIPELINE);
-    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(1);
     await click(disclosure);
     expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
     expect(host.querySelector('[data-testid="message-raw-content"]')).toBeNull();
-    expect(host.querySelector('[data-testid="toolcard-result"]')).toBeNull();
+    expect(host.querySelectorAll('[data-testid="toolcard-result"]')).toHaveLength(1);
   });
 
   it("titles a Claude Bash compound by its description and lists segments as a plain tree", async () => {
@@ -245,7 +248,11 @@ describe("compact command tree", () => {
     expect(title).toBe("codeterm plan doctor +3");
     expect(host.querySelectorAll('[data-testid="toolcard-exit-code"]')).toHaveLength(1);
     expect(host.querySelectorAll('[data-testid="toolcard-duration"]')).toHaveLength(1);
-    expect(host.querySelector('[data-testid="raw-command-disclosure"] > button')?.getAttribute("aria-expanded")).toBe("true");
+    const disclosure = host.querySelector('[data-testid="raw-command-disclosure"] > button');
+    expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
+    expect(host.querySelector('[data-testid="message-raw-content"]')).toBeNull();
+    expect(lines(host)).toHaveLength(4);
+    await click(disclosure);
     expect(host.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe(PLAN_CHAIN);
   });
 });
