@@ -83,10 +83,18 @@ pub fn launch_env(svc: &ServiceContext, tab: &str, env: &mut HashMap<String, Str
         .read()
         .get_tab(tab)
         .and_then(|tab| tab.agent_type.clone());
-    if provider
-        .as_deref()
-        .is_some_and(|provider| super::launch::requested(svc, provider))
-    {
+    if let Some(provider) = provider {
+        launch_env_for_provider(svc, tab, &provider, env);
+    }
+}
+
+pub(crate) fn launch_env_for_provider(
+    svc: &ServiceContext,
+    tab: &str,
+    provider: &str,
+    env: &mut HashMap<String, String>,
+) {
+    if super::launch::requested(svc, provider) {
         env.insert("CODETERM_CODEX_RPC_TOKEN".into(), token_for_tab(tab));
         if for_tab(tab).is_none() {
             super::delivery::begin(tab, &svc.ensure_session_binding_nonce(tab));
