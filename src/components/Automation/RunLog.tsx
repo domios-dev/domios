@@ -71,11 +71,11 @@ export function RunLog({ rows, model, selected, truncated = false, height, onRep
         return <li key={row.key}>
           <div className="bp-run" data-selected={isSelected || undefined} onClick={(event) => { if (!(event.target as HTMLElement).closest("button")) onReplay(row); }} onKeyDown={(event) => { if (move(index, event.code)) event.preventDefault(); }}>
             <span className={`h-2 w-2 shrink-0 rounded-full ${STATUS_TONE[row.status]}`} title={row.status} aria-hidden="true" />
-            <span className="w-[4.75rem] shrink-0 tabular-nums text-[var(--ct-muted-fg)]">{time}</span>
-            <span className="bp-chip max-w-[9rem] truncate" title="Trigger">{row.trigger}</span>
+            <span className="shrink-0 tabular-nums text-[var(--ct-muted-fg)] sm:w-[4.75rem]">{time}</span>
+            <span className="bp-chip hidden max-w-[9rem] truncate md:inline" title="Trigger">{row.trigger}</span>
             <span className="min-w-0 flex-1 truncate text-[var(--ct-fg)]" title={row.path.join(" → ")}>{row.path.join(" → ")}</span>
             {row.confidence != null && <span className="bp-chip" data-tone="agent" title="Agent confidence">{Math.round(row.confidence * 100)}%</span>}
-            {row.durationMs != null && <span className="shrink-0 tabular-nums text-[var(--ct-muted-fg)]">{formatDuration(row.durationMs)}</span>}
+            {row.durationMs != null && <span className="hidden shrink-0 tabular-nums text-[var(--ct-muted-fg)] sm:inline">{formatDuration(row.durationMs)}</span>}
             <button type="button" data-run-replay="" tabIndex={index === active ? 0 : -1} className={`bp-run__replay ${ICON_BUTTON}`} aria-pressed={isSelected} aria-label={`Replay run ${time}`} title={`Replay run ${time}`} onFocus={() => setFocused(index)} onClick={() => onReplay(row)}><Play size={14} aria-hidden="true" /></button>
             <button type="button" tabIndex={index === active ? 0 : -1} className={ICON_BUTTON} aria-expanded={open} aria-controls={timelineId} aria-label={`Steps of run ${time}`} title="Show steps" onClick={() => setExpanded(open ? null : row.key)}><ChevronRight size={14} className={`transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`} aria-hidden="true" /></button>
           </div>

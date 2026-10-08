@@ -38,7 +38,7 @@
   gap: 10px;
   min-width: 0;
   padding: 10px 16px 0;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 650;
   color: var(--ct-fg);
 }
@@ -54,7 +54,10 @@
 .bp-node {
   --bp-type: var(--bp-action);
   position: absolute;
-  display: block;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   padding: 0;
   overflow: visible;
   border: 1px solid color-mix(in srgb, var(--ct-fg) 13%, transparent);
@@ -85,6 +88,7 @@
 
 .bp-node__header {
   display: flex;
+  flex: 0 0 auto;
   align-items: center;
   gap: 8px;
   height: 42px;
@@ -115,6 +119,7 @@
 
 .bp-node__body {
   display: block;
+  flex: 0 0 auto;
   overflow: hidden;
   padding: 10px 12px;
   font-size: 12px;

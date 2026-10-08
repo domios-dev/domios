@@ -78,9 +78,9 @@ export function useAutomationViewport(layout: BlueprintLayout, camera: Automatio
   const showOverview = useCallback(() => settle(true, null), [settle]);
   const panelWasOpen = useRef(false);
   useLayoutEffect(() => {
-    if (panelOpen && !panelWasOpen.current && size && !userMoved()) settle(true, null);
+    if (panelOpen && !panelWasOpen.current && size && !userMoved()) settle(false, focus);
     panelWasOpen.current = panelOpen && size !== null;
-  }, [panelOpen, size, settle, userMoved]);
+  }, [panelOpen, size, settle, userMoved, focus]);
 
   // A moved camera keeps its scale and the world point at the viewport center when the canvas resizes.
   const follow = useRef(() => {});
