@@ -1002,6 +1002,31 @@ impl ServiceContext {
         }
     }
 
+    pub(crate) fn confirmed_spawn_first_turn(
+        &self,
+        target: &str,
+        provider: &str,
+        turn: crate::service::launch_delivery::VisibleSpawnFirstTurn<'_>,
+    ) -> String {
+        use crate::service::launch_delivery::{self, VisibleSpawnFirstTurn};
+        match turn {
+            VisibleSpawnFirstTurn::AssignedTaskStarter => {
+                let prompt = crate::agent::provider::StarterPrompt::AssignedTask;
+                let text = self
+                    .agent_registry
+                    .with_provider(provider, |provider| provider.starter_prompt_text(prompt))
+                    .flatten();
+                launch_delivery::mark_starter_prompt(
+                    prompt,
+                    launch_delivery::assigned_task_starter(text.as_deref()),
+                )
+            }
+            VisibleSpawnFirstTurn::Task(task) => self
+                .spawn_task_message(target, task)
+                .unwrap_or_else(|| task.to_string()),
+        }
+    }
+
     /// Origin frame for a spawned agent's first task, derived from its recorded spawner.
     pub(crate) fn spawn_task_message(&self, target_tab: &str, body: &str) -> Option<String> {
         let (src, label, model, from_agent) = {
