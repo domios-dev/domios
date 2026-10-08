@@ -336,6 +336,9 @@ impl RunWatcherRegistry {
             return;
         }
         *state.last_byte_at.lock() = Instant::now();
+        if let AgentRunKind::MemWorker { worker_id } = &state.kind {
+            svc.workers.observe_activity(worker_id);
+        }
         let chunk = String::from_utf8_lossy(bytes);
         let signal = state.scanner.lock().feed(&chunk);
         if let Some(signal) = signal {
@@ -405,12 +408,32 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
             return;
         }
 
+        if elapsed_total >= timeout_secs {
+            if !claim_run_end(&state) {
+                return;
+            }
+            let (svc_end, state_end) = (svc.clone(), state.clone());
+            let _ = tauri::async_runtime::spawn_blocking(move || {
+                end_on_hard_timeout(&svc_end, &state_end, elapsed_total)
+            })
+            .await;
+            return;
+        }
+
         // Liveness: agent dropped to a bare shell (crashed / exited) before completing → resume it, bounded. Skip during launch grace + just after a restart.
         if elapsed_total >= RESTART_GRACE_SECS
             && state.last_restart_at.lock().elapsed().as_secs() >= RESTART_SETTLE_SECS
             && !provider_prompt_pending
             && agent_dropped_to_shell(&svc, &state.pty_id)
         {
+            if matches!(state.kind, AgentRunKind::MemWorker { .. }) {
+                svc.run_watcher.fail_now(
+                    &svc,
+                    &state.pty_id,
+                    "memory worker exited to shell without reporting".into(),
+                );
+                return;
+            }
             let restarts = state.restart_count.load(Ordering::Acquire);
             if restarts >= MAX_RESTARTS {
                 if state.completed.swap(true, Ordering::AcqRel) {
@@ -511,18 +534,6 @@ async fn watchdog_loop(svc: ServiceContext, state: Arc<RunState>, timeout_secs: 
                 svc.run_watcher.runs.lock().remove(&state.pty_id);
                 return;
             }
-        }
-
-        if elapsed_total >= timeout_secs {
-            if !claim_run_end(&state) {
-                return;
-            }
-            let (svc_end, state_end) = (svc.clone(), state.clone());
-            let _ = tauri::async_runtime::spawn_blocking(move || {
-                end_on_hard_timeout(&svc_end, &state_end, elapsed_total)
-            })
-            .await;
-            return;
         }
     }
 }
@@ -846,7 +857,9 @@ fn finish_run_as(svc: &ServiceContext, state: &RunState, run_end: RunEnd, summar
             // Execution ending is not the same fact as the run finishing its
             // work: a process that died or timed out never reports `done`.
             let end = match run_end {
-                RunEnd::Success => codeterm_mem::dream_status::ExecutionEnd::Reported,
+                RunEnd::Success => codeterm_mem::dream_status::ExecutionEnd::ProcessEnded {
+                    detail: format!("execution ended without mem worker report: {summary}"),
+                },
                 RunEnd::TimedOut => codeterm_mem::dream_status::ExecutionEnd::TimedOut {
                     detail: summary.clone(),
                 },
@@ -990,3 +1003,7 @@ fn find_balanced_end(s: &str, start: usize) -> Option<usize> {
 #[cfg(test)]
 #[path = "run_watcher/tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "run_watcher/memory_lifecycle_tests.rs"]
+mod memory_lifecycle_tests;

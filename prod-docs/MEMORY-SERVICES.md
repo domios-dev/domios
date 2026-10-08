@@ -44,6 +44,8 @@ Extraction and REM run as hidden workers; inspect their status/logs and report e
 - On completion, `codeterm mem worker report` records that execution ended (and, with `--diary`/`--finalization`, whether the artifact actually landed); the full log is saved to `~/.codeterm/mem/workers/<id>.log`.
 - **Limits:** at most 200 workers are kept; the oldest finished workers and their logs are evicted.
 - The Memory tab lists workers with live or saved logs.
+- Extraction allows three attempts per unchanged source and launch configuration. Failed attempts back off for one minute, then two minutes, before becoming eligible on a later save or startup scan. After three failures the item is parked with its reason in Activity; `mem extract-pending` explicitly resets that budget. A changed source, provider/model, provider availability, or app build starts a new budget. A reported extraction with no graph additions is still completed.
+- Extraction and dreaming stop at their configured deadline, capped at 45 minutes. Process exits and launch failures record their reason and end time. Orphaned sessions show duration through their last observed activity, or unknown; age is labelled separately. Activity groups matching failures by intent, executor and reason.
 
 ## Dreaming
 
@@ -57,4 +59,4 @@ Requires `ANTHROPIC_API_KEY`. The phase is read-only against the DB; all mutatio
 
 `GET /api/mem/dream/report` returns the prepared targets and summary for the run.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->
