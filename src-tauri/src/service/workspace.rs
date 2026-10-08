@@ -531,7 +531,10 @@ impl ServiceContext {
         }
         // After the members are gone, never before: a Team that still holds a
         // live tab is left untouched.
-        if let Some(blueprints) = self.app_handle.try_state::<crate::sentinel::scheduler::Handle>() {
+        if let Some(blueprints) = self
+            .app_handle
+            .try_state::<crate::sentinel::scheduler::Handle>()
+        {
             if let Err(error) = blueprints.remove_workspace(id) {
                 cleanup_errors.push(format!("Blueprints: {error}"));
             }

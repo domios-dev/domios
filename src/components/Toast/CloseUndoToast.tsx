@@ -5,7 +5,7 @@ import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 
 export function CloseUndoAction({ records, restore, now = Date.now }: {
   records: readonly ClosedStructureView[];
-  restore: (id: string) => Promise<void>;
+  restore: (id: string) => void | Promise<void>;
   now?: () => number;
 }) {
   const [, refresh] = useReducer((value) => value + 1, 0);

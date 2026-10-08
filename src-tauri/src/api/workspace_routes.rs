@@ -236,8 +236,8 @@ pub async fn reopen_closed_group(
     let result =
         tokio::task::spawn_blocking(move || crate::dispatch::dispatch(&cmd, service.as_ref()))
             .await
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
-        .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     Ok(Json(result.into_json()))
 }
 

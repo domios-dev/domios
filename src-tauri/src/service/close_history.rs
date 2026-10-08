@@ -6,10 +6,22 @@ use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
 use super::{session_persist, ServiceContext};
-use crate::multiplexer::state::{ClosedStructure, StructureState};
+use crate::multiplexer::state::StructureState;
 
 static RESTORE_LOCK: Mutex<()> = Mutex::new(());
+static CAPTURE_LOCK: Mutex<()> = Mutex::new(());
 static WORKSPACE_CLOSES: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+
+#[cfg(test)]
+mod tests;
+
+fn restore_plan_metadata(current: &mut crate::plan::Plan, saved: &crate::plan::Plan) {
+    current.team_id = saved.team_id.clone();
+    current.owner = saved.owner.clone();
+    current.planner = saved.planner.clone();
+    current.status = saved.status.clone();
+    current.orphaned = None;
+}
 
 pub(super) struct WorkspaceCloseGuard(String);
 
@@ -53,6 +65,14 @@ impl ServiceContext {
         if team.is_some() && WORKSPACE_CLOSES.lock().contains(workspace) {
             return Ok(None);
         }
+        let _capture = CAPTURE_LOCK.lock();
+        let pending = self.mux.read().closed_structure_records()?;
+        if pending.iter().any(|record| match team {
+            Some(id) => record.teams.iter().any(|team| team.id == id),
+            None => record.workspaces.iter().any(|saved| saved.id == workspace),
+        }) {
+            return Err("Close inventory is already being captured for this scope".into());
+        }
         let id = format!("close_{}", uuid::Uuid::new_v4());
         let mut record = self.mux.read().capture_structure(
             workspace,
@@ -72,7 +92,10 @@ impl ServiceContext {
             })
             .collect();
         let in_scope = |workspace_id: &str, team_id: Option<&str>| {
-            workspace_id == workspace && team.is_none_or(|id| team_id == Some(id))
+            team.map_or_else(
+                || workspace_id == workspace || team_id.is_some_and(|id| team_ids.contains(id)),
+                |id| team_id == Some(id),
+            )
         };
         let crons = self
             .app_handle
@@ -117,7 +140,7 @@ impl ServiceContext {
         };
         let mux = self.mux.read();
         let record = mux.closed_structure(id)?.ok_or("Close inventory missing")?;
-        let changed = mux.get_workspace(&record.workspace.id).is_none()
+        let mut changed = mux.get_workspace(&record.workspace.id).is_none()
             || record
                 .tabs
                 .iter()
@@ -126,6 +149,30 @@ impl ServiceContext {
                 .teams
                 .iter()
                 .any(|team| mux.get_team(&team.id).is_none());
+        drop(mux);
+        let resources: Resources =
+            serde_json::from_value(record.resources.clone()).map_err(|error| error.to_string())?;
+        changed |= resources.plans.iter().any(|saved| {
+            self.plan_store
+                .get(&saved.id)
+                .is_none_or(|current| current.team_id != saved.team_id)
+        });
+        if let Some(cron) = self.app_handle.try_state::<crate::CronState>() {
+            changed |= resources
+                .crons
+                .iter()
+                .any(|saved| cron.lock().get(&saved.id).is_none());
+        }
+        if let Some(blueprints) = self
+            .app_handle
+            .try_state::<crate::sentinel::scheduler::Handle>()
+        {
+            changed |= resources
+                .blueprints
+                .iter()
+                .any(|saved| blueprints.store.lock().get(&saved.id).is_none());
+        }
+        let mux = self.mux.read();
         if changed {
             mux.finish_structure_close(id)?;
         } else {
@@ -158,7 +205,8 @@ impl ServiceContext {
             serde_json::from_value(record.resources.clone()).map_err(|error| error.to_string())?;
         for plan in &resources.plans {
             if self.plan_store.get(&plan.id).is_none() {
-                self.ensure_plan_project_loaded(std::path::Path::new(&plan.project_path))?;
+                self.ensure_plan_project_loaded(std::path::Path::new(&plan.project_path))
+                    .map_err(|error| error.to_string())?;
             }
         }
         for item in &mut record.tabs {
@@ -192,7 +240,7 @@ impl ServiceContext {
         record.state = StructureState::Restoring;
         self.mux.read().save_closed_structure(&record)?;
         self.mux.write().restore_structure(&record)?;
-        session_persist::write_session_snapshot(&self.app_handle, &self.mux)?;
+        self.persist_history_desk()?;
         self.restore_history_plans(&resources)?;
         self.restore_history_automation(&resources)?;
         record.state = StructureState::Restored;
@@ -221,11 +269,7 @@ impl ServiceContext {
         for saved in &resources.plans {
             self.plan_store
                 .with_plan(&saved.id, super::team::now_ms(), |current| {
-                    current.team_id = saved.team_id.clone();
-                    current.owner = saved.owner.clone();
-                    current.planner = saved.planner.clone();
-                    current.status = saved.status.clone();
-                    current.orphaned = None;
+                    restore_plan_metadata(current, saved);
                     Ok(())
                 })
                 .map_err(|error| error.to_string())?;
@@ -242,7 +286,15 @@ impl ServiceContext {
                 .ok_or("Cron store unavailable")?;
             for job in &resources.crons {
                 crate::cron::store::commit(cron.inner(), |store| {
-                    if store.get(&job.id).is_some() {
+                    if let Some(existing) = store.get(&job.id) {
+                        if existing.workspace_id != job.workspace_id
+                            || existing.team_id != job.team_id
+                        {
+                            return Err(format!(
+                                "Cron identity {} belongs to another scope",
+                                job.id
+                            ));
+                        }
                         return Ok(crate::cron::store::Prepared::unchanged(()));
                     }
                     Ok(crate::cron::store::Prepared::new(
@@ -263,7 +315,15 @@ impl ServiceContext {
                 .try_state::<crate::sentinel::scheduler::Handle>()
                 .ok_or("Blueprint store unavailable")?;
             for job in &resources.blueprints {
-                if handle.store.lock().get(&job.id).is_some() {
+                let existing = handle.store.lock().get(&job.id).cloned();
+                if let Some(existing) = existing {
+                    if existing.workspace_id != job.workspace_id || existing.team_id != job.team_id
+                    {
+                        return Err(format!(
+                            "Blueprint identity {} belongs to another scope",
+                            job.id
+                        ));
+                    }
                     continue;
                 }
                 crate::sentinel::storage::commit(&handle.store, |store| {
@@ -291,12 +351,21 @@ impl ServiceContext {
             tab.utility_command_pending = command.is_some();
             command
         };
-        session_persist::write_session_snapshot(&self.app_handle, &self.mux)?;
+        self.persist_history_desk()?;
         self.ensure_tab_pty_for_send(tab_id)?;
         if let Some(command) = command {
             self.send_shell_cmd(tab_id, &command)?;
         }
         self.emit_state_changed();
         Ok(())
+    }
+
+    fn persist_history_desk(&self) -> Result<(), String> {
+        match session_persist::write_session_snapshot(&self.app_handle, &self.mux)? {
+            crate::session::store::SaveOutcome::Saved => Ok(()),
+            crate::session::store::SaveOutcome::RefusedReduction(_) => {
+                Err("Restored desk was not persisted".into())
+            }
+        }
     }
 }

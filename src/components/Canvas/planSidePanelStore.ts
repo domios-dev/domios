@@ -69,7 +69,12 @@ export const planSidePanelStore = {
     const remembered = rememberedDocuments.get(tabId) ?? readTabPanel("open", tabId, validTarget);
     if (remembered) this.open(remembered);
   },
-  resetDocuments() { rememberedDocuments.clear(); },
+  suspend() { entry = null; notify(); },
+  resetDocuments() {
+    for (const id of rememberedDocuments.keys()) writeTabPanel("open", id, null);
+    rememberedDocuments.clear();
+  },
+  resetCache() { rememberedDocuments.clear(); },
   get(): PlanSidePanelEntry | null {
     return entry;
   },

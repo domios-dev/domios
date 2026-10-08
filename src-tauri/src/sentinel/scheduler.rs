@@ -116,10 +116,18 @@ impl Handle {
     }
 
     pub(crate) fn remove_workspace(&self, workspace: &str) -> Result<(), String> {
-        let jobs: Vec<_> = self.store.lock().list().iter()
-            .filter(|job| job.workspace_id == workspace).cloned().collect();
+        let jobs: Vec<_> = self
+            .store
+            .lock()
+            .list()
+            .iter()
+            .filter(|job| job.workspace_id == workspace)
+            .cloned()
+            .collect();
         for job in jobs {
-            if self.store.lock().get(&job.id).is_none() { continue; }
+            if self.store.lock().get(&job.id).is_none() {
+                continue;
+            }
             storage::commit(&self.store, |store| {
                 store.stage_delete_scenario(&job.id, workspace, job.team_id.as_deref())
             })?;

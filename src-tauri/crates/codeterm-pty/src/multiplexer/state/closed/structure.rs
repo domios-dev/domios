@@ -29,12 +29,13 @@ pub struct ClosedStructure {
     pub undo_until: u64,
     pub state: StructureState,
     pub workspace: Workspace,
+    pub workspaces: Vec<Workspace>,
     pub teams: Vec<Team>,
     pub tabs: Vec<ArchivedTab>,
     pub resources: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClosedStructureView {
     pub state: StructureState,
     pub id: String,
@@ -89,7 +90,11 @@ impl ClosedStructure {
                 return Err("Close inventory contains duplicate or empty tab identities".into());
             }
             if item.tab.agent_type.is_some()
-                && item.tab.agent_session_id.is_none()
+                && item
+                    .tab
+                    .agent_session_id
+                    .as_deref()
+                    .is_none_or(str::is_empty)
                 && !item.tab.is_chat_backend()
             {
                 return Err(format!(
@@ -120,13 +125,15 @@ impl ClosedStructure {
                 tab.utility_command_pending = false;
                 tab.shell_command_state = Default::default();
                 tab.restorable_launch = item.launch.clone();
-                tab.restored_from_snapshot = tab.agent_type.is_some();
+                tab.restored_from_snapshot = tab.agent_type.is_some() || tab.is_chat_backend();
                 let shell = tab.is_utility_shell();
                 let restore = tab.close_restore.get_or_insert_with(Default::default);
                 restore.record_id = Some(self.id.clone());
                 restore.stopped = shell;
                 restore.exact_session = tab.agent_type.is_some();
-                if tab.role == Some(AgentRole::Worker) && tab.task_binding.is_some() {
+                if tab.role == Some(AgentRole::Worker)
+                    && (tab.task_binding.is_some() || tab.worker_id.is_some())
+                {
                     tab.role = None;
                     tab.role_profile = None;
                     tab.worker_id = None;

@@ -10,7 +10,9 @@ pub struct CloseRestoreTabState {
 
 impl CloseRestoreTabState {
     pub fn claim_rerun(&mut self) -> Result<Option<String>, String> {
-        if !self.stopped { return Err("Restored shell has already been started".into()); }
+        if !self.stopped {
+            return Err("Restored shell has already been started".into());
+        }
         self.stopped = false;
         Ok(self.command.clone())
     }
