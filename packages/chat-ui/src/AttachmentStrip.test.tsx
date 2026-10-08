@@ -141,17 +141,11 @@ describe("attachment markers in the user bubble", () => {
     expect(revealed).toEqual([DOC]);
   });
 
-  it("shows a raw codeterm-chat temp path from an older transcript as an attachment", async () => {
-    const host = await render(userTurn(`look at this ${PATH}`));
-    expect(openButton(host)).toBeTruthy();
-    expect(host.textContent).toContain("look at this");
-    expect(host.textContent).not.toContain(PATH);
-  });
-
-  it("leaves a message without attachments untouched", async () => {
-    const plain = String.raw`plain C:\repo\shot.png text`;
-    const host = await render(userTurn(plain));
+  it("renders an older message with raw temp paths exactly as before", async () => {
+    const legacy = `look at this ${PATH}`;
+    const host = await render(userTurn(legacy));
     expect(host.querySelector('[aria-label="Attachments"]')).toBeNull();
-    expect(host.textContent).toContain(plain);
+    expect(openButton(host)).toBeUndefined();
+    expect(host.textContent).toContain(legacy);
   });
 });

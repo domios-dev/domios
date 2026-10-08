@@ -40,35 +40,13 @@ const WEB_UPLOAD = String.raw`C:\Users\dev\.codeterm\uploads\55a7d879-pasted-ima
 }
 
 {
-  const legacy = `смотри надо отправить это\n\nиз моих скринов ${WIN_IMAGE} ${WIN_IMAGE_2} ${MAC_IMAGE}`;
-  const parsed = parseAttachmentMarkers(legacy);
-  assert.equal(parsed.text, "смотри надо отправить это\n\nиз моих скринов");
-  assert.deepEqual(parsed.attachments.map((item) => item.path), [WIN_IMAGE, WIN_IMAGE_2, MAC_IMAGE]);
+  const raw = `from my screenshots ${WIN_IMAGE} ${WIN_IMAGE_2} '${WEB_UPLOAD}'`;
+  assert.deepEqual(parseAttachmentMarkers(raw), { text: raw, attachments: [] }, "bare temp paths stay text");
 }
 
 {
-  const quoted = String.raw`'C:\Users\John Doe\AppData\Local\Temp\codeterm-chat\abc-notes.md'`;
-  const parsed = parseAttachmentMarkers(`see ${quoted} and ${WEB_UPLOAD}`);
-  assert.equal(parsed.text, "see and");
-  assert.deepEqual(parsed.attachments, [
-    { kind: "file", path: String.raw`C:\Users\John Doe\AppData\Local\Temp\codeterm-chat\abc-notes.md` },
-    { kind: "image", path: WEB_UPLOAD },
-  ]);
-}
-
-{
-  const untouched = String.raw`keep C:\repo\shot.png and https://x.test/codeterm-chat/a.png and xC:\Temp\codeterm-chat\a.png`;
-  assert.deepEqual(parseAttachmentMarkers(untouched), { text: untouched, attachments: [] });
-}
-
-{
-  const voice = String.raw`[voice C:\Users\me\.codeterm\uploads\1a2b-voice-note-1.webm: hello there]`;
-  assert.deepEqual(parseAttachmentMarkers(`say ${voice}`), { text: `say ${voice}`, attachments: [] }, "voice references stay text");
-}
-
-{
-  const parsed = parseAttachmentMarkers(`${formatAttachmentMarker(WIN_IMAGE)} ${WIN_IMAGE}`);
-  assert.equal(parsed.attachments.length, 1, "one path yields one attachment");
+  const parsed = parseAttachmentMarkers(`${formatAttachmentMarker(WIN_IMAGE)} ${formatAttachmentMarker(WIN_IMAGE)}`);
+  assert.deepEqual(parsed, { text: "", attachments: [{ kind: "image", path: WIN_IMAGE }] }, "one path yields one attachment");
 }
 
 assert.deepEqual(parseAttachmentMarkers('<ds-attachment path="/tmp/x.webp"/>').attachments, [{ kind: "image", path: "/tmp/x.webp" }]);

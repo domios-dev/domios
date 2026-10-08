@@ -1,6 +1,11 @@
 import type { LocalArtifactKind } from "./localArtifactDirective";
 
-export type AttachmentKind = "image" | "file";
+export const ATTACHMENT_KINDS = ["image", "file"] as const;
+export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
+
+function isAttachmentKind(value: string | undefined): value is AttachmentKind {
+  return (ATTACHMENT_KINDS as readonly string[]).includes(value ?? "");
+}
 
 export interface AttachmentMarker {
   kind: AttachmentKind;
@@ -26,14 +31,6 @@ const DOCUMENT_EXTENSIONS = new Set(["md", "markdown", "txt", "log", "json", "ya
 
 const MARKER = /<ds-attachment\b([^<>]*?)\/?>/gi;
 const ATTRIBUTE = /([a-z]+)="([^"]*)"/gi;
-const LEGACY_DIR = String.raw`(?:codeterm-chat|\.codeterm[\w-]*[\\/]uploads)`;
-const LEGACY_ROOT = String.raw`(?:[A-Za-z]:[\\/]|/)`;
-const LEGACY_FILE = String.raw`[^\s"'<>|:\\/]+\.[A-Za-z0-9]+`;
-// A host temp attachment path pasted bare by older composers; quoted when the temp dir has spaces.
-const LEGACY_PATH = new RegExp(
-  String.raw`(?<=^|\s)(?:'(${LEGACY_ROOT}[^'\n]*?${LEGACY_DIR}[\\/]${LEGACY_FILE})'|"(${LEGACY_ROOT}[^"\n]*?${LEGACY_DIR}[\\/]${LEGACY_FILE})"|(${LEGACY_ROOT}(?:[^\s"'<>|]*?[\\/])?${LEGACY_DIR}[\\/]${LEGACY_FILE}))(?=\s|$)`,
-  "g",
-);
 
 function extension(path: string): string {
   return /\.([a-z0-9]+)$/i.exec(path)?.[1]?.toLowerCase() ?? "";
@@ -87,14 +84,8 @@ function markerSpan(match: RegExpMatchArray): Span {
   return {
     start,
     end: start + match[0].length,
-    attachment: path ? { kind: kind === "image" || kind === "file" ? kind : attachmentKindForPath(path), path } : null,
+    attachment: path ? { kind: isAttachmentKind(kind) ? kind : attachmentKindForPath(path), path } : null,
   };
-}
-
-function legacySpan(match: RegExpMatchArray): Span {
-  const path = match[1] ?? match[2] ?? match[3];
-  const start = match.index ?? 0;
-  return { start, end: start + match[0].length, attachment: { kind: attachmentKindForPath(path), path } };
 }
 
 function removeSpans(content: string, spans: Span[]): string {
@@ -115,13 +106,9 @@ function pathKey(path: string): string {
   return path.replace(/\\/g, "/");
 }
 
-/** Splits attachment markers, and bare host temp attachment paths from older transcripts, out of message text. */
+/** Splits attachment markers out of message text; text without markers is returned unchanged. */
 export function parseAttachmentMarkers(content: string): ParsedAttachmentMarkers {
-  const markers = [...content.matchAll(MARKER)].map(markerSpan);
-  const legacy = [...content.matchAll(LEGACY_PATH)]
-    .map(legacySpan)
-    .filter((span) => !markers.some((marker) => span.start < marker.end && marker.start < span.end));
-  const spans = [...markers, ...legacy].sort((a, b) => a.start - b.start);
+  const spans = [...content.matchAll(MARKER)].map(markerSpan);
   if (spans.length === 0) return { text: content, attachments: [] };
   const seen = new Set<string>();
   const attachments: AttachmentMarker[] = [];
