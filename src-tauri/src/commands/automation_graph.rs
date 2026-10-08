@@ -56,3 +56,18 @@ pub async fn automation_graph_delete_sentinel(
     .await
     .map_err(|e| e.to_string())?
 }
+
+#[tauri::command]
+pub async fn automation_node_files(
+    svc: tauri::State<'_, crate::service::ServiceState>,
+    identity: crate::sentinel::graph::Identity,
+    bucket: Option<String>,
+    handler: Option<String>,
+) -> Result<Vec<crate::sentinel::graph::files::FileReference>, String> {
+    let svc = svc.inner().clone();
+    tokio::task::spawn_blocking(move || {
+        svc.automation_node_files(&identity, bucket.as_deref(), handler.as_deref())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
