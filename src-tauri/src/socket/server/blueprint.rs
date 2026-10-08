@@ -52,6 +52,11 @@ pub(super) fn dispatch(
         .and_then(Value::as_str);
     let caller = svc.sentinel_caller(&tab, nonce).map_err(error)?;
     let result = match method {
+        "blueprint.input" => {
+            let id = get_string_param(params, "id")?;
+            let text = get_string_param(params, "text")?;
+            svc.blueprint_input(&caller, &id, text).map_err(error)
+        }
         "blueprint.pipeline.nodes" => Ok(svc.blueprint_pipeline_nodes()),
         "blueprint.pipeline.validate" => {
             let spec = pipeline_spec_param(params)?;

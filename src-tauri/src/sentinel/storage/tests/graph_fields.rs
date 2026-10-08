@@ -244,6 +244,45 @@ fn sentinel_schema_v4_graph_fields_round_trip_on_both_backends() {
 }
 
 #[test]
+fn blueprint_terminal_session_definition_and_budgets_survive_typed_reload() {
+    let root = temp_root();
+    let storage = open(root.path());
+    let clock = MockClock::starting_at(1_000);
+    let store = typed(&storage, &clock);
+    let mut job = fixture(FRESH);
+    job.terminal = Some(codeterm_types::blueprint_terminal::Config {
+        pattern: Some("ready".into()),
+        idle_ms: Some(200),
+    });
+    job.session = true;
+    job.max_transitions = 1;
+    job.max_actions = 1;
+    job.on_other.clear();
+    job.routes = std::collections::BTreeMap::from([("trust".into(), vec![])]);
+    let inserted = commit(&store, |store| store.stage_insert(job.clone())).unwrap();
+    assert_eq!(inserted.terminal, job.terminal);
+    for index in 0..3 {
+        let live = store.lock().get(&job.id).unwrap().clone();
+        let staged =
+            store
+                .lock()
+                .stage_accept_transition(&live, "trust", &format!("exchange-{index}"));
+        assert!(staged.settle(&store).unwrap());
+    }
+    drop(store);
+    close(storage);
+    let storage = open(root.path());
+    let store = typed(&storage, &clock);
+    let live = store.lock().get(&job.id).unwrap().clone();
+    assert_eq!(live.terminal, job.terminal);
+    assert!(live.session);
+    assert_eq!(live.transitions.len(), 3);
+    assert!(!super::super::super::store::transition_budget_spent(&live));
+    drop(store);
+    close(storage);
+}
+
+#[test]
 fn sentinel_schema_v4_update_definition_appends_lineage_and_advances_generation_once() {
     let root = temp_root();
     let storage = open(root.path());

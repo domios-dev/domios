@@ -28,6 +28,8 @@ const MIGRATIONS: &[&str] = &[
     "ALTER TABLE sentinel_transitions ADD COLUMN decision_json TEXT CHECK (decision_json IS NULL OR length(decision_json) <= 4096);",
     "ALTER TABLE sentinel_runtime ADD COLUMN causal_run_json TEXT CHECK (causal_run_json IS NULL OR length(causal_run_json) <= 4096);
      ALTER TABLE sentinel_transitions ADD COLUMN causal_run_json TEXT CHECK (causal_run_json IS NULL OR length(causal_run_json) <= 4096);",
+    "ALTER TABLE sentinel_definitions ADD COLUMN terminal_spec TEXT CHECK (terminal_spec IS NULL OR length(terminal_spec) <= 8192);
+     ALTER TABLE sentinel_definitions ADD COLUMN session INTEGER NOT NULL DEFAULT 0 CHECK (session IN (0, 1));",
 ];
 pub(crate) const SCHEMA_VERSION: i32 = MIGRATIONS.len() as i32;
 

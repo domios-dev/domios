@@ -958,6 +958,8 @@ mod tests {
         let job = store
             .prepare(
                 Create {
+                    terminal: None,
+                    session: false,
                     name: Some("legacy stage".into()),
                     probe: Some("printf ready".into()),
                     observe: None,
