@@ -21,6 +21,15 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ApiVerdict::Rest,
     ),
     (
+        "model-provider",
+        &["codeterm", "model-provider", "list"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported(
+            "model provider secrets and configuration are local-only; run on the target machine",
+        ),
+    ),
+    (
         "capabilities",
         &["codeterm", "capabilities"],
         Local::Socket,

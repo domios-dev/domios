@@ -157,6 +157,35 @@ fn agent_restart_mesh_preserves_explicit_tab() {
 }
 
 #[test]
+fn agent_restart_mesh_preserves_explicit_provider_and_history() {
+    for history in [false, true] {
+        let mut args = vec![
+            "restart",
+            "--tab",
+            "remote-tab",
+            "--provider",
+            "opaque-provider",
+        ];
+        if history {
+            args.push("--handoff-history");
+        }
+        let (method, path, body) = agent_to_api(&parse_action(&args));
+        assert_eq!(method, "POST");
+        assert_eq!(path, "/api/tabs/remote-tab/agent/restart");
+        let mut expected = serde_json::json!({
+            "force": false, "grace_secs": 10, "provider": "opaque-provider"
+        });
+        if history {
+            expected["handoff_history"] = serde_json::json!(true);
+        }
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&body.unwrap()).unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
 fn restart_without_tab_over_mesh_is_refused_even_with_local_tab_environment() {
     let (method, reason, body) = {
         let _guard = crate::test_env_lock().lock().unwrap();

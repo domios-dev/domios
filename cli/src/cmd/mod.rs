@@ -1,4 +1,5 @@
 pub mod agent;
+pub(crate) mod agent_restart;
 mod agent_spawn;
 pub mod blueprint;
 pub mod bridge;
