@@ -68,6 +68,44 @@ it("quotes and asks only about the held part", async () => {
   await hold(); await act(async () => item("Ask about this").click());
   expect(composerInsertionStore.take("touch")[0]?.content).toBe("### Fermi\n\nSecond **part**.");
 });
+it("keeps the sheet open after release, focus loss and compatibility events until a later outside tap", async () => {
+  await render();
+  await pointer(parts()[1], "pointerdown");
+  await act(async () => vi.advanceTimersByTime(450));
+  expect(menu()).not.toBeNull();
+  await pointer(parts()[1], "pointerup");
+  await act(async () => {
+    (document.activeElement as HTMLElement).blur();
+    document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, detail: 1 }));
+    document.body.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, detail: 1 }));
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+  });
+  expect(menu()).not.toBeNull();
+  await pointer(document.body, "pointerdown");
+  await pointer(document.body, "pointerup");
+  expect(menu()).toBeNull();
+});
+it("consumes the opening compatibility click even when the sheet covers the finger", async () => {
+  await render(); await hold();
+  const copy = item("Copy");
+  await act(async () => {
+    copy.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true, detail: 1 }));
+    copy.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true, detail: 1 }));
+    copy.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 }));
+  });
+  expect(written).toEqual({});
+  expect(menu()).not.toBeNull();
+  await pointer(copy, "pointerdown");
+  await pointer(copy, "pointerup");
+  await act(async () => copy.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 })));
+  expect(written[DOMIOS_TEXT_MIME]).toBe("Second **part**.");
+});
+it("closes with Escape after release has moved focus out of the sheet", async () => {
+  await render(); await hold();
+  await act(async () => (document.activeElement as HTMLElement).blur());
+  await act(async () => document.body.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, code: "Escape" })));
+  expect(menu()).toBeNull();
+});
 it("switches the touch preview and payload to the whole message", async () => {
   await render(); await hold();
   const whole = Array.from(document.querySelectorAll<HTMLButtonElement>("[role='menuitemradio']")).find((button) => button.textContent === "Whole message")!;
