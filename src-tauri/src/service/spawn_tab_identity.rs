@@ -18,7 +18,7 @@ pub(super) fn prepare_tab_identity(spec: &mut SpawnTabSpec) -> Result<(), String
     if spec.cmd.is_some() && !matches!(spec.command, TabCommand::Shell) {
         return Err("utility commands require PTY shell backing".into());
     }
-    spec.icon = super::utility_tabs::normalize_icon(spec.icon.take())?;
+    spec.icon = crate::service::utility_tabs::normalize_icon(spec.icon.take())?;
     if spec.icon.is_some() && !matches!(spec.command, TabCommand::Shell) {
         return Err("utility icons require PTY shell backing".into());
     }
