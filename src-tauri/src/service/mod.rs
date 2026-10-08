@@ -386,6 +386,7 @@ pub struct ServiceContext {
     pub tab_menu_registry: codeterm_plugin::tab_menu::TabMenuRegistryHandle,
     /// Surface declarations of enabled view plugins, keyed by plugin id.
     pub surface_registry: codeterm_plugin::surfaces::SurfaceRegistryHandle,
+    pub(crate) surface_runtimes: Arc<surface::SurfaceRuntimeRegistry>,
     /// Sole owner of the webhook-receiver → tab bindings.
     pub receiver_targets: Arc<receiver_target::ReceiverTargetStore>,
     /// Coalesces `mux-state-changed` emits — see `emit_state_changed`.

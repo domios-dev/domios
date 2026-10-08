@@ -2,8 +2,8 @@ use serde::Serialize;
 
 use super::model::{
     choose_owner, owner_label, parse_surface_target, resolve_surface_decl, surface_placement,
-    surface_tab_row, DeclaredSurfaceRow, PluginSurfaceFacts, SurfaceError, SurfaceOpenRequest,
-    SurfaceTabRow, SurfaceTarget,
+    surface_renderable, surface_tab_row, DeclaredSurfaceRow, PluginSurfaceFacts, SurfaceError,
+    SurfaceOpenRequest, SurfaceTabRow, SurfaceTarget,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{SurfaceBacking, TabBacking};
@@ -32,6 +32,7 @@ impl ServiceContext {
                 .get(plugin_id)
                 .map(|declared| declared.to_vec()),
             view_registered: self.view_registry.get(plugin_id).is_some(),
+            runtimes: self.surface_runtimes.runtime_names(),
         }
     }
 
@@ -58,16 +59,16 @@ impl ServiceContext {
 
     pub(crate) fn list_surfaces(&self) -> SurfaceList {
         let mut declared = Vec::new();
+        let runtimes = self.surface_runtimes.runtime_names();
         for plugin_id in self.surface_registry.ids() {
-            if self.view_registry.get(&plugin_id).is_none() {
-                continue;
-            }
+            let view_registered = self.view_registry.get(&plugin_id).is_some();
             let Some(surfaces) = self.surface_registry.get(&plugin_id) else {
                 continue;
             };
             declared.extend(
                 surfaces
                     .iter()
+                    .filter(|surface| surface_renderable(surface, view_registered, &runtimes))
                     .map(|surface| DeclaredSurfaceRow::new(&plugin_id, surface)),
             );
         }

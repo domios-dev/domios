@@ -133,7 +133,7 @@ The desktop `chat_start` command and web-mirror `POST /api/tabs/{id}/chat-raw/st
 
 Configure-with-AI, provider install, auto-confirm, the Pebble webhook and plugin receiver targets: `codeterm docs API-INTEGRATIONS`.
 
-Plugin surface tabs (`GET /api/surfaces`, `POST /api/surfaces/open`, `POST /api/surfaces/close`): `codeterm docs SURFACES`.
+Plugin surface tabs (`GET /api/surfaces`, `POST /api/surfaces/open`, `POST /api/surfaces/close`, and a stream surface's `GET /api/surfaces/{tab_id}/stream` and `POST /api/surfaces/{tab_id}/call`): `codeterm docs SURFACES`.
 
 #### Interactive chat prompts
 
@@ -174,4 +174,4 @@ Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reach
 A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `codeterm docs ORCHESTRATION`.
 
 Related docs: `API-PLAN`, `API-TABS` (including local `codeterm send` output), `API-INTEGRATIONS`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, and `TELEGRAM-SETUP`.
-<!-- revision: 187 -->
+<!-- revision: 188 -->

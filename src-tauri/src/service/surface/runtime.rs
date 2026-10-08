@@ -1,0 +1,237 @@
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::pin::Pin;
+use std::sync::Arc;
+
+use futures_core::Stream;
+use parking_lot::Mutex;
+use serde::Serialize;
+use serde_json::Value;
+
+use super::model::SurfaceError;
+use crate::service::browser::screencast::ScreencastFrame;
+use crate::service::browser::viewport::ViewportRequest;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SurfaceState {
+    pub owner: String,
+    pub title: String,
+    pub url: String,
+    pub activity: String,
+    pub needs_human: String,
+    pub profile: String,
+    pub profiles: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum NoticeTone {
+    Info,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub(crate) struct SurfaceNotice {
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tone: Option<NoticeTone>,
+}
+
+impl SurfaceNotice {
+    pub(crate) fn info(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            tone: Some(NoticeTone::Info),
+        }
+    }
+
+    pub(crate) fn error(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            tone: Some(NoticeTone::Error),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum SurfaceEvent {
+    State(SurfaceState),
+    Frame(Arc<ScreencastFrame>),
+    Notice(SurfaceNotice),
+}
+
+/// Dropping the stream disconnects the viewer; the last viewer leaving stops frame production.
+pub(crate) type SurfaceEvents = Pin<Box<dyn Stream<Item = SurfaceEvent> + Send>>;
+
+/// Who a call acts for: the surface owner, whose pad receives evidence files when it exists.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SurfaceCallCtx {
+    pub owner_tab_id: Option<String>,
+    pub data_dir: PathBuf,
+}
+
+impl SurfaceCallCtx {
+    /// Blocking: probes the owner's pad on disk.
+    pub(crate) fn evidence_dir(&self) -> PathBuf {
+        evidence_dir(&self.data_dir, self.owner_tab_id.as_deref())
+    }
+}
+
+pub(crate) fn evidence_dir(data_dir: &Path, owner_tab_id: Option<&str>) -> PathBuf {
+    owner_tab_id
+        .and_then(|owner| crate::service::agent_pad::AgentPad::open(data_dir, owner).ok())
+        .map(|pad| pad.path().join("screenshots"))
+        .unwrap_or_else(|| data_dir.join("browsers").join("screenshots"))
+}
+
+/// Side effects a runtime asks core to perform after a call; it never reaches back into core itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SurfaceEffect {
+    DeliverAnnotation { id: String, markdown: String },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct SurfaceCallOutcome {
+    pub result: Value,
+    pub effects: Vec<SurfaceEffect>,
+}
+
+impl SurfaceCallOutcome {
+    pub(crate) fn value(result: Value) -> Self {
+        Self {
+            result,
+            effects: Vec::new(),
+        }
+    }
+}
+
+/// One live instance per stream surface tab, created lazily and disposed with the tab.
+#[async_trait::async_trait]
+pub(crate) trait SurfaceRuntime: Send + Sync {
+    fn set_owner_name(&self, name: &str);
+    fn state(&self) -> SurfaceState;
+    /// Applies `viewport` before any frame reaches the returned stream.
+    async fn connect(self: Arc<Self>, viewport: Option<ViewportRequest>) -> SurfaceEvents;
+    async fn call(
+        &self,
+        ctx: &SurfaceCallCtx,
+        method: &str,
+        args: Value,
+    ) -> Result<SurfaceCallOutcome, String>;
+    async fn agent_verb(
+        &self,
+        ctx: &SurfaceCallCtx,
+        verb: &str,
+        args: &[String],
+    ) -> Result<String, String>;
+    fn annotation_delivered(&self, id: &str);
+    async fn dispose(&self);
+}
+
+/// The SSE event name and JSON `data` line for one stream event.
+pub(crate) fn sse_payload(event: &SurfaceEvent) -> (&'static str, String) {
+    use base64::Engine;
+    match event {
+        SurfaceEvent::State(state) => ("state", serde_json::to_string(state).unwrap_or_default()),
+        SurfaceEvent::Frame(frame) => (
+            "frame",
+            serde_json::json!({
+                "data": base64::engine::general_purpose::STANDARD.encode(&frame.jpeg),
+                "metadata": frame.metadata,
+            })
+            .to_string(),
+        ),
+        SurfaceEvent::Notice(notice) => {
+            ("notice", serde_json::to_string(notice).unwrap_or_default())
+        }
+    }
+}
+
+pub(crate) trait SurfaceRuntimeFactory: Send + Sync {
+    /// Must stay cheap: nothing launches until the runtime is first used.
+    fn create(&self, owner_name: &str) -> Arc<dyn SurfaceRuntime>;
+}
+
+struct Instance {
+    runtime_name: String,
+    runtime: Arc<dyn SurfaceRuntime>,
+}
+
+/// Core surface runtimes keyed by the name a manifest declares, and the live instance per tab.
+pub(crate) struct SurfaceRuntimeRegistry {
+    factories: HashMap<String, Arc<dyn SurfaceRuntimeFactory>>,
+    instances: Mutex<HashMap<String, Instance>>,
+}
+
+impl SurfaceRuntimeRegistry {
+    pub(crate) fn new(factories: HashMap<String, Arc<dyn SurfaceRuntimeFactory>>) -> Self {
+        Self {
+            factories,
+            instances: Mutex::new(HashMap::new()),
+        }
+    }
+
+    pub(crate) fn with_builtin_runtimes(data_dir: &Path) -> Self {
+        let mut factories: HashMap<String, Arc<dyn SurfaceRuntimeFactory>> = HashMap::new();
+        factories.insert(
+            super::browser::BROWSER_RUNTIME.to_string(),
+            Arc::new(super::browser::BrowserRuntimeFactory::new(data_dir)),
+        );
+        Self::new(factories)
+    }
+
+    pub(crate) fn runtime_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.factories.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    pub(crate) fn get_or_create(
+        &self,
+        tab_id: &str,
+        runtime_name: &str,
+        owner_name: &str,
+    ) -> Result<Arc<dyn SurfaceRuntime>, SurfaceError> {
+        let factory = self
+            .factories
+            .get(runtime_name)
+            .ok_or_else(|| SurfaceError::RuntimeUnavailable(runtime_name.to_string()))?;
+        let mut instances = self.instances.lock();
+        if let Some(instance) = instances
+            .get(tab_id)
+            .filter(|instance| instance.runtime_name == runtime_name)
+        {
+            return Ok(instance.runtime.clone());
+        }
+        let runtime = factory.create(owner_name);
+        instances.insert(
+            tab_id.to_string(),
+            Instance {
+                runtime_name: runtime_name.to_string(),
+                runtime: runtime.clone(),
+            },
+        );
+        Ok(runtime)
+    }
+
+    /// Removes every instance whose tab is gone; the caller disposes what it gets back.
+    pub(crate) fn take_closed(
+        &self,
+        is_live: impl Fn(&str) -> bool,
+    ) -> Vec<Arc<dyn SurfaceRuntime>> {
+        let tab_ids: Vec<String> = self.instances.lock().keys().cloned().collect();
+        let dead: Vec<String> = tab_ids.into_iter().filter(|id| !is_live(id)).collect();
+        if dead.is_empty() {
+            return Vec::new();
+        }
+        let mut instances = self.instances.lock();
+        dead.iter()
+            .filter_map(|id| instances.remove(id))
+            .map(|instance| instance.runtime)
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests;

@@ -32,6 +32,8 @@ fn surface_manifest_parses_view_surface_with_defaults() {
             renderer: SurfaceRenderer::View,
             agent_bound: false,
             restore: SurfaceRestore::Relaunch,
+            runtime: None,
+            chrome: None,
         }]
     );
     assert_eq!(
@@ -126,4 +128,56 @@ fn surface_manifest_rejects_duplicate_and_excess_surfaces() {
         })
         .collect();
     assert!(manifest(with_view(excess)).is_err());
+}
+
+fn stream_surface() -> serde_json::Value {
+    serde_json::json!({ "id": "browser", "title": "Browser", "renderer": "stream", "runtime": "browser" })
+}
+
+#[test]
+fn surface_manifest_stream_surface_needs_no_view_and_names_its_runtime() {
+    let mut declared = stream_surface();
+    declared["chrome"] = serde_json::json!({ "items": [{ "id": "pick" }] });
+    let parsed = manifest(serde_json::json!({ "surfaces": [declared.clone()] }))
+        .expect("stream surface without a view");
+    let surface = &parsed.capabilities.surfaces[0];
+    assert_eq!(surface.renderer, SurfaceRenderer::Stream);
+    assert_eq!(surface.stream_runtime(), Some("browser"));
+    assert_eq!(
+        surface
+            .chrome
+            .as_ref()
+            .and_then(|chrome| chrome.get("items")),
+        declared["chrome"].get("items")
+    );
+    let value = serde_json::to_value(&parsed.capabilities).expect("serialize");
+    assert_eq!(
+        value["surfaces"][0], declared,
+        "chrome passes through untouched"
+    );
+}
+
+#[test]
+fn surface_manifest_view_surface_has_no_stream_runtime() {
+    let parsed = manifest(with_view(vec![surface()])).expect("valid surface");
+    assert_eq!(parsed.capabilities.surfaces[0].stream_runtime(), None);
+}
+
+#[test]
+fn surface_manifest_rejects_stream_without_valid_runtime_and_view_with_stream_fields() {
+    let mut no_runtime = stream_surface();
+    no_runtime.as_object_mut().unwrap().remove("runtime");
+    let mut bad_runtime = stream_surface();
+    bad_runtime["runtime"] = serde_json::json!("Browser Engine");
+    let mut array_chrome = stream_surface();
+    array_chrome["chrome"] = serde_json::json!([]);
+    for declared in [no_runtime, bad_runtime, array_chrome] {
+        assert!(
+            manifest(serde_json::json!({ "surfaces": [declared.clone()] })).is_err(),
+            "accepted {declared}"
+        );
+    }
+    let mut view_with_runtime = surface();
+    view_with_runtime["runtime"] = serde_json::json!("browser");
+    assert!(manifest(with_view(vec![view_with_runtime])).is_err());
 }

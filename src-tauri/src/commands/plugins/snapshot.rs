@@ -130,6 +130,9 @@ fn enrich_from_manifest_with_icon(
         if perm_on("agent_commands", "agentCommands") {
             granted.push("agent_commands");
         }
+        if perm_on("surfaces", "surfaces") {
+            granted.push("surfaces");
+        }
         if perm_on("manage_workspaces", "manageWorkspaces") {
             granted.push("manage_workspaces");
         }
