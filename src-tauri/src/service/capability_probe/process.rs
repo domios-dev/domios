@@ -8,6 +8,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(test)]
+mod diagnostics;
+
 const OUTPUT_LIMIT: u64 = 1_048_576;
 pub(super) fn capture(
     binary: &Path,
@@ -43,6 +46,8 @@ pub(super) fn capture_command(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null());
+    #[cfg(test)]
+    command.stderr(Stdio::piped());
     let mut tree = super::super::provider_update::ProcessTree::prepare(&mut command)
         .map_err(|_| ProbeFailure::Spawn)?;
     let mut child = command.spawn().map_err(|_| ProbeFailure::Spawn)?;
@@ -56,6 +61,8 @@ pub(super) fn capture_command(
         let _ = child.wait();
         return Err(ProbeFailure::Cleanup);
     }
+    #[cfg(test)]
+    let diagnostic = diagnostics::Stderr::capture(&mut child);
     let (tx, rx) = mpsc::sync_channel(1);
     let stdout = child.stdout.take().expect("piped stdout");
     let reader = std::thread::Builder::new()
@@ -105,6 +112,8 @@ pub(super) fn capture_command(
         }
         Err(_) => Err(ProbeFailure::Spawn),
     };
+    #[cfg(test)]
+    let before_cleanup = child.try_wait();
     drop(child.stdin.take());
     if tree.terminate(&mut child).is_err()
         && !tree.observe_event().is_ok_and(|event| event.confirmed())
@@ -113,7 +122,10 @@ pub(super) fn capture_command(
         let _ = child.wait();
         return Err(ProbeFailure::Cleanup);
     }
-    let stopped = child.wait().is_ok();
+    let status = child.wait();
+    #[cfg(test)]
+    diagnostic.report(&command, &result, &before_cleanup, &status);
+    let stopped = status.is_ok();
     tree.reaped(&child);
     #[cfg(windows)]
     let stopped = stopped
