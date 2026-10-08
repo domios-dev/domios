@@ -2,7 +2,7 @@
 mod bundle_hash;
 
 /// Core plugins that ship with the app but are not agent providers.
-const CORE_PLUGIN_DIRS: &[&str] = &["analytics"];
+const CORE_PLUGIN_DIRS: &[&str] = &["analytics", "browser"];
 
 fn main() {
     generate_system_plugin_hashes();

@@ -56,6 +56,7 @@
   "src/store/multiplexer/reloadHydration.test.tsx",
   "src/components/Titlebar/ExtensionsTray.test.tsx",
   "plugins/analytics/tests/plugin.test.ts",
+  "plugins/browser/tests/plugin.test.ts",
   "plugins/analytics/ui/src/model/model.test.ts",
   "plugins/analytics/ui/src/Dashboard.test.tsx",
   "plugins/analytics/ui/src/Dashboard.freshness.test.tsx",
