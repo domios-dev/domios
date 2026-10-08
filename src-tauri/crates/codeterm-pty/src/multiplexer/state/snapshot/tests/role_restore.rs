@@ -40,6 +40,7 @@ fn role_claim_leaf(role: &str, role_profile: Option<&str>) -> SplitNodeSnapshot 
         model_identity_mismatch: None,
         chatbackend_plugin_id: None,
         chatbackend_session_id: None,
+        surface: None,
         watcher: None,
         pending_delivery: None,
     }

@@ -15,9 +15,9 @@ use super::{
     config_routes, cron_routes, debug_routes, essence_map_routes, fs_routes, health_routes,
     inbound_webhook, logs_routes, mem_routes, mesh_inventory, mesh_routes, network_routes,
     notification_routes, output_stream, pasteboard_routes, plan_routes, plugin_tab_menu_routes,
-    pty_routes, services_routes, session_routes, tab_agent_routes, tab_routes, task_routes,
-    team_mission_control_routes, team_routes, team_spend, theme_routes, updater_routes,
-    usage_routes, web_routes, webhook_routes, workspace_routes,
+    pty_routes, services_routes, session_routes, surface_routes, tab_agent_routes, tab_routes,
+    task_routes, team_mission_control_routes, team_routes, team_spend, theme_routes,
+    updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
 /// Origins Tauri serves the app window from: custom scheme on macOS/iOS/Linux,
@@ -974,6 +974,9 @@ pub fn create_router(state: AppState) -> Router {
             "/api/plugins/tab-menu",
             get(plugin_tab_menu_routes::tab_menu),
         )
+        .route("/api/surfaces", get(surface_routes::list))
+        .route("/api/surfaces/open", post(surface_routes::open))
+        .route("/api/surfaces/close", post(surface_routes::close))
         .route(
             "/api/plugins/tab-menu/action",
             post(plugin_tab_menu_routes::tab_menu_action),

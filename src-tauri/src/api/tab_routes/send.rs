@@ -19,6 +19,7 @@ pub async fn chat_send_text(
 ) -> Result<Json<crate::service::agent_pad::ChatSendResult>, SendRejection> {
     check_auth(&state, &headers).map_err(SendRejection::from)?;
     let tab_id = resolve_tab(&state, &id).map_err(SendRejection::from)?;
+    surface_send_refusal(&state, &tab_id)?;
     state
         .svc
         .require_managed_send_allowed(&tab_id, None)
@@ -83,6 +84,16 @@ pub async fn chat_send_text(
         }
     })?;
     Ok(Json(result))
+}
+
+fn surface_send_refusal(state: &AppState, tab_id: &str) -> Result<(), DeliveryError> {
+    match state.svc.tab_surface_input_refusal(tab_id) {
+        Some(detail) => Err(DeliveryError::TabBusyRefused {
+            tab: tab_id.to_string(),
+            detail,
+        }),
+        None => Ok(()),
+    }
 }
 
 fn chat_send_target_refusal(
@@ -392,6 +403,7 @@ pub async fn send_text(
         resolve_tab(&state, &raw_tab_id).map_err(|_| DeliveryError::TabNotReachableOnPeer {
             tab: raw_tab_id.clone(),
         })?;
+    surface_send_refusal(&state, &tab_id)?;
 
     state
         .svc
