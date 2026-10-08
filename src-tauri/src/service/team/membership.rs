@@ -61,23 +61,56 @@ pub(crate) fn authorize_team_attachment(
     })
 }
 
+/// Where an attached tab hangs in the Team tree.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AttachmentParent<'a> {
+    /// Under the Team's live anchor: shells, spawned agents, adopted agents.
+    TeamAnchor,
+    /// Nested under a Team member that owns the tab, such as a plugin surface.
+    Owner(&'a str),
+}
+
 /// Write the resolved placement onto an already-created tab.
 pub(crate) fn apply_team_attachment(
     mux: &mut MultiplexerState,
     attachment: &TeamAttachment,
     tab_id: &str,
 ) -> Result<(), String> {
+    apply_team_attachment_under(mux, attachment, tab_id, AttachmentParent::TeamAnchor)
+}
+
+pub(crate) fn apply_team_attachment_under(
+    mux: &mut MultiplexerState,
+    attachment: &TeamAttachment,
+    tab_id: &str,
+    parent: AttachmentParent<'_>,
+) -> Result<(), String> {
     // Membership door 3: the one write every attach verb shares — `tab new
-    // --team`, `agent spawn --team`, and `team adopt-agent`.
+    // --team`, `agent spawn --team`, `team adopt-agent`, and `surface open`.
     let shape = shape_for_tab(mux, tab_id);
     refuse_general_agent_team_membership(mux, tab_id, MembershipAttempt::Join, &shape)?;
+    let (parent_tab_id, depth) = match parent {
+        AttachmentParent::TeamAnchor => (attachment.manager_tab_id.clone(), 2),
+        AttachmentParent::Owner(owner_id) => {
+            let owner = mux
+                .get_tab(owner_id)
+                .ok_or_else(|| format!("Owner Tab {owner_id} not found"))?;
+            if owner.team_id.as_deref() != Some(attachment.team_id.as_str()) {
+                return Err(format!(
+                    "Owner Tab {owner_id} does not belong to Team {}",
+                    attachment.team_id
+                ));
+            }
+            (owner_id.to_string(), owner.depth.saturating_add(1))
+        }
+    };
     let tab = mux
         .get_tab_mut(tab_id)
         .ok_or_else(|| format!("Tab {tab_id} not found"))?;
     tab.team_id = Some(attachment.team_id.clone());
     tab.spawned_by_tab_id = Some(attachment.caller_tab_id.clone());
-    tab.parent_tab_id = Some(attachment.manager_tab_id.clone());
-    tab.depth = 2;
+    tab.parent_tab_id = Some(parent_tab_id);
+    tab.depth = depth;
     Ok(())
 }
 
