@@ -55,6 +55,7 @@ pub(crate) mod launch_session_detection;
 pub(crate) mod local_preview;
 pub mod message_gateway;
 pub mod messenger;
+pub(crate) mod model_defaults;
 pub mod model_providers;
 pub mod notification;
 mod notification_desktop;
