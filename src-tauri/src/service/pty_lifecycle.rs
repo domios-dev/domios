@@ -402,6 +402,16 @@ fn handle_pty_death_with_cause(
         return PtyDeathOutcome::NoOwningTab;
     };
     let ga_snapshot = svc.mux.read().get_tab(pid).cloned();
+    if ga_snapshot
+        .as_ref()
+        .is_some_and(|tab| tab.worker_id.is_some())
+    {
+        svc.run_watcher.fail_now(
+            svc,
+            pty_id,
+            "memory worker PTY process exited without reporting".into(),
+        );
+    }
     svc.run_watcher
         .fail_cron_on_process_exit(svc, pty_id, "cron PTY process exited".into());
     let has_agent_identity = ga_snapshot

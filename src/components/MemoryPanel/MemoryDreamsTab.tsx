@@ -16,6 +16,7 @@ import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
 import { DreamCard, DreamDetailModal, type DreamDiaryEntry } from "./DreamCard";
 import { hasRenderableDreamInsight } from "./dreamVisuals";
 import { isTerminalWorkerStatus } from "../AgentRun/workerEmptyState";
+import { workerTimeLabels } from "./workerActivityModel";
 import { diaryRecordState, dreamRunLabel, dreamRunReport } from "./dreamRunStatus";
 
 interface Props {
@@ -483,12 +484,8 @@ function RecentSessionsList({
   const first = capped.slice(0, 5);
   const rest = capped.slice(5);
   const renderRow = (w: GraphWorkerInfo) => {
-    const isDone = isTerminalWorkerStatus(w.status);
     const run = dreamRunLabel(w);
-    const elapsed =
-      isDone && w.done_at
-        ? formatDuration(w.spawned_at, w.done_at)
-        : formatDuration(w.spawned_at, Date.now());
+    const time = workerTimeLabels(w, Date.now());
     return (
       <div
         key={w.worker_id}
@@ -504,7 +501,7 @@ function RecentSessionsList({
           className="text-[10px] uppercase tracking-wider w-[74px] shrink-0"
           style={{ color: run.color }}
         >
-          {run.label}
+          {w.status === "orphaned" ? `orphaned · ${run.label}` : run.label}
         </span>
         <span className="text-[11px] text-[var(--ct-fg)] font-mono tabular-nums">
           {new Date(w.spawned_at).toLocaleString("en-US", {
@@ -529,7 +526,7 @@ function RecentSessionsList({
           </span>
         )}
         <span className="ml-auto text-[10px] tabular-nums text-[var(--ct-muted-fg)]">
-          {elapsed}
+          {time.age} · {time.duration}
         </span>
       </div>
     );

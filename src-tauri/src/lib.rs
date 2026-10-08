@@ -1027,7 +1027,7 @@ pub fn run() {
             // Resume unfinished extraction only when auto-extract is on; `mem extract-pending` stays the manual path.
             if crate::config::memory_config().auto_extract {
                 let svc_for_extract = service_state.clone();
-                let queued = crate::mem::auto_extract::run_extract_pending(
+                let queued = crate::mem_host::resume_extract_pending(
                     svc_for_extract,
                     usize::MAX,
                 );
