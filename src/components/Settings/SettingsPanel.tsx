@@ -470,7 +470,7 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "integrations" && (
               <SettingsPage title="Integrations" subtitle="Telegram, Discord, and external bridges.">
-                <IntegrationsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} focusCard={top.card} />
+                <IntegrationsTab config={localConfig} onUpdate={(section, patch) => update(section, patch)} />
               </SettingsPage>
             )}
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { FileCode, FileText, FolderOpen, Image } from "lucide-react";
-import { ChatBlockHostProvider, RichMarkdown, openLocalArtifact } from "@codeterm/chat-ui";
+import { ChatBlockHostProvider, RichMarkdown, localArtifactOpeningAvailable, openLocalArtifact } from "@codeterm/chat-ui";
 import { formatCompact } from "../../lib/formatCompact";
 import { planSidePanelStore, usePlanSidePanelEntry } from "../Canvas/planSidePanelStore";
 import type { ChatDocument } from "./chatDocuments";
@@ -55,7 +55,7 @@ export function DocumentsView({ tabId, open }: { tabId: string; open: boolean })
           title: documentTitle(item),
           icon: <Icon size={13} aria-hidden className="shrink-0" />,
           actions: <>
-            <IconAction label={`Reveal ${item.name}`} title="Reveal in file manager" icon={FolderOpen} onClick={() => void openLocalArtifact(item.path).then(() => setError(null), (failure: unknown) => setError(String(failure)))} />
+            <IconAction label={`Reveal ${item.name}`} title={localArtifactOpeningAvailable() ? "Reveal in file manager" : "Revealing files is available only in the desktop app"} disabled={!localArtifactOpeningAvailable()} icon={FolderOpen} onClick={() => void openLocalArtifact(item.path).then(() => setError(null), (failure: unknown) => setError(String(failure)))} />
             <ChatAction compact label={`Ask about ${item.name}`} text="Ask" onClick={() => insertIntoComposer(tabId, { attachments: [item.path] })} />
           </>,
         };

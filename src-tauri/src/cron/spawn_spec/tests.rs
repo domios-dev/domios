@@ -32,6 +32,8 @@ fn expected_pty_spec() -> SpawnTabSpec {
         cwd: Some("/lane".into()),
         title: Some("cron:nightly".into()),
         description: None,
+        icon: None,
+        cmd: None,
         visibility: TabVisibility::Hidden,
         audience: TabAudience::UserOwnedAutomation,
         eager: false,

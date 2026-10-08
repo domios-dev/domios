@@ -4,8 +4,9 @@ import { createChatDocumentsModel, type DocumentFileCheck } from "./chatDocument
 
 async function main() {
   const calls: string[][] = [];
+  const owners: string[] = [];
   let paths = ["/work/live.md"];
-  const model = createChatDocumentsModel(async (requested) => { calls.push(requested); return { paths, home: "/home/ann" }; });
+  const model = createChatDocumentsModel(async (requested, tabId) => { calls.push(requested); owners.push(tabId); return { paths, home: "/home/ann" }; });
   const documents = documentsFromTranscript([{ content: "@ds-document /work/missing.md\n@ds-document /work/live.md" }]);
   model.set("a", documents);
   assert.equal(model.get("a").documents.length, 0);
@@ -13,6 +14,7 @@ async function main() {
   assert.deepEqual(calls, [["/work/live.md", "/work/missing.md"]]);
   assert.deepEqual(model.get("a").documents.map((doc) => doc.name), ["live.md"]);
   assert.equal(model.get("a").home, "/home/ann");
+  assert.deepEqual(owners, ["a"]);
   model.set("a", [...documents]);
   assert.equal(calls.length, 1);
   paths = [];
