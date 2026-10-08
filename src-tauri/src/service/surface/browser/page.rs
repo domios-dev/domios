@@ -38,8 +38,13 @@ pub(super) fn page_update(method: &str, params: &Value, target_id: &str) -> Opti
             frame
                 .get("parentId")
                 .is_none_or(Value::is_null)
+                // CDP reports the fragment apart from the document URL.
                 .then(|| PageUpdate::Navigated {
-                    url: text(frame.get("url")),
+                    url: format!(
+                        "{}{}",
+                        text(frame.get("url")),
+                        text(frame.get("urlFragment"))
+                    ),
                 })
         }
         // A page target's main frame id is its target id.
@@ -281,6 +286,16 @@ mod tests {
             ),
             Some(PageUpdate::Navigated {
                 url: "https://a.dev/x".into()
+            })
+        );
+        assert_eq!(
+            page_update(
+                "Page.frameNavigated",
+                &json!({ "frame": { "id": "f", "url": "https://a.dev/x", "urlFragment": "#top" } }),
+                "t"
+            ),
+            Some(PageUpdate::Navigated {
+                url: "https://a.dev/x#top".into()
             })
         );
         assert_eq!(

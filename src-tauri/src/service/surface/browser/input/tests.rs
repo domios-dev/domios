@@ -95,6 +95,11 @@ fn browser_goto_href_keeps_urls_and_searches_free_text() {
         "file:///tmp/x.html"
     );
     assert_eq!(goto_href("example.com").unwrap(), "https://example.com");
+    assert_eq!(goto_href("about:blank").unwrap(), "about:blank");
+    assert_eq!(
+        goto_href("data:text/html,<p>x</p>").unwrap(),
+        "data:text/html,<p>x</p>"
+    );
     assert_eq!(
         goto_href("localhost:5173/app").unwrap(),
         "http://localhost:5173/app"
