@@ -79,6 +79,9 @@ export const CHROME_ITEM = { pick: "pick", screenshot: "screenshot", takeControl
 
 export const CLEAN_PROFILE = "clean";
 const ATTACHED_PROFILE = "attached";
+export const NEW_PROFILE_OPTION = "__new";
+export const PROFILE_NAME_MAX = 40;
+const PROFILE_NAME = /^[A-Za-z0-9_-]+$/;
 
 const NEEDS_HUMAN_TEXT: Record<NeedsHumanKind, string> = {
   captcha: "needs you: bot check",
@@ -130,7 +133,11 @@ function enabledWhen(when: ToolbarWhen | undefined, interactive: boolean): boole
 
 export function profileOptions(state: SurfaceState): { options: SelectOption[]; value: string; locked: boolean } {
   const names = (state.profiles ?? []).filter((name) => name && name !== CLEAN_PROFILE);
-  const options = [{ value: CLEAN_PROFILE, label: "Clean profile" }, ...names.map((name) => ({ value: name, label: `Profile: ${name}` }))];
+  const options = [
+    { value: CLEAN_PROFILE, label: "Clean profile" },
+    ...names.map((name) => ({ value: name, label: `Profile: ${name}` })),
+    { value: NEW_PROFILE_OPTION, label: "+ New profile…" },
+  ];
   const locked = state.profile === ATTACHED_PROFILE;
   const current = state.profile && !locked ? state.profile : CLEAN_PROFILE;
   const value = options.some((option) => option.value === current) ? current : CLEAN_PROFILE;
@@ -177,6 +184,34 @@ export function toolbarInvocation(item: ToolbarItemSpec, value?: string): Invoca
   const args = { ...(item.invoke.args ?? {}) };
   if (item.invoke.valueArg && value !== undefined) args[item.invoke.valueArg] = value;
   return { method: item.invoke.method, args };
+}
+
+export type SelectChoice = { kind: "new-profile" } | { kind: "value"; value: string };
+
+// The core reads "" as the clean profile.
+export function selectChoice(item: Pick<ToolbarItemSpec, "source">, value: string): SelectChoice {
+  if (item.source !== "profiles") return { kind: "value", value };
+  if (value === NEW_PROFILE_OPTION) return { kind: "new-profile" };
+  return { kind: "value", value: value === CLEAN_PROFILE ? "" : value };
+}
+
+export function validateProfileName(name: string): string | null {
+  const value = name.trim();
+  if (!value) return "Enter a profile name";
+  if (value.length > PROFILE_NAME_MAX) return `Use at most ${PROFILE_NAME_MAX} characters`;
+  if (!PROFILE_NAME.test(value)) return "Use letters, digits, - or _";
+  const lower = value.toLowerCase();
+  if (lower === CLEAN_PROFILE || lower === ATTACHED_PROFILE) return `"${value}" is reserved`;
+  return null;
+}
+
+export function profileSwitchedNotice(current: string | null | undefined): string {
+  return current && current !== CLEAN_PROFILE ? `Using profile ${current}` : "Using a clean profile";
+}
+
+export function withOwner(state: SurfaceState, ownerName: string | null | undefined): SurfaceState {
+  const owner = ownerName?.trim();
+  return owner && owner !== state.owner ? { ...state, owner } : state;
 }
 
 export function addressSubmission(raw: string): string | null {
