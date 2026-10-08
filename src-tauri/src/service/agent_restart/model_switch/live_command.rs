@@ -9,6 +9,9 @@ use crate::agent::provider::{ModelSwitchCommand, ModelSwitchTranscript};
 
 const MAX_CONFIRMATION_BYTES: u64 = 1024 * 1024;
 
+mod prompt;
+use prompt::CommandPrompt;
+
 #[derive(Clone)]
 struct CommandTarget {
     tab_id: String,
@@ -23,19 +26,56 @@ struct CommandTarget {
 
 impl CommandTarget {
     fn current(&self, svc: &ServiceContext) -> bool {
-        svc.mux.read().get_tab(&self.tab_id).is_some_and(|tab| {
-            tab.pty_id.as_deref() == Some(self.pty_id.as_str())
-                && tab.agent_type.as_deref() == Some(self.provider.as_str())
-                && tab.agent_session_id.as_deref() == Some(self.session_id.as_str())
-                && tab.session_binding_nonce.as_deref() == Some(self.binding_nonce.as_str())
-                && tab.session_binding_nonce == tab.reported_session_binding_nonce
-        })
+        svc.mux
+            .read()
+            .get_tab(&self.tab_id)
+            .is_some_and(|tab| self.matches(tab))
+    }
+
+    fn matches(&self, tab: &crate::multiplexer::types::Tab) -> bool {
+        tab.pty_id.as_deref() == Some(self.pty_id.as_str())
+            && tab.agent_type.as_deref() == Some(self.provider.as_str())
+            && tab.agent_session_id.as_deref() == Some(self.session_id.as_str())
+            && tab.session_binding_nonce.as_deref() == Some(self.binding_nonce.as_str())
+            && tab.session_binding_nonce == tab.reported_session_binding_nonce
     }
 }
 
 fn record_confirmed_effort(tab: &mut crate::multiplexer::types::Tab, effort: &str) {
+    tab.restorable_launch.requested_reasoning_effort = Some(effort.to_owned());
+    tab.restorable_launch.resolved_reasoning_effort = Some(effort.to_owned());
+    crate::service::reasoning_effort::persist_launch_identity(tab, Some(effort), Some(effort));
     tab.reasoning_effort_identity.actual = Some(effort.to_owned());
     tab.reasoning_effort_identity.actual_source = Some("session-command".into());
+}
+
+fn planned_commands<'a>(
+    commands: &'a crate::agent::provider::ModelSwitchCommands,
+    model_changed: bool,
+    effort: Option<&'a str>,
+) -> Vec<(&'a ModelSwitchCommand, Option<&'a str>)> {
+    let mut plan = Vec::new();
+    if model_changed || effort.is_none() {
+        plan.push((&commands.model, None));
+    }
+    if let (Some(effort), Some(command)) = (effort, commands.effort.as_ref()) {
+        plan.push((command, Some(effort)));
+    }
+    plan
+}
+
+fn command_prompt_absent(
+    svc: &ServiceContext,
+    target: &CommandTarget,
+    pattern: Option<&Regex>,
+) -> bool {
+    let Some(pattern) = pattern else {
+        return true;
+    };
+    svc.screen_state
+        .lock()
+        .get_screen_text(&target.pty_id)
+        .is_some_and(|screen| !pattern.is_match(&screen))
 }
 
 fn render_command(template: &str, model: &str, effort: Option<&str>) -> Result<String, String> {
@@ -207,43 +247,63 @@ impl ServiceContext {
             model: model.to_owned(),
             display_name,
         };
-        self.run_model_command(&target, None, &commands.model, &commands.transcript)?;
-        let prior_effort = self
-            .mux
-            .read()
-            .get_tab(&snap.tab_id)
-            .and_then(|tab| tab.reasoning_effort_identity.resolved.clone());
-        self.record_live_model_request(
-            &snap.tab_id,
-            &snap.provider,
-            session_id,
-            model,
-            prior_effort.as_deref(),
-        )?;
-        if !self.record_live_model_confirmation(
-            &snap.tab_id,
-            &snap.provider,
-            session_id,
-            model,
-            model,
-        ) {
-            return Err(ModelSwitchError::LiveCommandFailed(
-                "the session changed before the model confirmation could be recorded".into(),
-            ));
-        }
-        if let (Some(effort), Some(command)) = (effort, commands.effort.as_ref()) {
-            self.run_model_command(&target, Some(effort), command, &commands.transcript)?;
-            self.record_live_model_request(
-                &snap.tab_id,
+        let model_changed = !previous_model.as_deref().is_some_and(|previous| {
+            crate::service::session_model::session_model_matches(
+                &self.agent_registry,
                 &snap.provider,
-                session_id,
                 model,
-                Some(effort),
-            )?;
-            if let Some(tab) = self.mux.write().get_tab_mut(&snap.tab_id) {
-                record_confirmed_effort(tab, effort);
+                previous,
+            )
+        });
+        for (command, command_effort) in planned_commands(&commands, model_changed, effort) {
+            self.run_model_command(&target, command_effort, command, &commands.transcript)?;
+            if let Some(effort) = command_effort {
+                {
+                    let mut mux = self.mux.write();
+                    let Some(tab) = mux
+                        .get_tab_mut(&snap.tab_id)
+                        .filter(|tab| target.matches(tab))
+                    else {
+                        return Err(ModelSwitchError::LiveCommandFailed(
+                            "the session changed before the effort confirmation could be recorded"
+                                .into(),
+                        ));
+                    };
+                    record_confirmed_effort(tab, effort);
+                }
+                if let Err(error) = crate::service::session_persist::persist_session_after_mutation(
+                    self,
+                    crate::service::session_persist::SessionPersistUrgency::Prompt,
+                ) {
+                    log::warn!("[agent-model] failed to persist the confirmed effort: {error}");
+                }
+                self.emit_state_changed();
+            } else {
+                let prior_effort = self
+                    .mux
+                    .read()
+                    .get_tab(&snap.tab_id)
+                    .and_then(|tab| tab.reasoning_effort_identity.resolved.clone());
+                self.record_live_model_request(
+                    &snap.tab_id,
+                    &snap.provider,
+                    session_id,
+                    model,
+                    prior_effort.as_deref(),
+                )?;
+                if !self.record_live_model_confirmation(
+                    &snap.tab_id,
+                    &snap.provider,
+                    session_id,
+                    model,
+                    model,
+                ) {
+                    return Err(ModelSwitchError::LiveCommandFailed(
+                        "the session changed before the model confirmation could be recorded"
+                            .into(),
+                    ));
+                }
             }
-            self.emit_state_changed();
         }
         Ok(ModelSwitchOutcome {
             tab_id: snap.tab_id.clone(),
@@ -276,6 +336,20 @@ impl ServiceContext {
             .map_err(ModelSwitchError::LiveCommandFailed)?;
         let pattern = confirmation_pattern(&template.confirmation, model, display_name, effort)
             .map_err(ModelSwitchError::LiveCommandFailed)?;
+        let mut prompt = template
+            .prompt
+            .as_ref()
+            .map(|declaration| CommandPrompt::new(declaration, target, effort))
+            .transpose()
+            .map_err(ModelSwitchError::LiveCommandFailed)?;
+        let prompt_pattern = template
+            .prompt
+            .as_ref()
+            .map(|declaration| {
+                confirmation_pattern(&declaration.screen_regex, model, display_name, effort)
+            })
+            .transpose()
+            .map_err(ModelSwitchError::LiveCommandFailed)?;
         let path = self
             .agent_registry
             .with_provider(&target.provider, |provider| {
@@ -297,14 +371,22 @@ impl ServiceContext {
         let signal = self.screen_state.lock().arm_screen_change_signal(pty_id);
         let deadline = Instant::now() + Duration::from_secs(MODEL_OBSERVE_TIMEOUT_SECS);
         let binding_current = || target.current(self);
+        let mut prompt_error = None;
         let result = execute_command(
-            || binding_current() && self.tab_is_idle(&target.tab_id),
+            || {
+                binding_current()
+                    && self.tab_is_idle(&target.tab_id)
+                    && command_prompt_absent(self, target, prompt_pattern.as_ref())
+            },
             || {
                 let permit = self.pty.lock().issue_guarded_input_permit(pty_id)?;
                 let svc = self.clone();
                 let expected = target.clone();
+                let prompt_pattern = prompt_pattern.clone();
                 let guard = std::sync::Arc::new(move || {
-                    svc.tab_is_idle(&expected.tab_id) && expected.current(&svc)
+                    svc.tab_is_idle(&expected.tab_id)
+                        && expected.current(&svc)
+                        && command_prompt_absent(&svc, &expected, prompt_pattern.as_ref())
                 });
                 let claim = crate::service::pty_io::submit_transaction::claim_submit_cycle(pty_id);
                 crate::service::pty_io::submit_transaction::submit_text_with_key_claimed_and_follow_up_revalidated(
@@ -315,27 +397,38 @@ impl ServiceContext {
                     }, Some(permit), false, claim, Some(guard), false, None,
                 ).map(|_| ()).map_err(|error| error.to_string())
             },
-            || loop {
-                let generation = signal.generation();
-                if !binding_current() {
-                    break false;
+            || {
+                if let Some(prompt) = prompt.as_mut() {
+                    prompt.injected();
                 }
-                if read_confirmation(&path, boundary, source, &pattern) {
-                    break true;
-                }
-                let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
-                    break false;
-                };
-                if !signal.wait_after(generation, remaining) {
-                    break binding_current()
-                        && read_confirmation(&path, boundary, source, &pattern);
+                loop {
+                    let generation = signal.generation();
+                    if !binding_current() {
+                        break false;
+                    }
+                    if read_confirmation(&path, boundary, source, &pattern) {
+                        break true;
+                    }
+                    let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                        break false;
+                    };
+                    if let Some(prompt) = prompt.as_mut() {
+                        if let Err(error) = self.respond_to_command_prompt(target, prompt) {
+                            prompt_error = Some(error);
+                            break false;
+                        }
+                    }
+                    if !signal.wait_after(generation, remaining) {
+                        break binding_current()
+                            && read_confirmation(&path, boundary, source, &pattern);
+                    }
                 }
             },
         );
         self.screen_state
             .lock()
             .unsubscribe_screen_changes(pty_id, &signal);
-        result.map_err(ModelSwitchError::LiveCommandFailed)
+        result.map_err(|error| ModelSwitchError::LiveCommandFailed(prompt_error.unwrap_or(error)))
     }
 }
 
