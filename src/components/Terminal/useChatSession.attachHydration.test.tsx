@@ -427,7 +427,8 @@ async function mountThenBind(): Promise<void> {
     await flush();
     app.host.remove();
   }
-  assert(server.subscribers.size === 0 && server.handler === null, "fresh Chat leaked its subscription");
+  const remaining: number = server.subscribers.size;
+  assert(remaining === 0 && server.handler === null, "fresh Chat leaked its subscription");
 }
 
 main().catch((error) => {
