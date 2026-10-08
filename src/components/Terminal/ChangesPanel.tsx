@@ -56,7 +56,7 @@ function ScopeBar({ scope, options, files, onScope }: { scope: ChangesScope; opt
 
 export function ChangesView({ tabId, cwd }: { tabId: string; cwd?: string | null }) {
   const changes = useChatChanges(tabId);
-  const home = useHomeDirectory();
+  const home = useHomeDirectory(tabId);
   const [navigation, dispatch] = useTabPanelNavigation(tabId);
   const returnTo = useRef<string | null>(null);
   const options = turnOptions(changes.turns, (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));

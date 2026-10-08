@@ -9,7 +9,7 @@ export function existingDocuments(documents: readonly ChatDocument[], paths: rea
   return documents.filter((document) => existing.has(document.path));
 }
 
-export function createChatDocumentsModel(check: (paths: string[]) => Promise<DocumentFileCheck>) {
+export function createChatDocumentsModel(check: (paths: string[], tabId: string) => Promise<DocumentFileCheck>) {
   const sources = new Map<string, readonly ChatDocument[]>();
   const snapshots = new Map<string, DocumentSnapshot>();
   const pending = new Map<string, Promise<void>>();
@@ -20,7 +20,7 @@ export function createChatDocumentsModel(check: (paths: string[]) => Promise<Doc
     if (inFlight) return inFlight;
     const source = sources.get(tabId);
     if (!source?.length) return Promise.resolve();
-    const request = check([...new Set(source.map((document) => document.path))]).then((result) => {
+    const request = check([...new Set(source.map((document) => document.path))], tabId).then((result) => {
       if (sources.get(tabId) !== source) return;
       snapshots.set(tabId, { documents: existingDocuments(source, result.paths), home: result.home });
       emit();
