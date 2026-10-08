@@ -1,5 +1,45 @@
 //! Tests for the PTY spawn/kill commands and restored-snapshot launch input.
 
+#[tokio::test]
+#[cfg_attr(not(windows), ignore = "requires desktop runtime")]
+async fn protected_frontend_attach_reuses_the_backend_launch_claim() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    mux.get_tab_mut(&tab_id).unwrap().protected = true;
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let svc = std::sync::Arc::new(fixture.service.clone());
+    let (backend, _) = svc
+        .pty
+        .lock()
+        .spawn(None, None, 80, 24, Default::default())
+        .unwrap();
+    let claim = svc.pty_ownership.acquire(&tab_id);
+    let selected = svc.link_pty_with_claim(&claim, &tab_id, backend.clone(), true);
+    assert!(selected.linked);
+    drop(claim);
+    let attached = super::spawn_pty_core(
+        &svc,
+        None,
+        None,
+        80,
+        24,
+        Some("frontend-must-not-exist".into()),
+        Some(tab_id.clone()),
+    )
+    .await
+    .unwrap();
+    assert_eq!(attached, backend);
+    assert_eq!(
+        svc.pty_ownership.launch_claim(&tab_id),
+        Some(backend.clone())
+    );
+    assert!(svc
+        .pty
+        .lock()
+        .get_session("frontend-must-not-exist")
+        .is_none());
+    svc.kill_ptys(&[backend]);
+}
+
 mod kill_pty_tests {
     use std::collections::HashMap;
 
@@ -342,6 +382,7 @@ mod spawn_pty_restore_tests {
         tab.agent_session_id = Some(SESSION.into());
         tab.restored_from_snapshot = true;
         tab.restorable_launch = RestorableLaunchParameters {
+            failed_provider: None,
             structured_runtime_mode: None,
             context_files: None,
             context_skills: None,

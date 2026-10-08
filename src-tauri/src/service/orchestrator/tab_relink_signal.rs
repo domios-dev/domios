@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 struct RelinkSignal {
     generation: Mutex<u64>,
     changed: Condvar,
+    linked: tokio::sync::Notify,
 }
 
 fn signal() -> &'static RelinkSignal {
@@ -14,6 +15,7 @@ fn signal() -> &'static RelinkSignal {
     SIGNAL.get_or_init(|| RelinkSignal {
         generation: Mutex::new(0),
         changed: Condvar::new(),
+        linked: tokio::sync::Notify::new(),
     })
 }
 
@@ -22,7 +24,23 @@ pub fn notify_tab_relinked() {
     let sig = signal();
     *sig.generation.lock() += 1;
     sig.changed.notify_all();
+    sig.linked.notify_waiters();
 }
+
+pub async fn await_relink<T>(mut ready: impl FnMut() -> Option<T>) -> T {
+    loop {
+        let linked = signal().linked.notified();
+        tokio::pin!(linked);
+        linked.as_mut().enable();
+        if let Some(value) = ready() {
+            return value;
+        }
+        linked.await;
+    }
+}
+
+#[cfg(test)]
+mod tests;
 
 /// Block until `ready()` returns `Some`, or `deadline` passes. Returns the ready
 /// value, or `None` on timeout. `ready` is checked before each wait and is never

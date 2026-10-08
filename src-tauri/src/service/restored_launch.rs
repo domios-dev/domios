@@ -39,6 +39,7 @@ pub(crate) fn capture_tab_launch_parameters(
         })
         .flatten();
     let launch = RestorableLaunchParameters {
+        failed_provider: None,
         structured_runtime_mode: None,
         context_files: None,
         context_skills: None,
@@ -147,6 +148,7 @@ pub(crate) fn persist_restored_launch_identity(
     tab.auto_approve = params.permission_bypass_requested(provider_id);
     tab.restorable_launch = launch.clone();
     tab.restorable_launch.captured = true;
+    tab.restorable_launch.failed_provider = None;
 }
 
 pub(crate) struct RestoredFreshLaunchInput {
