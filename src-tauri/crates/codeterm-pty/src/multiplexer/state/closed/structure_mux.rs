@@ -110,7 +110,7 @@ impl MultiplexerState {
         self.closed_store.discard_structure(id)
     }
 
-    pub(super) fn closed_structure_views(&self) -> Vec<ClosedStructureView> {
+    pub(crate) fn closed_structure_views(&self) -> Vec<ClosedStructureView> {
         match self.closed_store.structure_views() {
             Ok(views) => views,
             Err(error) => {
