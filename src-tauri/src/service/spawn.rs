@@ -31,7 +31,8 @@ pub(crate) use spawn_model::{
     unrequested_substitution_severity, CatalogBackgroundModelPort,
 };
 pub(crate) use spawn_model_catalogue::{
-    catalogue_models_match, resolve_agent_model_selection, validate_agent_model, InvalidModelError,
+    catalogue_lookup_model, catalogue_models_match, model_catalogue_capability,
+    resolve_agent_model_selection, validate_agent_model, InvalidModelError,
 };
 
 #[path = "spawn_hidden_delivery.rs"]

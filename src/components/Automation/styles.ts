@@ -6,7 +6,7 @@ export const AUTOMATION_BODY = "text-[length:var(--ct-font-size-sm)] leading-rel
 
 export function stateTone(state: string): string {
   const value = state.toLowerCase();
-  if (["active", "enabled", "running", "working", "success"].includes(value)) return "bg-[var(--ct-green)]";
+  if (["active", "enabled", "running", "working", "success", "completed", "delivered", "done"].includes(value)) return "bg-[var(--ct-green)]";
   if (["missing", "unavailable", "failed", "error", "expired"].includes(value)) return "bg-[var(--ct-red)]";
   if (["paused", "stopped", "idle"].includes(value)) return "bg-[var(--ct-muted)]";
   return "bg-[var(--ct-yellow)]";

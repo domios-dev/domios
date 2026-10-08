@@ -206,7 +206,7 @@ function BlockExtras({ source, title, askText, pinned, pinnable }: { source: str
   return (
     <div className="-mr-1 flex shrink-0 items-center" data-testid="chat-block-extras">
       {host.askAbout && (
-        <ExtraButton label={`Ask about ${title}`} onClick={() => host.askAbout?.(askText ?? `About ${title} (\`${source}\`): `)}>
+        <ExtraButton label={`Ask about ${title}`} onClick={() => host.askAbout?.({ title, text: askText ?? `About ${title} (\`${source}\`)` })}>
           <MessageSquarePlus size={13} aria-hidden="true" />
         </ExtraButton>
       )}

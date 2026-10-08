@@ -210,7 +210,7 @@ function ChatComposerImpl({
   removeAttachment: (path: string) => void;
   clearAttachments: () => void;
   handlePasteEvent: (event: ClipboardEvent) => void | Promise<void>;
-  onWillSendMessage: () => void;
+  onWillSendMessage: (text: string) => void;
   addOptimistic: (content: string) => string;
   updateOptimistic: (id: string, content: string) => void;
   observeChatSendStatus: (status: ChatSendStatus) => void;
@@ -281,7 +281,7 @@ function ChatComposerImpl({
     });
   }, []);
 
-  useComposerInsertions(tabId, { draft: input, setDraft: setInput, addAttachments, textareaRef, focus: refocusComposer });
+  useComposerInsertions(tabId, capsules.insertContext);
   const mentionPicker = useComposerMentions(input, setInput, refocusComposer);
   const { expand: expandDsTasks, plansSink } = useDsTasksExpander(tabId);
 
@@ -418,7 +418,7 @@ function ChatComposerImpl({
       updateOptimistic(placeholderId, composed);
       optimisticId = placeholderId;
     } else {
-      onWillSendMessage();
+      onWillSendMessage(composed);
       optimisticId = addOptimistic(composed);
     }
     setComposerInvalid(false);

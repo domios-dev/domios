@@ -5,8 +5,6 @@ Config file: `~/.codeterm/config.toml` on every platform (dev instances use `~/.
 ## Full Reference
 
 ```toml
-# Domios Configuration
-
 [theme]
 name = "github-dark"
 # Available: github-dark, github-light, dracula, catppuccin-mocha, one-dark, nord, solarized-light, pip-boy
@@ -138,6 +136,8 @@ Toggle it live with `codeterm config set diagnostics.terminal_transport true|fal
 
 `kpi.enabled` owns the ledger behind Mission Control's Tokens and Turns cards. It records plan, task and tab ids, event kinds, byte counts, token counts and timestamps in `~/.codeterm/kpi_ledger.db` — never message text, and nothing leaves the machine. Opt out with `codeterm config set kpi.enabled false`; opt back in with `codeterm config set kpi.enabled true`. A config saved before KPI defaulted on still carries the old `enabled = false`; the first load after upgrading switches it on once and records `kpi.default_applied = true`, so an opt-out saved afterwards is kept. Either way the change takes effect on the next Domios start, and while it is off the Board shows an explicit not-recording state naming this key rather than a zero.
 
+Stored model defaults stay on models their provider still offers. These are `agents.<id>.default_model`, `memory.extraction_model`, `memory.dreaming_model`, `memory.worker_model` and each scheduled job's `model`. At startup and on every model catalogue change, the daemon checks each default against its provider's catalogue, using the same matching as spawn. For a provider with an authoritative catalogue, a default it no longer offers is dead. A free-form catalogue (one that accepts unlisted ids) only counts a default as dead once it stops listing a model it listed earlier. A provider that needs live discovery is checked only against a live snapshot. A dead default moves to the newest model in the same family; failing that, to the provider's recommended model; failing that, to the first model it offers. One notification lists every change. `model_defaults.replaced.<setting path>` records `from`, `to` and the reason. Settings → Agents → Model defaults shows "Updated automatically from …" while the replacement is still the configured value. Supporter decision-adapter models are not checked: their adapters publish no authoritative catalogue and no change event.
+
 ## Plugin settings
 
 Plugin-defined settings live under `config.plugins.<id>` and are preserved as a plugin-specific settings bag. The Extensions list and titlebar Plugins button open installed plugin pages; view plugins render their embedded page there.
@@ -236,4 +236,4 @@ Codex structured control is enabled by default in 1.12.4. The provider declares 
 Notification settings: `codeterm docs NOTIFICATIONS`. Integration settings: `codeterm docs INTEGRATIONS`. Runtime, UI, and memory settings: `codeterm docs RUNTIME-CONFIG`. Provider updates run automatically on the production instance; named and non-production instances join only with `updater.allow_provider_updates_in_non_prod = true`.
 
 Utility limits apply to each Team and purpose. At the limit, creation restarts the oldest confirmed idle tab with the new command and description; busy or unknown tabs are refused. Use `codeterm tab new --description "Runs focused tests" --purpose qa --icon bug`; icon names are Lucide kebab-case names.
-<!-- revision: 100 -->
+<!-- revision: 101 -->

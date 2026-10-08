@@ -44,7 +44,8 @@ export {
 export type { ReportOutcomeClass, ReportTaskOutcome } from "./codeterm/reportOutcome";
 export { LocalArtifactScope } from "./LocalArtifactScope";
 export { AttachmentCapsule, CAPSULE_DETAIL_STYLE, CAPSULE_ICONS, CapsuleDecor, CapsulePreview, capsuleLabelParts } from "./AttachmentCapsule";
-export { capsuleSelectionText } from "./capsuleClipboard";
+export { capsuleSelectionText, writeClipboardFlavours } from "./capsuleClipboard";
+export { formatMessageTime } from "./MessageTime";
 export { localArtifactOpeningAvailable } from "./localArtifactLoader";
 export { ChatBlockFrame } from "./blocks/ChatBlockFrame";
 export type { ChatBlockAction, ChatBlockFrameProps, ChatBlockStatus, ChatBlockTone } from "./blocks/ChatBlockFrame";

@@ -1,20 +1,29 @@
 import { useCallback, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode } from "react";
-import { File as FileIcon, Folder, Image as ImageIcon, ScrollText, type LucideIcon } from "lucide-react";
-import { DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, type AttachmentSegment } from "@codeterm/chat-core";
+import { Diff, File as FileIcon, FileText, Folder, Image as ImageIcon, MessagesSquare, Quote, ScrollText, type LucideIcon } from "lucide-react";
+import { attachmentPreviewKind, DOMIOS_TEXT_MIME, type AttachmentKind, type AttachmentMarker, type AttachmentSegment } from "@codeterm/chat-core";
 import { capsuleSelectionText } from "./capsuleClipboard";
 import { PRE_WRAP_CLASS } from "./CodeBlock";
 import { ImageFullscreen, REVEAL_UNAVAILABLE, revealLocalFile, type FullscreenImage } from "./ImageFullscreen";
 import { localArtifactOpeningAvailable } from "./localArtifactLoader";
 import { useLocalImage } from "./localImage";
+import { useLocalTextPreview } from "./localText";
 
 export const CAPSULE_ICONS: Record<AttachmentKind, LucideIcon> = {
   image: ImageIcon,
   text: ScrollText,
   file: FileIcon,
   folder: Folder,
+  quote: Quote,
+  message: MessagesSquare,
+  diff: Diff,
+  document: FileText,
 };
 
-const KIND_NAMES: Record<AttachmentKind, string> = { image: "Image", text: "Pasted text", file: "File", folder: "Folder" };
+const KIND_NAMES: Record<AttachmentKind, string> = {
+  image: "Image", text: "Pasted text", file: "File", folder: "Folder", quote: "Quote", message: "Messages", diff: "Diff", document: "Document",
+};
+/** Kinds whose file is stored context, so the card names the capsule, not its temp file. */
+const STORED_CONTEXT: ReadonlySet<AttachmentKind> = new Set(["quote", "message", "diff"]);
 
 export const CAPSULE_DETAIL_STYLE: CSSProperties = { color: "var(--ct-muted-fg, #8b949e)" };
 
@@ -39,13 +48,14 @@ function fileName(path: string): string {
   return path.replace(/[\\/]+$/, "").split(/[\\/]/).filter(Boolean).pop() ?? path;
 }
 
-/** The card a hovered capsule shows: the image itself, or what the capsule points at. */
+/** The card a hovered capsule shows: the image itself, the head of its text, or what the capsule points at. */
 export function CapsulePreview({ kind, path, label, actions }: { kind: AttachmentKind; path: string; label: string; actions?: ReactNode }) {
   const image = useLocalImage(kind === "image" ? path : undefined);
+  const snippet = useLocalTextPreview(attachmentPreviewKind({ kind, path }) === "document" ? path : undefined);
   const Icon = CAPSULE_ICONS[kind];
   return (
     <div
-      className="flex w-max max-w-[min(20rem,80vw)] flex-col gap-1.5 overflow-hidden rounded-xl border p-1.5 text-xs shadow-lg backdrop-blur-md"
+      className="flex w-max max-w-[min(24rem,80vw)] flex-col gap-1.5 overflow-hidden rounded-xl border p-1.5 text-xs shadow-lg backdrop-blur-md"
       style={{
         background: "color-mix(in srgb, var(--ct-surface, #161b22) 92%, transparent)",
         borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent)",
@@ -62,9 +72,18 @@ export function CapsulePreview({ kind, path, label, actions }: { kind: Attachmen
       <div className="flex min-w-0 items-center gap-1.5 px-1">
         <Icon size={12} aria-hidden className="shrink-0 opacity-70" />
         <span className="shrink-0 font-medium">{KIND_NAMES[kind]}</span>
-        <span className="min-w-0 truncate font-mono text-[11px]" style={CAPSULE_DETAIL_STYLE} title={path}>{fileName(path)}</span>
+        <span className="min-w-0 truncate font-mono text-[11px]" style={CAPSULE_DETAIL_STYLE} title={path}>{STORED_CONTEXT.has(kind) ? label : fileName(path)}</span>
         {actions}
       </div>
+      {snippet && (
+        <pre
+          data-testid="capsule-preview-text"
+          className={`m-0 max-h-40 overflow-hidden whitespace-pre-wrap break-words rounded-lg px-2 py-1.5 text-[11px] leading-snug ${kind === "diff" ? "font-mono" : "font-[inherit]"}`}
+          style={{ background: "color-mix(in srgb, var(--ct-bg, #0d1117) 75%, transparent)", color: "var(--ct-fg)" }}
+        >
+          {snippet}
+        </pre>
+      )}
     </div>
   );
 }

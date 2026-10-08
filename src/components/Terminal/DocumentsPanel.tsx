@@ -56,7 +56,7 @@ export function DocumentsView({ tabId, open }: { tabId: string; open: boolean })
           icon: <Icon size={13} aria-hidden className="shrink-0" />,
           actions: <>
             <IconAction label={`Reveal ${item.name}`} title={localArtifactOpeningAvailable() ? "Reveal in file manager" : "Revealing files is available only in the desktop app"} disabled={!localArtifactOpeningAvailable()} icon={FolderOpen} onClick={() => void openLocalArtifact(item.path).then(() => setError(null), (failure: unknown) => setError(String(failure)))} />
-            <ChatAction compact label={`Ask about ${item.name}`} text="Ask" onClick={() => insertIntoComposer(tabId, { attachments: [item.path] })} />
+            <ChatAction compact label={`Ask about ${item.name}`} text="Ask" onClick={() => insertIntoComposer(tabId, { kind: "document", path: item.path })} />
           </>,
         };
       }} />}

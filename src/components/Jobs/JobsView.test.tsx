@@ -16,8 +16,9 @@ async function main() {
     Object.defineProperty(globalThis, key, { configurable: true, value: (win as unknown as Record<string, unknown>)[key] });
   }
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+  let frameClock = 0;
   Object.assign(globalThis, {
-    requestAnimationFrame: (callback: FrameRequestCallback) => { callback(0); return 0; },
+    requestAnimationFrame: (callback: FrameRequestCallback) => { callback(frameClock += 1000); return 0; },
     cancelAnimationFrame: () => undefined,
   });
 
@@ -313,8 +314,8 @@ async function main() {
       await settle(() => entry(view.host, `scenario:${scenario.id}`) !== null);
       await act(async () => { entry(view.host, `scenario:${scenario.id}`)!.focus(); entry(view.host, `scenario:${scenario.id}`)!.click(); });
       assert.ok(view.host.querySelector("h3")?.textContent?.startsWith(scenario.name));
-      assert.ok(view.host.querySelectorAll("[data-edge-kind]").length > 0, "scenario graph rendered");
-      await act(async () => buttonWith(view.host, "All jobs").click());
+      assert.ok(view.host.querySelectorAll('[aria-label="Automation graph"] .bp-node').length > 0, "scenario graph rendered");
+      await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label="Close Blueprint"]')!.click());
       assert.equal(document.activeElement, entry(view.host, `scenario:${scenario.id}`));
       assert.equal(transport.unsubscribeCount, 1, "closing the graph releases its exact-scope definition subscription");
     } finally { await view.close(); }
@@ -333,6 +334,18 @@ async function main() {
       assert.equal(document.activeElement, alert, "focus does not fall to the document body");
       assert.equal(entry(view.host, `scenario:${target.id}`), null);
       assert.ok(entry(view.host, `scenario:${transport.graph.scenarios[0].id}`), "remaining jobs stay reachable");
+    } finally { await view.close(); }
+  });
+
+  test("closing a Blueprint opened from chat returns there, while one opened from the list returns to the list", async () => {
+    const transport = workspaceTransport();
+    const scenario = transport.graph.scenarios[0];
+    let exits = 0;
+    const view = await mount(<JobsView workspaces={workspaces} teams={teams} initialFilter={{ workspaceId: attachment.workspace_id, teamId: attachment.team_id }} adapter={transport} initialScenarioId={scenario.id} cronActionAdapter={cronActions} jobActionAdapter={jobActions} onClose={() => exits++} />);
+    try {
+      await settle(() => view.host.querySelector('button[aria-label="Close Blueprint"]') !== null);
+      await act(async () => view.host.querySelector<HTMLButtonElement>('button[aria-label="Close Blueprint"]')!.click());
+      assert.equal(exits, 1, "a directly opened Blueprint closes the Jobs surface");
     } finally { await view.close(); }
   });
 

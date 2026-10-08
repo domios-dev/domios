@@ -32,11 +32,11 @@ export function graphRuns(graph: AutomationGraph): GraphRun[] {
         classifier: decisionKind(transition), confidence: transition.confidence, reason: transition.reason,
         at: handler.accepted_at ?? transition.accepted_at, node: node.name, outcome: transition.bucket,
         target: edge ? names.get(edge.to) ?? null : handler.handler_id,
-        status: handler.status ?? "Unknown", duration,
+        status: handler.status ?? "Unknown", duration, stage: source, transition: transition.id, handler: handler.handler_id,
         edgeId: handler.status === "skipped" || handler.status === "noop" ? null : edge?.id ?? null,
       };
     });
-    if (!events.length) events.push({ classifier: decisionKind(transition), confidence: transition.confidence, reason: transition.reason, at: transition.accepted_at, node: node.name, outcome: transition.bucket, target: null, status: "No action", duration: null, edgeId: null });
+    if (!events.length) events.push({ classifier: decisionKind(transition), confidence: transition.confidence, reason: transition.reason, at: transition.accepted_at, node: node.name, outcome: transition.bucket, target: null, status: "No action", duration: null, edgeId: null, stage: source, transition: transition.id, handler: null });
     return events;
   };
   const runs: GraphRun[] = (graph.runs ?? []).flatMap((run) => {
@@ -76,16 +76,7 @@ export function graphRuns(graph: AutomationGraph): GraphRun[] {
   return runs.sort((a, b) => b.at - a.at || a.key.localeCompare(b.key));
 }
 
-export function replayEdges(run: GraphRun): string[] {
-  return run.events.flatMap((event) => event.edgeId === null ? [] : [event.edgeId]);
-}
-
 export function replayFrame(edges: readonly string[], elapsedMs: number, reducedMotion: boolean) {
   const index = Math.floor(Math.max(0, elapsedMs) / 850);
   return { highlighted: edges, active: reducedMotion || index >= edges.length ? null : edges[index], progress: reducedMotion ? 0 : Math.max(0, elapsedMs) % 850 / 850 };
-}
-
-export function runEventLine(event: RunEvent): string {
-  const time = new Date(event.at).toLocaleTimeString();
-  return `${time} ${event.node} → ${event.outcome}${event.target ? ` → ${event.target}` : ""} (${event.status}${event.confidence != null ? ` · confidence ${Math.round(event.confidence * 100)}%` : ""}${event.reason ? ` · ${event.reason}` : ""}${event.duration === null ? "" : `, ${event.duration} ms`})`;
 }
