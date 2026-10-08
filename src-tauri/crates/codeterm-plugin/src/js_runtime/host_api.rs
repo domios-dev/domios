@@ -134,6 +134,8 @@ pub(super) struct PluginSandbox {
     secrets_allowed: bool,
     /// `agent_commands` grant — gates routing a spawned agent's `codeterm plugin <id> <verb>` to `onAgentCommand`.
     agent_commands_allowed: bool,
+    /// `surfaces` grant — gates `host.surface.call` driving the calling agent's own stream surface.
+    surfaces_allowed: bool,
     /// Whether `host.workspace*` is permitted (`manage_workspaces` grant).
     manage_workspaces_allowed: bool,
     /// Whether `host.agent*` is permitted (`spawn_agents` grant).
@@ -165,6 +167,7 @@ impl PluginSandbox {
             token_mode: TokenMode::None,
             secrets_allowed: true,
             agent_commands_allowed: true,
+            surfaces_allowed: true,
             manage_workspaces_allowed: true,
             spawn_agents_allowed: true,
             analytics_allowed: true,
@@ -189,6 +192,7 @@ impl PluginSandbox {
             token_mode: TokenMode::None,
             secrets_allowed: false,
             agent_commands_allowed: false,
+            surfaces_allowed: false,
             manage_workspaces_allowed: false,
             spawn_agents_allowed: false,
             analytics_allowed: false,
@@ -210,6 +214,7 @@ impl PluginSandbox {
         self.net_allow = perms.network.allow.clone();
         self.secrets_allowed = self.unrestricted || perms.secrets;
         self.agent_commands_allowed = self.unrestricted || perms.agent_commands;
+        self.surfaces_allowed = self.unrestricted || perms.surfaces;
         self.manage_workspaces_allowed = self.unrestricted || perms.manage_workspaces;
         self.spawn_agents_allowed = self.unrestricted || perms.spawn_agents;
         self.analytics_allowed = self.unrestricted || perms.analytics;
@@ -292,6 +297,10 @@ impl PluginSandbox {
     /// Whether the plugin holds the `agent_commands` grant (inverse-seam routing).
     pub(super) fn agent_commands_allowed(&self) -> bool {
         self.agent_commands_allowed
+    }
+
+    pub(super) fn surfaces_allowed(&self) -> bool {
+        self.surfaces_allowed
     }
 
     /// Whether the plugin may create/manage workspaces (`host.workspace*`).

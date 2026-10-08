@@ -89,6 +89,7 @@ impl AgentCommandProvider for JsAgentCommandHandler {
         args: &[String],
     ) -> Result<crate::agent_commands::AgentCommandResult, String> {
         let ctx = json!({ "sessionId": session_id, "verb": verb, "args": args });
+        let _caller = super::host_surface::AgentCallerScope::enter(session_id);
         match call_json::<AgentCommandOut>(&self.vm, "onAgentCommand", &[ctx]) {
             Ok(out) => {
                 if let Some(e) = out.error {
