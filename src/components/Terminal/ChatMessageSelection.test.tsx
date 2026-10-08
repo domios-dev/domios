@@ -7,6 +7,7 @@ import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
+import { RichMarkdown } from "@codeterm/chat-ui";
 import { ChatMessageRow } from "./ChatMessageRow";
 import { capsuleSpans } from "./composerCapsules";
 import { composerInsertionStore } from "./composerInsertion";
@@ -55,7 +56,7 @@ function Harness({ tabId, rows }: { tabId: string; rows: SelectableRow[] }) {
           selecting={selection.active}
           cursor={selection.cursor ? selection.cursor === msg.id : index === rows.length - 1}
           handlers={selection.rowHandlers}>
-          <p>{msg.content}</p>
+          {msg.type === "assistant" ? <RichMarkdown text={msg.content} /> : <p>{msg.content}</p>}
         </ChatMessageRow>
       ))}
       <MessageSelectionBar count={selection.count} onCopy={selection.copySelection} onQuote={selection.quoteSelection} onAsk={selection.askSelection} onClear={selection.clear} />
@@ -157,6 +158,29 @@ it("shows a quiet dot only for the row under the pointer or focus, and none whil
   expect(menu("a1")).toBeNull();
   await shiftClick("t1");
   expect(dot("a1")).toBeNull();
+});
+
+it("places the action in the right gutter for every message kind", async () => {
+  await render("right-dot-tab");
+  for (const id of ["u1", "a1", "t1"]) {
+    await hover(id);
+    expect(dot(id)?.closest("[data-message-gutter]")?.getAttribute("data-side")).toBe("end");
+  }
+});
+
+it("shows beads only in block mode and connects a selected range", async () => {
+  await render("bead-tab");
+  expect(host!.querySelector(".ct-msg-bead")).toBeNull();
+  await shiftClick("u1");
+  expect(host!.querySelectorAll(".ct-msg-bead")).toHaveLength(4);
+  expect(row("u1").querySelector(".ct-msg-bead")?.getAttribute("data-selected")).toBe("true");
+  expect(row("a1").querySelector(".ct-msg-bead")?.hasAttribute("data-selected")).toBe(false);
+  await shiftClick("a2");
+  expect(host!.querySelectorAll(".ct-msg-thread")).toHaveLength(3);
+  expect(host!.querySelectorAll(".ct-msg-bead[data-selected]")).toHaveLength(4);
+  await act(async () => { mouse(row("t1").querySelector('[data-side="end"]')!, "mousedown"); mouse(document.body, "mouseup"); });
+  expect(row("t1").querySelector(".ct-msg-bead")?.hasAttribute("data-selected")).toBe(false);
+  expect(host!.querySelectorAll(".ct-msg-thread")).toHaveLength(1);
 });
 
 it("reaches the dot by Tab from its row and opens the menu with Enter, Esc closes it", async () => {
@@ -372,4 +396,17 @@ it("leaves a native text selection alone", async () => {
   });
   await shiftClick("a1");
   expect(bar()).toBeNull();
+});
+
+it("materializes only the targeted part in the quote file and Ask attachment", async () => {
+  const source = "First paragraph.\n\nSecond **paragraph**.";
+  await render("part-files", [asRow(message("parts", "assistant", source))]);
+  await openMenu("parts");
+  await act(async () => item("parts", "Quote into composer")!.click());
+  expect(replyBlock()?.textContent).toContain("First paragraph.");
+  expect(await stored.blobs[0].text).toBe("Fermi:\n> First paragraph.");
+  await openMenu("parts");
+  await act(async () => item("parts", "Ask about this")!.click());
+  expect(await stored.blobs[1].text).toBe("### Fermi\n\nFirst paragraph.");
+  expect(sends()).toEqual([]);
 });

@@ -1,9 +1,16 @@
 import { memo, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { MessagePartsContext, type MessagePart } from "@codeterm/chat-ui";
 import type { ClipMessage } from "@codeterm/chat-core";
 import { MessageActionsDot, type DotSide, type MessageMenuActions } from "./MessageActionsMenu";
+import { useMessageActionScope } from "./useMessageActionScope";
+import { useMessageActionHint } from "./useMessageActionHint";
 
 export interface MessageRowHandlers {
   clipFor: (id: string) => ClipMessage | null;
+  partsFor: (id: string) => readonly MessagePart[];
+  selectedFor: (id: string) => boolean;
+  cursorFor: (id: string) => boolean;
+  joinNextFor: (id: string) => boolean;
   select: (id: string) => void;
   rowMouseDown: (id: string, event: MouseEvent<HTMLElement>) => void;
   quote: (clip: ClipMessage) => void;
@@ -31,13 +38,19 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, ariaLabel, sel
   const rowRef = useRef<HTMLDivElement>(null);
   const [hot, setHot] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const side: DotSide = msg.type === "user" ? "end" : "start";
-  const clip = hot || menuOpen ? handlers.clipFor(msg.id) : null;
+  const [partId, setPartId] = useState<string | null>(null);
+  const [whole, setWhole] = useMessageActionScope();
+  const parts = handlers.partsFor(msg.id);
+  const targetId = whole ? msg.id : partId && parts.some((part) => part.id === partId) ? partId : parts[0]?.id ?? msg.id;
+  const fullClip = handlers.clipFor(msg.id);
+  const side: DotSide = "end";
+  const hint = useMessageActionHint(rowRef, selecting || menuOpen);
+  const clip = hot || menuOpen ? handlers.clipFor(targetId) : null;
   const actions = useMemo<MessageMenuActions>(() => ({
     quote: handlers.quote,
     ask: handlers.ask,
-    select: () => handlers.select(msg.id),
-  }), [handlers, msg.id]);
+    select: () => handlers.select(targetId),
+  }), [handlers, targetId]);
 
   const placeDot = (offset: number | null) => {
     const row = rowRef.current;
@@ -48,12 +61,13 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, ariaLabel, sel
   };
 
   const onOpenChange = (open: boolean) => {
+    if (open && !menuOpen) hint.opened();
     setMenuOpen(open);
     if (!open) setHot(rowRef.current?.matches(":hover, :focus-within") ?? false);
   };
 
   const dot = clip && !selecting ? (
-    <MessageActionsDot clip={clip} side={side} open={menuOpen} onOpenChange={onOpenChange} actions={actions} />
+    <MessageActionsDot whole={whole} hasParts={parts.length > 1} onScopeChange={setWhole} clip={clip} side={side} open={menuOpen} onOpenChange={onOpenChange} actions={actions} hint={hint.hint} onHintEnd={hint.finish} />
   ) : null;
 
   return (
@@ -66,26 +80,55 @@ export const ChatMessageRow = memo(function ChatMessageRow({ msg, ariaLabel, sel
       data-selected={selected || undefined}
       data-join-next={(selected && joinNext) || undefined}
       data-selecting={selecting || undefined}
+      data-has-parts={parts.length > 1 || undefined}
       data-actions-open={menuOpen || undefined}
+      data-preview-whole={menuOpen && (whole || parts.length <= 1) || undefined}
       role="article"
       aria-label={ariaLabel}
       tabIndex={cursor ? 0 : -1}
       className="ct-msg-row"
-      onPointerEnter={() => setHot(true)}
-      onPointerLeave={() => { if (!menuOpen) setHot(false); }}
+      onPointerEnter={(event) => { setHot(true); if (event.pointerType === "mouse") hint.enter(); }}
+      onPointerMove={() => hint.move()}
+      onPointerLeave={() => { hint.leave(); if (!menuOpen) setHot(false); }}
       onMouseMove={(event) => {
-        if (!menuOpen) placeDot(event.clientY - event.currentTarget.getBoundingClientRect().top);
+        if (menuOpen) return;
+        const elements = Array.from(event.currentTarget.querySelectorAll<HTMLElement>("[data-message-part-id]"));
+        const part = elements.find((element) => {
+          const rect = element.getBoundingClientRect();
+          return event.clientY >= rect.top && event.clientY <= rect.bottom;
+        });
+        if (part) {
+          setPartId(part.dataset.messagePartId ?? null);
+          placeDot(part.getBoundingClientRect().top - event.currentTarget.getBoundingClientRect().top + DOT_BOX_PX / 2);
+        } else if (!elements.length) placeDot(event.clientY - event.currentTarget.getBoundingClientRect().top);
       }}
       onFocus={(event) => {
-        if (event.target === event.currentTarget) placeDot(null);
+        if (!menuOpen) {
+          const part = (event.target as HTMLElement).closest<HTMLElement>("[data-message-part-id]");
+          if (part) {
+            setPartId(part.dataset.messagePartId ?? null);
+            placeDot(part.getBoundingClientRect().top - event.currentTarget.getBoundingClientRect().top + DOT_BOX_PX / 2);
+          } else if (event.target === event.currentTarget) {
+            setPartId(null);
+            placeDot(null);
+          }
+        }
         setHot(true);
       }}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setHot(false); }}
       onMouseDown={(event) => handlers.rowMouseDown(msg.id, event)}
     >
-      <Gutter side="start">{side === "start" && dot}</Gutter>
-      <Gutter side="end">{side === "end" && dot}</Gutter>
-      {children}
+      <Gutter side="start" />
+      <Gutter side="end">
+        {dot}
+        {selecting && parts.length <= 1 && <span aria-hidden="true" className="ct-msg-bead" data-selected={selected || undefined} />}
+        {selecting && parts.length <= 1 && selected && joinNext && <span aria-hidden="true" className="ct-msg-thread" />}
+      </Gutter>
+      <MessagePartsContext.Provider value={fullClip?.role === "assistant" ? {
+        id: msg.id, source: fullClip.source, selecting: selecting && parts.length > 1,
+        selected: handlers.selectedFor, joinNext: handlers.joinNextFor, cursor: handlers.cursorFor,
+        preview: menuOpen && !whole && parts.length > 1 ? targetId : null,
+      } : null}>{children}</MessagePartsContext.Provider>
     </div>
   );
 });

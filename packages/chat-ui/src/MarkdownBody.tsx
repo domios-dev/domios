@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useContext } from "react";
 import type { SlashCommand, EditPair } from "@codeterm/chat-core";
 import { parseMarker } from "@codeterm/chat-core";
 import { File, Image, Info, Mic, Settings } from "lucide-react";
@@ -6,11 +6,13 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeRaw from "rehype-raw";
 import rehypeSanitize from "rehype-sanitize";
-import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, normalizeMultilineHtmlBlocks, rehypeScrubInlineStyles } from "./htmlSanitize";
+import { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, rehypeScrubInlineStyles } from "./htmlSanitize";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
-import { isolateBlockDirectives, parseChatBlocks } from "./blocks/registry";
-import { rehypeSourceOffsets } from "./sourceOffsets";
+import { parseChatBlocks } from "./blocks/registry";
+import { messageParts, normalizedMarkdown } from "./messageParts";
+import { MessagePartView, MessagePartsContext } from "./MessagePartsContext";
+import { rehypeMessageParts, rehypeSourceOffsets } from "./sourceOffsets";
 import { rehypeMarkdownLineBreaks } from "./markdownLineBreaks";
 import { Prism as SyntaxHighlighter, createElement } from "react-syntax-highlighter";
 import { CodeBlock, ChevronIcon, CODE_BLOCK_DEFAULT_MAX_HEIGHT, LONG_CODE_PREVIEW_LINES, MERMAID_BLOCK_MAX_HEIGHT, PRE_WRAP_CLASS, lineCount } from "./CodeBlock";
@@ -173,7 +175,7 @@ const HTML_REHYPE_PLUGINS = [
 ] as unknown as RehypePlugins;
 
 const LINE_BREAK_REHYPE_PLUGINS = [rehypeMarkdownLineBreaks] as unknown as RehypePlugins;
-const SOURCE_OFFSET_REHYPE_PLUGINS = [rehypeMarkdownLineBreaks, rehypeSourceOffsets] as unknown as RehypePlugins;
+
 
 export function RichMarkdown({
   text,
@@ -184,19 +186,23 @@ export function RichMarkdown({
   text: string;
   fontScale?: number;
   localArtifacts?: boolean;
-  /** Stamp source offsets on the rendered DOM; skipped when HTML normalization makes offsets inexact. */
+  /** Stamp original source offsets on the rendered DOM. */
   sourcePositions?: boolean;
 }) {
+  const partContext = useContext(MessagePartsContext);
+  const parts = useMemo(() => partContext?.source === text ? messageParts(partContext.id, text) : null, [partContext?.id, partContext?.source, text]);
   const h1Text = pickUiFontScaleValue(fontScale, ["text-sm", "text-base", "text-lg", "text-xl"]);
   const h2Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   const h3Text = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
-  const renderedText = useMemo(() => normalizeMultilineHtmlBlocks(isolateBlockDirectives(text)), [text]);
+  const normalized = useMemo(() => normalizedMarkdown(text), [text]);
+  const renderedText = normalized.text;
   const rehypePlugins = useMemo(() => {
-    if (containsHtmlMarkup(renderedText)) return HTML_REHYPE_PLUGINS;
-    return sourcePositions && renderedText === text ? SOURCE_OFFSET_REHYPE_PLUGINS : LINE_BREAK_REHYPE_PLUGINS;
-  }, [renderedText, sourcePositions, text]);
+    const plugins = containsHtmlMarkup(renderedText) ? HTML_REHYPE_PLUGINS : LINE_BREAK_REHYPE_PLUGINS;
+    return sourcePositions ? [...(plugins ?? []), [rehypeSourceOffsets, normalized]] as unknown as RehypePlugins : plugins;
+  }, [renderedText, sourcePositions, normalized]);
   const components = useMemo<NonNullable<React.ComponentProps<typeof ReactMarkdown>["components"]>>(
     () => ({
+        div: MessagePartView,
         h1: ({ node: _node, ...props }) => (
           <h1 className={`${h1Text} font-bold mt-3 mb-1`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
@@ -338,7 +344,7 @@ export function RichMarkdown({
   return (
     <ReactMarkdown
       remarkPlugins={[remarkGfm]}
-      rehypePlugins={rehypePlugins}
+      rehypePlugins={parts && parts.length > 1 ? [...(rehypePlugins ?? []), rehypeMessageParts(parts)] : rehypePlugins}
       components={components}
     >
       {renderedText}

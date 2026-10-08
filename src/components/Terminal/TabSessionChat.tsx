@@ -888,6 +888,7 @@ export function TabSessionChat({
       </div>
       <MessageSelectionBar
         count={messageSelection.count}
+        partial={messageSelection.partial}
         onCopy={messageSelection.copySelection}
         onQuote={messageSelection.quoteSelection}
         onAsk={messageSelection.askSelection}
