@@ -136,3 +136,6 @@ export {
   type WatcherVerdictAction,
   type WatcherVerdictStatus,
 } from "./watcherVerdict";
+
+export { parseLocalArtifactDirective } from "./localArtifactDirective";
+export type { LocalArtifactDirective, LocalArtifactKind } from "./localArtifactDirective";

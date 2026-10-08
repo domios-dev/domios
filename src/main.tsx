@@ -10,6 +10,7 @@ import { installAgentStateIndicatorHarness } from "./components/Terminal/AgentSt
 import {
   configureHtmlFileLoader,
   configureLocalArtifactLoader,
+  configureLocalArtifactOpener,
   installInboundReportCardHarness,
 } from "@codeterm/chat-ui";
 import { invoke } from "./lib/bridge";
@@ -34,6 +35,7 @@ installAgentStateIndicatorHarness();
 installInboundReportCardHarness(isCodeTermFrontendTestMode());
 installCodeTermTestChatHandle();
 configureHtmlFileLoader((path) => invoke<string>("read_html_preview_file", { path }));
+configureLocalArtifactOpener((path) => invoke("reveal_file", { path }));
 configureLocalArtifactLoader((path, kind) => invoke("read_local_preview_file", { path, kind }));
 
 if (!missionControlPrototype && !isGalleryRoute && !snakePrototype) {
