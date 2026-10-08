@@ -51,6 +51,7 @@ impl MultiplexerState {
             .map(|tab| ArchivedTab {
                 tab: tab.clone(),
                 launch: tab.restorable_launch.clone(),
+                paired_planner_tab_id: tab.pending_paired_planner_tab_id.clone(),
             })
             .collect();
         let workspaces = self

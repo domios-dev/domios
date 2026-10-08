@@ -9,6 +9,7 @@ use crate::multiplexer::types::{AgentRole, RestorableLaunchParameters, Tab, Work
 pub struct ArchivedTab {
     pub tab: Tab,
     pub launch: RestorableLaunchParameters,
+    pub paired_planner_tab_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -125,12 +126,14 @@ impl ClosedStructure {
                 tab.utility_command_pending = false;
                 tab.shell_command_state = Default::default();
                 tab.restorable_launch = item.launch.clone();
+                tab.pending_paired_planner_tab_id = item.paired_planner_tab_id.clone();
                 tab.restored_from_snapshot = tab.agent_type.is_some() || tab.is_chat_backend();
                 let shell = tab.is_utility_shell();
                 let restore = tab.close_restore.get_or_insert_with(Default::default);
                 restore.record_id = Some(self.id.clone());
                 restore.stopped = shell;
                 restore.exact_session = tab.agent_type.is_some();
+                restore.paired_planner_tab_id = item.paired_planner_tab_id.clone();
                 if tab.role == Some(AgentRole::Worker)
                     && (tab.task_binding.is_some() || tab.worker_id.is_some())
                 {
