@@ -357,3 +357,9 @@
   .tab-panel__icon-action,
   .tab-panel__chat-action { transition: none; }
 }
+
+.tab-panel__pinned {
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--ct-muted-fg) 18%, transparent);
+}

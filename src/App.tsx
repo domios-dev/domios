@@ -9,7 +9,8 @@ import { Sidebar } from "./components/Sidebar/Sidebar";
 import { TabContent } from "./components/Terminal/TabContent";
 import { SettingsPanel } from "./components/Settings/SettingsPanel";
 import type { SectionId } from "./components/Settings/sections";
-import { GuideNavigationProvider } from "@codeterm/chat-ui";
+import { ChatBlockHostProvider, GuideNavigationProvider } from "@codeterm/chat-ui";
+import { appChatBlockHost } from "./lib/chatBlocks/appChatBlockHost";
 import { GUIDE_SECTIONS, guideRequest, type GuideRequest } from "./help/guideNavigation";
 import type { AgentLevelChoice } from "./lib/types";
 import { MemoryPanel, type MemoryInitialState } from "./components/MemoryPanel/MemoryPanel";
@@ -588,6 +589,7 @@ function AppInner() {
 
   return (
     <GuideNavigationProvider sections={GUIDE_SECTIONS} onOpen={openGuide}>
+    <ChatBlockHostProvider value={appChatBlockHost}>
     <div
       className={`flex flex-col w-screen overflow-hidden ${isCRT ? "crt-mode" : ""}`}
       style={{
@@ -882,6 +884,7 @@ function AppInner() {
 
       <UpdateProgressLayer />
     </div>
+    </ChatBlockHostProvider>
     </GuideNavigationProvider>
   );
 }

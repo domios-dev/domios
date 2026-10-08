@@ -6,8 +6,10 @@ import {
   GitBranch,
   Layers,
   Lightbulb,
+  MessagesSquare,
   Network,
   Plug,
+  Smartphone,
   Sparkles,
   type LucideIcon,
 } from "lucide-react";
@@ -25,6 +27,8 @@ const SECTION_ICONS: Record<HelpSectionId, LucideIcon> = {
   "supporter-agent": Sparkles,
   mesh: Network,
   integrations: Plug,
+  phone: Smartphone,
+  "messenger-plugins": MessagesSquare,
   tips: Lightbulb,
 };
 

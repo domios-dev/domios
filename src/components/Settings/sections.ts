@@ -64,7 +64,7 @@ export function normalizeSection(id: SectionId | undefined): SectionId | undefin
   return id;
 }
 
-export type SettingsCardAnchorId = "supporter-agent";
+export type SettingsCardAnchorId = "supporter-agent" | "telegram-bridge";
 
 export interface SettingsCardRoute {
   section: SectionId;
@@ -73,6 +73,7 @@ export interface SettingsCardRoute {
 
 const HELP_SETTINGS_ROUTES: Record<HelpSettingsTarget, SettingsCardRoute> = {
   "supporter-agent": { section: "agents", card: "supporter-agent" },
+  "telegram-bridge": { section: "general", card: "telegram-bridge" },
 };
 
 export function settingsRouteForHelpTarget(target: HelpSettingsTarget): SettingsCardRoute {
