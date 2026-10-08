@@ -52,6 +52,7 @@ fi
 expect_log "environment gateway markers are not accepted" "$TEST_ROOT/forged-qa-env.log"
 
 source scripts/build-gateway.sh
+node --test scripts/cache-retention.test.mjs
 forged_parent_start="$(ct_gateway_process_start_token "$$")"
 if scripts/qa-prep.sh --gateway-context forged "$$" "$forged_parent_start" qa-prep --probe-only \
     > "$TEST_ROOT/forged-qa-parent.log" 2>&1; then
@@ -79,13 +80,23 @@ expect_log "/targets/release/release-policy" "$TEST_ROOT/release-policy.log"
 
 FAKE_BIN="$TEST_ROOT/fake-bin"
 mkdir -p "$FAKE_BIN"
-printf '#!/usr/bin/env bash\ncase "${1:-}" in --show-stats) echo fake-stats;; --version) echo sccache-fixture;; esac\n' > "$FAKE_BIN/sccache"
+printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$SCCACHE_CACHE_SIZE" > "$CODETERM_SCCACHE_CAP_RECEIPT"\ncase "${1:-}" in --show-stats) echo fake-stats;; --version) echo sccache-fixture;; esac\n' > "$FAKE_BIN/sccache"
 chmod +x "$FAKE_BIN/sccache"
-CT_BUILD_JOB_ID=worktree-policy PATH="$FAKE_BIN:$PATH" \
+env -u SCCACHE_CACHE_SIZE CT_BUILD_JOB_ID=worktree-policy CODETERM_SCCACHE_CAP_RECEIPT="$TEST_ROOT/sccache-cap" PATH="$FAKE_BIN:$PATH" \
   ./build.sh gateway-policy-probe worktree-target > "$TEST_ROOT/worktree-policy.log"
 expect_log "incremental=0" "$TEST_ROOT/worktree-policy.log"
 expect_log "/targets/exceptional/" "$TEST_ROOT/worktree-policy.log"
 expect_log "wrapper=sccache" "$TEST_ROOT/worktree-policy.log"
+[ "$(cat "$TEST_ROOT/sccache-cap")" = 10G ]
+node - <<'JS' "$TEST_ROOT/state"
+const fs = require('node:fs');
+const path = require('node:path');
+const root = path.join(process.argv[2], 'targets', 'exceptional');
+const markers = fs.readdirSync(root).map(name => JSON.parse(fs.readFileSync(path.join(root, name, '.codeterm-cache.json'))));
+if (!markers.some(marker => marker.checkout && marker.lastUsed > 0 && marker.sizeBytes >= 0)) {
+  throw new Error('gateway preparation did not persist retention metadata');
+}
+JS
 
 cli_flow="$(sed -n '/^  cli)/,/^    ;;/p' build.sh)"
 expect_log 'cargo build --release --manifest-path cli/Cargo.toml' <<< "$cli_flow"
