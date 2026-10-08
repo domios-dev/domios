@@ -159,3 +159,34 @@ pub(crate) fn verify_early_exit_notification() {
         super::super::owner::MAX_RESOURCE_SLOTS
     );
 }
+
+#[test]
+fn queued_job_notifications_after_confirmed_close_preserve_capture() {
+    let owner = Arc::new(ProbeResourceOwner::new());
+    let deadlines = Deadlines::start(Duration::from_secs(10), Duration::from_secs(10)).unwrap();
+    let mut run = WindowsRun::new(deadlines, owner.reserve().unwrap(), &owner);
+    run.prepare_containment().unwrap();
+    run.assigned = true;
+    run.parent_exited = true;
+    run.job_empty = true;
+    run.stdout.buffer_registered = run.register(ResourceKind::OverlappedIo);
+    run.stdout.pending_active = true;
+    run.close_completed_runtime_handles().unwrap();
+    assert!(!run.job.is_open());
+    assert!(run.port.is_open());
+    for message in [
+        JOB_OBJECT_MSG_EXIT_PROCESS,
+        JOB_OBJECT_MSG_ACTIVE_PROCESS_ZERO,
+    ] {
+        run.observe_job_event(message, run.child_id).unwrap();
+        assert!(run.stdout.pending_active);
+        assert!(run.port.is_open());
+        assert!(!run.permanent_unconfirmed);
+    }
+    run.stdout.pending_active = false;
+    run.settle_idle_buffers();
+    run.close_completed_runtime_handles().unwrap();
+    assert!(run.failure_resources_settled());
+    run.release_reservation().unwrap();
+    assert_eq!(owner.snapshot().active, 0);
+}
