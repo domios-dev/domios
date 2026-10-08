@@ -180,7 +180,7 @@ function PreviewFrame({
   );
 }
 
-export function HtmlPreviewBlock({ text }: { text: string }) {
+export function HtmlPreviewBlock({ text, fullscreenRequest = 0 }: { text: string; fullscreenRequest?: number }) {
   const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
   const filePath = useMemo(() => parseHtmlFileDirective(normalizedText), [normalizedText]);
   const [fileSource, setFileSource] = useState<FileSourceState>({ status: "idle", source: "", error: "" });
@@ -188,6 +188,7 @@ export function HtmlPreviewBlock({ text }: { text: string }) {
   const oversized = !filePath && normalizedText.length > HTML_PREVIEW_LENGTH_LIMIT;
   const [showCode, setShowCode] = useState(oversized);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  useEffect(() => { if (fullscreenRequest) setIsFullscreen(true); }, [fullscreenRequest]);
   const [height, setHeight] = useState(HTML_PREVIEW_MIN_HEIGHT);
   const [copied, setCopied] = useState(false);
   const blockRef = useRef<HTMLDivElement>(null);

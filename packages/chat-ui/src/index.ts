@@ -8,13 +8,13 @@ export {
   sessionIntentFromMessages,
   TimelineMarkerRow,
 } from "./timelineMarkers";
-export { LocalArtifactBlock } from "./LocalArtifactBlock";
+export { LocalArtifactBlock, parseLocalArtifactDirective } from "./LocalArtifactBlock";
 export { RichMarkdown } from "./MarkdownBody";
 export { GuideNavigationProvider } from "./GuideDirective";
 export { HtmlPreviewBlock, buildHtmlPreviewDocument } from "./HtmlPreviewBlock";
 export { configureHtmlFileLoader } from "./htmlFileLoader";
 export type { HtmlFileLoader } from "./htmlFileLoader";
-export { configureLocalArtifactLoader } from "./localArtifactLoader";
+export { configureLocalArtifactLoader, configureLocalArtifactOpener, openLocalArtifact } from "./localArtifactLoader";
 export type { LocalArtifactLoader, LocalArtifactKind, LocalPreviewFile } from "./localArtifactLoader";
 export { CHAT_HTML_SANITIZE_SCHEMA, containsHtmlMarkup, sanitizeStyleValue } from "./htmlSanitize";
 export { AttachedDiscussionDocView } from "./AttachedDiscussionDoc";
