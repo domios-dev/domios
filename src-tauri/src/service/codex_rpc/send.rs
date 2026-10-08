@@ -1,7 +1,5 @@
-mod busy;
 mod gate;
 mod startup;
-pub(crate) use busy::{joined_text, user_turn_pending};
 
 pub(crate) use startup::{admit_startup, send_startup};
 
@@ -47,23 +45,46 @@ pub fn try_send_to_pty(
     try_send(svc, &tab, text, Origin::Agent, None)
 }
 
+pub(crate) fn try_send_owned(
+    svc: &ServiceContext,
+    record: &crate::service::pending_delivery_payloads::user_sends::UserSendRecord,
+) -> Option<Result<(), DeliveryError>> {
+    if svc.chat_send_ledger.has_rpc_handoff(&record.send_id) {
+        return Some(Err(DeliveryError::SubmitUnconfirmed {
+            tab: record.authority.tab_id.clone(),
+            detail: "RPC handoff already claimed; replay refused".into(),
+        }));
+    }
+    if !super::launch::requested(svc, &record.authority.provider_id) {
+        return None;
+    }
+    let text = match svc.pending_delivery_payloads.user_sends.prepared(record) {
+        Ok(text) => format!(
+            "{text}{}",
+            record.typed_follow_up.as_deref().unwrap_or_default()
+        ),
+        Err(detail) => {
+            return Some(Err(DeliveryError::TabBusyRefused {
+                tab: record.authority.tab_id.clone(),
+                detail,
+            }))
+        }
+    };
+    try_send(
+        svc,
+        &record.authority.tab_id,
+        &text,
+        Origin::User,
+        Some(&record.send_id),
+    )
+}
+
 pub fn try_send(
     svc: &ServiceContext,
     tab: &str,
     text: &str,
     origin: Origin,
     send_id: Option<&str>,
-) -> Option<Result<(), DeliveryError>> {
-    try_send_group(svc, tab, text, origin, send_id, &[])
-}
-
-pub(crate) fn try_send_group(
-    svc: &ServiceContext,
-    tab: &str,
-    text: &str,
-    origin: Origin,
-    send_id: Option<&str>,
-    members: &[&str],
 ) -> Option<Result<(), DeliveryError>> {
     if send_id.is_some_and(|id| svc.chat_send_ledger.has_rpc_handoff(id)) {
         return Some(Err(DeliveryError::SubmitUnconfirmed {
@@ -148,19 +169,6 @@ pub(crate) fn try_send_group(
             }));
         }
     };
-    let mut admission = match busy::Admission::acquire(
-        &sidecar,
-        origin,
-        super::control::active_turn(tab).is_some(),
-    ) {
-        Ok(admission) => admission,
-        Err(detail) => {
-            return Some(Err(DeliveryError::TabBusyRefused {
-                tab: tab.into(),
-                detail: detail.into(),
-            }))
-        }
-    };
     let pending = match send_id {
         Some(id) => svc.chat_send_ledger.status(id),
         None => match svc.chat_send_ledger.try_start_scoped_with_normalization(
@@ -185,26 +193,18 @@ pub(crate) fn try_send_group(
             detail: "RPC ledger admission absent".into(),
         }));
     };
-    let ids = if members.is_empty() {
-        vec![pending.send_id.as_str()]
-    } else {
-        members.to_vec()
-    };
-    if ids.first().copied() != Some(pending.send_id.as_str())
-        || !svc.chat_send_ledger.bind_rpc_group(
-            &ids,
-            SendLiveBinding {
-                session_id: Some(thread.clone()),
-                binding_nonce: Some(nonce),
-            },
-        )
-    {
+    if !svc.chat_send_ledger.bind_rpc_send(
+        &pending.send_id,
+        SendLiveBinding {
+            session_id: Some(thread.clone()),
+            binding_nonce: Some(nonce),
+        },
+    ) {
         return Some(Err(DeliveryError::SubmitUnconfirmed {
             tab: tab.into(),
             detail: "RPC send was already claimed; replay refused".into(),
         }));
     }
-    admission.commit();
     observe(svc, tab, &sidecar);
     let cwd = svc.mux.read().get_tab(tab).and_then(|tab| tab.cwd.clone());
     let params = start_params(
@@ -214,9 +214,13 @@ pub(crate) fn try_send_group(
         cwd.as_deref(),
         super::model::turn_overrides(tab),
     );
-    let result = tauri::async_runtime::block_on(submit(origin, None, params, |method, params| {
-        sidecar.client.request(method, params)
-    }));
+    let active = super::control::active_turn(tab);
+    let result = tauri::async_runtime::block_on(submit(
+        origin,
+        active.as_deref(),
+        params,
+        |method, params| sidecar.client.request(method, params),
+    ));
     if origin == Origin::User {
         if let Ok(reply) = &result {
             if let Some(turn) = reply.pointer("/turn/id").and_then(Value::as_str) {
@@ -226,9 +230,6 @@ pub(crate) fn try_send_group(
                 }
             }
         }
-    }
-    for id in ids.iter().skip(1) {
-        let _ = finish_handoff(svc, tab, &thread, id, result.clone());
     }
     Some(finish_handoff(svc, tab, &thread, &pending.send_id, result))
 }
@@ -295,10 +296,13 @@ where
     F: FnMut(&'static str, Value) -> Fut,
     Fut: std::future::Future<Output = Result<Value, ClientError>>,
 {
-    if busy::hold(origin, active.is_some()) {
-        return Err(ClientError::Closed(
-            "busy user input must remain in the durable queue before RPC claim".into(),
-        ));
+    if let (Origin::User, Some(turn)) = (origin, active) {
+        let steer = steer_params(&params, turn);
+        log::info!("[codex-rpc-send] method=turn/steer thread={} expectedTurnId={turn} clientUserMessageId={}", steer["threadId"], steer["clientUserMessageId"]);
+        match request("turn/steer", steer).await {
+            Err(ClientError::Rpc(error)) if steer_turn_ended(&error, turn) => {}
+            result => return result,
+        }
     }
     log::info!(
         "[codex-rpc-send] method=turn/start thread={} clientUserMessageId={}",
@@ -306,6 +310,29 @@ where
         params["clientUserMessageId"]
     );
     request("turn/start", params).await
+}
+
+fn steer_params(start: &Value, turn: &str) -> Value {
+    let mut params = json!({"threadId":start["threadId"],
+        "clientUserMessageId":start["clientUserMessageId"],
+        "input":start["input"], "expectedTurnId":turn});
+    for key in ["additionalContext", "responsesapiClientMetadata"] {
+        if let Some(value) = start.get(key) {
+            params[key] = value.clone();
+        }
+    }
+    params
+}
+
+fn steer_turn_ended(error: &super::protocol::RpcError, expected: &str) -> bool {
+    // Codex exposes these pre-acceptance refusals only as INVALID_REQUEST text.
+    error.code == -32600
+        && error.data.is_none()
+        && (error.message == "no active turn to steer"
+            || error
+                .message
+                .starts_with(&format!("expected active turn id `{expected}` but found `"))
+                && error.message.ends_with('`'))
 }
 
 pub(crate) fn user_client_id<'a>(method: &str, params: &'a Value) -> Option<(&'a str, &'a str)> {
@@ -375,7 +402,7 @@ fn observe(svc: &ServiceContext, tab: &str, sidecar: &Arc<Sidecar>) {
                             .and_then(|tab| tab.session_binding_nonce.clone())
                     };
                     if let Some(nonce) = nonce {
-                        for status in svc.chat_send_ledger.confirm_rpc_group(&tab, thread, &nonce, client_id) {
+                        if let Some(status) = svc.chat_send_ledger.confirm_rpc_send(&tab, thread, &nonce, client_id) {
                             log::info!("[codex-rpc-send] tab={tab} thread={thread} clientUserMessageId={client_id} send_id={} state=delivered", status.send_id);
                             emit(&svc, &status);
                         }

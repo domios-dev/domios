@@ -115,7 +115,6 @@ struct ChatSendLedgerState {
     token_by_id: HashMap<String, String>,
     anchor_by_id: HashMap<String, SendEvidenceAnchor>,
     rpc_by_id: HashMap<String, SendLiveBinding>,
-    rpc_groups: HashMap<String, Vec<String>>,
     live_binding_by_id: HashMap<String, SendLiveBinding>,
     latest_by_tab: HashMap<String, String>,
     latest_failure_by_tab: HashMap<String, String>,
@@ -144,7 +143,6 @@ impl Default for ChatSendLedgerState {
             token_by_id: HashMap::new(),
             anchor_by_id: HashMap::new(),
             rpc_by_id: HashMap::new(),
-            rpc_groups: HashMap::new(),
             live_binding_by_id: HashMap::new(),
             latest_by_tab: HashMap::new(),
             latest_failure_by_tab: HashMap::new(),
@@ -1024,7 +1022,6 @@ impl ChatSendLedger {
             state.token_by_id.remove(&expired);
             state.anchor_by_id.remove(&expired);
             state.rpc_by_id.remove(&expired);
-            state.rpc_groups.remove(&expired);
             state.live_binding_by_id.remove(&expired);
             state.absence_witness_by_id.remove(&expired);
             state.sessionless_first_turn_by_id.remove(&expired);

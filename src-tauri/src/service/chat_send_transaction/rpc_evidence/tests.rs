@@ -171,47 +171,25 @@ fn codex_rpc_send_ledger_sidecar_death_only_settles_its_launch() {
 }
 
 #[test]
-fn codex_rpc_send_group_admission_is_atomic_and_rejects_foreign_or_duplicate_members() {
+fn parked_user_delivery_accepted_rpc_does_not_block_later_held_message() {
+    use crate::service::pending_delivery_payloads::user_sends::UserSendAuthority;
     let ledger = ChatSendLedger::default();
-    let first = ledger.try_start("tab-a", "one", None).unwrap();
-    let second = ledger.try_start("tab-b", "two", None).unwrap();
-    let binding = SendLiveBinding {
+    let status = started(&ledger, "nonce-a");
+    let authority = UserSendAuthority {
+        tab_id: "tab-a".into(),
+        pty_id: Some("pty-a".into()),
+        binding_nonce: "nonce-a".into(),
+        pty_session_generation: Some(1),
+        provider_id: "fixture".into(),
         session_id: Some("thread-a".into()),
-        binding_nonce: Some("nonce-a".into()),
+        observed_session_id: Some("thread-a".into()),
+        prelaunch: false,
     };
-    assert!(!ledger.bind_rpc_group(&[&first.send_id, &second.send_id], binding.clone()));
-    assert!(!ledger.has_rpc_handoff(&first.send_id));
-    assert!(!ledger.has_rpc_handoff(&second.send_id));
-    assert!(!ledger.bind_rpc_group(&[&first.send_id, &first.send_id], binding.clone()));
-    assert!(ledger.bind_rpc_send(&first.send_id, binding));
-}
-
-#[test]
-fn codex_rpc_send_group_confirms_only_its_reserved_client_id_and_keeps_uncertainty_no_replay() {
-    let ledger = ChatSendLedger::default();
-    let first = ledger.try_start("tab-a", "one", None).unwrap();
-    let second = ledger.try_start("tab-a", "two", None).unwrap();
-    let ids = [&*first.send_id, &*second.send_id];
-    assert!(ledger.bind_rpc_group(
-        &ids,
-        SendLiveBinding {
-            session_id: Some("thread-a".into()),
-            binding_nonce: Some("nonce-a".into())
-        }
-    ));
-    assert!(ledger
-        .confirm_rpc_group("tab-a", "thread-a", "nonce-a", &second.send_id)
-        .is_empty());
-    ledger.mark_rpc_uncertain(&first.send_id);
-    ledger.mark_rpc_uncertain(&second.send_id);
-    assert!(!ledger.bind_rpc_group(&ids, SendLiveBinding::default()));
-    assert_eq!(
-        ledger
-            .confirm_rpc_group("tab-a", "thread-a", "nonce-a", &first.send_id)
-            .len(),
-        2
-    );
-    assert!(ledger
-        .confirm_rpc_group("tab-a", "thread-a", "nonce-a", &first.send_id)
-        .is_empty());
+    ledger
+        .state
+        .lock()
+        .owned
+        .insert(status.send_id.clone(), (authority.clone(), true));
+    ledger.mark_rpc_accepted(&status.send_id);
+    assert!(!ledger.has_written_user_send_before(&authority, status.sequence + 1, true));
 }
