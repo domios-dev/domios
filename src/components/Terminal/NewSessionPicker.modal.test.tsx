@@ -104,7 +104,9 @@ function buttonNamed(name: string): HTMLButtonElement | null {
 async function choose(control: string, option: string) {
   const button = buttonNamed(control);
   expect(button).not.toBeNull();
-  await act(async () => button!.click());
+  await act(async () => {
+    button!.dispatchEvent(new window.Event("pointerdown", { bubbles: true, cancelable: true }));
+  });
   const item = Array.from(document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'))
     .find((element) => element.textContent?.trim() === option);
   expect(item).toBeDefined();
