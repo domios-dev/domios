@@ -1,0 +1,12 @@
+import assert from "node:assert/strict";
+import { countdownAnimation, remainingLifetime, toastLifetime } from "./toastLifetime";
+assert.equal(toastLifetime(), 5000);
+assert.equal(toastLifetime(2500), 2500);
+assert.equal(toastLifetime(60_000), 15_000);
+assert.equal(toastLifetime(Number.NaN), 5000);
+assert.equal(toastLifetime(-1), 1);
+assert.equal(remainingLifetime(5000, 1000, 3500), 2500);
+assert.equal(remainingLifetime(5000, 1000, 9000), 0);
+assert.equal(countdownAnimation(true), "none");
+assert.equal(countdownAnimation(false), "ct-toast-countdown");
+console.log("Toast lifetime caps, elapsed time and reduced motion passed");

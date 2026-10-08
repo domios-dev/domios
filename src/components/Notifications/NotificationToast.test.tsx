@@ -60,22 +60,21 @@ function notification(id: string, title: string, timestamp: number): Notificatio
   };
 }
 
-test("embedded titlebar toast shows the newest notification", async () => {
+test("host shows at most three notifications newest first", async () => {
   setupDom();
   const { host, root } = await render(
     <NotificationToastContainer
-      toasts={[notification("old", "Old status", 1), notification("new", "New status", 2)]}
+      toasts={[notification("overflow", "Overflow", 0), notification("old", "Old status", 1), notification("middle", "Middle", 2), notification("new", "New status", 3)]}
       onDismiss={() => undefined}
-      embedded
     />,
   );
 
   assert(host.textContent?.includes("New status"), "newest toast should be visible");
-  assert(!host.textContent?.includes("Old status"), "oldest toast should not occupy the embedded slot");
+  assert(Array.from(host.querySelectorAll("[data-notification-id]")).map((node) => node.getAttribute("data-notification-id")).join() === "new,middle,old", "three newest entries render in reverse arrival order");
   await act(async () => root.unmount());
 });
 
-test("clicking an embedded toast marks it read and opens the full body", async () => {
+test("clicking a toast marks it read and opens the full body", async () => {
   setupDom();
   const item = { ...notification("expand", "Detailed status", 3), body: "Line one\nLine two" };
   const marked: string[] = [];
@@ -84,7 +83,6 @@ test("clicking an embedded toast marks it read and opens the full body", async (
       toasts={[item]}
       onDismiss={() => undefined}
       onMarkRead={(id) => marked.push(id)}
-      embedded
     />,
   );
 
@@ -98,53 +96,57 @@ test("clicking an embedded toast marks it read and opens the full body", async (
   await act(async () => root.unmount());
 });
 
-test("transient toast dismisses from its animation event without timers", async () => {
+test("deadlines cap action toasts, hover pauses, and closing fires once", async () => {
+  setupDom();
+  const originalNow = Date.now;
+  let now = 0;
+  Date.now = () => now;
+  const scheduled = new Map<number, { due: number; run: () => void }>();
+  let timerId = 0;
+  window.setTimeout = ((run: () => void, delay: number) => { const id = ++timerId; scheduled.set(id, { due: now + delay, run }); return id; }) as typeof window.setTimeout;
+  window.clearTimeout = ((id: number) => scheduled.delete(id)) as typeof window.clearTimeout;
+  const advance = async (elapsed: number) => {
+    now += elapsed;
+    await act(async () => {
+      for (const [id, timer] of scheduled) if (timer.due <= now) { scheduled.delete(id); timer.run(); }
+    });
+  };
+  const dismissed: string[] = [];
+  const item = { ...notification("deadline", "Opaque status", 1), lifetime_ms: 60_000, actions: [{ type: "dismiss" as const, label: "Restore" }] };
+  const { host, root } = await render(<NotificationToastContainer toasts={[item]} onDismiss={(id) => dismissed.push(id)} />);
+  try {
+    await advance(5000);
+    await act(async () => host.querySelector('[role="status"]')!.dispatchEvent(new window.MouseEvent("mouseover", { bubbles: true }) as unknown as Event));
+    await advance(30_000);
+    assert(dismissed.length === 0, "hover suspends expiry");
+    await act(async () => host.querySelector('[role="status"]')!.dispatchEvent(new window.MouseEvent("mouseout", { bubbles: true }) as unknown as Event));
+    await advance(9999);
+    assert(dismissed.length === 0, "remaining lifetime is retained");
+    await advance(1);
+    assert(dismissed.join() === "deadline", "configured lifetime is capped at fifteen active seconds");
+    await act(async () => (host.querySelector('button[aria-label="Dismiss"]') as HTMLButtonElement).click());
+    assert(dismissed.join() === "deadline", "expiry and close cannot dismiss twice");
+  } finally {
+    await act(async () => root.unmount());
+    Date.now = originalNow;
+  }
+});
+
+test("close invokes its handler once without waiting for animation", async () => {
   setupDom();
   const dismissed: string[] = [];
-  const item = { ...notification("transient", "New message", 4), sticky: false };
-  const { host, root } = await render(
-    <NotificationToastContainer
-      toasts={[item]}
-      onDismiss={(id) => dismissed.push(id)}
-      embedded
-    />,
-  );
-
-  const panel = host.querySelector(".ct-toast-inline-panel");
-  assert(panel?.classList.contains("ct-toast-timed"), "transient toast should use the simple timed animation");
-  const animationEnd = new Event("animationend", { bubbles: true });
-  Object.defineProperty(animationEnd, "animationName", { value: "ct-toast-life" });
-  await act(async () => panel!.dispatchEvent(animationEnd));
-  assert(dismissed.join() === item.id, "animation completion should dismiss the toast");
+  const { host, root } = await render(<NotificationToastContainer toasts={[notification("close", "Opaque status", 1)]} onDismiss={(id) => dismissed.push(id)} />);
+  const button = host.querySelector('button[aria-label="Dismiss"]') as HTMLButtonElement;
+  await act(async () => { button.click(); button.click(); });
+  assert(dismissed.join() === "close", "one close per toast");
   await act(async () => root.unmount());
 });
 
-test("embedded toast keeps text single-line and shows only the primary action", async () => {
+test("all runnable actions remain available", async () => {
   setupDom();
-  const item: Notification = {
-    ...notification("actions", "requesting permission to", 5),
-    body: "run a shell command",
-    actions: [
-      { type: "dismiss", label: "Update Codex" },
-      { type: "dismiss", label: "Not now - Codex" },
-    ],
-  };
-  const { host, root } = await render(
-    <NotificationToastContainer
-      toasts={[item]}
-      onDismiss={() => undefined}
-      embedded
-    />,
-  );
-
-  const toast = host.querySelector('[data-testid="notification-toast"]');
-  assert(toast, "embedded toast should render");
-  assert(host.textContent?.includes("Update Codex"), "primary action should be visible");
-  assert(!host.textContent?.includes("Not now"), "secondary action should stay out of the compact toast");
-  const title = Array.from(toast.querySelectorAll("span")).find((node) =>
-    node.textContent === item.title,
-  );
-  assert(title?.getAttribute("class")?.includes("truncate"), "title should be constrained to one visual line");
+  const item: Notification = { ...notification("actions", "Opaque status", 1), actions: [{ type: "dismiss", label: "First action" }, { type: "dismiss", label: "Second action" }] };
+  const { host, root } = await render(<NotificationToastContainer toasts={[item]} onDismiss={() => undefined} />);
+  assert([...host.querySelectorAll("button")].filter((button) => button.textContent?.includes("action")).length === 2, "both actions render");
   await act(async () => root.unmount());
 });
 
