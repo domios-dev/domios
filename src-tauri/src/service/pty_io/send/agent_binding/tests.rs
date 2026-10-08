@@ -30,6 +30,27 @@ fn pinned(tab: &Tab) -> AgentDeliveryPayload {
 }
 
 #[test]
+fn reserved_nonce_admits_before_pty_registration_and_refuses_ended_launch() {
+    let mut tab = launching_tab();
+    tab.pty_id = None;
+    tab.boot_stage = Some(BootStage::PtyStarting);
+    let payload = pinned(&tab);
+    assert!(payload.expected_pty_id.is_none());
+    assert_eq!(
+        payload.expected_binding_nonce.as_deref(),
+        Some("launch-nonce")
+    );
+    assert!(queued_delivery_target(&tab, &payload).is_err());
+    tab.pty_id = Some("launch-pty".into());
+    tab.boot_stage = Some(BootStage::AgentReady);
+    tab.agent_booting = false;
+    assert!(queued_delivery_target(&tab, &payload).is_ok());
+    tab.boot_stage = Some(BootStage::SpawnFailed);
+    assert!(delivery_binding(&tab).is_none());
+    assert!(queued_delivery_target(&tab, &payload).is_err());
+}
+
+#[test]
 fn fresh_ready_agent_accepts_routed_input_before_first_session_turn() {
     let mut tab = launching_tab();
     let payload = pinned(&tab);
