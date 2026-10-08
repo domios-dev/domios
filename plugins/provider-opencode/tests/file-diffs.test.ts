@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
+import vm from "node:vm";
 import { readFileSync } from "node:fs";
 import { partToChatMsg } from "../src/helpers";
 import { opencodeFileDiffs } from "../src/fileDiffs";
-import { sessionChanges, type NormalizedChatMessage } from "@codeterm/chat-core";
+import { materializeToolEvent, sessionChanges, type FileDiff, type NormalizedChatMessage } from "@codeterm/chat-core";
 
 const completed = partToChatMsg({ type: "tool", tool: "edit", callID: "call1", state: {
   status: "completed", input: { filePath: "/repo/a.ts", oldString: "old", newString: "new\nextra" }, output: "ok",
@@ -31,7 +32,6 @@ assert.equal(sessionChanges([failed]).cumulative.length, 0);
 const pending = partToChatMsg({ type: "tool", tool: "edit", state: { status: "running",
   input: { filePath: "a.ts", oldString: "x", newString: "y" } } }, "assistant", "pending", 1) as NormalizedChatMessage;
 assert.equal(sessionChanges([pending]).cumulative.length, 0);
-console.log("OpenCode file diff mapping passed");
 
 const fixtures = JSON.parse(readFileSync(new URL("../../../tests/fixtures/opencode-file-diffs.json", import.meta.url), "utf8")) as {
   name: string; input: Record<string, unknown>; metadata: Record<string, unknown>; expected: unknown;
@@ -42,3 +42,43 @@ for (const fixture of fixtures) {
   } }, "assistant", fixture.name, 1) as NormalizedChatMessage;
   assert.deepEqual(result.fileDiffs, fixture.expected, fixture.name);
 }
+
+const storedParts = JSON.parse(readFileSync(new URL("../../../tests/fixtures/opencode-1.18.35-tool-parts.json", import.meta.url), "utf8")) as Array<{
+  name: string; part: Parameters<typeof partToChatMsg>[0]; expectedPath: string; additions: number; deletions: number;
+}>;
+const context = { module: { exports: {} }, host: {
+  platform: () => "linux", envGet: () => null, expandHome: () => "/fixture",
+  fs: { fileExists: () => true, sqliteQuery: () => storedParts.map((fixture, index) => ({
+    id: fixture.name, ts_created: index + 1, ts_updated: index + 1, role: "assistant", part: JSON.stringify(fixture.part),
+  })) },
+} };
+new vm.Script(readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(context);
+const bundled = (context.module.exports as { default: {
+  structuredToolFileDiffs(part: unknown): FileDiff[] | null;
+  readStructuredChat(cwd: string, sessionId: string): { messages: NormalizedChatMessage[] };
+} }).default;
+const history = JSON.parse(JSON.stringify(bundled.readStructuredChat("/repo", "own").messages)) as NormalizedChatMessage[];
+for (const fixture of storedParts) {
+  const liveDiffs = JSON.parse(JSON.stringify(bundled.structuredToolFileDiffs(fixture.part))) as FileDiff[];
+  const row = history.find((message) => message.id === fixture.name)!;
+  assert.deepEqual(row.fileDiffs, liveDiffs, "live and stored parts use the same plugin mapping");
+  assert.deepEqual(liveDiffs.map((diff) => [diff.path, diff.additions, diff.deletions]),
+    [[fixture.expectedPath, fixture.additions, fixture.deletions]]);
+  assert.deepEqual(materializeToolEvent(row)?.fileDiffs, liveDiffs, "diff cards receive the recorded file diff");
+  const changes = sessionChanges([row]).cumulative;
+  assert.equal(changes.length, 1);
+  assert.equal(changes[0].additions, fixture.additions);
+  assert.equal(changes[0].deletions, fixture.deletions);
+  for (const status of ["running", "pending", "error"]) {
+    assert.equal(bundled.structuredToolFileDiffs({ ...fixture.part, state: { ...fixture.part.state, status } }), null);
+  }
+}
+const write = storedParts[0].part;
+assert.equal(bundled.structuredToolFileDiffs({ ...write, state: { ...write.state,
+  metadata: { exists: true },
+} })?.length, 0, "an overwrite without before text does not invent a full-file addition");
+assert.equal(bundled.structuredToolFileDiffs({ ...write, state: { ...write.state,
+  input: { filePath: "/repo/empty.txt", content: "" },
+} })?.[0].kind, "add", "empty file creation remains a recorded change");
+
+console.log("OpenCode file diff mapping passed");
