@@ -42,6 +42,7 @@ import { ComposerApprovalDock } from "./ComposerApprovalDock";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
+import { TabStatusLineModelPicker } from "./StatusLineModelPicker";
 import type { AgentState } from "./AgentStateIndicator";
 import { useSteadyAgentState } from "./useSteadyAgentState";
 import { useAttachments } from "./useAttachments";
@@ -888,6 +889,7 @@ export function TabSessionChat({
           onRebind={sessionBindingSurface.showRecoveryAction
             ? () => setBindingRecoveryOpen(true)
             : undefined}
+          renderIdentity={tab ? (label) => <TabStatusLineModelPicker tab={tab} label={label} /> : undefined}
         />        {bindingRecoveryOpen && (
           <SessionBindingRecoveryForm
             tabId={tabId}

@@ -969,6 +969,7 @@ pub fn run() {
                 let _ = chatbackend_registry.start_discovery();
             }
             app.manage(service_state.clone());
+            startup::model_catalogue::reconcile_defaults(&service_state);
             let lane_watch_service = service_state.clone();
             tauri::async_runtime::spawn_blocking(move || {
                 lane_watch_service.restore_lane_watches();

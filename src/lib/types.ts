@@ -854,6 +854,19 @@ export interface AppConfig {
   mesh: MeshConfig;
   orchestration: OrchestrationConfig;
   ui?: UiConfig;
+  model_defaults?: ModelDefaultsConfig;
+}
+
+/** A stored model default the daemon moved off a model its catalogue stopped offering. */
+export interface ReplacedModelDefault {
+  provider: string;
+  from: string;
+  to: string;
+  reason: string;
+}
+
+export interface ModelDefaultsConfig {
+  replaced?: Record<string, ReplacedModelDefault>;
 }
 
 // Provider descriptor wire types mirror `src-tauri/src/agent/provider.rs`.
