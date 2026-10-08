@@ -31,5 +31,5 @@ export function sentinelJobs(graph: AutomationGraph, scope: AutomationScope): Se
 
 export function sentinelTitle(scenario: AutomationScenario, root: AutomationNode | null): string {
   if (scenario.name.trim() && scenario.name !== scenario.id) return scenario.name;
-  return root?.purpose?.trim() || root?.outcomes[0]?.bucket?.trim() || scenario.id;
+  return root?.purpose?.trim() || root?.outcomes[0]?.bucket?.trim() || "Untitled blueprint";
 }

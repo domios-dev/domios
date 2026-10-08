@@ -1,3 +1,4 @@
+import { formatAge } from "../../../lib/timeLabels";
 import type { TaskStatus } from "../types";
 import { DONE_COLUMN_COLLAPSED_LIMIT } from "./boardModel";
 import {
@@ -25,19 +26,8 @@ function textHaystack(row: PlanListRow): string {
     .toLowerCase();
 }
 
-export function formatRelativeAge(ts: number | undefined, now: number): string {
-  if (!ts || ts <= 0) return "";
-  const secs = Math.max(0, Math.floor((now - ts) / 1000));
-  if (secs < 60) return `${secs}s`;
-  const mins = Math.floor(secs / 60);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  const weeks = Math.floor(days / 7);
-  if (weeks < 5) return `${weeks}w`;
-  return `${Math.floor(days / 30)}mo`;
+export function activityAge(ts: number | undefined, now: number): string {
+  return ts && ts > 0 ? formatAge(ts, now) : "";
 }
 
 export function taskRowMatchesStatus(row: PlanListRow, filter: PlanListStatusFilter): boolean {

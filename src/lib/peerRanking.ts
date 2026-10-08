@@ -1,3 +1,5 @@
+import { formatAge } from "./timeLabels";
+
 export interface LastActivePeer {
   instance_id: string;
   instance_name: string;
@@ -18,10 +20,5 @@ export function formatLastActiveBadge(
   nowMs = Date.now(),
 ): string | null {
   if (lastActiveMs == null || lastActiveMs <= 0) return null;
-  const ageMs = nowMs - lastActiveMs;
-  if (ageMs < 60_000) return "active now";
-  const mins = Math.floor(ageMs / 60_000);
-  if (mins < 60) return `active ${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  return `active ${hours}h ago`;
+  return nowMs - lastActiveMs < 60_000 ? "active now" : `active ${formatAge(lastActiveMs, nowMs)}`;
 }

@@ -1,4 +1,5 @@
 import { memo, useState, useCallback } from "react";
+import { formatAge } from "../../lib/timeLabels";
 import { createPortal } from "react-dom";
 import { GitBranch, Layers } from "lucide-react";
 import type { ClosedTabView } from "../../lib/types";
@@ -37,14 +38,7 @@ export function groupClosedViews(views: ClosedTabView[]): ClosedGroup[] {
  *  `3h`, `2d`, then an absolute date. Empty for a missing/zero stamp. */
 export function closedAgo(closedAtMs: number, nowMs: number = Date.now()): string {
   if (!closedAtMs) return "";
-  const s = Math.max(0, Math.round((nowMs - closedAtMs) / 1000));
-  if (s < 45) return "now";
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h`;
-  const d = Math.round(h / 24);
-  if (d < 7) return `${d}d`;
+  if (nowMs - closedAtMs < 7 * 86_400_000) return formatAge(closedAtMs, nowMs);
   return new Date(closedAtMs).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 

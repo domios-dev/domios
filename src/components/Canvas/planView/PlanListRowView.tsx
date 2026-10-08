@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import { TASK_STATUS_COLORS } from "../settings";
 import type { PlanListRow, PlanListRowKind, PlanListVisibleRow } from "./buildPlanListTree";
 import { isPlanListSectionRow } from "./buildPlanListTree";
-import { formatRelativeAge } from "./planListModel";
+import { activityAge } from "./planListModel";
 import { DONE_COLUMN_COLLAPSED_LIMIT } from "./boardModel";
 import { usePlanTaskActivate } from "./planTaskInteraction";
 import { TaskExecutionBadges } from "./TaskExecutionBadges";
@@ -102,7 +102,7 @@ export function PlanListRowView({
   const isPausedTask = isTask && row.status === TaskStatus.Paused;
   const dotColor = row.status ? TASK_STATUS_COLORS[row.status] ?? "var(--ct-muted-fg)" : "var(--ct-muted-fg)";
   const executor = row.tabLabel ?? row.historicalExecutorSummary ?? "";
-  const age = formatRelativeAge(row.activityTs, now ?? 0);
+  const age = activityAge(row.activityTs, now ?? 0);
   const titleIndent = Math.max(0, row.depth - 2) * TASK_INDENT_STEP;
   const chipTitle = onOpenBelonging
     ? `Open plan document for ${row.sectionTitle ?? "Unsectioned"}`

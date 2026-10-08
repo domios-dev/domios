@@ -9,6 +9,8 @@ export interface CanvasPalette {
   fgMuted: string;
   chipBg: string;
   accent: string;
+  onAccent: string;
+  live: string;
 }
 
 const FALLBACK: CanvasPalette = {
@@ -21,6 +23,8 @@ const FALLBACK: CanvasPalette = {
   fgMuted: "rgba(230,233,239,0.6)",
   chipBg: "rgba(148,163,184,0.16)",
   accent: "rgba(129,140,248,0.92)",
+  onAccent: "#fff",
+  live: "rgba(56,189,248,0.92)",
 };
 
 function readVar(style: CSSStyleDeclaration, name: string, fallback: string): string {
@@ -41,5 +45,7 @@ export function resolveCanvasPalette(root?: HTMLElement | null): CanvasPalette {
     fgMuted: readVar(s, "--ct-muted-fg", FALLBACK.fgMuted),
     chipBg: readVar(s, "--ct-bg-hover", FALLBACK.chipBg),
     accent: readVar(s, "--ct-accent", FALLBACK.accent),
+    onAccent: readVar(s, "--ct-on-accent", FALLBACK.onAccent),
+    live: readVar(s, "--ct-cyan", FALLBACK.live),
   };
 }
