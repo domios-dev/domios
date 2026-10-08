@@ -255,3 +255,107 @@ fn codex_rpc_control_retired_socket_cannot_close_new_connection() {
     client.close_epoch(2, "current");
     assert!(client.0.state.lock().closed.is_some());
 }
+
+#[tokio::test]
+async fn codex_rpc_pending_steer_interrupt_drops_server_buffer_without_replay() {
+    use crate::service::{
+        chat_send_transaction::{ChatSendLedger, ChatSendState, SendLiveBinding},
+        codex_rpc::{
+            control::{interrupt_turns, ControlState},
+            send::{start_params, submit, Origin},
+        },
+    };
+    let (client, mut outgoing) = client();
+    let ledger = ChatSendLedger::default();
+    let sent = ledger.try_start("tab-a", "pending input", None).unwrap();
+    assert!(ledger.bind_rpc_send(
+        &sent.send_id,
+        SendLiveBinding {
+            session_id: Some("thread-a".into()),
+            binding_nonce: Some("nonce-a".into()),
+        }
+    ));
+    let mut control = ControlState::default();
+    control.started("thread-a", "active-a");
+    let consumer = async {
+        let reply = submit(
+            Origin::User,
+            Some("active-a"),
+            start_params("thread-a", &sent.send_id, "pending input", None, json!({})),
+            |method, params| client.request(method, params),
+        )
+        .await;
+        assert_eq!(reply.unwrap(), json!({"turnId":"active-a"}));
+        ledger.mark_rpc_accepted(&sent.send_id);
+        interrupt_turns(&control.descendants("thread-a"), |method, params| {
+            client.request(method, params)
+        })
+        .await
+        .unwrap();
+        assert!(control.completed("thread-a", "active-a"));
+        assert_eq!(
+            ledger.status(&sent.send_id).unwrap().state,
+            ChatSendState::Written
+        );
+        assert!(!ledger.bind_rpc_send(&sent.send_id, SendLiveBinding::default()));
+        let reply = submit(
+            Origin::User,
+            None,
+            start_params("thread-a", "new-id", "fresh input", None, json!({})),
+            |method, params| client.request(method, params),
+        )
+        .await;
+        assert!(reply.is_ok());
+        assert_eq!(
+            ledger.status(&sent.send_id).unwrap().state,
+            ChatSendState::Written
+        );
+    };
+    let server = async {
+        let mut pending = Vec::new();
+        for expected in ["turn/steer", "turn/interrupt", "turn/start"] {
+            let Message::Text(text) = outgoing.recv().await.unwrap() else {
+                panic!("expected request")
+            };
+            let frame: Value = serde_json::from_str(&text).unwrap();
+            assert_eq!(frame["method"], expected);
+            let result = match expected {
+                "turn/steer" => {
+                    assert_eq!(frame["params"]["expectedTurnId"], "active-a");
+                    pending.push(frame["params"]["input"].clone());
+                    json!({"turnId":"active-a"})
+                }
+                "turn/interrupt" => {
+                    assert_eq!(
+                        frame["params"],
+                        json!({"threadId":"thread-a", "turnId":"active-a"})
+                    );
+                    assert_eq!(pending.len(), 1);
+                    pending.clear();
+                    json!({})
+                }
+                _ => {
+                    assert!(pending.is_empty());
+                    assert_eq!(
+                        frame["params"]["input"],
+                        json!([{"type":"text","text":"fresh input"}])
+                    );
+                    assert_eq!(frame["params"]["clientUserMessageId"], "new-id");
+                    json!({"turn":{"id":"next-a"}})
+                }
+            };
+            client
+                .ingest(Frame::Response {
+                    id: serde_json::from_value(frame["id"].clone()).unwrap(),
+                    result: Ok(result),
+                })
+                .unwrap();
+        }
+        assert!(outgoing.try_recv().is_err());
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(consumer, server);
+    })
+    .await
+    .unwrap();
+}

@@ -53,18 +53,19 @@ impl ChatSendLedger {
     ) -> bool {
         let state = self.state.lock();
         state.owned.iter().any(|(id, (prior, _))| {
-            state.by_id.get(id).is_some_and(|status| {
-                parked_order::blocks_later(
-                    held,
-                    prior.tab_id == authority.tab_id
-                        && prior.pty_id == authority.pty_id
-                        && prior.binding_nonce == authority.binding_nonce
-                        && prior.pty_session_generation == authority.pty_session_generation
-                        && prior.provider_id == authority.provider_id,
-                    status.sequence < sequence,
-                    &status.state,
-                )
-            })
+            !state.rpc_by_id.contains_key(id)
+                && state.by_id.get(id).is_some_and(|status| {
+                    parked_order::blocks_later(
+                        held,
+                        prior.tab_id == authority.tab_id
+                            && prior.pty_id == authority.pty_id
+                            && prior.binding_nonce == authority.binding_nonce
+                            && prior.pty_session_generation == authority.pty_session_generation
+                            && prior.provider_id == authority.provider_id,
+                        status.sequence < sequence,
+                        &status.state,
+                    )
+                })
         })
     }
 
