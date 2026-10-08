@@ -209,6 +209,15 @@ export function RichMarkdown({
         h3: ({ node: _node, ...props }) => (
           <h3 className={`${h3Text} font-medium mt-1.5 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
         ),
+        h4: ({ node: _node, ...props }) => (
+          <h4 className={`${h3Text} font-semibold mt-1.5 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
+        ),
+        h5: ({ node: _node, ...props }) => (
+          <h5 className={`${h3Text} font-medium mt-1 mb-0.5`} style={{ color: "var(--ct-fg)" }} {...props} />
+        ),
+        h6: ({ node: _node, ...props }) => (
+          <h6 className="text-xs font-medium uppercase tracking-wide mt-1 mb-0.5" style={{ color: "var(--ct-muted-fg)" }} {...props} />
+        ),
         p: ({ node, children, ...props }) => {
           const textChild = React.Children.toArray(children).every((child) => typeof child === "string")
             ? React.Children.toArray(children).join("")
