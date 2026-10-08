@@ -33,7 +33,7 @@ test("restored shell history precedes a clean cursor-addressed prompt at the act
         const firstFrame = output(term, "\x1b[HPS> ");
         await Promise.all([replay, firstFrame]);
         assert.equal(term.options.scrollOnEraseInDisplay, false);
-        assert.equal(term.buffer.active.getLine(term.buffer.active.baseY)!.translateToString(true), "PS>");
+        assert.equal(term.buffer.active.getLine(term.buffer.active.baseY)!.translateToString(true), "PS> ");
         assert.equal(term.buffer.active.cursorY, 0);
         await output(term, "фыва");
         assert.deepEqual(lines(term), [...saved, "PS> фыва"]);
@@ -70,7 +70,7 @@ test("a shell restore marker split across transport chunks still precedes the fi
     await output(term, "saved-0\r\nsaved-1");
     for (const byte of marker) await output(term, Uint8Array.of(byte));
     await output(term, "\x1b[HPS> ");
-    assert.deepEqual(lines(term), ["saved-0", "saved-1", "PS>"]);
+    assert.deepEqual(lines(term), ["saved-0", "saved-1", "PS> "]);
   } finally {
     term.dispose();
   }
@@ -84,7 +84,7 @@ test("agent history replay and full-screen repaint retain the existing viewport 
     assert.equal(term.buffer.active.type, "alternate");
     assert.equal(term.buffer.active.baseY, 0);
     assert.equal(term.buffer.active.cursorY, 5);
-    assert.deepEqual(lines(term), ["new frame", "", "", "", "", "composer>"]);
+    assert.deepEqual(lines(term), ["new frame", "", "", "", "", "composer> "]);
     assert.equal(term.buffer.normal.baseY, 0);
     assert.equal(term.buffer.normal.length, 6);
   } finally {
