@@ -3332,8 +3332,10 @@ Plain shell tab, inheriting the calling tab's workspace and Team. For an AI tab 
 - `--description` — Activity summary shown below the tab title
 - `--eager` — Spawn the shell PTY immediately on the daemon for headless/API use
 - `--icon` — Lucide icon name (for example bug or flask-conical)
+- `--list-shells` — List available shell profiles without creating a tab
 - `--no-team` — Keep the new shell outside the calling tab's Team
 - `--purpose` — Utility shell purpose shown in the sidebar
+- `--shell` — Shell profile id (discover with --list-shells)
 - `--team` — Explicit Team membership cross-check. Ordinary shells already inherit the calling Tab's Team
 - `--title` — Tab title
 - `--workspace` — Target workspace id. Defaults to the calling tab's own workspace, then the focused workspace for a caller with no tab identity
