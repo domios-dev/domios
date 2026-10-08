@@ -2,7 +2,7 @@ import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { AppWindow, ShieldCheck, TriangleAlert } from "lucide-react";
-import { isSurfaceTab } from "../../lib/surfaceTab";
+import { isSurfaceTab, tabRowLabel } from "../../lib/surfaceTab";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
 import { useTabProvider, useShellSessionModel } from "../../lib/useTabProvider";
 import { getAgentDescriptor, listAgentDescriptors } from "../../lib/agentDescriptorCache";
@@ -67,6 +67,8 @@ interface TabItemProps {
   onToggleCollapse?: () => void;
   /** Shown on the head only while collapsed — "1 manager · 2 workers". */
   collapsedSummary?: string | null;
+  /** Owner's title, composed into an owner-labelled surface's label. */
+  ownerTitle?: string | null;
 }
 
 function GroupCollapseChevron({
@@ -187,6 +189,7 @@ function TabItemInner({
   collapsed = false,
   onToggleCollapse,
   collapsedSummary,
+  ownerTitle = null,
 }: TabItemProps) {
   // Unified identity for agent (agent_type) AND chatBackend shell (backing.plugin_id)
   // tabs — drives the icon, tooltip, and (for shells) the model badge.
@@ -232,7 +235,8 @@ function TabItemInner({
   const tabModelTitle = tabModel ? `${providerName} · ${tabModel}` : undefined;
   const description = tab.description ?? null;
   const canonicalTitle = displayTitleForTab(tab);
-  const displayTitle = hasAgent ? canonicalTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : canonicalTitle;
+  const rowTitle = tabRowLabel(tab, canonicalTitle, ownerTitle);
+  const displayTitle = hasAgent ? rowTitle.replace(/^[✻✳✴✵✶✷✸✹✺✻✼✽✾✿❀❁❂❃❇❈❉❊❋*]\s*/u, "") : rowTitle;
   const isGeneralAgent = isGeneralAgentTab(tab);
   const utilityShell = isUtilityShell(tab);
   const shellRunning = utilityShell && tab.shell_command_state?.activity === "running";
@@ -514,6 +518,7 @@ function tabItemPropsEqual(prev: TabItemProps, next: TabItemProps): boolean {
     prev.groupCollapsible !== next.groupCollapsible ||
     prev.collapsed !== next.collapsed ||
     prev.collapsedSummary !== next.collapsedSummary ||
+    prev.ownerTitle !== next.ownerTitle ||
     prev.onToggleCollapse !== next.onToggleCollapse ||
     prev.reportCount !== next.reportCount ||
     prev.activeWork !== next.activeWork

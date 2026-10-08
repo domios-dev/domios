@@ -28,6 +28,7 @@ import { RowMenuButton } from "../shared/RowMenuButton";
 import { TeamJobsUnit } from "../Jobs/TeamJobsUnit";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { DeclaredAttentionLevel } from "./declaredAttention";
+import { surfaceOwnerTitle } from "../../lib/surfaceTab";
 
 import {
   effectiveTeamId,
@@ -258,6 +259,7 @@ export function SidebarWorkspaceTabs({
     <div key={member.tab.id} className="sidebar-team-member">
       <SidebarSingleTabRow
         tab={member.tab}
+        ownerTitle={surfaceOwnerTitle(member.tab, tabs)}
         index={member.index}
         activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
         activeWork={activeWork}
@@ -274,6 +276,7 @@ export function SidebarWorkspaceTabs({
             <SidebarSingleTabRow
               key={surface.tab.id}
               tab={surface.tab}
+              ownerTitle={surfaceOwnerTitle(surface.tab, tabs)}
               index={surfaceIndex}
               activity={resolveTabTabActivity(planIndex, surface.tab.id, tabs)}
               activeWork={activeWork}
@@ -297,6 +300,7 @@ export function SidebarWorkspaceTabs({
       <div key={member.tab.id} className="sidebar-team-member sidebar-team-terminal-member">
         <SidebarSingleTabRow
           tab={member.tab}
+          ownerTitle={surfaceOwnerTitle(member.tab, tabs)}
           index={member.index}
           activity={resolveTabTabActivity(planIndex, member.tab.id, tabs)}
           activeWork={activeWork}
@@ -353,6 +357,7 @@ export function SidebarWorkspaceTabs({
       <div key={tab.id} className="sidebar-tab-tree-row">
         <SidebarSingleTabRow
           tab={tab}
+          ownerTitle={surfaceOwnerTitle(tab, tabs)}
           index={index}
           activity={resolveTabTabActivity(planIndex, tab.id, tabs)}
           activeWork={activeWork}
@@ -561,6 +566,7 @@ export function SidebarCollapsedActiveTab({
   return (
     <TabItem
       tab={activeTab}
+      ownerTitle={surfaceOwnerTitle(activeTab, tabs)}
       index={0}
       isActive={isWorkspaceTabActive(
         isActiveVisual,

@@ -63,3 +63,16 @@ export function workspaceIdOfTab(workspaces: readonly { id: string; tabs: readon
   if (!tabId) return null;
   return workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? null;
 }
+
+/** The owner's title a sidebar row composes into its label; null when the row is not an owner-labelled surface. */
+export function surfaceOwnerTitle(tab: Tab, tabs: Readonly<Record<string, Pick<Tab, "title">>>): string | null {
+  const backing = surfaceBacking(tab);
+  if (!backing?.owner_label || !tab.parent_tab_id) return null;
+  return tabs[tab.parent_tab_id]?.title ?? null;
+}
+
+/** The label a tab row shows: surfaces compose their owner's name, every other tab keeps its title. */
+export function tabRowLabel(tab: Tab, title: string, ownerTitle: string | null | undefined): string {
+  const backing = surfaceBacking(tab);
+  return backing ? surfaceDisplayLabel(title, backing, ownerTitle) : title;
+}
