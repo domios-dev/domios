@@ -344,6 +344,8 @@ fn notify_owner(
 #[cfg(test)]
 mod tests;
 
+#[cfg(windows)]
+pub(crate) use command::process::ProcessChild;
 pub(crate) use command::process::ProcessTree;
 
 #[cfg(all(test, windows))]
