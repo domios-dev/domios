@@ -6,10 +6,11 @@ interface Props {
   children?: React.ReactNode;
   /** Shown with the raw command, and hidden with it. */
   details?: React.ReactNode;
+  initiallyExpanded?: boolean;
 }
 
-export function RawCommandDisclosure({ raw, children, details }: Props) {
-  const [open, setOpen] = React.useState(false);
+export function RawCommandDisclosure({ raw, children, details, initiallyExpanded = false }: Props) {
+  const [open, setOpen] = React.useState(initiallyExpanded);
   const detailsId = React.useId();
 
   return (

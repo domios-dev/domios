@@ -89,6 +89,7 @@ function eventStatus(message: NormalizedChatMessage, phase: ToolEvent["phase"]):
   if (message.toolError === true || hasNonzeroExit(message)) return "error";
   if (message.toolInterrupted === true) return "interrupted";
   if (phase === "call") {
+    if (message.toolError !== false && message.toolInput?.status === "inProgress") return "pending";
     return message.toolError === false || message.toolResult ? "success" : "pending";
   }
   return "success";

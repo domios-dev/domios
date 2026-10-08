@@ -27,7 +27,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const Glyph = visual.glyph;
   const statusColor = event.status === "error"
     ? "var(--ct-red)"
-    : event.status === "pending" ? "var(--ct-yellow)" : event.status === "unresolved" || event.status === "interrupted" ? "var(--ct-muted-fg)" : "var(--ct-green)";
+    : event.status === "pending" ? "var(--ct-accent)" : event.status === "unresolved" || event.status === "interrupted" ? "var(--ct-muted-fg)" : "var(--ct-green)";
   const borderColor = event.status === "error"
     ? "color-mix(in srgb, var(--ct-red) 38%, var(--ct-border))"
     : expanded || variant === "codeterm" ? "var(--ct-border)" : "transparent";

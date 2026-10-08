@@ -279,7 +279,7 @@ describe("sub-agent activity card", () => {
 });
 
 describe("activity presentation", () => {
-  it("gates expansion motion behind reduced-motion variants and uses tokens without blinking dots or right borders", async () => {
+  it("gates expansion motion behind reduced-motion variants and uses tokens without blinking dots or side borders", async () => {
     const view = await render([
       thought("p-think", "Short thought"),
       agent("p-agent", { agentId: "thread-p", agentPath: "/root/p", state: "running" }),
@@ -293,9 +293,10 @@ describe("activity presentation", () => {
       expect(classes).not.toContain("transition-transform");
     }
     expect(view.querySelector('[class*="animate-"]')).toBeNull();
-    expect(card.className.split(/\s+/)).toEqual(expect.not.arrayContaining(["border", "border-r", "border-x"]));
+    expect(card.className.split(/\s+/)).toEqual(expect.not.arrayContaining(["border", "border-l", "border-l-2", "border-r", "border-x"]));
     expect(card.style.borderRightWidth).toBe("");
-    expect(card.getAttribute("style")).toContain("var(--ct-");
+    expect(card.style.borderLeftWidth).toBe("");
+    expect(card.querySelector('[data-testid="chat-agent-title"]')?.getAttribute("style")).toContain("var(--ct-fg)");
 
     await click(card.querySelector("button[aria-expanded]"));
     expect(card.querySelector('[data-testid="chat-agent-state"]')?.getAttribute("style")).toContain("var(--ct-yellow)");

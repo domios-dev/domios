@@ -137,8 +137,8 @@ pub fn start(svc: ServiceContext, tab: String, sidecar: &Arc<Sidecar>) {
                     super::status::observe(&svc, &tab, &current, &sidecar, event);
                 }
             }
-            let message = sidecar.normalizer.lock().apply(&frame);
-            if let Some(message) = message {
+            let messages = sidecar.normalizer.lock().apply_all(&frame);
+            for message in messages {
                 super::transcript::emit(&svc, &tab, &current, message);
             }
             if method == "turn/started" {

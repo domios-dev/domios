@@ -105,6 +105,15 @@ async fn codex_rpc_client_forbids_global_config_writes() {
 
 #[tokio::test]
 async fn codex_rpc_control_history_paginates_turns_and_items_without_jsonl() {
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        history_paginates_turns_and_items_without_jsonl(),
+    )
+    .await
+    .expect("history fake and client must complete together");
+}
+
+async fn history_paginates_turns_and_items_without_jsonl() {
     let (client, mut outgoing) = client();
     let reader = client.clone();
     let snapshot =
@@ -132,7 +141,11 @@ async fn codex_rpc_control_history_paginates_turns_and_items_without_jsonl() {
             "thread/items/list",
             Some("item-page"),
             Some("old"),
-            json!({"data":[{"turnId":"old","item":{"id":"answer-id","type":"agentMessage","text":"opaque-answer"}}]}),
+            json!({"data":[
+                {"turnId":"old","item":{"id":"command-id","type":"commandExecution","command":"codeterm blueprint list","status":"completed","exitCode":0,"aggregatedOutput":"one\ntwo\n"}},
+                {"turnId":"old","item":{"id":"mcp-id","type":"mcpToolCall","server":"codeterm","tool":"skill","arguments":{"name":"style"},"status":"completed","result":{"content":[{"type":"text","text":"skill body"}]}}},
+                {"turnId":"old","item":{"id":"answer-id","type":"agentMessage","text":"opaque-answer"}}
+            ]}),
         ),
         (
             "thread/items/list",
@@ -146,6 +159,7 @@ async fn codex_rpc_control_history_paginates_turns_and_items_without_jsonl() {
             Some("queued"),
             json!({"data":[]}),
         ),
+        ("thread/goal/get", None, None, json!({"goal":null})),
     ] {
         let Message::Text(text) = outgoing.recv().await.unwrap() else {
             panic!("expected request")
@@ -172,11 +186,109 @@ async fn codex_rpc_control_history_paginates_turns_and_items_without_jsonl() {
             .iter()
             .map(|message| message.id.as_str())
             .collect::<Vec<_>>(),
-        ["user-id", "answer-id"]
+        [
+            "old:turn/started",
+            "user-id",
+            "command-id",
+            "mcp-id",
+            "answer-id",
+            "old:turn/completed",
+            "active:turn/started",
+        ]
+    );
+    assert_eq!(history.messages[2].tool_kind.as_deref(), Some("command"));
+    assert_eq!(history.messages[2].tool_exit_code, Some(0));
+    assert_eq!(
+        history.messages[2].tool_result.as_deref(),
+        Some("one\ntwo\n")
+    );
+    assert_eq!(
+        history.messages[3].tool_name.as_deref(),
+        Some("codeterm · skill")
     );
     assert_eq!(history.active_turn.as_deref(), Some("active"));
     assert_eq!(history.completed_turns, ["old"]);
     assert!(outgoing.try_recv().is_err());
+}
+
+#[tokio::test(start_paused = true)]
+async fn codex_rpc_control_history_optional_goal_never_discards_transcript() {
+    for response in [
+        Some(Ok(json!({"goal":null}))),
+        Some(Ok(json!({}))),
+        Some(Ok(json!({"goal":{"objective":"inspect"}}))),
+        Some(Err(RpcError {
+            code: -32601,
+            message: "unsupported method".into(),
+            data: None,
+        })),
+        None,
+    ] {
+        let (client, mut outgoing) = client();
+        let silence = response.is_none();
+        let expected_goal = response
+            .as_ref()
+            .and_then(|result| result.as_ref().ok())
+            .and_then(|value| value["goal"]["objective"].as_str())
+            .map(str::to_owned);
+        let server = async {
+            for (method, result) in [
+                (
+                    "thread/turns/list",
+                    Some(Ok(json!({"data":[{"id":"turn","status":"completed"}]}))),
+                ),
+                (
+                    "thread/items/list",
+                    Some(Ok(
+                        json!({"data":[{"turnId":"turn","item":{"id":"command","type":"commandExecution","command":"git status","status":"completed","exitCode":0,"aggregatedOutput":"clean"}}]}),
+                    )),
+                ),
+                ("thread/goal/get", response),
+            ] {
+                let Message::Text(text) = outgoing.recv().await.unwrap() else {
+                    panic!("expected history request")
+                };
+                let request: Value = serde_json::from_str(&text).unwrap();
+                assert_eq!(request["method"], method);
+                assert_eq!(request["params"]["threadId"], "bound");
+                if let Some(result) = result {
+                    client
+                        .ingest(Frame::Response {
+                            id: serde_json::from_value(request["id"].clone()).unwrap(),
+                            result,
+                        })
+                        .unwrap();
+                }
+            }
+        };
+        let started = tokio::time::Instant::now();
+        let (history, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(super::super::transcript::history(&client, "bound"), server)
+        })
+        .await
+        .expect("optional goal cannot block history");
+        let history = history.unwrap();
+        let command = history
+            .messages
+            .iter()
+            .find(|row| row.id == "command")
+            .unwrap();
+        assert_eq!(command.tool_result.as_deref(), Some("clean"));
+        assert_eq!(command.tool_exit_code, Some(0));
+        assert_eq!(history.completed_turns, ["turn"]);
+        let goal = history
+            .messages
+            .iter()
+            .find_map(|row| row.session_intent.as_ref());
+        assert_eq!(
+            goal.and_then(|intent| intent.goal.as_deref()),
+            expected_goal.as_deref()
+        );
+        assert!(client.0.state.lock().pending.is_empty());
+        if silence {
+            assert!(started.elapsed() < Duration::from_secs(5));
+        }
+    }
 }
 
 #[tokio::test]

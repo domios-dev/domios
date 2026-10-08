@@ -14,6 +14,7 @@ import {
   Info,
 } from "lucide-react";
 import { ToolCallBubble } from "./ToolCallBubble";
+import { toolCommandShape } from "./codeterm/commandShape";
 import { ImageAttachments } from "./ImageAttachments";
 import { ThoughtLine } from "./toolcard/ThoughtLine";
 import { ShellCommandItem } from "./ShellCommandItem";
@@ -130,7 +131,10 @@ export const MessageBubble = React.memo(function MessageBubble({ message, showTi
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
   const isCompactStatusReport = message.inboundKind === "report" && /^(?:partial|in[ _-]?review)$/i.test(parseInboundReport(message.content).status ?? "");
-  const shouldAutoExpand = hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
+  const isCommandGroup = item?.kind === "tool" && !item.event.stream
+    && (item.event.kind === "command" || item.event.kind === "codeterm")
+    && toolCommandShape(item.event)?.kind === "group";
+  const shouldAutoExpand = isCommandGroup || hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item);
   const persistKey = expansionKey(message, item);
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);

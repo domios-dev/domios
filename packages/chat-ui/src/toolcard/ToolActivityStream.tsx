@@ -19,7 +19,7 @@ export type RenderStreamAction = (member: ToolEvent, expanded: boolean, onToggle
 
 function statusColor(status: ToolEvent["status"]): string {
   if (status === "unresolved" || status === "interrupted") return "var(--ct-muted-fg)";
-  return status === "error" ? "var(--ct-red)" : status === "pending" ? "var(--ct-yellow)" : "var(--ct-green)";
+  return status === "error" ? "var(--ct-red)" : status === "pending" ? "var(--ct-accent)" : "var(--ct-green)";
 }
 
 export function statusName(status: ToolEvent["status"]): string {
@@ -121,9 +121,8 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
       data-flow-active={stream.active ? "true" : "false"}
       data-tool-status={event.status}
       aria-label={`Tool activity, ${countLabel}`}
-      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md border-l-2"
+      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
       style={{
-        borderLeftColor: stream.active ? "var(--ct-accent)" : "var(--ct-border)",
         background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)",
         maxHeight: miniView ? MINI_VIEW_MAX_PX : undefined,
       }}
