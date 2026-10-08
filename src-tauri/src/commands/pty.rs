@@ -91,7 +91,7 @@ pub async fn spawn_pty_core(
         }
         if is_protected {
             drop(pty_claim.take());
-            return crate::service::orchestrator::tab_relink_signal::await_relink(|| {
+            return crate::service::await_relink(|| {
                 let existing = {
                     let mux = mux_state.read();
                     let Some(tab) = mux.get_tab(pid) else {

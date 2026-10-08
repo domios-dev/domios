@@ -74,6 +74,7 @@ pub(crate) mod startup_turn;
 pub(crate) mod task_files;
 #[cfg(test)]
 pub(crate) use orchestrator::role_onboarding_task;
+pub(crate) use orchestrator::tab_relink_signal::await_relink;
 pub(crate) use orchestrator::{
     build_agent_command_for_service, launch_agent_in_background, mark_tab_agent_launch_started,
     provider_launch_task,
