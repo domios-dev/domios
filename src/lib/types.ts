@@ -436,6 +436,13 @@ export interface GraphWorkerInfo {
   color: string;
   report: string | null;
   done_at: number | null;
+  last_observed_at?: number | null;
+  extraction_retry?: {
+    attempt: number;
+    parked: boolean;
+    retry_after: number | null;
+    reason: string | null;
+  } | null;
   log_path?: string | null;
   agent_provider?: string | null;
   model?: string | null;
