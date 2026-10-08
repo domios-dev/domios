@@ -341,8 +341,8 @@ fn insert_runtime(
         .transpose()?;
     cx.write(
         "INSERT INTO sentinel_runtime (sentinel_id, generation, next_run, expires_at, paused, \
-         stopped, last_hash, last_bucket, last_reason, held, run_id, run_tab_id, run_bound_at, run_transitions) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+         stopped, last_hash, last_bucket, last_reason, held, run_id, run_tab_id, run_bound_at, run_transitions, causal_run_json) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
         params![
             id,
             to_sql_u64("generation", runtime.generation)?,
@@ -357,7 +357,8 @@ fn insert_runtime(
             run.map(|run| run.run_id.as_str()),
             run.map(|run| run.tab_id.as_str()),
             bound_at,
-            runtime.run_transitions
+            runtime.run_transitions,
+            runtime.causal_run_json
         ],
     )?;
     Ok(())
@@ -396,7 +397,7 @@ fn insert_transition(
         .transpose()?;
     cx.write(
         "INSERT INTO sentinel_transitions (sentinel_id, ordinal, transition_id, bucket, \
-         accepted_at, terminal, definition_version, decision_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         accepted_at, terminal, definition_version, decision_json, causal_run_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             id,
             ordinal,
@@ -405,7 +406,8 @@ fn insert_transition(
             to_sql_u64("transition time", transition.accepted_at)?,
             transition.terminal,
             version,
-            transition.decision_json
+            transition.decision_json,
+            transition.causal_run_json
         ],
     )?;
     Ok(())
@@ -655,6 +657,7 @@ fn import_transition(
     transition: &TransitionRecord,
 ) -> Result<(), StorageError> {
     let accepted = NewTransition {
+        causal_run_json: transition.causal_run_json.clone(),
         decision_json: transition.decision_json.clone(),
         id: transition.id.clone(),
         bucket: transition.bucket.clone(),

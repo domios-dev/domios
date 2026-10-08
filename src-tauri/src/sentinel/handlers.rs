@@ -298,6 +298,8 @@ pub struct ResultRecord {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Transition {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causal_run: Option<codeterm_types::blueprint_run::Context>,
     #[serde(default)]
     pub decision: Option<super::provenance::Decision>,
     pub id: String,
@@ -461,7 +463,12 @@ impl Store {
                 .stage_stop(&job.id, "transition_budget_exhausted")
                 .map(|_| false);
         }
+        let causal_run = current
+            .causal_run
+            .clone()
+            .unwrap_or_else(|| codeterm_types::blueprint_run::Context::root(&job.id, id, now));
         let transition = Transition {
+            causal_run: Some(causal_run),
             decision,
             id: id.into(),
             bucket: bucket.into(),

@@ -1,5 +1,5 @@
 import { projectAutomationGraph, type PresentationEdge } from "./projection";
-import { automationKey, type AutomationGraph, type AutomationTransition } from "./types";
+import { automationKey, type AutomationGraph, type AutomationTransition, type AutomationNode } from "./types";
 
 export interface RunEvent {
   at: number;
@@ -16,16 +16,23 @@ export interface GraphRun {
   at: number;
   name: string;
   events: RunEvent[];
+  state: "running" | "completed" | "unlinked";
+  incomplete: boolean;
 }
 
 function eventEdge(edges: readonly PresentationEdge[], source: string, transition: AutomationTransition, handlerId: string) {
   return edges.find((edge) => edge.from === source && edge.bucket === transition.bucket && edge.handler_id === handlerId);
 }
 
+function transitionKey(node: AutomationNode, transition: AutomationTransition) {
+  return JSON.stringify([automationKey(node.identity), transition.id]);
+}
+
 export function graphRuns(graph: AutomationGraph): GraphRun[] {
   const presentation = projectAutomationGraph(graph);
   const names = new Map(presentation.nodes.map((node) => [node.key, node.participant?.name ?? node.action?.handler?.label ?? node.action?.handler?.id ?? node.action?.bucket ?? "Action"]));
-  return graph.nodes.flatMap((node) => (node.history ?? []).map((transition) => {
+  const pieces = graph.nodes.flatMap((node) => [...(node.history ?? [])].reverse().map((transition) => ({ node, transition, key: transitionKey(node, transition) })));
+  const eventsFor = ({ node, transition }: typeof pieces[number]): RunEvent[] => {
     const source = automationKey(node.identity);
     const events: RunEvent[] = transition.handlers.map((handler) => {
       const edge = transition.routes_current === false ? undefined : eventEdge(presentation.edges, source, transition, handler.handler_id);
@@ -35,13 +42,39 @@ export function graphRuns(graph: AutomationGraph): GraphRun[] {
         at: handler.accepted_at ?? transition.accepted_at, node: node.name, outcome: transition.bucket,
         target: edge ? names.get(edge.to) ?? null : handler.handler_id,
         status: handler.status ?? "Unknown", duration,
-        edgeId: handler.status === "skipped" ? null : edge?.id ?? null,
+        edgeId: handler.status === "skipped" || handler.status === "noop" ? null : edge?.id ?? null,
       };
     });
-    events.sort((a, b) => a.at - b.at);
     if (!events.length) events.push({ at: transition.accepted_at, node: node.name, outcome: transition.bucket, target: null, status: "No action", duration: null, edgeId: null });
-    return { key: JSON.stringify([source, transition.id]), at: transition.accepted_at, name: node.name, events };
-  })).sort((a, b) => b.at - a.at || a.key.localeCompare(b.key));
+    return events;
+  };
+  const runs: GraphRun[] = (graph.runs ?? []).flatMap((run) => {
+    const root = graph.nodes.find((node) => node.identity.kind === "sentinel" && node.identity.id === run.root_node);
+    if (!root) return [];
+    const entries = run.transitions.flatMap((entry) => {
+      const piece = pieces.find((piece) => automationKey(piece.node.identity) === automationKey(entry.node) && piece.transition.id === entry.transition_id);
+      return piece ? [{ ...piece, parent: entry.parent }] : [];
+    });
+    const visited = new Set<string>();
+    const events: RunEvent[] = [];
+    const visit = (entry: typeof entries[number]) => {
+      if (visited.has(entry.key)) return;
+      visited.add(entry.key);
+      eventsFor(entry).forEach((event, index) => {
+        events.push(event);
+        const handler = entry.transition.handlers[index];
+        if (handler) entries.filter((child) => child.parent?.node === entry.node.identity.id && child.parent.transition === entry.transition.id && child.parent.handler === handler.handler_id).forEach(visit);
+      });
+    };
+    entries.filter((entry) => entry.parent === null).forEach(visit);
+    entries.forEach(visit);
+    return [{ key: run.id, at: run.started_at, name: root.name, events, state: run.state, incomplete: run.incomplete || entries.length < run.transitions.length }];
+  });
+  for (const piece of pieces) {
+    if (piece.transition.causal_run) continue;
+    runs.push({ key: piece.key, at: piece.transition.accepted_at, name: piece.node.name, events: eventsFor(piece), state: "unlinked", incomplete: false });
+  }
+  return runs.sort((a, b) => b.at - a.at || a.key.localeCompare(b.key));
 }
 
 export function replayEdges(run: GraphRun): string[] {

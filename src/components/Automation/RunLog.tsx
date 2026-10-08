@@ -9,7 +9,8 @@ export function RunLog({ graph, selected, onReplay }: { graph: AutomationGraph; 
     {graph.nodes.some((node) => node.history_truncated) && <p role="status">Some older runs are omitted from this bounded history.</p>}
     {!runs.length && <p role="status">No accepted runs recorded.</p>}
     <ol className="space-y-3">{runs.map((run) => <li key={run.key}>
-      <button type="button" className={AUTOMATION_TOOL} aria-pressed={run.key === selected} onClick={() => onReplay(run)} aria-label={`Replay ${run.name} at ${new Date(run.at).toLocaleString()}`}>{new Date(run.at).toLocaleString()} · {run.name}</button>
+      <button type="button" className={AUTOMATION_TOOL} aria-pressed={run.key === selected} onClick={() => onReplay(run)} aria-label={`Replay ${run.name} at ${new Date(run.at).toLocaleString()}`}>{new Date(run.at).toLocaleString()} · {run.name} · {run.state === "unlinked" ? "Recorded event" : run.state}</button>
+      {run.incomplete && <p role="status">Part of this run is outside the retained history.</p>}
       <ol className="mt-1 space-y-1 pl-2">{run.events.map((event, index) => <li key={index} className="break-words text-[var(--ct-muted-fg)]">{runEventLine(event)}</li>)}</ol>
     </li>)}</ol>
   </section>;
