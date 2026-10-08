@@ -247,13 +247,13 @@ pub async fn ensure_for_spawn(
     let cap = cap.ok_or("Structured control unavailable")?;
     let binary = binary.ok_or("Provider binary unavailable")?;
     if !binary.is_absolute() {
-        return Err("Sidecar binary must be absolute".into());
+        return Err(format!("Sidecar binary must be absolute: {binary:?}"));
     }
     if matches!(
         binary.extension().and_then(|ext| ext.to_str()),
         Some("cmd" | "bat")
     ) {
-        return Err("Sidecar requires a native executable; plain PTY fallback selected".into());
+        return Err(format!("Sidecar requires a native executable: {binary:?}"));
     }
     let listener =
         std::net::TcpListener::bind(("127.0.0.1", 0)).map_err(|error| error.to_string())?;
@@ -263,7 +263,8 @@ pub async fn ensure_for_spawn(
         .port();
     drop(listener);
     let root = crate::paths::data_dir().join("codex-rpc");
-    std::fs::create_dir_all(&root).map_err(|error| error.to_string())?;
+    std::fs::create_dir_all(&root)
+        .map_err(|error| format!("Sidecar runtime directory {root:?}: {error}"))?;
     let generation = uuid::Uuid::new_v4().to_string();
     let token_file = root.join(format!("{generation}.token"));
     let marker_file = root.join(format!("{generation}.json"));
@@ -495,7 +496,7 @@ fn write_token(path: &std::path::Path, token: &str) -> Result<(), String> {
     options
         .open(path)
         .and_then(|mut file| file.write_all(token.as_bytes()))
-        .map_err(|error| error.to_string())
+        .map_err(|error| format!("Sidecar token write {path:?}: {error}"))
 }
 
 #[cfg(test)]
@@ -509,7 +510,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("token");
         write_token(&file, &a).unwrap();
-        assert!(write_token(&file, "replacement").is_err());
+        let error = write_token(&file, "replacement").unwrap_err();
+        assert!(error.contains(&format!("{file:?}")), "{error}");
         assert_eq!(std::fs::read_to_string(file).unwrap(), a);
     }
     #[test]

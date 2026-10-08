@@ -170,15 +170,7 @@ pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String)
             crate::service::launch_delivery::command_task(p, plan.task.as_deref()).system_prompt
         })
         .flatten();
-    let spawn = Spawn {
-        provider: provider.into(),
-        cwd: plan.params.cwd.clone().unwrap_or_default(),
-        instructions,
-        resume: plan.params.resume_session_id.clone(),
-        model: plan.params.model.clone(),
-        effort: plan.params.reasoning_effort.clone(),
-        full_access: plan.params.permission_bypass_requested(provider),
-    };
+    let spawn = deferred_spawn(provider, &plan.params, instructions);
     match tauri::async_runtime::block_on(super::lifecycle::ensure_for_spawn(svc, tab, spawn)) {
         Ok(sidecar) => remote_command(&sidecar),
         Err(error) => {
@@ -200,6 +192,22 @@ pub fn prepare(svc: &ServiceContext, tab: &str, provider: &str, command: String)
     }
 }
 
+fn deferred_spawn(
+    provider: &str,
+    params: &SpawnAgentParams,
+    instructions: Option<String>,
+) -> Spawn {
+    Spawn {
+        provider: provider.into(),
+        cwd: params.cwd.clone().unwrap_or_default(),
+        instructions,
+        resume: params.resume_session_id.clone(),
+        model: params.model.clone(),
+        effort: params.reasoning_effort.clone(),
+        full_access: params.permission_bypass_requested(provider),
+    }
+}
+
 pub fn remote_command(sidecar: &Sidecar) -> String {
     remote_command_parts(&sidecar.binary, sidecar.port, &sidecar.thread.lock())
 }
@@ -214,6 +222,104 @@ fn remote_command_parts(binary: &std::path::Path, port: u16, thread: &str) -> St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_rpc_launch_spawn_origins_use_resolved_cwd() {
+        use crate::service::spawn::{AgentSpawnSpec, SpawnTabSpec, TabCommand};
+
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path().to_string_lossy().into_owned();
+        let explicit = dir.path().join("explicit");
+        std::fs::create_dir(&explicit).unwrap();
+        let explicit = explicit.to_string_lossy().into_owned();
+        for (origin, requested, task, role, expected) in [
+            ("visible_spawn", None, None, None, &workspace),
+            (
+                "visible_spawn_cwd",
+                Some(explicit.clone()),
+                None,
+                None,
+                &explicit,
+            ),
+            (
+                "visible_spawn_task_file",
+                None,
+                Some("opaque file contents"),
+                None,
+                &workspace,
+            ),
+            (
+                "visible_spawn_task_file_cwd",
+                Some(explicit.clone()),
+                Some("opaque file contents"),
+                None,
+                &explicit,
+            ),
+            (
+                "plan_dispatch",
+                Some(explicit.clone()),
+                Some("opaque brief"),
+                Some("Worker"),
+                &explicit,
+            ),
+        ] {
+            let spec = SpawnTabSpec {
+                cwd: requested,
+                command: TabCommand::Agent(AgentSpawnSpec {
+                    provider: "provider".into(),
+                    task: task.map(str::to_owned),
+                    role: role.map(str::to_owned),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            };
+            let (resolved, _) =
+                ServiceContext::resolve_agent_cwd(&spec.cwd, &Some(workspace.clone()));
+            let params = spec.to_agent_launch_params(resolved).unwrap();
+            let spawn = deferred_spawn("provider", &params, task.map(str::to_owned));
+            assert_eq!(&spawn.cwd, expected, "{origin}");
+            assert_eq!(
+                crate::service::spawn_cwd::cwd_problem(&spawn.cwd),
+                None,
+                "{origin}"
+            );
+            assert_eq!(spawn.instructions.as_deref(), task, "{origin}");
+        }
+        let ui = Selection::default().spawn("provider", &workspace, None, false);
+        assert_eq!(crate::service::spawn_cwd::cwd_problem(&ui.cwd), None);
+    }
+
+    #[test]
+    fn codex_rpc_launch_without_cwd_pins_daemon_directory() {
+        let spec = crate::service::spawn::SpawnTabSpec {
+            command: crate::service::spawn::TabCommand::Agent(Default::default()),
+            ..Default::default()
+        };
+        let (resolved, _) = ServiceContext::resolve_agent_cwd(&None, &None);
+        let params = spec.to_agent_launch_params(resolved).unwrap();
+        let spawn = deferred_spawn("provider", &params, None);
+        assert_eq!(crate::service::spawn_cwd::cwd_problem(&spawn.cwd), None);
+        assert_eq!(
+            std::path::Path::new(&spawn.cwd),
+            std::env::current_dir().unwrap()
+        );
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn codex_rpc_launch_normalizes_verbatim_workspace_before_deferral() {
+        let spec = crate::service::spawn::SpawnTabSpec {
+            command: crate::service::spawn::TabCommand::Agent(Default::default()),
+            ..Default::default()
+        };
+        let (resolved, _) =
+            ServiceContext::resolve_agent_cwd(&None, &Some(r"\\?\D:\Developer\codeterm".into()));
+        let params = spec.to_agent_launch_params(resolved).unwrap();
+        assert_eq!(
+            deferred_spawn("provider", &params, None).cwd,
+            r"D:\Developer\codeterm"
+        );
+    }
     #[test]
     fn codex_rpc_launch_uses_absolute_binary_and_token_env_name_only() {
         let binary = if cfg!(windows) {
