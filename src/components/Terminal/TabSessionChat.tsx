@@ -71,6 +71,9 @@ import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
 import { BlueprintChatCards } from "./BlueprintChatCards";
 import { useTabChatBlockHost } from "./pinnedBlocks";
+import { ChatMessageRow } from "./ChatMessageRow";
+import { MessageSelectionBar } from "./MessageSelectionBar";
+import { useChatMessageSelection } from "./useChatMessageSelection";
 
 interface Props {
   tabId: string;
@@ -504,6 +507,7 @@ export function TabSessionChat({
     () => enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg)),
     [enrichedMessages],
   );
+  const messageSelection = useChatMessageSelection({ tabId, rows: renderedEnrichedMessages, agent: tab?.title || provider?.displayName || "Agent", surfaceRef: scrollRef });
   const agentTimeMessageIds = useMemo(
     () => agentMessageTimeIds(renderedEnrichedMessages.map(({ msg }) => msg)),
     [renderedEnrichedMessages],
@@ -759,6 +763,8 @@ export function TabSessionChat({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
+        onKeyDown={messageSelection.onKeyDown}
+        data-selecting={messageSelection.active || undefined}
         className="ct-hover-reveal-scrollbar ct-chat-surface absolute inset-0 overflow-y-auto overscroll-contain p-3 select-text"
         data-testid="tab-session-chat-messages"
         role="log"
@@ -804,16 +810,17 @@ export function TabSessionChat({
         {renderedEnrichedMessages.map(({ msg, item, origin }, messageIndex) => {
           const originProps = originPropsById.get(msg.id);
           const following = reportPlacement.afterIndex.get(messageIndex) ?? [];
+          const nextId = renderedEnrichedMessages[messageIndex + 1]?.msg.id;
           return (
             <Fragment key={msg.id}>
-            <div
-              key={msg.id}
-              data-testid="chat-message"
-              data-message-role={msg.type}
-              data-message-id={msg.id}
-              data-source-message-id={msg.sourceMessageId ?? msg.id}
-              role="article"
-              aria-label={chatMessageAccessibleName(msg.type, msg.content)}
+            <ChatMessageRow
+              msg={msg}
+              ariaLabel={chatMessageAccessibleName(msg.type, msg.content)}
+              selected={messageSelection.selected.has(msg.id)}
+              joinNext={nextId !== undefined && following.length === 0 && messageSelection.selected.has(nextId)}
+              selecting={messageSelection.active}
+              cursor={messageSelection.cursor ? messageSelection.cursor === msg.id : messageIndex === renderedEnrichedMessages.length - 1}
+              handlers={messageSelection.rowHandlers}
             >
               <MessageBubble
                 message={msg}
@@ -835,7 +842,7 @@ export function TabSessionChat({
                 onOriginClick={originProps?.onOriginClick}
                 onFocusTab={resolveFocusTab}
               />
-            </div>
+            </ChatMessageRow>
               {following.map(renderOutboundReport)}
               {(askPlacement.afterIndex.get(messageIndex) ?? []).map(renderAsk)}
             </Fragment>
@@ -855,6 +862,13 @@ export function TabSessionChat({
         <AutoConfirmedPromptRows records={autoConfirmations} />
         </div>
       </div>
+      <MessageSelectionBar
+        count={messageSelection.count}
+        onCopy={messageSelection.copySelection}
+        onQuote={messageSelection.quoteSelection}
+        onAsk={messageSelection.askSelection}
+        onClear={messageSelection.clear}
+      />
       {showScrollDown && (
         <ScrollToLatestButton
           testId="chat-scroll-bottom"

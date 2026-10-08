@@ -279,7 +279,7 @@ function ChatComposerImpl({
     });
   }, []);
 
-  useComposerInsertions(tabId, { draft: input, setDraft: setInput, addAttachments, textareaRef, focus: refocusComposer });
+  useComposerInsertions(tabId, capsules.insertContext);
 
   useLayoutEffect(() => { recordComposerPaint(); }, [input]);
 

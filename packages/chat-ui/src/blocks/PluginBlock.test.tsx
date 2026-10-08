@@ -134,7 +134,7 @@ function fakeHost(initial: Record<string, PluginBlockState>) {
       assert(!element.querySelector('[aria-label^="Ask about"]') && !element.querySelector('[aria-label^="Pin "]'), "extras shown without a tab scope");
       assert(element.querySelector('[aria-label^="Copy link"]'), "copy link missing");
     });
-    await withRender("@ds-plugin telegram-client", { plugins: host, askAbout: (text) => asked.push(text), pin: (source) => pinned.push(source) }, async (element) => {
+    await withRender("@ds-plugin telegram-client", { plugins: host, askAbout: ({ text }) => asked.push(text), pin: (source) => pinned.push(source) }, async (element) => {
       await act(async () => {
         (element.querySelector('[aria-label^="Ask about"]') as HTMLButtonElement).click();
         (element.querySelector('[aria-label^="Pin "]') as HTMLButtonElement).click();
