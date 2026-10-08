@@ -198,3 +198,29 @@ codeterm blueprint create --name ci-result-review-watch --probe "gh run view 456
 ```
 
 <!-- revision: 4 -->
+
+## Terminal adapter
+
+Use this when the harness has no provider plugin. Run the harness as a foreground process in a Team utility tab, then attach an output watcher before sending its first request. Replace the placeholders with the actual command, tab id and graph ids returned by the CLI. The calling agent must belong to the same Team.
+
+```bash
+codeterm tab new --team <TEAM_ID> --title Harness --eager --cmd "<HARNESS_COMMAND>"
+codeterm blueprint create --name harness-replies --observe tab:<HARNESS_TAB_ID> --output-settled 300 --session --question "reply when the harness produces output" --buckets reply --match 'reply=(?s).+' --route reply=notify --timeout 1h
+codeterm blueprint create --name harness-input --input text --input-file <INITIAL_REQUEST_FILE> --session --question "send every input body to the harness" --buckets request --match 'request=(?s).+' --route request=send:<HARNESS_TAB_ID> --timeout 1h
+```
+
+The input graph sends its initial request once. Every settled reply wakes the creator with a bounded result file; read that file, decide the next request, write its exact UTF-8 body to `request.txt` in your Agent Pad, and deliver it:
+
+```bash
+codeterm blueprint input <INPUT_GRAPH_ID> --from-pad request.txt
+codeterm blueprint show <INPUT_GRAPH_ID>
+```
+
+For a file outside the pad, use `codeterm blueprint input <INPUT_GRAPH_ID> --text-file <PATH>`. A prompt-shaped harness can use `--terminal-pattern '<PROMPT_REGEX>'` instead of or alongside `--output-settled`. To route replies directly to another Team agent, use `--route reply=send:<AGENT_TAB_ID>` in the watcher. Never feed a watcher back to the same harness without a protocol that distinguishes replies from new requests.
+
+Verify the far end: the harness must report the result of the request, not merely echo its input. For an echo fixture, make it print the byte length or hash of the received request and compare the exact result, including quotes, dollar signs, backticks, newlines and non-ASCII text. Observe a second distinct reply after another `blueprint input`, and check Runs for exchange/action counts. A CLI admission acknowledgement alone does not prove delivery.
+
+```bash
+codeterm blueprint stop <INPUT_GRAPH_ID>
+codeterm blueprint stop <OUTPUT_GRAPH_ID>
+```
