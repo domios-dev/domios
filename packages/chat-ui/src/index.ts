@@ -8,6 +8,7 @@ export {
   sessionIntentFromMessages,
   TimelineMarkerRow,
 } from "./timelineMarkers";
+export { LocalArtifactBlock } from "./LocalArtifactBlock";
 export { RichMarkdown } from "./MarkdownBody";
 export { GuideNavigationProvider } from "./GuideDirective";
 export { HtmlPreviewBlock, buildHtmlPreviewDocument } from "./HtmlPreviewBlock";
