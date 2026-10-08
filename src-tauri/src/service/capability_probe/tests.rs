@@ -227,7 +227,13 @@ fn run_fixture(mode: &str, deadline: Duration, success: bool) {
         .args(protocol::args())
         .env("CODETERM_FIXTURE_SECRET", "opaque")
         .env("FORCE_CODE_TERMINAL", "opaque");
+    let started = std::time::Instant::now();
     let result = process::capture_command(command, project.path(), deadline);
+    eprintln!(
+        "fixture mode={mode} elapsed={:?} result={result:?} progress={:?}",
+        started.elapsed(),
+        std::fs::read_to_string(project.path().join("progress.jsonl"))
+    );
     if success {
         assert!(
             result.is_ok(),
