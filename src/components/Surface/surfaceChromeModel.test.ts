@@ -13,10 +13,16 @@ import {
   isNeedsHuman,
   liveViewLabel,
   NEEDS_HUMAN_KINDS,
+  NEW_PROFILE_OPTION,
+  PROFILE_NAME_MAX,
   profileOptions,
+  profileSwitchedNotice,
   resolveToolbar,
+  selectChoice,
   surfaceLabel,
   toolbarInvocation,
+  validateProfileName,
+  withOwner,
   type CapsuleModel,
   type SurfaceState,
   type ToolbarItemSpec,
@@ -78,7 +84,12 @@ const bare = resolveToolbar({ toolbar: [{ id: "x", kind: "select", label: "X", s
 assert.deepEqual(bare, [{ id: "x", kind: "select", label: "X", options: [], value: "", disabled: true }], "unknown select sources render disabled and chrome flags off add nothing");
 
 assert.deepEqual(profileOptions({ ...base, profile: "Andrey", profiles: ["Andrey", "Work"] }), {
-  options: [{ value: "clean", label: "Clean profile" }, { value: "Andrey", label: "Profile: Andrey" }, { value: "Work", label: "Profile: Work" }],
+  options: [
+    { value: "clean", label: "Clean profile" },
+    { value: "Andrey", label: "Profile: Andrey" },
+    { value: "Work", label: "Profile: Work" },
+    { value: NEW_PROFILE_OPTION, label: "+ New profile…" },
+  ],
   value: "Andrey",
   locked: false,
 });
@@ -118,5 +129,32 @@ const popoverCases: Array<[string, { x: number; y: number; width: number; height
   ["keeps a margin in a tiny stage", { x: 0, y: 0, width: 100, height: 100 }, { left: 8, top: 8 }],
 ];
 for (const [name, anchor, expected] of popoverCases) assert.deepEqual(askPopoverPosition(anchor), expected, name);
+
+const profileSelect = BROWSER_SURFACE_CHROME.toolbar.find((item) => item.id === "profile") as ToolbarItemSpec;
+assert.deepEqual(selectChoice(profileSelect, NEW_PROFILE_OPTION), { kind: "new-profile" }, "the new-profile entry opens the dialog");
+assert.deepEqual(selectChoice(profileSelect, "clean"), { kind: "value", value: "" }, "clean is sent as the empty name");
+assert.deepEqual(selectChoice(profileSelect, "Work"), { kind: "value", value: "Work" });
+assert.deepEqual(selectChoice({ source: "url" }, NEW_PROFILE_OPTION), { kind: "value", value: NEW_PROFILE_OPTION }, "only profile selects know the sentinel");
+
+const nameCases: Array<[string, boolean]> = [
+  ["Work", true],
+  ["  work-2_b ", true],
+  ["a".repeat(PROFILE_NAME_MAX), true],
+  ["a".repeat(PROFILE_NAME_MAX + 1), false],
+  ["", false],
+  ["two words", false],
+  ["../etc", false],
+  ["Clean", false],
+  ["attached", false],
+];
+for (const [name, valid] of nameCases) assert.equal(validateProfileName(name) === null, valid, `profile name ${JSON.stringify(name)}`);
+
+assert.equal(profileSwitchedNotice("Work"), "Using profile Work");
+assert.equal(profileSwitchedNotice("clean"), profileSwitchedNotice(""), "clean and empty read the same");
+
+const pushed: SurfaceState = { owner: "agent-7" };
+assert.deepEqual(withOwner(pushed, "Jev"), { owner: "Jev" }, "the owner tab's name wins over the pushed owner");
+assert.equal(withOwner(pushed, "  "), pushed, "a blank owner tab name keeps the pushed owner");
+assert.equal(withOwner(pushed, null), pushed);
 
 console.log("✓ surfaceChromeModel tests green");
