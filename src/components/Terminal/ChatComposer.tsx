@@ -42,6 +42,7 @@ import { composeAttachmentDraft } from "./meshAttachmentHandoff";
 import { composerAttachmentHandoff } from "./composerAttachmentHandoff";
 import { ReceiverTargetMarks } from "./ReceiverTargetMark";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
+import { useComposerInsertions } from "./useComposerInsertions";
 
 const VOICE_TRANSCRIBING_PLACEHOLDER = "🎙 Transcribing voice note…";
 const VOICE_TRANSCRIBE_ERROR = "⚠️ Voice transcription failed — tap the mic to retry.";
@@ -268,6 +269,8 @@ function ChatComposerImpl({
       }
     });
   }, []);
+
+  useComposerInsertions(tabId, { draft: input, setDraft: setInput, addAttachments, textareaRef, focus: refocusComposer });
 
   useLayoutEffect(() => { recordComposerPaint(); }, [input]);
 
