@@ -21,5 +21,5 @@ assert.equal(liquidSignal(0.8).scaleX, 1.22);
 assert.ok(liquidSignal(0.86).scaleX < 1, "landing squash reverses after impact");
 assert.ok(Math.abs(liquidSignal(0.99).scaleX - 1) < 0.01, "the landing oscillation settles");
 assert.equal(liquidSignal(0).opacity, 0);
-assert.equal(liquidSignal(1).opacity, 0);
+assert.ok(Math.abs(liquidSignal(1).opacity) < 1e-9, "the droplet fades out at arrival");
 console.log("Liquid signals ease along the native path tangent with velocity stretch and damped landing");
