@@ -1,10 +1,11 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { ChevronRight, Network } from "lucide-react";
 import { focusEntry, focusLost } from "./focus";
+import { ScopedScenarioPanel } from "./ScopedScenarioPanel";
 import { ScenarioPanel } from "./ScenarioPanel";
 import { sentinelJobs, sentinelTitle } from "./scenarios";
 import { AUTOMATION_ROW, stateTone } from "./styles";
-import type { AutomationAttachment, AutomationGraphAdapter } from "./types";
+import { ALL_JOBS_SCOPE, type AutomationAttachment, type AutomationGraphAdapter } from "./types";
 import { useAutomationGraph } from "./useAutomationGraph";
 import { createAutomationCamera, type AutomationCamera } from "./useAutomationViewport";
 import type { AutomationSnapshot } from "./resource";
@@ -49,7 +50,7 @@ function AutomationGraphSurface({ adapter, attachment }: AutomationGraphViewProp
     returnTo.current = null;
   }, [scenario, missing]);
   return <section aria-label="Automations" className="min-w-0 text-[length:var(--ct-font-size-sm)] text-[var(--ct-fg)]">
-    {scenario ? <ScenarioPanel state={state} scope={attachment} scenario={scenario} camera={cameraFor(scenario.id)} backLabel="All Blueprints" onBack={() => { returnTo.current = scenario.id; setScenarioId(null); }}>
+    {scenario && attachment.team_id === ALL_JOBS_SCOPE ? <ScopedScenarioPanel adapter={adapter} attachment={attachment} scenario={scenario} camera={cameraFor(scenario.id)} backLabel="All Blueprints" onBack={() => { returnTo.current = scenario.id; setScenarioId(null); }} /> : scenario ? <ScenarioPanel state={state} scope={attachment} scenario={scenario} camera={cameraFor(scenario.id)} backLabel="All Blueprints" onBack={() => { returnTo.current = scenario.id; setScenarioId(null); }}>
       <AutomationNotices state={state} noun="automations" />
     </ScenarioPanel> : <>
       <div className="border-b border-[var(--ct-border)] px-4 py-3"><h2 className="text-[length:var(--ct-font-size-md)] font-semibold">Blueprints</h2></div>

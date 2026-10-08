@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback, useEffect, useLayoutEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, Copy, Check, Maximize2, Minimize2, RotateCcw, Scan } from "lucide-react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
@@ -286,12 +287,14 @@ export function CodeBlock({
   maxHeight = CODE_BLOCK_DEFAULT_MAX_HEIGHT,
   collapsible = false,
   collapseAfterLines = 20,
+  fullscreenScope = "container",
 }: {
   text: string;
   language?: string;
   maxHeight?: string;
   collapsible?: boolean;
   collapseAfterLines?: number;
+  fullscreenScope?: "container" | "viewport";
 }) {
   const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
   const codeLines = useMemo(() => normalizedText.replace(/\n$/, "").split("\n"), [normalizedText]);
@@ -313,6 +316,7 @@ export function CodeBlock({
   const copyTimer = useRef<number | null>(null);
   const fullscreenBoundsRaf = useRef<number | null>(null);
   const blockRef = useRef<HTMLDivElement>(null);
+  const fullscreenRef = useRef<HTMLDivElement>(null);
   const scrollHostRef = useRef<HTMLElement | null>(null);
   const mermaidPointerRef = useRef<Map<number, PointLike>>(new Map());
   const mermaidGestureRef = useRef<MermaidGesture | null>(null);
@@ -503,6 +507,30 @@ export function CodeBlock({
   }, [mermaidMode, expanded, shouldUsePlainRenderer, mermaidRenderKey, mermaidNodeId, mermaidCandidates.length]);
 
   useEffect(() => {
+    if (!isFullscreen) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    fullscreenRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
+    const close = (event: KeyboardEvent) => {
+      if (event.code === "Tab") {
+        const controls = Array.from(fullscreenRef.current?.querySelectorAll<HTMLButtonElement>("button") ?? []);
+        const index = controls.indexOf(document.activeElement as HTMLButtonElement);
+        if (controls.length && (index < 0 || (!event.shiftKey && index === controls.length - 1) || (event.shiftKey && index === 0))) {
+          event.preventDefault();
+          controls[event.shiftKey ? controls.length - 1 : 0].focus();
+        }
+        return;
+      }
+      if (event.code !== "Escape") return;
+      event.stopImmediatePropagation();
+      event.preventDefault();
+      setIsFullscreen(false);
+      opener?.focus();
+    };
+    window.addEventListener("keydown", close, true);
+    return () => { window.removeEventListener("keydown", close, true); opener?.focus(); };
+  }, [isFullscreen]);
+
+  useEffect(() => {
     if (typeof window === "undefined" || !isFullscreen) {
       return;
     }
@@ -604,6 +632,8 @@ export function CodeBlock({
     return () => observer.disconnect();
   }, [fitMermaidView, isFullscreen, mermaidMode, shouldDisplayMermaid]);
 
+  const fullscreenSurface = (content: React.ReactNode) => fullscreenScope === "viewport" ? createPortal(content, document.body) : content;
+
   const openFullscreen = (event?: React.MouseEvent) => {
     event?.stopPropagation();
     if (mermaidMode) {
@@ -614,7 +644,7 @@ export function CodeBlock({
       setMermaidMode("fit");
     }
     setExpanded(true);
-    const host = findScrollableContainer(blockRef.current);
+    const host = fullscreenScope === "viewport" ? null : findScrollableContainer(blockRef.current);
     scrollHostRef.current = host;
     if (host) {
       const rect = host.getBoundingClientRect();
@@ -850,14 +880,15 @@ export function CodeBlock({
           </div>
         )}
       </div>
-      {isFullscreen && (
+      {isFullscreen && fullscreenSurface(
         <div
+          ref={fullscreenRef}
           className="fixed z-50 bg-black/85 backdrop-blur-sm"
           style={fullscreenHostStyle ?? { inset: "0px" }}
           onClick={closeFullscreen}
-          role={mermaidMode ? "dialog" : undefined}
-          aria-modal={mermaidMode ? "true" : undefined}
-          aria-label={mermaidMode ? "Fullscreen Mermaid diagram" : undefined}
+          role="dialog"
+          aria-modal="true"
+          aria-label={mermaidMode ? "Fullscreen Mermaid diagram" : "Fullscreen code"}
         >
           <div
             className="mx-auto flex h-full w-full flex-col border border-[var(--ct-border)] bg-[var(--ct-bg)] p-2 shadow-2xl"
@@ -951,7 +982,7 @@ export function CodeBlock({
               />
             </div>
           </div>
-        </div>
+        </div>,
       )}
     </div>
   );

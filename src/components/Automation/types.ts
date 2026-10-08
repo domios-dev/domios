@@ -67,6 +67,19 @@ export interface AgentSentinelDefinition {
 }
 
 export interface AutomationNode {
+  source?: { type: string; kind?: string; display_name?: string };
+  detail?: {
+    observe_target?: { kind: string; id: string } | null;
+    definition?: {
+      unavailable?: string;
+      language?: string;
+      probe?: string | null;
+      probe_truncated?: boolean;
+      commands?: readonly { bucket: string; handler_id: string; label: string; command: string; command_truncated: boolean; timeout_ms: number }[];
+    };
+  };
+  history?: readonly AutomationTransition[];
+  history_truncated?: boolean;
   sentinel_definition?: AgentSentinelDefinition | null;
   executor?: AutomationExecutor | null;
   identity: AutomationIdentity;
@@ -81,6 +94,14 @@ export interface AutomationNode {
   outcomes: readonly AutomationOutcome[];
   last_result: { bucket: string; accepted_at: number; handlers: readonly (AutomationHandlerResult & { handler_id: string })[] } | null;
   stop: { allowed: boolean; reason: string | null };
+}
+
+export interface AutomationTransition {
+  routes_current?: boolean;
+  id: string;
+  bucket: string;
+  accepted_at: number;
+  handlers: readonly (AutomationHandlerResult & { handler_id: string; summary?: string | null })[];
 }
 
 export interface AutomationEdge {
