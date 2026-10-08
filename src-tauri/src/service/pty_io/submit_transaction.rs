@@ -298,11 +298,13 @@ impl SubmitTransport for PtySubmitTransport<'_> {
             .and_then(|evidence| evidence.live_binding.as_ref())
             .and_then(|binding| binding.binding_nonce.clone());
         if let Some(trace) = &self.trace {
-            if self.require_exact_session_turn {
-                trace.watch(self.svc, anchor.as_ref(), binding_nonce.as_deref());
-            } else if enter {
-                trace.watch_unledgered(self.svc, text);
-            }
+            trace.watch(
+                self.svc,
+                anchor.as_ref(),
+                binding_nonce.as_deref(),
+                text,
+                enter,
+            );
         }
         *self.evidence_tab_id.borrow_mut() = tab_id;
         *self.evidence_anchor.borrow_mut() = anchor.clone();

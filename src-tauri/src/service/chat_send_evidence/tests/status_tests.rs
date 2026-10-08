@@ -142,6 +142,36 @@ fn missing_jsonl_store_mints_only_a_live_absence_witness() {
     not(windows),
     ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
 )]
+fn fresh_trace_without_delivery_anchor_registers_before_materialization() {
+    let (fixture, tab_id) = service_fixture("windowed");
+    let root = fixture.temp.path().join("fresh-trace-source");
+    std::fs::create_dir_all(&root).unwrap();
+    register_windowed(&fixture, &root);
+    bind_session(&fixture, &tab_id, "fresh-session");
+    let evidence = fixture.service.chat_send_anchor(&tab_id);
+    assert!(evidence.anchor.is_none());
+    assert!(evidence.absence_witness.is_some());
+    let events = crate::flow_trace::test_capture::capture(|| {
+        let flow = crate::flow_trace::PtyFlow::start(None, &tab_id, "windowed").unwrap();
+        flow.watch(
+            &fixture.service,
+            evidence.anchor.as_ref(),
+            Some("binding-current"),
+            "opaque",
+            true,
+        );
+    });
+    crate::flow_trace::cancel_tab(&tab_id);
+    assert!(!root.join("fresh-session.jsonl").exists());
+    assert!(events.iter().any(|event| event.stage == "trace.observer"
+        && event.outcome == "registered_before_materialization"));
+}
+
+#[test]
+#[cfg_attr(
+    not(windows),
+    ignore = "the shared ServiceContext fixture requires an interactive desktop runtime"
+)]
 fn unbound_tab_never_adopts_a_foreign_structured_session_as_its_anchor() {
     let (fixture, tab_id) = service_fixture("structured-store");
     let provider = StructuredStoreProvider::new();
