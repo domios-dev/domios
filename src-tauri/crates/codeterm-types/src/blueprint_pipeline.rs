@@ -452,7 +452,7 @@ pub fn converter_path(
     converters: &[ConverterEdge],
 ) -> Option<Vec<usize>> {
     if from == to {
-        return (from == MediaKind::Text).then(Vec::new);
+        return Some(Vec::new());
     }
     let mut frontier: Vec<(MediaKind, Vec<usize>)> = vec![(from, Vec::new())];
     while !frontier.is_empty() {
@@ -865,10 +865,10 @@ mod tests {
             converter_path(MediaKind::Audio, MediaKind::Text, &converters),
             Some(vec![0, 1])
         );
-        assert_eq!(
-            converter_path(MediaKind::Audio, MediaKind::Audio, &converters),
-            Some(vec![])
-        );
+        for kind in MediaKind::ALL {
+            assert_eq!(converter_path(kind, kind, &converters), Some(vec![]));
+            assert_eq!(converter_path(kind, kind, &[]), Some(vec![]));
+        }
         let spec = BlueprintSpec {
             name: "Voice".into(),
             owner: BlueprintOwner::Tab,
