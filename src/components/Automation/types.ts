@@ -96,7 +96,26 @@ export interface AutomationNode {
   stop: { allowed: boolean; reason: string | null };
 }
 
+export interface CausalRunContext {
+  id: string;
+  root_node: string;
+  root_transition: string;
+  started_at: number;
+  parent: { node: string; transition: string; handler: string } | null;
+}
+
+export interface AutomationRun {
+  id: string;
+  root_node: string;
+  root_transition: string;
+  started_at: number;
+  state: "running" | "completed";
+  incomplete: boolean;
+  transitions: readonly { node: AutomationIdentity; transition_id: string; parent: CausalRunContext["parent"] }[];
+}
+
 export interface AutomationTransition {
+  causal_run?: CausalRunContext | null;
   routes_current?: boolean;
   id: string;
   bucket: string;
@@ -129,6 +148,7 @@ export interface AutomationGraph extends AutomationScope {
   nodes: readonly AutomationNode[];
   edges: readonly AutomationEdge[];
   blueprints?: readonly BlueprintSnapshot[];
+  runs?: readonly AutomationRun[];
 }
 
 export type BlueprintOwnerKind = "tab" | "team";

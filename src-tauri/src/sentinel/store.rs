@@ -58,6 +58,8 @@ fn default_every() -> String {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Sentinel {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causal_run: Option<codeterm_types::blueprint_run::Context>,
     pub id: String,
     pub team_id: Option<String>,
     pub creator_tab_id: String,
@@ -681,10 +683,29 @@ impl Store {
         if !self.backend.is_json() {
             return self.sqlite_activate(source, transition, id, input_activation.then_some(now));
         }
+        let causal_run = self.get(&source.id).and_then(|current| {
+            let record = current
+                .transitions
+                .iter()
+                .find(|record| record.id == transition)?;
+            let handler = current.routes.get(&record.bucket)?.iter().find(|handler| {
+                matches!(&handler.action, Route::Sentinel(target) if target == id)
+                    && record.handlers.iter().any(|claim| {
+                        claim.handler_id == handler.id
+                            && claim.claim_id.is_some()
+                            && claim.status == handlers::Status::Unconfirmed
+                    })
+            })?;
+            record
+                .causal_run
+                .as_ref()
+                .map(|run| run.child(&source.id, transition, &handler.id))
+        });
         let previous = self.jobs.clone();
         let Some(target) = self.jobs.iter_mut().find(|job| job.id == id) else {
             return Staged::ready(Err("blueprint target disappeared".into()));
         };
+        target.causal_run = causal_run;
         target.machine.paused = false;
         if input_activation {
             target.next_run = now;

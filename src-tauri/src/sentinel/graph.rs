@@ -1,5 +1,6 @@
 mod detail;
 mod history;
+mod runs;
 pub(crate) use detail::configured_fallback;
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -48,6 +49,7 @@ pub struct Snapshot {
     pub revision: String,
     pub scenarios: Vec<Scenario>,
     pub nodes: Vec<Value>,
+    pub runs: Vec<Value>,
     pub edges: Vec<Value>,
     pub truncated: bool,
     pub configured_fallback: Value,
@@ -545,13 +547,16 @@ pub fn project(
         let history_truncated = history.len() < job.transitions.len();
         nodes.insert(exact.clone(),json!({"identity":exact,"name":safe_name(job.name.as_deref().unwrap_or(&job.id)),"purpose":safe_purpose(&job.question),"state":if job.machine.stopped && executing{"finishing"}else if job.machine.stopped{"stopped"}else if expired{"expired"}else if job.machine.paused{"paused"}else{"active"},"availability":"available","hidden":false,"schedule":null,"cadence_ms":job.interval_ms,"expires_at":job.expires_at,"outcomes":outcomes,"last_result":last_result,"history":history,"history_truncated":history_truncated,"stop":{"allowed":executing || (!job.machine.stopped && !expired),"reason":if executing{None}else if job.machine.stopped{job.last_reason.as_deref().map(safe_purpose)}else if expired{Some("deadline elapsed".into())}else{None}},"executor":null,"detail":detail::project(job, mux, workspace, team, now_ms, executing),"source":source_descriptor(job),"sentinel_definition":{"source":"stored_agent_definition","definition_id":job.id,"creator_tab_id":job.creator_tab_id,"definition_version":job.definition_version,"lineage":job.amendments.iter().map(|amendment| json!({"version":amendment.version,"replaced_version":amendment.replaced_version,"author_tab_id":amendment.author_tab_id,"cause_transition_id":amendment.cause_transition_id,"at":amendment.at})).collect::<Vec<_>>()}}));
     }
+    let nodes: Vec<_> = nodes.into_values().collect();
+    let runs = runs::project(&nodes, jobs, now_ms);
     Ok(Snapshot {
         workspace_id: workspace.into(),
         team_id: team.map(str::to_owned),
         all_teams: false,
         revision: scope_revision(jobs, workspace, team),
         scenarios,
-        nodes: nodes.into_values().collect(),
+        nodes,
+        runs,
         edges,
         truncated,
         configured_fallback,
