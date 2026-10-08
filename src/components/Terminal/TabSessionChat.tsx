@@ -71,6 +71,7 @@ import { useSessionBindingSurface } from "./useSessionBindingSurface";
 import { SessionBindingRecoveryForm } from "./SessionBindingRecoveryForm";
 import { BlueprintChatCards } from "./BlueprintChatCards";
 import { useTabChatBlockHost } from "./pinnedBlocks";
+import { DsTasksChatBlock } from "./dsTasks/DsTasksChatBlock";
 
 interface Props {
   tabId: string;
@@ -834,6 +835,7 @@ export function TabSessionChat({
                 originAvatar={originProps?.originAvatar}
                 onOriginClick={originProps?.onOriginClick}
                 onFocusTab={resolveFocusTab}
+                dsTasksBlock={DsTasksChatBlock}
               />
             </div>
               {following.map(renderOutboundReport)}
