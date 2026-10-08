@@ -47,7 +47,10 @@ function MenuItem({ label, icon: Icon, hint, done, onSelect }: {
 }
 
 /** The quiet gutter dot of one message and the small menu it opens on hover, focus, click or Enter. */
-export function MessageActionsDot({ clip, side, open, onOpenChange, actions, hint, onHintEnd }: {
+export function MessageActionsDot({ clip, whole = false, hasParts = false, onScopeChange, side, open, onOpenChange, actions, hint, onHintEnd }: {
+  whole?: boolean;
+  hasParts?: boolean;
+  onScopeChange?: (whole: boolean) => void;
   hint?: boolean;
   onHintEnd?: () => void;
   clip: ClipMessage;
@@ -82,7 +85,7 @@ export function MessageActionsDot({ clip, side, open, onOpenChange, actions, hin
     if (refocus) buttonRef.current?.focus({ preventScroll: true });
   };
 
-  const items = () => Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem']") ?? []);
+  const items = () => Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem'], [role='menuitemradio']") ?? []);
   const focusMenuItem = (which: "first" | "last") => {
     const list = items();
     list[which === "first" ? 0 : list.length - 1]?.focus({ preventScroll: true });
@@ -166,6 +169,10 @@ export function MessageActionsDot({ clip, side, open, onOpenChange, actions, hin
       {open && (
         <div className="ct-msg-menu-wrap" data-side={side} data-placement={placement}>
           <div ref={menuRef} role="menu" aria-label="Message actions" className="ct-msg-menu" onKeyDown={onMenuKey}>
+            {hasParts && <div className="ct-msg-scope" role="group" aria-label="Action target">
+              <button type="button" role="menuitemradio" tabIndex={-1} aria-checked={!whole} onClick={() => { setCopied(null); onScopeChange?.(false); }}>This part</button>
+              <button type="button" role="menuitemradio" tabIndex={-1} aria-checked={whole} onClick={() => { setCopied(null); onScopeChange?.(true); }}>Whole message</button>
+            </div>}
             <MenuItem label={copied === "copy" ? "Copied" : "Copy"} icon={copied === "copy" ? Check : Copy} done={copied === "copy"} onSelect={() => copy("copy")} />
             {sourceDiffersFromVisible(clip) && (
               <MenuItem

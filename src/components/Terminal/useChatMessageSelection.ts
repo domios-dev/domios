@@ -19,6 +19,7 @@ import { formatMessageTime, writeClipboardFlavours } from "@codeterm/chat-ui";
 import type { MessageRowHandlers } from "./ChatMessageRow";
 import { insertIntoComposer } from "./composerInsertion";
 import { replyInComposer } from "./composerReply";
+import { clipsForParts, indexMessageParts, partSelectionSummary } from "./messagePartSelection";
 import { EMPTY_SELECTION, orderedSelection, reduceMessageSelection, selectionActive } from "./messageSelection";
 
 export interface SelectableRow {
@@ -67,10 +68,14 @@ function nativeTextSelected(): boolean {
   return Boolean(selection && !selection.isCollapsed && selection.toString().length > 0);
 }
 
-function rowIdAt(target: EventTarget | null, surface: HTMLElement | null): string | null {
+function rowIdAt(target: EventTarget | null, surface: HTMLElement | null, y?: number): string | null {
   if (!(target instanceof Element)) return null;
-  const row = target.closest<HTMLElement>("[data-message-id]");
-  return row && (!surface || surface.contains(row)) ? row.dataset.messageId ?? null : null;
+  const row = target.closest<HTMLElement>("[data-message-part-id], [data-message-id]");
+  if (!row || (surface && !surface.contains(row))) return null;
+  if (row.dataset.messagePartId) return row.dataset.messagePartId;
+  const parts = Array.from(row.querySelectorAll<HTMLElement>("[data-message-part-id]"));
+  const part = parts.find((element) => y !== undefined && y >= element.getBoundingClientRect().top && y <= element.getBoundingClientRect().bottom) ?? parts[0];
+  return part?.dataset.messagePartId ?? row.dataset.messageId ?? null;
 }
 
 interface Press {
@@ -79,10 +84,6 @@ interface Press {
   dragging: boolean;
 }
 
-/**
- * Block selection of whole chat rows. Shift+click, the Select action, or a press-and-drag in the gutter enters it;
- * while it is on, a press or drag on any row picks rows instead of text. Esc leaves it.
- */
 export function useChatMessageSelection({ tabId, rows, agent, surfaceRef }: {
   tabId: string;
   rows: readonly SelectableRow[];
@@ -90,9 +91,10 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef }: {
   surfaceRef: RefObject<HTMLElement | null>;
 }) {
   const [state, dispatch] = useReducer(reduceMessageSelection, EMPTY_SELECTION);
-  const order = useMemo(() => rows.map(({ msg }) => msg.id), [rows]);
-  const live = useRef({ rows, order, names: chatClipNames(agent), state });
-  live.current = { rows, order, names: chatClipNames(agent), state };
+  const index = useMemo(() => indexMessageParts(rows.map((row) => rowClip(row, chatClipNames(agent)))), [rows, agent]);
+  const { byMessage: partsByMessage, order } = index;
+  const live = useRef({ index, state });
+  live.current = { index, state };
   const focusCursor = useRef(false);
   const press = useRef<Press | null>(null);
   const stopTracking = useRef<(() => void) | null>(null);
@@ -101,18 +103,15 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef }: {
   useEffect(() => () => stopTracking.current?.(), []);
 
   const clipsOf = useCallback((ids: readonly string[]): ClipMessage[] => {
-    const byId = new Map(live.current.rows.map((row) => [row.msg.id, row]));
-    return ids.flatMap((id) => {
-      const row = byId.get(id);
-      return row ? [rowClip(row, live.current.names)] : [];
-    });
+    return clipsForParts(live.current.index, ids);
   }, []);
-  const clipFor = useCallback((id: string): ClipMessage | null => clipsOf([id])[0] ?? null, [clipsOf]);
-  const selectedClips = useCallback(() => clipsOf(orderedSelection(live.current.state, live.current.order)), [clipsOf]);
+  const clipFor = useCallback((id: string): ClipMessage | null => live.current.index.byId.get(id) ?? null, []);
+  const selectedClips = useCallback(() => clipsOf(orderedSelection(live.current.state, live.current.index.order)), [clipsOf]);
 
   const clear = useCallback(() => dispatch({ type: "clear" }), []);
   const select = useCallback((id: string) => {
-    if (!live.current.state.selected.includes(id)) dispatch({ type: "toggle", id });
+    const ids = live.current.index.byMessage.get(id)?.map((part) => part.id) ?? [id];
+    for (const target of ids) if (!live.current.state.selected.includes(target)) dispatch({ type: "toggle", id: target });
     focusCursor.current = true;
   }, []);
   const copySelection = useCallback(() => writeClipboardFlavours(messagesClipboard(selectedClips())), [selectedClips]);
@@ -124,14 +123,14 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef }: {
     const onMove = (event: globalThis.MouseEvent) => {
       const current = press.current;
       if (!current) return;
-      const over = rowIdAt(event.target, surfaceRef.current);
+      const over = rowIdAt(event.target, surfaceRef.current, event.clientY);
       if (!current.dragging) {
         if (Math.abs(event.clientY - current.y) < DRAG_SLOP_PX && (over === null || over === current.id)) return;
         current.dragging = true;
-        dispatch({ type: "dragStart", id: current.id, order: live.current.order, extend: false });
+        dispatch({ type: "dragStart", id: current.id, order: live.current.index.order, extend: false });
       }
       event.preventDefault();
-      if (over) dispatch({ type: "dragTo", id: over, order: live.current.order });
+      if (over) dispatch({ type: "dragTo", id: over, order: live.current.index.order });
     };
     const onUp = () => {
       if (press.current?.dragging) dispatch({ type: "dragEnd" });
@@ -151,13 +150,15 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef }: {
   const rowMouseDown = useCallback((id: string, event: MouseEvent<HTMLElement>) => {
     if (event.button !== 0 || event.ctrlKey || event.metaKey || event.altKey) return;
     const target = event.target as HTMLElement;
+    const targetId = rowIdAt(target, surfaceRef.current, event.clientY);
+    id = targetId && live.current.index.order.includes(targetId) ? targetId : live.current.index.byMessage.get(id)?.[0]?.id ?? id;
     if (target.closest("[role='menu']")) return;
     const inGutter = Boolean(target.closest(GUTTER));
     if (!inGutter && target.closest(INTERACTIVE)) return;
     const blockMode = selectionActive(live.current.state);
     if (blockMode || (event.shiftKey && !nativeTextSelected())) {
       event.preventDefault();
-      dispatch({ type: "dragStart", id, order: live.current.order, extend: event.shiftKey && blockMode });
+      dispatch({ type: "dragStart", id, order: live.current.index.order, extend: event.shiftKey && blockMode });
       press.current = { id, y: event.clientY, dragging: true };
       track();
       return;
@@ -170,13 +171,13 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef }: {
 
   const onKeyDown = useCallback((event: KeyboardEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
-    const row = target.closest<HTMLElement>("[data-message-id]");
+    const row = target.closest<HTMLElement>("[data-message-part-id], [data-message-id]");
     if (row === null || target !== row || event.altKey || event.ctrlKey || event.metaKey) return;
-    const id = row.dataset.messageId ?? "";
+    const id = row.dataset.messagePartId ?? live.current.index.byMessage.get(row.dataset.messageId ?? "")?.[0]?.id ?? "";
     if (event.code === "ArrowDown" || event.code === "ArrowUp") {
       event.preventDefault();
       if (live.current.state.cursor !== id) dispatch({ type: "focus", id });
-      dispatch({ type: "move", delta: event.code === "ArrowDown" ? 1 : -1, order: live.current.order, extend: event.shiftKey });
+      dispatch({ type: "move", delta: event.code === "ArrowDown" ? 1 : -1, order: live.current.index.order, extend: event.shiftKey });
       focusCursor.current = true;
     } else if (event.code === "Space") {
       event.preventDefault();
@@ -191,7 +192,7 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef }: {
   useLayoutEffect(() => {
     if (!focusCursor.current || !state.cursor) return;
     focusCursor.current = false;
-    const element = surfaceRef.current?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(state.cursor)}"]`);
+    const element = surfaceRef.current?.querySelector<HTMLElement>(`[data-message-part-id="${CSS.escape(state.cursor)}"], [data-message-id="${CSS.escape(state.cursor)}"]`);
     element?.focus({ preventScroll: true });
     element?.scrollIntoView?.({ block: "nearest" });
   }, [state.cursor, state.selected, surfaceRef]);
@@ -218,19 +219,27 @@ export function useChatMessageSelection({ tabId, rows, agent, surfaceRef }: {
     };
   }, [active, selectedClips]);
 
-  const selected = useMemo(() => new Set(state.selected), [state.selected]);
+  const { selected, partial, count } = useMemo(() => partSelectionSummary(index, state.selected), [index, state.selected]);
   const rowHandlers = useMemo<MessageRowHandlers>(() => ({
     clipFor,
+    partsFor: (id) => partsByMessage.get(id) ?? [],
+    selectedFor: (id) => selected.has(id),
+    cursorFor: (id) => state.cursor === id,
+    joinNextFor: (id) => {
+      const at = order.indexOf(id);
+      return at >= 0 && selected.has(id) && selected.has(order[at + 1]);
+    },
     select,
     rowMouseDown,
     quote: (clip) => quoteMessages(tabId, [clip]),
     ask: (clip) => askAboutMessages(tabId, [clip]),
-  }), [clipFor, rowMouseDown, select, tabId]);
+  }), [clipFor, rowMouseDown, select, tabId, partsByMessage, selected, state.cursor, order]);
   return {
     rowHandlers,
     selected,
     active,
-    count: state.selected.length,
+    partial,
+    count,
     cursor: state.cursor,
     clear,
     onKeyDown,
