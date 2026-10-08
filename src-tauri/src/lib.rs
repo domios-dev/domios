@@ -667,7 +667,8 @@ pub fn run() {
                     );
 
                     // Same register_plugin seam as the hot-reload watcher; a capability-only plugin is NOT registered as an agent.
-                    cap_registries.register_plugin_with_trust(p.manifest(), p.vm(), trust);
+                    let core = plugin::js_runtime::loader::is_core_plugin(p.manifest(), trust);
+                    cap_registries.register_plugin_with_core(p.manifest(), p.vm(), core);
                     if !caps.agent_provider {
                         plugin::audit::append_daemon_reloaded(&id, &version);
                         continue;
