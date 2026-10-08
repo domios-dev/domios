@@ -27,7 +27,7 @@ impl ServiceContext {
             declared: self
                 .surface_registry
                 .get(plugin_id)
-                .map(|declared| declared.as_ref().clone()),
+                .map(|declared| declared.to_vec()),
             view_registered: self.view_registry.get(plugin_id).is_some(),
         }
     }
@@ -54,31 +54,27 @@ impl ServiceContext {
     }
 
     pub(crate) fn list_surfaces(&self) -> SurfaceList {
-        let mut declared: Vec<DeclaredSurfaceRow> = self
-            .surface_registry
-            .ids()
-            .into_iter()
-            .filter(|plugin_id| self.view_registry.get(plugin_id).is_some())
-            .filter_map(|plugin_id| {
-                let surfaces = self.surface_registry.get(&plugin_id)?;
-                Some(
-                    surfaces
-                        .iter()
-                        .map(|surface| DeclaredSurfaceRow::new(&plugin_id, surface))
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .flatten()
-            .collect();
+        let mut declared = Vec::new();
+        for plugin_id in self.surface_registry.ids() {
+            if self.view_registry.get(&plugin_id).is_none() {
+                continue;
+            }
+            let Some(surfaces) = self.surface_registry.get(&plugin_id) else {
+                continue;
+            };
+            declared.extend(
+                surfaces
+                    .iter()
+                    .map(|surface| DeclaredSurfaceRow::new(&plugin_id, surface)),
+            );
+        }
         declared.sort_by(|a, b| (&a.plugin_id, &a.surface_id).cmp(&(&b.plugin_id, &b.surface_id)));
-        let mut open: Vec<SurfaceTabRow> = {
-            let mux = self.mux.read();
-            let rows = mux
-                .all_tabs()
-                .filter_map(|tab| surface_tab_row(tab, mux.find_workspace_for_tab(&tab.id)))
-                .collect();
-            rows
-        };
+        let mux = self.mux.read();
+        let mut open: Vec<SurfaceTabRow> = mux
+            .all_tabs()
+            .filter_map(|tab| surface_tab_row(tab, mux.find_workspace_for_tab(&tab.id)))
+            .collect();
+        drop(mux);
         open.sort_by(|a, b| a.tab_id.cmp(&b.tab_id));
         SurfaceList { declared, open }
     }
