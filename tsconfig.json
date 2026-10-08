@@ -27,7 +27,9 @@
     "plugins/git/src",
     "plugins/analytics/src",
     "plugins/analytics/ui/src",
-    "plugins/analytics/tests"
+    "plugins/analytics/tests",
+    "plugins/browser/src",
+    "plugins/browser/tests"
   ],
   "exclude": [
     "packages/chat-ui/src/**/*.test.ts",

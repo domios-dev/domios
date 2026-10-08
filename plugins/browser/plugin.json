@@ -1,0 +1,56 @@
+{
+  "id": "browser",
+  "version": "1.12.4",
+  "minCodeterm": "1.12.4",
+  "hostApi": 2,
+  "displayName": "Browser",
+  "description": "An agent-owned live browser: the agent drives a real Chromium, the user watches it inside the agent's tab, joins in, and points at elements to ask the agent about them.",
+  "entry": "plugin.js",
+  "capabilities": {
+    "surfaces": [
+      {
+        "id": "browser",
+        "title": "Browser",
+        "renderer": "stream",
+        "runtime": "browser",
+        "agentBound": true,
+        "restore": "placeholder"
+      }
+    ]
+  },
+  "permissions": {
+    "agentCommands": true,
+    "surfaces": true
+  },
+  "agentVerbs": [
+    "help",
+    "open [url] [--profile NAME]",
+    "status",
+    "profiles",
+    "goto <url>",
+    "back | forward | reload",
+    "snapshot [limit]",
+    "click @eN | <role> <name>",
+    "type @eN | <role> <name> <text>",
+    "press <key> [shift|ctrl|alt|meta]",
+    "scroll <dy>",
+    "text [limit]",
+    "wait --text T | --url U | --selector S",
+    "screenshot [file] [--full]",
+    "inbox [all]",
+    "endpoint",
+    "close"
+  ],
+  "agentKeywords": [
+    "browser",
+    "web page",
+    "website",
+    "click",
+    "screenshot",
+    "accessibility snapshot",
+    "test web ui",
+    "form",
+    "login"
+  ],
+  "agentGuide": "BROWSER.md"
+}

@@ -509,6 +509,18 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         secret_bucket(plugin_id).delete(name).is_ok()
     }
 
+    // ── Surfaces ─────────────────────────────────────────────────────────
+
+    fn surface_call_json(
+        &self,
+        plugin_id: &str,
+        caller: &str,
+        verb: &str,
+        args_json: &str,
+    ) -> String {
+        self.surface_agent_call_json(plugin_id, Some(caller), verb, args_json)
+    }
+
     // ── Receiver target ──────────────────────────────────────────────────
 
     fn receiver_target_json(&self, plugin_id: &str) -> String {

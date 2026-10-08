@@ -8,17 +8,19 @@ const MAX_SURFACES: usize = 8;
 const MAX_SURFACE_ID_BYTES: usize = 32;
 const MAX_SURFACE_TITLE_CHARS: usize = 32;
 
-/// How core renders a surface tab. Only the sandboxed plugin view exists today.
+/// How core renders a surface tab: the sandboxed plugin view, or frames from a core runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SurfaceRenderer {
     View,
+    Stream,
 }
 
 impl SurfaceRenderer {
     fn required_capability(self, caps: &Capabilities) -> Option<&'static str> {
         match self {
             Self::View => (!caps.view).then_some("view"),
+            Self::Stream => None,
         }
     }
 }
@@ -45,6 +47,55 @@ pub struct SurfaceDecl {
     pub agent_bound: bool,
     #[serde(default)]
     pub restore: SurfaceRestore,
+    /// The core surface runtime a `stream` surface runs on; core branches on it, never on the plugin id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime: Option<String>,
+    /// Toolbar spec core passes through to the frontend untouched.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chrome: Option<serde_json::Value>,
+}
+
+impl SurfaceDecl {
+    /// The declared core runtime of a `stream` surface; `None` for a view surface.
+    pub fn stream_runtime(&self) -> Option<&str> {
+        match self.renderer {
+            SurfaceRenderer::Stream => self.runtime.as_deref(),
+            SurfaceRenderer::View => None,
+        }
+    }
+
+    fn validate_renderer_fields(&self) -> Result<(), String> {
+        match self.renderer {
+            SurfaceRenderer::Stream => match self.runtime.as_deref() {
+                Some(runtime) if valid_surface_id(runtime) => {}
+                Some(runtime) => {
+                    return Err(format!(
+                        "surface '{}' runtime '{runtime}' must be 1-{MAX_SURFACE_ID_BYTES} lowercase letters, digits or '-'",
+                        self.id
+                    ))
+                }
+                None => {
+                    return Err(format!(
+                        "surface '{}' uses the stream renderer and must name a runtime",
+                        self.id
+                    ))
+                }
+            },
+            SurfaceRenderer::View if self.runtime.is_some() || self.chrome.is_some() => {
+                return Err(format!(
+                    "surface '{}' is a view surface; runtime and chrome belong to stream surfaces",
+                    self.id
+                ));
+            }
+            SurfaceRenderer::View => {}
+        }
+        match &self.chrome {
+            Some(chrome) if !chrome.is_object() => {
+                Err(format!("surface '{}' chrome must be an object", self.id))
+            }
+            _ => Ok(()),
+        }
+    }
 }
 
 fn valid_surface_id(id: &str) -> bool {
@@ -97,6 +148,7 @@ impl Capabilities {
                     surface.id
                 ));
             }
+            surface.validate_renderer_fields()?;
             if let Some(capability) = surface.renderer.required_capability(self) {
                 return Err(format!(
                     "surface '{}' uses a renderer that requires the {capability} capability",

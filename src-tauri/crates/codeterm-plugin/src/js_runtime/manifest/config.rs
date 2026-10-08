@@ -641,6 +641,9 @@ pub struct PermissionsConfig {
     /// Whether a spawned agent may route `codeterm plugin <id> <verb>` to this plugin's `onAgentCommand` (the inverse seam).
     #[serde(default, rename = "agent_commands", alias = "agentCommands")]
     pub agent_commands: bool,
+    /// Whether `host.surface.call` may drive the calling agent's own stream surface of this plugin.
+    #[serde(default)]
+    pub surfaces: bool,
     /// Whether the plugin may create/manage workspaces via `host.workspace*`.
     #[serde(default, rename = "manage_workspaces", alias = "manageWorkspaces")]
     pub manage_workspaces: bool,

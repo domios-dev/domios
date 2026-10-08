@@ -474,6 +474,7 @@ impl ServiceContext {
             self.remote_workers.forget_orchestrator(tab_id);
         }
         self.kill_ptys(&cleanup.pty_ids);
+        self.dispose_closed_surface_runtimes();
         let registry = std::sync::Arc::clone(&self.agent_registry);
         let closed_tabs = cleanup.agent_providers;
         if let Err(error) = tokio::task::spawn_blocking(move || {

@@ -343,9 +343,22 @@ const boardSurface: SurfaceContribution = {
 };
 void boardSurface;
 const streamSurface: SurfaceContribution = {
-  id: "screen",
-  title: "Screen",
-  // @ts-expect-error only the view renderer exists today
+  id: "browser",
+  title: "Browser",
   renderer: "stream",
+  runtime: "browser",
+  chrome: { items: [] },
 };
 void streamSurface;
+const unknownRenderer: SurfaceContribution = {
+  id: "screen",
+  title: "Screen",
+  // @ts-expect-error renderers are a closed set
+  renderer: "canvas",
+};
+void unknownRenderer;
+function callSurface(): string {
+  // host.surface.call answers with JSON text; the plugin parses it.
+  return host.surface.call("status", "[]");
+}
+void callSurface;
